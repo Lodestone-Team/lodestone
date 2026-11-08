@@ -7,6 +7,12 @@
 
 use std::time::Duration;
 
+use super::{Accounts, auth_errors};
+use crate::{
+    components::{Button, ButtonVariant, Dialog, Icon, TextInput},
+    i18n::{CommonMsg, ShellMsg as M, t, tr},
+    theme::{self, colors, fonts, leading, radius, text, weights},
+};
 use futures::FutureExt as _;
 use gpui::{
     AsyncApp, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
@@ -14,13 +20,6 @@ use gpui::{
 };
 use launcher_core::auth::{
     AuthError, ClientIdentity, LinkSignIn, MsTokens, loopback::CancelHandle,
-};
-use launcher_core::wording;
-
-use super::Accounts;
-use crate::{
-    components::{Button, ButtonVariant, Dialog, Icon, TextInput},
-    theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
 /// How long the browser sign-in waits for the redirect.
@@ -90,8 +89,7 @@ impl SignInDialog {
             identity,
             link: None,
             link_input: cx.new(|cx| {
-                TextInput::new(cx)
-                    .with_placeholder("https://login.live.com/oauth20_desktop.srf?code=…")
+                TextInput::new(cx).with_placeholder(format!("{}?code=…", auth_errors::LINK_PAGE))
             }),
         }
     }
@@ -300,7 +298,7 @@ fn launcher_identity_note() -> impl IntoElement {
         .line_height(theme::line_height(text::SMALL, leading::NORMAL))
         .font_weight(weights::BOLD.into())
         .text_color(colors::YELLOW)
-        .child("Developer option: signing in as the Minecraft Launcher, not as Lodestone Launcher. Microsoft's pages may show Minecraft's name instead of Lodestone's.")
+        .child(t(M::LauncherIdentityNote))
 }
 
 fn muted(text: impl Into<SharedString>) -> impl IntoElement {
@@ -342,8 +340,8 @@ impl Render for SignInDialog {
         let offline_enabled = self.accounts.read(cx).offline_enabled();
         let entity = cx.entity();
         let title = match &self.stage {
-            Stage::Failed(err) => err.title(),
-            _ => "Sign in with Microsoft",
+            Stage::Failed(err) => auth_errors::title(err),
+            _ => t(M::SignInWithMicrosoft),
         };
         let mut dialog = Dialog::new("sign-in", title, self.focus_handle.clone())
             .on_close(move |_, cx| entity.update(cx, |this, cx| this.dismiss(cx)));
@@ -353,17 +351,17 @@ impl Render for SignInDialog {
         // the Minecraft Launcher's client (whose default is the code).
         let use_code = |cx: &mut Context<Self>| {
             if launcher_identity {
-                Button::new("use-link", "Use a sign-in link instead")
+                Button::new("use-link", t(M::UseLinkInstead))
                     .variant(ButtonVariant::Ghost)
                     .on_click(cx.listener(|this, _, window, cx| this.start_link(window, cx)))
             } else {
-                Button::new("use-code", "Use a code instead")
+                Button::new("use-code", t(M::UseCodeInstead))
                     .variant(ButtonVariant::Ghost)
                     .on_click(cx.listener(|this, _, _, cx| this.start_device_code(cx)))
             }
         };
         let cancel = |cx: &mut Context<Self>| {
-            Button::new("cancel-sign-in", "Cancel")
+            Button::new("cancel-sign-in", t(CommonMsg::Cancel))
                 .variant(ButtonVariant::Secondary)
                 .on_click(cx.listener(|this, _, _, cx| this.cancel(cx)))
         };
@@ -377,16 +375,14 @@ impl Render for SignInDialog {
                             .flex_col()
                             .gap_2()
                             .child(launcher_identity_note())
-                            .child(muted(
-                                "Sign in with the Microsoft account you play Minecraft: Java Edition with. You'll get a code to enter on Microsoft's website.",
-                            ))
-                            .child(muted(format!(
-                                "Lodestone Launcher keeps your sign-in in the {}.",
-                                wording::KEYCHAIN_IN_FULL
+                            .child(muted(t(M::SignInCodeBody)))
+                            .child(muted(tr!(
+                                M::KeepsSignIn,
+                                keychain = t(CommonMsg::KeychainInFull)
                             ))),
                     )
                     .footer(
-                        Button::new("get-code", "Get a code")
+                        Button::new("get-code", t(M::GetCode))
                             .variant(ButtonVariant::Primary)
                             .on_click(cx.listener(|this, _, _, cx| this.start_device_code(cx))),
                     )
@@ -399,16 +395,14 @@ impl Render for SignInDialog {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .child(muted(
-                                "Sign in with the Microsoft account you play Minecraft: Java Edition with. Your browser opens to finish signing in.",
-                            ))
-                            .child(muted(format!(
-                                "Lodestone Launcher keeps your sign-in in the {}.",
-                                wording::KEYCHAIN_IN_FULL
+                            .child(muted(t(M::SignInBrowserBody)))
+                            .child(muted(tr!(
+                                M::KeepsSignIn,
+                                keychain = t(CommonMsg::KeychainInFull)
                             ))),
                     )
                     .footer(
-                        Button::new("sign-in-browser", "Sign in with Microsoft")
+                        Button::new("sign-in-browser", t(M::SignInWithMicrosoft))
                             .variant(ButtonVariant::Primary)
                             .icon(Icon::ArrowUpRightFromSquare)
                             .on_click(cx.listener(|this, _, _, cx| this.start_browser(cx))),
@@ -422,21 +416,19 @@ impl Render for SignInDialog {
                             .flex()
                             .flex_col()
                             .gap_3()
-                            .child(waiting("Waiting for your browser…"))
-                            .child(muted(
-                                "Finish signing in in the browser window that opened, then come back here.",
-                            )),
+                            .child(waiting(t(M::WaitingForBrowser)))
+                            .child(muted(t(M::FinishInBrowser))),
                     )
                     .footer(cancel(cx))
                     .footer(
-                        Button::new("reopen-browser", "Open the browser again")
+                        Button::new("reopen-browser", t(M::OpenBrowserAgain))
                             .variant(ButtonVariant::Ghost)
                             .on_click(cx.listener(|this, _, _, cx| this.start_browser(cx))),
                     )
                     .footer(use_code(cx));
             }
             Stage::RequestingCode => {
-                dialog = dialog.child(waiting("Getting a code…")).footer(cancel(cx));
+                dialog = dialog.child(waiting(t(M::GettingCode))).footer(cancel(cx));
             }
             Stage::DeviceCode {
                 user_code,
@@ -457,9 +449,7 @@ impl Render for SignInDialog {
                             .flex()
                             .flex_col()
                             .gap_3()
-                            .child(muted(format!(
-                                "Go to {host} on any device and enter this code:"
-                            )))
+                            .child(muted(tr!(M::GoToHost, host = host)))
                             .child(
                                 div()
                                     .flex()
@@ -477,13 +467,13 @@ impl Render for SignInDialog {
                                     .child(user_code.clone()),
                             )
                             .child(waiting(if *opened {
-                                "Code copied. Waiting for you to enter it…"
+                                t(M::CodeCopiedWaiting)
                             } else {
-                                "Waiting for you to enter the code…"
+                                t(M::WaitingForCode)
                             })),
                     )
                     .footer(
-                        Button::new("copy-and-open", format!("Copy code and open {host}"))
+                        Button::new("copy-and-open", tr!(M::CopyCodeAndOpen, host = host))
                             .variant(ButtonVariant::Primary)
                             .icon(Icon::Copy)
                             .on_click(cx.listener(|this, _, _, cx| this.copy_code_and_open(cx))),
@@ -498,9 +488,7 @@ impl Render for SignInDialog {
                             .flex_col()
                             .gap_3()
                             .child(launcher_identity_note())
-                            .child(muted(
-                                "Sign in in the browser window that opened. Microsoft then shows a page saying it is not normally shown. Copy the full address from the browser's address bar and paste it only into this launcher.",
-                            ))
+                            .child(muted(t(M::LinkInstructions)))
                             .child(self.link_input.clone())
                             .child(
                                 div()
@@ -510,64 +498,67 @@ impl Render for SignInDialog {
                                     .map(|this| match error {
                                         Some(err) => this
                                             .text_color(colors::RED_200)
-                                            .child(err.message()),
-                                        None => this.text_color(colors::GRAY_500).child(
-                                            "It starts with https://login.live.com/oauth20_desktop.srf",
-                                        ),
+                                            .child(auth_errors::message(err)),
+                                        None => this.text_color(colors::GRAY_500).child(tr!(
+                                            M::LinkStartsWith,
+                                            url = auth_errors::LINK_PAGE
+                                        )),
                                     }),
                             ),
                     )
                     .footer(
-                        Button::new("submit-link", "Sign in")
+                        Button::new("submit-link", t(CommonMsg::SignIn))
                             .variant(ButtonVariant::Primary)
                             .on_click(cx.listener(|this, _, _, cx| this.submit_link(cx))),
                     )
                     .footer(cancel(cx))
                     .footer(
-                        Button::new("reopen-link", "Open the browser again")
+                        Button::new("reopen-link", t(M::OpenBrowserAgain))
                             .variant(ButtonVariant::Ghost)
                             .on_click(cx.listener(|this, _, _, cx| this.reopen_link(cx))),
                     );
             }
             Stage::Finishing => {
-                dialog = dialog.child(waiting("Signing in to Minecraft…"));
+                dialog = dialog.child(waiting(t(M::SigningInToMinecraft)));
             }
             Stage::Failed(err) => {
                 // Mojang approving the app is only pending for Lodestone's own client.
                 let not_approved = *err == AuthError::AppNotApproved && !launcher_identity;
-                dialog = dialog
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .gap_3()
-                            .p_4()
-                            .rounded(radius::LG)
-                            .bg(colors::YELLOW_FADED.opacity(10))
-                            .border_1()
-                            .border_color(colors::YELLOW_FADED.opacity(50))
-                            .child(
-                                div()
-                                    .pt(px(3.))
-                                    .child(Icon::TriangleExclamation.render(px(16.), colors::YELLOW)),
-                            )
-                            .child(div().flex_1().min_w_0().child(muted(err.message()))),
-                    )
-                    .when(not_approved, |this| {
-                        this.child(div().mt_2().child(muted(
-                            "This is expected until Mojang approves the app. Nothing is wrong with your account.",
-                        )))
-                    });
+                dialog =
+                    dialog
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_3()
+                                .p_4()
+                                .rounded(radius::LG)
+                                .bg(colors::YELLOW_FADED.opacity(10))
+                                .border_1()
+                                .border_color(colors::YELLOW_FADED.opacity(50))
+                                .child(div().pt(px(3.)).child(
+                                    Icon::TriangleExclamation.render(px(16.), colors::YELLOW),
+                                ))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .child(muted(auth_errors::message(err))),
+                                ),
+                        )
+                        .when(not_approved, |this| {
+                            this.child(div().mt_2().child(muted(t(M::ExpectedUntilApproved))))
+                        });
                 if not_approved && offline_enabled {
                     dialog = dialog.footer(
-                        Button::new("use-offline", "Add offline account")
+                        Button::new("use-offline", t(M::AddOfflineAccount))
                             .variant(ButtonVariant::Primary)
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(SignInEvent::UseOffline))),
                     );
                 }
                 dialog = dialog
                     .footer(
-                        Button::new("retry", "Try again")
+                        Button::new("retry", t(CommonMsg::TryAgain))
                             .variant(if not_approved && offline_enabled {
                                 ButtonVariant::Secondary
                             } else {

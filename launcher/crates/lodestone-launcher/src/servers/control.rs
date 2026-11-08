@@ -27,8 +27,11 @@ use launcher_core::{
 };
 use serde_json::json;
 
+use crate::i18n::{ServersMsg as M, t, tr};
+
 use super::{
-    AddFailure, CoreEntry, CoreStatus, FINGERPRINT_HELP, Servers, certificate_outcome, pinned_http,
+    AddFailure, CoreEntry, CoreStatus, FINGERPRINT_HELP, Notice, Servers, certificate_outcome,
+    pinned_http,
 };
 use crate::control::{api_error, core_error};
 
@@ -303,10 +306,13 @@ impl Servers {
                         && core.saved.uuid != info.uuid
                         && core.saved.check_identity(&info.uuid)
                     {
-                        this.notice = Some((
-                            format!("{} is no longer trusted for mods", core.saved.name).into(),
-                            format!("Another core answers at {address} now.").into(),
-                        ));
+                        let (name, address) = (core.saved.name.clone(), address.clone());
+                        this.notice = Some(Notice::new(move || {
+                            (
+                                tr!(M::NoLongerTrusted, name = name),
+                                tr!(M::NoLongerTrustedOtherCore, address = address),
+                            )
+                        }));
                     }
                 }
                 let mut saved = match existing {
@@ -324,10 +330,13 @@ impl Servers {
                 if let Some(pin) = pin.clone()
                     && saved.pin_certificate(pin)
                 {
-                    this.notice = Some((
-                        format!("{} is no longer trusted for mods", saved.name).into(),
-                        "You trusted a new certificate for it. Trust it for mods again on its card if you're sure it is the same core.".into(),
-                    ));
+                    let name = saved.name.clone();
+                    this.notice = Some(Notice::new(move || {
+                        (
+                            tr!(M::NoLongerTrusted, name = name),
+                            t(M::NoLongerTrustedNewCertificate).into(),
+                        )
+                    }));
                 }
                 let signed_in = key.is_some();
                 let entry = CoreEntry::new(

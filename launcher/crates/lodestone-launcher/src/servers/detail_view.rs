@@ -7,15 +7,19 @@ use gpui::{
     Window, div, prelude::*, px, uniform_list,
 };
 use launcher_core::cores::{ServerLoader, ServerState};
-use launcher_core::wording;
 use lodestone_minecraft::console_format::{
     BADGE_PALETTE, BOLD, ConsoleColor, ConsoleLevel, ConsoleSegment, ConsoleTheme, DIM, INVERSE,
     ITALIC, ParsedConsoleLine, RGB_BASE, STRIKE, UNDERLINE, luminance, readable_color, xterm256,
 };
 
-use super::detail::{DetailEvent, LinkState, ServerDetail, StreamStatus};
+use super::{
+    core_error,
+    detail::{DetailEvent, LinkState, ServerDetail, StreamStatus},
+    loader_label, status_label,
+};
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots},
+    i18n::{CommonMsg, ServersMsg as M, t, tr},
     theme::{self, Color, colors, fonts, leading, radius, text, weights},
 };
 
@@ -194,12 +198,12 @@ fn state_color(state: ServerState) -> Color {
 
 fn status_line(status: &StreamStatus) -> gpui::Div {
     let (color, label): (Color, SharedString) = match status {
-        StreamStatus::Connecting => (colors::GRAY_500, "Connecting…".into()),
-        StreamStatus::Live => (colors::GREEN_200, "Live".into()),
+        StreamStatus::Connecting => (colors::GRAY_500, t(M::Connecting).into()),
+        StreamStatus::Live => (colors::GREEN_200, t(M::Live).into()),
         StreamStatus::Reconnecting(reason) => {
-            (colors::YELLOW, format!("Reconnecting: {reason}").into())
+            (colors::YELLOW, tr!(M::Reconnecting, reason = reason).into())
         }
-        StreamStatus::Off(reason) => (colors::GRAY_500, reason.clone()),
+        StreamStatus::Off(reason) => (colors::GRAY_500, reason.label().into()),
     };
     div()
         .flex()
@@ -226,24 +230,19 @@ impl ServerDetail {
         let server = &self.server;
         let loader = match (&server.loader, &server.loader_version) {
             (ServerLoader::Vanilla, _) => String::new(),
-            (loader, Some(version)) => format!(" · {} {version}", loader.label()),
-            (loader, None) => format!(" · {}", loader.label()),
+            (loader, Some(version)) => format!(" · {} {version}", loader_label(*loader)),
+            (loader, None) => format!(" · {}", loader_label(*loader)),
         };
         let access = self.access.unwrap_or_default();
         let stopped = matches!(server.state, ServerState::Stopped | ServerState::Error);
-        let status = match server.players_label() {
-            Some(players) if server.state == ServerState::Running => {
-                format!("{} · {players}", server.state.label())
-            }
-            _ => server.state.label().to_string(),
-        };
+        let status = status_label(server);
         div()
             .flex()
             .flex_row()
             .items_center()
             .gap_4()
             .child(
-                Button::new("detail-back", "Servers")
+                Button::new("detail-back", t(M::ServersTitle))
                     .variant(ButtonVariant::Ghost)
                     .size(ButtonSize::Slim)
                     .icon(Icon::ArrowLeft)
@@ -290,14 +289,14 @@ impl ServerDetail {
             )
             .when(access.start && stopped, |this| {
                 this.child(
-                    Button::new("detail-start", "Start")
+                    Button::new("detail-start", t(CommonMsg::Start))
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(DetailEvent::Start))),
                 )
             })
             .when(access.stop && !stopped, |this| {
                 this.child(
-                    Button::new("detail-stop", "Stop")
+                    Button::new("detail-stop", t(CommonMsg::Stop))
                         .size(ButtonSize::Slim)
                         .variant(ButtonVariant::Danger)
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(DetailEvent::Stop))),
@@ -339,13 +338,15 @@ impl ServerDetail {
                     div()
                         .font_weight(weights::BOLD.into())
                         .text_color(colors::GRAY_FADED.opacity(50))
-                        .child("The console isn't shown"),
+                        .child(t(M::ConsoleNotShown)),
                 )
                 .child(
                     small(match &self.console_status {
-                        StreamStatus::Off(reason) => reason.clone(),
-                        _ => format!("This {}'s key can't read the console.", wording::COMPUTER)
-                            .into(),
+                        StreamStatus::Off(reason) => reason.label(),
+                        _ => tr!(
+                            M::ConsoleKeyCantReadShort,
+                            computer = t(CommonMsg::ThisComputer)
+                        ),
                     })
                     .text_center()
                     .text_color(colors::GRAY_500),
@@ -359,7 +360,7 @@ impl ServerDetail {
                 .size_full()
                 .text_color(colors::GRAY_FADED.opacity(30))
                 .font_weight(weights::BOLD.into())
-                .child("The server's output appears here.")
+                .child(t(M::OutputAppearsHere))
                 .into_any_element()
         } else {
             uniform_list(
@@ -404,7 +405,7 @@ impl ServerDetail {
                                 .child(self.chat.clone()),
                         )
                         .child(
-                            Button::new("server-chat-send", "Send")
+                            Button::new("server-chat-send", t(M::Send))
                                 .variant(ButtonVariant::Primary)
                                 .loading(self.sending)
                                 .on_click(cx.listener(|this, _, _, cx| this.send_chat(cx))),
@@ -413,10 +414,7 @@ impl ServerDetail {
                 .child(
                     small(match &self.chat_error {
                         Some(error) => error.clone(),
-                        None => {
-                            "Text is said to everyone with /say. Start with / to run a command."
-                                .into()
-                        }
+                        None => t(M::ChatHint).into(),
                     })
                     .text_color(if self.chat_error.is_some() {
                         colors::RED_200
@@ -427,7 +425,11 @@ impl ServerDetail {
                 .into_any_element()
         } else {
             small(if access.is_some() {
-                format!("This {}'s key can't send chat or commands. Sign in again and allow \"Send chat and commands\", if your user may use the console.", wording::COMPUTER)
+                tr!(
+                    M::ConsoleKeyCantWrite,
+                    computer = t(CommonMsg::ThisComputer),
+                    option = t(M::SendChat)
+                )
             } else {
                 String::new()
             })
@@ -448,14 +450,14 @@ impl ServerDetail {
                     .flex_row()
                     .items_center()
                     .gap_3()
-                    .child(card_title("Console"))
+                    .child(card_title(t(M::Console)))
                     .when(can_read, |this| {
                         this.child(status_line(&self.console_status))
                     })
                     .child(div().flex_1())
                     .when(!self.follow && can_read && count > 0, |this| {
                         this.child(
-                            Button::new("console-follow", "Jump to latest")
+                            Button::new("console-follow", t(M::JumpToLatest))
                                 .variant(ButtonVariant::Ghost)
                                 .size(ButtonSize::Slim)
                                 .on_click(cx.listener(|this, _, _, cx| {
@@ -490,17 +492,17 @@ impl ServerDetail {
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .child(card_title("Players"))
+                .child(card_title(t(M::Players)))
                 .child(status_line(&self.events_status)),
         );
         card = match &self.players {
             None => card.child(LoadingDots),
             Some(players) if players.is_empty() => card.child(
-                small(if self.server.state == ServerState::Running {
-                    "No one is online."
+                small(t(if self.server.state == ServerState::Running {
+                    M::NoOneOnline
                 } else {
-                    "The server isn't running."
-                })
+                    M::ServerNotRunning
+                }))
                 .text_color(colors::GRAY_500),
             ),
             Some(players) => card.children(players.iter().map(|player| {
@@ -523,74 +525,66 @@ impl ServerDetail {
 
     fn account_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let user = self.user_label();
-        let mut card = card().child(card_title("Minecraft account"));
+        let mut card = card().child(card_title(t(M::MinecraftAccount)));
         match &self.links {
             LinkState::Loading => return card.child(LoadingDots).into_any_element(),
             LinkState::Unsupported => {
                 return card
-                    .child(
-                        small("This core is too old to link Minecraft accounts.")
-                            .text_color(colors::GRAY_500),
-                    )
+                    .child(small(t(M::CoreTooOldToLink)).text_color(colors::GRAY_500))
                     .into_any_element();
             }
-            LinkState::Failed(message) => {
-                card = card.child(small(message.clone()).text_color(colors::RED_200));
+            LinkState::Failed(err) => {
+                card = card.child(small(core_error(err)).text_color(colors::RED_200));
             }
             LinkState::Known(links) => {
-                card =
-                    card.children(links.iter().map(|link| {
-                        let uuid = link.minecraft_uuid.clone();
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(Icon::Check.render(px(12.), colors::GREEN_200))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_color(colors::GRAY_300)
-                                    .child(format!("{} → {user}", link.minecraft_name)),
-                            )
-                            .child(
-                                Button::new(SharedString::from(format!("unlink-{uuid}")), "Unlink")
-                                    .variant(ButtonVariant::Ghost)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
+                card = card.children(links.iter().map(|link| {
+                    let uuid = link.minecraft_uuid.clone();
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(Icon::Check.render(px(12.), colors::GREEN_200))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(colors::GRAY_300)
+                                .child(format!("{} → {user}", link.minecraft_name)),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("unlink-{uuid}")), t(M::Unlink))
+                                .variant(ButtonVariant::Ghost)
+                                .size(ButtonSize::Slim)
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| {
                                         this.unlink(uuid.clone(), cx)
-                                    })),
-                            )
-                    }));
+                                    }),
+                                ),
+                        )
+                }));
             }
         }
         let selected = self.selected_microsoft_account(cx);
         card = match selected {
             Some((_, name)) if !self.selected_is_linked(cx) => card
                 .child(
-                    Button::new("link-account", format!("Link {name} to {user}"))
-                        .variant(ButtonVariant::Primary)
-                        .loading(self.linking)
-                        .full_width()
-                        .on_click(cx.listener(|this, _, _, cx| this.link_selected(cx))),
-                )
-                .child(
-                    small(
-                        "The core checks with Microsoft that the account is yours, using this sign-in once. It doesn't keep it.",
+                    Button::new(
+                        "link-account",
+                        tr!(M::LinkAccount, account = name, user = user),
                     )
-                    .text_color(colors::GRAY_550),
-                ),
+                    .variant(ButtonVariant::Primary)
+                    .loading(self.linking)
+                    .full_width()
+                    .on_click(cx.listener(|this, _, _, cx| this.link_selected(cx))),
+                )
+                .child(small(t(M::LinkCheckHint)).text_color(colors::GRAY_550)),
             Some(_) => card,
-            None if self.selected_is_offline(cx) => card.child(
-                small("Offline accounts can't be linked: their UUID comes from the name, so it proves nothing.")
-                    .text_color(colors::GRAY_500),
-            ),
-            None => card.child(
-                small("Sign in with a Microsoft account to link it to your Lodestone user.")
-                    .text_color(colors::GRAY_500),
-            ),
+            None if self.selected_is_offline(cx) => {
+                card.child(small(t(M::OfflineCantLink)).text_color(colors::GRAY_500))
+            }
+            None => card.child(small(t(M::SignInMicrosoftToLink)).text_color(colors::GRAY_500)),
         };
         if let Some((error, message)) = &self.link_notice {
             card = card.child(small(message.clone()).text_color(if *error {

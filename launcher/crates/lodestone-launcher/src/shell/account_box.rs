@@ -7,10 +7,11 @@ use gpui::{
 };
 use launcher_core::accounts::{Account, AccountKind};
 
-use super::{LauncherShell, developer};
+use super::LauncherShell;
 use crate::{
-    accounts::{Accounts, SessionState, offline_dialog::OFFLINE_NOTE},
+    accounts::{Accounts, SessionState},
     components::{FocusScope, Icon, KeyboardFocus, LoadingDots},
+    i18n::{CommonMsg, ShellMsg as M, t, tr},
     theme::{self, colors, layout, leading, radius, shadow, text, weights},
 };
 
@@ -38,16 +39,16 @@ pub fn avatar(accounts: &Accounts, account: Option<&Account>, size: Pixels) -> A
 /// The second line under the account name, and its colour.
 fn status(accounts: &Accounts, account: &Account) -> (SharedString, theme::Color) {
     if account.kind == AccountKind::Offline {
-        return ("Offline account".into(), colors::YELLOW);
+        return (t(M::OfflineAccount).into(), colors::YELLOW);
     }
     match accounts.session(&account.id) {
-        Some(SessionState::Refreshing) => ("Signing in…".into(), colors::GRAY_500),
-        Some(SessionState::NeedsSignIn) => ("Sign in again".into(), colors::RED_200),
-        Some(SessionState::Failed(_)) => ("Offline – couldn't connect".into(), colors::YELLOW),
+        Some(SessionState::Refreshing) => (t(M::SigningIn).into(), colors::GRAY_500),
+        Some(SessionState::NeedsSignIn) => (t(M::SignInAgain).into(), colors::RED_200),
+        Some(SessionState::Failed(_)) => (t(M::OfflineCouldntConnect).into(), colors::YELLOW),
         Some(SessionState::Ready(_)) | None if account.uses_launcher_identity() => {
-            (developer::BADGE.into(), colors::YELLOW)
+            (t(M::LauncherIdentity).into(), colors::YELLOW)
         }
-        Some(SessionState::Ready(_)) | None => ("Microsoft account".into(), colors::GRAY_500),
+        Some(SessionState::Ready(_)) | None => (t(M::MicrosoftAccount).into(), colors::GRAY_500),
     }
 }
 
@@ -55,6 +56,9 @@ fn status(accounts: &Accounts, account: &Account) -> (SharedString, theme::Color
 pub(super) fn launcher_identity_badge() -> impl IntoElement {
     div()
         .flex_none()
+        // The account box above shows it in full; here the name comes first.
+        .max_w(px(72.))
+        .truncate()
         .px_1()
         .rounded(radius::DEFAULT)
         .bg(colors::YELLOW_FADED.opacity(10))
@@ -64,13 +68,13 @@ pub(super) fn launcher_identity_badge() -> impl IntoElement {
         .line_height(theme::line_height(text::CAPTION, leading::SNUG))
         .font_weight(weights::BOLD.into())
         .text_color(colors::YELLOW)
-        .child(developer::BADGE)
+        .child(t(M::LauncherIdentity))
 }
 
 /// The status in the menu, where space is short.
 fn short_status(accounts: &Accounts, account: &Account) -> SharedString {
     match accounts.session(&account.id) {
-        Some(SessionState::NeedsSignIn) => "Sign in".into(),
+        Some(SessionState::NeedsSignIn) => t(CommonMsg::SignIn).into(),
         _ => "Microsoft".into(),
     }
 }
@@ -85,8 +89,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
             status(accounts, account),
         ),
         None => (
-            "Sign in".into(),
-            ("Add a Minecraft account".into(), colors::GRAY_500),
+            t(CommonMsg::SignIn).into(),
+            (t(M::AddMinecraftAccount).into(), colors::GRAY_500),
         ),
     };
     let refreshing = active
@@ -154,12 +158,32 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .when(menu_open, |this| this.child(menu(shell, cx)))
 }
 
-/// One row of the menu.
+/// One row of the menu. An account's name is cut short beside its status; an
+/// action's label wraps when it is long.
 fn menu_row(
     id: impl Into<gpui::ElementId>,
     leading: AnyElement,
     label: impl Into<SharedString>,
     color: theme::Color,
+) -> gpui::Stateful<gpui::Div> {
+    menu_row_with(id, leading, label, color, false)
+}
+
+fn action_row(
+    id: impl Into<gpui::ElementId>,
+    leading: AnyElement,
+    label: impl Into<SharedString>,
+    color: theme::Color,
+) -> gpui::Stateful<gpui::Div> {
+    menu_row_with(id, leading, label, color, true)
+}
+
+fn menu_row_with(
+    id: impl Into<gpui::ElementId>,
+    leading: AnyElement,
+    label: impl Into<SharedString>,
+    color: theme::Color,
+    wrap: bool,
 ) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
@@ -177,7 +201,18 @@ fn menu_row(
         .text_color(color)
         .hover(|style| style.bg(colors::GRAY_700))
         .child(leading)
-        .child(div().flex_1().min_w_0().truncate().child(label.into()))
+        .child(
+            div()
+                .flex_1()
+                .map(|this| {
+                    if wrap {
+                        this.min_w_0()
+                    } else {
+                        this.min_w_0().truncate()
+                    }
+                })
+                .child(label.into()),
+        )
 }
 
 fn icon_slot(icon: Icon, color: theme::Color) -> AnyElement {
@@ -222,10 +257,12 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                     row.child(
                         div()
                             .flex_none()
+                            .max_w(px(96.))
+                            .truncate()
                             .text_size(theme::text_size(text::CAPTION))
                             .text_color(colors::GRAY_500)
                             .child(match account.kind {
-                                AccountKind::Offline => SharedString::from("Offline"),
+                                AccountKind::Offline => SharedString::from(t(M::Offline)),
                                 AccountKind::Microsoft => short_status(accounts, account),
                             }),
                     )
@@ -282,36 +319,36 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                     .line_height(theme::line_height(text::CAPTION, leading::NORMAL))
                     .font_weight(weights::BOLD.into())
                     .text_color(colors::YELLOW)
-                    .child(OFFLINE_NOTE),
+                    .child(t(M::OfflineNote)),
             )
         })
         .when(has_accounts, |this| this.child(divider()))
         .when(needs_sign_in, |this| {
             this.child(
-                menu_row(
+                action_row(
                     "sign-in-again",
                     icon_slot(Icon::TriangleExclamation, colors::RED_200),
-                    "Sign in again",
+                    t(M::SignInAgain),
                     colors::RED_200,
                 )
                 .on_click(cx.listener(|this, _, window, cx| this.open_sign_in(Some(window), cx))),
             )
         })
         .child(
-            menu_row(
+            action_row(
                 "add-microsoft",
                 icon_slot(Icon::Plus, colors::GRAY_400),
-                "Add Microsoft account",
+                t(M::AddMicrosoftAccount),
                 colors::GRAY_300,
             )
             .on_click(cx.listener(|this, _, window, cx| this.open_sign_in(Some(window), cx))),
         )
         .when(offline_enabled, |this| {
             this.child(
-                menu_row(
+                action_row(
                     "add-offline",
                     icon_slot(Icon::Plus, colors::GRAY_400),
-                    "Add offline account",
+                    t(M::AddOfflineAccount),
                     colors::GRAY_300,
                 )
                 .on_click(
@@ -322,10 +359,10 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
         .when_some(active, |this, account| {
             let id = account.id.clone();
             this.child(divider()).child(
-                menu_row(
+                action_row(
                     "remove-account",
                     icon_slot(Icon::RightFromBracket, colors::RED_200),
-                    format!("Remove {}", account.username),
+                    tr!(M::RemoveNamed, name = account.username),
                     colors::RED_200,
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {

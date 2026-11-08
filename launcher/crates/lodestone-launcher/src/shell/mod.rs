@@ -22,7 +22,10 @@ use gpui::{
     AnyElement, ClipboardItem, Context, Entity, EntityId, FocusHandle, Focusable as _, IntoElement,
     Render, SharedString, Subscription, Task, Window, div, prelude::*, px,
 };
-use launcher_core::wording;
+use launcher_core::{
+    game::crash::Cause,
+    instances::{Instance, Loader},
+};
 
 use crate::{
     accounts::{
@@ -31,6 +34,7 @@ use crate::{
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
     components::{Button, ButtonVariant, Dialog, DialogSlot, Icon, focus},
+    i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::{
         CrashInfo, Instances, InstancesEvent,
         console::Console,
@@ -76,12 +80,29 @@ impl InstanceTab {
 
     pub fn label(self) -> &'static str {
         match self {
-            InstanceTab::Play => "Play",
-            InstanceTab::Content => "Content",
-            InstanceTab::Worlds => "Worlds",
-            InstanceTab::Settings => "Settings",
-            InstanceTab::Logs => "Logs",
+            InstanceTab::Play => t(M::Play),
+            InstanceTab::Content => t(M::TabContent),
+            InstanceTab::Worlds => t(M::TabWorlds),
+            InstanceTab::Settings => t(M::Settings),
+            InstanceTab::Logs => t(M::TabLogs),
         }
+    }
+}
+
+/// A loader's name, or "Vanilla" in the current language for none.
+pub(crate) fn loader_name(loader: Loader) -> &'static str {
+    match loader.kind() {
+        Some(kind) => kind.label(),
+        None => t(M::Vanilla),
+    }
+}
+
+/// The instance's loader with its version, "Fabric 0.16.14", or "Vanilla" in the
+/// current language.
+pub(crate) fn loader_label(instance: &Instance) -> String {
+    match instance.loader.kind() {
+        Some(_) => instance.loader_label(),
+        None => t(M::Vanilla).to_string(),
     }
 }
 
@@ -191,6 +212,8 @@ pub struct LauncherShell {
     /// The dialog over the window, and those still fading out.
     modal: DialogSlot<LauncherShell, Modal>,
     account_menu_open: bool,
+    /// Settings > General: the Language list is open.
+    language_menu_open: bool,
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
     top_bar_drag_pending: bool,
     /// Tracked by the outermost element; focus goes here when it is lost, so keys
@@ -311,6 +334,7 @@ impl LauncherShell {
             settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
+            language_menu_open: false,
             top_bar_drag_pending: false,
             root_focus: cx.focus_handle(),
             _focus_lost: None,
@@ -419,15 +443,16 @@ impl LauncherShell {
                             .pl_3()
                             .text_size(theme::text_size(text::SMALL))
                             .text_color(colors::GRAY_500)
-                            .child(format!("and {more} more")),
+                            .child(trn!(P::AndMore, more)),
                     )
                 })
         };
+        let count = |n: usize| format::number(n as u64);
         let name = |path: &String| path.rsplit('/').next().unwrap_or(path).to_string();
         let mut groups = Vec::new();
         if !plan.updated.is_empty() {
             groups.push(list(
-                format!("Updated ({})", plan.updated.len()),
+                tr!(M::UpdatedFiles, count = count(plan.updated.len())),
                 plan.updated
                     .iter()
                     .map(|(old, new)| {
@@ -443,24 +468,21 @@ impl LauncherShell {
         }
         if !plan.added.is_empty() {
             groups.push(list(
-                format!("Added ({})", plan.added.len()),
+                tr!(M::AddedFiles, count = count(plan.added.len())),
                 plan.added.iter().map(name).collect(),
                 colors::GREEN_300,
             ));
         }
         if !plan.removed.is_empty() {
             groups.push(list(
-                format!("Removed ({})", plan.removed.len()),
+                tr!(M::RemovedFiles, count = count(plan.removed.len())),
                 plan.removed.iter().map(name).collect(),
                 colors::RED_200,
             ));
         }
         if !plan.replaced_own.is_empty() {
             groups.push(list(
-                format!(
-                    "Your files the pack now provides ({})",
-                    plan.replaced_own.len()
-                ),
+                tr!(M::ReplacedOwnFiles, count = count(plan.replaced_own.len())),
                 plan.replaced_own.clone(),
                 colors::YELLOW_300,
             ));
@@ -473,128 +495,134 @@ impl LauncherShell {
             .collect();
         if !kept.is_empty() {
             groups.push(list(
-                format!("Kept as you changed them ({})", kept.len()),
+                tr!(M::KeptFiles, count = count(kept.len())),
                 kept,
                 colors::GRAY_400,
             ));
         }
         if !plan.overrides_written.is_empty() {
             groups.push(list(
-                format!(
-                    "Configs and other files written ({})",
-                    plan.overrides_written.len()
-                ),
+                tr!(M::WrittenFiles, count = count(plan.overrides_written.len())),
                 plan.overrides_written.clone(),
                 colors::GRAY_400,
             ));
         }
         let loader = match &plan.loader {
             Some(loader) => format!("{} {}", loader.kind.label(), loader.version),
-            None => "Vanilla".to_string(),
+            None => t(M::Vanilla).to_string(),
         };
-        let summary = format!(
-            "{} {} → {}. Minecraft {} with {loader}. {} to download.",
-            plan.record.title,
-            if prompt.from_version.is_empty() {
+        let summary = tr!(
+            M::ModpackSummary,
+            pack = plan.record.title,
+            from = if prompt.from_version.is_empty() {
                 "?"
             } else {
                 &prompt.from_version
             },
-            plan.record.version_number,
-            plan.game_version,
-            lodestone_minecraft::util::format_byte(plan.download_size()),
+            to = plan.record.version_number,
+            game = plan.game_version,
+            loader = loader,
+            size = format::bytes_binary(plan.download_size()),
         );
-        Dialog::new("modpack-update", format!("Update {}?", prompt.instance_name), focus)
-            .width(px(560.))
-            .on_close({
-                let entity = entity.clone();
-                move |_, cx| {
-                    entity.update(cx, |this, cx| {
-                        this.discard_pending_update(cx);
-                        this.close_modal(cx)
-                    })
-                }
-            })
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .text_color(colors::GRAY_400)
-                    .child(div().whitespace_normal().child(summary))
-                    .when(!plan.changes_files(), |this| {
-                        this.child(div().child("No files change; only the version is recorded."))
-                    })
-                    .child(
-                        div()
-                            .id("modpack-update-plan")
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .max_h(px(260.))
-                            .overflow_y_scroll()
-                            .px_3()
-                            .py_2()
-                            .rounded(radius::LG)
-                            .bg(colors::GRAY_900)
-                            .children(groups),
-                    )
-                    .child(div().whitespace_normal().text_size(theme::text_size(text::SMALL)).child(
-                        "Your own mods, worlds and changed configs aren't touched. Every file that is replaced or removed is saved in the instance's backups folder first.",
-                    ))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                crate::components::Toggle::new("modpack-update-backup", backup_worlds)
-                                    .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                        if let Some(Modal::ModpackUpdate { backup_worlds, .. }) =
-                                            this.modal.current_mut()
-                                        {
-                                            *backup_worlds = *value;
-                                        }
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .font_weight(weights::BOLD.into())
-                                    .child("Back up every world first"),
-                            ),
-                    ),
-            )
-            .footer(
-                Button::new("confirm-modpack-update", "Update")
-                    .variant(ButtonVariant::Primary)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        let update = match this.modal.close(cx) {
-                            Some(Modal::ModpackUpdate {
-                                prompt,
-                                backup_worlds,
-                                ..
-                            }) => Some(((**prompt).clone(), *backup_worlds)),
-                            _ => None,
-                        };
-                        if let Some((prompt, backup_worlds)) = update {
-                            this.instances.update(cx, |instances, cx| {
-                                instances.apply_modpack_update(prompt, backup_worlds, cx)
-                            });
-                        }
-                    })),
-            )
-            .footer(
-                Button::new("cancel-modpack-update", "Cancel")
-                    .variant(ButtonVariant::Secondary)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.discard_pending_update(cx);
-                        this.close_modal(cx)
-                    })),
-            )
-            .into_any_element()
+        Dialog::new(
+            "modpack-update",
+            tr!(M::UpdateTitle, name = prompt.instance_name),
+            focus,
+        )
+        .width(px(560.))
+        .on_close({
+            let entity = entity.clone();
+            move |_, cx| {
+                entity.update(cx, |this, cx| {
+                    this.discard_pending_update(cx);
+                    this.close_modal(cx)
+                })
+            }
+        })
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .text_color(colors::GRAY_400)
+                .child(div().whitespace_normal().child(summary))
+                .when(!plan.changes_files(), |this| {
+                    this.child(div().child(t(M::NoFilesChange)))
+                })
+                .child(
+                    div()
+                        .id("modpack-update-plan")
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .max_h(px(260.))
+                        .overflow_y_scroll()
+                        .px_3()
+                        .py_2()
+                        .rounded(radius::LG)
+                        .bg(colors::GRAY_900)
+                        .children(groups),
+                )
+                .child(
+                    div()
+                        .whitespace_normal()
+                        .text_size(theme::text_size(text::SMALL))
+                        .child(t(M::ModpackUpdateSafety)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            crate::components::Toggle::new("modpack-update-backup", backup_worlds)
+                                .on_change(cx.listener(|this, value: &bool, _, cx| {
+                                    if let Some(Modal::ModpackUpdate { backup_worlds, .. }) =
+                                        this.modal.current_mut()
+                                    {
+                                        *backup_worlds = *value;
+                                    }
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            div()
+                                .text_size(theme::text_size(text::SMALL))
+                                .font_weight(weights::BOLD.into())
+                                .min_w_0()
+                                .child(t(M::BackUpEveryWorld)),
+                        ),
+                ),
+        )
+        .footer(
+            Button::new("confirm-modpack-update", t(CommonMsg::Update))
+                .variant(ButtonVariant::Primary)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    let update = match this.modal.close(cx) {
+                        Some(Modal::ModpackUpdate {
+                            prompt,
+                            backup_worlds,
+                            ..
+                        }) => Some(((**prompt).clone(), *backup_worlds)),
+                        _ => None,
+                    };
+                    if let Some((prompt, backup_worlds)) = update {
+                        this.instances.update(cx, |instances, cx| {
+                            instances.apply_modpack_update(prompt, backup_worlds, cx)
+                        });
+                    }
+                })),
+        )
+        .footer(
+            Button::new("cancel-modpack-update", t(CommonMsg::Cancel))
+                .variant(ButtonVariant::Secondary)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.discard_pending_update(cx);
+                    this.close_modal(cx)
+                })),
+        )
+        .into_any_element()
     }
 
     fn render_world_dialog(&self, modal: &Modal, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -609,27 +637,34 @@ impl LauncherShell {
                 focus,
             } => {
                 let (folder, name) = (folder.clone(), name.clone());
-                Dialog::new("delete-world", format!("Delete {name}?"), focus.clone())
-                    .on_close(close)
-                    .child(div().text_color(colors::GRAY_400).whitespace_normal().child(
-                        format!("The world's folder moves to {}, so you can put it back from there. Its backups stay.", wording::TRASH),
-                    ))
-                    .footer(
-                        Button::new("confirm-delete-world", wording::MOVE_TO_TRASH)
-                            .variant(ButtonVariant::Danger)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                let (folder, name) = (folder.clone(), name.clone());
-                                this.worlds
-                                    .update(cx, |worlds, cx| worlds.delete_world(folder, name, cx));
-                                this.close_modal(cx);
-                            })),
-                    )
-                    .footer(
-                        Button::new("cancel-delete-world", "Cancel")
-                            .variant(ButtonVariant::Secondary)
-                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                    )
-                    .into_any_element()
+                Dialog::new(
+                    "delete-world",
+                    tr!(M::DeleteNamed, name = name),
+                    focus.clone(),
+                )
+                .on_close(close)
+                .child(
+                    div()
+                        .text_color(colors::GRAY_400)
+                        .whitespace_normal()
+                        .child(tr!(M::DeleteWorldBody, trash = t(CommonMsg::TheTrash))),
+                )
+                .footer(
+                    Button::new("confirm-delete-world", t(CommonMsg::MoveToTrash))
+                        .variant(ButtonVariant::Danger)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let (folder, name) = (folder.clone(), name.clone());
+                            this.worlds
+                                .update(cx, |worlds, cx| worlds.delete_world(folder, name, cx));
+                            this.close_modal(cx);
+                        })),
+                )
+                .footer(
+                    Button::new("cancel-delete-world", t(CommonMsg::Cancel))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                )
+                .into_any_element()
             }
             Modal::ReplaceWorld {
                 folder,
@@ -642,30 +677,40 @@ impl LauncherShell {
                     .created
                     .map(crate::instances::worlds::when)
                     .unwrap_or_else(|| backup.file_name.clone());
-                Dialog::new("replace-world", format!("Replace {name} with this backup?"), focus.clone())
-                    .on_close(close)
-                    .child(div().text_color(colors::GRAY_400).whitespace_normal().child(format!(
-                        "{name} goes back to how it was {}. Everything since is lost from the world, but it is backed up first and the current folder goes to {}.",
-                        when.to_lowercase(),
-                        wording::TRASH
-                    )))
-                    .footer(
-                        Button::new("confirm-replace-world", "Back up and replace")
-                            .variant(ButtonVariant::Danger)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                let (folder, backup) = (folder.clone(), backup.clone());
-                                this.worlds.update(cx, |worlds, cx| {
-                                    worlds.restore_replace(folder, backup, cx)
-                                });
-                                this.close_modal(cx);
-                            })),
-                    )
-                    .footer(
-                        Button::new("cancel-replace-world", "Cancel")
-                            .variant(ButtonVariant::Secondary)
-                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                    )
-                    .into_any_element()
+                Dialog::new(
+                    "replace-world",
+                    tr!(M::ReplaceWorldTitle, name = name),
+                    focus.clone(),
+                )
+                .on_close(close)
+                .child(
+                    div()
+                        .text_color(colors::GRAY_400)
+                        .whitespace_normal()
+                        .child(tr!(
+                            M::ReplaceWorldBody,
+                            name = name,
+                            when = when.to_lowercase(),
+                            trash = t(CommonMsg::TheTrash),
+                        )),
+                )
+                .footer(
+                    Button::new("confirm-replace-world", t(M::BackUpAndReplace))
+                        .variant(ButtonVariant::Danger)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let (folder, backup) = (folder.clone(), backup.clone());
+                            this.worlds.update(cx, |worlds, cx| {
+                                worlds.restore_replace(folder, backup, cx)
+                            });
+                            this.close_modal(cx);
+                        })),
+                )
+                .footer(
+                    Button::new("cancel-replace-world", t(CommonMsg::Cancel))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                )
+                .into_any_element()
             }
             _ => return None,
         })
@@ -795,19 +840,15 @@ impl LauncherShell {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         const SHOWN: usize = 8;
-        let to = prompt.instance.loader.label();
+        let to = loader_name(prompt.instance.loader);
         let check = &prompt.check;
         let title = match prompt.instance.loader.kind() {
-            Some(_) => format!("Switch to {to}?"),
-            None => "Switch to vanilla?".to_string(),
+            Some(_) => tr!(M::SwitchToLoader, loader = to),
+            None => t(M::SwitchToVanilla).to_string(),
         };
         let mods_text = match prompt.instance.loader.kind() {
-            Some(_) => {
-                format!("These enabled mods are made for another loader and won't load on {to}:")
-            }
-            None => {
-                "Vanilla Minecraft loads no mods, so these enabled mods won't load:".to_string()
-            }
+            Some(_) => tr!(M::ModsWontLoadOn, loader = to),
+            None => t(M::ModsWontLoadVanilla).to_string(),
         };
         let has_mods = !check.mismatched.is_empty();
         let entity = cx.entity();
@@ -835,16 +876,29 @@ impl LauncherShell {
                                             .flex()
                                             .flex_row()
                                             .gap_2()
-                                            .child(div().text_color(colors::GRAY_300).child(m.name.clone()))
-                                            .child(div().text_color(colors::GRAY_500).child(format!("{} mod", m.made_for)))
+                                            .child(
+                                                div()
+                                                    .min_w_0()
+                                                    .truncate()
+                                                    .text_color(colors::GRAY_300)
+                                                    .child(m.name.clone()),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex_none()
+                                                    .text_color(colors::GRAY_500)
+                                                    .child(tr!(M::ModMadeFor, loader = m.made_for)),
+                                            )
                                     }))
                                     .when(more > 0, |this| {
-                                        this.child(div().text_color(colors::GRAY_500).child(format!("and {more} more")))
+                                        this.child(
+                                            div()
+                                                .text_color(colors::GRAY_500)
+                                                .child(trn!(P::AndMore, more)),
+                                        )
                                     }),
                             )
-                            .child(div().whitespace_normal().child(
-                                "Turning them off renames them to .disabled, so you can turn them back on in Content.",
-                            ))
+                            .child(div().whitespace_normal().child(t(M::TurningOffRenames)))
                     })
                     .when(check.worlds > 0 && check.worlds_at_risk, |this| {
                         this.child(
@@ -859,30 +913,46 @@ impl LauncherShell {
                                 .border_color(colors::YELLOW_300.opacity(50))
                                 .bg(colors::YELLOW_FADED.opacity(15))
                                 .text_color(colors::GRAY_300)
-                                .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW_300))
-                                .child(div().flex_1().min_w_0().whitespace_normal().child(
-                                    "Worlds that used blocks or items from these mods can lose them. Back up your worlds first.",
-                                )),
+                                .child(
+                                    Icon::TriangleExclamation.render(px(14.), colors::YELLOW_300),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .whitespace_normal()
+                                        .child(t(M::WorldsAtRisk)),
+                                ),
                         )
                     }),
             )
             .when(has_mods, |this| {
                 this.footer(
-                    Button::new("loader-change-disable", "Turn them off and save")
+                    Button::new("loader-change-disable", t(M::TurnOffAndSave))
                         .variant(ButtonVariant::Primary)
-                        .on_click(cx.listener(|this, _, _, cx| this.finish_loader_change(true, cx))),
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.finish_loader_change(true, cx)),
+                        ),
                 )
             })
             .footer(
                 Button::new(
                     "loader-change-keep",
-                    if has_mods { "Save and keep them" } else { "Save" },
+                    if has_mods {
+                        t(M::SaveAndKeep)
+                    } else {
+                        t(CommonMsg::Save)
+                    },
                 )
-                .variant(if has_mods { ButtonVariant::Secondary } else { ButtonVariant::Primary })
+                .variant(if has_mods {
+                    ButtonVariant::Secondary
+                } else {
+                    ButtonVariant::Primary
+                })
                 .on_click(cx.listener(|this, _, _, cx| this.finish_loader_change(false, cx))),
             )
             .footer(
-                Button::new("loader-change-cancel", "Cancel")
+                Button::new("loader-change-cancel", t(CommonMsg::Cancel))
                     .variant(ButtonVariant::Ghost)
                     .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
             )
@@ -1189,7 +1259,7 @@ impl LauncherShell {
                         })),
                 )
                 .footer(
-                    Button::new("close-launch-failed", "Close")
+                    Button::new("close-launch-failed", t(CommonMsg::Close))
                         .variant(ButtonVariant::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
                 )
@@ -1201,46 +1271,52 @@ impl LauncherShell {
                 error,
             } => {
                 let id = id.clone();
-                Dialog::new("delete-instance", format!("Delete {name}?"), focus.clone())
-                    .on_close(close(cx))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .text_color(colors::GRAY_400)
-                            .child(format!("The instance's folder, with its worlds, mods and settings, moves to {}. You can put it back from there.", wording::TRASH))
-                            .when_some(error.clone(), |this, error| {
-                                this.child(div().text_color(colors::RED_200).child(error))
-                            }),
-                    )
-                    .footer(
-                        Button::new("confirm-delete-instance", wording::MOVE_TO_TRASH)
-                            .variant(ButtonVariant::Danger)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                let result = this
-                                    .instances
-                                    .update(cx, |instances, cx| instances.delete(&id, cx));
-                                match result {
-                                    Ok(()) => {
-                                        this.tab = InstanceTab::Play;
-                                        this.close_modal(cx);
-                                    }
-                                    Err(err) => {
-                                        if let Some(Modal::DeleteInstance { error, .. }) = this.modal.current_mut() {
-                                            *error = Some(err.into());
-                                        }
-                                        cx.notify();
-                                    }
+                Dialog::new(
+                    "delete-instance",
+                    tr!(M::DeleteNamed, name = name),
+                    focus.clone(),
+                )
+                .on_close(close(cx))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .text_color(colors::GRAY_400)
+                        .child(tr!(M::DeleteInstanceBody, trash = t(CommonMsg::TheTrash)))
+                        .when_some(error.clone(), |this, error| {
+                            this.child(div().text_color(colors::RED_200).child(error))
+                        }),
+                )
+                .footer(
+                    Button::new("confirm-delete-instance", t(CommonMsg::MoveToTrash))
+                        .variant(ButtonVariant::Danger)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let result = this
+                                .instances
+                                .update(cx, |instances, cx| instances.delete(&id, cx));
+                            match result {
+                                Ok(()) => {
+                                    this.tab = InstanceTab::Play;
+                                    this.close_modal(cx);
                                 }
-                            })),
-                    )
-                    .footer(
-                        Button::new("cancel-delete-instance", "Cancel")
-                            .variant(ButtonVariant::Secondary)
-                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                    )
-                    .into_any_element()
+                                Err(err) => {
+                                    if let Some(Modal::DeleteInstance { error, .. }) =
+                                        this.modal.current_mut()
+                                    {
+                                        *error = Some(err.into());
+                                    }
+                                    cx.notify();
+                                }
+                            }
+                        })),
+                )
+                .footer(
+                    Button::new("cancel-delete-instance", t(CommonMsg::Cancel))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                )
+                .into_any_element()
             }
             Modal::LoaderChange { prompt, focus } => {
                 self.render_loader_change(prompt, focus.clone(), cx)
@@ -1268,31 +1344,46 @@ impl LauncherShell {
                 focus,
             } => {
                 let id = id.clone();
-                Dialog::new("remove-account", format!("Remove {username}?"), focus.clone())
-                    .on_close(close(cx))
-                    .child(
-                        div()
-                            .text_color(colors::GRAY_400)
-                            .child(format!("Lodestone Launcher forgets this account and deletes its saved sign-in from your {}. You can add it again later.", wording::KEYCHAIN)),
-                    )
-                    .footer(
-                        Button::new("confirm-remove", "Remove account")
-                            .variant(ButtonVariant::Danger)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.accounts
-                                    .update(cx, |accounts, cx| accounts.remove(&id, cx));
-                                this.close_modal(cx);
-                            })),
-                    )
-                    .footer(
-                        Button::new("cancel-remove", "Cancel")
-                            .variant(ButtonVariant::Secondary)
-                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                    )
-                    .into_any_element()
+                Dialog::new(
+                    "remove-account",
+                    tr!(M::RemoveAccountTitle, name = username),
+                    focus.clone(),
+                )
+                .on_close(close(cx))
+                .child(
+                    div()
+                        .text_color(colors::GRAY_400)
+                        .child(tr!(M::RemoveAccountBody, keychain = t(CommonMsg::Keychain))),
+                )
+                .footer(
+                    Button::new("confirm-remove", t(M::RemoveAccount))
+                        .variant(ButtonVariant::Danger)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.accounts
+                                .update(cx, |accounts, cx| accounts.remove(&id, cx));
+                            this.close_modal(cx);
+                        })),
+                )
+                .footer(
+                    Button::new("cancel-remove", t(CommonMsg::Cancel))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                )
+                .into_any_element()
             }
         })
     }
+}
+
+/// A likely cause of a crash, in the current language.
+fn cause_text(cause: Cause) -> &'static str {
+    t(match cause {
+        Cause::WrongJava => M::CauseWrongJava,
+        Cause::OutOfMemory => M::CauseOutOfMemory,
+        Cause::Natives => M::CauseNatives,
+        Cause::JvmOptions => M::CauseJvmOptions,
+        Cause::Graphics => M::CauseGraphics,
+    })
 }
 
 /// The crash dialog: the exception, the likely causes in plain words, and the crash
@@ -1306,81 +1397,92 @@ fn render_crash(
 ) -> AnyElement {
     let summary = &crash.summary;
     let headline = match (&summary.description, crash.exit_code) {
-        (Some(description), _) => format!("Minecraft crashed: {description}."),
-        (None, Some(code)) => format!("Minecraft stopped with exit code {code}."),
-        (None, None) => "Minecraft stopped unexpectedly.".to_string(),
+        (Some(description), _) => tr!(M::MinecraftCrashed, description = description),
+        (None, Some(code)) => tr!(M::MinecraftExitCode, code = code),
+        (None, None) => t(M::MinecraftStopped).to_string(),
     };
     let report = crash.report.clone();
     let log_text = crash.log_text.clone();
-    Dialog::new("crash", format!("{} crashed", crash.instance_name), focus)
-        .on_close(on_close)
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .child(div().text_color(colors::GRAY_400).child(headline))
-                .when_some(summary.exception.clone(), |this, exception| {
-                    this.child(
-                        div()
-                            .px_3()
-                            .py_2()
-                            .rounded(radius::LG)
-                            .bg(colors::GRAY_900)
-                            .border_1()
-                            .border_color(colors::RED_200.opacity(30))
-                            .font_family(fonts::MONO)
-                            .text_size(theme::text_size(text::SMALL))
-                            .text_color(colors::RED_200)
-                            .child(exception),
-                    )
-                })
-                .when(!summary.causes.is_empty(), |this| {
-                    this.child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_500)
-                                    .child("LIKELY CAUSE"),
-                            )
-                            .children(summary.causes.iter().map(|cause| {
-                                div()
-                                    .text_size(theme::text_size(text::MEDIUM))
-                                    .text_color(colors::GRAY_300)
-                                    .child(cause.explanation())
-                            })),
-                    )
-                }),
+    Dialog::new(
+        "crash",
+        tr!(M::CrashTitle, name = crash.instance_name),
+        focus,
+    )
+    .on_close(on_close)
+    .child(
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(div().text_color(colors::GRAY_400).child(headline))
+            .when_some(summary.exception.clone(), |this, exception| {
+                this.child(
+                    div()
+                        .px_3()
+                        .py_2()
+                        .rounded(radius::LG)
+                        .bg(colors::GRAY_900)
+                        .border_1()
+                        .border_color(colors::RED_200.opacity(30))
+                        .font_family(fonts::MONO)
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(colors::RED_200)
+                        .child(exception),
+                )
+            })
+            .when(!summary.causes.is_empty(), |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_size(theme::text_size(text::SMALL))
+                                .font_weight(weights::BOLD.into())
+                                .text_color(colors::GRAY_500)
+                                .child(t(M::LikelyCause).to_uppercase()),
+                        )
+                        .children(summary.causes.iter().map(|cause| {
+                            div()
+                                .text_size(theme::text_size(text::MEDIUM))
+                                .text_color(colors::GRAY_300)
+                                .child(cause_text(*cause))
+                        })),
+                )
+            }),
+    )
+    .when_some(report, |this, report| {
+        this.footer(
+            Button::new("open-crash-report", t(M::OpenCrashReport))
+                .variant(ButtonVariant::Primary)
+                .on_click(move |_, _, cx| cx.open_with_system(&report)),
         )
-        .when_some(report, |this, report| {
-            this.footer(
-                Button::new("open-crash-report", "Open crash report")
-                    .variant(ButtonVariant::Primary)
-                    .on_click(move |_, _, cx| cx.open_with_system(&report)),
-            )
-        })
-        .footer(
-            Button::new("copy-crash-log", if copied { "Copied" } else { "Copy log" })
-                .variant(ButtonVariant::Secondary)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(log_text.clone()));
-                    if let Some(Modal::Crash { copied, .. }) = this.modal.current_mut() {
-                        *copied = true;
-                    }
-                    cx.notify();
-                })),
+    })
+    .footer(
+        Button::new(
+            "copy-crash-log",
+            if copied {
+                t(CommonMsg::Copied)
+            } else {
+                t(M::CopyLog)
+            },
         )
-        .footer(
-            Button::new("close-crash", "Close")
-                .variant(ButtonVariant::Ghost)
-                .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-        )
-        .into_any_element()
+        .variant(ButtonVariant::Secondary)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(log_text.clone()));
+            if let Some(Modal::Crash { copied, .. }) = this.modal.current_mut() {
+                *copied = true;
+            }
+            cx.notify();
+        })),
+    )
+    .footer(
+        Button::new("close-crash", t(CommonMsg::Close))
+            .variant(ButtonVariant::Ghost)
+            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+    )
+    .into_any_element()
 }
 
 impl Render for LauncherShell {
@@ -1410,6 +1512,7 @@ impl Render for LauncherShell {
             .size_full()
             .bg(colors::GRAY_875)
             .font_family(fonts::SANS)
+            .map(crate::i18n::locale_fonts)
             .text_color(colors::GRAY_300)
             .text_size(theme::text_size(text::MEDIUM))
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
@@ -1427,5 +1530,24 @@ impl Render for LauncherShell {
             .children(settings)
             .children(modal)
             .child(self.servers_overlay.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In English the crash causes read as `launcher-core` writes them.
+    #[test]
+    fn causes_match_the_core_in_english() {
+        for cause in [
+            Cause::WrongJava,
+            Cause::OutOfMemory,
+            Cause::Natives,
+            Cause::JvmOptions,
+            Cause::Graphics,
+        ] {
+            assert_eq!(cause_text(cause), cause.explanation());
+        }
     }
 }

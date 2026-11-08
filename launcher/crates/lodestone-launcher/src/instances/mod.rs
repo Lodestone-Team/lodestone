@@ -47,6 +47,7 @@ use launcher_core::{
 use lodestone_minecraft::versions::mojang::MojangVersion;
 
 use crate::accounts::Accounts;
+use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
 
 /// The console keeps this many rows; older ones are dropped.
 pub const MAX_LOG_ROWS: usize = 10_000;
@@ -337,6 +338,8 @@ impl Instances {
                 Some(SharedString::from(err.to_string())),
             ),
         };
+        crate::i18n::apply(settings.language);
+        crate::set_menus(cx);
         let mut this = Self {
             store,
             data_dir,
@@ -380,10 +383,10 @@ impl Instances {
         let (list, broken) = self.store.list();
         self.list = list;
         self.notice = (!broken.is_empty()).then(|| {
-            format!(
-                "{} instance folder(s) couldn't be read, such as {}.",
+            trn!(
+                P::BrokenFolders,
                 broken.len(),
-                broken[0].dir.display()
+                path = broken[0].dir.display()
             )
             .into()
         });
@@ -471,6 +474,21 @@ impl Instances {
         if let Err(err) = self.update_settings(|settings| settings.auto_groups = on, cx) {
             self.notice = Some(err.into());
         }
+    }
+
+    /// Settings > General > Language.
+    pub fn language(&self) -> crate::i18n::Language {
+        self.settings.language
+    }
+
+    /// Changes the language, saves it, and redraws every window in it.
+    pub fn set_language(&mut self, language: crate::i18n::Language, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.language = language, cx) {
+            self.notice = Some(err.into());
+        }
+        crate::i18n::apply(language);
+        crate::set_menus(cx);
+        cx.refresh_windows();
     }
 
     /// The instances by sidebar group, as the sidebar lists them.
@@ -716,26 +734,28 @@ impl Instances {
             let result = write.await;
             this.update(cx, |_, cx| {
                 cx.emit(match result {
-                    Ok((plan, out)) => InstancesEvent::Notice {
-                        title: "Modpack exported".into(),
-                        message: format!(
-                            "{} file(s) saved to {}.{}",
+                    Ok((plan, out)) => {
+                        let saved = trn!(
+                            P::FilesSaved,
                             plan.overrides.len() + plan.index.files.len(),
-                            out.display(),
-                            if plan.skipped.is_empty() {
-                                String::new()
-                            } else {
-                                format!(
-                                    " {} file(s) were left out, such as {}.",
-                                    plan.skipped.len(),
-                                    plan.skipped[0].0
-                                )
+                            path = out.display()
+                        );
+                        InstancesEvent::Notice {
+                            title: t(M::ModpackExported).into(),
+                            message: match plan.skipped.first() {
+                                None => saved,
+                                Some((first, _)) => tr!(
+                                    M::TwoSentences,
+                                    first = saved,
+                                    second =
+                                        trn!(P::FilesLeftOut, plan.skipped.len(), name = first)
+                                ),
                             }
-                        )
-                        .into(),
-                    },
+                            .into(),
+                        }
+                    }
                     Err(err) => InstancesEvent::LaunchFailed {
-                        title: "Couldn't export the modpack".into(),
+                        title: t(M::CouldntExportModpack).into(),
                         message: err.to_string().into(),
                     },
                 });
@@ -753,7 +773,7 @@ impl Instances {
     /// Moves the instance to the Trash.
     pub fn delete(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
         if self.is_active(id) {
-            return Err("Stop the game before deleting its instance.".into());
+            return Err(t(M::StopBeforeDeleting).into());
         }
         self.store.delete(id).map_err(|err| err.to_string())?;
         self.runs.remove(id);
@@ -867,7 +887,7 @@ impl Instances {
                 this.loader_switch = None;
                 let failed = |message: String, cx: &mut Context<Self>| {
                     cx.emit(InstancesEvent::LaunchFailed {
-                        title: "Couldn't switch to a mod loader".into(),
+                        title: t(M::CouldntSwitchLoader).into(),
                         message: message.into(),
                     });
                     cx.notify();
@@ -875,13 +895,7 @@ impl Instances {
                 let (kind, version) = match result {
                     Ok(Some(pick)) => pick,
                     Ok(None) => {
-                        return failed(
-                            format!(
-                                "No mod loader Lodestone Launcher supports runs on Minecraft {}: Fabric starts at 1.14, and Forge has no build for it.",
-                                instance.game_version
-                            ),
-                            cx,
-                        );
+                        return failed(tr!(M::NoModLoaderFor, version = instance.game_version), cx);
                     }
                     Err(err) => return failed(err.to_string(), cx),
                 };
@@ -892,12 +906,12 @@ impl Instances {
                     Ok(()) => {
                         cx.emit(InstancesEvent::LoaderChanged(id.clone()));
                         cx.emit(InstancesEvent::Notice {
-                            title: format!("Switched to {}", kind.label()).into(),
-                            message: format!(
-                                "{} now uses {} {}. It installs the next time you press Play.",
-                                changed.name,
-                                kind.label(),
-                                version.display
+                            title: tr!(M::SwitchedTo, loader = kind.label()).into(),
+                            message: tr!(
+                                M::SwitchedToMessage,
+                                name = changed.name,
+                                loader = kind.label(),
+                                version = version.display
                             )
                             .into(),
                         });
@@ -968,8 +982,8 @@ impl Instances {
         }
         if self.modpack_updates.contains_key(id) {
             cx.emit(InstancesEvent::LaunchFailed {
-                title: "The modpack is updating".into(),
-                message: "Wait for the update to finish, then press Play.".into(),
+                title: t(M::ModpackUpdating).into(),
+                message: t(M::WaitForUpdate).into(),
             });
             return;
         }
@@ -981,17 +995,15 @@ impl Instances {
         let run = self.runs.entry(id.to_string()).or_default();
         run.log.note(
             Level::Info,
-            format!(
-                "Preparing Minecraft {} ({})",
-                instance.game_version,
-                instance.loader_label()
+            tr!(
+                M::PreparingNote,
+                version = instance.game_version,
+                loader = loader_label(&instance)
             ),
         );
         if let Some(join) = &join {
-            run.log.note(
-                Level::Info,
-                format!("Joining {} once the game starts", join.address()),
-            );
+            run.log
+                .note(Level::Info, tr!(M::JoiningNote, address = join.address()));
         }
         run.state = RunState::Preparing {
             progress: progress.clone(),
@@ -1016,7 +1028,7 @@ impl Instances {
                 Ok(account) => account,
                 Err(message) => {
                     this.update(cx, |this, cx| {
-                        this.fail(&id, "Couldn't sign in".into(), message.into(), cx)
+                        this.fail(&id, t(M::CouldntSignIn).into(), message.into(), cx)
                     })
                     .ok();
                     return;
@@ -1076,19 +1088,19 @@ impl Instances {
                 }
                 Err(InstallError::Cancelled) => {
                     if let Some(run) = this.runs.get_mut(&id) {
-                        run.log.note(Level::Warn, "Cancelled");
+                        run.log.note(Level::Warn, t(M::Cancelled));
                     }
                     this.set_idle(&id, cx);
                 }
                 Err(InstallError::RosettaMissing) => this.fail(
                     &id,
-                    "Rosetta 2 is needed".into(),
-                    platform::ROSETTA_MISSING.into(),
+                    t(M::RosettaNeeded).into(),
+                    rosetta_missing().into(),
                     cx,
                 ),
                 Err(err) => this.fail(
                     &id,
-                    "Couldn't start Minecraft".into(),
+                    t(M::CouldntStartMinecraft).into(),
                     err.to_string().into(),
                     cx,
                 ),
@@ -1114,10 +1126,10 @@ impl Instances {
         let run = self.runs.entry(id.to_string()).or_default();
         run.log.note(
             Level::Info,
-            format!(
-                "Verifying the game files of Minecraft {} ({})",
-                instance.game_version,
-                instance.loader_label()
+            tr!(
+                M::VerifyingNote,
+                version = instance.game_version,
+                loader = loader_label(&instance)
             ),
         );
         run.state = RunState::Preparing {
@@ -1163,26 +1175,21 @@ impl Instances {
                     this.set_idle(&id, cx);
                     let (_, _, repaired) = progress.stats.counts();
                     cx.emit(InstancesEvent::Notice {
-                        title: "Game files verified".into(),
+                        title: t(M::GameFilesVerified).into(),
                         message: if repaired == 0 {
-                            format!("Every file was intact. {summary}").into()
+                            tr!(M::EveryFileIntact, summary = summary).into()
                         } else {
-                            format!("{repaired} missing or damaged file(s) were downloaded again. {summary}").into()
+                            trn!(P::FilesRepaired, repaired, summary = summary).into()
                         },
                     });
                 }
                 Err(InstallError::Cancelled) => {
                     if let Some(run) = this.runs.get_mut(&id) {
-                        run.log.note(Level::Warn, "Cancelled");
+                        run.log.note(Level::Warn, t(M::Cancelled));
                     }
                     this.set_idle(&id, cx);
                 }
-                Err(err) => this.fail(
-                    &id,
-                    "Couldn't verify the game files".into(),
-                    err.to_string().into(),
-                    cx,
-                ),
+                Err(err) => this.fail(&id, t(M::CouldntVerify).into(), err.to_string().into(), cx),
             })
             .ok();
         });
@@ -1220,7 +1227,10 @@ impl Instances {
         cx: &mut Context<Self>,
     ) {
         if let Some(run) = self.runs.get_mut(id) {
-            run.log.note(Level::Error, format!("{title}: {message}"));
+            run.log.note(
+                Level::Error,
+                tr!(M::TitleAndMessage, title = title, message = message),
+            );
         }
         self.set_idle(id, cx);
         cx.emit(InstancesEvent::LaunchFailed { title, message });
@@ -1237,22 +1247,26 @@ impl Instances {
             progress.set_stage(Stage::Starting);
         }
         if rosetta {
-            run.log.note(
-                Level::Info,
-                "This version runs in an Intel (x86_64) Java under Rosetta 2.",
-            );
+            run.log.note(Level::Info, t(M::RosettaNote));
         }
         // The command line is shown with the access token redacted.
-        run.log
-            .note(Level::Info, format!("Starting Java: {}", command.display()));
+        run.log.note(
+            Level::Info,
+            tr!(M::StartingJavaNote, command = command.display()),
+        );
         let (process, events) = match GameProcess::spawn(&command, Redactor::new(command.secrets()))
         {
             Ok(spawned) => spawned,
             Err(err) => {
                 self.fail(
                     id,
-                    "Couldn't start Java".into(),
-                    format!("{}: {err}", command.program.display()).into(),
+                    t(M::CouldntStartJava).into(),
+                    tr!(
+                        M::TitleAndMessage,
+                        title = command.program.display(),
+                        message = err
+                    )
+                    .into(),
                     cx,
                 );
                 return;
@@ -1300,9 +1314,7 @@ impl Instances {
         // it exits still counts; the play time is added when it exits.
         match self.store.record_start(&started_id, started_unix) {
             Ok(_) => self.reload(cx),
-            Err(err) => {
-                self.notice = Some(format!("Couldn't save when it was played: {err}").into())
-            }
+            Err(err) => self.notice = Some(tr!(M::CouldntSavePlayed, error = err).into()),
         }
         cx.notify();
     }
@@ -1325,7 +1337,7 @@ impl Instances {
             .store
             .record_play(id, started_unix, started.elapsed().as_secs())
         {
-            self.notice = Some(format!("Couldn't save the play time: {err}").into());
+            self.notice = Some(tr!(M::CouldntSavePlayTime, error = err).into());
         }
         let name = self
             .list
@@ -1335,9 +1347,9 @@ impl Instances {
             .unwrap_or_default();
         if let Some(run) = self.runs.get_mut(id) {
             let message = match (code, stopped) {
-                (_, true) => "Stopped".to_string(),
-                (Some(code), _) => format!("Minecraft exited with code {code}"),
-                (None, _) => "Minecraft was ended by a signal".to_string(),
+                (_, true) => t(M::StoppedNote).to_string(),
+                (Some(code), _) => tr!(M::ExitedWithCode, code = code),
+                (None, _) => t(M::EndedBySignal).to_string(),
             };
             let level = if matches!(outcome, Outcome::Crashed { .. }) {
                 Level::Error
@@ -1373,10 +1385,10 @@ impl Instances {
             RunState::Idle => {}
             RunState::Preparing { cancel, .. } => {
                 cancel.cancel();
-                run.log.note(Level::Warn, "Cancelling…");
+                run.log.note(Level::Warn, t(M::CancellingNote));
             }
             RunState::Running { process, .. } => {
-                run.log.note(Level::Warn, "Stopping Minecraft");
+                run.log.note(Level::Warn, t(M::StoppingNote));
                 process.stop();
             }
         }
@@ -1419,18 +1431,18 @@ pub fn progress_state(stage: Stage, snapshot: ProgressSnapshot) -> PlayState {
     );
     if !downloading || snapshot.files_total == 0 {
         return PlayState::Preparing {
-            label: stage.label().into(),
+            label: stage_label(stage).into(),
             detail: None,
             fraction: None,
         };
     }
     let mb = |bytes: u64| (bytes as f64 / (1024.0 * 1024.0)).round() as u64;
-    let detail = format!(
-        "{}/{} · {} MB/{} MB",
-        thousands(snapshot.files_done),
-        thousands(snapshot.files_total),
-        thousands(mb(snapshot.bytes_done)),
-        thousands(mb(snapshot.bytes_total)),
+    let detail = tr!(
+        M::ProgressDetail,
+        files_done = thousands(snapshot.files_done),
+        files_total = thousands(snapshot.files_total),
+        done = thousands(mb(snapshot.bytes_done)),
+        total = thousands(mb(snapshot.bytes_total)),
     );
     let fraction = if snapshot.bytes_total > 0 {
         snapshot.bytes_done as f32 / snapshot.bytes_total as f32
@@ -1438,7 +1450,7 @@ pub fn progress_state(stage: Stage, snapshot: ProgressSnapshot) -> PlayState {
         snapshot.files_done as f32 / snapshot.files_total as f32
     };
     PlayState::Preparing {
-        label: stage.label().into(),
+        label: stage_label(stage).into(),
         detail: Some(detail.into()),
         fraction: Some(fraction.clamp(0.0, 1.0)),
     }
@@ -1446,38 +1458,53 @@ pub fn progress_state(stage: Stage, snapshot: ProgressSnapshot) -> PlayState {
 
 /// `1234567` as `1,234,567`.
 pub fn thousands(value: u64) -> String {
-    let digits = value.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, c) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    crate::i18n::format::number(value)
 }
 
 /// "Checked 4,091 game files in 45 ms: 4,091 unchanged, 0 hashed, 0 downloaded."
 fn check_summary(progress: &InstallProgress, elapsed: Duration) -> String {
     let (trusted, hashed, downloaded) = progress.stats.counts();
-    format!(
-        "Checked {} game files in {} ms: {} unchanged since the last check, {} hashed, {} downloaded.",
-        thousands(trusted + hashed + downloaded),
-        thousands(elapsed.as_millis() as u64),
-        thousands(trusted),
-        thousands(hashed),
-        thousands(downloaded),
+    trn!(
+        P::CheckSummary,
+        trusted + hashed + downloaded,
+        ms = thousands(elapsed.as_millis() as u64),
+        unchanged = thousands(trusted),
+        hashed = thousands(hashed),
+        downloaded = thousands(downloaded),
     )
 }
 
-/// "2 h 5 min", "12 min", "Never".
-pub fn play_time(seconds: u64) -> String {
-    match seconds {
-        0 => "Not played yet".into(),
-        1..60 => "Less than a minute".into(),
-        60..3600 => format!("{} min", seconds / 60),
-        _ => format!("{} h {} min", seconds / 3600, seconds / 60 % 60),
+/// What the Play button says while the game is prepared: "Downloading assets".
+pub fn stage_label(stage: Stage) -> &'static str {
+    t(match stage {
+        Stage::Preparing => M::StagePreparing,
+        Stage::Java => M::StageJava,
+        Stage::Libraries => M::StageLibraries,
+        Stage::Loader => M::StageLoader,
+        Stage::Processors => M::StageProcessors,
+        Stage::Assets => M::StageAssets,
+        Stage::Natives => M::StageNatives,
+        Stage::Starting => M::StageStarting,
+    })
+}
+
+/// Why a version needs Rosetta and how to install it, for the "Rosetta 2 is needed"
+/// dialog.
+pub fn rosetta_missing() -> &'static str {
+    t(M::RosettaMissing)
+}
+
+/// The instance's loader and its version, "Fabric 0.16.10", or "Vanilla".
+pub fn loader_label(instance: &Instance) -> String {
+    match instance.loader.kind() {
+        Some(_) => instance.loader_label(),
+        None => t(M::Vanilla).into(),
     }
+}
+
+/// "2 h 5 min", "12 min", "Not played yet".
+pub fn play_time(seconds: u64) -> String {
+    crate::i18n::format::play_time(seconds)
 }
 
 /// When something happened, relative to now, for "Last played".
@@ -1518,26 +1545,23 @@ impl Ago {
             _ if days <= 0 || elapsed < 6 * 3600 => Ago::Hours(elapsed / 3600),
             _ if days == 1 => Ago::Yesterday,
             _ if days < 7 => Ago::Days(days as u64),
-            _ if chrono::Datelike::year(&then_day) == chrono::Datelike::year(&today) => {
-                Ago::On(then_day.format("%b %-d").to_string())
-            }
-            _ => Ago::On(then_day.format("%b %-d, %Y").to_string()),
+            _ => Ago::On(crate::i18n::format::short_date(
+                then_day,
+                chrono::Datelike::year(&then_day) != chrono::Datelike::year(&today),
+            )),
         }
     }
 
     /// "Just now", "5 minutes ago", "2 hours ago", "Yesterday", "3 days ago" or
     /// "Mar 12".
     pub fn label(&self) -> String {
-        let plural = |n: u64, unit: &str| match n {
-            1 => format!("1 {unit} ago"),
-            n => format!("{n} {unit}s ago"),
-        };
+        use crate::i18n::{FormatMsg, FormatPlural, t, trn};
         match self {
-            Ago::JustNow => "Just now".into(),
-            Ago::Minutes(n) => plural(*n, "minute"),
-            Ago::Hours(n) => plural(*n, "hour"),
-            Ago::Yesterday => "Yesterday".into(),
-            Ago::Days(n) => plural(*n, "day"),
+            Ago::JustNow => t(FormatMsg::JustNow).into(),
+            Ago::Minutes(n) => trn!(FormatPlural::MinutesAgo, *n),
+            Ago::Hours(n) => trn!(FormatPlural::HoursAgo, *n),
+            Ago::Yesterday => t(FormatMsg::Yesterday).into(),
+            Ago::Days(n) => trn!(FormatPlural::DaysAgo, *n),
             Ago::On(date) => date.clone(),
         }
     }
@@ -1545,11 +1569,12 @@ impl Ago {
     /// "Played just now", "Played 2 hours ago", "Played yesterday" or "Played on
     /// Mar 12".
     pub fn played(&self) -> String {
+        use crate::i18n::{FormatMsg, t, tr};
         match self {
-            Ago::JustNow => "Played just now".into(),
-            Ago::Yesterday => "Played yesterday".into(),
-            Ago::On(date) => format!("Played on {date}"),
-            other => format!("Played {}", other.label()),
+            Ago::JustNow => t(FormatMsg::PlayedJustNow).into(),
+            Ago::Yesterday => t(FormatMsg::PlayedYesterday).into(),
+            Ago::On(date) => tr!(FormatMsg::PlayedOn, date = date),
+            other => tr!(FormatMsg::PlayedAgo, ago = other.label()),
         }
     }
 }

@@ -17,9 +17,32 @@ use crate::{
             select_button, value,
         },
     },
-    instances::{Instances, fields, shared_settings::value_control},
+    i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, t, tr, trn},
+    instances::{Instances, shared_settings::value_control},
     theme::{self, colors, text, weights},
 };
+
+/// A category's name, in the current language.
+fn category_label(category: Category) -> &'static str {
+    t(match category {
+        Category::Controls => M::CategoryControls,
+        Category::Video => M::CategoryVideo,
+        Category::Sound => M::CategorySound,
+        Category::Accessibility => M::CategoryAccessibility,
+        Category::Language => M::CategoryLanguage,
+    })
+}
+
+/// What a category holds, in the current language.
+fn category_description(category: Category) -> &'static str {
+    t(match category {
+        Category::Controls => M::CategoryControlsHint,
+        Category::Video => M::CategoryVideoHint,
+        Category::Sound => M::CategorySoundHint,
+        Category::Accessibility => M::CategoryAccessibilityHint,
+        Category::Language => M::CategoryLanguageHint,
+    })
+}
 
 /// Which instance list is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,8 +154,8 @@ impl SharedSettings {
         let data = instances.data_dir().clone();
         let dir = id.as_deref().map(|id| instances.instance_dir(id));
         let message = match id.as_deref().and_then(|id| instances.instance_name(id)) {
-            Some(name) => format!("Settings changed in-game in {name} now update every instance."),
-            None => "No instance updates the shared settings now; edit them here.".into(),
+            Some(name) => tr!(M::SyncedFrom, name = name),
+            None => t(M::SyncedFromNone).into(),
         };
         let result = shared_options::set_preferred(&data, id.as_deref(), dir.as_deref());
         self.done(result, Some(message), cx);
@@ -153,7 +176,7 @@ impl SharedSettings {
         let jar = instances.client_jar(&version);
         match shared_options::copy_from_instance(&data, &dir, &version, Some(&jar)) {
             Ok(count) => {
-                self.say(format!("Copied {count} values from {name}."), false, cx);
+                self.say(trn!(P::CopiedValues, count, name = name), false, cx);
                 self.reload(cx);
             }
             Err(err) => self.say(err.to_string(), true, cx),
@@ -164,11 +187,7 @@ impl SharedSettings {
         self.confirm_reset = false;
         let data = self.instances.read(cx).data_dir().clone();
         let result = shared_options::reset(&data);
-        self.done(
-            result,
-            Some("The shared values are cleared. Instances keep their own options.txt.".into()),
-            cx,
-        );
+        self.done(result, Some(t(M::SharedCleared).into()), cx);
     }
 
     fn save_edit(&mut self, cx: &mut Context<Self>) {
@@ -188,9 +207,9 @@ impl SharedSettings {
         let data = self.instances.read(cx).data_dir().clone();
         let result = shared_options::set_narrator_off(&data, off);
         let message = if off {
-            "The narrator stays off in every instance, new ones included."
+            t(M::NarratorKeptOff)
         } else {
-            "Each instance keeps its own narrator setting again."
+            t(M::NarratorPerInstance)
         };
         self.done(result, Some(message.into()), cx);
     }
@@ -217,15 +236,19 @@ impl SharedSettings {
         }));
         if picker == Picker::SyncFrom {
             list = list.child(
-                ListRow::new("sync-none", "No instance")
-                    .detail("edit here only")
+                ListRow::new("sync-none", t(M::NoInstance))
+                    .detail(t(M::EditHereOnly))
                     .selected(self.profile.preferred.is_none())
                     .on_click(cx.listener(|this, _, _, cx| this.sync_from(None, cx))),
             );
         }
         for (index, instance) in instances.list().iter().enumerate() {
             let id = instance.id.clone();
-            let detail = format!("{} · {}", instance.game_version, instance.loader.label());
+            let detail = format!(
+                "{} · {}",
+                instance.game_version,
+                super::loader_name(instance.loader)
+            );
             let row = ListRow::new(("shared-pick", index), instance.name.clone())
                 .icon(Icon::Cube)
                 .detail(detail);
@@ -274,23 +297,28 @@ impl SharedSettings {
             Some(input) => line
                 .child(div().w(px(200.)).child(input))
                 .child(
-                    Button::new(("shared-value-save", index), "Save")
+                    Button::new(("shared-value-save", index), t(CommonMsg::Save))
                         .variant(ButtonVariant::Primary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
                 )
                 .child(
-                    muted_link(("shared-value-cancel", index), "Cancel").on_click(cx.listener(
-                        |this, _, _, cx| {
+                    muted_link(("shared-value-cancel", index), t(CommonMsg::Cancel)).on_click(
+                        cx.listener(|this, _, _, cx| {
                             this.editing = None;
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 ),
             None => line.child(value(shown, false)).child(
-                link(("shared-value-edit", index), "Edit").on_click(cx.listener(
+                link(("shared-value-edit", index), t(CommonMsg::Edit)).on_click(cx.listener(
                     move |this, _, _, cx| {
-                        let input = fields::input(cx, text_.clone(), "Value");
+                        let text = text_.clone();
+                        let input = cx.new(|cx| {
+                            TextInput::new(cx)
+                                .with_placeholder(M::Value)
+                                .with_text(text)
+                        });
                         this.editing = Some((key.clone(), input));
                         cx.notify();
                     },
@@ -318,12 +346,12 @@ impl Render for SharedSettings {
             .and_then(|id| self.instances.read(cx).instance_name(id));
         let has_instances = !self.instances.read(cx).list().is_empty();
         let sync_hint = if preferred_name.is_some() {
-            "Settings you change in-game in this instance become the shared ones. Other instances only receive them."
+            t(M::SyncFromHint)
         } else {
-            "Without one, nothing is read back from the games, and shared values change only here."
+            t(M::SyncFromNoneHint)
         };
 
-        let sync = SettingRow::new("Sync from").hint(sync_hint).child(
+        let sync = SettingRow::new(t(M::SyncFrom)).hint(sync_hint).child(
             div()
                 .flex()
                 .flex_col()
@@ -333,7 +361,7 @@ impl Render for SharedSettings {
                         "sync-from",
                         div()
                             .font_weight(weights::BOLD.into())
-                            .child(preferred_name.unwrap_or_else(|| "No instance".into())),
+                            .child(preferred_name.unwrap_or_else(|| t(M::NoInstance).into())),
                     )
                     .when(has_instances, |button| {
                         button.on_click(
@@ -353,15 +381,15 @@ impl Render for SharedSettings {
                     ))
                 }),
         );
-        let copy = SettingRow::new("Start from an instance")
-            .hint("Copies an instance's options.txt into the shared values.")
+        let copy = SettingRow::new(t(M::StartFromInstance))
+            .hint(t(M::StartFromInstanceHint))
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .items_end()
                     .child(
-                        Button::new("copy-from-instance", "Copy from instance…")
+                        Button::new("copy-from-instance", t(M::CopyFromInstance))
                             .variant(ButtonVariant::Secondary)
                             .size(ButtonSize::Slim)
                             .disabled(!has_instances)
@@ -381,19 +409,19 @@ impl Render for SharedSettings {
                         ))
                     }),
             );
-        let reset = SettingRow::new("Clear the shared values")
+        let reset = SettingRow::new(t(M::ClearShared))
             .danger()
-            .hint("Instances keep their own options.txt.");
+            .hint(t(M::ClearSharedHint));
         let reset = if self.confirm_reset {
             reset
                 .child(
-                    Button::new("confirm-reset-shared", "Clear every shared value")
+                    Button::new("confirm-reset-shared", t(M::ClearEveryShared))
                         .variant(ButtonVariant::Danger)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.reset(cx))),
                 )
                 .child(
-                    muted_link("cancel-reset-shared", "Cancel").on_click(cx.listener(
+                    muted_link("cancel-reset-shared", t(CommonMsg::Cancel)).on_click(cx.listener(
                         |this, _, _, cx| {
                             this.confirm_reset = false;
                             cx.notify();
@@ -402,7 +430,7 @@ impl Render for SharedSettings {
                 )
         } else {
             reset.child(
-                Button::new("reset-shared", "Clear…")
+                Button::new("reset-shared", t(M::ClearEllipsis))
                     .variant(ButtonVariant::Danger)
                     .size(ButtonSize::Slim)
                     .disabled(rows.is_empty())
@@ -421,23 +449,22 @@ impl Render for SharedSettings {
             let shared = self.profile.shares(category);
             let expanded = self.expanded.contains(&category) && count > 0;
             categories.push(
-                SettingRow::new(category.label())
-                    .hint(category.description())
+                SettingRow::new(category_label(category))
+                    .hint(category_description(category))
                     .child(
                         div()
                             .text_size(theme::text_size(text::SMALL))
                             .text_color(colors::GRAY_500)
                             .child(match count {
-                                0 => "No values yet".to_string(),
-                                1 => "1 value".to_string(),
-                                n => format!("{n} values"),
+                                0 => t(M::NoValuesYet).to_string(),
+                                n => trn!(P::Values, n),
                             }),
                     )
                     .when(count > 0, |row| {
                         row.child(
                             link(
                                 ("shared-values", category as usize),
-                                if expanded { "Hide" } else { "Show" },
+                                if expanded { t(M::Hide) } else { t(M::Show) },
                             )
                             .on_click(cx.listener(
                                 move |this, _, _, cx| {
@@ -467,31 +494,30 @@ impl Render for SharedSettings {
         }
         // TODO(M5b): share servers.dat once the NBT reader lands.
         categories.push(
-            SettingRow::new("Server list")
-                .hint("Coming soon. Resource and shader packs stay per instance.")
+            SettingRow::new(t(M::ServerList))
+                .hint(t(M::ServerListHint))
                 .child(Toggle::new("share-servers", false).disabled(true))
                 .into_any_element(),
         );
 
         let accessibility_shared = self.profile.shares(Category::Accessibility);
-        let narrator = SettingRow::new("Keep the narrator off")
-            .hint(
-                "In every instance, new ones included: the narrator stays off, and Minecraft's first-start accessibility screen, which reads itself aloud, is skipped.",
-            )
+        let narrator = SettingRow::new(t(M::KeepNarratorOff))
+            .hint(t(M::KeepNarratorOffHint))
             .note_opt((!accessibility_shared).then(|| {
                 (
-                    SharedString::from(
-                        "Accessibility & chat isn't shared, so each instance keeps its own narrator setting.",
-                    ),
+                    SharedString::from(tr!(
+                        M::NarratorNotShared,
+                        category = t(M::CategoryAccessibility)
+                    )),
                     colors::YELLOW,
                 )
             }))
             .child(
                 Toggle::new("narrator-off", shared_options::narrator_off(&self.profile))
                     .disabled(!accessibility_shared)
-                    .on_change(cx.listener(|this, off: &bool, _, cx| {
-                        this.set_narrator_off(*off, cx)
-                    })),
+                    .on_change(
+                        cx.listener(|this, off: &bool, _, cx| this.set_narrator_off(*off, cx)),
+                    ),
             );
 
         div()
@@ -500,18 +526,15 @@ impl Render for SharedSettings {
             .flex_col()
             .gap_8()
             .w_full()
-            .child(section("Source", None).child(card([
+            .child(section(t(M::Source), None).child(card([
                 sync.into_any_element(),
                 copy.into_any_element(),
                 reset.into_any_element(),
             ])))
-            .child(section("Narrator", None).child(card([narrator.into_any_element()])))
+            .child(section(t(M::NarratorSection), None).child(card([narrator.into_any_element()])))
             .child(
-                section(
-                    "What's shared",
-                    Some("A category that is off stays separate in each instance.".into()),
-                )
-                .child(card(categories)),
+                section(t(M::WhatsShared), Some(t(M::WhatsSharedLead).into()))
+                    .child(card(categories)),
             )
     }
 }

@@ -16,15 +16,17 @@ use super::{Instances, LogRow};
 use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, TextInput},
+    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, trn},
     theme::{self, Color, colors, fonts, radius, text, weights},
 };
 
-/// The levels the filter chips toggle. TRACE goes with DEBUG, FATAL with ERROR.
-const CHIPS: [(Level, &str); 4] = [
-    (Level::Debug, "Debug"),
-    (Level::Info, "Info"),
-    (Level::Warn, "Warn"),
-    (Level::Error, "Error"),
+/// The levels the filter chips toggle, with their ids and labels. TRACE goes with
+/// DEBUG, FATAL with ERROR.
+const CHIPS: [(Level, &str, M); 4] = [
+    (Level::Debug, "debug", M::LevelDebug),
+    (Level::Info, "info", M::LevelInfo),
+    (Level::Warn, "warn", M::LevelWarn),
+    (Level::Error, "error", M::LevelError),
 ];
 
 fn chip_of(level: Level) -> Level {
@@ -60,7 +62,7 @@ pub struct Console {
 
 impl Console {
     pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| TextInput::new(cx).with_placeholder("Search the log"));
+        let search = cx.new(|cx| TextInput::new(cx).with_placeholder(M::SearchLog));
         let observe = vec![
             cx.observe(&instances, |_, _, cx| cx.notify()),
             cx.observe(&search, |_, _, cx| cx.notify()),
@@ -68,7 +70,7 @@ impl Console {
         Self {
             instances,
             search,
-            shown: CHIPS.iter().map(|(level, _)| *level).collect(),
+            shown: CHIPS.iter().map(|(level, _, _)| *level).collect(),
             scroll: UniformListScrollHandle::new(),
             follow: true,
             seen: (None, 0),
@@ -238,11 +240,13 @@ impl Render for Console {
             .and_then(|id| self.instances.read(cx).log(id))
             .map_or(0, |log| log.rows().len());
 
-        let chips = CHIPS.iter().map(|(level, label)| {
+        let chips = CHIPS.iter().map(|(level, key, label)| {
             let on = self.shown.contains(level);
             let level = *level;
             div()
-                .id(SharedString::from(format!("chip-{label}")))
+                .id(SharedString::from(format!("chip-{key}")))
+                .flex_none()
+                .whitespace_nowrap()
                 .keyboard_focus()
                 .px_2p5()
                 .py_1()
@@ -262,7 +266,7 @@ impl Render for Console {
                     }
                 })
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle(level, cx)))
-                .child(*label)
+                .child(t(*label))
         });
 
         let body = if count == 0 {
@@ -273,11 +277,14 @@ impl Render for Console {
                 .size_full()
                 .text_color(colors::GRAY_FADED.opacity(30))
                 .font_weight(weights::BOLD.into())
-                .child(if total == 0 {
-                    "The game's output appears here when you press Play."
+                .px_8()
+                .text_center()
+                .whitespace_normal()
+                .child(t(if total == 0 {
+                    M::LogEmpty
                 } else {
-                    "No lines match the filter."
-                })
+                    M::NoLinesMatch
+                }))
                 .into_any_element()
         } else {
             uniform_list(
@@ -321,19 +328,26 @@ impl Render for Console {
                     .child(div().flex_1())
                     .when(!self.follow, |this| {
                         this.child(
-                            Button::new("log-follow", "Jump to latest")
+                            Button::new("log-follow", t(M::JumpToLatest))
                                 .variant(ButtonVariant::Ghost)
                                 .size(ButtonSize::Slim)
                                 .on_click(cx.listener(|this, _, _, cx| this.jump_to_end(cx))),
                         )
                     })
                     .child(
-                        Button::new("log-copy", if self.copied { "Copied" } else { "Copy log" })
-                            .variant(ButtonVariant::Secondary)
-                            .size(ButtonSize::Slim)
-                            .icon(if self.copied { Icon::Check } else { Icon::Copy })
-                            .disabled(count == 0)
-                            .on_click(cx.listener(|this, _, _, cx| this.copy(cx))),
+                        Button::new(
+                            "log-copy",
+                            if self.copied {
+                                t(CommonMsg::Copied)
+                            } else {
+                                t(M::CopyLog)
+                            },
+                        )
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .icon(if self.copied { Icon::Check } else { Icon::Copy })
+                        .disabled(count == 0)
+                        .on_click(cx.listener(|this, _, _, cx| this.copy(cx))),
                     ),
             )
             .child(
@@ -354,11 +368,14 @@ impl Render for Console {
                     .text_size(theme::text_size(text::CAPTION))
                     .font_weight(weights::BOLD.into())
                     .text_color(colors::GRAY_550)
-                    .child(format!(
-                        "{} of {} lines{}",
-                        super::thousands(count as u64),
-                        super::thousands(total as u64),
-                        if self.follow { " · following" } else { "" }
+                    .child(trn!(
+                        if self.follow {
+                            P::LinesShownFollowing
+                        } else {
+                            P::LinesShown
+                        },
+                        total,
+                        shown = super::thousands(count as u64)
                     )),
             )
     }

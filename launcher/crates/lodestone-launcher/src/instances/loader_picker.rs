@@ -17,6 +17,7 @@ use crate::{
         LoadingDots,
         settings::{SettingRow, popover, popover_panel, select_button, tag},
     },
+    i18n::{InstanceSettingsMsg as M, t, tr},
     theme::{self, colors, radius, text, weights},
 };
 
@@ -154,7 +155,7 @@ impl LoaderPicker {
                 kind,
                 version: version.clone(),
             })),
-            None => Err(format!("Choose a {} version.", kind.label())),
+            None => Err(tr!(M::ChooseLoaderVersion, loader = kind.label())),
         }
     }
 
@@ -246,8 +247,7 @@ fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::S
 impl LoaderPicker {
     /// The loaders as one segmented control.
     fn segmented(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let options =
-            std::iter::once(("Vanilla", None)).chain(LoaderKind::ALL.map(|k| (k.label(), Some(k))));
+        let options = loader_options();
         ArrowGroup::new("loader-segments")
             .flex()
             .flex_row()
@@ -301,20 +301,14 @@ impl LoaderPicker {
                     .text_size(theme::text_size(text::SMALL))
                     .text_color(colors::GRAY_500)
                     .child(LoadingDots)
-                    .child(format!("Loading {} versions", kind.label()))
+                    .child(tr!(M::LoadingLoaderVersions, loader = kind.label()))
                     .into_any_element();
             }
             LoaderVersions::Failed(error) => {
-                return note(
-                    format!("Couldn't load the versions: {error}"),
-                    colors::RED_200,
-                );
+                return note(tr!(M::CouldntLoadVersions, error = error), colors::RED_200);
             }
             LoaderVersions::Ready(list) if list.is_empty() => {
-                return note(
-                    format!("No versions for Minecraft {game}."),
-                    colors::GRAY_500,
-                );
+                return note(tr!(M::NoVersionsFor, game = game), colors::GRAY_500);
             }
             LoaderVersions::Ready(list) => list,
         };
@@ -331,7 +325,7 @@ impl LoaderPicker {
                 div()
                     .font_weight(weights::BOLD.into())
                     .child(chosen.map_or_else(
-                        || SharedString::from("Choose a version"),
+                        || SharedString::from(t(M::ChooseVersion)),
                         |v| v.display.clone().into(),
                     )),
             )
@@ -407,8 +401,8 @@ impl LoaderPicker {
             .flex()
             .flex_col()
             .child(
-                SettingRow::new("Mod loader")
-                    .hint("A change installs the next time you press Play.")
+                SettingRow::new(t(M::ModLoader))
+                    .hint(t(M::ModLoaderHint))
                     .child(self.segmented(cx)),
             )
             .when_some(version, |this, version| {
@@ -416,7 +410,7 @@ impl LoaderPicker {
                     div()
                         .border_t_1()
                         .border_color(colors::FADE_700)
-                        .child(SettingRow::new("Loader version").child(version)),
+                        .child(SettingRow::new(t(M::LoaderVersion)).child(version)),
                 )
             })
     }
@@ -425,12 +419,17 @@ impl LoaderPicker {
 /// "Recommended" or "Beta", for a version.
 fn version_tag(version: &LoaderVersion) -> Option<(&'static str, theme::Color)> {
     if version.recommended {
-        Some(("Recommended", colors::GREEN_300))
+        Some((t(M::Recommended), colors::GREEN_300))
     } else if !version.stable {
-        Some(("Beta", colors::YELLOW))
+        Some((t(M::Beta), colors::YELLOW))
     } else {
         None
     }
+}
+
+/// "Vanilla" and the loaders, with their names.
+fn loader_options() -> impl Iterator<Item = (&'static str, Option<LoaderKind>)> {
+    std::iter::once((t(M::Vanilla), None)).chain(LoaderKind::ALL.map(|k| (k.label(), Some(k))))
 }
 
 impl Render for LoaderPicker {
@@ -438,8 +437,7 @@ impl Render for LoaderPicker {
         if self.compact {
             return self.render_compact(cx).into_any_element();
         }
-        let chips: Vec<_> = std::iter::once(("Vanilla", None))
-            .chain(LoaderKind::ALL.map(|k| (k.label(), Some(k))))
+        let chips: Vec<_> = loader_options()
             .enumerate()
             .map(|(index, (label, kind))| self.chip(index, label, kind, cx).into_any_element())
             .collect();
@@ -459,10 +457,8 @@ impl Render for LoaderPicker {
                 .into_any_element()
         };
         let body = match (self.kind, &self.game_version) {
-            (None, _) => message("Plain Minecraft, without mods.".into(), colors::GRAY_500),
-            (Some(_), None) => {
-                message("Choose a Minecraft version first.".into(), colors::GRAY_500)
-            }
+            (None, _) => message(t(M::PlainMinecraft).into(), colors::GRAY_500),
+            (Some(_), None) => message(t(M::ChooseGameVersionFirst).into(), colors::GRAY_500),
             (Some(kind), Some(game)) => match self.versions(cx) {
                 LoaderVersions::NotLoaded | LoaderVersions::Loading => div()
                     .flex()
@@ -473,14 +469,19 @@ impl Render for LoaderPicker {
                     .size_full()
                     .text_color(colors::GRAY_500)
                     .child(LoadingDots)
-                    .child(format!("Loading {} versions", kind.label()))
+                    .child(tr!(M::LoadingLoaderVersions, loader = kind.label()))
                     .into_any_element(),
                 LoaderVersions::Failed(error) => message(
-                    format!("Couldn't load the {} versions: {error}", kind.label()).into(),
+                    tr!(
+                        M::CouldntLoadLoaderVersions,
+                        loader = kind.label(),
+                        error = error
+                    )
+                    .into(),
                     colors::RED_200,
                 ),
                 LoaderVersions::Ready(list) if list.is_empty() => message(
-                    format!("{} has no versions for Minecraft {game}.", kind.label()).into(),
+                    tr!(M::LoaderHasNoVersions, loader = kind.label(), game = game).into(),
                     colors::GRAY_500,
                 ),
                 LoaderVersions::Ready(list) => uniform_list(

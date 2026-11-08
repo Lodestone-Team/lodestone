@@ -68,8 +68,3 @@ pub(super) fn pills<T: Clone + PartialEq + 'static>(
         on_pick(value, cx)
     })
 }
-
-/// `12.5 MB`.
-pub(super) fn megabytes(bytes: u64) -> String {
-    format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
-}

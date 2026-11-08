@@ -2,7 +2,9 @@
 //! pages listed on the left and the open page on the right. Other dialogs, such as
 //! signing in, open over it.
 
-use gpui::{AnyElement, Context, FocusHandle, IntoElement, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*, px,
+};
 use launcher_core::accounts::AccountKind;
 
 use super::{LauncherShell, account_box, developer};
@@ -10,11 +12,13 @@ use crate::components::KeyboardFocus;
 use crate::{
     accounts::SessionState,
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, Toggle,
+        Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, ListRow, Toggle,
         settings::{
-            CONTENT_WIDTH, SettingRow, card, left_overlay, link, muted_link, tag, unsaved_bar,
+            CONTENT_WIDTH, SettingRow, card, left_overlay, link, muted_link, popover,
+            popover_panel, select_button, tag, unsaved_bar,
         },
     },
+    i18n::{self, CommonMsg, Language, ShellMsg, ShellMsg as M, t, tr},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -31,10 +35,13 @@ pub enum SettingsPage {
 
 impl SettingsPage {
     /// The pages, in groups with a caption.
-    const GROUPS: [(&'static str, &'static [SettingsPage]); 2] = [
-        ("Instances", &[SettingsPage::Defaults, SettingsPage::Shared]),
+    const GROUPS: [(M, &'static [SettingsPage]); 2] = [
         (
-            "Launcher",
+            M::Instances,
+            &[SettingsPage::Defaults, SettingsPage::Shared],
+        ),
+        (
+            M::GroupLauncher,
             &[
                 SettingsPage::General,
                 SettingsPage::Accounts,
@@ -45,26 +52,22 @@ impl SettingsPage {
 
     pub fn title(self) -> &'static str {
         match self {
-            SettingsPage::Defaults => "Instance defaults",
-            SettingsPage::Shared => "Shared game settings",
-            SettingsPage::General => "General",
-            SettingsPage::Accounts => "Accounts",
-            SettingsPage::Developer => "Developer",
+            SettingsPage::Defaults => t(M::InstanceDefaults),
+            SettingsPage::Shared => t(M::SharedGameSettings),
+            SettingsPage::General => t(M::General),
+            SettingsPage::Accounts => t(M::Accounts),
+            SettingsPage::Developer => t(M::Developer),
         }
     }
 
     fn lead(self) -> &'static str {
-        match self {
-            SettingsPage::Defaults => {
-                "Every instance uses these unless its own Settings tab changes them."
-            }
-            SettingsPage::Shared => {
-                "One set of options.txt settings for every instance: mouse, key bindings, video, sound and more. An instance can override single values in its Settings tab."
-            }
-            SettingsPage::General => "How the launcher lists your instances.",
-            SettingsPage::Accounts => "Play signs in with the account in use.",
-            SettingsPage::Developer => "Options for testing Lodestone Launcher.",
-        }
+        t(match self {
+            SettingsPage::Defaults => M::DefaultsLead,
+            SettingsPage::Shared => M::SharedLead,
+            SettingsPage::General => M::GeneralLead,
+            SettingsPage::Accounts => M::AccountsLead,
+            SettingsPage::Developer => M::DeveloperLead,
+        })
     }
 
     fn icon(self) -> Icon {
@@ -174,9 +177,9 @@ impl LauncherShell {
                 unsaved_bar(
                     "settings-unsaved",
                     if page == SettingsPage::Defaults {
-                        "You have unsaved changes"
+                        t(CommonMsg::UnsavedChanges)
                     } else {
-                        "You have unsaved changes in Instance defaults"
+                        t(M::UnsavedInDefaults)
                     },
                     can_save,
                     cx.listener(|this, _, _, cx| {
@@ -200,7 +203,7 @@ impl LauncherShell {
             SettingsPage::Accounts => self.render_accounts_page(cx).into_any_element(),
             SettingsPage::Developer => developer::render(self, cx).into_any_element(),
         };
-        Dialog::new("launcher-settings", "Settings", modal.focus.clone())
+        Dialog::new("launcher-settings", t(M::Settings), modal.focus.clone())
             .frameless(width, height)
             .when(small, |dialog| dialog.edge_to_edge(top))
             .on_close(move |window, cx| {
@@ -311,7 +314,7 @@ impl LauncherShell {
         let avatar = account_box::avatar(accounts, active.as_ref(), px(36.));
         let name = active
             .as_ref()
-            .map_or_else(|| "No account".to_string(), |a| a.username.clone());
+            .map_or_else(|| t(M::NoAccount).to_string(), |a| a.username.clone());
         let current = self.settings_page;
         let mut sidebar = div()
             .flex()
@@ -353,7 +356,7 @@ impl LauncherShell {
                                     .child(name),
                             )
                             .child(div().flex().child(
-                                muted_link("manage-accounts", "Manage accounts").on_click(
+                                muted_link("manage-accounts", t(M::ManageAccounts)).on_click(
                                     cx.listener(|this, _, _, cx| {
                                         this.settings_page = SettingsPage::Accounts;
                                         this.settings_nav_open = false;
@@ -372,7 +375,7 @@ impl LauncherShell {
                     .text_size(theme::text_size(text::SMALL))
                     .font_weight(weights::BOLD.into())
                     .text_color(colors::GRAY_500)
-                    .child(group),
+                    .child(t(group)),
             );
             for &page in pages {
                 let selected = page == current;
@@ -406,7 +409,8 @@ impl LauncherShell {
                                 colors::GRAY_500
                             },
                         ))
-                        .child(page.title())
+                        // Long titles wrap rather than lose their end.
+                        .child(div().flex_1().min_w_0().child(page.title()))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.settings_page = page;
                             this.settings_nav_open = false;
@@ -420,26 +424,104 @@ impl LauncherShell {
                 .px_2p5()
                 .text_size(theme::text_size(text::CAPTION))
                 .text_color(colors::GRAY_FADED.opacity(30))
-                .child(concat!("Lodestone Launcher v", env!("CARGO_PKG_VERSION"))),
+                .child(tr!(M::AppVersion, version = env!("CARGO_PKG_VERSION"))),
         )
     }
 
-    /// Settings > Accounts: each account, and adding one.
-    /// Settings > General: "Group instances automatically", which applies at once.
+    /// Settings > General: the language, and "Group instances automatically". Both
+    /// apply at once.
     fn render_general_page(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let auto_groups = self.instances.read(cx).auto_groups();
-        card([SettingRow::new("Group instances automatically")
-            .hint("The sidebar lists instances without a group of their own by loader, such as Fabric (modded) or Vanilla, and those imported from other launchers under Imported.")
+        let instances = self.instances.read(cx);
+        let auto_groups = instances.auto_groups();
+        let language = instances.language();
+        let current = match language {
+            Language::System => tr!(
+                ShellMsg::LanguageSystemIs,
+                language = i18n::locale().native_name()
+            ),
+            other => i18n::resolve(other).native_name().to_string(),
+        };
+        let language_row = SettingRow::new(t(ShellMsg::Language))
+            .hint(t(ShellMsg::LanguageHint))
             .child(
-                Toggle::new("auto-groups", auto_groups).on_change(cx.listener(
-                    |this, value: &bool, _, cx| {
-                        let on = *value;
-                        this.instances
-                            .update(cx, |instances, cx| instances.set_auto_groups(on, cx));
-                    },
-                )),
-            )
-            .into_any_element()])
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .child(
+                        select_button(
+                            "language",
+                            div().font_weight(weights::BOLD.into()).child(current),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.language_menu_open = !this.language_menu_open;
+                            cx.notify();
+                        })),
+                    )
+                    .when(self.language_menu_open, |this| {
+                        let close = cx.listener(|this, _: &(), _, cx| {
+                            this.language_menu_open = false;
+                            cx.notify();
+                        });
+                        this.child(popover(
+                            "language-popover",
+                            self.render_language_list(language, cx),
+                            move |window, cx| close(&(), window, cx),
+                        ))
+                    }),
+            );
+        card([
+            language_row.into_any_element(),
+            SettingRow::new(t(M::GroupAutomatically))
+                .hint(tr!(
+                    M::GroupAutomaticallyHint,
+                    fabric = tr!(M::GroupModded, loader = "Fabric"),
+                    vanilla = t(M::Vanilla),
+                    imported = t(M::GroupImported),
+                ))
+                .child(
+                    Toggle::new("auto-groups", auto_groups).on_change(cx.listener(
+                        |this, value: &bool, _, cx| {
+                            let on = *value;
+                            this.instances
+                                .update(cx, |instances, cx| instances.set_auto_groups(on, cx));
+                        },
+                    )),
+                )
+                .into_any_element(),
+        ])
+    }
+
+    /// The Language list: System, then each language in its own name.
+    fn render_language_list(
+        &self,
+        selected: Language,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let mut list = popover_panel("language-list")
+            .w(px(240.))
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.language_menu_open = false;
+                cx.notify();
+            }));
+        for (index, language) in Language::ALL.into_iter().enumerate() {
+            let label: SharedString = match language {
+                Language::System => t(ShellMsg::LanguageSystem).into(),
+                other => i18n::resolve(other).native_name().into(),
+            };
+            let row = ListRow::new(("language-choice", index), label)
+                .selected(language == selected)
+                .when(language == Language::System, |row| {
+                    row.detail(i18n::resolve(Language::System).native_name())
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.language_menu_open = false;
+                    this.instances
+                        .update(cx, |instances, cx| instances.set_language(language, cx));
+                }));
+            list = list.child(row);
+        }
+        list
     }
 
     fn render_accounts_page(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -454,8 +536,8 @@ impl LauncherShell {
                 Some(SessionState::NeedsSignIn)
             );
             let kind = match account.kind {
-                AccountKind::Offline => "Offline account",
-                AccountKind::Microsoft => "Microsoft account",
+                AccountKind::Offline => t(M::OfflineAccount),
+                AccountKind::Microsoft => t(M::MicrosoftAccount),
             };
             let (switch_id, remove_id) = (account.id.clone(), account.id.clone());
             rows.push(
@@ -463,44 +545,48 @@ impl LauncherShell {
                     .leading(account_box::avatar(accounts, Some(account), px(28.)))
                     .hint(kind)
                     .when(account.uses_launcher_identity(), |row| {
-                        row.child(tag(developer::BADGE, colors::BLUE_200))
+                        row.child(tag(t(M::LauncherIdentity), colors::BLUE_200))
                     })
                     .when(needs_sign_in, |row| {
-                        row.child(link(("account-sign-in", index), "Sign in again").on_click(
-                            cx.listener(|this, _, window, cx| this.open_sign_in(Some(window), cx)),
-                        ))
+                        row.child(
+                            link(("account-sign-in", index), t(M::SignInAgain)).on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.open_sign_in(Some(window), cx)
+                                }),
+                            ),
+                        )
                     })
                     .map(|row| {
                         if in_use {
-                            row.child(tag("In use", colors::GREEN_300))
+                            row.child(tag(t(M::InUse), colors::GREEN_300))
                         } else {
-                            row.child(link(("account-use", index), "Use").on_click(cx.listener(
-                                move |this, _, _, cx| {
+                            row.child(link(("account-use", index), t(M::Use)).on_click(
+                                cx.listener(move |this, _, _, cx| {
                                     this.accounts
                                         .update(cx, |accounts, cx| accounts.switch(&switch_id, cx));
-                                },
-                            )))
+                                }),
+                            ))
                         }
                     })
                     .child(
-                        muted_link(("account-remove", index), "Remove").on_click(cx.listener(
-                            move |this, _, window, cx| {
+                        muted_link(("account-remove", index), t(CommonMsg::Remove)).on_click(
+                            cx.listener(move |this, _, window, cx| {
                                 this.confirm_remove(&remove_id, Some(window), cx)
-                            },
-                        )),
+                            }),
+                        ),
                     )
                     .into_any_element(),
             );
         }
         rows.push(
-            SettingRow::new("Add an account")
+            SettingRow::new(t(M::AddAnAccount))
                 .hint(if offline_enabled {
-                    "A Microsoft account plays online. An offline account plays single-player and offline-mode servers."
+                    t(M::AddAccountHintWithOffline)
                 } else {
-                    "Sign in with the Microsoft account you play Minecraft with."
+                    t(M::AddAccountHint)
                 })
                 .child(
-                    Button::new("settings-add-microsoft", "Microsoft…")
+                    Button::new("settings-add-microsoft", t(M::AddMicrosoftEllipsis))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .on_click(
@@ -509,7 +595,7 @@ impl LauncherShell {
                 )
                 .when(offline_enabled, |row| {
                     row.child(
-                        Button::new("settings-add-offline", "Offline…")
+                        Button::new("settings-add-offline", t(M::AddOfflineEllipsis))
                             .variant(ButtonVariant::Secondary)
                             .size(ButtonSize::Slim)
                             .on_click(cx.listener(|this, _, window, cx| {

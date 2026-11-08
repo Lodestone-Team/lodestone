@@ -42,6 +42,7 @@ use crate::{
             value,
         },
     },
+    i18n::{CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, format, t, tr, trn},
     servers::Servers,
     theme::{self, colors, leading, radius, text, weights},
 };
@@ -237,8 +238,8 @@ impl InstanceSettings {
             let (id, game) = (instance.id.clone(), instance.game_version.clone());
             cx.new(|cx| InstanceSharedSettings::new(instances, id, game, cx))
         };
-        let name = fields::input(cx, instance.name.clone(), "Name");
-        let group = fields::input(cx, instance.group.clone().unwrap_or_default(), "No group");
+        let name = fields::input_with(cx, instance.name.clone(), M::Name);
+        let group = fields::input_with(cx, instance.group.clone().unwrap_or_default(), M::NoGroup);
         let java = fields::input(
             cx,
             instance
@@ -494,7 +495,7 @@ impl InstanceSettings {
             let dirs = self.instances.read(cx).content_dirs(&instance.id);
             if let Err(err) = loader_change::disable_mods(&dirs, disable) {
                 self.sync_loader(cx);
-                return self.set_message(format!("Couldn't turn the mods off: {err}"), true, cx);
+                return self.set_message(tr!(M::CouldntTurnModsOff, error = err), true, cx);
             }
         }
         let running = self.instances.read(cx).is_active(&instance.id);
@@ -507,22 +508,19 @@ impl InstanceSettings {
                     (before.loader, &before.loader_version)
                         != (instance.loader, &instance.loader_version)
                 });
-                let turned_off = match disable.len() {
-                    0 => String::new(),
-                    1 => " 1 mod was turned off.".to_string(),
-                    n => format!(" {n} mods were turned off."),
-                };
+                let loader = loader_label(&instance);
+                let turned_off = disable.len();
                 let message = match (loader_changed, running) {
-                    (true, true) => format!(
-                        "{} installs the next time the game starts.{turned_off}",
-                        instance.loader_label()
-                    ),
-                    (true, false) => format!(
-                        "{} installs the next time you press Play.{turned_off}",
-                        instance.loader_label()
-                    ),
-                    (false, true) => "Saved. It applies the next time the game starts.".into(),
-                    (false, false) => "Saved".to_string(),
+                    (true, true) if turned_off > 0 => {
+                        trn!(P::LoaderNextStartModsOff, turned_off, loader = loader)
+                    }
+                    (true, true) => tr!(M::LoaderInstallsNextStart, loader = loader),
+                    (true, false) if turned_off > 0 => {
+                        trn!(P::LoaderNextPlayModsOff, turned_off, loader = loader)
+                    }
+                    (true, false) => tr!(M::LoaderInstallsNextPlay, loader = loader),
+                    (false, true) => t(M::SavedNextStart).to_string(),
+                    (false, false) => t(CommonMsg::Saved).to_string(),
                 };
                 self.set_message(message, false, cx);
             }
@@ -536,7 +534,7 @@ impl InstanceSettings {
         let mut instance = before.clone();
         let name = self.text(&self.name, cx);
         if name.is_empty() {
-            return Err("Give the instance a name.".into());
+            return Err(t(M::NameMissing).into());
         }
         let total = self.instances.read(cx).total_memory();
         let overrides = self.overrides;
@@ -649,7 +647,7 @@ impl InstanceSettings {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Use this Java".into()),
+            prompt: Some(t(M::UseThisJava).into()),
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = picked.await else {
@@ -673,7 +671,7 @@ impl InstanceSettings {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Use as icon".into()),
+            prompt: Some(t(M::UseAsIcon).into()),
         });
         let id = self.instance_id.clone();
         self._prompt = Some(cx.spawn(async move |this, cx| {
@@ -688,7 +686,7 @@ impl InstanceSettings {
                     .instances
                     .update(cx, |instances, cx| instances.set_icon(&id, &path, cx));
                 match result {
-                    Ok(()) => this.set_message("Saved", false, cx),
+                    Ok(()) => this.set_message(t(CommonMsg::Saved), false, cx),
                     Err(err) => this.set_message(err, true, cx),
                 }
             })
@@ -704,7 +702,7 @@ impl InstanceSettings {
             instances.set_icon_name(&id, icon.as_deref(), cx)
         });
         match result {
-            Ok(()) => self.set_message("Saved", false, cx),
+            Ok(()) => self.set_message(t(CommonMsg::Saved), false, cx),
             Err(err) => self.set_message(err, true, cx),
         }
     }
@@ -714,7 +712,7 @@ impl InstanceSettings {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Use as background".into()),
+            prompt: Some(t(M::UseAsBackground).into()),
         });
         let id = self.instance_id.clone();
         self._prompt = Some(cx.spawn(async move |this, cx| {
@@ -729,7 +727,7 @@ impl InstanceSettings {
                     .instances
                     .update(cx, |instances, cx| instances.set_background(&id, &path, cx));
                 match result {
-                    Ok(()) => this.set_message("Saved. See it on the Play tab.", false, cx),
+                    Ok(()) => this.set_message(t(M::SavedSeePlayTab), false, cx),
                     Err(err) => this.set_message(err, true, cx),
                 }
             })
@@ -795,16 +793,16 @@ impl InstanceSettings {
             .instances
             .update(cx, |instances, cx| instances.set_background(&id, &path, cx));
         match result {
-            Ok(()) => self.set_message("Saved. See it on the Play tab.", false, cx),
+            Ok(()) => self.set_message(t(M::SavedSeePlayTab), false, cx),
             Err(err) => self.set_message(err, true, cx),
         }
     }
 
     /// The background picker: screenshots, a file, or the default.
     fn background_picker_panel(&self, has_background: bool, cx: &mut Context<Self>) -> AnyElement {
-        let body: AnyElement = match &self.shots {
-            Load::Ready(shots) if !shots.is_empty() => {
-                div()
+        let body: AnyElement =
+            match &self.shots {
+                Load::Ready(shots) if !shots.is_empty() => div()
                     .id("background-shots")
                     .flex()
                     .flex_row()
@@ -830,24 +828,23 @@ impl InstanceSettings {
                                 this.use_background(path.clone(), cx)
                             }))
                     }))
-                    .into_any_element()
-            }
-            Load::Ready(_) | Load::Failed(_) => div()
-                .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
-                .child("No screenshots yet. Press F2 in the game to take one, or choose a file.")
-                .into_any_element(),
-            Load::NotLoaded | Load::Loading => div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
-                .child(LoadingDots)
-                .child("Finding your screenshots")
-                .into_any_element(),
-        };
+                    .into_any_element(),
+                Load::Ready(_) | Load::Failed(_) => div()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(colors::GRAY_500)
+                    .child(t(M::NoScreenshots))
+                    .into_any_element(),
+                Load::NotLoaded | Load::Loading => div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(colors::GRAY_500)
+                    .child(LoadingDots)
+                    .child(t(M::FindingScreenshots))
+                    .into_any_element(),
+            };
         popover_panel("background-picker")
             .w(px(380.))
             .p_3()
@@ -861,7 +858,7 @@ impl InstanceSettings {
                     .font_weight(weights::BOLD.into())
                     .text_size(theme::text_size(text::SMALL))
                     .text_color(colors::GRAY_400)
-                    .child("Your screenshots"),
+                    .child(t(M::YourScreenshots)),
             )
             .child(body)
             .child(
@@ -874,7 +871,7 @@ impl InstanceSettings {
                     .border_t_1()
                     .border_color(colors::FADE_700)
                     .child(
-                        link("background-file", "Choose a file…").on_click(cx.listener(
+                        link("background-file", t(M::ChooseFile)).on_click(cx.listener(
                             |this, _, _, cx| {
                                 this.background_picker = false;
                                 this.choose_background(cx);
@@ -883,21 +880,19 @@ impl InstanceSettings {
                     )
                     .child(div().flex_1())
                     .when(has_background, |this| {
-                        this.child(
-                            muted_link("background-default", "Use the default").on_click(
-                                cx.listener(|this, _, _, cx| {
-                                    this.background_picker = false;
-                                    let id = this.instance_id.clone();
-                                    let result = this.instances.update(cx, |instances, cx| {
-                                        instances.clear_background(&id, cx)
-                                    });
-                                    match result {
-                                        Ok(()) => this.set_message("Saved", false, cx),
-                                        Err(err) => this.set_message(err, true, cx),
-                                    }
-                                }),
-                            ),
-                        )
+                        this.child(muted_link("background-default", t(M::UseDefault)).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.background_picker = false;
+                                let id = this.instance_id.clone();
+                                let result = this.instances.update(cx, |instances, cx| {
+                                    instances.clear_background(&id, cx)
+                                });
+                                match result {
+                                    Ok(()) => this.set_message(t(CommonMsg::Saved), false, cx),
+                                    Err(err) => this.set_message(err, true, cx),
+                                }
+                            }),
+                        ))
                     }),
             )
             .into_any_element()
@@ -1060,10 +1055,10 @@ impl InstanceSettings {
                     .gap_1()
                     .child(tab_button(
                         "icon-tab-library",
-                        "Blocks & items",
+                        t(M::BlocksAndItems),
                         IconTab::Library,
                     ))
-                    .child(tab_button("icon-tab-emoji", "Emoji", IconTab::Emoji)),
+                    .child(tab_button("icon-tab-emoji", t(M::Emoji), IconTab::Emoji)),
             )
             .child(body)
             .child(
@@ -1075,17 +1070,15 @@ impl InstanceSettings {
                     .pt_2()
                     .border_t_1()
                     .border_color(colors::FADE_700)
-                    .child(
-                        link("icon-upload", "Upload an image…").on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.icon_picker = None;
-                                this.choose_icon(cx);
-                            },
-                        )),
-                    )
+                    .child(link("icon-upload", t(M::UploadImage)).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.icon_picker = None;
+                            this.choose_icon(cx);
+                        },
+                    )))
                     .child(div().flex_1())
                     .child(
-                        muted_link("icon-default", "Use the default")
+                        muted_link("icon-default", t(M::UseDefault))
                             .on_click(cx.listener(|this, _, _, cx| this.pick_icon(None, cx))),
                     ),
             )
@@ -1111,7 +1104,7 @@ impl InstanceSettings {
             this.update(cx, |this, cx| {
                 this.instances
                     .update(cx, |instances, cx| instances.export(&id, path, cx));
-                this.set_message("Exporting…", false, cx);
+                this.set_message(t(M::Exporting), false, cx);
             })
             .ok();
         }));
@@ -1126,7 +1119,7 @@ impl InstanceSettings {
         match result {
             Ok(()) => {
                 self.server = None;
-                self.set_message("Unlinked", false, cx);
+                self.set_message(t(M::Unlinked), false, cx);
             }
             Err(err) => self.set_message(err, true, cx),
         }
@@ -1139,7 +1132,7 @@ impl InstanceSettings {
         let Some(task) = self.instances.update(cx, |instances, cx| {
             instances.modpack_versions(&record.project_id, cx)
         }) else {
-            return self.set_message("Modrinth can't be reached.", true, cx);
+            return self.set_message(t(M::ModrinthUnreachable), true, cx);
         };
         self.modpack_versions = Load::Loading;
         self._modpack_task = Some(cx.spawn(async move |this, cx| {
@@ -1162,11 +1155,7 @@ impl InstanceSettings {
         let Some(task) = self.instances.update(cx, |instances, cx| {
             instances.plan_modpack_update(&id, version, cx)
         }) else {
-            return self.set_message(
-                "Stop the game first, or wait for the update to finish.",
-                true,
-                cx,
-            );
+            return self.set_message(t(M::StopGameFirst), true, cx);
         };
         self.preparing_update = true;
         self._modpack_task = Some(cx.spawn(async move |this, cx| {
@@ -1176,7 +1165,7 @@ impl InstanceSettings {
                 match result {
                     Ok(prompt) => cx.emit(prompt),
                     Err(err) => {
-                        this.set_message(format!("Couldn't prepare the update: {err}"), true, cx)
+                        this.set_message(tr!(M::CouldntPrepareUpdate, error = err), true, cx)
                     }
                 }
                 cx.notify();
@@ -1208,19 +1197,20 @@ impl InstanceSettings {
             .instances
             .read(cx)
             .modpack_update(&self.instance_id)
-            .map(|job| (job.progress.label(), job.progress.downloads.snapshot()));
+            .map(|job| {
+                (
+                    crate::instances::modpacks::progress_label(&job.progress.label()),
+                    job.progress.downloads.snapshot(),
+                )
+            });
         let candidate = self
             .modpack_versions
             .ready()
             .and_then(|versions| update_candidate(versions, &record));
         let origin = match &self.server {
-            _ if record.on_modrinth() => "From Modrinth".to_string(),
-            Some(server) => {
-                format!("From the mods of {server}: Play keeps them in step with the server.")
-            }
-            None => {
-                "From a .mrpack file that isn't on Modrinth, so it can't be updated here.".into()
-            }
+            _ if record.on_modrinth() => t(M::FromModrinth).to_string(),
+            Some(server) => tr!(M::FromServerMods, server = server),
+            None => t(M::FromMrpack).to_string(),
         };
         let version = if record.version_number.is_empty() {
             String::new()
@@ -1251,24 +1241,23 @@ impl InstanceSettings {
         };
         let update: Option<AnyElement> = if let Some((label, snapshot)) = update_job {
             let percent = if snapshot.bytes_total > 0 {
-                format!(
-                    " · {:.0}%",
-                    snapshot.bytes_done as f64 * 100.0 / snapshot.bytes_total as f64
-                )
+                let done =
+                    (snapshot.bytes_done as f64 * 100.0 / snapshot.bytes_total as f64).round();
+                format!(" · {}", format::percent(done as u64))
             } else {
                 String::new()
             };
             Some(working(format!("{label}{percent}")))
         } else if self.preparing_update {
-            Some(working("Downloading the new version…".into()))
+            Some(working(t(M::DownloadingNewVersion).into()))
         } else {
             match (&self.modpack_versions, candidate) {
-                (Load::Loading, _) => Some(working("Checking Modrinth…".into())),
+                (Load::Loading, _) => Some(working(t(M::CheckingModrinth).into())),
                 (Load::Failed(err), _) => Some(status_text(err.clone(), colors::RED_200)),
                 (Load::Ready(_), Some(newer)) => Some(
                     Button::new(
                         "update-modpack",
-                        format!("Update to {}…", newer.version_number),
+                        tr!(M::UpdateTo, version = newer.version_number),
                     )
                     .variant(ButtonVariant::Primary)
                     .size(ButtonSize::Slim)
@@ -1278,9 +1267,11 @@ impl InstanceSettings {
                     )
                     .into_any_element(),
                 ),
-                (Load::Ready(_), None) => Some(status_text("Up to date".into(), colors::GREEN_300)),
+                (Load::Ready(_), None) => {
+                    Some(status_text(t(M::UpToDate).into(), colors::GREEN_300))
+                }
                 (Load::NotLoaded, _) if record.on_modrinth() => Some(
-                    Button::new("check-modpack", "Check for updates")
+                    Button::new("check-modpack", t(M::CheckForUpdates))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.check_modpack(cx)))
@@ -1294,7 +1285,7 @@ impl InstanceSettings {
                 .hint(origin)
                 .when_some(page, |row, page| {
                     row.child(
-                        link("modpack-page", "View on Modrinth")
+                        link("modpack-page", t(M::ViewOnModrinth))
                             .on_click(move |_, _, cx| cx.open_url(&page)),
                     )
                 })
@@ -1302,14 +1293,14 @@ impl InstanceSettings {
         ];
         if let Some(update) = update {
             rows.push(
-                SettingRow::new("Updates")
-                    .hint("An update replaces the pack's own files and keeps your mods, configs and worlds. You see what changes first.")
+                SettingRow::new(t(M::Updates))
+                    .hint(t(M::UpdatesHint))
                     .child(update)
                     .into_any_element(),
             );
         }
         Some(
-            section("Modpack", None)
+            section(t(M::Modpack), None)
                 .child(card(rows))
                 .into_any_element(),
         )
@@ -1319,47 +1310,40 @@ impl InstanceSettings {
     fn server_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let link = self.servers.read(cx).instance_link(&self.instance_id)?;
         let hint = if link.core_known {
-            format!(
-                "On {}. Play joins it and keeps the mods in step.",
-                link.core_name
-            )
+            tr!(M::LinkedServerHint, core = link.core_name)
         } else {
-            format!(
-                "On {}, which was removed from the Servers page. Add the core again there to join the server.",
-                link.core_name
-            )
+            tr!(M::LinkedServerCoreRemoved, core = link.core_name)
         };
         let mut row = SettingRow::new(link.server_name.clone()).hint(hint);
         if !link.core_known {
-            row = row.child(tag("Core removed", colors::YELLOW));
+            row = row.child(tag(t(M::CoreRemoved), colors::YELLOW));
         }
         row = if self.confirm_unlink {
             row.child(
-                Button::new("confirm-unlink", "Unlink")
+                Button::new("confirm-unlink", t(M::Unlink))
                     .variant(ButtonVariant::Danger)
                     .size(ButtonSize::Slim)
                     .on_click(cx.listener(|this, _, _, cx| this.unlink(cx))),
             )
             .child(
-                muted_link("cancel-unlink", "Cancel").on_click(cx.listener(|this, _, _, cx| {
-                    this.confirm_unlink = false;
-                    cx.notify();
-                })),
+                muted_link("cancel-unlink", t(CommonMsg::Cancel)).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.confirm_unlink = false;
+                        cx.notify();
+                    },
+                )),
             )
-            .note(
-                "Unlinking keeps the instance and its mods. Play won't join the server or update its mods.",
-                colors::GRAY_400,
-            )
+            .note(t(M::UnlinkNote), colors::GRAY_400)
         } else {
             row.child(
-                muted_link("unlink", "Unlink").on_click(cx.listener(|this, _, _, cx| {
+                muted_link("unlink", t(M::Unlink)).on_click(cx.listener(|this, _, _, cx| {
                     this.confirm_unlink = true;
                     cx.notify();
                 })),
             )
         };
         Some(
-            section("Linked server", None)
+            section(t(M::LinkedServer), None)
                 .child(card([row.into_any_element()]))
                 .into_any_element(),
         )
@@ -1388,17 +1372,17 @@ impl InstanceSettings {
             row.child(editor).child(
                 muted_link(
                     SharedString::from(format!("reset-{}", setting.id())),
-                    "Reset",
+                    t(CommonMsg::Reset),
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.reset(setting, cx))),
             )
         } else {
             row.child(value(inherited, true))
-                .child(tag("Default", colors::GRAY_500))
+                .child(tag(t(CommonMsg::Default), colors::GRAY_500))
                 .child(
                     link(
                         SharedString::from(format!("change-{}", setting.id())),
-                        "Change",
+                        t(M::ChangeSetting),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.change(setting, cx))),
                 )
@@ -1422,10 +1406,31 @@ fn sized(input: &Entity<TextInput>, width: f32) -> impl IntoElement {
 /// "None", or the arguments.
 fn or_none(text_: &str) -> String {
     if text_.trim().is_empty() {
-        "None".to_string()
+        t(M::NoArguments).to_string()
     } else {
         text_.to_string()
     }
+}
+
+/// The instance's loader and its version, "Fabric 0.16.9", or "Vanilla".
+fn loader_label(instance: &Instance) -> String {
+    match instance.loader.kind() {
+        Some(_) => instance.loader_label(),
+        None => t(M::Vanilla).to_string(),
+    }
+}
+
+/// The name of an automatic sidebar group.
+fn auto_group_name(group: launcher_core::instances::AutoGroup) -> &'static str {
+    use launcher_core::instances::AutoGroup;
+    t(match group {
+        AutoGroup::Fabric => M::AutoGroupFabric,
+        AutoGroup::Forge => M::AutoGroupForge,
+        AutoGroup::NeoForge => M::AutoGroupNeoForge,
+        AutoGroup::Quilt => M::AutoGroupQuilt,
+        AutoGroup::Vanilla => M::AutoGroupVanilla,
+        AutoGroup::Imported => M::AutoGroupImported,
+    })
 }
 
 impl Render for InstanceSettings {
@@ -1451,144 +1456,145 @@ impl Render for InstanceSettings {
         let mut sections: Vec<(SharedString, AnyElement)> = Vec::new();
 
         if let Some(modpack) = self.modpack_section(busy, cx) {
-            sections.push(("Modpack".into(), modpack));
+            sections.push((t(M::Modpack).into(), modpack));
         }
 
         // General.
         let name_empty = self.text(&self.name, cx).is_empty();
         let group_hint: SharedString = match instance.as_ref() {
-            Some(instance) if self.instances.read(cx).auto_groups() => format!(
-                "Instances in the same group are listed together. Without one it's listed under {}.",
-                launcher_core::instances::AutoGroup::of(instance).name()
+            Some(instance) if self.instances.read(cx).auto_groups() => tr!(
+                M::GroupHintAuto,
+                group = auto_group_name(launcher_core::instances::AutoGroup::of(instance))
             )
             .into(),
-            _ => "Instances in the same group are listed together.".into(),
+            _ => t(M::GroupHint).into(),
         };
-        let general =
-            card([
-                SettingRow::new("Name")
-                    .child(sized(&self.name, 260.))
-                    .when(name_empty, |row| {
-                        row.note("Give the instance a name.", colors::RED_200)
-                    })
-                    .into_any_element(),
-                SettingRow::new("Group")
-                    .hint(group_hint)
-                    .child(sized(&self.group, 260.))
-                    .into_any_element(),
-                SettingRow::new("Icon")
-                    .hint("Shown in the sidebar and around the launcher.")
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .items_end()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap_3()
-                                    .children(instance.as_ref().map(|instance| {
-                                        appearance::instance_icon(
-                                            self.instances.read(cx),
-                                            instance,
-                                            px(36.),
-                                        )
-                                    }))
-                                    .child(
-                                        Button::new("choose-icon", "Change…")
-                                            .variant(ButtonVariant::Secondary)
-                                            .size(ButtonSize::Slim)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.icon_picker = match this.icon_picker {
-                                                    Some(_) => None,
-                                                    None => Some(IconTab::Library),
-                                                };
-                                                cx.notify();
-                                            })),
-                                    ),
-                            )
-                            .when_some(self.icon_picker, |this, tab| {
-                                let current = instance.as_ref().and_then(|i| i.icon.clone());
-                                let close = cx.listener(|this, _: &(), _, cx| {
-                                    this.icon_picker = None;
-                                    cx.notify();
-                                });
-                                this.child(popover(
-                                    "icon-picker-popover",
-                                    self.icon_picker_panel(tab, current.as_deref(), cx),
-                                    move |window, cx| close(&(), window, cx),
-                                ))
-                            }),
-                    )
-                    .into_any_element(),
-                SettingRow::new("Play background")
-                    .hint("Shown behind the name on the Play tab. The launcher darkens it under the text as much as the image needs.")
-                    .child(match (&background, has_background) {
-                        (Some(image), _) => img(image.clone())
-                            .w(px(72.))
-                            .h(px(40.))
-                            .rounded(radius::MD)
-                            .object_fit(ObjectFit::Cover)
-                            .into_any_element(),
-                        (None, true) => LoadingDots.into_any_element(),
-                        (None, false) => img(crate::images::hero(cx))
-                            .w(px(72.))
-                            .h(px(40.))
-                            .rounded(radius::MD)
-                            .object_fit(ObjectFit::Cover)
-                            .into_any_element(),
-                    })
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .items_end()
-                            .child(
-                                Button::new("choose-background", "Change…")
-                                    .variant(ButtonVariant::Secondary)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.toggle_background_picker(cx)
-                                    })),
-                            )
-                            .when(self.background_picker, |this| {
-                                let close = cx.listener(|this, _: &(), _, cx| {
-                                    this.background_picker = false;
-                                    cx.notify();
-                                });
-                                this.child(popover(
-                                    "background-picker-popover",
-                                    self.background_picker_panel(has_background, cx),
-                                    move |window, cx| close(&(), window, cx),
-                                ))
-                            }),
-                    )
-                    .into_any_element(),
-            ]);
+        let general = card([
+            SettingRow::new(t(M::Name))
+                .child(sized(&self.name, 260.))
+                .when(name_empty, |row| {
+                    row.note(t(M::NameMissing), colors::RED_200)
+                })
+                .into_any_element(),
+            SettingRow::new(t(M::Group))
+                .hint(group_hint)
+                .child(sized(&self.group, 260.))
+                .into_any_element(),
+            SettingRow::new(t(M::Icon))
+                .hint(t(M::IconHint))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_end()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_3()
+                                .children(instance.as_ref().map(|instance| {
+                                    appearance::instance_icon(
+                                        self.instances.read(cx),
+                                        instance,
+                                        px(36.),
+                                    )
+                                }))
+                                .child(
+                                    Button::new("choose-icon", t(CommonMsg::Change))
+                                        .variant(ButtonVariant::Secondary)
+                                        .size(ButtonSize::Slim)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.icon_picker = match this.icon_picker {
+                                                Some(_) => None,
+                                                None => Some(IconTab::Library),
+                                            };
+                                            cx.notify();
+                                        })),
+                                ),
+                        )
+                        .when_some(self.icon_picker, |this, tab| {
+                            let current = instance.as_ref().and_then(|i| i.icon.clone());
+                            let close = cx.listener(|this, _: &(), _, cx| {
+                                this.icon_picker = None;
+                                cx.notify();
+                            });
+                            this.child(popover(
+                                "icon-picker-popover",
+                                self.icon_picker_panel(tab, current.as_deref(), cx),
+                                move |window, cx| close(&(), window, cx),
+                            ))
+                        }),
+                )
+                .into_any_element(),
+            SettingRow::new(t(M::PlayBackground))
+                .hint(t(M::PlayBackgroundHint))
+                .child(match (&background, has_background) {
+                    (Some(image), _) => img(image.clone())
+                        .w(px(72.))
+                        .h(px(40.))
+                        .rounded(radius::MD)
+                        .object_fit(ObjectFit::Cover)
+                        .into_any_element(),
+                    (None, true) => LoadingDots.into_any_element(),
+                    (None, false) => img(crate::images::hero(cx))
+                        .w(px(72.))
+                        .h(px(40.))
+                        .rounded(radius::MD)
+                        .object_fit(ObjectFit::Cover)
+                        .into_any_element(),
+                })
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_end()
+                        .child(
+                            Button::new("choose-background", t(CommonMsg::Change))
+                                .variant(ButtonVariant::Secondary)
+                                .size(ButtonSize::Slim)
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.toggle_background_picker(cx)),
+                                ),
+                        )
+                        .when(self.background_picker, |this| {
+                            let close = cx.listener(|this, _: &(), _, cx| {
+                                this.background_picker = false;
+                                cx.notify();
+                            });
+                            this.child(popover(
+                                "background-picker-popover",
+                                self.background_picker_panel(has_background, cx),
+                                move |window, cx| close(&(), window, cx),
+                            ))
+                        }),
+                )
+                .into_any_element(),
+        ]);
         sections.push((
-            "General".into(),
-            section("General", None).child(general).into_any_element(),
+            t(M::General).into(),
+            section(t(M::General), None)
+                .child(general)
+                .into_any_element(),
         ));
 
         // Game & loader.
         let game = card([
             SettingRow::new("Minecraft")
-                .hint("Set when the instance was made.")
+                .hint(t(M::GameVersionHint))
                 .child(value(self.game_version.clone(), false))
                 .into_any_element(),
             self.loader.clone().into_any_element(),
         ]);
         sections.push((
-            "Game & loader".into(),
-            section("Game & loader", None)
+            t(M::GameAndLoader).into(),
+            section(t(M::GameAndLoader), None)
                 .child(game)
                 .into_any_element(),
         ));
 
         if let Some(server) = self.server_section(cx) {
-            sections.push(("Linked server".into(), server));
+            sections.push((t(M::LinkedServer).into(), server));
         }
 
         // Java & memory.
@@ -1596,7 +1602,7 @@ impl Render for InstanceSettings {
         let memory = self
             .default_row(
                 Setting::Memory,
-                "Memory",
+                t(M::Memory),
                 fields::memory_label(defaults.memory(total)),
                 div()
                     .flex()
@@ -1606,7 +1612,7 @@ impl Render for InstanceSettings {
                     .child(sized(&self.fields.min_ram, 84.))
                     .child("–")
                     .child(sized(&self.fields.max_ram, 84.))
-                    .child(div().text_color(colors::GRAY_500).child("MB")),
+                    .child(div().text_color(colors::GRAY_500).child(t(M::MemoryUnit))),
                 cx,
             )
             .hint_opt(fields::total_memory_label(total))
@@ -1624,34 +1630,37 @@ impl Render for InstanceSettings {
             });
         let java_note: Option<(SharedString, theme::Color)> = match &self.java_check {
             JavaCheck::None => None,
-            JavaCheck::Checking => Some(("Checking…".into(), colors::GRAY_500)),
+            JavaCheck::Checking => Some((t(M::Checking).into(), colors::GRAY_500)),
             JavaCheck::Found(info) => match required_java {
                 Some(needed) if info.major < needed => Some((
-                    format!(
-                        "Java {} (version {}). Minecraft {} needs Java {needed} or newer.",
-                        info.major, info.version, self.game_version
+                    tr!(
+                        M::JavaTooOld,
+                        major = info.major,
+                        version = info.version,
+                        game = self.game_version,
+                        needed = needed
                     )
                     .into(),
                     colors::YELLOW,
                 )),
                 _ => Some((
-                    format!("Java {} (version {})", info.major, info.version).into(),
+                    tr!(M::JavaFound, major = info.major, version = info.version).into(),
                     colors::GREEN_300,
                 )),
             },
             JavaCheck::Failed(err) => Some((err.clone(), colors::RED_200)),
         };
         let mojang_java = match required_java {
-            Some(major) => format!("Mojang's Java {major}"),
-            None => "Mojang's Java".to_string(),
+            Some(major) => tr!(M::MojangJavaVersion, major = major),
+            None => t(M::MojangJava).to_string(),
         };
         let java = self
             .default_row(Setting::Java, "Java", mojang_java, div(), cx)
-            .hint(if overrides.java {
-                "A java binary to use instead of the one Mojang provides."
+            .hint(t(if overrides.java {
+                M::JavaOverrideHint
             } else {
-                "Mojang provides the right Java for each Minecraft version."
-            })
+                M::JavaHint
+            }))
             .when(overrides.java, |row| {
                 row.below(
                     div()
@@ -1661,13 +1670,13 @@ impl Render for InstanceSettings {
                         .gap_2()
                         .child(div().flex_1().min_w_0().child(self.java.clone()))
                         .child(
-                            Button::new("browse-java", "Browse…")
+                            Button::new("browse-java", t(CommonMsg::Browse))
                                 .variant(ButtonVariant::Secondary)
                                 .size(ButtonSize::Slim)
                                 .on_click(cx.listener(|this, _, _, cx| this.browse_java(cx))),
                         )
                         .child(
-                            Button::new("check-java", "Check")
+                            Button::new("check-java", t(M::Check))
                                 .variant(ButtonVariant::Secondary)
                                 .size(ButtonSize::Slim)
                                 .on_click(cx.listener(|this, _, _, cx| this.check_java(cx))),
@@ -1676,13 +1685,10 @@ impl Render for InstanceSettings {
                 .note_opt(java_note)
             });
         sections.push((
-            "Java & memory".into(),
-            section(
-                "Java & memory",
-                Some("Values marked Default come from the launcher's Settings. Change one to set it for this instance only.".into()),
-            )
-            .child(card([memory.into_any_element(), java.into_any_element()]))
-            .into_any_element(),
+            t(M::JavaAndMemory).into(),
+            section(t(M::JavaAndMemory), Some(t(M::JavaMemoryLead).into()))
+                .child(card([memory.into_any_element(), java.into_any_element()]))
+                .into_any_element(),
         ));
 
         // Launch options.
@@ -1697,29 +1703,25 @@ impl Render for InstanceSettings {
         let jvm = self
             .default_row(
                 Setting::JvmArgs,
-                "JVM arguments",
+                t(M::JvmArguments),
                 or_none(&defaults.jvm_args),
                 sized(&self.fields.jvm_args, 280.),
                 cx,
             )
-            .when(overrides.jvm_args, |row| {
-                row.hint("Separated by spaces; quote values with spaces.")
-            });
+            .when(overrides.jvm_args, |row| row.hint(t(M::ArgumentsHint)));
         let game_args = self
             .default_row(
                 Setting::GameArgs,
-                "Game arguments",
+                t(M::GameArguments),
                 or_none(&defaults.game_args),
                 sized(&self.fields.game_args, 280.),
                 cx,
             )
-            .when(overrides.game_args, |row| {
-                row.hint("Separated by spaces; quote values with spaces.")
-            });
+            .when(overrides.game_args, |row| row.hint(t(M::ArgumentsHint)));
         let window = self
             .default_row(
                 Setting::Window,
-                "Window",
+                t(M::Window),
                 fields::window_label(&defaults.window()),
                 div()
                     .flex()
@@ -1733,7 +1735,7 @@ impl Render for InstanceSettings {
                         div()
                             .ml_2()
                             .text_color(colors::GRAY_400)
-                            .child("Fullscreen"),
+                            .child(t(M::Fullscreen)),
                     )
                     .child(Toggle::new("fullscreen", self.fields.fullscreen).on_change(
                         cx.listener(|this, value: &bool, _, cx| {
@@ -1743,30 +1745,26 @@ impl Render for InstanceSettings {
                     )),
                 cx,
             )
-            .when(overrides.window, |row| {
-                row.hint("Leave the size empty for the game's default.")
-            })
+            .when(overrides.window, |row| row.hint(t(M::WindowHint)))
             .note_opt(window_check.map(|e| (e.into(), colors::RED_200)));
         let env_text = if defaults.env.is_empty() {
-            "None".to_string()
+            t(M::NoVariables).to_string()
         } else {
             format_env(&defaults.env)
         };
         let env = self
             .default_row(
                 Setting::Env,
-                "Environment variables",
+                t(M::EnvironmentVariables),
                 env_text,
                 sized(&self.fields.env, 280.),
                 cx,
             )
-            .when(overrides.env, |row| {
-                row.hint("NAME=value, separated by spaces.")
-            })
+            .when(overrides.env, |row| row.hint(t(M::EnvHint)))
             .note_opt(env_check.map(|e| (e.into(), colors::RED_200)));
         sections.push((
-            "Launch options".into(),
-            section("Launch options", None)
+            t(M::LaunchOptions).into(),
+            section(t(M::LaunchOptions), None)
                 .child(card([
                     jvm.into_any_element(),
                     game_args.into_any_element(),
@@ -1777,17 +1775,17 @@ impl Render for InstanceSettings {
         ));
 
         sections.push((
-            "Shared game settings".into(),
+            t(M::SharedGameSettings).into(),
             self.shared.clone().into_any_element(),
         ));
 
         // Maintenance.
         let id = self.instance_id.clone();
         let maintenance = card([
-            SettingRow::new("Verify game files")
-                .hint("Checks every file and downloads any that are missing or damaged.")
+            SettingRow::new(t(M::VerifyGameFiles))
+                .hint(t(M::VerifyHint))
                 .child(
-                    Button::new("verify-files", "Verify")
+                    Button::new("verify-files", t(M::Verify))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .disabled(busy)
@@ -1795,27 +1793,23 @@ impl Render for InstanceSettings {
                             let id = this.instance_id.clone();
                             this.instances
                                 .update(cx, |instances, cx| instances.verify(&id, cx));
-                            this.set_message(
-                                "Checking every file. The progress is on the Play button.",
-                                false,
-                                cx,
-                            );
+                            this.set_message(t(M::VerifyStarted), false, cx);
                         })),
                 )
                 .into_any_element(),
-            SettingRow::new("Export")
-                .hint("A .mrpack file that other launchers can import.")
+            SettingRow::new(t(M::Export))
+                .hint(t(M::ExportHint))
                 .child(
-                    Button::new("export-instance", "Export…")
+                    Button::new("export-instance", t(M::ExportButton))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
                 )
                 .into_any_element(),
-            SettingRow::new("Duplicate")
-                .hint("A copy with its own folder, mods and worlds.")
+            SettingRow::new(t(M::Duplicate))
+                .hint(t(M::DuplicateHint))
                 .child(
-                    Button::new("duplicate-instance", "Duplicate")
+                    Button::new("duplicate-instance", t(M::Duplicate))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -1829,10 +1823,10 @@ impl Render for InstanceSettings {
                         })),
                 )
                 .into_any_element(),
-            SettingRow::new("Host on a Lodestone core")
-                .hint("Makes a server on one of your cores with this instance's mods.")
+            SettingRow::new(t(M::HostOnCore))
+                .hint(t(M::HostHint))
                 .child(
-                    Button::new("host-instance", "Host…")
+                    Button::new("host-instance", t(M::HostButton))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -1840,11 +1834,11 @@ impl Render for InstanceSettings {
                         })),
                 )
                 .into_any_element(),
-            SettingRow::new("Delete instance")
+            SettingRow::new(t(M::DeleteInstance))
                 .danger()
-                .hint("Its folder, with its worlds and mods. You confirm first.")
+                .hint(t(M::DeleteHint))
                 .child(
-                    Button::new("delete-instance", "Delete…")
+                    Button::new("delete-instance", t(M::DeleteButton))
                         .variant(ButtonVariant::Danger)
                         .size(ButtonSize::Slim)
                         .on_click(
@@ -1854,8 +1848,8 @@ impl Render for InstanceSettings {
                 .into_any_element(),
         ]);
         sections.push((
-            "Maintenance".into(),
-            section("Maintenance", None)
+            t(M::Maintenance).into(),
+            section(t(M::Maintenance), None)
                 .child(maintenance)
                 .into_any_element(),
         ));
@@ -1935,7 +1929,7 @@ impl Render for InstanceSettings {
         let bar = self.has_changes(cx).then(|| {
             unsaved_bar(
                 "instance-unsaved",
-                "You have unsaved changes",
+                t(CommonMsg::UnsavedChanges),
                 self.can_save(cx),
                 cx.listener(|this, _, _, cx| this.discard(cx)),
                 cx.listener(|this, _, _, cx| {

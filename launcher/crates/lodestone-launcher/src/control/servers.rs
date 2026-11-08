@@ -155,7 +155,10 @@ pub fn cores_list(call: Call, cx: &mut App) -> Reply {
             let servers = control.servers.read(cx);
             json!({
                 "cores": servers.cores.iter().map(|c| core_json(c, servers, true)).collect::<Vec<_>>(),
-                "notice": servers.notice.as_ref().map(|(t, m)| json!({ "title": t.to_string(), "message": m.to_string() })),
+                "notice": servers.notice.as_ref().map(|notice| {
+                    let (title, message) = notice.text();
+                    json!({ "title": title, "message": message })
+                }),
             })
         }))
     })
@@ -391,7 +394,10 @@ pub fn cores_sign_out(call: Call, cx: &mut App) -> Reply {
 
 /// The page's notice, to tell a new one from the old.
 fn notice_of(servers: &Servers) -> Option<(SharedString, SharedString)> {
-    servers.notice.clone()
+    servers.notice.as_ref().map(|notice| {
+        let (title, message) = notice.text();
+        (title.into(), message.into())
+    })
 }
 
 fn notice_error(notice: &(SharedString, SharedString)) -> ErrorObject {
@@ -652,38 +658,46 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
         .update(cx, |servers, cx| servers.create_instance(&core, server, cx));
     let watch = control.clone();
     let work = cx.spawn(async move |cx| -> ApiResult {
-        let outcome = poll_until(cx, None, Duration::from_millis(250), Duration::from_secs(6 * 3600), |cx| {
-            if let Some(answer) = watch
-                .servers
-                .update(cx, |servers, cx| handle_advisory(servers, &name, params.accept_advisory, cx))
-            {
-                if let Err(err) = answer {
-                    return Some(Err(err));
+        let outcome = poll_until(
+            cx,
+            None,
+            Duration::from_millis(250),
+            Duration::from_secs(6 * 3600),
+            |cx| {
+                if let Some(answer) = watch.servers.update(cx, |servers, cx| {
+                    handle_advisory(servers, &name, params.accept_advisory, cx)
+                }) {
+                    if let Err(err) = answer {
+                        return Some(Err(err));
+                    }
+                    return None;
                 }
-                return None;
-            }
-            let servers = watch.servers.read(cx);
-            let link = servers.linked_instance(&core_id, &server_id).cloned();
-            let busy = servers.busy.contains_key(&row) || servers.advisory.is_open();
-            if let Some(id) = link
-                && Some(&id) != before_link.as_ref()
-                && !busy
-            {
-                return Some(Ok(id));
-            }
-            match notice_of(servers) {
-                Some(notice) if !busy && Some(&notice) != before.as_ref() => {
-                    Some(Err(notice_error(&notice)))
+                let servers = watch.servers.read(cx);
+                let link = servers.linked_instance(&core_id, &server_id).cloned();
+                let busy = servers.busy.contains_key(&row) || servers.advisory.is_open();
+                if let Some(id) = link
+                    && Some(&id) != before_link.as_ref()
+                    && !busy
+                {
+                    return Some(Ok(id));
                 }
-                _ => None,
-            }
-        })
+                match notice_of(servers) {
+                    Some(notice) if !busy && Some(&notice) != before.as_ref() => {
+                        Some(Err(notice_error(&notice)))
+                    }
+                    _ => None,
+                }
+            },
+        )
         .await??;
         Ok(cx.update(|cx| {
             let servers = watch.servers.read(cx);
             json!({
                 "instance": outcome,
-                "notice": servers.notice.as_ref().map(|(t, m)| json!({ "title": t.to_string(), "message": m.to_string() })),
+                "notice": servers.notice.as_ref().map(|notice| {
+                    let (title, message) = notice.text();
+                    json!({ "title": title, "message": message })
+                }),
             })
         }))
     });

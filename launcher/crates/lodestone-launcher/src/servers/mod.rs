@@ -30,6 +30,7 @@ pub(crate) mod control;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
+    rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -39,12 +40,12 @@ use gpui::{
     Task,
 };
 use http_client::HttpClient;
-use launcher_core::wording;
 use launcher_core::{
     Secret,
     content::install::InstallProgress,
     cores::{
-        self, CoreClient, CoreError, PackFetch, ServerInstance, ServerList, ServerState,
+        self, CoreClient, CoreError, PackFetch, ServerInstance, ServerList, ServerLoader,
+        ServerState,
         client::display_address,
         join::join_target,
         link::{self, ServerLink},
@@ -63,7 +64,12 @@ use launcher_core::{
 };
 use url::Url;
 
-use crate::{accounts::Accounts, components::DialogSlot, instances::Instances};
+use crate::{
+    accounts::Accounts,
+    components::DialogSlot,
+    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, format, t, tr, trn},
+    instances::Instances,
+};
 use add_dialog::{AddRequest, AddServerDialog, AddServerEvent};
 
 /// How often the lists are fetched while the page is visible.
@@ -73,14 +79,106 @@ pub const START_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// What trusting a core for mods means, shown wherever the user is asked.
 pub fn trust_explanation() -> String {
-    format!(
-        "Mods from a Lodestone core run as programs on this {}, with the same access to your files and accounts as you. Only trust a core whose owner you trust.",
-        wording::COMPUTER
-    )
+    tr!(M::TrustExplanation, computer = t(CommonMsg::ThisComputer))
 }
 
-/// Where to find a core's certificate fingerprint, to compare.
-pub const FINGERPRINT_HELP: &str = "Compare it with the fingerprint the core shows: in the dashboard under Settings → Core Settings → Information (\"Certificate fingerprint (SHA-256)\"), or in the core's log when it starts (\"TLS certificate SHA-256 fingerprint\").";
+/// A server's state, in a word or two.
+pub fn state_label(state: ServerState) -> &'static str {
+    t(match state {
+        ServerState::Starting => M::StateStarting,
+        ServerState::Running => M::StateRunning,
+        ServerState::Stopping => M::StateStopping,
+        ServerState::Stopped => M::StateStopped,
+        ServerState::Error => M::StateCrashed,
+        ServerState::Unknown => M::StateUnknown,
+        ServerState::Hidden => M::StateHidden,
+    })
+}
+
+/// The players online, "3 / 20 players", when the core says.
+pub fn players_label(server: &ServerInstance) -> Option<String> {
+    let count = server.player_count?;
+    Some(match server.max_player_count {
+        Some(max) => tr!(
+            M::PlayersOfMax,
+            count = format::number(count.into()),
+            max = format::number(max.into())
+        ),
+        None => trn!(P::Players, count),
+    })
+}
+
+/// The state, with the players when the server runs: "Running · 3 / 20 players".
+pub fn status_label(server: &ServerInstance) -> String {
+    match players_label(server) {
+        Some(players) if server.state == ServerState::Running => {
+            format!("{} · {players}", state_label(server.state))
+        }
+        _ => state_label(server.state).to_string(),
+    }
+}
+
+/// A server's loader: its name, or "Other".
+pub fn loader_label(loader: ServerLoader) -> &'static str {
+    match loader {
+        ServerLoader::Other => t(M::LoaderOther),
+        loader => loader.label(),
+    }
+}
+
+/// Why a request to a core failed, for people. The text a core sends (and the
+/// system's own errors) stays as it is.
+pub fn core_error(err: &CoreError) -> String {
+    // the texts launcher-core gives these errors when the core sends none
+    const FORBIDDEN: &str = "The core refused: you don't have permission to do that.";
+    const NOT_FOUND: &str = "Not found";
+    const TOO_MANY: &str = "Too many attempts. Try again in a few minutes.";
+    match err {
+        CoreError::InvalidAddress(message) => message.clone(),
+        CoreError::Unreachable(detail) => tr!(M::CoreUnreachable, detail = detail),
+        CoreError::Untrusted { host, .. } => tr!(
+            M::CoreUntrusted,
+            host = host,
+            computer = t(CommonMsg::ThisComputer)
+        ),
+        CoreError::CertificateChanged { host, .. } => tr!(M::CoreCertificateChanged, host = host),
+        CoreError::SignedOut => t(M::CoreSignedOut).into(),
+        CoreError::BadCredentials => t(M::CoreBadCredentials).into(),
+        CoreError::Forbidden(message) if message == FORBIDDEN => t(M::CoreForbidden).into(),
+        CoreError::NotFound(message) if message == NOT_FOUND => t(M::CoreNotFound).into(),
+        CoreError::TooManyRequests(message) if message == TOO_MANY => {
+            t(M::CoreTooManyRequests).into()
+        }
+        CoreError::Forbidden(message)
+        | CoreError::NotFound(message)
+        | CoreError::TooManyRequests(message) => message.clone(),
+        CoreError::TooOld => t(M::CoreTooOld).into(),
+        CoreError::Server { status, message } => {
+            tr!(M::CoreAnswered, status = status, message = message)
+        }
+        CoreError::Invalid(detail) => tr!(M::CoreInvalidReply, detail = detail),
+    }
+}
+
+/// Where to find a core's certificate fingerprint, in English, for the control API's
+/// answers (the interface shows `ServersMsg::FingerprintHelp` in its language).
+pub const FINGERPRINT_HELP: &str = M::FingerprintHelp.english();
+
+/// A message at the top of the page: its title and text, made each time it is shown so
+/// it follows the language.
+#[derive(Clone)]
+pub struct Notice(Rc<dyn Fn() -> (String, String)>);
+
+impl Notice {
+    pub fn new(text: impl Fn() -> (String, String) + 'static) -> Self {
+        Self(Rc::new(text))
+    }
+
+    /// The title and the text, in the current language.
+    pub fn text(&self) -> (String, String) {
+        (self.0)()
+    }
+}
 
 /// A core's list, as last fetched.
 #[derive(Clone, Debug)]
@@ -144,24 +242,25 @@ pub enum Busy {
 
 impl Busy {
     pub fn label(&self) -> String {
-        let files = |progress: &InstallProgress, verb: &str| {
+        let files = |progress: &InstallProgress, plain: M, counted: M| {
             let snapshot = progress.downloads.snapshot();
             if snapshot.files_total == 0 {
-                format!("{verb}…")
+                t(plain).to_string()
             } else {
-                format!(
-                    "{verb} {}/{} files…",
-                    snapshot.files_done, snapshot.files_total
+                tr!(
+                    counted,
+                    done = format::number(snapshot.files_done),
+                    total = format::number(snapshot.files_total)
                 )
             }
         };
         match self {
-            Busy::Fetching => "Getting the server's mods…".into(),
-            Busy::Creating(progress) => files(progress, "Creating instance, downloading"),
-            Busy::CheckingMods => "Checking the server's mods…".into(),
-            Busy::UpdatingMods(progress) => files(progress, "Updating mods,"),
-            Busy::Starting => "Starting the server…".into(),
-            Busy::Stopping => "Stopping…".into(),
+            Busy::Fetching => t(M::BusyFetching).into(),
+            Busy::Creating(progress) => files(progress, M::BusyCreating, M::BusyCreatingFiles),
+            Busy::CheckingMods => t(M::BusyChecking).into(),
+            Busy::UpdatingMods(progress) => files(progress, M::BusyUpdating, M::BusyUpdatingFiles),
+            Busy::Starting => t(M::BusyStarting).into(),
+            Busy::Stopping => t(M::BusyStopping).into(),
         }
     }
 }
@@ -315,7 +414,7 @@ pub struct Servers {
     instance_links: HashMap<String, ServerLink>,
     pub busy: HashMap<RowKey, Busy>,
     /// A message at the top of the page.
-    pub notice: Option<(SharedString, SharedString)>,
+    pub notice: Option<Notice>,
     dialog: DialogSlot<Servers, (Entity<AddServerDialog>, Subscription)>,
     pub prompt: DialogSlot<Servers, UpdatePrompt>,
     /// A server's page, shown instead of the list (see [`detail`]).
@@ -376,7 +475,8 @@ impl Servers {
         let mut file = match store::load(&self.file) {
             Ok(file) => file,
             Err(err) => {
-                self.notice = Some(("Couldn't read your servers".into(), err.to_string().into()));
+                let err = err.to_string();
+                self.notice = Some(Notice::new(move || (t(M::ReadFailed).into(), err.clone())));
                 ServersFile::default()
             }
         };
@@ -434,7 +534,8 @@ impl Servers {
             cores: self.cores.iter().map(|c| c.saved.clone()).collect(),
         };
         if let Err(err) = store::save(&self.file, &file) {
-            self.notice = Some(("Couldn't save your servers".into(), err.to_string().into()));
+            let err = err.to_string();
+            self.notice = Some(Notice::new(move || (t(M::SaveFailed).into(), err.clone())));
         }
     }
 
@@ -567,14 +668,13 @@ impl Servers {
         if let Some((_, trust_ended)) = &renamed {
             changed = true;
             if *trust_ended {
-                self.notice = Some((
-                    format!("{} is no longer trusted for mods", core.saved.name).into(),
-                    format!(
-                        "Another core answers at {} now (its id changed). Trust it again on its card only if you trust its owner.",
-                        display_address(&core.url)
+                let (name, address) = (core.saved.name.clone(), display_address(&core.url));
+                self.notice = Some(Notice::new(move || {
+                    (
+                        tr!(M::NoLongerTrusted, name = name),
+                        tr!(M::NoLongerTrustedIdChanged, address = address),
                     )
-                    .into(),
-                ));
+                }));
             }
         }
         self.cores[index].status = CoreStatus::Online(list);
@@ -609,10 +709,12 @@ impl Servers {
         let uuid = core.saved.uuid.clone();
         let name = core.saved.name.clone();
         self.save();
-        self.notice = Some((
-            format!("Signed out of {name}").into(),
-            CoreError::SignedOut.to_string().into(),
-        ));
+        self.notice = Some(Notice::new(move || {
+            (
+                tr!(M::SignedOutOf, name = name),
+                core_error(&CoreError::SignedOut),
+            )
+        }));
         self.forget_key(uuid, cx);
         self.refresh(index, cx);
     }
@@ -651,10 +753,13 @@ impl Servers {
             let store = secrets.store(cx);
             if let Err(err) = store::write_key(&*store, &uuid, &key).await {
                 this.update(cx, |this, cx| {
-                    this.notice = Some((
-                        "Couldn't save the key in the Keychain".into(),
-                        format!("{err:#}").into(),
-                    ));
+                    let err = format!("{err:#}");
+                    this.notice = Some(Notice::new(move || {
+                        (
+                            tr!(M::KeySaveFailed, keychain = t(CommonMsg::Keychain)),
+                            err.clone(),
+                        )
+                    }));
                     cx.notify();
                 })
                 .ok();
@@ -713,7 +818,7 @@ impl Servers {
         let url = match cores::parse_address(&request.address) {
             Ok(url) => url,
             Err(err) => {
-                dialog.update(cx, |d, cx| d.fail(err.to_string(), cx));
+                dialog.update(cx, |d, cx| d.fail(core_error(&err), cx));
                 return;
             }
         };
@@ -770,12 +875,7 @@ impl Servers {
                     name,
                 }) => {
                     this.update(cx, |this, cx| {
-                        dialog.update(cx, |d, cx| {
-                            d.fail(
-                                "Check the core's certificate to continue.".into(),
-                                cx,
-                            )
-                        });
+                        dialog.update(cx, |d, cx| d.fail(t(M::CheckCertificate).into(), cx));
                         let focus = cx.focus_handle();
                         this.cert_prompt.open(
                             CertPrompt {
@@ -794,7 +894,7 @@ impl Servers {
                     return;
                 }
                 Err(AddFailure::Core(err)) => {
-                    dialog.update(cx, |d, cx| d.fail(err.to_string(), cx));
+                    dialog.update(cx, |d, cx| d.fail(core_error(&err), cx));
                     return;
                 }
             };
@@ -803,7 +903,11 @@ impl Servers {
                 if let Err(err) = store::write_key(&*store, &info.uuid, secret).await {
                     dialog.update(cx, |d, cx| {
                         d.fail(
-                            format!("Couldn't save the key in the {}: {err:#}", wording::KEYCHAIN),
+                            tr!(
+                                M::KeySaveFailedError,
+                                keychain = t(CommonMsg::Keychain),
+                                error = format!("{err:#}")
+                            ),
                             cx,
                         )
                     });
@@ -822,10 +926,13 @@ impl Servers {
                         && core.saved.uuid != info.uuid
                         && core.saved.check_identity(&info.uuid)
                     {
-                        this.notice = Some((
-                            format!("{} is no longer trusted for mods", core.saved.name).into(),
-                            format!("Another core answers at {address} now.").into(),
-                        ));
+                        let (name, address) = (core.saved.name.clone(), address.clone());
+                        this.notice = Some(Notice::new(move || {
+                            (
+                                tr!(M::NoLongerTrusted, name = name),
+                                tr!(M::NoLongerTrustedOtherCore, address = address),
+                            )
+                        }));
                     }
                 }
                 let mut saved = match existing {
@@ -848,10 +955,13 @@ impl Servers {
                 if let Some(pin) = pin.clone()
                     && saved.pin_certificate(pin)
                 {
-                    this.notice = Some((
-                        format!("{} is no longer trusted for mods", saved.name).into(),
-                        "You trusted a new certificate for it. Trust it for mods again on its card if you're sure it is the same core.".into(),
-                    ));
+                    let name = saved.name.clone();
+                    this.notice = Some(Notice::new(move || {
+                        (
+                            tr!(M::NoLongerTrusted, name = name),
+                            t(M::NoLongerTrustedNewCertificate).into(),
+                        )
+                    }));
                 }
                 let kept_key = existing.and_then(|i| this.cores[i].key.clone());
                 let signed_in_now = key.is_some();
@@ -954,12 +1064,7 @@ impl Servers {
                     dialog.update(cx, |d, cx| d.set_busy(cx));
                     self.add_core(request, dialog, Some(pin), cx);
                 } else {
-                    dialog.update(cx, |d, cx| {
-                        d.fail(
-                            "The certificate wasn't trusted, so your sign-in wasn't sent to the core.".into(),
-                            cx,
-                        )
-                    });
+                    dialog.update(cx, |d, cx| d.fail(t(M::CertificateNotTrusted).into(), cx));
                 }
             }
             CertTarget::Core(uuid) if trust => {
@@ -968,10 +1073,13 @@ impl Servers {
                 };
                 let core = &mut self.cores[index];
                 if core.saved.pin_certificate(pin) {
-                    self.notice = Some((
-                        format!("{} is no longer trusted for mods", core.saved.name).into(),
-                        "Its certificate changed. Trust it for mods again on its card if you're sure it is the same core.".into(),
-                    ));
+                    let name = core.saved.name.clone();
+                    self.notice = Some(Notice::new(move || {
+                        (
+                            tr!(M::NoLongerTrusted, name = name),
+                            t(M::NoLongerTrustedCertificateChanged).into(),
+                        )
+                    }));
                 }
                 core.pinned = pinned_http(core.saved.certificate.as_ref());
                 core.status = CoreStatus::Loading;
@@ -1032,13 +1140,12 @@ impl Servers {
         self.save();
         self.forget_key(uuid, cx);
         if let Some(id) = key_id {
-            self.notice = Some((
-                format!("Signed out of {name}").into(),
-                format!(
-                    "The key for this device (lsk_{id}_…) is still valid until it expires. Revoke it under Settings → API keys in the dashboard to end it now."
+            self.notice = Some(Notice::new(move || {
+                (
+                    tr!(M::SignedOutOf, name = name),
+                    tr!(M::KeyStillValid, id = id),
                 )
-                .into(),
-            ));
+            }));
         }
         self.refresh(index, cx);
         cx.notify();
@@ -1061,28 +1168,27 @@ impl Servers {
         cx.notify();
     }
 
-    fn fail(
-        &mut self,
-        title: impl Into<SharedString>,
-        message: impl Into<SharedString>,
-        cx: &mut Context<Self>,
-    ) {
-        let (title, message) = (title.into(), message.into());
+    /// Says that something failed: at the top of the page, and to the shell when the
+    /// page isn't shown. `text` makes the title and the message.
+    fn fail(&mut self, text: impl Fn() -> (String, String) + 'static, cx: &mut Context<Self>) {
+        let notice = Notice::new(text);
         if !self.visible {
+            let (title, message) = notice.text();
             cx.emit(ServersEvent::Failed {
-                title: title.clone(),
-                message: message.clone(),
+                title: title.into(),
+                message: message.into(),
             });
         }
-        self.notice = Some((title, message));
+        self.notice = Some(notice);
         cx.notify();
     }
 
     /// A failure of a request to a core: the key stopped working, or something else.
+    /// `title` makes the notice's title.
     fn fail_core(
         &mut self,
         core: &str,
-        title: &str,
+        title: impl Fn() -> String + 'static,
         err: impl Into<PullError>,
         cx: &mut Context<Self>,
     ) {
@@ -1093,7 +1199,7 @@ impl Servers {
                 }
             }
             PullError::Cancelled => {}
-            err => self.fail(title.to_string(), err.to_string(), cx),
+            err => self.fail(move || (title(), err.to_string()), cx),
         }
     }
 
@@ -1122,8 +1228,7 @@ impl Servers {
         let dir = self.instances.read(cx).instance_dir(instance_id);
         let path = link::link_path(&dir);
         if path.exists() {
-            std::fs::remove_file(&path)
-                .map_err(|err| format!("Couldn't unlink the instance: {err}"))?;
+            std::fs::remove_file(&path).map_err(|err| tr!(M::UnlinkFailed, error = err))?;
         }
         self.instance_links.remove(instance_id);
         self.links.retain(|_, id| id != instance_id);
@@ -1226,7 +1331,7 @@ impl Servers {
                         });
                         this.gate(pending, PullKind::ClientPack, cx);
                     }
-                    Err(err) => this.fail_core(&core_uuid, "Couldn't create the instance", err, cx),
+                    Err(err) => this.fail_core(&core_uuid, create_failed, err, cx),
                 }
                 cx.notify();
             })
@@ -1239,7 +1344,9 @@ impl Servers {
     fn create_plain(&mut self, core_uuid: &str, server: &ServerInstance, cx: &mut Context<Self>) {
         let loader = match sync::loader_for(None, server) {
             Ok(loader) => loader,
-            Err(message) => return self.fail("Couldn't create the instance", message, cx),
+            Err(message) => {
+                return self.fail(move || (create_failed(), message.clone()), cx);
+            }
         };
         let created = self.instances.update(cx, |instances, cx| {
             instances.create(&server.name, &server.game_version, loader.as_ref(), cx)
@@ -1248,13 +1355,16 @@ impl Servers {
             Ok(instance) => {
                 self.link_instance(core_uuid, server, &instance.id, None, cx);
                 if server.mods_hidden() {
-                    self.notice = Some((
-                        format!("Created {} without the server's mods", server.name).into(),
-                        "The owner hasn't shared this server's client mods, so the instance has only its Minecraft version and loader. Add any mods it needs yourself.".into(),
-                    ));
+                    let name = server.name.clone();
+                    self.notice = Some(Notice::new(move || {
+                        (
+                            tr!(M::CreatedWithoutMods, name = name),
+                            t(M::CreatedWithoutModsBody).into(),
+                        )
+                    }));
                 }
             }
-            Err(message) => self.fail("Couldn't create the instance", message, cx),
+            Err(message) => self.fail(move || (create_failed(), message.clone()), cx),
         }
     }
 
@@ -1279,11 +1389,8 @@ impl Servers {
         };
         let instance_dir = self.instances.read(cx).content_dirs(instance_id).instance;
         if let Err(err) = link::save_link(&instance_dir, &link) {
-            return self.fail(
-                "Couldn't link the instance to the server",
-                err.to_string(),
-                cx,
-            );
+            let err = err.to_string();
+            return self.fail(move || (t(M::LinkFailed).into(), err.clone()), cx);
         }
         self.links.insert(
             (link.core_uuid.clone(), link.server_uuid.clone()),
@@ -1422,23 +1529,21 @@ impl Servers {
                             pending.etag.clone(),
                             cx,
                         );
-                        let skipped = match pending.pack.skipped.len() {
-                            0 => String::new(),
-                            n => format!(" {n} file(s) of the pack were left out."),
-                        };
-                        this.notice = Some((
-                            format!("{} is ready", instance.name).into(),
-                            format!(
-                                "Minecraft {} with {}, and the server's mods and configs.{skipped} Press Play to join.",
-                                instance.game_version,
-                                instance.loader_label()
-                            )
-                            .into(),
-                        ));
+                        let skipped = pending.pack.skipped.len();
+                        let name = instance.name.clone();
+                        let version = instance.game_version.clone();
+                        let loader = instance.loader_label();
+                        this.notice = Some(Notice::new(move || {
+                            let body = match skipped {
+                                0 => tr!(M::ReadyBody, version = version, loader = loader),
+                                n => {
+                                    trn!(P::ReadyBodySkipped, n, version = version, loader = loader)
+                                }
+                            };
+                            (tr!(M::ReadyTitle, name = name), body)
+                        }));
                     }
-                    Err(err) => {
-                        this.fail_core(&pending.core, "Couldn't create the instance", err, cx)
-                    }
+                    Err(err) => this.fail_core(&pending.core, create_failed, err, cx),
                 }
                 cx.notify();
             })
@@ -1547,7 +1652,7 @@ impl Servers {
                         );
                     }
                     Err(err) => {
-                        this.fail_core(&core_uuid, "Couldn't check the server's mods", err, cx)
+                        this.fail_core(&core_uuid, || t(M::CheckModsFailed).into(), err, cx)
                     }
                 }
                 cx.notify();
@@ -1565,12 +1670,14 @@ impl Servers {
             return;
         };
         let Some(index) = self.core_index(&link.core_uuid) else {
+            let (name, address) = (link.server_name.clone(), link.core_url.clone());
             return self.fail(
-                format!("Couldn't join {}", link.server_name),
-                format!(
-                    "The core this instance was made for ({}) isn't in Lodestone Launcher any more. Add it on the Servers page, or press Play without joining.",
-                    link.core_url
-                ),
+                move || {
+                    (
+                        tr!(M::JoinFailed, name = name),
+                        tr!(M::CoreRemoved, address = address),
+                    )
+                },
                 cx,
             );
         };
@@ -1594,9 +1701,10 @@ impl Servers {
                     Ok(list) => list,
                     Err(err) => {
                         this.cores[index].status = CoreStatus::Failed(err.clone());
+                        let name = link.server_name.clone();
                         return this.fail_core(
                             &link.core_uuid,
-                            &format!("Couldn't join {}", link.server_name),
+                            move || tr!(M::JoinFailed, name = name),
                             err,
                             cx,
                         );
@@ -1611,9 +1719,9 @@ impl Servers {
                 // the core may have a new id now
                 let core_uuid = this.listed(index, list, cx);
                 let Some(server) = server else {
+                    let name = link.server_name.clone();
                     return this.fail(
-                        format!("Couldn't join {}", link.server_name),
-                        "The core doesn't show this server to you any more: it was deleted, or it isn't listed publicly and you aren't signed in.",
+                        move || (tr!(M::JoinFailed, name = name), t(M::ServerNotShown).into()),
                         cx,
                     );
                 };
@@ -1621,11 +1729,18 @@ impl Servers {
                     ServerState::Stopped | ServerState::Error if signed_in => {
                         this.start(&core_uuid, server, true, cx)
                     }
-                    ServerState::Stopped | ServerState::Error => this.fail(
-                        format!("{} isn't running", server.name),
-                        "Ask its owner to start it, or sign in to the core on the Servers page to start it yourself.",
-                        cx,
-                    ),
+                    ServerState::Stopped | ServerState::Error => {
+                        let name = server.name.clone();
+                        this.fail(
+                            move || {
+                                (
+                                    tr!(M::NotRunning, name = name),
+                                    t(M::AskOwnerToStart).into(),
+                                )
+                            },
+                            cx,
+                        )
+                    }
                     _ => this.play(&core_uuid, server, cx),
                 }
                 cx.notify();
@@ -1668,7 +1783,10 @@ impl Servers {
         let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
         if self.instances.read(cx).is_active(&pending.instance_id) {
             let _ = std::fs::remove_file(&pending.pack_path);
-            return self.fail("Couldn't update the mods", "Stop the game first.", cx);
+            return self.fail(
+                || (t(M::UpdateModsFailed).into(), t(M::StopGameFirst).into()),
+                cx,
+            );
         }
         let instances = self.instances.read(cx);
         let api = instances.modrinth();
@@ -1721,20 +1839,23 @@ impl Servers {
                             instances.save(&instance, cx)
                         });
                         match saved {
-                            Ok(()) => this.join(
-                                &pending.core,
-                                &pending.server,
-                                &pending.instance_id,
-                                cx,
-                            ),
+                            Ok(()) => {
+                                this.join(&pending.core, &pending.server, &pending.instance_id, cx)
+                            }
                             Err(err) => this.fail(
-                                "Couldn't update the instance",
-                                format!("The mods were updated, but the instance couldn't be saved: {err}"),
+                                move || {
+                                    (
+                                        t(M::UpdateInstanceFailed).into(),
+                                        tr!(M::InstanceNotSaved, error = err),
+                                    )
+                                },
                                 cx,
                             ),
                         }
                     }
-                    Err(err) => this.fail_core(&pending.core, "Couldn't update the mods", err, cx),
+                    Err(err) => {
+                        this.fail_core(&pending.core, || t(M::UpdateModsFailed).into(), err, cx)
+                    }
                 }
                 cx.notify();
             })
@@ -1755,12 +1876,18 @@ impl Servers {
             return;
         };
         let Some(target) = join_target(&core.url, server) else {
+            let (name, shown) = (server.name.clone(), server.address_shown());
             return self.fail(
-                format!("Couldn't join {}", server.name),
-                if server.address_shown() {
-                    "The server's address or port isn't one Minecraft can join."
-                } else {
-                    cores::models::ADDRESS_HIDDEN
+                move || {
+                    (
+                        tr!(M::JoinFailed, name = name),
+                        t(if shown {
+                            M::BadJoinAddress
+                        } else {
+                            M::AddressHidden
+                        })
+                        .into(),
+                    )
                 },
                 cx,
             );
@@ -1794,34 +1921,30 @@ impl Servers {
         let work = cx.background_spawn(async move {
             client.start(&key, &uuid).await?;
             if !then_join {
-                return Ok(());
+                return Ok::<_, PullError>(());
             }
             let started = Instant::now();
             loop {
                 executor.timer(Duration::from_secs(2)).await;
                 let list = client.servers(&key).await?;
-                match list.instances.iter().find(|s| s.uuid == uuid).map(|s| s.state) {
+                match list
+                    .instances
+                    .iter()
+                    .find(|s| s.uuid == uuid)
+                    .map(|s| s.state)
+                {
                     Some(ServerState::Running) => return Ok(()),
                     Some(ServerState::Error) => {
-                        return Err(CoreError::Server {
-                            status: 500,
-                            message: "The server crashed while starting. Check its console in the dashboard.".into(),
-                        });
+                        return Err(PullError::Other(t(M::StartCrashed).into()));
                     }
                     Some(ServerState::Stopped) if started.elapsed() > Duration::from_secs(20) => {
-                        return Err(CoreError::Server {
-                            status: 500,
-                            message: "The server stopped while starting. Check its console in the dashboard.".into(),
-                        });
+                        return Err(PullError::Other(t(M::StartStopped).into()));
                     }
-                    None => return Err(CoreError::NotFound("The server is gone.".into())),
+                    None => return Err(PullError::Other(t(M::ServerGone).into())),
                     _ => {}
                 }
                 if started.elapsed() > START_TIMEOUT {
-                    return Err(CoreError::Server {
-                        status: 504,
-                        message: "The server didn't finish starting within 5 minutes.".into(),
-                    });
+                    return Err(PullError::Other(t(M::StartTimedOut).into()));
                 }
             }
         });
@@ -1838,12 +1961,15 @@ impl Servers {
                             this.play(&core_uuid, running, cx);
                         }
                     }
-                    Err(err) => this.fail_core(
-                        &core_uuid,
-                        &format!("Couldn't start {}", server.name),
-                        err,
-                        cx,
-                    ),
+                    Err(err) => {
+                        let name = server.name.clone();
+                        this.fail_core(
+                            &core_uuid,
+                            move || tr!(M::StartFailed, name = name),
+                            err,
+                            cx,
+                        )
+                    }
                 }
                 if let Some(index) = this.core_index(&core_uuid) {
                     this.refresh(index, cx);
@@ -1873,12 +1999,8 @@ impl Servers {
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
                 if let Err(err) = result {
-                    this.fail_core(
-                        &core_uuid,
-                        &format!("Couldn't stop {}", server.name),
-                        err,
-                        cx,
-                    );
+                    let name = server.name.clone();
+                    this.fail_core(&core_uuid, move || tr!(M::StopFailed, name = name), err, cx);
                 }
                 if let Some(index) = this.core_index(&core_uuid) {
                     this.refresh(index, cx);
@@ -1940,7 +2062,8 @@ impl Servers {
     }
 
     pub fn preview_notice(&mut self, title: &str, message: &str) {
-        self.notice = Some((title.to_string().into(), message.to_string().into()));
+        let (title, message) = (title.to_string(), message.to_string());
+        self.notice = Some(Notice::new(move || (title.clone(), message.clone())));
     }
 
     pub fn preview_prompt(
@@ -2095,14 +2218,20 @@ impl From<ModpackError> for PullError {
     }
 }
 
+/// In the current language, but for the text of the error itself.
 impl std::fmt::Display for PullError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PullError::Core(err) => err.fmt(f),
-            PullError::Cancelled => f.write_str("Cancelled"),
+            PullError::Core(err) => f.write_str(&core_error(err)),
+            PullError::Cancelled => f.write_str(t(M::Cancelled)),
             PullError::Other(err) => f.write_str(err),
         }
     }
+}
+
+/// The title of a failed "Create matching instance".
+fn create_failed() -> String {
+    t(M::CreateFailed).into()
 }
 
 /// The list a core shows this device: the public one, plus (signed in) every server

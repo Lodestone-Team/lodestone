@@ -2,12 +2,13 @@ use gpui::{
     AnyElement, Context, ExternalPaths, IntoElement, Render, SharedString, Transformation, Window,
     div, prelude::*, px, radians,
 };
-use launcher_core::instances::{Instance, last_played};
+use launcher_core::instances::{AutoGroup, Instance, last_played};
 
 use super::{LauncherShell, Page, account_box};
 use crate::components::KeyboardFocus;
 use crate::{
     components::{Align, Button, ButtonVariant, Icon},
+    i18n::{ShellMsg as M, format, t, tr},
     instances::{Ago, play_time},
     theme::{self, colors, layout, leading, radius, text, weights},
 };
@@ -80,7 +81,7 @@ fn import_row(
             (snapshot.files_total > 0)
                 .then(|| snapshot.files_done as f32 / snapshot.files_total as f32)
         });
-    let label = progress.label();
+    let label = crate::instances::modpacks::progress_label(&progress.label());
     div()
         .id(("import", id as usize))
         .flex()
@@ -123,7 +124,11 @@ fn import_row(
                 .text_size(theme::text_size(text::SMALL))
                 .text_color(colors::GRAY_500)
                 .child(match fraction {
-                    Some(f) => format!("{:.0}% · {label}", (f * 100.0).clamp(0.0, 100.0)),
+                    Some(f) => tr!(
+                        M::ImportProgress,
+                        percent = format::percent((f * 100.0).clamp(0.0, 100.0).round() as u64),
+                        label = label
+                    ),
                     None => label,
                 }),
         )
@@ -179,7 +184,7 @@ fn played_summary(instance: &Instance) -> Option<String> {
     let when = Ago::since(instance.last_played?).played();
     Some(match instance.play_time {
         0 => when,
-        seconds => format!("{when} · {} in total", play_time(seconds)),
+        seconds => tr!(M::PlayedInTotal, when = when, time = play_time(seconds)),
     })
 }
 
@@ -271,6 +276,24 @@ fn instance_row(
         .into_any_element()
 }
 
+/// A group's name as the sidebar shows it: the automatic groups' names in the
+/// current language, the user's own as they are. The name itself stays the group's
+/// key (for folding it away).
+fn group_label(name: &str) -> String {
+    match AutoGroup::ALL
+        .into_iter()
+        .find(|group| group.name() == name)
+    {
+        Some(AutoGroup::Fabric) => tr!(M::GroupModded, loader = "Fabric"),
+        Some(AutoGroup::Forge) => tr!(M::GroupModded, loader = "Forge"),
+        Some(AutoGroup::NeoForge) => tr!(M::GroupModded, loader = "NeoForge"),
+        Some(AutoGroup::Quilt) => tr!(M::GroupModded, loader = "Quilt"),
+        Some(AutoGroup::Vanilla) => t(M::Vanilla).to_string(),
+        Some(AutoGroup::Imported) => t(M::GroupImported).to_string(),
+        None => name.to_string(),
+    }
+}
+
 /// A group's heading, which folds the group away.
 fn group_header(
     name: &str,
@@ -309,7 +332,7 @@ fn group_header(
                 .text_size(theme::text_size(text::SMALL))
                 .font_weight(weights::BOLD.into())
                 .text_color(colors::GRAY_400)
-                .child(name.to_uppercase()),
+                .child(group_label(name).to_uppercase()),
         )
         .child(
             div()
@@ -376,11 +399,11 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
         .mx_1()
         .px_1()
         .when_some(last_played_row, |this, row| {
-            this.child(section_label("LAST PLAYED"))
+            this.child(section_label(t(M::LastPlayed)))
                 .child(row)
                 .child(div().h_2())
         })
-        .child(section_label("INSTANCES"))
+        .child(section_label(t(M::Instances)))
         .children(rows)
         .children(imports)
         .when(empty, |this| {
@@ -404,13 +427,13 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
                             .italic()
                             .font_weight(weights::BOLD.into())
                             .text_color(colors::GRAY_FADED.opacity(30))
-                            .child("No instances yet."),
+                            .child(t(M::NoInstancesYet)),
                     ),
             )
         })
         .child(
             div().w_full().pt_1().child(
-                Button::new("new-instance", "New instance...")
+                Button::new("new-instance", t(M::NewInstance))
                     .variant(ButtonVariant::Ghost)
                     .icon(Icon::SquarePlus)
                     .align(Align::Start)
@@ -422,7 +445,7 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
         )
         .child(
             div().w_full().pb_8().child(
-                Button::new("import-instances", "Import instances...")
+                Button::new("import-instances", t(M::ImportInstances))
                     .variant(ButtonVariant::Ghost)
                     .icon(Icon::Download)
                     .align(Align::Start)
@@ -435,11 +458,12 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
 /// A small uppercase heading, like the dashboard's "ALL INSTANCES".
 fn section_label(label: &'static str) -> impl IntoElement {
     div()
+        .truncate()
         .text_size(theme::text_size(text::SMALL))
         .line_height(theme::line_height(text::SMALL, leading::SNUG))
         .font_weight(weights::BOLD.into())
         .text_color(colors::GRAY_FADED.opacity(30))
-        .child(label)
+        .child(label.to_uppercase())
 }
 
 /// A page link in the footer: Servers or Settings.
@@ -472,7 +496,7 @@ fn page_link(
             }
         })
         .child(icon.render(px(14.), colors::GRAY_FADED.opacity(50)))
-        .child(label)
+        .child(div().min_w_0().truncate().child(label))
         .on_click(cx.listener(move |this, _, _, cx| {
             this.show(if open { Page::Instance } else { page }, cx)
         }))
@@ -494,7 +518,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .border_color(colors::FADE_700)
         .child(page_link(
             "servers",
-            "Servers",
+            t(M::Servers),
             Icon::Cube,
             Page::Servers,
             servers_open,
@@ -522,7 +546,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                     }
                 })
                 .child(Icon::Gear.render(px(14.), colors::GRAY_FADED.opacity(50)))
-                .child("Settings")
+                .child(div().min_w_0().truncate().child(t(M::Settings)))
                 .on_click(
                     cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
                 ),
@@ -533,6 +557,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 .text_size(theme::text_size(text::CAPTION))
                 .font_weight(weights::MEDIUM.into())
                 .text_color(colors::GRAY_FADED.opacity(30))
-                .child(concat!("Lodestone Launcher v", env!("CARGO_PKG_VERSION"))),
+                .truncate()
+                .child(tr!(M::AppVersion, version = env!("CARGO_PKG_VERSION"))),
         )
 }

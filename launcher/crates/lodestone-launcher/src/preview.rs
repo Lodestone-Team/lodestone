@@ -177,6 +177,22 @@ fn has_instances(scene: &str) -> bool {
         || is_appearance_scene(scene)
 }
 
+/// `--lang <tag>`: shows the scene in that language (`en`, `fr`, `zh-Hans`,
+/// `zh-Hant`) whatever the system's languages are. Without it, scenes follow the
+/// Language setting's default, System.
+pub fn requested_locale() -> Option<crate::i18n::Locale> {
+    let mut args = std::env::args().skip_while(|arg| arg != "--lang");
+    args.next()?;
+    let tag = args.next()?;
+    match crate::i18n::Locale::from_tag(&tag) {
+        Some(locale) => Some(locale),
+        None => {
+            eprintln!("unknown language {tag:?}; expected en, fr, zh-Hans or zh-Hant");
+            std::process::exit(2);
+        }
+    }
+}
+
 pub fn requested_scene() -> Option<String> {
     let mut args = std::env::args().skip_while(|arg| arg != "--scene");
     args.next()?;
@@ -530,8 +546,8 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             cx,
         ),
         "rosetta" => shell.preview_launch_failed(
-            "Rosetta 2 is needed",
-            launcher_core::game::platform::ROSETTA_MISSING,
+            crate::i18n::t(crate::i18n::InstancesMsg::RosettaNeeded),
+            crate::instances::rosetta_missing(),
             cx,
         ),
         scene if is_worlds_scene(scene) => {

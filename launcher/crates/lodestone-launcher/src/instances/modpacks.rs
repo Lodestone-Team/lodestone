@@ -21,6 +21,48 @@ use lodestone_minecraft::{
 };
 
 use super::{Instances, InstancesEvent};
+use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
+
+/// A modpack import's or update's progress label, in the interface's language.
+/// `launcher-core` writes its labels in English ("Downloading 212 files", "Backing
+/// up {world}"); the ones it is known to write are translated, others are shown as
+/// they are.
+pub fn progress_label(label: &str) -> String {
+    let fixed = [
+        ("Copying the pack's configs", M::CopyingConfigs),
+        ("Recording the pack's files", M::RecordingFiles),
+        (
+            "Saving a snapshot of the instance's files",
+            M::SavingSnapshot,
+        ),
+        ("Reading the modpack", M::ReadingModpack),
+    ];
+    if let Some((_, message)) = fixed.iter().find(|(english, _)| *english == label) {
+        return t(*message).into();
+    }
+    if let Some(rest) = label.strip_prefix("Downloading ") {
+        if let Some(count) = rest
+            .strip_suffix(" files")
+            .and_then(|n| n.parse::<u64>().ok())
+        {
+            return trn!(P::DownloadingFiles, count);
+        }
+        return tr!(M::DownloadingName, name = rest);
+    }
+    let named = [
+        ("Installing ", M::InstallingName),
+        ("Backing up ", M::BackingUp),
+    ];
+    for (prefix, message) in named {
+        if let Some(name) = label.strip_prefix(prefix) {
+            return tr!(message, name = name);
+        }
+    }
+    if let Some(version) = label.strip_prefix("Updating to ") {
+        return tr!(M::UpdatingTo, version = version);
+    }
+    label.to_string()
+}
 
 /// A pack being made into an instance.
 pub struct ImportJob {
@@ -120,10 +162,11 @@ impl Instances {
                 .is_some_and(|e| e.eq_ignore_ascii_case("mrpack"));
             if !is_mrpack {
                 cx.emit(InstancesEvent::LaunchFailed {
-                    title: "Not a modpack".into(),
-                    message: format!(
-                        "{} isn't a .mrpack file. Modrinth modpacks end in .mrpack.",
-                        path.file_name()
+                    title: t(M::NotAModpack).into(),
+                    message: tr!(
+                        M::NotMrpack,
+                        name = path
+                            .file_name()
                             .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
                     )
                     .into(),
@@ -133,7 +176,7 @@ impl Instances {
             let name = path
                 .file_stem()
                 .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "Modpack".into());
+                .unwrap_or_else(|| t(M::Modpack).into());
             self.start_import(
                 name,
                 Source {
@@ -206,7 +249,7 @@ impl Instances {
                     .await?;
                 }
                 let result = async {
-                    progress.set_label("Reading the modpack");
+                    progress.set_label(t(M::ReadingModpack));
                     let pack = modpack::read_pack(&source.pack_path)?;
                     let mut record = source.record.clone();
                     let mut icon_url = record.icon_url.clone();
@@ -261,23 +304,31 @@ impl Instances {
                     Ok((instance, pack)) => {
                         this.selected = Some(instance.id.clone());
                         this.reload(cx);
-                        let skipped = match pack.skipped.len() {
-                            0 => String::new(),
-                            n => format!(" {n} file(s) of the pack were left out, such as {}.", pack.skipped[0].path),
+                        let ready = tr!(
+                            M::ModpackReadyMessage,
+                            version = instance.game_version,
+                            loader = super::loader_label(&instance),
+                        );
+                        let message = match pack.skipped.first() {
+                            None => ready,
+                            Some(first) => tr!(
+                                M::TwoSentences,
+                                first = ready,
+                                second = trn!(
+                                    P::PackFilesLeftOut,
+                                    pack.skipped.len(),
+                                    path = first.path
+                                )
+                            ),
                         };
                         cx.emit(InstancesEvent::Notice {
-                            title: format!("{} is ready", instance.name).into(),
-                            message: format!(
-                                "Minecraft {} with {}. Press Play to download the game and start it.{skipped}",
-                                instance.game_version,
-                                instance.loader_label(),
-                            )
-                            .into(),
+                            title: tr!(M::ModpackReady, name = instance.name).into(),
+                            message: message.into(),
                         });
                     }
                     Err(ModpackError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
-                        title: "Couldn't import the modpack".into(),
+                        title: t(M::CouldntImportModpack).into(),
                         message: err.to_string().into(),
                     }),
                 }
@@ -418,8 +469,8 @@ impl Instances {
         if self.is_active(&id) || self.modpack_updates.contains_key(&id) {
             self.discard_update(&prompt);
             cx.emit(InstancesEvent::LaunchFailed {
-                title: "Couldn't update the modpack".into(),
-                message: "Stop the game first.".into(),
+                title: t(M::CouldntUpdateModpack).into(),
+                message: t(M::StopGameFirst).into(),
             });
             return;
         }
@@ -467,34 +518,34 @@ impl Instances {
                             .map_err(|e| e.to_string())
                             .and_then(|i| this.save(&i, cx))
                         {
-                            Ok(()) => format!(
-                                "{} now runs {} {}. The files it replaced are saved in {}.{}",
-                                prompt.instance_name,
-                                plan.record.title,
-                                plan.record.version_number,
-                                outcome.snapshot.display(),
-                                if outcome.world_backups.is_empty() {
-                                    String::new()
-                                } else {
-                                    format!(
-                                        " {} world(s) were backed up first.",
-                                        outcome.world_backups.len()
-                                    )
+                            Ok(()) => {
+                                let updated = tr!(
+                                    M::ModpackUpdatedMessage,
+                                    name = prompt.instance_name,
+                                    pack = plan.record.title,
+                                    version = plan.record.version_number,
+                                    path = outcome.snapshot.display(),
+                                );
+                                match outcome.world_backups.len() {
+                                    0 => updated,
+                                    n => tr!(
+                                        M::TwoSentences,
+                                        first = updated,
+                                        second = trn!(P::WorldsBackedUp, n)
+                                    ),
                                 }
-                            ),
-                            Err(err) => format!(
-                                "The files were updated, but the instance couldn't be saved: {err}"
-                            ),
+                            }
+                            Err(err) => tr!(M::UpdatedButNotSaved, error = err),
                         };
                         cx.emit(InstancesEvent::LoaderChanged(id.clone()));
                         cx.emit(InstancesEvent::Notice {
-                            title: "Modpack updated".into(),
+                            title: t(M::ModpackUpdated).into(),
                             message: message.into(),
                         });
                     }
                     Err(ModpackError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
-                        title: "Couldn't update the modpack".into(),
+                        title: t(M::CouldntUpdateModpack).into(),
                         message: err.to_string().into(),
                     }),
                 }
@@ -530,5 +581,33 @@ impl Instances {
             _task: Task::ready(()),
         });
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_labels_are_read_back() {
+        assert_eq!(
+            progress_label("Downloading 212 files"),
+            "Downloading 212 files"
+        );
+        assert_eq!(progress_label("Downloading 1 files"), "Downloading 1 file");
+        assert_eq!(
+            progress_label("Downloading sodium.jar"),
+            "Downloading sodium.jar"
+        );
+        assert_eq!(
+            progress_label("Backing up New World"),
+            "Backing up New World"
+        );
+        assert_eq!(progress_label("Updating to 6.1.0"), "Updating to 6.1.0");
+        assert_eq!(
+            progress_label("Copying the pack's configs"),
+            "Copying the pack's configs"
+        );
+        assert_eq!(progress_label("Something else"), "Something else");
     }
 }

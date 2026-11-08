@@ -10,6 +10,7 @@ pub mod components;
 /// yet (a named pipe would be its equivalent).
 #[cfg(unix)]
 pub mod control;
+pub mod i18n;
 pub mod images;
 pub mod instances;
 pub mod markdown;
@@ -39,7 +40,7 @@ pub fn init(cx: &mut App) {
 
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-    cx.set_menus([Menu::new(APP_NAME).items([MenuItem::action(format!("Quit {APP_NAME}"), Quit)])]);
+    set_menus(cx);
     // The launcher has one window; closing it quits, as in the dashboard app.
     cx.on_window_closed(|cx, _| {
         if cx.windows().is_empty() {
@@ -47,6 +48,12 @@ pub fn init(cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// Sets the app menu, in the current language. Called again when it changes.
+pub fn set_menus(cx: &mut App) {
+    let quit = i18n::tr!(i18n::ShellMsg::QuitApp, app = APP_NAME);
+    cx.set_menus([Menu::new(APP_NAME).items([MenuItem::action(quit, Quit)])]);
 }
 
 /// Options for a launcher window with the given title and size, centred on screen.

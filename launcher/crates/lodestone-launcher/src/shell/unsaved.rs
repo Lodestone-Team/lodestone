@@ -7,6 +7,7 @@ use gpui::{AnyElement, Context, Entity, FocusHandle, IntoElement, Window, div, p
 use super::{LauncherShell, Modal};
 use crate::{
     components::{Button, ButtonVariant, Dialog},
+    i18n::{CommonMsg, ShellMsg as M, t, tr},
     instances::settings::InstanceSettings,
     theme::colors,
 };
@@ -119,38 +120,32 @@ impl LauncherShell {
         target: &UnsavedTarget,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let what = match target {
-            UnsavedTarget::LauncherDefaults => "You changed Instance defaults.".to_string(),
+        let body = match target {
+            UnsavedTarget::LauncherDefaults => t(M::UnsavedDefaultsBody).to_string(),
             UnsavedTarget::Instance(view) => {
                 let id = view.read(cx).instance_id().to_string();
-                let name = self
-                    .instances
-                    .read(cx)
-                    .instance_name(&id)
-                    .unwrap_or_else(|| "this instance".into());
-                format!("You changed the settings of {name}.")
+                match self.instances.read(cx).instance_name(&id) {
+                    Some(name) => tr!(M::UnsavedInstanceBody, name = name),
+                    None => t(M::UnsavedThisInstanceBody).to_string(),
+                }
             }
         };
         let entity = cx.entity();
-        Dialog::new("unsaved-settings", "Save your changes?", focus)
+        Dialog::new("unsaved-settings", t(M::SaveChangesTitle), focus)
             .on_close(move |_, cx| entity.update(cx, |this, cx| this.keep_editing(cx)))
-            .child(
-                div()
-                    .text_color(colors::GRAY_400)
-                    .child(format!("{what} Save them, or discard them?")),
-            )
+            .child(div().text_color(colors::GRAY_400).child(body))
             .footer(
-                Button::new("unsaved-save", "Save")
+                Button::new("unsaved-save", t(CommonMsg::Save))
                     .variant(ButtonVariant::Primary)
                     .on_click(cx.listener(|this, _, _, cx| this.finish_unsaved(true, cx))),
             )
             .footer(
-                Button::new("unsaved-discard", "Discard")
+                Button::new("unsaved-discard", t(CommonMsg::Discard))
                     .variant(ButtonVariant::Danger)
                     .on_click(cx.listener(|this, _, _, cx| this.finish_unsaved(false, cx))),
             )
             .footer(
-                Button::new("unsaved-cancel", "Keep editing")
+                Button::new("unsaved-cancel", t(CommonMsg::KeepEditing))
                     .variant(ButtonVariant::Ghost)
                     .on_click(cx.listener(|this, _, _, cx| this.keep_editing(cx))),
             )

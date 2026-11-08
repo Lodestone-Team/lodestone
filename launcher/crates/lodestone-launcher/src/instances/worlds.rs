@@ -17,14 +17,13 @@ use gpui::{
     Image, ImageFormat, IntoElement, ObjectFit, PathPromptOptions, Render, RenderImage,
     SharedString, Subscription, Task, Window, div, img, prelude::*, px,
 };
-use launcher_core::wording;
 use launcher_core::{
     content::InstanceDirs,
     game::download::{CancelToken, Progress},
     screenshots::{self, Screenshot},
     worlds::{self, Backup, RestoreMode, World, WorldError},
 };
-use lodestone_minecraft::util::format_byte;
+use lodestone_minecraft::level::GameMode;
 
 use super::{
     Instances,
@@ -34,6 +33,7 @@ use super::{
     },
 };
 use crate::components::KeyboardFocus;
+use crate::i18n::{CommonMsg, WorldsMsg as M, WorldsPlural as P, format, t, tr, trn};
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots, TextInput},
     theme::{self, colors, fonts, radius, text, weights},
@@ -64,9 +64,38 @@ pub enum WorldsEvent {
     },
 }
 
+/// What a job is doing, shown over its progress bar in the current language.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum JobLabel {
+    BackingUp(String),
+    Restoring,
+    Replacing,
+    MovingToTrash(String),
+    MovingBackupToTrash,
+    Renaming,
+    Exporting(String),
+    Importing,
+}
+
+impl JobLabel {
+    pub fn text(&self) -> String {
+        let trash = t(CommonMsg::TheTrash);
+        match self {
+            JobLabel::BackingUp(name) => tr!(M::BackingUp, name = name),
+            JobLabel::Restoring => t(M::RestoringBackup).to_string(),
+            JobLabel::Replacing => t(M::ReplacingWorld).to_string(),
+            JobLabel::MovingToTrash(name) => tr!(M::MovingToTrash, name = name, trash = trash),
+            JobLabel::MovingBackupToTrash => tr!(M::MovingBackupToTrash, trash = trash),
+            JobLabel::Renaming => t(M::Renaming).to_string(),
+            JobLabel::Exporting(name) => tr!(M::Exporting, name = name),
+            JobLabel::Importing => t(M::ImportingWorlds).to_string(),
+        }
+    }
+}
+
 /// A world change running in the background.
 pub struct Job {
-    pub label: SharedString,
+    pub label: JobLabel,
     pub progress: Arc<Progress>,
     pub cancel: CancelToken,
     _task: Task<()>,
@@ -113,15 +142,7 @@ impl EventEmitter<WorldsEvent> for WorldsView {}
 /// "Today, 14:30", "Yesterday, 09:12" or "2026-10-30".
 pub fn when(time: SystemTime) -> String {
     let local = chrono::DateTime::<chrono::Local>::from(time);
-    let today = chrono::Local::now().date_naive();
-    let day = local.date_naive();
-    if day == today {
-        format!("Today, {}", local.format("%H:%M"))
-    } else if today.pred_opt() == Some(day) {
-        format!("Yesterday, {}", local.format("%H:%M"))
-    } else {
-        local.format("%Y-%m-%d").to_string()
-    }
+    crate::i18n::format::day_and_time(local, chrono::Local::now().date_naive())
 }
 
 /// A plain file name for a world zip of `name`.
@@ -206,15 +227,11 @@ impl WorldsView {
 
     fn can_change(&mut self, cx: &mut Context<Self>) -> bool {
         if self.locked(cx) {
-            self.set_message(
-                "Stop the game first: it has the world open and saves it when it exits.",
-                true,
-                cx,
-            );
+            self.set_message(t(M::StopGameFirst), true, cx);
             return false;
         }
         if self.job.is_some() {
-            self.set_message("Wait for the current task to finish.", true, cx);
+            self.set_message(t(M::WaitForTask), true, cx);
             return false;
         }
         true
@@ -295,7 +312,7 @@ impl WorldsView {
     /// went with `done`.
     fn run(
         &mut self,
-        label: impl Into<SharedString>,
+        label: JobLabel,
         work: impl FnOnce(&InstanceDirs, &Progress, &CancelToken) -> Result<String, WorldError>
         + Send
         + 'static,
@@ -323,7 +340,9 @@ impl WorldsView {
                     // The jobs are all about worlds, whichever section is open now.
                     this.message = Some(match result {
                         Ok(message) => (message.into(), false, Section::Worlds),
-                        Err(WorldError::Cancelled) => ("Cancelled.".into(), false, Section::Worlds),
+                        Err(WorldError::Cancelled) => {
+                            (t(M::Cancelled).into(), false, Section::Worlds)
+                        }
                         Err(err) => (err.to_string().into(), true, Section::Worlds),
                     });
                     cx.notify();
@@ -344,7 +363,7 @@ impl WorldsView {
         });
         self.message = None;
         self.job = Some(Job {
-            label: label.into(),
+            label,
             progress,
             cancel,
             _task: task,
@@ -363,10 +382,14 @@ impl WorldsView {
     pub fn back_up(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
         self.expanded = Some(folder.clone());
         self.run(
-            format!("Backing up {name}"),
+            JobLabel::BackingUp(name.clone()),
             move |dirs, progress, cancel| {
                 let backup = worlds::backup(dirs, &folder, progress, cancel)?;
-                Ok(format!("Backed up {name} ({}).", format_byte(backup.size)))
+                Ok(tr!(
+                    M::BackedUp,
+                    name = name,
+                    size = format::bytes(backup.size)
+                ))
             },
             cx,
         );
@@ -374,7 +397,7 @@ impl WorldsView {
 
     pub fn restore_copy(&mut self, folder: String, backup: Backup, cx: &mut Context<Self>) {
         self.run(
-            "Restoring the backup",
+            JobLabel::Restoring,
             move |dirs, progress, cancel| {
                 let restored = worlds::restore_with(
                     dirs,
@@ -385,7 +408,7 @@ impl WorldsView {
                     progress,
                     cancel,
                 )?;
-                Ok(format!("Restored as a new world, {}.", restored.folder))
+                Ok(tr!(M::RestoredAsCopy, folder = restored.folder))
             },
             cx,
         );
@@ -394,7 +417,7 @@ impl WorldsView {
     /// Replaces the world with a backup (after the window's confirmation).
     pub fn restore_replace(&mut self, folder: String, backup: Backup, cx: &mut Context<Self>) {
         self.run(
-            "Replacing the world with the backup",
+            JobLabel::Replacing,
             move |dirs, progress, cancel| {
                 let restored = worlds::restore(
                     dirs,
@@ -405,13 +428,13 @@ impl WorldsView {
                     cancel,
                 )?;
                 Ok(match restored.safety_backup {
-                    Some(safety) => format!(
-                        "Restored {}. The world as it was is backed up as {}, and in {}.",
-                        restored.folder,
-                        safety.file_name,
-                        wording::TRASH
+                    Some(safety) => tr!(
+                        M::RestoredWithSafety,
+                        folder = restored.folder,
+                        backup = safety.file_name,
+                        trash = t(CommonMsg::TheTrash)
                     ),
-                    None => format!("Restored {}.", restored.folder),
+                    None => tr!(M::Restored, folder = restored.folder),
                 })
             },
             cx,
@@ -421,10 +444,10 @@ impl WorldsView {
     /// Moves the world to the Trash (after the window's confirmation).
     pub fn delete_world(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
         self.run(
-            format!("Moving {name} to {}", wording::TRASH),
+            JobLabel::MovingToTrash(name.clone()),
             move |dirs, _, _| {
                 worlds::delete(dirs, &folder)?;
-                Ok(format!("{name} is in {}.", wording::TRASH))
+                Ok(tr!(M::InTrash, name = name, trash = t(CommonMsg::TheTrash)))
             },
             cx,
         );
@@ -432,10 +455,14 @@ impl WorldsView {
 
     pub fn delete_backup(&mut self, backup: Backup, cx: &mut Context<Self>) {
         self.run(
-            format!("Moving the backup to {}", wording::TRASH),
+            JobLabel::MovingBackupToTrash,
             move |dirs, _, _| {
                 worlds::delete_backup(dirs, &backup.path)?;
-                Ok(format!("{} is in {}.", backup.file_name, wording::TRASH))
+                Ok(tr!(
+                    M::InTrash,
+                    name = backup.file_name,
+                    trash = t(CommonMsg::TheTrash)
+                ))
             },
             cx,
         );
@@ -456,13 +483,13 @@ impl WorldsView {
         };
         let name = input.read(cx).text().trim().to_string();
         self.run(
-            "Renaming",
+            JobLabel::Renaming,
             move |dirs, _, _| {
                 let new_folder = worlds::rename(dirs, &folder, &name)?;
                 Ok(if new_folder == folder {
-                    format!("Renamed to {name}.")
+                    tr!(M::RenamedTo, name = name)
                 } else {
-                    format!("Renamed to {name} (folder {new_folder}).")
+                    tr!(M::RenamedToFolder, name = name, folder = new_folder)
                 })
             },
             cx,
@@ -481,13 +508,14 @@ impl WorldsView {
             };
             this.update(cx, |this, cx| {
                 this.run(
-                    format!("Exporting {name}"),
+                    JobLabel::Exporting(name.clone()),
                     move |dirs, progress, cancel| {
                         let size = worlds::export(dirs, &folder, &path, progress, cancel)?;
-                        Ok(format!(
-                            "Exported {name} to {} ({}).",
-                            path.display(),
-                            format_byte(size)
+                        Ok(tr!(
+                            M::Exported,
+                            name = name,
+                            path = path.display(),
+                            size = format::bytes(size)
                         ))
                     },
                     cx,
@@ -507,27 +535,29 @@ impl WorldsView {
             })
             .collect();
         if paths.is_empty() {
-            self.set_message("Worlds are imported from .zip files.", true, cx);
+            self.set_message(t(M::ZipsOnly), true, cx);
             return;
         }
         self.run(
-            "Importing worlds",
+            JobLabel::Importing,
             move |dirs, progress, cancel| {
                 let mut imported = Vec::new();
                 for path in &paths {
                     let folder = worlds::import_zip(dirs, path, progress, cancel).map_err(
                         |err| match err {
                             WorldError::Cancelled => WorldError::Cancelled,
-                            other => WorldError::Invalid(format!(
-                                "{}: {other}",
-                                path.file_name()
-                                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+                            other => WorldError::Invalid(tr!(
+                                M::FileError,
+                                name = path
+                                    .file_name()
+                                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+                                error = other
                             )),
                         },
                     )?;
                     imported.push(folder);
                 }
-                Ok(format!("Imported {}.", imported.join(", ")))
+                Ok(tr!(M::Imported, worlds = format::list(&imported)))
             },
             cx,
         );
@@ -541,7 +571,7 @@ impl WorldsView {
             files: true,
             directories: false,
             multiple: true,
-            prompt: Some("Import world".into()),
+            prompt: Some(t(M::ImportWorldPrompt).into()),
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = picked.await else {
@@ -700,9 +730,9 @@ impl WorldsView {
                         ImageFormat::Png,
                         bytes,
                     )));
-                    this.set_message("Copied the screenshot.", false, cx);
+                    this.set_message(t(M::CopiedScreenshot), false, cx);
                 }
-                Err(err) => this.set_message(format!("Couldn't copy it: {err}"), true, cx),
+                Err(err) => this.set_message(tr!(M::CouldntCopy, error = err), true, cx),
             })
             .ok();
         }));
@@ -719,7 +749,11 @@ impl WorldsView {
             return;
         };
         match screenshots::delete(&dirs, &file_name) {
-            Ok(()) => self.set_message(format!("{file_name} is in {}.", wording::TRASH), false, cx),
+            Ok(()) => self.set_message(
+                tr!(M::InTrash, name = file_name, trash = t(CommonMsg::TheTrash)),
+                false,
+                cx,
+            ),
             Err(err) => self.set_message(err, true, cx),
         }
         self.large = None;
@@ -796,15 +830,23 @@ fn world_details(world: &World) -> Vec<String> {
     let mut parts = Vec::new();
     if let Some(summary) = &world.summary {
         if summary.hardcore {
-            parts.push("Hardcore".to_string());
+            parts.push(t(M::Hardcore).to_string());
         } else if let Some(mode) = summary.game_mode {
-            parts.push(mode.label().to_string());
+            parts.push(
+                t(match mode {
+                    GameMode::Survival => M::Survival,
+                    GameMode::Creative => M::Creative,
+                    GameMode::Adventure => M::Adventure,
+                    GameMode::Spectator => M::Spectator,
+                })
+                .to_string(),
+            );
         }
         if summary.allow_commands == Some(true) {
-            parts.push("Cheats".to_string());
+            parts.push(t(M::Cheats).to_string());
         }
         match (&summary.version_name, summary.snapshot) {
-            (Some(version), true) => parts.push(format!("{version} (snapshot)")),
+            (Some(version), true) => parts.push(tr!(M::Snapshot, version = version)),
             (Some(version), false) => parts.push(version.clone()),
             (None, _) => {}
         }
@@ -840,8 +882,9 @@ impl WorldsView {
                         .gap_1()
                         .child(
                             div()
+                                .truncate()
                                 .font_weight(weights::BOLD.into())
-                                .child(job.label.clone()),
+                                .child(job.label.text()),
                         )
                         .when_some(fraction, |this, fraction| {
                             this.child(
@@ -861,7 +904,7 @@ impl WorldsView {
                         }),
                 )
                 .child(
-                    Button::new("cancel-world-job", "Cancel")
+                    Button::new("cancel-world-job", t(CommonMsg::Cancel))
                         .variant(ButtonVariant::Ghost)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.cancel_job(cx))),
@@ -900,9 +943,9 @@ impl WorldsView {
         let backups = self.backups(&folder).to_vec();
         let mut details = world_details(world);
         if let Some(time) = world.last_played() {
-            details.insert(0, format!("Played {}", when(time)));
+            details.insert(0, tr!(M::PlayedAt, time = when(time)));
         }
-        details.push(format_byte(world.size));
+        details.push(format::bytes(world.size));
         let icon = match self.icons.get(&folder) {
             Some(image) => img(image.clone())
                 .flex_none()
@@ -930,13 +973,13 @@ impl WorldsView {
                 .gap_2()
                 .child(div().w(px(260.)).child(input))
                 .child(
-                    Button::new(("rename-save", index), "Save")
+                    Button::new(("rename-save", index), t(CommonMsg::Save))
                         .variant(ButtonVariant::Primary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.finish_rename(cx))),
                 )
                 .child(
-                    Button::new(("rename-cancel", index), "Cancel")
+                    Button::new(("rename-cancel", index), t(CommonMsg::Cancel))
                         .variant(ButtonVariant::Ghost)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -959,7 +1002,7 @@ impl WorldsView {
                         .child(name.clone()),
                 )
                 .when(hardcore, |this| {
-                    this.child(badge("Hardcore", colors::RED_200))
+                    this.child(badge(t(M::Hardcore), colors::RED_200))
                 })
                 .when(name != folder, |this| {
                     this.child(
@@ -998,7 +1041,7 @@ impl WorldsView {
                         .items_center()
                         .gap_1()
                         .child(
-                            Button::new(("backup", index), "Back up")
+                            Button::new(("backup", index), t(M::BackUp))
                                 .variant(ButtonVariant::Secondary)
                                 .icon(Icon::Download)
                                 .size(ButtonSize::Slim)
@@ -1014,9 +1057,13 @@ impl WorldsView {
                             Button::new(
                                 ("backups", index),
                                 if backups.is_empty() {
-                                    "Backups".to_string()
+                                    t(M::Backups).to_string()
                                 } else {
-                                    format!("Backups {}", backups.len())
+                                    format!(
+                                        "{} {}",
+                                        t(M::Backups),
+                                        format::number(backups.len() as u64)
+                                    )
                                 },
                             )
                             .variant(if expanded {
@@ -1039,7 +1086,7 @@ impl WorldsView {
                             }),
                         )
                         .child(
-                            Button::new(("rename", index), "Rename")
+                            Button::new(("rename", index), t(CommonMsg::Rename))
                                 .variant(ButtonVariant::Ghost)
                                 .size(ButtonSize::Slim)
                                 .disabled(busy)
@@ -1051,7 +1098,7 @@ impl WorldsView {
                                 }),
                         )
                         .child(
-                            Button::new(("export", index), "Export…")
+                            Button::new(("export", index), t(M::Export))
                                 .variant(ButtonVariant::Ghost)
                                 .size(ButtonSize::Slim)
                                 .disabled(busy)
@@ -1063,7 +1110,7 @@ impl WorldsView {
                                 }),
                         )
                         .child(
-                            Button::new(("open-world", index), "Open folder")
+                            Button::new(("open-world", index), t(CommonMsg::OpenFolder))
                                 .variant(ButtonVariant::Ghost)
                                 .size(ButtonSize::Slim)
                                 .on_click({
@@ -1078,7 +1125,7 @@ impl WorldsView {
                                 }),
                         )
                         .child(
-                            Button::new(("delete-world", index), "Delete…")
+                            Button::new(("delete-world", index), t(M::DeleteWorld))
                                 .variant(ButtonVariant::Danger)
                                 .size(ButtonSize::Slim)
                                 .disabled(busy)
@@ -1123,7 +1170,11 @@ impl WorldsView {
             .border_color(colors::GRAY_FADED.opacity(15));
         if backups.is_empty() {
             return list
-                .child(small("No backups yet. \"Back up\" saves the world as a zip in the instance's backups folder.").text_color(colors::GRAY_500))
+                .child(
+                    small(t(M::NoBackupsYet))
+                        .whitespace_normal()
+                        .text_color(colors::GRAY_500),
+                )
                 .into_any_element();
         }
         for (index, backup) in backups.iter().enumerate() {
@@ -1157,14 +1208,14 @@ impl WorldsView {
                                 small(format!(
                                     "{} · {}",
                                     backup.file_name,
-                                    format_byte(backup.size)
+                                    format::bytes(backup.size)
                                 ))
                                 .truncate()
                                 .text_color(colors::GRAY_500),
                             ),
                     )
                     .child(
-                        Button::new(("restore-copy", id), "Restore as copy")
+                        Button::new(("restore-copy", id), t(M::RestoreAsCopy))
                             .variant(ButtonVariant::Secondary)
                             .size(ButtonSize::Slim)
                             .disabled(busy)
@@ -1176,7 +1227,7 @@ impl WorldsView {
                             }),
                     )
                     .child(
-                        Button::new(("restore-replace", id), "Replace world…")
+                        Button::new(("restore-replace", id), t(M::ReplaceWorld))
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Slim)
                             .disabled(busy)
@@ -1195,7 +1246,7 @@ impl WorldsView {
                             }),
                     )
                     .child(
-                        Button::new(("reveal-backup", id), wording::SHOW_IN_FILE_MANAGER)
+                        Button::new(("reveal-backup", id), t(CommonMsg::ShowInFileManager))
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Slim)
                             .on_click({
@@ -1204,7 +1255,7 @@ impl WorldsView {
                             }),
                     )
                     .child(
-                        Button::new(("delete-backup", id), "Delete")
+                        Button::new(("delete-backup", id), t(CommonMsg::Delete))
                             .variant(ButtonVariant::Danger)
                             .size(ButtonSize::Slim)
                             .disabled(busy)
@@ -1229,7 +1280,7 @@ impl WorldsView {
             .items_center()
             .gap_2()
             .child(
-                Button::new("import-world", "Import world…")
+                Button::new("import-world", t(M::ImportWorld))
                     .variant(ButtonVariant::Secondary)
                     .icon(Icon::Upload)
                     .size(ButtonSize::Slim)
@@ -1237,14 +1288,14 @@ impl WorldsView {
                     .on_click(cx.listener(|this, _, _, cx| this.pick_import(cx))),
             )
             .child(
-                Button::new("open-saves", "Open saves folder")
+                Button::new("open-saves", t(M::OpenSavesFolder))
                     .variant(ButtonVariant::Ghost)
                     .size(ButtonSize::Slim)
                     .on_click(cx.listener(|this, _, _, cx| this.open_saves(cx))),
             )
             .child(div().flex_1())
             .child(
-                Button::new("reload-worlds", "Refresh")
+                Button::new("reload-worlds", t(CommonMsg::Refresh))
                     .variant(ButtonVariant::Ghost)
                     .size(ButtonSize::Slim)
                     .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
@@ -1256,12 +1307,18 @@ impl WorldsView {
                 .gap_2()
                 .text_color(colors::GRAY_500)
                 .child(LoadingDots)
-                .child("Reading the worlds")
+                .child(t(M::ReadingWorlds))
                 .into_any_element(),
-            Load::Failed(err) => small(err.clone()).text_color(colors::RED_200).into_any_element(),
+            Load::Failed(err) => small(err.clone())
+                .text_color(colors::RED_200)
+                .into_any_element(),
             Load::Ready(list) if list.is_empty() => card()
-                .child(div().font_weight(weights::BOLD.into()).child("No worlds yet"))
-                .child(muted("Worlds you create in the game appear here. You can also import a world zip, or drop one here."))
+                .child(
+                    div()
+                        .font_weight(weights::BOLD.into())
+                        .child(t(M::NoWorldsYet)),
+                )
+                .child(muted(t(M::NoWorldsHint)).whitespace_normal())
                 .into_any_element(),
             Load::Ready(list) => {
                 let list = list.clone();
@@ -1279,7 +1336,8 @@ impl WorldsView {
             .child(toolbar)
             .when(locked, |this| {
                 this.child(
-                    small("The game is running: worlds can be opened and backups shown, but changes wait until it stops.")
+                    small(t(M::GameRunning))
+                        .whitespace_normal()
                         .text_color(colors::YELLOW_300),
                 )
             })
@@ -1296,7 +1354,7 @@ impl WorldsView {
                     .gap_2()
                     .text_color(colors::GRAY_500)
                     .child(LoadingDots)
-                    .child("Reading the screenshots")
+                    .child(t(M::ReadingScreenshots))
                     .into_any_element();
             }
             Load::Failed(err) => {
@@ -1311,13 +1369,15 @@ impl WorldsView {
             .flex_row()
             .items_center()
             .gap_2()
-            .child(muted(format!(
-                "{} screenshots · F2 in the game takes one",
-                list.len()
-            )))
+            .child(
+                muted(trn!(P::ScreenshotsSummary, list.len()))
+                    .flex_1()
+                    .min_w_0()
+                    .truncate(),
+            )
             .child(div().flex_1())
             .child(
-                Button::new("open-screenshots", "Open folder")
+                Button::new("open-screenshots", t(CommonMsg::OpenFolder))
                     .variant(ButtonVariant::Ghost)
                     .size(ButtonSize::Slim)
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -1329,7 +1389,7 @@ impl WorldsView {
                     })),
             )
             .child(
-                Button::new("reload-screenshots", "Refresh")
+                Button::new("reload-screenshots", t(CommonMsg::Refresh))
                     .variant(ButtonVariant::Ghost)
                     .size(ButtonSize::Slim)
                     .on_click(cx.listener(|this, _, _, cx| this.reload_screenshots(cx))),
@@ -1345,9 +1405,9 @@ impl WorldsView {
                         .child(
                             div()
                                 .font_weight(weights::BOLD.into())
-                                .child("No screenshots yet"),
+                                .child(t(M::NoScreenshotsYet)),
                         )
-                        .child(muted("Press F2 in the game to take one; they appear here.")),
+                        .child(muted(t(M::NoScreenshotsHint)).whitespace_normal()),
                 )
                 .into_any_element();
         }
@@ -1398,7 +1458,7 @@ impl WorldsView {
                                     .text_color(colors::GRAY_300),
                             )
                             .child(
-                                small(format!("{date} · {}", format_byte(shot.size)))
+                                small(format!("{date} · {}", format::bytes(shot.size)))
                                     .truncate()
                                     .text_color(colors::GRAY_500),
                             ),
@@ -1467,9 +1527,13 @@ impl WorldsView {
                                 )
                                 .child(
                                     small(format!(
-                                        "{} of {count} · {}{}",
-                                        index + 1,
-                                        format_byte(shot.size),
+                                        "{} · {}{}",
+                                        tr!(
+                                            M::Position,
+                                            index = format::number(index as u64 + 1),
+                                            count = format::number(count as u64)
+                                        ),
+                                        format::bytes(shot.size),
                                         shot.modified
                                             .map(|t| format!(" · {}", when(t)))
                                             .unwrap_or_default()
@@ -1478,7 +1542,7 @@ impl WorldsView {
                                 ),
                         )
                         .child(
-                            Button::new("shot-prev", "Previous")
+                            Button::new("shot-prev", t(CommonMsg::Previous))
                                 .variant(ButtonVariant::Ghost)
                                 .icon(Icon::ArrowLeft)
                                 .size(ButtonSize::Slim)
@@ -1486,14 +1550,14 @@ impl WorldsView {
                                 .on_click(cx.listener(|this, _, _, cx| this.step(-1, cx))),
                         )
                         .child(
-                            Button::new("shot-next", "Next")
+                            Button::new("shot-next", t(CommonMsg::Next))
                                 .variant(ButtonVariant::Ghost)
                                 .size(ButtonSize::Slim)
                                 .disabled(index + 1 >= count)
                                 .on_click(cx.listener(|this, _, _, cx| this.step(1, cx))),
                         )
                         .child(
-                            Button::new("shot-close", "Close")
+                            Button::new("shot-close", t(CommonMsg::Close))
                                 .variant(ButtonVariant::Secondary)
                                 .icon(Icon::Xmark)
                                 .size(ButtonSize::Slim)
@@ -1519,7 +1583,7 @@ impl WorldsView {
                         .items_center()
                         .gap_2()
                         .child(
-                            Button::new("shot-open", wording::OPEN_IMAGE)
+                            Button::new("shot-open", t(CommonMsg::OpenImage))
                                 .variant(ButtonVariant::Secondary)
                                 .icon(Icon::ArrowUpRightFromSquare)
                                 .size(ButtonSize::Slim)
@@ -1529,7 +1593,7 @@ impl WorldsView {
                                 }),
                         )
                         .child(
-                            Button::new("shot-reveal", wording::SHOW_IN_FILE_MANAGER)
+                            Button::new("shot-reveal", t(CommonMsg::ShowInFileManager))
                                 .variant(ButtonVariant::Ghost)
                                 .size(ButtonSize::Slim)
                                 .on_click({
@@ -1538,7 +1602,7 @@ impl WorldsView {
                                 }),
                         )
                         .child(
-                            Button::new("shot-copy", "Copy image")
+                            Button::new("shot-copy", t(M::CopyImage))
                                 .variant(ButtonVariant::Ghost)
                                 .icon(Icon::Copy)
                                 .size(ButtonSize::Slim)
@@ -1558,9 +1622,9 @@ impl WorldsView {
                             Button::new(
                                 "shot-delete",
                                 if confirming {
-                                    wording::MOVE_TO_TRASH
+                                    t(CommonMsg::MoveToTrash)
                                 } else {
-                                    "Delete…"
+                                    t(M::DeleteWorld)
                                 },
                             )
                             .variant(ButtonVariant::Danger)
@@ -1584,12 +1648,19 @@ impl Render for WorldsView {
         self.ensure_loaded(cx);
         let section = self.section;
         let worlds_label: SharedString = match self.worlds.ready() {
-            Some(list) if !list.is_empty() => format!("Worlds {}", list.len()).into(),
-            _ => "Worlds".into(),
+            Some(list) if !list.is_empty() => {
+                format!("{} {}", t(M::Worlds), format::number(list.len() as u64)).into()
+            }
+            _ => t(M::Worlds).into(),
         };
         let shots_label: SharedString = match self.screenshots.ready() {
-            Some(list) if !list.is_empty() => format!("Screenshots {}", list.len()).into(),
-            _ => "Screenshots".into(),
+            Some(list) if !list.is_empty() => format!(
+                "{} {}",
+                t(M::Screenshots),
+                format::number(list.len() as u64)
+            )
+            .into(),
+            _ => t(M::Screenshots).into(),
         };
         let entity = cx.entity();
         let switch = pills(

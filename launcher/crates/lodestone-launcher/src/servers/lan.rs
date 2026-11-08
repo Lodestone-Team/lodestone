@@ -28,8 +28,14 @@ use super::{Servers, ServersEvent, extras::note};
 use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Dialog, Icon, LoadingDots},
+    i18n::{CommonMsg, ServersMsg as M, t, tr},
     theme::{self, colors, fonts, radius, text, weights},
 };
+
+/// A world's name: its MOTD, or "LAN world".
+fn world_title(world: &LanWorld) -> String {
+    world.motd.clone().unwrap_or_else(|| t(M::LanWorld).into())
+}
 
 /// How often the list is checked for changes and expired worlds.
 const TICK: Duration = Duration::from_millis(500);
@@ -43,6 +49,7 @@ pub struct LanState {
     /// Set by the listener thread when the list changed in a way people see.
     dirty: Arc<AtomicBool>,
     started: Option<Instant>,
+    /// Why listening failed: the system's error.
     error: Option<SharedString>,
     /// The worlds as last drawn.
     shown: Vec<LanWorld>,
@@ -97,7 +104,7 @@ impl Servers {
         match started {
             Ok(listener) => state.listener = Some(listener),
             Err(err) => {
-                state.error = Some(format!("Couldn't listen for LAN worlds: {err}").into());
+                state.error = Some(err.to_string().into());
                 return;
             }
         }
@@ -170,7 +177,7 @@ impl Servers {
         let quiet = state.preview_quiet
             || (!state.heard_any && state.started.is_some_and(|s| s.elapsed() >= HINT_AFTER));
         let body: AnyElement = if let Some(error) = &state.error {
-            note(error.clone())
+            note(tr!(M::LanListenFailed, error = error))
                 .px_4()
                 .py_3()
                 .border_t_1()
@@ -188,15 +195,15 @@ impl Servers {
                 .border_t_1()
                 .border_color(colors::FADE_700)
                 .when(!quiet, |this| this.child(LoadingDots))
-                .child(note(if !quiet {
-                    "Looking for worlds opened to LAN…"
+                .child(note(t(if !quiet {
+                    M::LanLooking
                 } else if cfg!(target_os = "macos") {
-                    "No LAN worlds found. In Minecraft, open a world and choose Open to LAN. If macOS asked whether Lodestone Launcher may find devices on your local network, allow it in System Settings → Privacy & Security → Local Network, then reopen this page."
+                    M::LanNoneMac
                 } else if cfg!(windows) {
-                    "No LAN worlds found. In Minecraft, open a world and choose Open to LAN. If Windows asked whether to let Lodestone Launcher through its firewall, allow it on private networks, then reopen this page."
+                    M::LanNoneWindows
                 } else {
-                    "No LAN worlds found. In Minecraft, open a world and choose Open to LAN, then reopen this page."
-                }))
+                    M::LanNoneOther
+                })))
                 .into_any_element()
         } else {
             div()
@@ -233,12 +240,12 @@ impl Servers {
                                         .truncate()
                                         .font_weight(weights::BOLD.into())
                                         .text_color(colors::GRAY_300)
-                                        .child(world.title()),
+                                        .child(world_title(world)),
                                 )
                                 .child(note(world.address()).font_family(fonts::MONO)),
                         )
                         .child(
-                            Button::new(SharedString::from(format!("join-{id}")), "Join")
+                            Button::new(SharedString::from(format!("join-{id}")), t(M::Join))
                                 .size(ButtonSize::Slim)
                                 .variant(ButtonVariant::Primary)
                                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -278,9 +285,9 @@ impl Servers {
                                     .text_size(theme::text_size(text::H3))
                                     .font_weight(weights::BOLD.into())
                                     .text_color(colors::GRAY_300)
-                                    .child("On your network"),
+                                    .child(t(M::OnYourNetwork)),
                             )
-                            .child(note("Worlds opened to LAN on this network.")),
+                            .child(note(t(M::OnYourNetworkHint))),
                     ),
             )
             .child(body)
@@ -343,7 +350,7 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
     let world = picker.world.clone();
     Dialog::new(
         "lan-join",
-        format!("Join {}", world.title()),
+        tr!(M::JoinWorld, world = world_title(&world)),
         picker.focus.clone(),
     )
     .on_close(move |_, cx| {
@@ -356,12 +363,9 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
             .flex()
             .flex_col()
             .gap_2()
-            .child(note(format!(
-                "Pick the instance to play with. It needs the same Minecraft version and mods as the world at {}.",
-                world.address()
-            )))
+            .child(note(tr!(M::PickInstance, address = world.address())))
             .when(instances.is_empty(), |this| {
-                this.child(note("You have no instances yet. Create one first."))
+                this.child(note(t(M::NoInstancesYet)))
             })
             .children(instances.into_iter().map(|(id, name, detail, _)| {
                 let servers = servers.clone();
@@ -388,7 +392,7 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
                             .text_color(colors::GRAY_300)
                             .child(name),
                     )
-                    .child(note(detail))
+                    .child(note(detail).flex_none())
                     .on_click(move |_, _, cx| {
                         servers.update(cx, |this, cx| this.join_lan(&pick, cx))
                     })
@@ -396,7 +400,7 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
     )
     .footer({
         let cancel = servers.clone();
-        Button::new("lan-join-cancel", "Cancel").on_click(move |_, _, cx| {
+        Button::new("lan-join-cancel", t(CommonMsg::Cancel)).on_click(move |_, _, cx| {
             cancel.update(cx, |this, cx| {
                 this.extras.lan_picker.close(cx);
             })

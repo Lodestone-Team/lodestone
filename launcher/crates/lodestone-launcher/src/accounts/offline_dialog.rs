@@ -10,11 +10,9 @@ use launcher_core::accounts::Account;
 use super::Accounts;
 use crate::{
     components::{Button, ButtonVariant, Dialog, TextInput},
+    i18n::{CommonMsg, ShellMsg as M, t},
     theme::{self, colors, leading, text, weights},
 };
-
-/// Shown wherever an offline account appears.
-pub const OFFLINE_NOTE: &str = "Offline – single-player and offline-mode servers only";
 
 pub struct OfflineDialog {
     accounts: Entity<Accounts>,
@@ -38,7 +36,7 @@ impl OfflineDialog {
     pub fn new(accounts: Entity<Accounts>, cx: &mut Context<Self>) -> Self {
         Self {
             accounts,
-            input: cx.new(|cx| TextInput::new(cx).with_placeholder("Username")),
+            input: cx.new(|cx| TextInput::new(cx).with_placeholder(M::Username)),
             focus_handle: cx.focus_handle(),
             error: None,
         }
@@ -70,55 +68,55 @@ impl OfflineDialog {
 impl Render for OfflineDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
-        Dialog::new("offline-account", "Add offline account", self.focus_handle.clone())
-            .on_close(move |_, cx| entity.update(cx, |_, cx| cx.emit(OfflineDialogDismissed)))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_size(theme::text_size(text::MEDIUM))
-                            .text_color(colors::GRAY_400)
-                            .child(
-                                "For development and testing. The account has no Microsoft sign-in, and its UUID is the one offline-mode servers give this name.",
-                            ),
-                    )
-                    .child(self.input.clone())
-                    .child(
-                        div()
-                            .text_size(theme::text_size(text::SMALL))
-                            .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-                            .font_weight(weights::BOLD.into())
-                            .map(|this| match &self.error {
-                                Some(error) => this.text_color(colors::RED_200).child(error.clone()),
-                                None => this
-                                    .text_color(colors::GRAY_500)
-                                    .child("3 to 16 letters, numbers or underscores."),
-                            }),
-                    )
-                    .child(
-                        div()
-                            .px_3()
-                            .py_2()
-                            .rounded(theme::radius::LG)
-                            .bg(colors::GRAY_800)
-                            .text_size(theme::text_size(text::SMALL))
-                            .font_weight(weights::BOLD.into())
-                            .text_color(colors::YELLOW)
-                            .child(OFFLINE_NOTE),
-                    ),
-            )
-            .footer(
-                Button::new("add-offline", "Add account")
-                    .variant(ButtonVariant::Primary)
-                    .on_click(cx.listener(|this, _, _, cx| this.add(cx))),
-            )
-            .footer(
-                Button::new("cancel-offline", "Cancel")
-                    .variant(ButtonVariant::Secondary)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(OfflineDialogDismissed))),
-            )
+        Dialog::new(
+            "offline-account",
+            t(M::AddOfflineAccount),
+            self.focus_handle.clone(),
+        )
+        .on_close(move |_, cx| entity.update(cx, |_, cx| cx.emit(OfflineDialogDismissed)))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    div()
+                        .text_size(theme::text_size(text::MEDIUM))
+                        .text_color(colors::GRAY_400)
+                        .child(t(M::OfflineDialogBody)),
+                )
+                .child(self.input.clone())
+                .child(
+                    div()
+                        .text_size(theme::text_size(text::SMALL))
+                        .line_height(theme::line_height(text::SMALL, leading::NORMAL))
+                        .font_weight(weights::BOLD.into())
+                        .map(|this| match &self.error {
+                            Some(error) => this.text_color(colors::RED_200).child(error.clone()),
+                            None => this.text_color(colors::GRAY_500).child(t(M::UsernameRule)),
+                        }),
+                )
+                .child(
+                    div()
+                        .px_3()
+                        .py_2()
+                        .rounded(theme::radius::LG)
+                        .bg(colors::GRAY_800)
+                        .text_size(theme::text_size(text::SMALL))
+                        .font_weight(weights::BOLD.into())
+                        .text_color(colors::YELLOW)
+                        .child(t(M::OfflineNote)),
+                ),
+        )
+        .footer(
+            Button::new("add-offline", t(M::AddAccount))
+                .variant(ButtonVariant::Primary)
+                .on_click(cx.listener(|this, _, _, cx| this.add(cx))),
+        )
+        .footer(
+            Button::new("cancel-offline", t(CommonMsg::Cancel))
+                .variant(ButtonVariant::Secondary)
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(OfflineDialogDismissed))),
+        )
     }
 }

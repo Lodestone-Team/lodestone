@@ -5,7 +5,10 @@ use gpui::{
 
 use super::ClickHandler;
 use super::focus::KeyboardFocus;
-use crate::theme::{self, colors, fonts, leading, radius, text, weights};
+use crate::{
+    i18n::{CommonMsg, ShellMsg, t},
+    theme::{self, colors, fonts, leading, radius, text, weights},
+};
 
 /// What the Play button shows.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -103,7 +106,7 @@ fn shell(id: ElementId) -> gpui::Stateful<gpui::Div> {
 /// The small Cancel or Stop button at the right of the Play button.
 fn side_button(
     id: &'static str,
-    label: &'static str,
+    label: impl Into<SharedString>,
     on_click: Option<ClickHandler>,
 ) -> impl IntoElement {
     div()
@@ -123,11 +126,12 @@ fn side_button(
         .cursor_pointer()
         .hover(|style| style.bg(colors::RED_300).text_color(colors::WHITE))
         .when_some(on_click, |this, on_click| this.on_click(on_click))
-        .child(label)
+        .child(label.into())
 }
 
 impl RenderOnce for PlayButton {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let play = || t(ShellMsg::Play).to_uppercase();
         match self.state {
             PlayButtonState::Disabled | PlayButtonState::Ready => {
                 let disabled = self.state == PlayButtonState::Disabled;
@@ -153,7 +157,7 @@ impl RenderOnce for PlayButton {
                         }
                     })
                     .map(|this| match self.caption {
-                        None => this.child("PLAY"),
+                        None => this.child(div().max_w_full().px_3().truncate().child(play())),
                         Some(caption) => this.child(
                             div()
                                 .flex()
@@ -161,7 +165,7 @@ impl RenderOnce for PlayButton {
                                 .items_center()
                                 .min_w_0()
                                 .px_3()
-                                .child("PLAY")
+                                .child(div().max_w_full().truncate().child(play()))
                                 .child(
                                     div()
                                         .max_w_full()
@@ -222,11 +226,11 @@ impl RenderOnce for PlayButton {
                             )
                         }),
                 )
-                .child(
-                    div()
-                        .relative()
-                        .child(side_button("play-cancel", "Cancel", self.on_stop)),
-                )
+                .child(div().relative().child(side_button(
+                    "play-cancel",
+                    t(CommonMsg::Cancel),
+                    self.on_stop,
+                )))
                 .into_any_element(),
             PlayButtonState::Playing => shell(self.id)
                 .bg(colors::GRAY_800)
@@ -238,18 +242,27 @@ impl RenderOnce for PlayButton {
                         .items_center()
                         .gap_2()
                         .flex_1()
+                        .min_w_0()
                         .pl_5()
-                        .child(div().size(px(10.)).rounded_full().bg(colors::GREEN_200))
                         .child(
                             div()
+                                .flex_none()
+                                .size(px(10.))
+                                .rounded_full()
+                                .bg(colors::GREEN_200),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
                                 .font_family(fonts::TITLE)
                                 .text_size(theme::text_size(text::H2))
                                 .font_weight(weights::EXTRABOLD.into())
                                 .text_color(colors::GREEN_300)
-                                .child("PLAYING"),
+                                .child(t(ShellMsg::Playing).to_uppercase()),
                         ),
                 )
-                .child(side_button("play-stop", "Stop", self.on_stop))
+                .child(side_button("play-stop", t(CommonMsg::Stop), self.on_stop))
                 .into_any_element(),
         }
     }

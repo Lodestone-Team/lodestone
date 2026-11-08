@@ -7,18 +7,19 @@ use gpui::{
 };
 use launcher_core::cores::{
     CoreError, ServerInstance, ServerLoader, ServerState, client::display_address,
-    models::ADDRESS_HIDDEN,
+    sync::PackChanges, trust::Advisory,
 };
 use launcher_core::wording;
 
 use super::{
-    AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, FINGERPRINT_HELP, Servers,
-    TrustPrompt, UpdatePrompt, trust_explanation,
+    AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, Servers, TrustPrompt,
+    UpdatePrompt, core_error, loader_label, status_label, trust_explanation,
 };
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, LoadingDots, Toggle,
     },
+    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, format, t, tr, trn},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -42,10 +43,44 @@ fn small(value: impl Into<SharedString>) -> gpui::Div {
 fn detail(server: &ServerInstance) -> String {
     let loader = match (&server.loader, &server.loader_version) {
         (ServerLoader::Vanilla, _) => return server.game_version.clone(),
-        (loader, Some(version)) => format!("{} {version}", loader.label()),
-        (loader, None) => loader.label().to_string(),
+        (loader, Some(version)) => format!("{} {version}", loader_label(*loader)),
+        (loader, None) => loader_label(*loader).to_string(),
     };
     format!("{} · {loader}", server.game_version)
+}
+
+/// What an update changes, for "<server> has different mods": "2 added, 1 updated,
+/// 3 other files".
+fn changes_summary(changes: &PackChanges) -> String {
+    let parts: Vec<String> = [
+        (changes.added.len(), P::ModsAdded),
+        (changes.updated.len(), P::ModsUpdated),
+        (changes.removed.len(), P::ModsRemoved),
+        (changes.other.len(), P::OtherFiles),
+    ]
+    .into_iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, message)| trn!(message, count))
+    .collect();
+    if parts.is_empty() {
+        t(M::NoChanges).into()
+    } else {
+        format::list(&parts)
+    }
+}
+
+/// The advisory's other files: "14 config files, 2 script files, 1 other file".
+fn other_files(advisory: &Advisory) -> Option<String> {
+    let parts: Vec<String> = [
+        (advisory.configs, P::ConfigFiles),
+        (advisory.scripts, P::ScriptFiles),
+        (advisory.other, P::OtherFiles),
+    ]
+    .into_iter()
+    .filter(|(count, _)| *count > 0)
+    .map(|(count, message)| trn!(message, count))
+    .collect();
+    (!parts.is_empty()).then(|| format::list(&parts))
 }
 
 fn badge(label: &'static str, color: theme::Color) -> gpui::Div {
@@ -100,14 +135,16 @@ fn certificate_warning(
     let (changed, message, button) = match err {
         CoreError::CertificateChanged { .. } => (
             true,
-            "This core's HTTPS certificate changed since you trusted it, so Lodestone Launcher refuses to connect. The core makes a new certificate when its built-in one is about to expire or its address changes; it can also mean someone is intercepting the connection. Check the new fingerprint before you trust it."
-                .to_string(),
-            "Trust the new certificate…",
+            t(M::CertChangedWarning).to_string(),
+            t(M::ReviewNewCertificate),
         ),
         _ => (
             false,
-            format!("This core's HTTPS certificate isn't trusted by this {}. Lodestone cores make their own certificate, so this is expected: check its fingerprint, then trust it.", wording::COMPUTER),
-            "Trust certificate…",
+            tr!(
+                M::CertUntrustedWarning,
+                computer = t(CommonMsg::ThisComputer)
+            ),
+            t(M::ReviewCertificate),
         ),
     };
     let fingerprint = match err {
@@ -166,13 +203,14 @@ impl Servers {
         if signed_in {
             let (c, s) = (core_uuid.clone(), server.clone());
             actions.push(
-                Button::new(SharedString::from(format!("details-{row_id}")), "Details")
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.open_detail(&c, s.clone(), cx)),
-                    )
-                    .into_any_element(),
+                Button::new(
+                    SharedString::from(format!("details-{row_id}")),
+                    t(M::Details),
+                )
+                .size(ButtonSize::Slim)
+                .variant(ButtonVariant::Ghost)
+                .on_click(cx.listener(move |this, _, _, cx| this.open_detail(&c, s.clone(), cx)))
+                .into_any_element(),
             );
         }
         if let Some(busy) = busy {
@@ -191,22 +229,28 @@ impl Servers {
             if signed_in && stopped {
                 let (c, s) = (core_uuid.clone(), server.clone());
                 actions.push(
-                    Button::new(SharedString::from(format!("start-{row_id}")), "Start")
-                        .size(ButtonSize::Slim)
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.start(&c, s.clone(), false, cx)),
-                        )
-                        .into_any_element(),
+                    Button::new(
+                        SharedString::from(format!("start-{row_id}")),
+                        t(CommonMsg::Start),
+                    )
+                    .size(ButtonSize::Slim)
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.start(&c, s.clone(), false, cx)),
+                    )
+                    .into_any_element(),
                 );
             }
             if signed_in && !stopped {
                 let (c, s) = (core_uuid.clone(), server.clone());
                 actions.push(
-                    Button::new(SharedString::from(format!("stop-{row_id}")), "Stop")
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Danger)
-                        .on_click(cx.listener(move |this, _, _, cx| this.stop(&c, s.clone(), cx)))
-                        .into_any_element(),
+                    Button::new(
+                        SharedString::from(format!("stop-{row_id}")),
+                        t(CommonMsg::Stop),
+                    )
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Danger)
+                    .on_click(cx.listener(move |this, _, _, cx| this.stop(&c, s.clone(), cx)))
+                    .into_any_element(),
                 );
             }
             if !linked {
@@ -214,7 +258,7 @@ impl Servers {
                 actions.push(
                     Button::new(
                         SharedString::from(format!("create-{row_id}")),
-                        "Create instance",
+                        t(M::CreateInstance),
                     )
                     .size(ButtonSize::Slim)
                     .icon(Icon::SquarePlus)
@@ -228,7 +272,7 @@ impl Servers {
                 actions.push(
                     Button::new(
                         SharedString::from(format!("start-join-{row_id}")),
-                        "Start and join",
+                        t(M::StartAndJoin),
                     )
                     .size(ButtonSize::Slim)
                     .variant(ButtonVariant::Primary)
@@ -243,14 +287,14 @@ impl Servers {
                     server.address_shown() && (running || server.state == ServerState::Hidden);
                 if !server.address_shown() {
                     actions.push(
-                        small(ADDRESS_HIDDEN)
+                        small(t(M::AddressHidden))
                             .text_color(colors::GRAY_500)
                             .into_any_element(),
                     );
                 }
                 let (c, s) = (core_uuid.clone(), server.clone());
                 actions.push(
-                    Button::new(SharedString::from(format!("play-{row_id}")), "Play")
+                    Button::new(SharedString::from(format!("play-{row_id}")), t(M::Play))
                         .size(ButtonSize::Slim)
                         .variant(ButtonVariant::Primary)
                         .disabled(!joinable)
@@ -263,7 +307,7 @@ impl Servers {
         if busy.is_none() {
             let (c, s) = (core_uuid.clone(), server.clone());
             actions.push(
-                Button::new(SharedString::from(format!("more-{row_id}")), "More…")
+                Button::new(SharedString::from(format!("more-{row_id}")), t(M::More))
                     .size(ButtonSize::Slim)
                     .variant(ButtonVariant::Ghost)
                     .on_click(cx.listener(move |this, _, _, cx| this.open_tools(&c, s.clone(), cx)))
@@ -271,10 +315,7 @@ impl Servers {
             );
         }
 
-        let status = match server.players_label() {
-            Some(players) if running => format!("{} · {players}", server.state.label()),
-            _ => server.state.label().to_string(),
-        };
+        let status = status_label(server);
         div()
             .id(SharedString::from(format!("server-{row_id}")))
             .flex()
@@ -323,7 +364,7 @@ impl Servers {
                                         .text_color(colors::BLUE_200)
                                         .text_size(theme::text_size(text::CAPTION))
                                         .font_weight(weights::BOLD.into())
-                                        .child("Instance ready"),
+                                        .child(t(M::InstanceReady)),
                                 )
                             }),
                     )
@@ -345,9 +386,9 @@ impl Servers {
         let signed_in = core.signed_in();
         let trusted = core.saved.is_trusted();
         let account = match (&core.saved.username, signed_in) {
-            (Some(username), true) => format!("Signed in as {username}"),
-            (None, true) => "Signed in".to_string(),
-            _ => "Not signed in: public servers only".to_string(),
+            (Some(username), true) => tr!(M::SignedInAs, username = username),
+            (None, true) => t(M::SignedIn).to_string(),
+            _ => t(M::NotSignedIn).to_string(),
         };
         let body: AnyElement = match &core.status {
             CoreStatus::Loading => div()
@@ -369,11 +410,15 @@ impl Servers {
                 .py_3()
                 .border_t_1()
                 .border_color(colors::FADE_700)
-                .text_color(if err.is_offline() { colors::YELLOW } else { colors::RED_200 })
+                .text_color(if err.is_offline() {
+                    colors::YELLOW
+                } else {
+                    colors::RED_200
+                })
                 .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
                 .child(small(match err {
-                    CoreError::Unreachable(_) => "Offline: couldn't reach this core. Check that it is running and on the same network.".to_string(),
-                    err => err.to_string(),
+                    CoreError::Unreachable(_) => t(M::Offline).to_string(),
+                    err => core_error(err),
                 }))
                 .into_any_element(),
             CoreStatus::Online(list) if list.instances.is_empty() => div()
@@ -382,18 +427,22 @@ impl Servers {
                 .border_t_1()
                 .border_color(colors::FADE_700)
                 .text_color(colors::GRAY_500)
-                .child(small(if !signed_in && !list.listing_enabled {
-                    "The owner hasn't turned on \"List servers publicly\" in Core Settings, so there's nothing to show without signing in."
+                .child(small(t(if !signed_in && !list.listing_enabled {
+                    M::NotListedPublicly
                 } else if !signed_in {
-                    "No servers are listed publicly. Sign in to see the ones you have access to."
+                    M::NoPublicServers
                 } else {
-                    "No servers you can see on this core."
-                }))
+                    M::NoVisibleServers
+                })))
                 .into_any_element(),
             CoreStatus::Online(list) => div()
                 .flex()
                 .flex_col()
-                .children(list.instances.iter().map(|server| self.server_row(core, server, cx)))
+                .children(
+                    list.instances
+                        .iter()
+                        .map(|server| self.server_row(core, server, cx)),
+                )
                 .into_any_element(),
         };
         div()
@@ -436,10 +485,10 @@ impl Servers {
                                             .child(core.saved.name.clone()),
                                     )
                                     .when(trusted, |this| {
-                                        this.child(badge("Trusted", colors::GREEN_300))
+                                        this.child(badge(t(M::BadgeTrusted), colors::GREEN_300))
                                     })
                                     .when(core.saved.certificate.is_some(), |this| {
-                                        this.child(badge("Pinned certificate", colors::BLUE_200))
+                                        this.child(badge(t(M::BadgePinned), colors::BLUE_200))
                                     }),
                             )
                             .child(
@@ -451,11 +500,12 @@ impl Servers {
                     .child(
                         div()
                             .id(SharedString::from(format!("trusted-{index}")))
+                            .flex_none()
                             .flex()
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .child(small("Trusted for mods").text_color(colors::GRAY_400))
+                            .child(small(t(M::TrustedForMods)).text_color(colors::GRAY_400))
                             .child(
                                 Toggle::new(SharedString::from(format!("trust-{index}")), trusted)
                                     .on_change(cx.listener(move |this, value: &bool, _, cx| {
@@ -464,23 +514,30 @@ impl Servers {
                             ),
                     )
                     .child(if signed_in {
-                        Button::new(SharedString::from(format!("sign-out-{index}")), "Sign out")
-                            .size(ButtonSize::Slim)
-                            .variant(ButtonVariant::Ghost)
-                            .on_click(cx.listener(move |this, _, _, cx| this.sign_out(index, cx)))
+                        Button::new(
+                            SharedString::from(format!("sign-out-{index}")),
+                            t(CommonMsg::SignOut),
+                        )
+                        .size(ButtonSize::Slim)
+                        .variant(ButtonVariant::Ghost)
+                        .on_click(cx.listener(move |this, _, _, cx| this.sign_out(index, cx)))
                     } else {
-                        Button::new(SharedString::from(format!("sign-in-{index}")), "Sign in")
-                            .size(ButtonSize::Slim)
-                            .icon(Icon::User)
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.open_add(Some(index), cx)),
-                            )
+                        Button::new(
+                            SharedString::from(format!("sign-in-{index}")),
+                            t(CommonMsg::SignIn),
+                        )
+                        .size(ButtonSize::Slim)
+                        .icon(Icon::User)
+                        .on_click(cx.listener(move |this, _, _, cx| this.open_add(Some(index), cx)))
                     })
                     .child(
-                        Button::new(SharedString::from(format!("remove-core-{index}")), "Remove")
-                            .size(ButtonSize::Slim)
-                            .variant(ButtonVariant::Ghost)
-                            .on_click(cx.listener(move |this, _, _, cx| this.remove(index, cx))),
+                        Button::new(
+                            SharedString::from(format!("remove-core-{index}")),
+                            t(CommonMsg::Remove),
+                        )
+                        .size(ButtonSize::Slim)
+                        .variant(ButtonVariant::Ghost)
+                        .on_click(cx.listener(move |this, _, _, cx| this.remove(index, cx))),
                     ),
             )
             .child(body)
@@ -527,21 +584,19 @@ impl Render for Servers {
                                     .text_size(theme::text_size(text::H1))
                                     .font_weight(weights::BOLD.into())
                                     .text_color(colors::GRAY_300)
-                                    .child("Servers"),
+                                    .child(t(M::ServersTitle)),
                             )
-                            .child(
-                                small("Servers on your Lodestone cores. Create an instance that matches one, then play on it.")
-                                    .text_color(colors::GRAY_500),
-                            ),
+                            .child(small(t(M::PageHint)).text_color(colors::GRAY_500)),
                     )
                     .child(
-                        Button::new("add-server", "Add server")
+                        Button::new("add-server", t(M::AddServer))
                             .variant(ButtonVariant::Primary)
                             .icon(Icon::Plus)
                             .on_click(cx.listener(|this, _, _, cx| this.open_add(None, cx))),
                     ),
             )
-            .children(self.notice.clone().map(|(title, message)| {
+            .children(self.notice.as_ref().map(|notice| {
+                let (title, message) = notice.text();
                 div()
                     .flex()
                     .flex_row()
@@ -568,7 +623,7 @@ impl Render for Servers {
                             .child(small(message).text_color(colors::GRAY_400)),
                     )
                     .child(
-                        Button::new("dismiss-notice", "Dismiss")
+                        Button::new("dismiss-notice", t(M::Dismiss))
                             .size(ButtonSize::Slim)
                             .variant(ButtonVariant::Ghost)
                             .on_click(cx.listener(|this, _, _, cx| this.dismiss_notice(cx))),
@@ -592,12 +647,9 @@ impl Render for Servers {
                             div()
                                 .font_weight(weights::BOLD.into())
                                 .text_color(colors::GRAY_FADED.opacity(50))
-                                .child("No servers yet"),
+                                .child(t(M::NoServersYet)),
                         )
-                        .child(
-                            small("Add a Lodestone core by its address. Without signing in you see the servers its owner lists publicly.")
-                                .text_color(colors::GRAY_500),
-                        ),
+                        .child(small(t(M::NoServersHint)).text_color(colors::GRAY_500)),
                 )
             })
             .children(cards)
@@ -698,56 +750,56 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
     let entity = servers.clone();
     let changes = &prompt.changes;
     let mut lines: Vec<String> = Vec::new();
-    for (names, verb) in [
-        (&changes.added, "New"),
-        (&changes.updated, "Changed"),
-        (&changes.removed, "Removed"),
-        (&changes.other, "Config"),
+    for (names, message) in [
+        (&changes.added, M::ChangeNew),
+        (&changes.updated, M::ChangeChanged),
+        (&changes.removed, M::ChangeRemoved),
+        (&changes.other, M::ChangeConfig),
     ] {
         for name in names.iter().take(6) {
-            lines.push(format!("{verb}: {name}"));
+            lines.push(tr!(message, name = name));
         }
     }
     let update = servers.clone();
     let play = servers.clone();
     let cancel = servers.clone();
     Dialog::new(
-            "update-server-mods",
-            format!("{} has different mods", prompt.server.name),
-            prompt.focus.clone(),
-        )
-        .on_close(move |_, cx| entity.update(cx, |this, cx| this.cancel_prompt(cx)))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .text_color(colors::GRAY_400)
-                .child(format!(
-                    "The server's mods changed since this instance got them ({}). Update first so you can join; your own mods stay as they are, and the files that are replaced are kept in the instance's backups.",
-                    changes.summary()
-                ))
-                .children(lines.into_iter().map(|line| {
-                    small(line)
-                        .font_family(fonts::MONO)
-                        .text_color(colors::GRAY_300)
-                })),
-        )
-        .footer(
-            Button::new("update-and-play", "Update and play")
-                .variant(ButtonVariant::Primary)
-                .on_click(move |_, _, cx| update.update(cx, |this, cx| this.answer_prompt(true, cx))),
-        )
-        .footer(
-            Button::new("play-anyway", "Play anyway")
-                .on_click(move |_, _, cx| play.update(cx, |this, cx| this.answer_prompt(false, cx))),
-        )
-        .footer(
-            Button::new("cancel-update", "Cancel")
-                .variant(ButtonVariant::Ghost)
-                .on_click(move |_, _, cx| cancel.update(cx, |this, cx| this.cancel_prompt(cx))),
-        )
-        .into_any_element()
+        "update-server-mods",
+        tr!(M::DifferentMods, name = prompt.server.name),
+        prompt.focus.clone(),
+    )
+    .on_close(move |_, cx| entity.update(cx, |this, cx| this.cancel_prompt(cx)))
+    .child(
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .text_color(colors::GRAY_400)
+            .child(tr!(
+                M::DifferentModsBody,
+                changes = changes_summary(changes)
+            ))
+            .children(lines.into_iter().map(|line| {
+                small(line)
+                    .font_family(fonts::MONO)
+                    .text_color(colors::GRAY_300)
+            })),
+    )
+    .footer(
+        Button::new("update-and-play", t(M::UpdateAndPlay))
+            .variant(ButtonVariant::Primary)
+            .on_click(move |_, _, cx| update.update(cx, |this, cx| this.answer_prompt(true, cx))),
+    )
+    .footer(
+        Button::new("play-anyway", t(M::PlayAnyway))
+            .on_click(move |_, _, cx| play.update(cx, |this, cx| this.answer_prompt(false, cx))),
+    )
+    .footer(
+        Button::new("cancel-update", t(CommonMsg::Cancel))
+            .variant(ButtonVariant::Ghost)
+            .on_click(move |_, _, cx| cancel.update(cx, |this, cx| this.cancel_prompt(cx))),
+    )
+    .into_any_element()
 }
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
@@ -766,20 +818,18 @@ fn certificate_dialog(servers: &Entity<Servers>, prompt: &CertPrompt) -> Dialog 
     let trust = servers.clone();
     let cancel = servers.clone();
     let title = if changed {
-        format!("The certificate of {name} changed")
+        tr!(M::CertChangedTitle, name = name)
     } else {
-        "Trust this core's certificate?".to_string()
+        t(M::CertTrustTitle).to_string()
     };
     let intro = if changed {
-        format!(
-            "The core at {} presents another HTTPS certificate than the one you trusted. The core makes a new certificate when its built-in one is about to expire or its address changes, but this can also mean someone is intercepting the connection.",
-            prompt.address
-        )
+        tr!(M::CertChangedIntro, address = prompt.address)
     } else {
-        format!(
-            "{} doesn't trust the HTTPS certificate of {name} at {}. Lodestone cores make their own certificate, so this is expected the first time you connect.",
-            wording::OS,
-            prompt.address
+        tr!(
+            M::CertUntrustedIntro,
+            os = wording::OS,
+            name = name,
+            address = prompt.address
         )
     };
     Dialog::new("core-certificate", title, prompt.focus.clone())
@@ -792,43 +842,54 @@ fn certificate_dialog(servers: &Entity<Servers>, prompt: &CertPrompt) -> Dialog 
                 .gap_3()
                 .child(paragraph(intro))
                 .children(prompt.previous.as_ref().map(|previous| {
-                    fingerprint_block("TRUSTED UNTIL NOW (SHA-256)", previous, colors::GRAY_400)
+                    fingerprint_block(t(M::FingerprintTrustedBefore), previous, colors::GRAY_400)
                 }))
                 .child(fingerprint_block(
-                    if changed {
-                        "PRESENTED NOW (SHA-256)"
+                    t(if changed {
+                        M::FingerprintPresented
                     } else {
-                        "CERTIFICATE FINGERPRINT (SHA-256)"
-                    },
+                        M::FingerprintCaption
+                    }),
                     &prompt.presented,
-                    if changed { colors::RED_200 } else { colors::GRAY_300 },
+                    if changed {
+                        colors::RED_200
+                    } else {
+                        colors::GRAY_300
+                    },
                 ))
-                .child(small(FINGERPRINT_HELP).text_color(colors::GRAY_500))
-                .child(small(format!(
-                    "If they match, trust it: Lodestone Launcher then accepts exactly this certificate, only for {}, and warns you if it changes.{}",
-                    prompt.host,
-                    if changed { " A core trusted for mods stops being trusted until you trust it again." } else { "" }
-                ))
-                .text_color(colors::GRAY_500)),
+                .child(small(t(M::FingerprintHelp)).text_color(colors::GRAY_500))
+                .child(
+                    small(tr!(
+                        if changed {
+                            M::CertIfMatchChanged
+                        } else {
+                            M::CertIfMatch
+                        },
+                        host = prompt.host
+                    ))
+                    .text_color(colors::GRAY_500),
+                ),
         )
         .footer(
             Button::new(
                 "trust-certificate",
-                if changed {
-                    "Trust the new certificate"
+                t(if changed {
+                    M::TrustNewCertificate
                 } else {
-                    "Trust certificate"
-                },
+                    M::TrustCertificate
+                }),
             )
             .variant(if changed {
                 ButtonVariant::Danger
             } else {
                 ButtonVariant::Primary
             })
-            .on_click(move |_, _, cx| trust.update(cx, |this, cx| this.answer_certificate(true, cx))),
+            .on_click(move |_, _, cx| {
+                trust.update(cx, |this, cx| this.answer_certificate(true, cx))
+            }),
         )
         .footer(
-            Button::new("cancel-certificate", "Cancel")
+            Button::new("cancel-certificate", t(CommonMsg::Cancel))
                 .variant(ButtonVariant::Secondary)
                 .on_click(move |_, _, cx| {
                     cancel.update(cx, |this, cx| this.answer_certificate(false, cx))
@@ -843,7 +904,7 @@ fn trust_dialog(servers: &Entity<Servers>, prompt: &TrustPrompt) -> Dialog {
     let trust = servers.clone();
     Dialog::new(
         "trust-core",
-        format!("Do you trust {}?", prompt.name),
+        tr!(M::TrustTitle, name = prompt.name),
         prompt.focus.clone(),
     )
     .on_close(move |_, cx| close.update(cx, |this, cx| this.answer_trust(false, cx)))
@@ -852,24 +913,28 @@ fn trust_dialog(servers: &Entity<Servers>, prompt: &TrustPrompt) -> Dialog {
             .flex()
             .flex_col()
             .gap_3()
-            .child(paragraph(format!("{} at {}.", prompt.name, prompt.address)))
+            .child(paragraph(tr!(
+                M::CoreAt,
+                name = prompt.name,
+                address = prompt.address
+            )))
             .child(paragraph(trust_explanation()))
             .child(
                 small(if prompt.after_add {
-                    "Until you trust it, Lodestone Launcher shows you what a server's mods are before it installs them. You can change this later with \"Trusted for mods\" on the core's card."
+                    tr!(M::TrustAfterAdd, setting = t(M::TrustedForMods))
                 } else {
-                    "Mods from this core will then be installed without asking. You can turn this off again on the core's card."
+                    t(M::TrustLater).to_string()
                 })
                 .text_color(colors::GRAY_500),
             ),
     )
     .footer(
-        Button::new("trust-not-now", "Not now")
+        Button::new("trust-not-now", t(CommonMsg::NotNow))
             .variant(ButtonVariant::Primary)
             .on_click(move |_, _, cx| not_now.update(cx, |this, cx| this.answer_trust(false, cx))),
     )
     .footer(
-        Button::new("trust-core-yes", "Trust this core")
+        Button::new("trust-core-yes", t(M::TrustThisCore))
             .variant(ButtonVariant::Secondary)
             .on_click(move |_, _, cx| trust.update(cx, |this, cx| this.answer_trust(true, cx))),
     )
@@ -889,8 +954,7 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
     let once = servers.clone();
     let trust = servers.clone();
     let more = |count: usize| {
-        (count > SHOWN)
-            .then(|| small(format!("and {} more", count - SHOWN)).text_color(colors::GRAY_500))
+        (count > SHOWN).then(|| small(trn!(P::AndMore, count - SHOWN)).text_color(colors::GRAY_500))
     };
     let uploaded = (!advisory.uploaded.is_empty()).then(|| {
         div()
@@ -911,9 +975,9 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
                     .gap_2()
                     .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
                     .child(
-                        small(format!(
-                            "Uploaded to the server — not checked by Modrinth ({})",
-                            advisory.uploaded.len()
+                        small(tr!(
+                            M::UploadedNotChecked,
+                            count = format::number(advisory.uploaded.len() as u64)
                         ))
                         .font_weight(weights::BOLD.into())
                         .text_color(colors::YELLOW),
@@ -938,9 +1002,12 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
             .border_color(colors::FADE_700)
             .bg(colors::GRAY_900)
             .child(
-                small(format!("Also on Modrinth ({})", advisory.on_modrinth.len()))
-                    .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_400),
+                small(tr!(
+                    M::AlsoOnModrinth,
+                    count = format::number(advisory.on_modrinth.len() as u64)
+                ))
+                .font_weight(weights::BOLD.into())
+                .text_color(colors::GRAY_400),
             )
             .children(advisory.on_modrinth.iter().take(SHOWN).map(|found| {
                 div()
@@ -960,24 +1027,27 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
             }))
             .children(more(advisory.on_modrinth.len()))
     });
-    let intro = if prompt.update {
-        format!(
-            "Updating to the mods of {} on {} installs these files. Mods are programs: they run with the same access to your files and accounts as you.",
-            prompt.server_name, prompt.core_name
-        )
-    } else {
-        format!(
-            "The instance for {} on {} gets these files. Mods are programs: they run with the same access to your files and accounts as you.",
-            prompt.server_name, prompt.core_name
-        )
-    };
+    let intro = tr!(
+        if prompt.update {
+            M::AdvisoryUpdate
+        } else {
+            M::AdvisoryNew
+        },
+        server = prompt.server_name,
+        core = prompt.core_name
+    );
+    let trust_label = tr!(M::TrustAndInstall, core = prompt.core_name);
     Dialog::new(
         "mod-advisory",
-        format!("This server's mods will run on your {}", wording::COMPUTER),
+        tr!(M::AdvisoryTitle, computer = t(CommonMsg::ThisComputer)),
         prompt.focus.clone(),
     )
     .width(px(600.))
-    .on_close(move |_, cx| close.update(cx, |this, cx| this.answer_advisory(AdvisoryAnswer::Cancel, cx)))
+    .on_close(move |_, cx| {
+        close.update(cx, |this, cx| {
+            this.answer_advisory(AdvisoryAnswer::Cancel, cx)
+        })
+    })
     .child(
         div()
             .flex()
@@ -985,60 +1055,68 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
             .gap_3()
             .child(paragraph(intro))
             .when(advisory.unchecked, |this| {
-                this.child(
-                    small("Modrinth couldn't be reached, so no file could be checked against it.")
-                        .text_color(colors::YELLOW),
-                )
+                this.child(small(t(M::ModrinthUnreachable)).text_color(colors::YELLOW))
             })
             .children(uploaded)
             .children(on_modrinth)
-            .children(advisory.other_files_label().map(|label| {
-                small(if advisory.scripts > 0 {
-                    format!("Also {label}. Script files (KubeJS, CraftTweaker) can drive code too.")
-                } else {
-                    format!("Also {label}.")
-                })
+            .children(other_files(advisory).map(|files| {
+                small(tr!(
+                    if advisory.scripts > 0 {
+                        M::AlsoFilesScripts
+                    } else {
+                        M::AlsoFiles
+                    },
+                    files = files
+                ))
                 .text_color(colors::GRAY_400)
             }))
             .child(
-                paragraph(format!(
-                    "Only continue if you trust the owner of {}.",
-                    prompt.core_name
-                ))
-                .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_300),
+                paragraph(tr!(M::OnlyIfYouTrust, core = prompt.core_name))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(colors::GRAY_300),
             )
             .child(
-                small(format!(
-                    "\"Trust {} and install\" also installs its mods without asking from now on. {}",
-                    prompt.core_name,
-                    trust_explanation()
+                small(tr!(
+                    M::AdvisoryTrustNote,
+                    button = trust_label,
+                    explanation = trust_explanation()
                 ))
                 .text_color(colors::GRAY_500),
             ),
     )
+    // one footer item that wraps: the trust button holds the core's name
     .footer(
-        Button::new("advisory-cancel", "Cancel")
-            .variant(ButtonVariant::Primary)
-            .on_click(move |_, _, cx| {
-                cancel.update(cx, |this, cx| this.answer_advisory(AdvisoryAnswer::Cancel, cx))
-            }),
-    )
-    .footer(
-        Button::new("advisory-once", "Install this time")
-            .variant(ButtonVariant::Secondary)
-            .on_click(move |_, _, cx| {
-                once.update(cx, |this, cx| this.answer_advisory(AdvisoryAnswer::InstallOnce, cx))
-            }),
-    )
-    .footer(
-        Button::new(
-            "advisory-trust",
-            format!("Trust {} and install", prompt.core_name),
-        )
-        .variant(ButtonVariant::Ghost)
-        .on_click(move |_, _, cx| {
-            trust.update(cx, |this, cx| this.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx))
-        }),
+        div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .gap_2()
+            .child(
+                Button::new("advisory-cancel", t(CommonMsg::Cancel))
+                    .variant(ButtonVariant::Primary)
+                    .on_click(move |_, _, cx| {
+                        cancel.update(cx, |this, cx| {
+                            this.answer_advisory(AdvisoryAnswer::Cancel, cx)
+                        })
+                    }),
+            )
+            .child(
+                Button::new("advisory-once", t(M::InstallThisTime))
+                    .variant(ButtonVariant::Secondary)
+                    .on_click(move |_, _, cx| {
+                        once.update(cx, |this, cx| {
+                            this.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
+                        })
+                    }),
+            )
+            .child(
+                Button::new("advisory-trust", trust_label)
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(move |_, _, cx| {
+                        trust.update(cx, |this, cx| {
+                            this.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx)
+                        })
+                    }),
+            ),
     )
 }

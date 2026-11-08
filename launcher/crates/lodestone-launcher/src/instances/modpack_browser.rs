@@ -8,35 +8,61 @@ use gpui::{
     Subscription, Task, Window, div, prelude::*, px,
 };
 use launcher_core::content::Modrinth;
-use lodestone_minecraft::{
-    modrinth::{
-        ClientProjectType, ClientSearchParams, ModrinthProject, ModrinthSearchIndex,
-        ModrinthSearchResponse, ModrinthVersionType, RawVersion,
-    },
-    util::format_byte,
+use lodestone_minecraft::modrinth::{
+    ClientProjectType, ClientSearchParams, ModrinthProject, ModrinthSearchIndex,
+    ModrinthSearchResponse, ModrinthVersionType, RawVersion,
 };
 
 use super::{
     Instances,
     content::{
         Load, RemoteIcon,
-        view::{badge, compact, icon_box, pills, short_list, small, version_label},
+        view::{badge, icon_box, pills, short_list, small, version_label},
     },
 };
 use crate::components::KeyboardFocus;
 use crate::{
     components::{LoadingDots, TextInput},
+    i18n::{InstancesMsg as M, format, t, tr},
     theme::{self, colors, fonts, radius, text, weights},
 };
 
 const SEARCH_DELAY: Duration = Duration::from_millis(300);
 const PAGE_SIZE: u32 = 20;
-const SORTS: [(ModrinthSearchIndex, &str); 4] = [
-    (ModrinthSearchIndex::Relevance, "Relevance"),
-    (ModrinthSearchIndex::Downloads, "Downloads"),
-    (ModrinthSearchIndex::Follows, "Follows"),
-    (ModrinthSearchIndex::Updated, "Updated"),
+const SORTS: [(ModrinthSearchIndex, M); 4] = [
+    (ModrinthSearchIndex::Relevance, M::SortRelevance),
+    (ModrinthSearchIndex::Downloads, M::SortDownloads),
+    (ModrinthSearchIndex::Follows, M::SortFollows),
+    (ModrinthSearchIndex::Updated, M::SortUpdated),
 ];
+
+/// The search column's width: wider in French, whose sort labels are longer.
+fn list_width() -> f32 {
+    match crate::i18n::locale() {
+        crate::i18n::Locale::Fr => 430.,
+        _ => 360.,
+    }
+}
+
+/// A Modrinth project type in a sentence ("a mod"), or the type as Modrinth names it.
+fn project_kind(project_type: &str) -> String {
+    let message = match project_type {
+        "mod" => M::KindMod,
+        "resourcepack" => M::KindResourcePack,
+        "shader" => M::KindShaderPack,
+        "datapack" => M::KindDataPack,
+        "plugin" => M::KindPlugin,
+        other => return other.to_string(),
+    };
+    t(message).into()
+}
+
+/// When a version was published: "Mar 12, 2025", from Modrinth's ISO 8601 time.
+fn published(date: &str) -> String {
+    date.get(..10)
+        .and_then(|day| chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok())
+        .map_or_else(String::new, |day| format::short_date(day, true))
+}
 
 /// The picked pack.
 pub struct Picked {
@@ -63,10 +89,7 @@ pub struct ModpackBrowser {
 
 impl ModpackBrowser {
     pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| {
-            TextInput::new(cx)
-                .with_placeholder("Search modpacks on Modrinth, or paste a Modrinth link")
-        });
+        let search = cx.new(|cx| TextInput::new(cx).with_placeholder(M::SearchModpacks));
         let observe = vec![cx.observe(&search, |this, _, cx| this.search_changed(cx))];
         Self {
             instances,
@@ -185,9 +208,9 @@ impl ModpackBrowser {
                     }
                     Ok(target) => {
                         this.results = Load::Failed(
-                            format!(
-                                "That link is a {}, not a modpack. Add it from an instance's Content tab.",
-                                target.project.project_type
+                            tr!(
+                                M::LinkNotModpack,
+                                kind = project_kind(&target.project.project_type)
                             )
                             .into(),
                         )
@@ -320,7 +343,7 @@ fn fetch_image<V: 'static>(
     None
 }
 
-fn loading(label: &'static str) -> AnyElement {
+fn loading(label: M) -> AnyElement {
     div()
         .flex()
         .flex_row()
@@ -329,14 +352,14 @@ fn loading(label: &'static str) -> AnyElement {
         .p_3()
         .text_color(colors::GRAY_500)
         .child(LoadingDots)
-        .child(label)
+        .child(t(label))
         .into_any_element()
 }
 
 impl ModpackBrowser {
     fn render_results(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let results = match &self.results {
-            Load::NotLoaded | Load::Loading => return loading("Searching Modrinth"),
+            Load::NotLoaded | Load::Loading => return loading(M::SearchingModrinth),
             Load::Failed(err) => {
                 return small(err.clone())
                     .p_3()
@@ -346,7 +369,7 @@ impl ModpackBrowser {
             Load::Ready(results) => results.clone(),
         };
         if results.hits.is_empty() {
-            return small("No modpacks match.")
+            return small(t(M::NoModpacksMatch))
                 .p_3()
                 .text_color(colors::GRAY_500)
                 .into_any_element();
@@ -395,10 +418,10 @@ impl ModpackBrowser {
                                     .child(hit.title.clone()),
                             )
                             .child(
-                                small(format!(
-                                    "by {} · {} downloads",
-                                    hit.author,
-                                    compact(hit.downloads)
+                                small(tr!(
+                                    M::ByAuthor,
+                                    author = hit.author,
+                                    downloads = format::compact(hit.downloads)
                                 ))
                                 .truncate()
                                 .text_color(colors::GRAY_500),
@@ -419,7 +442,7 @@ impl ModpackBrowser {
                 .p_4()
                 .text_center()
                 .text_color(colors::GRAY_500)
-                .child("Pick a modpack to see its versions.")
+                .child(t(M::PickModpack))
                 .into_any_element();
         };
         let project = match &picked.project {
@@ -430,7 +453,7 @@ impl ModpackBrowser {
                     .text_color(colors::RED_200)
                     .into_any_element();
             }
-            _ => return loading("Loading the modpack"),
+            _ => return loading(M::LoadingModpack),
         };
         let versions = picked.versions.clone();
         let chosen = picked.version.clone();
@@ -470,7 +493,7 @@ impl ModpackBrowser {
         let switch = has_body.then(|| {
             pills(
                 "pack-tabs",
-                vec!["Versions".into(), "Description".into()],
+                vec![t(M::Versions).into(), t(M::Description).into()],
                 usize::from(show_description),
                 move |index, _, cx| {
                     entity.update(cx, |this, cx| {
@@ -500,7 +523,7 @@ impl ModpackBrowser {
             crate::markdown::render(format!("pack-description-{}", project.id), &blocks, &images)
         } else {
             match versions {
-                Load::Ready(list) if list.is_empty() => small("This modpack has no versions.")
+                Load::Ready(list) if list.is_empty() => small(t(M::NoVersions))
                     .text_color(colors::GRAY_500)
                     .into_any_element(),
                 Load::Ready(list) => {
@@ -561,11 +584,8 @@ impl ModpackBrowser {
                                                 "{} · {} · {} · {}",
                                                 short_list(&version.game_versions, 2),
                                                 short_list(&version.loaders, 2),
-                                                version
-                                                    .date_published
-                                                    .get(..10)
-                                                    .unwrap_or_default(),
-                                                format_byte(size)
+                                                published(&version.date_published),
+                                                format::bytes_binary(size)
                                             ))
                                             .truncate()
                                             .text_color(colors::GRAY_500),
@@ -576,7 +596,7 @@ impl ModpackBrowser {
                     rows.into_any_element()
                 }
                 Load::Failed(err) => small(err).text_color(colors::RED_200).into_any_element(),
-                _ => loading("Loading versions"),
+                _ => loading(M::LoadingVersions),
             }
         };
         div()
@@ -611,7 +631,7 @@ impl Render for ModpackBrowser {
             "pack-sort",
             SORTS
                 .iter()
-                .map(|(_, label)| SharedString::from(*label))
+                .map(|(_, label)| SharedString::from(t(*label)))
                 .collect(),
             selected,
             move |index, _, cx| {
@@ -628,7 +648,7 @@ impl Render for ModpackBrowser {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .w(px(360.))
+                    .w(px(list_width()))
                     .flex_none()
                     .child(self.search.clone())
                     .child(div().flex().child(sorts))

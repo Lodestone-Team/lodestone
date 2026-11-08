@@ -13,6 +13,7 @@ use gpui::{
 
 use crate::{
     components::{ArrowGroup, FocusScope, Icon, focus::KeyboardFocus},
+    i18n::{CommonMsg, t},
     theme::{self, Color, colors, fonts, leading, radius, shadow, text, weights},
 };
 
@@ -668,9 +669,9 @@ pub fn unsaved_bar(
                         .text_color(colors::GRAY_300)
                         .child(message.into()),
                 )
-                .child(muted_link((id, 0usize), "Discard").on_click(on_discard))
+                .child(muted_link((id, 0usize), t(CommonMsg::Discard)).on_click(on_discard))
                 .child(
-                    crate::components::Button::new((id, 1usize), "Save")
+                    crate::components::Button::new((id, 1usize), t(CommonMsg::Save))
                         .variant(crate::components::ButtonVariant::Primary)
                         .size(crate::components::ButtonSize::Slim)
                         .disabled(!can_save)

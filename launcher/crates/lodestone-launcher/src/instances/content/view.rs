@@ -7,7 +7,6 @@ use gpui::{
     AnyElement, Context, ExternalPaths, IntoElement, ObjectFit, Render, RenderImage, SharedString,
     Window, div, img, prelude::*, px,
 };
-use launcher_core::wording;
 use launcher_core::{
     content::{
         ContentKind,
@@ -17,24 +16,43 @@ use launcher_core::{
     },
     instances::Loader,
 };
-use lodestone_minecraft::{
-    modrinth::{ModrinthSearchHit, ModrinthSearchIndex, ModrinthVersionType, RawVersion},
-    util::format_byte,
+use lodestone_minecraft::modrinth::{
+    ModrinthSearchHit, ModrinthSearchIndex, ModrinthVersionType, RawVersion,
 };
 
 use super::{ContentView, Load, PAGE_SIZE, ProjectTab, SubView};
 use crate::components::KeyboardFocus;
+use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr, trn};
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, IconButton, LoadingDots, Toggle},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
-/// `72230975` as `72.2M`.
-pub fn compact(value: u64) -> String {
-    match value {
-        0..1_000 => value.to_string(),
-        1_000..1_000_000 => format!("{:.1}k", value as f64 / 1_000.0),
-        _ => format!("{:.1}M", value as f64 / 1_000_000.0),
+/// A count of downloads, follows or followers: the plural `exact` for a small count,
+/// else `shortened` with the count shortened ("1.2k downloads").
+fn counted(value: u64, exact: P, shortened: M) -> String {
+    let short = format::compact(value);
+    if short == format::number(value) {
+        trn!(exact, value)
+    } else {
+        tr!(shortened, count = short)
+    }
+}
+
+/// A content kind's name, as the section switch shows it.
+fn kind_name(kind: ContentKind) -> &'static str {
+    t(match kind {
+        ContentKind::Mod => M::KindMods,
+        ContentKind::ResourcePack => M::KindResourcePacks,
+        ContentKind::ShaderPack => M::KindShaders,
+    })
+}
+
+/// An instance's loader in a label: its name, or "Vanilla".
+fn loader_name(loader: Loader) -> &'static str {
+    match loader {
+        Loader::None => t(M::Vanilla),
+        other => other.label(),
     }
 }
 
@@ -182,9 +200,9 @@ pub(crate) fn row_base(id: impl Into<gpui::ElementId>, first: bool) -> gpui::Sta
 
 pub(crate) fn version_label(kind: ModrinthVersionType) -> (&'static str, theme::Color) {
     match kind {
-        ModrinthVersionType::Release => ("Release", colors::GREEN_300),
-        ModrinthVersionType::Beta => ("Beta", colors::YELLOW_300),
-        ModrinthVersionType::Alpha => ("Alpha", colors::RED_200),
+        ModrinthVersionType::Release => (t(M::Release), colors::GREEN_300),
+        ModrinthVersionType::Beta => (t(M::Beta), colors::YELLOW_300),
+        ModrinthVersionType::Alpha => (t(M::Alpha), colors::RED_200),
     }
 }
 
@@ -194,16 +212,19 @@ pub(crate) fn short_list(values: &[String], max: usize) -> String {
     if values.len() > max {
         shown.push("…");
     }
-    shown.join(", ")
+    format::list(&shown)
 }
 
 impl ContentView {
     fn kind_label(&self, kind: ContentKind) -> SharedString {
         match self.section(kind).listing.ready() {
-            Some(listing) if !listing.items.is_empty() => {
-                format!("{} {}", kind.label(), listing.items.len()).into()
-            }
-            _ => kind.label().into(),
+            Some(listing) if !listing.items.is_empty() => format!(
+                "{} {}",
+                kind_name(kind),
+                format::number(listing.items.len() as u64)
+            )
+            .into(),
+            _ => kind_name(kind).into(),
         }
     }
 
@@ -212,7 +233,7 @@ impl ContentView {
             return String::new();
         };
         match kind {
-            ContentKind::Mod => format!("{} / {}", target.game_version, target.loader.label()),
+            ContentKind::Mod => format!("{} / {}", target.game_version, loader_name(target.loader)),
             ContentKind::ResourcePack => target.game_version.clone(),
             ContentKind::ShaderPack => format!(
                 "{} / {}",
@@ -252,7 +273,7 @@ impl ContentView {
             ))
             .child(pills(
                 "content-views",
-                vec!["Installed".into(), "Browse Modrinth".into()],
+                vec![t(M::InstalledTab).into(), t(M::BrowseModrinth).into()],
                 if view == SubView::Installed { 0 } else { 1 },
                 move |index, _, cx| {
                     let view = if index == 0 {
@@ -274,21 +295,22 @@ impl ContentView {
             } else {
                 0.0
             };
+            let bytes = tr!(
+                M::BytesProgress,
+                done = format::bytes(snapshot.bytes_done),
+                total = format::bytes(snapshot.bytes_total)
+            );
             let detail = if snapshot.files_total > 1 {
                 format!(
-                    "{} of {} files · {}",
-                    snapshot.files_done.min(snapshot.files_total),
-                    snapshot.files_total,
-                    lodestone_minecraft::util::format_byte_download(
-                        snapshot.bytes_done,
-                        snapshot.bytes_total
+                    "{} · {bytes}",
+                    tr!(
+                        M::FilesProgress,
+                        done = format::number(snapshot.files_done.min(snapshot.files_total)),
+                        total = format::number(snapshot.files_total)
                     )
                 )
             } else {
-                lodestone_minecraft::util::format_byte_download(
-                    snapshot.bytes_done,
-                    snapshot.bytes_total,
-                )
+                bytes
             };
             (job.progress.label(), detail, fraction)
         });
@@ -311,7 +333,13 @@ impl ContentView {
                         .bg(colors::YELLOW_FADED.opacity(20))
                         .text_color(colors::WHITE)
                         .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW_300))
-                        .child("The game is running. Stop it to change its content: it rewrites options.txt and the shader settings when it exits."),
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .whitespace_normal()
+                                .child(t(M::GameRunning)),
+                        ),
                 )
             })
             .when_some(job, |this, (label, detail, fraction)| {
@@ -333,13 +361,22 @@ impl ContentView {
                                 .items_center()
                                 .gap_3()
                                 .child(LoadingDots)
-                                .child(div().flex_1().font_weight(weights::BOLD.into()).child(label))
-                                .child(small(detail).text_color(colors::GRAY_500))
                                 .child(
-                                    Button::new("cancel-install", "Cancel")
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .font_weight(weights::BOLD.into())
+                                        .child(label),
+                                )
+                                .child(small(detail).flex_none().text_color(colors::GRAY_500))
+                                .child(
+                                    Button::new("cancel-install", t(CommonMsg::Cancel))
                                         .variant(ButtonVariant::Ghost)
                                         .size(ButtonSize::Slim)
-                                        .on_click(cx.listener(|this, _, _, cx| this.cancel_install(cx))),
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| this.cancel_install(cx)),
+                                        ),
                                 ),
                         )
                         .child(
@@ -383,16 +420,19 @@ impl ContentView {
                             div()
                                 .flex_1()
                                 .whitespace_normal()
-                                .text_color(if error { colors::RED_200 } else { colors::GREEN_300 })
+                                .text_color(if error {
+                                    colors::RED_200
+                                } else {
+                                    colors::GREEN_300
+                                })
                                 .child(message),
                         )
-                        .child(
-                            IconButton::new("dismiss-message", Icon::Xmark)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.message = None;
-                                    cx.notify();
-                                })),
-                        ),
+                        .child(IconButton::new("dismiss-message", Icon::Xmark).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.message = None;
+                                cx.notify();
+                            }),
+                        )),
                 )
             })
     }
@@ -409,13 +449,21 @@ impl ContentView {
             (_, 0) => String::new(),
             (ContentKind::ResourcePack, _) => {
                 let enabled = section.items().iter().filter(|i| i.enabled).count();
-                format!("{count} resource packs, {enabled} enabled")
+                trn!(
+                    P::ResourcePacksEnabled,
+                    count,
+                    enabled = format::number(enabled as u64)
+                )
             }
             (ContentKind::Mod, _) => {
                 let enabled = section.items().iter().filter(|i| i.enabled).count();
-                format!("{count} mods, {enabled} enabled")
+                trn!(
+                    P::ModsEnabled,
+                    count,
+                    enabled = format::number(enabled as u64)
+                )
             }
-            (ContentKind::ShaderPack, _) => format!("{count} shader packs"),
+            (ContentKind::ShaderPack, _) => trn!(P::ShaderPacks, count),
         };
         div()
             .flex()
@@ -434,7 +482,7 @@ impl ContentView {
                 this.child(
                     Button::new(
                         ("update-all", kind as usize),
-                        format!("Update all ({updates})"),
+                        tr!(M::UpdateAll, count = format::number(updates as u64)),
                     )
                     .variant(ButtonVariant::Primary)
                     .icon(Icon::CircleUp)
@@ -444,7 +492,7 @@ impl ContentView {
                 )
             })
             .child(
-                Button::new(("check-updates", kind as usize), "Check for updates")
+                Button::new(("check-updates", kind as usize), t(M::CheckForUpdates))
                     .variant(ButtonVariant::Secondary)
                     .icon(Icon::CircleUp)
                     .size(ButtonSize::Slim)
@@ -453,7 +501,7 @@ impl ContentView {
                     .on_click(cx.listener(move |this, _, _, cx| this.check_updates(kind, cx))),
             )
             .child(
-                Button::new(("add-file", kind as usize), "Add file…")
+                Button::new(("add-file", kind as usize), t(M::AddFile))
                     .variant(ButtonVariant::Secondary)
                     .icon(Icon::Upload)
                     .size(ButtonSize::Slim)
@@ -461,7 +509,7 @@ impl ContentView {
                     .on_click(cx.listener(move |this, _, _, cx| this.pick_files(kind, cx))),
             )
             .child(
-                Button::new(("open-folder", kind as usize), "Open folder")
+                Button::new(("open-folder", kind as usize), t(CommonMsg::OpenFolder))
                     .variant(ButtonVariant::Ghost)
                     .icon(Icon::ArrowUpRightFromSquare)
                     .size(ButtonSize::Slim)
@@ -503,16 +551,20 @@ impl ContentView {
         let title = item.display_name();
         let version = item.display_version();
         let detail = if item.file.is_dir {
-            format!("{name} · folder")
+            tr!(M::ItemFolder, name = name)
         } else {
-            format!("{name} · {}", format_byte(item.file.size))
+            format!("{name} · {}", format::bytes(item.file.size))
         };
         let warning = item
             .file
             .meta
             .problem
             .clone()
-            .or_else(|| item.compatibility.warning().map(str::to_string));
+            .or_else(|| match item.compatibility {
+                Compatibility::TooOld => Some(t(M::MadeForOlder).to_string()),
+                Compatibility::TooNew => Some(t(M::MadeForNewer).to_string()),
+                Compatibility::Compatible | Compatibility::Unknown => None,
+            });
         let page = item
             .modrinth
             .as_ref()
@@ -567,20 +619,20 @@ impl ContentView {
                             .when(
                                 kind == ContentKind::ResourcePack
                                     && compatibility == Compatibility::Compatible,
-                                |this| this.child(badge("Compatible", colors::GREEN_300)),
+                                |this| this.child(badge(t(M::Compatible), colors::GREEN_300)),
                             )
                             .when(item.compatibility.warning().is_some(), |this| {
                                 this.child(badge(
                                     if compatibility == Compatibility::TooOld {
-                                        "Older version"
+                                        t(M::OlderVersion)
                                     } else {
-                                        "Newer version"
+                                        t(M::NewerVersion)
                                     },
                                     colors::YELLOW_300,
                                 ))
                             })
                             .when(item.modrinth.is_none() && !item.file.is_dir, |this| {
-                                this.child(badge("Not on Modrinth", colors::GRAY_500))
+                                this.child(badge(t(M::NotOnModrinth), colors::GRAY_500))
                             }),
                     )
                     .child(
@@ -614,7 +666,7 @@ impl ContentView {
                         this.child(
                             Button::new(
                                 ("update-one", id_base),
-                                format!("Update to {}", update.version_number),
+                                tr!(M::UpdateTo, version = update.version_number),
                             )
                             .variant(ButtonVariant::Primary)
                             .icon(Icon::CircleUp)
@@ -679,7 +731,7 @@ impl ContentView {
                         let name = name.clone();
                         if confirming {
                             this.child(
-                                Button::new(("confirm-delete", id_base), wording::MOVE_TO_TRASH)
+                                Button::new(("confirm-delete", id_base), t(CommonMsg::MoveToTrash))
                                     .variant(ButtonVariant::Danger)
                                     .size(ButtonSize::Slim)
                                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -688,7 +740,7 @@ impl ContentView {
                                     })),
                             )
                             .child(
-                                Button::new(("cancel-delete", id_base), "Cancel")
+                                Button::new(("cancel-delete", id_base), t(CommonMsg::Cancel))
                                     .variant(ButtonVariant::Ghost)
                                     .size(ButtonSize::Slim)
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -712,15 +764,11 @@ impl ContentView {
     }
 
     fn render_empty(&self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
-        let message = match kind {
-            ContentKind::Mod => "No mods yet. Browse Modrinth, or drop .jar files here.",
-            ContentKind::ResourcePack => {
-                "No resource packs yet. Browse Modrinth, or drop .zip files or folders here."
-            }
-            ContentKind::ShaderPack => {
-                "No shader packs yet. Browse Modrinth, or drop .zip files or folders here."
-            }
-        };
+        let message = t(match kind {
+            ContentKind::Mod => M::NoModsYet,
+            ContentKind::ResourcePack => M::NoResourcePacksYet,
+            ContentKind::ShaderPack => M::NoShaderPacksYet,
+        });
         div()
             .flex()
             .flex_col()
@@ -734,9 +782,15 @@ impl ContentView {
             .border_color(colors::GRAY_FADED.opacity(10))
             .text_color(colors::GRAY_FADED.opacity(50))
             .font_weight(weights::BOLD.into())
-            .child(message)
             .child(
-                Button::new(("browse-empty", kind as usize), "Browse Modrinth")
+                div()
+                    .px_4()
+                    .text_center()
+                    .whitespace_normal()
+                    .child(message),
+            )
+            .child(
+                Button::new(("browse-empty", kind as usize), t(M::BrowseModrinth))
                     .variant(ButtonVariant::Secondary)
                     .icon(Icon::MagnifyingGlass)
                     .on_click(
@@ -747,7 +801,7 @@ impl ContentView {
     }
 
     /// The card for vanilla instances: content that needs a mod loader.
-    fn render_needs_loader(&mut self, what: &str, cx: &mut Context<Self>) -> AnyElement {
+    fn render_needs_loader(&mut self, what: NeedsLoader, cx: &mut Context<Self>) -> AnyElement {
         self.ensure_mod_loader_offer(cx);
         let switching = self.is_switching_loader(cx);
         let busy = self.locked(cx) || self.job.is_some();
@@ -755,7 +809,7 @@ impl ContentView {
             .context(cx)
             .map(|(_, _, target)| target.game_version)
             .unwrap_or_default();
-        let new_instance = Button::new("new-fabric-instance", "New Fabric instance…")
+        let new_instance = Button::new("new-fabric-instance", t(M::NewFabricInstance))
             .variant(ButtonVariant::Secondary)
             .icon(Icon::SquarePlus)
             .on_click(cx.listener(|this, _, _, cx| this.new_fabric_instance(cx)));
@@ -763,22 +817,27 @@ impl ContentView {
             Load::Ready(Some(kind)) => {
                 let label = kind.label();
                 (
-                    format!(
-                        "This instance is vanilla Minecraft. {what} run through a mod loader such as {label}; switching keeps your worlds and settings, and {label} installs the next time you press Play."
+                    tr!(
+                        what.pick(M::VanillaSwitchMods, M::VanillaSwitchShaders),
+                        loader = label
                     ),
                     Some(
                         div()
                             .flex()
                             .flex_row()
+                            .flex_wrap()
                             .gap_2()
                             .child(
-                                Button::new("switch-to-mod-loader", format!("Switch to {label}"))
-                                    .variant(ButtonVariant::Primary)
-                                    .loading(switching)
-                                    .disabled(busy)
-                                    .on_click(
-                                        cx.listener(|this, _, _, cx| this.switch_to_mod_loader(cx)),
-                                    ),
+                                Button::new(
+                                    "switch-to-mod-loader",
+                                    tr!(M::SwitchTo, loader = label),
+                                )
+                                .variant(ButtonVariant::Primary)
+                                .loading(switching)
+                                .disabled(busy)
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.switch_to_mod_loader(cx)),
+                                ),
                             )
                             .child(new_instance)
                             .into_any_element(),
@@ -786,17 +845,19 @@ impl ContentView {
                 )
             }
             Load::Ready(None) => (
-                format!(
-                    "This instance is vanilla Minecraft {game_version}. {what} need a mod loader, and none that Lodestone Launcher supports runs on this version: Fabric starts at 1.14, and Forge has no build for it. A new instance on a newer version can use them."
+                tr!(
+                    what.pick(M::VanillaNoLoaderMods, M::VanillaNoLoaderShaders),
+                    version = game_version
                 ),
                 Some(new_instance.into_any_element()),
             ),
             Load::Failed(err) => (
-                format!(
-                    "This instance is vanilla Minecraft. {what} need a mod loader, but checking which one fits didn't work: {err}"
+                tr!(
+                    what.pick(M::VanillaCheckFailedMods, M::VanillaCheckFailedShaders),
+                    error = err
                 ),
                 Some(
-                    Button::new("retry-mod-loader", "Try again")
+                    Button::new("retry-mod-loader", t(CommonMsg::TryAgain))
                         .variant(ButtonVariant::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.mod_loader_offer = Load::NotLoaded;
@@ -806,14 +867,17 @@ impl ContentView {
                 ),
             ),
             Load::NotLoaded | Load::Loading => (
-                format!(
-                    "This instance is vanilla Minecraft. {what} run through a mod loader; checking which one runs on Minecraft {game_version}…"
+                tr!(
+                    what.pick(M::VanillaCheckingMods, M::VanillaCheckingShaders),
+                    version = game_version
                 ),
                 None,
             ),
         };
         card()
-            .child(heading(format!("{what} need a mod loader")))
+            .child(heading(t(
+                what.pick(M::ModsNeedLoader, M::ShadersNeedLoader)
+            )))
             .child(
                 div()
                     .text_color(colors::GRAY_400)
@@ -832,9 +896,15 @@ impl ContentView {
                 &self.shaders.selection.pack,
                 self.shaders.selection.internal,
             ) {
-                (Some(pack), _) => format!("{} is using {pack}.", loader.label()),
-                (None, true) => format!("{} is using its built-in shaders.", loader.label()),
-                (None, false) => format!("{} is installed; shaders are off.", loader.label()),
+                (Some(pack), _) => {
+                    tr!(
+                        M::ShaderModUsingPack,
+                        shader_mod = loader.label(),
+                        pack = pack
+                    )
+                }
+                (None, true) => tr!(M::ShaderModUsingBuiltIn, shader_mod = loader.label()),
+                (None, false) => tr!(M::ShaderModInstalledOff, shader_mod = loader.label()),
             };
             return card()
                 .flex_row()
@@ -846,13 +916,22 @@ impl ContentView {
                         .flex()
                         .flex_col()
                         .flex_1()
-                        .child(div().font_weight(weights::BOLD.into()).child(using))
-                        .child(small(format!(
-                            "Pick a pack below. {} reads its choice from {} when the game starts.",
-                            loader.label(),
-                            loader.config_file()
-                        ))
-                        .text_color(colors::GRAY_500)),
+                        .min_w_0()
+                        .child(
+                            div()
+                                .font_weight(weights::BOLD.into())
+                                .whitespace_normal()
+                                .child(using),
+                        )
+                        .child(
+                            small(tr!(
+                                M::ShaderModPickPack,
+                                shader_mod = loader.label(),
+                                file = loader.config_file()
+                            ))
+                            .whitespace_normal()
+                            .text_color(colors::GRAY_500),
+                        ),
                 )
                 .into_any_element();
         }
@@ -861,11 +940,13 @@ impl ContentView {
             .map(|(_, _, t)| t.loader)
             .unwrap_or_default();
         if target_loader == Loader::None {
-            return self.render_needs_loader("Shaders", cx);
+            return self.render_needs_loader(NeedsLoader::Shaders, cx);
         }
-        let optifine_note = small(
-            "OptiFine works too, but it isn't on Modrinth and its licence doesn't allow Lodestone to download it. If you prefer it, download it from optifine.net and add the jar with Add file… in Mods (Fabric also needs OptiFabric).",
-        )
+        let optifine_note = small(tr!(
+            M::OptiFineNote,
+            add_file = t(M::AddFile),
+            mods = t(M::KindMods)
+        ))
         .whitespace_normal()
         .text_color(colors::GRAY_500);
         let body: AnyElement = match &self.shader_offer {
@@ -875,38 +956,61 @@ impl ContentView {
                 .gap_2()
                 .text_color(colors::GRAY_500)
                 .child(LoadingDots)
-                .child("Looking for a shader mod for this version on Modrinth")
+                .child(t(M::LookingForShaderMod))
                 .into_any_element(),
             Load::Failed(err) => div()
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .child(small(format!("Couldn't ask Modrinth: {err}")).text_color(colors::RED_200))
+                .child(small(tr!(M::CouldntAskModrinth, error = err)).text_color(colors::RED_200))
                 .child(
-                    Button::new("retry-shader-offer", "Try again")
+                    Button::new("retry-shader-offer", t(CommonMsg::TryAgain))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.load_shader_offer(cx))),
                 )
                 .into_any_element(),
             Load::Ready(ShaderModOffer::Install { loader, version }) => {
-                let label = format!("Install {} {}", loader.label(), version.version_number);
+                let label = tr!(
+                    M::InstallShaderMod,
+                    shader_mod = loader.label(),
+                    version = version.version_number
+                );
+                let runs_on = tr!(
+                    M::ShaderModRunsOn,
+                    shader_mod = loader.label(),
+                    loader = loader_name(target_loader)
+                );
                 let with = match loader {
-                    ShaderLoader::Iris => " It comes with Sodium, which Iris needs.",
-                    ShaderLoader::Oculus => " It comes with Embeddium, which Oculus needs.",
-                    ShaderLoader::OptiFine => "",
+                    ShaderLoader::Iris => Some("Sodium"),
+                    ShaderLoader::Oculus => Some("Embeddium"),
+                    ShaderLoader::OptiFine => None,
+                };
+                let text = match with {
+                    Some(dependency) => {
+                        let gap = match crate::i18n::locale() {
+                            crate::i18n::Locale::ZhHans | crate::i18n::Locale::ZhHant => "",
+                            crate::i18n::Locale::En | crate::i18n::Locale::Fr => " ",
+                        };
+                        let comes_with = tr!(
+                            M::ShaderModComesWith,
+                            dependency = dependency,
+                            shader_mod = loader.label()
+                        );
+                        format!("{runs_on}{gap}{comes_with}")
+                    }
+                    None => runs_on,
                 };
                 div()
                     .flex()
                     .flex_col()
                     .gap_2()
                     .child(
-                        div().text_color(colors::GRAY_400).whitespace_normal().child(format!(
-                            "Minecraft can't load shader packs by itself; a shader mod does that. {} runs on this instance's {}.{with}",
-                            loader.label(),
-                            target_loader.label()
-                        )),
+                        div()
+                            .text_color(colors::GRAY_400)
+                            .whitespace_normal()
+                            .child(text),
                     )
                     .child(
                         div().flex().child(
@@ -914,7 +1018,9 @@ impl ContentView {
                                 .variant(ButtonVariant::Primary)
                                 .icon(Icon::Download)
                                 .disabled(busy)
-                                .on_click(cx.listener(|this, _, _, cx| this.install_shader_mod(cx))),
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.install_shader_mod(cx)),
+                                ),
                         ),
                     )
                     .into_any_element()
@@ -922,14 +1028,14 @@ impl ContentView {
             Load::Ready(ShaderModOffer::Unavailable { reason }) => div()
                 .text_color(colors::GRAY_400)
                 .whitespace_normal()
-                .child(format!(
-                    "Minecraft can't load shader packs by itself; a shader mod does that. {reason} Fabric instances can always use Iris."
-                ))
+                .child(tr!(M::ShaderModUnavailable, reason = reason))
                 .into_any_element(),
-            Load::Ready(ShaderModOffer::NeedsModLoader) => return self.render_needs_loader("Shaders", cx),
+            Load::Ready(ShaderModOffer::NeedsModLoader) => {
+                return self.render_needs_loader(NeedsLoader::Shaders, cx);
+            }
         };
         card()
-            .child(heading("Shaders need a shader mod"))
+            .child(heading(t(M::ShadersNeedShaderMod)))
             .child(body)
             .child(optifine_note)
             .into_any_element()
@@ -943,7 +1049,7 @@ impl ContentView {
             column = column.child(self.render_shader_mod(cx));
         }
         if kind == ContentKind::Mod && target.as_ref().is_some_and(|t| t.loader == Loader::None) {
-            column = column.child(self.render_needs_loader("Mods", cx));
+            column = column.child(self.render_needs_loader(NeedsLoader::Mods, cx));
         }
         column = column.child(self.render_toolbar(kind, cx));
         let listing = match listing {
@@ -959,14 +1065,14 @@ impl ContentView {
                             .justify_center()
                             .text_color(colors::GRAY_500)
                             .child(LoadingDots)
-                            .child(format!("Reading the {} folder", kind.dir())),
+                            .child(tr!(M::ReadingFolder, folder = kind.dir())),
                     )
                     .into_any_element();
             }
             Load::Failed(err) => {
                 return column
                     .child(
-                        small(format!("Couldn't read the {} folder: {err}", kind.dir()))
+                        small(tr!(M::CouldntReadFolder, folder = kind.dir(), error = err))
                             .text_color(colors::RED_200),
                     )
                     .into_any_element();
@@ -975,10 +1081,7 @@ impl ContentView {
         };
         if let Some(error) = &listing.lookup_error {
             column = column.child(
-                small(format!(
-                    "Some files couldn't be matched to Modrinth: {error}"
-                ))
-                .text_color(colors::GRAY_500),
+                small(tr!(M::SomeFilesNotMatched, error = error)).text_color(colors::GRAY_500),
             );
         }
         if let Some(error) = &listing.options_error {
@@ -1011,7 +1114,7 @@ impl ContentView {
                     .collect();
                 if !enabled.is_empty() {
                     column = column.child(
-                        small("ENABLED · the top pack wins where packs overlap")
+                        small(t(M::EnabledHeader))
                             .font_weight(weights::BOLD.into())
                             .text_color(colors::GRAY_500),
                     );
@@ -1032,7 +1135,7 @@ impl ContentView {
                 }
                 if !others.is_empty() {
                     column = column.child(
-                        small("AVAILABLE")
+                        small(t(M::AvailableHeader))
                             .font_weight(weights::BOLD.into())
                             .text_color(colors::GRAY_500),
                     );
@@ -1069,10 +1172,13 @@ impl ContentView {
                             div()
                                 .flex()
                                 .flex_col()
-                                .child(div().font_weight(weights::BOLD.into()).child("Shaders off"))
                                 .child(
-                                    small("Minecraft's normal look.")
-                                        .text_color(colors::WHITE.opacity(30)),
+                                    div()
+                                        .font_weight(weights::BOLD.into())
+                                        .child(t(M::ShadersOff)),
+                                )
+                                .child(
+                                    small(t(M::NormalLook)).text_color(colors::WHITE.opacity(30)),
                                 ),
                         ),
                 );
@@ -1113,7 +1219,7 @@ impl ContentView {
             && matches!(self.section(kind).browse.results, Load::NotLoaded)
             && self.section(kind).browse.project.is_none()
         {
-            return muted("Browsing Modrinth needs the network.").into_any_element();
+            return muted(t(M::BrowsingNeedsNetwork)).into_any_element();
         }
         if self.section(kind).browse.project.is_some() {
             return self.render_project(kind, cx);
@@ -1126,11 +1232,11 @@ impl ContentView {
         let results = browse.results.clone();
         let target_label = self.target_label(kind, cx);
         let indexes = [
-            (ModrinthSearchIndex::Relevance, "Relevance"),
-            (ModrinthSearchIndex::Downloads, "Downloads"),
-            (ModrinthSearchIndex::Follows, "Follows"),
-            (ModrinthSearchIndex::Newest, "Newest"),
-            (ModrinthSearchIndex::Updated, "Updated"),
+            (ModrinthSearchIndex::Relevance, M::SortRelevance),
+            (ModrinthSearchIndex::Downloads, M::SortDownloads),
+            (ModrinthSearchIndex::Follows, M::SortFollows),
+            (ModrinthSearchIndex::Newest, M::SortNewest),
+            (ModrinthSearchIndex::Updated, M::SortUpdated),
         ];
         let selected_index = indexes.iter().position(|(i, _)| *i == index).unwrap_or(0);
         let entity = cx.entity();
@@ -1170,15 +1276,22 @@ impl ContentView {
                                 ),
                             )
                             .child(
-                                small(format!("Only show {}s for {target_label}", kind.noun()))
-                                    .text_color(colors::GRAY_400),
+                                small(tr!(
+                                    match kind {
+                                        ContentKind::Mod => M::OnlyShowModsFor,
+                                        ContentKind::ResourcePack => M::OnlyShowResourcePacksFor,
+                                        ContentKind::ShaderPack => M::OnlyShowShaderPacksFor,
+                                    },
+                                    target = target_label
+                                ))
+                                .text_color(colors::GRAY_400),
                             ),
                     )
                     .child(pills(
                         "search-index",
                         indexes
                             .iter()
-                            .map(|(_, label)| SharedString::from(*label))
+                            .map(|(_, label)| SharedString::from(t(*label)))
                             .collect(),
                         selected_index,
                         move |i, _, cx| {
@@ -1201,7 +1314,7 @@ impl ContentView {
                         .py_6()
                         .text_color(colors::GRAY_500)
                         .child(LoadingDots)
-                        .child("Searching Modrinth"),
+                        .child(t(M::SearchingModrinth)),
                 );
             }
             Load::Failed(err) => {
@@ -1209,7 +1322,7 @@ impl ContentView {
             }
             Load::Ready(results) => {
                 if results.hits.is_empty() {
-                    column = column.child(muted("Nothing on Modrinth matches."));
+                    column = column.child(muted(t(M::NothingMatches)));
                 }
                 let mut cards = div().flex().flex_col().gap_2();
                 for (i, hit) in results.hits.iter().enumerate() {
@@ -1228,20 +1341,29 @@ impl ContentView {
                             .justify_center()
                             .gap_3()
                             .child(
-                                Button::new(("previous-page", kind as usize), "Previous")
-                                    .variant(ButtonVariant::Secondary)
-                                    .size(ButtonSize::Slim)
-                                    .disabled(offset == 0)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                Button::new(
+                                    ("previous-page", kind as usize),
+                                    t(CommonMsg::Previous),
+                                )
+                                .variant(ButtonVariant::Secondary)
+                                .size(ButtonSize::Slim)
+                                .disabled(offset == 0)
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
                                         this.set_page(kind, offset.saturating_sub(PAGE_SIZE), cx)
-                                    })),
+                                    },
+                                )),
                             )
                             .child(
-                                small(format!("Page {page} of {pages}"))
-                                    .text_color(colors::GRAY_500),
+                                small(tr!(
+                                    M::PageOf,
+                                    page = format::number(page as u64),
+                                    pages = format::number(pages as u64)
+                                ))
+                                .text_color(colors::GRAY_500),
                             )
                             .child(
-                                Button::new(("next-page", kind as usize), "Next")
+                                Button::new(("next-page", kind as usize), t(CommonMsg::Next))
                                     .variant(ButtonVariant::Secondary)
                                     .size(ButtonSize::Slim)
                                     .disabled(page >= pages)
@@ -1301,6 +1423,7 @@ impl ContentView {
                             .flex_row()
                             .items_center()
                             .gap_2()
+                            .min_w_0()
                             .child(
                                 div()
                                     .truncate()
@@ -1309,15 +1432,15 @@ impl ContentView {
                                     .child(hit.title.clone()),
                             )
                             .child(
-                                small(format!("by {}", hit.author))
+                                small(tr!(M::ByAuthor, author = hit.author))
                                     .flex_none()
                                     .text_color(colors::WHITE.opacity(50)),
                             )
                             .when(installed, |this| {
-                                this.child(badge("Installed", colors::GREEN_300))
+                                this.child(badge(t(M::InstalledBadge), colors::GREEN_300))
                             })
                             .when(client_badge, |this| {
-                                this.child(badge("Optional on servers", colors::GRAY_500))
+                                this.child(badge(t(M::OptionalOnServers), colors::GRAY_500))
                             }),
                     )
                     .child(
@@ -1333,11 +1456,11 @@ impl ContentView {
                     .flex_none()
                     .items_end()
                     .child(
-                        small(format!("{} downloads", compact(hit.downloads)))
+                        small(counted(hit.downloads, P::Downloads, M::DownloadsCompact))
                             .text_color(colors::GRAY_400),
                     )
                     .child(
-                        small(format!("{} follows", compact(hit.follows)))
+                        small(counted(hit.follows, P::Follows, M::FollowsCompact))
                             .text_color(colors::GRAY_500),
                     ),
             )
@@ -1355,7 +1478,7 @@ impl ContentView {
         let with_dependencies = view.with_dependencies;
         let confirm_force = view.confirm_force.clone();
         let linked = view.linked_version.clone();
-        let back = Button::new(("back", kind as usize), "Back to results")
+        let back = Button::new(("back", kind as usize), t(M::BackToResults))
             .variant(ButtonVariant::Ghost)
             .icon(Icon::ArrowLeft)
             .size(ButtonSize::Slim)
@@ -1384,7 +1507,7 @@ impl ContentView {
                             .gap_2()
                             .text_color(colors::GRAY_500)
                             .child(LoadingDots)
-                            .child("Loading the project"),
+                            .child(t(M::LoadingProject)),
                     )
                     .into_any_element();
             }
@@ -1436,9 +1559,17 @@ impl ContentView {
                                     .gap_2()
                                     .child(
                                         small(format!(
-                                            "{} downloads · {} followers",
-                                            compact(project.downloads),
-                                            compact(project.followers)
+                                            "{} · {}",
+                                            counted(
+                                                project.downloads,
+                                                P::Downloads,
+                                                M::DownloadsCompact
+                                            ),
+                                            counted(
+                                                project.followers,
+                                                P::Followers,
+                                                M::FollowersCompact
+                                            )
                                         ))
                                         .text_color(colors::GRAY_500),
                                     )
@@ -1452,7 +1583,7 @@ impl ContentView {
                             ),
                     )
                     .child(
-                        Button::new(("open-modrinth", kind as usize), "View on Modrinth")
+                        Button::new(("open-modrinth", kind as usize), t(M::ViewOnModrinth))
                             .variant(ButtonVariant::Secondary)
                             .icon(Icon::ArrowUpRightFromSquare)
                             .size(ButtonSize::Slim)
@@ -1467,7 +1598,7 @@ impl ContentView {
             let entity = cx.entity();
             column = column.child(div().flex().child(pills(
                 "project-tabs",
-                vec!["Versions".into(), "Description".into()],
+                vec![t(M::Versions).into(), t(M::Description).into()],
                 match tab {
                     ProjectTab::Versions => 0,
                     ProjectTab::Description => 1,
@@ -1518,7 +1649,7 @@ impl ContentView {
                             .gap_2()
                             .text_color(colors::GRAY_500)
                             .child(LoadingDots)
-                            .child("Loading versions"),
+                            .child(t(M::LoadingVersions)),
                     )
                     .into_any_element();
             }
@@ -1551,7 +1682,7 @@ impl ContentView {
                 .flex_wrap()
                 .items_center()
                 .gap_4()
-                .child(heading("Versions"))
+                .child(heading(t(M::Versions)))
                 .child(
                     div()
                         .flex()
@@ -1568,10 +1699,7 @@ impl ContentView {
                                 }),
                             ),
                         )
-                        .child(
-                            small("Show versions for other loaders and Minecraft versions")
-                                .text_color(colors::GRAY_400),
-                        ),
+                        .child(small(t(M::ShowAllVersions)).text_color(colors::GRAY_400)),
                 )
                 .when(kind == ContentKind::Mod, |this| {
                     this.child(
@@ -1590,15 +1718,21 @@ impl ContentView {
                                     })),
                             )
                             .child(
-                                small("Also install required dependencies")
-                                    .text_color(colors::GRAY_400),
+                                small(t(M::AlsoInstallDependencies)).text_color(colors::GRAY_400),
                             ),
                     )
                 }),
         );
         if shown.is_empty() {
             return column
-                .child(muted(format!("No version of {} fits this instance. Turn on \"Show versions…\" to see them all.", project.title)))
+                .child(
+                    muted(tr!(
+                        M::NoVersionFits,
+                        project = project.title,
+                        show_all = t(M::ShowVersionsShort)
+                    ))
+                    .whitespace_normal(),
+                )
                 .into_any_element();
         }
         let mut rows = list_box();
@@ -1606,19 +1740,17 @@ impl ContentView {
             let (type_label, type_color) = version_label(version.version_type);
             let is_installed = installed_versions.contains(&version.id);
             let size = version.primary_file().map_or(0, |f| f.size);
-            let date = version
-                .date_published
-                .get(..10)
-                .unwrap_or_default()
-                .to_string();
+            let day = version.date_published.get(..10).unwrap_or_default();
+            let date = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+                .map_or_else(|_| day.to_string(), |date| format::short_date(date, true));
             let forcing = confirm_force.as_deref() == Some(version.id.as_str());
             let version_for_click = version.clone();
             let project_for_click = project.clone();
             let id = version.id.clone();
             let button = if is_installed {
-                badge("Installed", colors::GREEN_300).into_any_element()
+                badge(t(M::InstalledBadge), colors::GREEN_300).into_any_element()
             } else if problem.is_some() && !forcing {
-                Button::new(("install-anyway", index), "Install anyway…")
+                Button::new(("install-anyway", index), t(M::InstallAnyway))
                     .variant(ButtonVariant::Secondary)
                     .size(ButtonSize::Slim)
                     .disabled(busy)
@@ -1636,16 +1768,16 @@ impl ContentView {
                     self.shaders.loader,
                     self.shader_offer.ready(),
                 ) {
-                    (_, true, _, _) => "Install it anyway".to_string(),
+                    (_, true, _, _) => t(M::InstallItAnyway).to_string(),
                     (
                         ContentKind::ShaderPack,
                         _,
                         None,
                         Some(ShaderModOffer::Install { loader, .. }),
                     ) => {
-                        format!("Install with {}", loader.label())
+                        tr!(M::InstallWith, shader_mod = loader.label())
                     }
-                    _ => "Install".to_string(),
+                    _ => t(CommonMsg::Install).to_string(),
                 };
                 Button::new(("install", index), label)
                     .variant(if forcing {
@@ -1694,7 +1826,7 @@ impl ContentView {
                                     "{} · {} · {date} · {}",
                                     short_list(&version.game_versions, 3),
                                     short_list(&version.loaders, 3),
-                                    format_byte(size)
+                                    format::bytes(size)
                                 ))
                                 .truncate()
                                 .text_color(colors::WHITE.opacity(40)),
@@ -1708,12 +1840,26 @@ impl ContentView {
         }
         column = column.child(rows);
         if total > 40 {
-            column = column.child(
-                small(format!("{} more versions are on Modrinth.", total - 40))
-                    .text_color(colors::GRAY_500),
-            );
+            column =
+                column.child(small(trn!(P::MoreVersions, total - 40)).text_color(colors::GRAY_500));
         }
         column.into_any_element()
+    }
+}
+
+/// What needs a mod loader, on a vanilla instance's card.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NeedsLoader {
+    Mods,
+    Shaders,
+}
+
+impl NeedsLoader {
+    fn pick(self, mods: M, shaders: M) -> M {
+        match self {
+            NeedsLoader::Mods => mods,
+            NeedsLoader::Shaders => shaders,
+        }
     }
 }
 
