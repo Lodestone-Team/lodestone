@@ -1,4 +1,5 @@
 import { faCube, faDownload } from '@fortawesome/free-solid-svg-icons';
+import RemoteIcon from 'components/Atoms/RemoteIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { InstalledMod } from 'bindings/InstalledMod';
 import { ModInstallResult } from 'bindings/ModInstallResult';
@@ -29,11 +30,10 @@ export const ModIcon = ({
       )}
     >
       {src && !failed ? (
-        <img
+        <RemoteIcon
           src={src}
           alt=""
           loading="lazy"
-          referrerPolicy="no-referrer"
           className="size-full object-contain"
           onError={() => setFailed(true)}
         />
