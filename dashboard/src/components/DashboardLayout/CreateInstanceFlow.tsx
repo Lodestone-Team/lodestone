@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { lazyWithPreload } from 'utils/lazyWithPreload';
 
 // the create form (formik, yup, setup manifests) loads when it is first
@@ -27,5 +28,26 @@ export const CreateInstanceFlowSkeleton = ({
     )}
   >
     <div className="w-45 shrink-0 border-r border-gray-700" />
+    {/* the steps and the first step's cards, appearing after a moment */}
+    <SkeletonGroup
+      label="Loading the create form"
+      className="-ml-45 flex grow flex-row"
+    >
+      <div className="flex w-45 shrink-0 flex-col gap-4 px-6 pt-8">
+        {Array.from({ length: modpack ? 3 : 4 }, (_, i) => (
+          <Skeleton key={i} className="h-4 w-24 rounded-sm" />
+        ))}
+      </div>
+      <div className="flex grow flex-col gap-6 p-8">
+        <Skeleton className="h-6 w-56" />
+        <Skeleton className="h-4 w-80 max-w-full rounded-sm" />
+        <div className="grid grid-cols-2 gap-9 pt-3">
+          <Skeleton className="col-span-2 h-14" />
+          {Array.from({ length: 4 }, (_, i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
+        </div>
+      </div>
+    </SkeletonGroup>
   </div>
 );

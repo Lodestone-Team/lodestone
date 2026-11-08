@@ -17,6 +17,7 @@ import {
 import { Line } from 'react-chartjs-2';
 import { useIntervalClock } from 'utils/hooks';
 import { asyncCallWithTimeout, cn } from 'utils/util';
+import { useResolvedTheme } from 'utils/theme';
 
 ChartJS.register(
   CategoryScale,
@@ -38,6 +39,24 @@ ChartJS.defaults.font = {
 };
 
 ChartJS.defaults.color = '#E3E3E4';
+
+// The canvas can't use the CSS colour variables, so the axis colours are picked per theme
+const axisColors = {
+  dark: {
+    label: '#E3E3E4',
+    edge: '#767A82',
+    grid: '#44464B',
+    gapLine: '#767A82',
+    gapFill: '#A5A5AC4D',
+  },
+  light: {
+    label: '#474D58',
+    edge: '#B9C0CB',
+    grid: '#E1E5EB',
+    gapLine: '#B9C0CB',
+    gapFill: '#5E647026',
+  },
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const skipped = (ctx: ScriptableLineSegmentContext, value: any) =>
@@ -73,6 +92,7 @@ export default function PerformanceGraph({
   getter?: () => Promise<[number, number]>;
 }): React.JSX.Element {
   const [max, setMax] = useState(100);
+  const axis = axisColors[useResolvedTheme()];
   const labels = Array.from(Array(timeWindow_s / pollrate_s).keys())
     .reverse()
     .map((n) => pollrate_s * n + 's');
@@ -145,9 +165,9 @@ export default function PerformanceGraph({
         pointRadius: 0,
         pointHoverRadius: 0,
         segment: {
-          borderColor: (ctx) => skipped(ctx, '#767A82'),
+          borderColor: (ctx) => skipped(ctx, axis.gapLine),
           borderDash: (ctx) => skipped(ctx, [6, 6]),
-          backgroundColor: (ctx) => skipped(ctx, '#A5A5AC4D'),
+          backgroundColor: (ctx) => skipped(ctx, axis.gapFill),
         },
         spanGaps: true,
       },
@@ -191,8 +211,8 @@ export default function PerformanceGraph({
           display: true,
           color: function (context) {
             return context.tick.value === 0 || context.tick.value === 60
-              ? '#767A82'
-              : '#44464B';
+              ? axis.edge
+              : axis.grid;
           },
           lineWidth: function (context) {
             return context.tick.value === 0 || context.tick.value === 60
@@ -202,6 +222,7 @@ export default function PerformanceGraph({
           drawTicks: false,
         },
         ticks: {
+          color: axis.label,
           maxRotation: 0,
           padding: 10,
           maxTicksLimit: 100,
@@ -220,8 +241,8 @@ export default function PerformanceGraph({
           display: true,
           color: function (context) {
             return context.tick.value === 0 || context.tick.value === displayMax
-              ? '#767A82'
-              : '#44464B';
+              ? axis.edge
+              : axis.grid;
           },
           lineWidth: function (context) {
             return context.tick.value === 0 || context.tick.value === displayMax
@@ -234,6 +255,7 @@ export default function PerformanceGraph({
         // min: 0,
         max: displayMax,
         ticks: {
+          color: axis.label,
           maxTicksLimit: 50,
           autoSkip: false,
           padding: 10,
@@ -276,9 +298,11 @@ const getOrCreateTooltip = (
 
   if (!tooltipEl) {
     tooltipEl = document.createElement('div');
-    tooltipEl.style.background = '#1D1E21B0';
+    // theme colours (gray-900 at 69%, gray-300), which follow theme changes
+    tooltipEl.style.background =
+      'color-mix(in srgb, var(--gray-900) 69%, transparent)';
     tooltipEl.style.borderRadius = '3px';
-    tooltipEl.style.color = '#E3E3E4';
+    tooltipEl.style.color = 'var(--gray-300)';
     tooltipEl.style.opacity = '1';
     tooltipEl.style.pointerEvents = 'none';
     tooltipEl.style.position = 'absolute';

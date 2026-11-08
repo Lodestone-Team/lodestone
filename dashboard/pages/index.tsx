@@ -39,7 +39,7 @@ import RequireCore from 'utils/router/RequireCore';
 import RequireToken from 'utils/router/RequireToken';
 import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
-import Spinner from 'components/DashboardLayout/Spinner';
+import { AppShellSkeleton } from 'components/DashboardLayout/LayoutSkeletons';
 import { lazyWithPreload } from 'utils/lazyWithPreload';
 
 // The dashboard (and everything it pulls in: charts, the file editor, forms)
@@ -416,7 +416,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <LodestoneContext.Provider value={lodestoneContextValue}>
         <NotificationContextProvider>
-          <Suspense fallback={<Spinner fullScreen />}>
+          <Suspense fallback={<AppShellSkeleton />}>
             <Routes>
               <Route element={<LoginLayout />}>
                 <Route path="/first_setup" element={<FirstTime />} />

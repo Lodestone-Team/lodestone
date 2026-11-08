@@ -14,6 +14,7 @@ import {
   parseFloatStrict,
   parseintStrict,
 } from 'utils/util';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 const onChangeValidateTimeout = 100;
 
@@ -253,10 +254,16 @@ export default function InputBox({
           </div>
         )}
       </div>
+      {isLoadingProp && (
+        // the value is still loading: the field's shape (after a moment)
+        <SkeletonGroup className="w-5/12 shrink-0">
+          <Skeleton className="h-9 w-full rounded" />
+        </SkeletonGroup>
+      )}
       <form
         onSubmit={onSubmit}
         onReset={onReset}
-        className="relative w-5/12 shrink-0"
+        className={`relative w-5/12 shrink-0 ${isLoadingProp ? 'hidden' : ''}`}
         ref={formRef}
         onKeyDown={handleKeyDown}
         id={id}

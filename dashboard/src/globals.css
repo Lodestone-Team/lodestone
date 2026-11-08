@@ -4,6 +4,8 @@
 @import 'tailwindcss' source(none);
 /* Layered so that Tailwind utilities (e.g. `w-4` on icons) still override it */
 @import '@fortawesome/fontawesome-svg-core/styles.css' layer(components);
+/* Light-theme replacements for the opacity colour classes (generated) */
+@import './light-overrides.css';
 
 /* Only scan the app sources for class names (the v3 `content` globs) */
 @source '../pages/**/*.{js,ts,jsx,tsx}';
@@ -22,11 +24,141 @@
 /* `hover:` applied on every device, not only under @media (hover: hover) */
 @custom-variant hover (&:hover);
 
+/* Theme variants. The theme is the `data-theme` attribute on <html>, set before
+   the page renders by the script in pages/_document.tsx (see utils/theme.ts) */
+@custom-variant light (&:where([data-theme='light'], [data-theme='light'] *));
+@custom-variant dark (&:where(:root:not([data-theme='light']), :root:not([data-theme='light']) *));
+
+/* Theme colours, used by the Tailwind colours in tailwind.config.js.
+   The dark theme is the default, so the page keeps its look without the attribute. */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --gray-300: #E3E3E4;
+  --gray-400: #A5A5AC;
+  --gray-500: #767A82;
+  --gray-550: #67686A;
+  --gray-600: #44464B;
+  --gray-700: #36393F;
+  --gray-750: #303338;
+  --gray-800: #2B2D32;
+  --gray-850: #26282C;
+  --gray-875: #212327;
+  --gray-900: #1D1E21;
+  --gray-faded: #A5A5AC;
+  --fade-700: #d1d1da19;
+  --ink: #FFFFFF;
+
+  --blue-150: #69C9FF;
+  --blue-200: #59B2F3;
+  --blue-300: #1D8EB2;
+  --blue-400: #037AA0;
+  --green-200: #2AF588;
+  --green-300: #6DD277;
+  --red: #CF4545;
+  --red-200: #FF5C5C;
+  --yellow-300: #EFB440;
+
+  /* The light-theme levels below are only used through src/light-overrides.css.
+     Their dark values are the colours of the classes they stand in for. */
+  --ink-secondary: rgb(255 255 255 / 0.75);
+  --ink-muted: rgb(255 255 255 / 0.5);
+  --ink-faint: rgb(255 255 255 / 0.3);
+  --line: rgb(165 165 172 / 0.3);
+  --line-subtle: rgb(165 165 172 / 0.1);
+  --line-strong: rgb(165 165 172 / 0.5);
+  --line-input: rgb(165 165 172 / 0.3);
+  --line-hover: rgb(255 255 255 / 0.5);
+  --fill-neutral: rgb(165 165 172 / 0.3);
+  --fill-neutral-strong: rgb(165 165 172 / 0.4);
+  --fill-selected: rgb(60 133 186 / 0.3);
+  --pill-green: rgb(97 174 50 / 0.25);
+  --pill-red: rgb(174 50 50 / 0.25);
+  --pill-yellow: rgb(174 139 50 / 0.25);
+  --pill-blue: rgb(60 133 186 / 0.25);
+  --focus-ring: rgb(60 133 186 / 0.5);
+  --focus-ring-danger: rgb(174 50 50 / 0.3);
+
+  --scrim: rgb(29 30 33 / 0.6);
+  --scrim-strong: rgb(0 0 0 / 0.8);
+  --shadow-color: #111114;
+  --placeholder: #a5a5ac;
+  --selection: hwb(212.571 45% 30%);
+  --scrollbar-thumb: hsla(0, 0%, 50%, 0.7);
+  /* gray-700 with a highlight between 700 and 600: gray-800 would vanish on
+     the gray-800 rows and cards the placeholders sit in */
+  --skeleton-base: #36393F;
+  --skeleton-highlight: #404349;
+}
+
+/* Light theme, "Daylight lodestone": cool slate surfaces with crisp 1px lines.
+   Page canvas (875), chrome: side panels and top bar (850), white cards, rows
+   and buttons (800), sunken inputs, console and code (900), hover (700) and
+   selection (600). Text uses fixed ink levels instead of the dark theme's
+   translucent white (see src/light-overrides.css), all at least 4.5:1. */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --gray-300: #14171C;
+  --gray-400: #474D58;
+  --gray-500: #5E6470;
+  --gray-550: #B9C0CB;
+  --gray-600: #E1E5EB;
+  --gray-700: #F1F4F7;
+  --gray-750: #F7F8FA;
+  --gray-800: #FFFFFF;
+  --gray-850: #F7F8FA;
+  --gray-875: #ECEFF3;
+  --gray-900: #F3F5F8;
+  --gray-faded: #5E6470;
+  --fade-700: #D6DBE3;
+  --ink: #14171C;
+
+  --blue-150: #0E5D7D;
+  --blue-200: #0F6E92;
+  --blue-300: #167FA3;
+  --blue-400: #126E8E;
+  --green-200: #1D7A3A;
+  --green-300: #1D7A3A;
+  --red: #B4282C;
+  --red-200: #B4282C;
+  --yellow-300: #8A5A00;
+
+  --ink-secondary: #474D58;
+  --ink-muted: #5E6470;
+  --ink-faint: #7D838E;
+  --line: #D6DBE3;
+  --line-subtle: #E1E5EB;
+  --line-strong: #B9C0CB;
+  --line-input: #CDD3DC;
+  --line-hover: #8C94A0;
+  --fill-neutral: #E7EAEF;
+  --fill-neutral-strong: #C9CFD8;
+  --fill-selected: #D6E8F2;
+  --pill-green: #E3F3E7;
+  --pill-red: #FBE6E6;
+  --pill-yellow: #FBF0D9;
+  --pill-blue: #E2EFF6;
+  --focus-ring: rgb(15 110 146 / 0.45);
+  --focus-ring-danger: rgb(180 40 44 / 0.4);
+
+  --scrim: rgb(20 30 45 / 0.32);
+  --scrim-strong: rgb(20 30 45 / 0.48);
+  --shadow-color: rgb(20 30 45 / 0.16);
+  --placeholder: #7D838E;
+  --selection: #B9DCEC;
+  --scrollbar-thumb: hsla(216, 10%, 45%, 0.55);
+  /* a little darker than #E6E9EE, so placeholders also show on the canvas */
+  --skeleton-base: #DEE2E8;
+  --skeleton-highlight: #F3F5F8;
+}
+
 @layer base {
   /* v3 Preflight: placeholders used gray-400, buttons used the pointer cursor */
   input::placeholder,
   textarea::placeholder {
-    color: #a5a5ac;
+    color: var(--placeholder);
   }
 
   button:not(:disabled),
@@ -119,7 +251,6 @@
     min-height: 100%;
     overscroll-behavior: none;
     overflow: clip;
-    color-scheme: dark;
   }
 
   main {
@@ -175,14 +306,19 @@
 
   .input-text-style{
     @apply text-left font-medium leading-snug tracking-tight placeholder:text-white/30 enabled:text-gray-300 disabled:text-white/50;
+    @apply light:placeholder:text-ink-faint light:disabled:text-ink-muted;
   }
 
   .input-border-normal {
     @apply outline-gray-faded/30 invalid:outline-red-200 invalid:focus-visible:outline-red-200 enabled:focus-visible:ring-blue-faded/50;
+    /* light: a crisp edge on the sunken field, the accent when focused */
+    @apply light:outline-line-input light:enabled:focus-visible:ring-focus light:enabled:focus-visible:outline-blue-200;
+    @apply light:invalid:outline-red-200 light:invalid:focus-visible:outline-red-200;
   }
 
   .input-border-error {
     @apply outline-red-200 focus-visible:outline-red-200 enabled:focus-visible:ring-red-faded/30;
+    @apply light:enabled:focus-visible:ring-focus-danger;
   }
   
 }
@@ -228,10 +364,47 @@
   animation: loading-appear 150ms ease-out 200ms both;
 }
 
+/* Skeleton placeholders: a soft highlight band sweeps left to right across the
+   block. The gradient is twice the block's width and slides from off the left
+   edge to off the right edge. With reduced motion there is no sweep, only a
+   slow fade. Colours per theme: --skeleton-base and --skeleton-highlight. */
+@keyframes skeleton-sweep {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+@keyframes skeleton-fade {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@utility skeleton {
+  background-color: var(--skeleton-base);
+  background-image: linear-gradient(
+    90deg,
+    transparent 25%,
+    var(--skeleton-highlight) 50%,
+    transparent 75%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-sweep 1.6s ease-in-out infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    background-image: none;
+    animation: skeleton-fade 2.4s ease-in-out infinite;
+  }
+}
+
 @utility generic-gametype-hover {
   border: double 2px transparent;
   border-radius: 0.375rem;
-  background-image: linear-gradient(#2B2D32, #2B2D32), radial-gradient(circle at top right, #2AF588, #334675);
+  background-image: linear-gradient(var(--gray-800), var(--gray-800)), radial-gradient(circle at top right, #2AF588, #334675);
   background-origin: border-box;
   background-clip: padding-box, border-box;
 }
@@ -239,7 +412,7 @@
 @utility generic-gametype-selected {
   border: double 2px transparent;
   border-radius: 0.375rem;
-  background-image: linear-gradient(#303338, #303338), radial-gradient(circle at top right, #2AF588, #334675);
+  background-image: linear-gradient(var(--gray-750), var(--gray-750)), radial-gradient(circle at top right, #2AF588, #334675);
   background-origin: border-box;
   background-clip: padding-box, border-box;
 }
@@ -247,7 +420,7 @@
 @utility generic-gametype-unselected {
   border: double 2px transparent;
   border-radius: 0.375rem;
-  background-image: linear-gradient( #2B2D32, #2B2D32), radial-gradient(circle at top right, #2B2D32, #2B2D32);
+  background-image: linear-gradient(var(--gray-800), var(--gray-800)), radial-gradient(circle at top right, var(--gray-800), var(--gray-800));
   background-origin: border-box;
   background-clip: padding-box, border-box;
 }
@@ -284,7 +457,7 @@
 *:hover,
 *:focus,
 *:focus-within {
-  --scrollbar-color: hsla(0, 0%, 50%, 0.7) !important;
+  --scrollbar-color: var(--scrollbar-thumb) !important;
 }
 
 *::-webkit-scrollbar-button {
@@ -318,13 +491,16 @@
 
 /* set the user selection color */
 ::selection {
-  background: hwb(212.571 45% 30%);
+  background: var(--selection);
 }
 
 /* rc-tooltip */
 
 .rc-tooltip-inner {
   @apply min-h-0 rounded-md bg-gray-750 px-2 py-1 text-small font-medium tracking-medium text-gray-300 shadow-md whitespace-nowrap;
+  /* white with an edge on the light page */
+  @apply light:bg-gray-800 light:ring-1 light:ring-line;
+  @apply light:shadow-[0_8px_24px_rgb(20_30_45/0.12),0_2px_6px_rgb(20_30_45/0.08)];
 }
 
 .rc-tooltip {
@@ -348,6 +524,8 @@ input.noSpin[type='number'] {
 
 /* Toastify */
 main {
+  /* the toasts use the light or dark toastify theme to match (see pages/_app.tsx) */
+  --toastify-text-color-light: var(--gray-300);
   --toastify-font-family: Satoshi !important;
   --toastify-toast-width: 320px !important;
   --toastify-toast-max-height: 500px !important;
@@ -356,6 +534,12 @@ main {
 
 .Toastify__toast-icon {
   display: block !important;
+}
+
+/* an edge for the light toasts, which are close to the page colour */
+[data-theme='light'] .Toastify__toast {
+  box-shadow: 0 0 0 1px var(--line), 0 8px 24px rgb(20 30 45 / 0.12),
+    0 2px 6px rgb(20 30 45 / 0.08);
 }
 
 .Toastify--animate {

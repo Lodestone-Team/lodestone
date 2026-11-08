@@ -8,6 +8,7 @@ import FileContextMenu from './FileContextMenu';
 import React, { RefObject, useMemo, useRef, useState } from 'react';
 import { useOnClickOutside } from 'usehooks-ts';
 import { useFileViewer } from './FileViewerContext';
+import { SkeletonGroup, SkeletonRows } from 'components/Atoms/Skeleton';
 
 // a map from file extension to icon
 const iconMap: { [key: string]: string } = {
@@ -222,11 +223,17 @@ export default function FileList({
         ) : null}
 
         {loading ? (
-          // appears after a moment, so a folder that opens quickly
-          // doesn't flash it
-          <div className={clsx(fileTreeEntryClassName, 'loading-delayed')}>
-            <p className="text-medium font-medium text-gray-400">Loading...</p>
-          </div>
+          // file rows (checkbox, icon, name, size); they appear after a
+          // moment, so a folder that opens quickly doesn't flash them
+          <SkeletonGroup label="Loading files">
+            <SkeletonRows
+              rows={8}
+              icon="square"
+              trailing
+              className="divide-y divide-gray-faded/30"
+              rowClassName={clsx(fileTreeEntryClassName, 'h-10 bg-gray-800')}
+            />
+          </SkeletonGroup>
         ) : error ? (
           <div className={fileTreeEntryClassName}>
             <p className="text-medium font-medium text-gray-400">

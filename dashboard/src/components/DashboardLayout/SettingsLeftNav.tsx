@@ -46,7 +46,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
         <RadioGroup
           className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-y-auto px-1 py-1 child:w-full w-full`}
         >
-          <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 flex flex-row items-center gap-x-1.5">
+          <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted flex flex-row items-center gap-x-1.5">
             <FontAwesomeIcon icon={faServer} />
             CORE
           </RadioGroup.Label>
@@ -73,7 +73,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
               </button>
             </RadioGroup.Option>
           ))}
-          <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 flex flex-row items-center gap-x-1.5 mt-2">
+          <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted flex flex-row items-center gap-x-1.5 mt-2">
             <FontAwesomeIcon icon={faUser} />
             ACCOUNT
           </RadioGroup.Label>

@@ -32,7 +32,7 @@ export default function IntegrationsList({
     >
       {userLoggedIn ? (
           <>
-            <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
+            <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
               INTEGRATIONS
             </RadioGroup.Label>
           </>

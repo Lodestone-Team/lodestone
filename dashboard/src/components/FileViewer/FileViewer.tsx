@@ -63,6 +63,7 @@ import { FileEditor } from './FileEditor';
 import { UnzipOption } from 'bindings/UnzipOption';
 import { FileViewerContext, FileViewerContextValue } from './FileViewerContext';
 import { getDirectorySeparator } from './paths';
+import { SkeletonCode, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 // The instance whose files were shown last. FileViewer remounts per instance
 // (InstanceTabs keys it by uuid), so this tells a switch to another instance,
@@ -420,7 +421,7 @@ export default function FileViewer() {
           }}
         >
           <div {...dropZoneHandlers(setDroppingDialog)}>
-            <div className="fixed inset-0 bg-[#000]/80" />
+            <div className="fixed inset-0 bg-scrim-strong" />
             <div className="fixed inset-0 overflow-y-auto">
               <div className="pointer-events-none flex min-h-full items-center justify-center p-4 text-center text-white/50">
                 <Dialog.Panel className="pointer-events-none  flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800/50 pb-8 pt-12">
@@ -691,6 +692,14 @@ export default function FileViewer() {
                       fileContent={fileContent}
                       setFileContent={setFileContent}
                     />
+                  ) : isFileLoading && !fileError ? (
+                    // the file's lines; a file that loads quickly shows nothing
+                    <SkeletonGroup
+                      label="Loading file"
+                      className="size-full bg-gray-800 p-4"
+                    >
+                      <SkeletonCode lines={16} />
+                    </SkeletonGroup>
                   ) : (
                     <ErrorGraphic
                       icon={faFilePen}
@@ -698,13 +707,7 @@ export default function FileViewer() {
                       message2={
                         fileError
                           ? fileError?.message ?? 'Unknown Error'
-                          : isFileLoading
-                          ? 'Loading...'
                           : 'Select a file to view its contents'
-                      }
-                      // a file that loads quickly shows no "Loading..."
-                      className={
-                        isFileLoading && !fileError ? 'loading-delayed' : ''
                       }
                       iconClassName="text-gray-500"
                       messageClassName="text-gray-400"

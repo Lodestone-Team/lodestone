@@ -6,11 +6,12 @@ import { useUserState } from 'components/useUserState';
 import { PublicUser } from 'bindings/PublicUser';
 import { useUid } from 'data/UserInfo';
 import InputBox from 'components/Atoms/Config/InputBox';
-import Spinner from 'components/DashboardLayout/Spinner';
+import { PageLoading } from 'components/DashboardLayout/LayoutSkeletons';
 import { axiosPutSingleValue } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
 import ApiKeysSection from 'components/Settings/ApiKeys/ApiKeysSection';
+import AppearanceSetting from 'components/Settings/AppearanceSetting';
 import { toast } from 'react-toastify';
 
 const ProfilePage = () => {
@@ -30,7 +31,7 @@ const ProfilePage = () => {
   }, [userState]);
 
   if (userState === 'loading') {
-    return <Spinner />;
+    return <PageLoading className="max-w-2xl" />;
   }
 
   const rename = async (value: string) => {
@@ -67,7 +68,7 @@ const ProfilePage = () => {
           onClose={() => setShowChangePassword(false)}
           className="relative z-10"
         >
-          <div className="fixed inset-0 bg-gray-900/60" />
+          <div className="fixed inset-0 bg-scrim" />
           <div className="fixed inset-0 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
               <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
@@ -99,6 +100,14 @@ const ProfilePage = () => {
             onSubmit={rename}
             disabled={userState !== 'logged-in' || !user}
           />
+        </div>
+
+        <div className="mt-8 text-h3 font-extrabold text-gray-300">
+          Appearance
+        </div>
+        {/* saved in this browser, not on the core */}
+        <div className="mt-4 w-full min-w-0 overflow-clip rounded-lg border border-gray-faded/30">
+          <AppearanceSetting />
         </div>
 
         <div className="mt-8 text-h3 font-extrabold text-gray-300">

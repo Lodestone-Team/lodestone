@@ -21,6 +21,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TunnelListCard, TunnelListItem } from './TunnelListCard';
 import Label, { LabelColor } from './Atoms/Label';
 import PlayitggSignupModal from './PlayitggSignupModal';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 enum RunnerStatus {
   Stopped = "Stopped",
@@ -32,6 +33,19 @@ const RUNNER_STATUS_KEY = ['playitgg', 'status'];
 
 const VERIFIED_KEY = ['playitgg', 'verified'];
 const TUNNELS_KEY = ['playitgg', 'tunnels'];
+
+// tunnel entries: name, address, local server
+const TunnelsSkeleton = () => (
+  <TunnelListCard className="mt-2">
+    {[0, 1].map((i) => (
+      <TunnelListItem className="m-2 flex flex-col gap-2" key={i}>
+        <Skeleton className="h-5 w-40" />
+        <Skeleton className="h-5 w-64 max-w-full" />
+        <Skeleton className="h-4 w-48 rounded-sm" />
+      </TunnelListItem>
+    ))}
+  </TunnelListCard>
+);
 
 export function PlayitggOverview() {
   const [signupData, setSignupData] = React.useState<null | PlayitSignupData>(null);
@@ -148,17 +162,24 @@ export function PlayitggOverview() {
         }
       </PlayitggSignupModal>
       {verified === null ?
-        <h2
-          className={clsx(
-            'text-h2 font-extrabold tracking-medium',
-            // "Loading..." only if it takes a moment
-            verifyError === null && 'loading-delayed'
-          )}
-        >
-          {verifyError === null
-            ? 'Loading...'
-            : `Failed to load playit.gg status: ${verifyError}`}
-        </h2>
+        verifyError === null ? (
+          // the page's shape while the status loads (after a moment)
+          <SkeletonGroup label="Loading playit.gg">
+            <div className="flex flex-row items-center gap-2">
+              <Skeleton className="h-7 w-52" />
+              <Skeleton className="size-8" />
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </div>
+            <Skeleton className="mt-2 h-4 w-96 max-w-full rounded-sm" />
+            <Skeleton className="mt-9 h-7 w-28" />
+            <Skeleton className="mt-2 h-4 w-80 max-w-full rounded-sm" />
+            <TunnelsSkeleton />
+          </SkeletonGroup>
+        ) : (
+          <h2 className="text-h2 font-extrabold tracking-medium">
+            {`Failed to load playit.gg status: ${verifyError}`}
+          </h2>
+        )
         :
         <div>
           <div className='flex flex-row'>
@@ -177,17 +198,20 @@ export function PlayitggOverview() {
               className='ml-2'
               disabled={!verified}
             />
-            <Label
-              size="small"
-              color={labelColor as LabelColor}
-              // space kept, but no "Stopped" shown before the status is known
-              className={clsx(
-                'mt-[6px] ml-2',
-                runnerQuery.isPending && 'invisible'
-              )}
-            >
-              {runnerStatus}
-            </Label>
+            {runnerQuery.isPending ? (
+              // no "Stopped" shown before the status is known
+              <SkeletonGroup className="mt-[6px] ml-2">
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </SkeletonGroup>
+            ) : (
+              <Label
+                size="small"
+                color={labelColor as LabelColor}
+                className="mt-[6px] ml-2"
+              >
+                {runnerStatus}
+              </Label>
+            )}
           </div>
           <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
             {verified === true ?
@@ -212,7 +236,11 @@ export function PlayitggOverview() {
           <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
             Your tunnels are listed below. You can create more and change the settings on your dashboard on the <a target="_blank" className='underline' href="https://playit.gg/">playit.gg</a> website.
           </h3>
-          {playitTunnels.length > 0 && !loadingTunnels ?
+          {loadingTunnels ? (
+            <SkeletonGroup label="Loading tunnels">
+              <TunnelsSkeleton />
+            </SkeletonGroup>
+          ) : playitTunnels.length > 0 ?
             <TunnelListCard className="mt-2">{playitTunnels.map(
               tunnel => (
                 <TunnelListItem className='m-2' key={tunnel.server_address} >
@@ -252,8 +280,7 @@ export function PlayitggOverview() {
                     className="mx-1 h-4 w-4 text-white/50"
                   />
                   <div className="mx-1 text-medium italic text-white/50">
-                    {loadingTunnels === true ? "Loading..." :
-                      (verified === true ? "You haven't created any tunnels yet" : "You haven't signed up yet")}
+                    {verified === true ? "You haven't created any tunnels yet" : "You haven't signed up yet"}
                   </div>
                 </div>
               </TunnelListItem>

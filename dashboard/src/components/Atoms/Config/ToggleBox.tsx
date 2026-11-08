@@ -3,6 +3,7 @@ import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 import { Switch } from '@headlessui/react';
 import { Toggle } from '../Toggle';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 /**
  * A self controlled toggle component meant to represent a single value of a config
@@ -63,7 +64,7 @@ export default function ToggleBox({
     : 'No permission';
 
   const status =
-    isLoading || isLoadingProp ? (
+    isLoading ? (
       <BeatLoader
         key="loading"
         size="0.25rem"
@@ -100,14 +101,21 @@ export default function ToggleBox({
           </div>
         )}
       </div>
-      <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
-        {status}
-        <Toggle
-          value={value}
-          onChange={onChange}
-          disabled={disabled || isLoading}
-        />
-      </div>
+      {isLoadingProp ? (
+        // the value is still loading: the switch's shape (after a moment)
+        <SkeletonGroup className="flex w-5/12 shrink-0 flex-row justify-end">
+          <Skeleton className="h-6 w-11 rounded-full" />
+        </SkeletonGroup>
+      ) : (
+        <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
+          {status}
+          <Toggle
+            value={value}
+            onChange={onChange}
+            disabled={disabled || isLoading}
+          />
+        </div>
+      )}
     </div>
   );
 }

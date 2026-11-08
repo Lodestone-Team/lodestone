@@ -9,7 +9,7 @@ import { Outlet } from 'react-router';
 import { useLocalStorage } from 'usehooks-ts';
 import { useQueryParam } from 'utils/hooks';
 import LeftNav from './LeftNav';
-import Spinner from './Spinner';
+import { PageLoading } from './LayoutSkeletons';
 
 export const InstanceViewLayout = () => {
   const { setPathname } = useContext(BrowserLocationContext);
@@ -78,7 +78,7 @@ export const InstanceViewLayout = () => {
         <LeftNav className="select-none border-r border-fade-700 bg-gray-850" />
       </ResizePanel>
       <div className="mx-8 h-full min-w-0 grow child:h-full">
-        <Suspense fallback={<Spinner />}>
+        <Suspense fallback={<PageLoading />}>
           <Outlet />
         </Suspense>
       </div>

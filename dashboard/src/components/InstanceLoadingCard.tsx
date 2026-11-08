@@ -60,7 +60,7 @@ export default function InstanceLoadingCard({
         focus ? `bg-gray-900 outline-solid outline-2 ring-[6px] ${borderClass}` : ''
       }`}
     >
-      <div className="absolute top-0 left-0 z-10 flex h-full w-full flex-col overflow-clip rounded-xl bg-[#000]/70 backdrop-blur-[1px]">
+      <div className="absolute top-0 left-0 z-10 flex h-full w-full flex-col overflow-clip rounded-xl bg-[#000]/70 backdrop-blur-[1px] light:bg-gray-850/80">
         {' '}
         <div className="flex w-full grow flex-row items-center justify-center gap-2 text-h2">
           <LoadingStatusIcon

@@ -7,7 +7,7 @@ import {
   useLocalCoreInfo,
 } from 'data/SystemInfo';
 import { Suspense, useEffect, useState } from 'react';
-import Spinner from './Spinner';
+import { DashboardBodySkeleton } from './LayoutSkeletons';
 import NotificationPanel from './NotificationPanel';
 import { useUserInfo } from 'data/UserInfo';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
@@ -211,7 +211,7 @@ export default function DashboardLayout() {
         <TopNav />
         <div className="flex min-h-0 w-full grow flex-row bg-gray-875">
           {versionMismatchModal}
-          <Suspense fallback={<Spinner />}>
+          <Suspense fallback={<DashboardBodySkeleton />}>
             <Outlet />
           </Suspense>
         </div>

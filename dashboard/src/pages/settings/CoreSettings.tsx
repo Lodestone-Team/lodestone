@@ -259,7 +259,7 @@ export const CoreSettings = () => {
       open={showOpenPortDialog}
       onClose={() => setShowOpenPortDialog(false)}
     >
-      <div className="fixed inset-0 bg-[#000]/80" />
+      <div className="fixed inset-0 bg-scrim-strong" />
       <div className="fixed inset-0 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-4 text-center">
           <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">

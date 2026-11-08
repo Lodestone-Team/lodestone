@@ -30,6 +30,7 @@ import { cn, errorToString, formatBytes } from 'utils/util';
 import * as yup from 'yup';
 import FormInputField from './SetupFormFields/FormInputField';
 import FormRadioField from './SetupFormFields/FormRadioField';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 type Step = 'source' | 'version' | 'settings';
 
@@ -143,12 +144,12 @@ const ModpackSummary = ({ info }: { info: ModpackInfo }) => (
 
 /** A version row's shape while the versions load, so nothing jumps. */
 const VersionRowSkeleton = () => (
-  <div className="flex min-h-14 animate-pulse flex-row items-center gap-3 bg-gray-800 px-4 py-2">
+  <div className="flex min-h-14 flex-row items-center gap-3 bg-gray-800 px-4 py-2">
     <div className="flex grow flex-col gap-2">
-      <div className="h-3.5 w-1/4 rounded-sm bg-gray-700" />
-      <div className="h-3 w-1/2 rounded-sm bg-gray-700" />
+      <Skeleton className="h-3.5 w-1/4 rounded-sm" />
+      <Skeleton className="h-3 w-1/2 rounded-sm" />
     </div>
-    <div className="h-6 w-14 rounded-sm bg-gray-700" />
+    <Skeleton className="h-6 w-14 rounded-sm" />
   </div>
 );
 
@@ -174,11 +175,11 @@ const VersionPicker = ({
     );
   if (!versions)
     return (
-      <div className={sectionClass} aria-busy="true">
+      <SkeletonGroup label="Loading versions" className={sectionClass}>
         {Array.from({ length: 6 }, (_, i) => (
           <VersionRowSkeleton key={i} />
         ))}
-      </div>
+      </SkeletonGroup>
     );
   if (versions.length === 0)
     return (
@@ -253,10 +254,13 @@ const ProjectHeader = ({
   <div className="flex h-10 flex-row items-center gap-3">
     <ModIcon url={iconUrl} />
     {title === undefined ? (
-      <div className="flex grow animate-pulse flex-col gap-2">
-        <div className="h-4 w-1/3 rounded-sm bg-gray-700" />
-        <div className="h-3 w-2/3 rounded-sm bg-gray-700" />
-      </div>
+      <SkeletonGroup
+        label="Loading modpack"
+        className="flex grow flex-col gap-2"
+      >
+        <Skeleton className="h-4 w-1/3 rounded-sm" />
+        <Skeleton className="h-3 w-2/3 rounded-sm" />
+      </SkeletonGroup>
     ) : (
       <div className="flex min-w-0 flex-col">
         <span className="truncate text-h3 font-bold text-gray-300">

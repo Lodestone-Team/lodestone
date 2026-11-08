@@ -114,7 +114,7 @@ export default function CreateApiKeyDialog({
       leaveTo="opacity-0"
     >
       <Dialog onClose={onClose} className="relative z-10">
-        <div className="fixed inset-0 bg-gray-900/60" />
+        <div className="fixed inset-0 bg-scrim" />
         <div className="fixed inset-0 overflow-y-auto">
           <div className="flex min-h-full items-center justify-center p-4">
             <Dialog.Panel className="flex w-180 max-w-full flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
