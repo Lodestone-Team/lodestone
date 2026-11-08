@@ -74,7 +74,6 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::{DotLodestoneConfig, InstanceUuid};
-use uuid::Uuid;
 
 /// `#[test]`s that export the TypeScript bindings of types from `lodestone_minecraft` into
 /// `bindings/`, like the tests `#[ts(export)]` adds for the core's own types.
@@ -96,6 +95,7 @@ pub(crate) use export_shared_bindings;
 pub mod auth;
 pub mod capabilities;
 mod command_console;
+mod core_uuid;
 pub mod db;
 #[cfg(feature = "deno")]
 mod deno_ops;
@@ -895,7 +895,7 @@ pub async fn run(
         console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
         monitor_buffer: Arc::new(Mutex::new(HashMap::new())),
         event_broadcaster: tx.clone(),
-        uuid: Uuid::new_v4().to_string(),
+        uuid: core_uuid::load_or_create(&path_to_stores().join("core_uuid")),
         up_since: chrono::Utc::now().timestamp(),
         port_manager: Arc::new(Mutex::new(PortManager::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
