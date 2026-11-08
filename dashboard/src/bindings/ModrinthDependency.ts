@@ -1,0 +1,9 @@
+// Hand-written to match MODS_SPEC.md until the core generates this file with ts-rs.
+import type { ModrinthDependencyType } from './ModrinthDependencyType';
+
+export type ModrinthDependency = {
+  project_id: string | null;
+  version_id: string | null;
+  dependency_type: ModrinthDependencyType;
+  file_name: string | null;
+};

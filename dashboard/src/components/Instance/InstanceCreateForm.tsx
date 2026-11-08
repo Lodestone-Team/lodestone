@@ -26,6 +26,8 @@ import { SetupManifest } from 'bindings/SetupManifest';
 import { SetupValue } from 'bindings/SetupValue';
 import { SectionManifestValue } from 'bindings/SectionManifestValue';
 import { toast } from 'react-toastify';
+import { ModpackPreset } from 'data/InstanceContext';
+import ModpackCreateForm from './Create/ModpackCreateForm';
 
 export type GenericHandlerGameType = 'Generic' | HandlerGameType;
 export type FormPage = {
@@ -36,10 +38,15 @@ export type FormPage = {
 
 export default function InstanceCreateForm({
   onComplete,
+  modpackPreset = null,
 }: {
   onComplete: () => void;
+  /** start on this Modrinth modpack instead of the game selection */
+  modpackPreset?: ModpackPreset | null;
 }) {
   const [activeStep, setActiveStep] = useState(0);
+  // the "Modrinth modpack" flow replaces the manifest steps
+  const [modpackMode, setModpackMode] = useState(modpackPreset !== null);
   const [gameType, setGameType] = useState<GenericHandlerGameType>('Generic');
   const [genericFetchReady, setGenericFetchReady] = useState(false); //if the button has been pressed to fetch the manifest -> enables the query
   const [urlValid, setUrlValid] = useState(false); //if the query returned a valid manifest
@@ -233,6 +240,15 @@ export default function InstanceCreateForm({
     setActiveStep(activeStep - 1);
   }
 
+  if (modpackMode)
+    return (
+      <ModpackCreateForm
+        preset={modpackPreset}
+        onBack={() => setModpackMode(false)}
+        onComplete={onComplete}
+      />
+    );
+
   return (
     <GameInstanceContext.Provider
       value={{
@@ -277,6 +293,7 @@ export default function InstanceCreateForm({
                 <GameTypeSelectForm
                   manifestLoading={isLoading}
                   manifestError={!!error}
+                  onSelectModpack={() => setModpackMode(true)}
                 />
               ) : (
                 <FormFromManifest

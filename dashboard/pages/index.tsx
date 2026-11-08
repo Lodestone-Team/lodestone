@@ -74,6 +74,7 @@ const InstanceTabList = [
   'settings',
   'console',
   'files',
+  'mods',
   'macros',
   'logs',
   'playitgg',
