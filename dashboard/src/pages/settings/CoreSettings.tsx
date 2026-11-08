@@ -30,6 +30,7 @@ import InputField from 'components/Atoms/Form/InputField';
 import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import { TlsMode } from 'bindings/TlsMode';
+import { PublicInstanceRows } from 'components/Instance/PublicListingSetting';
 
 const tlsModeLabels: Record<TlsMode, string> = {
   self_signed: 'Built-in self-signed certificate',
@@ -275,7 +276,7 @@ export const CoreSettings = () => {
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
       description={
-        'Let anyone who can reach this core see the instances you mark as "Listed publicly" (name, version, loader, status and player count) and download their client mods, without signing in. Lodestone Launcher uses this to join them.'
+        'Let anyone who can reach this core see the instances you make public below, without signing in, and only what you choose for each. Turning this off hides them all at once. Lodestone Launcher uses this to join them.'
       }
       onChange={async (value) => {
         await axiosPutSingleValue(
@@ -517,11 +518,27 @@ export const CoreSettings = () => {
               {nameField}
               {domainField}
               {enablePlayitField}
-              {can_change_core_settings &&
-                listPubliclySupported &&
-                listInstancesPubliclyField}
             </div>
           </div>
+          {can_change_core_settings && listPubliclySupported && (
+            <div className="flex w-full flex-col gap-4 @4xl:flex-row">
+              <div className="w-[28rem]">
+                <h2 className="text-h2 font-bold tracking-medium">
+                  Public instances
+                </h2>
+                <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
+                  What anyone can see without signing in. Only you can change
+                  this.
+                </h3>
+              </div>
+              <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
+                {listInstancesPubliclyField}
+                <PublicInstanceRows
+                  switchOn={globalSettings?.list_instances_publicly === true}
+                />
+              </div>
+            </div>
+          )}
           <div className="flex w-full flex-col gap-4 @4xl:flex-row">
             <div className="w-[28rem]">
               <h2 className="text-h2 font-bold tracking-medium">Danger Zone</h2>
