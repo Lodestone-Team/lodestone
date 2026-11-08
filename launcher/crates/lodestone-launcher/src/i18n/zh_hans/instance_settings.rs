@@ -170,6 +170,8 @@ pub fn text(message: M) -> &'static str {
         M::Value => "值",
         M::KeepForInstance => "为此实例保留",
         M::Dismiss => "忽略",
+        M::SharedNotApplied => "未能应用共享游戏设置：{error}",
+        M::SharedNotReadBack => "未能读回共享游戏设置：{error}",
         M::CategoryControls => "控制",
         M::CategoryVideo => "视频",
         M::CategorySound => "声音",
@@ -217,6 +219,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::AndMore => ["{names}及另外 {count} 项"; 2],
         P::ChangedInGame => {
             ["你在游戏中更改的 {count} 项设置（{names}）将在下次启动时被共享值替换。"; 2]
+        }
+        P::SharedWritten => ["共享游戏设置：已将 {count} 个值写入 options.txt"; 2],
+        P::SharedWrittenNewFile => ["共享游戏设置：已将 {count} 个值写入新建的 options.txt"; 2],
+        P::SharedEmitted => ["共享游戏设置：此实例的 {count} 个值现已应用到所有实例"; 2],
+        P::SharedChangedNote => {
+            ["共享游戏设置：游戏中更改的 {count} 项设置将在下次启动时被共享值替换（见设置）"; 2]
         }
     }
 }

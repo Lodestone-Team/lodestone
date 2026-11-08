@@ -170,6 +170,8 @@ pub fn text(message: M) -> &'static str {
         M::Value => "值",
         M::KeepForInstance => "為此實例保留",
         M::Dismiss => "忽略",
+        M::SharedNotApplied => "未能套用共用遊戲設定：{error}",
+        M::SharedNotReadBack => "未能讀回共用遊戲設定：{error}",
         M::CategoryControls => "控制",
         M::CategoryVideo => "顯示",
         M::CategorySound => "音效",
@@ -217,6 +219,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::AndMore => ["{names}及另外 {count} 項"; 2],
         P::ChangedInGame => {
             ["你在遊戲中變更的 {count} 項設定（{names}）將在下次啟動時被共用值取代。"; 2]
+        }
+        P::SharedWritten => ["共用遊戲設定：已將 {count} 個值寫入 options.txt"; 2],
+        P::SharedWrittenNewFile => ["共用遊戲設定：已將 {count} 個值寫入新建的 options.txt"; 2],
+        P::SharedEmitted => ["共用遊戲設定：此實例的 {count} 個值現已套用到所有實例"; 2],
+        P::SharedChangedNote => {
+            ["共用遊戲設定：遊戲中變更的 {count} 項設定將在下次啟動時被共用值取代（見設定）"; 2]
         }
     }
 }

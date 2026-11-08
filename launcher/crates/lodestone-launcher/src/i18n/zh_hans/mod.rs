@@ -47,5 +47,6 @@ pub mod format;
 pub mod instance_settings;
 pub mod instances;
 pub mod servers;
+pub mod shared_options;
 pub mod shell;
 pub mod worlds;

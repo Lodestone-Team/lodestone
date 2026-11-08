@@ -202,6 +202,11 @@ crate::i18n::messages! {
         Value = "Value",
         KeepForInstance = "Keep them for this instance",
         Dismiss = "Dismiss",
+        /// A line in the game's console; {error} is the problem, in English.
+        SharedNotApplied = "Shared game settings weren't applied: {error}",
+        /// A line in the game's console after it exits; {error} is the problem, in
+        /// English.
+        SharedNotReadBack = "Shared game settings couldn't be read back: {error}",
         CategoryControls = "Controls",
         CategoryVideo = "Video",
         CategorySound = "Sound",
@@ -262,6 +267,24 @@ crate::i18n::messages! {
         ChangedInGame = (
             "{count} setting you changed in-game ({names}) will be replaced by the shared one next launch.",
             "{count} settings you changed in-game ({names}) will be replaced by the shared ones next launch."
+        ),
+        /// Lines in the game's console before it starts.
+        SharedWritten = (
+            "Shared game settings: {count} value written to options.txt",
+            "Shared game settings: {count} values written to options.txt"
+        ),
+        SharedWrittenNewFile = (
+            "Shared game settings: {count} value written to options.txt (new file)",
+            "Shared game settings: {count} values written to options.txt (new file)"
+        ),
+        /// Lines in the game's console after it exits.
+        SharedEmitted = (
+            "Shared game settings: {count} value from this instance now applies to every instance",
+            "Shared game settings: {count} values from this instance now apply to every instance"
+        ),
+        SharedChangedNote = (
+            "Shared game settings: {count} setting changed in-game will be replaced by the shared one next launch (see Settings)",
+            "Shared game settings: {count} settings changed in-game will be replaced by the shared ones next launch (see Settings)"
         ),
     }
 }
