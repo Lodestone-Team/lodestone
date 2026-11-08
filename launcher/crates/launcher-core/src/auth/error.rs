@@ -58,6 +58,17 @@ impl XboxError {
     }
 }
 
+/// What is wrong with an address pasted into the sign-in-by-link flow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkProblem {
+    /// It is not a web address at all.
+    NotAUrl,
+    /// It is not `https://login.live.com/oauth20_desktop.srf`.
+    WrongPage,
+    /// It is the right page, without exactly one sign-in code.
+    NoCode,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum AuthError {
     #[error("sign-in was cancelled")]
@@ -94,6 +105,15 @@ pub enum AuthError {
     Listener(String),
     #[error("could not use the keychain: {0}")]
     Keychain(String),
+    #[error("the pasted sign-in address was refused ({0:?})")]
+    InvalidLink(LinkProblem),
+    /// The pasted address carried an OAuth `error`. The description is
+    /// Microsoft's text, cleaned for display; neither holds a secret.
+    #[error("the pasted sign-in address has an error ({code})")]
+    LinkError {
+        code: String,
+        description: Option<String>,
+    },
 }
 
 impl AuthError {
@@ -120,6 +140,8 @@ impl AuthError {
             Self::UnexpectedResponse { .. } => "Sign-in failed",
             Self::Listener(_) => "Couldn't start sign-in",
             Self::Keychain(_) => "Couldn't save the sign-in",
+            Self::InvalidLink(_) => "That's not the right address",
+            Self::LinkError { .. } => "Microsoft sign-in failed",
         }
     }
 
@@ -185,6 +207,19 @@ impl AuthError {
             }
             Self::Listener(_) => "Lodestone Launcher couldn't open the local page the browser returns to. Use a code instead.".into(),
             Self::Keychain(_) => "Lodestone Launcher couldn't save the sign-in to your keychain. Check that the keychain is unlocked and try again.".into(),
+            Self::InvalidLink(LinkProblem::NotAUrl) => {
+                "That isn't a web address. Copy the whole address from your browser's address bar after signing in.".into()
+            }
+            Self::InvalidLink(LinkProblem::WrongPage) => {
+                "Only an address starting with https://login.live.com/oauth20_desktop.srf is accepted. Copy it from the address bar of the blank page Microsoft shows after you sign in.".into()
+            }
+            Self::InvalidLink(LinkProblem::NoCode) => {
+                "That address has no sign-in code in it. Finish signing in first, then copy the address of the page you end up on.".into()
+            }
+            Self::LinkError { code, description } => match description {
+                Some(description) => format!("Microsoft said: {description} ({code})"),
+                None => format!("Microsoft couldn't sign you in ({code}). Try again in a moment."),
+            },
         }
     }
 

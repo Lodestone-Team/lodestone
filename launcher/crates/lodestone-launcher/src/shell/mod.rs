@@ -3,6 +3,7 @@
 //! selected instance with its tabs and a large Play button.
 
 mod account_box;
+mod developer;
 mod play;
 mod sidebar;
 mod top_bar;
@@ -103,6 +104,13 @@ enum Modal {
         id: String,
         username: String,
         focus: FocusHandle,
+    },
+    /// The disclosure before "Sign in as the Minecraft Launcher" is turned on.
+    EnableLauncherIdentity { focus: FocusHandle },
+    /// Turning it off, with the accounts that used it.
+    DisableLauncherIdentity {
+        focus: FocusHandle,
+        usernames: Vec<String>,
     },
 }
 
@@ -484,6 +492,12 @@ impl LauncherShell {
                     )
                     .into_any_element()
             }
+            Modal::EnableLauncherIdentity { focus } => {
+                self.render_enable_launcher_identity(focus.clone(), cx)
+            }
+            Modal::DisableLauncherIdentity { focus, usernames } => {
+                self.render_disable_launcher_identity(focus.clone(), usernames, cx)
+            }
             Modal::SignIn { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Offline { dialog, .. } => dialog.clone().into_any_element(),
             Modal::RemoveAccount {
@@ -611,7 +625,13 @@ impl Render for LauncherShell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
-            Page::Settings => play::render_settings().into_any_element(),
+            Page::Settings => div()
+                .flex()
+                .flex_col()
+                .w_full()
+                .child(play::render_settings())
+                .child(developer::render(self, cx))
+                .into_any_element(),
         };
         let modal = self.render_modal(cx);
 

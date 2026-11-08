@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{AuthError, Endpoints, Step, XboxError, microsoft::network_error};
+use super::{AuthError, ClientIdentity, Endpoints, Step, XboxError, microsoft::network_error};
 use crate::{
     Secret,
     http::{self, Response},
@@ -84,11 +84,12 @@ fn xbox_token(step: Step, response: &Response) -> Result<XboxToken, AuthError> {
     })
 }
 
-/// Signs in to Xbox Live with a Microsoft access token.
+/// Signs in to Xbox Live with a Microsoft access token from `identity`'s client.
 pub async fn xbox_live(
     client: &dyn HttpClient,
     endpoints: &Endpoints,
     ms_access_token: &Secret,
+    identity: ClientIdentity,
 ) -> Result<XboxToken, AuthError> {
     let request = http::json(
         &http::join(&endpoints.xbox_user, "user/authenticate"),
@@ -96,8 +97,9 @@ pub async fn xbox_live(
             "Properties": {
                 "AuthMethod": "RPS",
                 "SiteName": "user.auth.xboxlive.com",
-                // `d=` marks a token from an app's own Azure registration.
-                "RpsTicket": format!("d={}", ms_access_token.expose()),
+                // `d=` marks a token from an Azure app registration, `t=` one from a
+                // title's live.com client.
+                "RpsTicket": format!("{}{}", identity.rps_ticket_prefix(), ms_access_token.expose()),
             },
             "RelyingParty": "http://auth.xboxlive.com",
             "TokenType": "JWT",

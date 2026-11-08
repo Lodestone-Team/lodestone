@@ -36,6 +36,9 @@ pub const SCENES: &[&str] = &[
     "sign-in-browser",
     "sign-in-code",
     "sign-in-not-approved",
+    "launcher-identity",
+    "sign-in-launcher",
+    "account-menu-launcher",
     "offline",
     "remove",
     "new-instance",
@@ -105,7 +108,12 @@ pub fn accounts(scene: &str, cx: &mut App) -> Entity<Accounts> {
         if scene == "signed-out" {
             return accounts;
         }
-        let microsoft = microsoft_account();
+        let mut microsoft = microsoft_account();
+        if matches!(scene.as_str(), "sign-in-launcher" | "account-menu-launcher") {
+            accounts.preview_launcher_identity(true);
+            microsoft =
+                microsoft.with_client(launcher_core::auth::ClientIdentity::MinecraftLauncher);
+        }
         accounts.insert_for_preview(Account::offline("Dev_Steve").expect("a valid name"));
         accounts.insert_for_preview(microsoft.clone());
         // A head rendered from a made-up skin, through the same code as real ones.
@@ -296,7 +304,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             launcher_core::game::platform::ROSETTA_MISSING,
             cx,
         ),
-        "account-menu" | "needs-sign-in" => shell.open_account_menu(cx),
+        "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
+        "launcher-identity" => shell.preview_enable_launcher_identity(cx),
+        "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),
         "sign-in" => shell.open_sign_in_at(Stage::Choose, None, cx),
         "sign-in-browser" => shell.open_sign_in_at(Stage::Browser, None, cx),
         "sign-in-code" => shell.open_sign_in_at(
