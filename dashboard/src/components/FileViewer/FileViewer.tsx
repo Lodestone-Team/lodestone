@@ -129,6 +129,7 @@ export default function FileViewer() {
   const {
     data: fileList,
     isPending: fileListLoading,
+    isPlaceholderData: fileListIsPrevious,
     error: fileListError,
   } = useFileList(instance.uuid, path, canRead);
 
@@ -656,6 +657,7 @@ export default function FileViewer() {
                 atTopLevel={atTopLevel}
                 fileList={fileList}
                 loading={fileListLoading}
+                stale={fileListIsPrevious}
                 error={fileListError}
                 onParentClick={() =>
                   setPath(parentPath(path, directorySeparator), false)
@@ -700,7 +702,10 @@ export default function FileViewer() {
                           ? 'Loading...'
                           : 'Select a file to view its contents'
                       }
-                      className=""
+                      // a file that loads quickly shows no "Loading..."
+                      className={
+                        isFileLoading && !fileError ? 'loading-delayed' : ''
+                      }
                       iconClassName="text-gray-500"
                       messageClassName="text-gray-400"
                     />

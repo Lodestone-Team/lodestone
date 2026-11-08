@@ -212,6 +212,13 @@ export default function GameConsole() {
             iconClassName="text-gray-400"
             messageClassName="text-white/50"
           />
+        ) : consoleLog.length === 0 && consoleStatus === 'loading' ? (
+          // the history is still loading: an empty console, not the "no
+          // messages" graphic that would flash before the lines appear
+          <div
+            aria-busy="true"
+            className="flex h-0 grow rounded-t-lg border-b border-gray-faded/30 bg-gray-900"
+          />
         ) : consoleLog.length === 0 ? (
           <ErrorGraphic
             icon={faServer}

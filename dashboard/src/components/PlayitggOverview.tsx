@@ -8,7 +8,6 @@ import {
   stopCli,
   verifyKey,
 } from 'utils/apis';
-import { useEffectOnce } from 'utils/hooks';
 import { errorToString } from 'utils/util';
 import { toast } from 'react-toastify';
 import clsx from 'clsx';
@@ -31,43 +30,46 @@ enum RunnerStatus {
 
 const RUNNER_STATUS_KEY = ['playitgg', 'status'];
 
+const VERIFIED_KEY = ['playitgg', 'verified'];
+const TUNNELS_KEY = ['playitgg', 'tunnels'];
+
 export function PlayitggOverview() {
   const [signupData, setSignupData] = React.useState<null | PlayitSignupData>(null);
-  const [verified, setVerified] = React.useState<null | boolean>(null);
-  const [verifyError, setVerifyError] = React.useState<null | string>(null);
   const [showSignupModal, setShowSignupModal] = React.useState<boolean>(false);
-  const [playitTunnels, setPlayitTunnels] = React.useState<PlayitTunnelInfo[]>([]);
-  const [loadingTunnels, setLoadingTunnels] = React.useState<boolean>(false);
   const queryClient = useQueryClient();
   // fetched when the page opens, then kept up to date by the event stream
-  const { data: runnerStatus = RunnerStatus.Stopped } = useQuery<RunnerStatus>({
+  const runnerQuery = useQuery<RunnerStatus>({
     queryKey: RUNNER_STATUS_KEY,
     queryFn: async () =>
       (await cliIsRunning()) ? RunnerStatus.Started : RunnerStatus.Stopped,
   });
+  const runnerStatus = runnerQuery.data ?? RunnerStatus.Stopped;
   const setRunnerStatus = (status: RunnerStatus) =>
     queryClient.setQueryData(RUNNER_STATUS_KEY, status);
 
-  useEffectOnce(() => {
-    verifyKey()
-      .then(setVerified)
-      .catch((e) => setVerifyError(errorToString(e)));
+  // Both are fetched again every time the page opens, but kept in between:
+  // reopening the page shows the last result at once instead of "Loading..."
+  const verifiedQuery = useQuery<boolean>({
+    queryKey: VERIFIED_KEY,
+    queryFn: verifyKey,
+    staleTime: 0,
+    retry: false,
   });
-
-  useEffect(() => {
-    loadTunnels();
-  }, [verified]);
-
-  const loadTunnels = async () => {
-    try {
-      setLoadingTunnels(true);
-      const tuns = await getTunnels();
-      setPlayitTunnels(tuns);
-    } catch (e) {
-      setPlayitTunnels([]);
-    }
-    setLoadingTunnels(false);
-  }
+  const verified = verifiedQuery.data ?? null;
+  const verifyError =
+    verified === null && verifiedQuery.error
+      ? errorToString(verifiedQuery.error)
+      : null;
+  const tunnelsQuery = useQuery<PlayitTunnelInfo[]>({
+    queryKey: TUNNELS_KEY,
+    // no tunnels if they can't be fetched (e.g. not signed up yet)
+    queryFn: () => getTunnels().catch(() => []),
+    staleTime: 0,
+  });
+  const playitTunnels = tunnelsQuery.data ?? [];
+  // only the first load: a refresh keeps the list (the icon spins instead)
+  const loadingTunnels = tunnelsQuery.isPending;
+  const loadTunnels = () => void tunnelsQuery.refetch();
 
   useEffect(() => {
     if (verified === false) {
@@ -85,8 +87,9 @@ export function PlayitggOverview() {
 
   const handleVerifySignup = async () => {
     try {
-      setVerified(await verifyKey());
-      setVerifyError(null);
+      queryClient.setQueryData(VERIFIED_KEY, await verifyKey());
+      // the tunnels of the account just signed up to
+      void queryClient.invalidateQueries({ queryKey: TUNNELS_KEY });
     } catch (e) {
       toast.error(
         `Failed to verify the playit.gg account: ${errorToString(e)}`
@@ -145,7 +148,13 @@ export function PlayitggOverview() {
         }
       </PlayitggSignupModal>
       {verified === null ?
-        <h2 className="text-h2 font-extrabold tracking-medium">
+        <h2
+          className={clsx(
+            'text-h2 font-extrabold tracking-medium',
+            // "Loading..." only if it takes a moment
+            verifyError === null && 'loading-delayed'
+          )}
+        >
           {verifyError === null
             ? 'Loading...'
             : `Failed to load playit.gg status: ${verifyError}`}
@@ -168,8 +177,16 @@ export function PlayitggOverview() {
               className='ml-2'
               disabled={!verified}
             />
-            <Label size="small" color={labelColor as LabelColor} className='ml-2 mt-[6px]'>
-              {runnerStatus !== undefined ? runnerStatus : "Stopped"}
+            <Label
+              size="small"
+              color={labelColor as LabelColor}
+              // space kept, but no "Stopped" shown before the status is known
+              className={clsx(
+                'mt-[6px] ml-2',
+                runnerQuery.isPending && 'invisible'
+              )}
+            >
+              {runnerStatus}
             </Label>
           </div>
           <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
@@ -185,7 +202,10 @@ export function PlayitggOverview() {
             </h2>
             <FontAwesomeIcon
               icon={faRefresh}
-              className="mx-2 mb-0 mt-11 h-4 w-4 text-white/50 hover:cursor-pointer"
+              className={clsx(
+                'mx-2 mt-11 mb-0 size-4 text-white/50 hover:cursor-pointer',
+                tunnelsQuery.isFetching && !loadingTunnels && 'animate-spin'
+              )}
               onClick={() => loadTunnels()}
             />
           </div>
