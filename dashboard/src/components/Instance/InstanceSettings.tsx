@@ -21,6 +21,7 @@ import {
   SectionFieldObject,
 } from './InstanceSettingsCreate/SettingObject';
 import { SettingOverrides } from './InstanceSettingsCreate/SettingOverrides';
+import { PublicListingSetting } from './PublicListingSetting';
 import { useDocumentTitle } from 'usehooks-ts';
 
 type StartupSetting = 'auto_start' | 'restart_on_crash';
@@ -266,6 +267,11 @@ export default function InstanceSetting() {
         disabledReason={
           canControlInstance ? 'No permission' : OWNER_ONLY_ATOM_MESSAGE
         }
+      />
+      <PublicListingSetting
+        instance={instance}
+        canEdit={can_access_instance_setting}
+        disabledReason="No permission"
       />
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
         <div className="w-full shrink-0">

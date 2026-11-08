@@ -264,6 +264,34 @@ export const CoreSettings = () => {
   );
 
 
+  const listPubliclySupported =
+    typeof globalSettings?.list_instances_publicly === 'boolean';
+  const listInstancesPubliclyField = (
+    <ToggleBox
+      label={'List instances publicly'}
+      value={globalSettings?.list_instances_publicly === true}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={
+        'Let anyone who can reach this core see the instances you mark as "Listed publicly" (name, version, loader, status and player count) and download their client mods, without signing in. Lodestone Launcher uses this to join them.'
+      }
+      onChange={async (value) => {
+        await axiosPutSingleValue(
+          '/global_settings/list_instances_publicly',
+          value
+        );
+        queryClient.setQueryData(
+          ['global_settings'],
+          (old: GlobalSettingsData | undefined) =>
+            old && { ...old, list_instances_publicly: value }
+        );
+      }}
+      optimistic={false}
+    />
+  );
+
   const openPortModal = (
     <Dialog
       open={showOpenPortDialog}
@@ -489,6 +517,9 @@ export const CoreSettings = () => {
               {nameField}
               {domainField}
               {enablePlayitField}
+              {can_change_core_settings &&
+                listPubliclySupported &&
+                listInstancesPubliclyField}
             </div>
           </div>
           <div className="flex w-full flex-col gap-4 @4xl:flex-row">
