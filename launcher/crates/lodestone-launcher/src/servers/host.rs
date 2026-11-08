@@ -354,20 +354,23 @@ impl Servers {
                 cx,
             )
         });
-        let subscription = cx.subscribe(&dialog, |this, dialog, event, cx| match event {
-            HostEvent::Dismissed => {
-                this.extras.host = None;
-                cx.notify();
+        let subscription = cx.subscribe(&dialog, |this, dialog, event, cx| {
+            // a dialog that is fading out has nothing more to say
+            if this.extras.host.current().map(|(open, _)| open) != Some(&dialog) {
+                return;
             }
-            HostEvent::ShowServers => {
-                this.extras.host = None;
-                cx.emit(super::ServersEvent::ShowServers);
-                cx.notify();
+            match event {
+                HostEvent::Dismissed => {
+                    this.extras.host.close(cx);
+                }
+                HostEvent::ShowServers => {
+                    this.extras.host.close(cx);
+                    cx.emit(super::ServersEvent::ShowServers);
+                }
+                HostEvent::Submit(request) => this.host(&dialog, request.clone(), cx),
             }
-            HostEvent::Submit(request) => this.host(&dialog, request.clone(), cx),
         });
-        self.extras.host = Some((dialog, subscription));
-        cx.notify();
+        self.extras.host.open((dialog, subscription), cx);
     }
 
     fn host(&mut self, dialog: &Entity<HostDialog>, request: HostRequest, cx: &mut Context<Self>) {
@@ -484,7 +487,7 @@ impl Servers {
         cx: &mut Context<Self>,
     ) {
         self.open_host(instance_id, cx);
-        if let Some((dialog, _)) = &self.extras.host {
+        if let Some((dialog, _)) = self.extras.host.current() {
             dialog.update(cx, |d, cx| {
                 d.preview("correct horse", true, cx);
                 d.stage = stage.map(|s| s.to_string().into());

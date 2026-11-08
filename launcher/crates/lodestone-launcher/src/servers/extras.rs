@@ -1,9 +1,9 @@
 //! What the Servers page does beyond listing and joining (milestone 8b): a server's
 //! world and resource pack ([`super::tools`]), "Host this modpack" ([`super::host`])
 //! and LAN worlds ([`super::lan`]). Their state is one field of [`Servers`], and their
-//! dialogs are drawn by [`overlay`].
+//! dialogs are drawn by the Servers overlay (`ServersOverlay` in [`super::view`]).
 
-use gpui::{AnyElement, App, Entity, IntoElement, SharedString, Subscription, div, prelude::*};
+use gpui::{App, Entity, IntoElement, SharedString, Subscription, div, prelude::*};
 
 use super::{
     Servers,
@@ -11,30 +11,28 @@ use super::{
     lan::{LanPicker, LanState},
     tools::ServerTools,
 };
-use crate::theme::{self, colors, leading, radius, text, weights};
+use crate::{
+    components::DialogSlot,
+    theme::{self, colors, leading, radius, text, weights},
+};
 
 /// The 8b state of the Servers page.
-#[derive(Default)]
 pub struct Extras {
-    pub(super) tools: Option<(Entity<ServerTools>, Subscription)>,
-    pub(super) host: Option<(Entity<HostDialog>, Subscription)>,
+    pub(super) tools: DialogSlot<Servers, (Entity<ServerTools>, Subscription)>,
+    pub(super) host: DialogSlot<Servers, (Entity<HostDialog>, Subscription)>,
     pub(super) lan: LanState,
-    pub(super) lan_picker: Option<LanPicker>,
+    pub(super) lan_picker: DialogSlot<Servers, LanPicker>,
 }
 
-/// The open 8b dialog, if any, drawn over the window.
-pub fn overlay(servers: &Entity<Servers>, cx: &mut App) -> Option<AnyElement> {
-    let this = servers.read(cx);
-    if let Some((tools, _)) = &this.extras.tools {
-        return Some(tools.clone().into_any_element());
+impl Default for Extras {
+    fn default() -> Self {
+        Self {
+            tools: DialogSlot::new(|this: &mut Servers| &mut this.extras.tools),
+            host: DialogSlot::new(|this: &mut Servers| &mut this.extras.host),
+            lan: LanState::default(),
+            lan_picker: DialogSlot::new(|this: &mut Servers| &mut this.extras.lan_picker),
+        }
     }
-    if let Some((host, _)) = &this.extras.host {
-        return Some(host.clone().into_any_element());
-    }
-    if this.extras.lan_picker.is_some() {
-        return Some(super::lan::render_picker(servers, cx));
-    }
-    None
 }
 
 pub(super) fn label(value: impl Into<SharedString>) -> gpui::Div {
