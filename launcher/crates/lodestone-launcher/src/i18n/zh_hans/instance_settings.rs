@@ -61,7 +61,7 @@ pub fn text(message: M) -> &'static str {
         M::AutoGroupVanilla => "原版",
         M::AutoGroupImported => "已导入",
 
-        M::GameVersionHint => "在创建实例时设定。",
+        M::GameVersionHint => "在创建实例时设置。",
         M::LoaderInstallsNextStart => "{loader} 将在游戏下次启动时安装。",
         M::LoaderInstallsNextPlay => "{loader} 将在你下次点击“开始游戏”时安装。",
         M::SavedNextStart => "已保存。将在游戏下次启动时生效。",
@@ -74,8 +74,8 @@ pub fn text(message: M) -> &'static str {
         M::AboutQuilt => "兼容 Fabric，并有自己的扩展。",
         M::AboutForge => "经典之选。大型内容模组和旧整合包。",
         M::AboutNeoForge => "Forge 的后继者，面向新版本。",
-        M::PrereleaseUpdates => "测试版和 Alpha 版更新",
-        M::PrereleaseUpdatesHint => "关闭时，已是测试版的模组仍会收到测试版。",
+        M::PrereleaseUpdates => "Beta 版和 Alpha 版更新",
+        M::PrereleaseUpdatesHint => "关闭时，已处于 Beta 版的模组仍会收到 Beta 版更新。",
         M::LoaderVersion => "加载器版本",
         M::ChooseLoaderVersion => "请选择 {loader} 版本。",
         M::ChooseVersion => "选择版本",
@@ -146,13 +146,13 @@ pub fn text(message: M) -> &'static str {
         M::SharedLead => "所有实例使用相同的游戏选项。",
         M::UseSharedSettings => "使用共享设置",
         M::SharingOff => "此实例保留自己的选项。",
-        M::SharingPreferred => "在这里游戏内的更改会同步到所有实例。",
-        M::SharingFrom => "接收 {name} 中游戏内的更改。",
+        M::SharingPreferred => "此实例中游戏内的更改会同步到所有实例。",
+        M::SharingFrom => "接收来自 {name} 的游戏内更改。",
         M::SharingNoPreferred => "共享值只能在设置中更改。",
         M::Preferred => "首选",
         M::MakePreferred => "设为首选",
         M::PreferredExplained => {
-            "在首选实例的游戏中更改的设置会成为共享设置，每个使用共享设置的实例会在下次启动时获得这些设置。只能有一个首选实例。"
+            "在首选实例中，于游戏内更改的设置会成为共享设置，而每个共享这些设置的实例会在下次启动时获得它们。只能有一个首选实例。"
         }
         M::MadePreferred => "此实例中的游戏内更改现在会更新到每个实例。",
         M::StopGameToChange => "请先停止游戏再更改：游戏退出时会重写 options.txt。",
@@ -175,7 +175,7 @@ pub fn text(message: M) -> &'static str {
         M::CategorySound => "声音",
         M::CategoryAccessibility => "辅助功能与聊天",
         M::CategoryLanguage => "语言",
-        M::CategoryControlsDescription => "鼠标、按键绑定",
+        M::CategoryControlsDescription => "鼠标、按键",
         M::CategoryVideoDescription => "视野、渲染距离、界面尺寸、图像品质",
         M::CategorySoundDescription => "音量、字幕",
         M::CategoryAccessibilityDescription => "旁白、聊天、文本背景",

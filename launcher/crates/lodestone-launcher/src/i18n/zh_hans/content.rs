@@ -76,10 +76,10 @@ pub fn text(message: M) -> &'static str {
             "此实例是原版 Minecraft。光影需要通过 {loader} 等模组加载器运行；切换会保留你的世界和设置，{loader} 会在你下次点击“开始游戏”时安装。"
         }
         M::VanillaNoLoaderMods => {
-            "此实例是原版 Minecraft {version}。模组需要模组加载器，但 Lodestone Launcher 支持的加载器都无法在此版本上运行：Fabric 从 1.14 开始支持，Forge 也没有适用于此版本的构建。使用较新版本的新实例即可使用模组。"
+            "此实例是原版 Minecraft {version}。模组需要模组加载器，但 Lodestone Launcher 支持的加载器都无法在此版本上运行：Fabric 从 1.14 开始支持，Forge 也没有适用于此版本的构建。新建一个较新版本的实例即可使用模组。"
         }
         M::VanillaNoLoaderShaders => {
-            "此实例是原版 Minecraft {version}。光影需要模组加载器，但 Lodestone Launcher 支持的加载器都无法在此版本上运行：Fabric 从 1.14 开始支持，Forge 也没有适用于此版本的构建。使用较新版本的新实例即可使用光影。"
+            "此实例是原版 Minecraft {version}。光影需要模组加载器，但 Lodestone Launcher 支持的加载器都无法在此版本上运行：Fabric 从 1.14 开始支持，Forge 也没有适用于此版本的构建。新建一个较新版本的实例即可使用光影。"
         }
         M::VanillaCheckFailedMods => {
             "此实例是原版 Minecraft。模组需要模组加载器，但无法检查哪个加载器适用：{error}"
@@ -107,7 +107,7 @@ pub fn text(message: M) -> &'static str {
             "OptiFine 也可以使用，但它不在 Modrinth 上，且其许可协议不允许 Lodestone 下载。如果你更喜欢它，请从 optifine.net 下载，然后在“{mods}”中用“{add_file}”添加 jar 文件（Fabric 还需要 OptiFabric）。"
         }
         M::LookingForShaderMod => "正在 Modrinth 上查找适用于此版本的光影模组",
-        M::CouldntAskModrinth => "无法连接 Modrinth：{error}",
+        M::CouldntAskModrinth => "无法向 Modrinth 查询：{error}",
         M::InstallShaderMod => "安装 {shader_mod} {version}",
         M::ShaderModRunsOn => {
             "Minecraft 本身无法加载光影包，需要借助光影模组。{shader_mod} 可在此实例的 {loader} 上运行。"
@@ -140,7 +140,7 @@ pub fn text(message: M) -> &'static str {
         M::LoadingProject => "正在加载项目",
         M::ViewOnModrinth => "在 Modrinth 上查看",
         M::Versions => "版本",
-        M::Description => "介绍",
+        M::Description => "简介",
         M::LoadingVersions => "正在加载版本",
         M::ShowAllVersions => "显示适用于其他加载器和 Minecraft 版本的版本",
         M::AlsoInstallDependencies => "同时安装必需的依赖项",

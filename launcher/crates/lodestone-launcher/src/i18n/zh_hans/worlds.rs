@@ -5,7 +5,7 @@ pub fn text(message: M) -> &'static str {
         M::Worlds => "世界",
         M::Screenshots => "截图",
 
-        M::StopGameFirst => "请先停止游戏：游戏正打开着这个世界，并会在退出时保存它。",
+        M::StopGameFirst => "请先停止游戏：游戏正开着这个世界，并会在退出时保存它。",
         M::WaitForTask => "请等待当前任务完成。",
         M::Cancelled => "已取消。",
         M::GameRunning => "游戏正在运行：可以打开世界、查看备份，但更改要等游戏停止后才能进行。",

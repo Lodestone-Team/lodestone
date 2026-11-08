@@ -7,7 +7,7 @@ pub fn text(message: M) -> &'static str {
         // 「這台 Mac」ends in Latin letters, 「這台電腦」doesn't.
         M::MemoryTooHigh => {
             if cfg!(target_os = "macos") {
-                "這超過{computer} 記憶體的四分之三，留給 {os} 和其他 App 的記憶體會太少。"
+                "這超過{computer} 記憶體的四分之三，留給 {os} 和其他應用程式的記憶體會太少。"
             } else {
                 "這超過{computer}記憶體的四分之三，留給 {os} 和其他應用程式的記憶體會太少。"
             }
@@ -74,8 +74,8 @@ pub fn text(message: M) -> &'static str {
         M::AboutQuilt => "相容 Fabric，並有自己的擴充。",
         M::AboutForge => "經典之選。大型內容模組和舊整合包。",
         M::AboutNeoForge => "Forge 的後繼者，適用於新版本。",
-        M::PrereleaseUpdates => "測試版和 Alpha 版更新",
-        M::PrereleaseUpdatesHint => "關閉時，已是測試版的模組仍會收到測試版。",
+        M::PrereleaseUpdates => "Beta 版和 Alpha 版更新",
+        M::PrereleaseUpdatesHint => "關閉時，已處於 Beta 版的模組仍會收到 Beta 版更新。",
         M::LoaderVersion => "載入器版本",
         M::ChooseLoaderVersion => "請選擇 {loader} 版本。",
         M::ChooseVersion => "選擇版本",
@@ -100,7 +100,7 @@ pub fn text(message: M) -> &'static str {
 
         M::LinkedServerHint => "位於 {core}。「開始遊戲」會加入它並同步模組。",
         M::LinkedServerCoreRemoved => {
-            "位於 {core}，此核心已從「伺服器」頁面移除。請在該頁重新加入此核心以加入伺服器。"
+            "位於 {core}，此核心已從「伺服器」頁面移除。請在該頁重新新增此核心，才能加入伺服器。"
         }
         M::CoreRemoved => "核心已移除",
         M::Unlink => "解除連結",
@@ -146,13 +146,13 @@ pub fn text(message: M) -> &'static str {
         M::SharedLead => "所有實例使用相同的遊戲選項。",
         M::UseSharedSettings => "使用共用設定",
         M::SharingOff => "此實例保留自己的選項。",
-        M::SharingPreferred => "在這裡遊戲內的變更會同步到所有實例。",
-        M::SharingFrom => "接收 {name} 中遊戲內的變更。",
+        M::SharingPreferred => "此實例中遊戲內的變更會同步到所有實例。",
+        M::SharingFrom => "接收來自 {name} 的遊戲內變更。",
         M::SharingNoPreferred => "共用值只能在設定中變更。",
         M::Preferred => "首選",
         M::MakePreferred => "設為首選",
         M::PreferredExplained => {
-            "在首選實例的遊戲中變更的設定會成為共用設定，每個使用共用設定的實例會在下次啟動時取得這些設定。只能有一個首選實例。"
+            "在首選實例中，於遊戲內變更的設定會成為共用設定，而每個共用這些設定的實例會在下次啟動時取得它們。只能有一個首選實例。"
         }
         M::MadePreferred => "此實例中的遊戲內變更現在會套用到每個實例。",
         M::StopGameToChange => "請先停止遊戲再變更：遊戲結束時會重寫 options.txt。",
@@ -169,13 +169,13 @@ pub fn text(message: M) -> &'static str {
         M::Override => "覆寫",
         M::Value => "值",
         M::KeepForInstance => "為此實例保留",
-        M::Dismiss => "略過",
+        M::Dismiss => "忽略",
         M::CategoryControls => "控制",
         M::CategoryVideo => "顯示",
         M::CategorySound => "音效",
         M::CategoryAccessibility => "協助工具與聊天",
         M::CategoryLanguage => "語言",
-        M::CategoryControlsDescription => "滑鼠、按鍵綁定",
+        M::CategoryControlsDescription => "滑鼠、按鍵",
         M::CategoryVideoDescription => "視野、顯示距離、介面大小、圖像品質",
         M::CategorySoundDescription => "音量、字幕",
         M::CategoryAccessibilityDescription => "朗讀程式、聊天、文字背景",

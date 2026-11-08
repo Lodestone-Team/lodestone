@@ -5,26 +5,26 @@ pub fn text(message: M) -> &'static str {
         M::ServersTitle => "服务器",
         M::PageHint => "你的 Lodestone 核心上的服务器。创建与其中一个匹配的实例，然后在上面游玩。",
         M::AddServer => "添加服务器",
-        M::Dismiss => "关闭",
+        M::Dismiss => "忽略",
         M::NoServersYet => "还没有服务器",
         M::NoServersHint => {
             "按地址添加一个 Lodestone 核心。不登录时，你能看到其所有者公开列出的服务器。"
         }
 
         M::BadgeTrusted => "已信任",
-        M::BadgePinned => "已固定证书",
-        M::SignedInAs => "已以 {username} 身份登录",
+        M::BadgePinned => "证书已固定",
+        M::SignedInAs => "已登录为 {username}",
         M::SignedIn => "已登录",
         M::NotSignedIn => "未登录：仅显示公开服务器",
-        M::TrustedForMods => "信任其模组",
-        M::Offline => "离线：无法连接到此核心。请检查它是否正在运行，并且在同一网络中。",
+        M::TrustedForMods => "信任此核心的模组",
+        M::Offline => "离线：无法连接到此核心。请检查它是否正在运行，并且与你在同一个网络。",
         M::NotListedPublicly => {
             "所有者尚未在核心设置中开启“公开列出服务器”，因此不登录就没有可显示的内容。"
         }
         M::NoPublicServers => "没有公开列出的服务器。登录后可查看你有权访问的服务器。",
         M::NoVisibleServers => "此核心上没有你能看到的服务器。",
         M::CertChangedWarning => {
-            "自你信任以来，此核心的 HTTPS 证书已更改，因此 Lodestone Launcher 拒绝连接。核心会在内置证书即将过期或地址更改时生成新证书；这也可能意味着有人正在拦截连接。信任新证书前请先核对其指纹。"
+            "此核心的 HTTPS 证书在你信任之后已更改，因此 Lodestone Launcher 拒绝连接。核心会在内置证书即将过期或地址更改时生成新证书；这也可能意味着有人正在拦截连接。信任新证书前请先核对其指纹。"
         }
         M::CertUntrustedWarning => {
             "{computer} 不信任此核心的 HTTPS 证书。Lodestone 核心会自行生成证书，因此这是正常的：请核对其指纹，然后信任它。"
@@ -63,16 +63,16 @@ pub fn text(message: M) -> &'static str {
         M::SaveFailed => "无法保存你的服务器",
         M::NoLongerTrusted => "已不再信任 {name} 的模组",
         M::NoLongerTrustedIdChanged => {
-            "现在由另一个核心在 {address} 应答（其 ID 已更改）。只有在你信任其所有者时，才在它的卡片上重新信任它。"
+            "现在由另一个核心在 {address} 响应（其 ID 已更改）。只有在你信任其所有者时，才在它的卡片上重新信任它。"
         }
-        M::NoLongerTrustedOtherCore => "现在由另一个核心在 {address} 应答。",
+        M::NoLongerTrustedOtherCore => "现在由另一个核心在 {address} 响应。",
         M::NoLongerTrustedNewCertificate => {
             "你为它信任了新证书。如果确定它是同一个核心，请在它的卡片上重新信任其模组。"
         }
         M::NoLongerTrustedCertificateChanged => {
             "它的证书已更改。如果确定它是同一个核心，请在它的卡片上重新信任其模组。"
         }
-        M::SignedOutOf => "已退出登录 {name}",
+        M::SignedOutOf => "已退出 {name} 的登录",
         M::KeyStillValid => {
             "此设备的密钥（lsk_{id}_…）在过期前仍然有效。要立即使其失效，请在控制面板的“设置 → API 密钥”中吊销它。"
         }
@@ -88,7 +88,7 @@ pub fn text(message: M) -> &'static str {
         M::LinkFailed => "无法将实例关联到服务器",
         M::ReadyTitle => "{name} 已就绪",
         M::ReadyBody => {
-            "Minecraft {version}，使用 {loader}，并带有服务器的模组和配置。点击“开始游戏”即可加入。"
+            "Minecraft {version}，使用 {loader}，并带有服务器的模组和配置文件。点击“开始游戏”即可加入。"
         }
         M::CheckModsFailed => "无法检查服务器的模组",
         M::JoinFailed => "无法加入 {name}",
@@ -112,7 +112,7 @@ pub fn text(message: M) -> &'static str {
         M::UnlinkFailed => "无法取消关联实例：{error}",
         M::Cancelled => "已取消",
         M::TrustExplanation => {
-            "来自 Lodestone 核心的模组会作为程序在{computer} 上运行，拥有与你相同的文件和账户访问权限。只信任你信任其所有者的核心。"
+            "来自 Lodestone 核心的模组会作为程序在{computer} 上运行，拥有与你相同的文件和账户访问权限。只在你信任其所有者时才信任该核心。"
         }
         M::FingerprintHelp => {
             "请将它与核心显示的指纹进行比对：在控制面板的“设置 → 核心设置 → 信息”中（“证书指纹（SHA-256）”），或在核心启动时的日志中（“TLS certificate SHA-256 fingerprint”）。"
@@ -123,7 +123,7 @@ pub fn text(message: M) -> &'static str {
             "{computer} 不信任 {host} 的 HTTPS 证书。请核对其指纹，然后信任它以进行连接。"
         }
         M::CoreCertificateChanged => {
-            "自你信任以来，{host} 的 HTTPS 证书已更改，因此 Lodestone Launcher 拒绝连接。信任新证书前请先核对其指纹。"
+            "{host} 的 HTTPS 证书在你信任之后已更改，因此 Lodestone Launcher 拒绝连接。信任新证书前请先核对其指纹。"
         }
         M::CoreSignedOut => "已退出登录：此设备的密钥已被吊销或已过期。请重新登录。",
         M::CoreBadCredentials => "用户名或密码错误。",
@@ -138,23 +138,23 @@ pub fn text(message: M) -> &'static str {
 
         M::DifferentMods => "{name} 的模组有所不同",
         M::DifferentModsBody => {
-            "自此实例获取服务器的模组以来，它们已发生变化（{changes}）。请先更新以便加入；你自己的模组保持不变，被替换的文件会保留在实例的备份中。"
+            "自此实例获取服务器的模组以来，它们已发生变化（{changes}）。请先更新才能加入；你自己的模组保持不变，被替换的文件会保留在实例的备份中。"
         }
         M::ChangeNew => "新增：{name}",
         M::ChangeChanged => "已更改：{name}",
         M::ChangeRemoved => "已移除：{name}",
-        M::ChangeConfig => "配置：{name}",
+        M::ChangeConfig => "配置文件：{name}",
         M::NoChanges => "没有变化",
         M::UpdateAndPlay => "更新并开始游戏",
-        M::PlayAnyway => "仍然开始游戏",
+        M::PlayAnyway => "仍要开始游戏",
 
         M::CertChangedTitle => "{name} 的证书已更改",
         M::CertTrustTitle => "信任此核心的证书？",
         M::CertChangedIntro => {
-            "位于 {address} 的核心出示了与你所信任的证书不同的 HTTPS 证书。核心会在内置证书即将过期或地址更改时生成新证书，但这也可能意味着有人正在拦截连接。"
+            "位于 {address} 的核心出示的 HTTPS 证书与你信任的不同。核心会在内置证书即将过期或地址更改时生成新证书，但这也可能意味着有人正在拦截连接。"
         }
         M::CertUntrustedIntro => {
-            "{os} 不信任位于 {address} 的 {name} 的 HTTPS 证书。Lodestone 核心会自行生成证书，因此首次连接时出现这种情况是正常的。"
+            "{os} 不信任 {name} 在 {address} 上使用的 HTTPS 证书。Lodestone 核心会自行生成证书，因此首次连接时出现这种情况是正常的。"
         }
         M::FingerprintTrustedBefore => "此前信任的证书（SHA-256）",
         M::FingerprintPresented => "当前出示的证书（SHA-256）",
@@ -174,7 +174,7 @@ pub fn text(message: M) -> &'static str {
             "在你信任它之前，Lodestone Launcher 会在安装服务器的模组前先向你展示它们。你之后可以通过核心卡片上的“{setting}”更改此设置。"
         }
         M::TrustLater => {
-            "之后来自此核心的模组将直接安装，不再询问。你可以在核心卡片上重新关闭此设置。"
+            "之后来自此核心的模组将直接安装，不再询问。你可以在核心卡片上再次关闭此设置。"
         }
         M::TrustThisCore => "信任此核心",
 
@@ -185,7 +185,7 @@ pub fn text(message: M) -> &'static str {
         M::AdvisoryUpdate => {
             "更新到 {core} 上 {server} 的模组会安装这些文件。模组就是程序：它们运行时拥有与你相同的文件和账户访问权限。"
         }
-        M::ModrinthUnreachable => "无法连接到 Modrinth，因此没有文件能与其核对。",
+        M::ModrinthUnreachable => "无法连接到 Modrinth，因此无法核对任何文件。",
         M::UploadedNotChecked => "上传到服务器的文件 — 未经 Modrinth 核对（{count}）",
         M::AlsoOnModrinth => "也在 Modrinth 上（{count}）",
         M::AlsoFiles => "另有 {files}。",
@@ -197,7 +197,7 @@ pub fn text(message: M) -> &'static str {
 
         M::KeyDays90 => "90 天",
         M::KeyYear => "1 年",
-        M::KeyNever => "永不",
+        M::KeyNever => "永不过期",
         M::AddressPlaceholder => "192.168.1.20 或 localhost:16662",
         M::UsernameOptional => "用户名（可选）",
         M::Username => "用户名",
@@ -209,7 +209,7 @@ pub fn text(message: M) -> &'static str {
         M::ReadConsole => "读取控制台",
         M::SendChat => "发送聊天和命令",
         M::ConsoleAccessHint => {
-            "仅限你的用户可以使用控制台的服务器。命令可以执行管理员能做的任何事，因此只有在你信任所有使用{computer} 的人时才允许。"
+            "仅当你的用户可以使用控制台时才开启。命令可以执行管理员能做的任何事，因此只有在你信任所有使用{computer} 的人时才允许。"
         }
         M::SignInTitle => "登录服务器",
         M::SignInIntro => {
@@ -230,7 +230,7 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleKeyCantWrite => {
             "{computer} 上的密钥无法发送聊天或命令。如果你的用户可以使用控制台，请重新登录并允许“{option}”。"
         }
-        M::OfflineCantLink => "离线账户无法关联：它们的 UUID 由名称生成，因此无法证明任何事。",
+        M::OfflineCantLink => "离线账户无法关联：它们的 UUID 由名称生成，因此无法证明身份。",
         M::LinkedTo => "已将 {account} 关联到 {user}。",
         M::YourLodestoneUser => "你的 Lodestone 用户",
         M::Connecting => "正在连接…",
@@ -255,7 +255,7 @@ pub fn text(message: M) -> &'static str {
         M::HostTitle => "在 Lodestone 核心上托管",
         M::ShowOnServersPage => "在“服务器”页面查看",
         M::HostIntro => {
-            "用 {name} 的模组和配置创建一个服务器，以 Modrinth 整合包的形式。来自 Modrinth 的仅客户端模组会被排除。服务器创建后处于停止状态。"
+            "以 Modrinth 整合包的形式，用 {name} 的模组和配置文件创建一个服务器。来自 Modrinth 的仅客户端模组会被排除。服务器创建后处于停止状态。"
         }
         M::CoreLabel => "核心",
         M::PasswordNotKept => "你的密码只会在登录时发送一次，不会被保存。",
@@ -266,7 +266,7 @@ pub fn text(message: M) -> &'static str {
         M::CreateServer => "创建服务器",
         M::NameTheServer => "请为服务器命名。",
         M::HostNeedsPassword => {
-            "请输入你在此核心上的用户名和密码。创建服务器所需的权限超出了{computer} 上的密钥所能做的。"
+            "请输入你在此核心上的用户名和密码。创建服务器需要比{computer} 上的密钥更高的权限。"
         }
         M::AgreeEulaFirst => "请先同意 Minecraft EULA：核心会为新服务器接受它。",
         M::StageExporting => "正在导出实例…",
@@ -276,7 +276,7 @@ pub fn text(message: M) -> &'static str {
         M::CoreGone => "该核心已不存在。",
         M::InstanceGone => "该实例已不存在。",
         M::PackNotKept => "核心没有保留该整合包。",
-        M::SignedOutRightAway => "核心在你登录后立即将你退出登录。请重试。",
+        M::SignedOutRightAway => "核心在你登录后立即让你退出登录。请重试。",
         M::AddCoreFirst => "请先在“服务器”页面添加你的 Lodestone 核心。",
 
         M::LanListenFailed => "无法监听局域网世界：{error}",
@@ -292,7 +292,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::LanWorld => "局域网世界",
         M::Join => "加入",
-        M::OnYourNetwork => "你的网络中",
+        M::OnYourNetwork => "你的网络",
         M::OnYourNetworkHint => "此网络中对局域网开放的世界。",
         M::JoinWorld => "加入 {world}",
         M::PickInstance => {
@@ -304,15 +304,15 @@ pub fn text(message: M) -> &'static str {
         M::NewMatchingInstance => "新的匹配实例",
         M::NoResourcePack => "此服务器没有设置资源包。",
         M::DownloadToInstance => "下载到实例",
-        M::PackNote => "Minecraft 会在你加入时下载它；将它保存到 {target} 中可以让它离线也能使用。",
+        M::PackNote => "Minecraft 会在你加入时下载它；保存到 {target} 后，离线时也能使用。",
         M::PackNoteRequired => {
-            "玩家必须接受它才能加入。Minecraft 会在你加入时下载它；将它保存到 {target} 中可以让它离线也能使用。"
+            "玩家必须接受它才能加入。Minecraft 会在你加入时下载它；保存到 {target} 后，离线时也能使用。"
         }
         M::PackNoteNoSha => {
-            "服务器没有提供它的 SHA-1。Minecraft 会在你加入时下载它；将它保存到 {target} 中可以让它离线也能使用。"
+            "服务器没有提供它的 SHA-1。Minecraft 会在你加入时下载它；保存到 {target} 后，离线时也能使用。"
         }
         M::PackNoteRequiredNoSha => {
-            "玩家必须接受它才能加入。服务器没有提供它的 SHA-1。Minecraft 会在你加入时下载它；将它保存到 {target} 中可以让它离线也能使用。"
+            "玩家必须接受它才能加入。服务器没有提供它的 SHA-1。Minecraft 会在你加入时下载它；保存到 {target} 后，离线时也能使用。"
         }
         M::InstanceLabel => "实例",
         M::ResourcePack => "资源包",
@@ -321,7 +321,7 @@ pub fn text(message: M) -> &'static str {
             "服务器世界的单人游戏副本，放在一个新的世界文件夹中。你在其中做的更改只保留在{computer} 上。"
         }
         M::StopToDownload => "请先停止服务器再下载其世界：运行中的服务器可能正在写入它。",
-        M::PasswordNotKeptDownload => "你的密码只会为这次下载登录发送一次，不会被保存。",
+        M::PasswordNotKeptDownload => "你的密码只会在为这次下载登录时发送一次，不会被保存。",
         M::DownloadWorld => "下载世界",
         M::WorldNeedsPassword => {
             "请输入你在此核心上的用户名和密码。下载世界需要读取服务器文件的权限，而{computer} 上的密钥没有此权限。"
@@ -329,7 +329,7 @@ pub fn text(message: M) -> &'static str {
         M::SignInToSeePack => "登录此核心以查看服务器的资源包。",
         M::CreatingMatching => "正在创建匹配的实例",
         M::CreatingMatchingBody => {
-            "它会在服务器的模组下载完成后创建。届时请再次打开服务器的“{more}”，选择它，然后重新下载。"
+            "匹配实例会在服务器的模组下载完成后创建。届时请再次打开服务器的“{more}”，选择它，然后重新下载。"
         }
         M::CouldNotCreateInstance => "无法创建实例。",
         M::QuitGameFirst => "请先退出该实例中的游戏。",
@@ -342,7 +342,9 @@ pub fn text(message: M) -> &'static str {
         M::WorldImported => {
             "已作为世界“{folder}”导入到 {instance}。请从“单人游戏”中打开它；它是一个副本，因此更改不会同步回服务器。"
         }
-        M::PackSaved => "已保存为实例资源包中的 {file}。在那里启用它，即可在其他服务器上也使用它。",
+        M::PackSaved => {
+            "已保存到实例的资源包中，文件名为 {file}。在资源包列表中启用它，即可在其他服务器上使用。"
+        }
     }
 }
 
@@ -350,7 +352,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::Players => ["{count} 名玩家"; 2],
         P::ReadyBodySkipped => {
-            ["Minecraft {version}，使用 {loader}，并带有服务器的模组和配置。整合包中有 {count} 个文件未被导入。点击“开始游戏”即可加入。";
+            ["Minecraft {version}，使用 {loader}，并带有服务器的模组和配置文件。整合包中有 {count} 个文件被略过。点击“开始游戏”即可加入。";
                 2]
         }
         P::ModsAdded => ["新增 {count} 个"; 2],
@@ -361,11 +363,11 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ScriptFiles => ["{count} 个脚本文件"; 2],
         P::AndMore => ["还有 {count} 个"; 2],
         P::HostDone => {
-            ["{name} 已位于 {core} 上，端口为 {port}。核心正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“服务器”页面或控制面板中启动它；此实例已可以加入它。";
+            ["{name} 已位于 {core} 上，端口为 {port}。核心正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“服务器”页面或控制面板中启动它；此实例已准备好加入该服务器。";
                 2]
         }
         P::HostDoneRelinked => {
-            ["{name} 已位于 {core} 上，端口为 {port}。核心正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“服务器”页面或控制面板中启动它；此实例已可以加入它。此实例之前关联到 {server}；现在它属于新服务器。";
+            ["{name} 已位于 {core} 上，端口为 {port}。核心正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“服务器”页面或控制面板中启动它；此实例已准备好加入该服务器。此实例之前关联到 {server}；现在它属于新服务器。";
                 2]
         }
     }
