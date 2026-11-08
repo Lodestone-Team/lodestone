@@ -71,6 +71,9 @@ tungstenite = { version = "0.28", default-features = false, features = ["handsha
 trash = { git = "https://github.com/zed-industries/trash-rs", rev = "41c6c800d884a89351f3b8856d12894cccee261d" }
 url = "2.2"
 uuid = { version = "1.1", features = ["serde"] }
+# Windows-only system calls libc lacks there (host name, memory, OS version). Zed locks
+# 0.61; each crate enables only the API features it calls.
+windows-sys = "0.61"
 # Extracting natives from library jars. Zed locks zip 0.6.6 (through webrtc-sys-build);
 # only the deflate method is enabled, which is what Mojang's native jars use.
 zip = { version = "0.6.6", default-features = false, features = ["deflate"] }

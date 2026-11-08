@@ -190,6 +190,7 @@ pub fn device_key_name(device: &str) -> String {
 }
 
 /// This computer's host name, for the key name.
+#[cfg(not(windows))]
 pub fn host_name() -> String {
     let mut buf = [0u8; 256];
     // SAFETY: the buffer is valid for its length; gethostname writes at most that many
@@ -200,6 +201,25 @@ pub fn host_name() -> String {
     }
     let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
     String::from_utf8_lossy(&buf[..end]).into_owned()
+}
+
+/// This computer's host name, for the key name. Windows has no `gethostname` in
+/// libc; this asks for the same DNS host name `hostname` prints.
+#[cfg(windows)]
+pub fn host_name() -> String {
+    use windows_sys::Win32::System::SystemInformation::{
+        ComputerNamePhysicalDnsHostname, GetComputerNameExW,
+    };
+    let mut buf = [0u16; 256];
+    let mut len = buf.len() as u32;
+    // SAFETY: the buffer is valid for `len` UTF-16 units; on success the call writes at
+    // most that many and sets `len` to the number written, without the NUL.
+    let ok =
+        unsafe { GetComputerNameExW(ComputerNamePhysicalDnsHostname, buf.as_mut_ptr(), &mut len) };
+    if ok == 0 {
+        return String::new();
+    }
+    String::from_utf16_lossy(&buf[..(len as usize).min(buf.len())])
 }
 
 #[cfg(test)]
