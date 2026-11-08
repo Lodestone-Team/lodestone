@@ -4,11 +4,12 @@
 use gpui::{Context, IntoElement, ObjectFit, SharedString, div, img, prelude::*, px};
 use launcher_core::instances::Instance;
 
-use super::{InstanceTab, LauncherShell};
+use super::{InstanceTab, LauncherShell, loader_label};
 use crate::{
     components::{
         Align, Button, ButtonSize, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs,
     },
+    i18n::{ShellMsg as M, t, tr},
     instances::appearance::{Background, scrim_layers},
     instances::{Ago, PlayState, play_time},
     servers::InstanceLink,
@@ -27,8 +28,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
             instance.name.clone().into(),
             {
                 let mut parts = vec![
-                    format!("Minecraft {}", instance.game_version),
-                    instance.loader_label(),
+                    tr!(M::MinecraftVersion, version = instance.game_version),
+                    loader_label(instance),
                 ];
                 // A game that is running for the first time has been played, but has
                 // no play time yet.
@@ -41,8 +42,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
             .into(),
         ),
         None => (
-            "No instance selected".into(),
-            "Create an instance to choose a Minecraft version and loader.".into(),
+            t(M::NoInstanceSelected).into(),
+            t(M::NoInstanceSelectedHint).into(),
         ),
     };
     div()
@@ -107,16 +108,17 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                     }
                     (InstanceTab::Settings, Some(_)) => match shell.settings_view() {
                         Some(settings) => settings.clone().into_any_element(),
-                        None => placeholder("Settings appear here once you have an instance.")
-                            .into_any_element(),
+                        None => placeholder(t(M::SettingsPlaceholder)).into_any_element(),
                     },
                     (InstanceTab::Logs, Some(_)) => shell.console.clone().into_any_element(),
                     (InstanceTab::Content, Some(_)) => shell.content.clone().into_any_element(),
                     (InstanceTab::Worlds, Some(_)) => shell.worlds.clone().into_any_element(),
-                    (other, None) => placeholder(format!(
-                        "{} appear here once you have an instance.",
-                        other.label()
-                    ))
+                    (other, None) => placeholder(t(match other {
+                        InstanceTab::Content => M::ContentPlaceholder,
+                        InstanceTab::Worlds => M::WorldsPlaceholder,
+                        InstanceTab::Logs => M::LogsPlaceholder,
+                        InstanceTab::Play | InstanceTab::Settings => M::SettingsPlaceholder,
+                    }))
                     .into_any_element(),
                 }),
         )
@@ -134,22 +136,18 @@ fn hero(
         Some(instance) => (
             instance.name.clone().into(),
             match instance.last_played.filter(|_| instance.play_time > 0) {
-                Some(_) => format!(
-                    "{}. Played for {}.",
-                    described(instance),
-                    play_time(instance.play_time).to_lowercase()
+                Some(_) => tr!(
+                    M::HeroPlayed,
+                    game = described(instance),
+                    time = play_time(instance.play_time).to_lowercase()
                 )
                 .into(),
-                None => format!(
-                    "{}. Press Play to download it and start the game.",
-                    described(instance)
-                )
-                .into(),
+                None => tr!(M::HeroNotPlayed, game = described(instance)).into(),
             },
         ),
         None => (
-            "Create your first instance".into(),
-            "An instance is a Minecraft version with its own mods, worlds and settings.".into(),
+            t(M::CreateFirstInstance).into(),
+            t(M::InstanceExplainer).into(),
         ),
     };
     div()
@@ -213,7 +211,7 @@ fn hero(
                 .when(instance.is_none(), |this| {
                     this.child(
                         div().flex().mt_2().child(
-                            Button::new("hero-new-instance", "New instance...")
+                            Button::new("hero-new-instance", t(M::NewInstance))
                                 .variant(ButtonVariant::Primary)
                                 .icon(Icon::SquarePlus)
                                 .align(Align::Start)
@@ -247,25 +245,26 @@ fn linked_to(link: &InstanceLink) -> impl IntoElement + use<> {
                 .text_size(theme::text_size(text::SMALL))
                 .font_weight(weights::BOLD.into())
                 .text_color(colors::BLUE_200)
-                .child(if link.core_known {
-                    format!("Linked to {} on {}", link.server_name, link.core_name)
-                } else {
-                    format!(
-                        "Linked to {} on {} (that core was removed from the Servers page)",
-                        link.server_name, link.core_name
-                    )
-                }),
+                .child(tr!(
+                    if link.core_known {
+                        M::LinkedTo
+                    } else {
+                        M::LinkedToRemoved
+                    },
+                    server = link.server_name,
+                    core = link.core_name
+                )),
         )
 }
 
 /// "Minecraft 1.20.1", or "Minecraft 1.20.1 with Fabric 0.16.14".
 fn described(instance: &Instance) -> String {
     match instance.loader.kind() {
-        None => format!("Minecraft {}", instance.game_version),
-        Some(_) => format!(
-            "Minecraft {} with {}",
-            instance.game_version,
-            instance.loader_label()
+        None => tr!(M::MinecraftVersion, version = instance.game_version),
+        Some(_) => tr!(
+            M::MinecraftWith,
+            version = instance.game_version,
+            loader = instance.loader_label()
         ),
     }
 }
@@ -318,7 +317,8 @@ fn picker(
                         .text_size(theme::text_size(text::CAPTION))
                         .font_weight(weights::BOLD.into())
                         .text_color(colors::GRAY_500)
-                        .child(caption),
+                        .truncate()
+                        .child(caption.to_uppercase()),
                 )
                 .child(
                     div()
@@ -363,7 +363,7 @@ fn play_bar(
     let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
     let (state, caption) = match (&link, busy) {
         (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),
-        (Some(link), None) if joins => (state, Some(format!("and join {}", link.server_name))),
+        (Some(link), None) if joins => (state, Some(tr!(M::AndJoin, server = link.server_name))),
         _ => (state, None),
     };
     let single_id = id.clone();
@@ -382,8 +382,8 @@ fn play_bar(
         .bg(colors::GRAY_850)
         .child(picker(
             "instance-picker",
-            "INSTANCE",
-            instance.map_or("No instances".to_string(), |i| i.name.clone()),
+            t(M::PickerInstance),
+            instance.map_or(t(M::NoInstances).to_string(), |i| i.name.clone()),
             instance.is_some(),
         ))
         .child(
@@ -417,7 +417,7 @@ fn play_bar(
                 )
                 .when(joins, |this| {
                     this.child(
-                        Button::new("play-without-joining", "Play without joining")
+                        Button::new("play-without-joining", t(M::PlayWithoutJoining))
                             .size(ButtonSize::Slim)
                             .variant(ButtonVariant::Ghost)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -431,9 +431,9 @@ fn play_bar(
         )
         .child(picker(
             "version-picker",
-            "VERSION",
+            t(M::PickerVersion),
             instance.map_or("—".to_string(), |i| {
-                format!("{} · {}", i.game_version, i.loader_label())
+                format!("{} · {}", i.game_version, loader_label(i))
             }),
             instance.is_some(),
         ))

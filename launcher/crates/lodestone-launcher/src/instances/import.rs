@@ -17,7 +17,7 @@ use launcher_core::{
     game::download::CancelToken,
     import::{
         self, CopyOptions, Found, IconSource, ImportProgress, ImportRequest, Launcher, Locations,
-        Stage, copy::format_size, detect,
+        Stage, WantedVersion, detect,
     },
 };
 
@@ -25,8 +25,31 @@ use super::Instances;
 use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonVariant, Dialog, Icon, IconButton, LoadingDots, Toggle},
+    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, format, t, tr, trn},
     theme::{self, colors, leading, radius, text, weights},
 };
+
+/// A size, as the list shows it: "1.2 GB".
+fn format_size(bytes: u64) -> String {
+    format::bytes(bytes)
+}
+
+/// The Minecraft version an instance asks for, with its loader: "1.20.1 · Fabric
+/// 0.16.10".
+fn version_label(found: &Found) -> String {
+    let game = match &found.game_version {
+        WantedVersion::Exact(version) => version.clone(),
+        WantedVersion::LatestRelease => t(M::NewestRelease).into(),
+        WantedVersion::LatestSnapshot => t(M::NewestSnapshot).into(),
+    };
+    match &found.loader {
+        None => game,
+        Some(loader) => match &loader.version {
+            Some(version) => format!("{game} · {} {version}", loader.kind.label()),
+            None => format!("{game} · {}", loader.kind.label()),
+        },
+    }
+}
 
 pub struct ImportDismissed;
 
@@ -256,7 +279,7 @@ impl ImportDialog {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Import from here".into()),
+            prompt: Some(t(M::ImportFromHere).into()),
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = picked.await else {
@@ -400,8 +423,7 @@ impl ImportDialog {
                             });
                             let mut notes = imported.notes;
                             if imported.skipped.iter().any(|(_, why)| why.contains("link")) {
-                                notes
-                                    .push("Links to outside the game folder were left out.".into());
+                                notes.push(t(M::LinksLeftOut).into());
                             }
                             QueueState::Done { id, notes }
                         }
@@ -483,7 +505,7 @@ impl ImportDialog {
                             .truncate()
                             .text_size(theme::text_size(text::SMALL))
                             .text_color(colors::GRAY_500)
-                            .child(found.version_label()),
+                            .child(version_label(found)),
                     )
                     .when_some(note, |this, note| {
                         this.child(
@@ -541,7 +563,7 @@ impl ImportDialog {
                         .px_2()
                         .text_size(theme::text_size(text::SMALL))
                         .text_color(colors::GRAY_500)
-                        .child("No instances.")
+                        .child(t(M::NoInstances))
                         .into_any_element(),
                 );
             }
@@ -556,7 +578,11 @@ impl ImportDialog {
                         .text_size(theme::text_size(text::SMALL))
                         .text_color(colors::RED_200)
                         .child(if launcher.problems.len() > 1 {
-                            format!("{problem} (and {} more)", launcher.problems.len() - 1)
+                            trn!(
+                                P::ProblemAndMore,
+                                launcher.problems.len() - 1,
+                                problem = problem
+                            )
                         } else {
                             problem.clone()
                         })
@@ -574,7 +600,7 @@ impl ImportDialog {
                 .h(px(120.))
                 .text_color(colors::GRAY_500)
                 .child(LoadingDots)
-                .child("Looking for other launchers")
+                .child(t(M::LookingForLaunchers))
                 .into_any_element()
         } else if rows.is_empty() {
             div()
@@ -588,7 +614,7 @@ impl ImportDialog {
                         .text_center()
                         .whitespace_normal()
                         .text_color(colors::GRAY_500)
-                        .child("No other launchers were found in their usual places. Choose a launcher's folder, or an instance's, to import from it."),
+                        .child(t(M::NoLaunchersFound)),
                 )
                 .into_any_element()
         } else {
@@ -625,34 +651,36 @@ impl ImportDialog {
             .children(self.queue.iter().map(|item| {
                 let key = item.key.clone();
                 let (status, color, fraction): (String, _, Option<f32>) = match &item.state {
-                    QueueState::Waiting => ("Waiting".into(), colors::GRAY_500, None),
-                    QueueState::Importing => (
-                        "Finding the version and loader".into(),
-                        colors::GRAY_400,
-                        Some(0.),
-                    ),
+                    QueueState::Waiting => (t(M::Waiting).into(), colors::GRAY_500, None),
+                    QueueState::Importing => {
+                        (t(M::FindingVersion).into(), colors::GRAY_400, Some(0.))
+                    }
                     QueueState::Done { notes, .. } => (
                         match notes.first() {
-                            Some(note) => format!("Imported. {note}"),
-                            None => "Imported".into(),
+                            Some(note) => tr!(M::ImportedNote, note = note),
+                            None => t(M::Imported).into(),
                         },
                         colors::GREEN_300,
                         None,
                     ),
                     QueueState::Failed(error) => (error.to_string(), colors::RED_200, None),
-                    QueueState::Cancelled => ("Cancelled".into(), colors::GRAY_500, None),
+                    QueueState::Cancelled => (t(M::Cancelled).into(), colors::GRAY_500, None),
                 };
                 let (status, fraction) = match (&item.state, item.progress.stage()) {
                     (QueueState::Importing, Stage::Copying) => {
                         let done = item.progress.bytes_done.load(Ordering::Relaxed);
                         let total = item.progress.bytes_total.load(Ordering::Relaxed);
                         (
-                            format!("Copying {} of {}", format_size(done), format_size(total)),
+                            tr!(
+                                M::Copying,
+                                done = format_size(done),
+                                total = format_size(total)
+                            ),
                             item.progress.fraction().or(Some(0.)),
                         )
                     }
                     (QueueState::Importing, Stage::Matching) => {
-                        ("Matching mods and packs to Modrinth".into(), Some(1.))
+                        (t(M::MatchingModrinth).into(), Some(1.))
                     }
                     _ => (status, fraction),
                 };
@@ -786,28 +814,23 @@ impl Render for ImportDialog {
             .map(|s| s.total)
             .sum();
         let summary: SharedString = match count {
-            0 => "Check the instances to import. Their files are copied; the other launcher keeps its own.".into(),
+            0 => t(M::CheckToImport).into(),
             n => {
                 let total = if self.without_worlds {
                     selected_total - selected_worlds
                 } else {
                     selected_total
                 };
-                format!(
-                    "{n} instance{} to copy, {}.",
-                    if n == 1 { "" } else { "s" },
-                    format_size(total)
-                )
-                .into()
+                trn!(P::InstancesToCopy, n, size = format_size(total)).into()
             }
         };
         let worlds_caption: SharedString = if selected_worlds > 0 {
-            format!("Leave worlds out ({})", format_size(selected_worlds)).into()
+            tr!(M::LeaveWorldsOutSize, size = format_size(selected_worlds)).into()
         } else {
-            "Leave worlds out".into()
+            t(M::LeaveWorldsOut).into()
         };
         let without_worlds = self.without_worlds;
-        Dialog::new("import", "Import from another launcher", self.focus.clone())
+        Dialog::new("import", t(M::ImportTitle), self.focus.clone())
             .width(px(760.))
             .on_close({
                 let entity = entity.clone();
@@ -875,8 +898,8 @@ impl Render for ImportDialog {
                 Button::new(
                     "start-import",
                     match count {
-                        0 | 1 => "Import".to_string(),
-                        n => format!("Import {n} instances"),
+                        0 | 1 => t(M::Import).to_string(),
+                        n => trn!(P::ImportInstances, n),
                     },
                 )
                 .variant(ButtonVariant::Primary)
@@ -885,7 +908,7 @@ impl Render for ImportDialog {
                 .on_click(cx.listener(|this, _, _, cx| this.start(cx))),
             )
             .footer(
-                Button::new("import-choose-folder", "Choose a folder...")
+                Button::new("import-choose-folder", t(M::ChooseFolder))
                     .variant(ButtonVariant::Secondary)
                     .disabled(self.scanning)
                     .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
@@ -893,7 +916,11 @@ impl Render for ImportDialog {
             .footer(
                 Button::new(
                     "close-import",
-                    if running { "Stop and close" } else { "Close" },
+                    if running {
+                        t(M::StopAndClose)
+                    } else {
+                        t(CommonMsg::Close)
+                    },
                 )
                 .variant(ButtonVariant::Ghost)
                 .on_click(cx.listener(|this, _, _, cx| this.close(cx))),

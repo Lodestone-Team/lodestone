@@ -6,7 +6,6 @@ use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     Render, SharedString, Window, div, prelude::*,
 };
-use launcher_core::wording;
 use launcher_core::{
     Secret,
     cores::{
@@ -24,6 +23,7 @@ use super::{
 };
 use crate::{
     components::{Button, ButtonVariant, Dialog, LoadingDots, TextInput, Toggle},
+    i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, Text, format, t, tr, trn},
     theme::{colors, layout},
 };
 
@@ -38,6 +38,65 @@ pub struct HostRequest {
     pub password: Secret,
     pub name: String,
     pub max_ram: u32,
+}
+
+/// What hosting is doing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HostStage {
+    Exporting,
+    SigningIn,
+    /// Uploading a modpack of this many bytes.
+    Uploading(u64),
+    Creating,
+}
+
+impl HostStage {
+    fn label(&self) -> String {
+        match self {
+            HostStage::Exporting => t(M::StageExporting).into(),
+            HostStage::SigningIn => t(M::StageSigningIn).into(),
+            HostStage::Uploading(bytes) => {
+                tr!(M::StageUploading, size = format::bytes_binary(*bytes))
+            }
+            HostStage::Creating => t(M::StageCreating).into(),
+        }
+    }
+}
+
+/// The server that was created.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostDone {
+    pub name: String,
+    pub core_name: String,
+    pub port: u16,
+    /// The mod files the core downloads from Modrinth.
+    pub downloads: u64,
+    /// The server the instance was linked to before.
+    pub relinked: Option<String>,
+}
+
+impl HostDone {
+    fn label(&self) -> String {
+        // a port isn't grouped like a number
+        let port = self.port.to_string();
+        match &self.relinked {
+            Some(server) => trn!(
+                P::HostDoneRelinked,
+                self.downloads,
+                name = self.name,
+                core = self.core_name,
+                port = port,
+                server = server
+            ),
+            None => trn!(
+                P::HostDone,
+                self.downloads,
+                name = self.name,
+                core = self.core_name,
+                port = port
+            ),
+        }
+    }
 }
 
 pub enum HostEvent {
@@ -58,11 +117,11 @@ pub struct HostDialog {
     max_ram: u32,
     eula: bool,
     /// Why this instance can't be hosted.
-    blocked: Option<SharedString>,
-    pub stage: Option<SharedString>,
+    blocked: Option<Text>,
+    pub stage: Option<HostStage>,
     pub error: Option<SharedString>,
-    /// The server was created: the message.
-    pub done: Option<SharedString>,
+    /// The server was created.
+    pub done: Option<HostDone>,
     focus_handle: FocusHandle,
 }
 
@@ -79,7 +138,7 @@ impl HostDialog {
         instance_id: String,
         instance_name: String,
         cores: Vec<(String, String, Option<String>)>,
-        blocked: Option<String>,
+        blocked: Option<Text>,
         cx: &mut Context<Self>,
     ) -> Self {
         let core = cores.first().map(|c| c.0.clone()).unwrap_or_default();
@@ -91,7 +150,7 @@ impl HostDialog {
             cores,
             core,
             username: cx.new(|cx| {
-                let input = TextInput::new(cx).with_placeholder("Username");
+                let input = TextInput::new(cx).with_placeholder(M::Username);
                 match username {
                     Some(username) => input.with_text(username),
                     None => input,
@@ -99,12 +158,12 @@ impl HostDialog {
             }),
             password: cx.new(|cx| {
                 TextInput::new(cx)
-                    .with_placeholder("Password")
+                    .with_placeholder(M::Password)
                     .with_masked()
             }),
             max_ram: hosting::DEFAULT_MAX_RAM,
             eula: false,
-            blocked: blocked.map(Into::into),
+            blocked,
             stage: None,
             error: None,
             done: None,
@@ -118,8 +177,8 @@ impl HostDialog {
         cx.notify();
     }
 
-    pub fn set_stage(&mut self, stage: impl Into<SharedString>, cx: &mut Context<Self>) {
-        self.stage = Some(stage.into());
+    pub fn set_stage(&mut self, stage: HostStage, cx: &mut Context<Self>) {
+        self.stage = Some(stage);
         cx.notify();
     }
 
@@ -152,24 +211,21 @@ impl HostDialog {
         let password = self.password.read(cx).text().to_string();
         let name = self.name.read(cx).text().trim().to_string();
         if name.is_empty() {
-            return self.fail("Give the server a name.", cx);
+            return self.fail(t(M::NameTheServer), cx);
         }
         if username.is_empty() || password.is_empty() {
             return self.fail(
-                format!("Enter your username and password for this core. Creating a server needs more than this {}'s key may do.", wording::COMPUTER),
+                tr!(M::HostNeedsPassword, computer = t(CommonMsg::ThisComputer)),
                 cx,
             );
         }
         if !self.eula {
-            return self.fail(
-                "Agree to the Minecraft EULA first: the core accepts it for the new server.",
-                cx,
-            );
+            return self.fail(t(M::AgreeEulaFirst), cx);
         }
         self.password
             .update(cx, |input, cx| input.set_text(String::new(), cx));
         self.error = None;
-        self.stage = Some("Exporting the instance…".into());
+        self.stage = Some(HostStage::Exporting);
         cx.emit(HostEvent::Submit(HostRequest {
             core_uuid: self.core.clone(),
             username,
@@ -191,24 +247,20 @@ impl Render for HostDialog {
                 entity.update(cx, |_, cx| cx.emit(HostEvent::Dismissed))
             }
         };
-        let dialog = Dialog::new(
-            "host-modpack",
-            "Host on a Lodestone core",
-            self.focus_handle.clone(),
-        )
-        .width(layout::DIALOG_WIDTH + gpui::px(80.))
-        .on_close(close);
+        let dialog = Dialog::new("host-modpack", t(M::HostTitle), self.focus_handle.clone())
+            .width(layout::DIALOG_WIDTH + gpui::px(80.))
+            .on_close(close);
 
-        if let Some(done) = self.done.clone() {
+        if let Some(done) = &self.done {
             return dialog
-                .child(note(done).text_color(colors::GRAY_300))
+                .child(note(done.label()).text_color(colors::GRAY_300))
                 .footer(
-                    Button::new("host-show-servers", "Show on Servers page")
+                    Button::new("host-show-servers", t(M::ShowOnServersPage))
                         .variant(ButtonVariant::Primary)
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(HostEvent::ShowServers))),
                 )
                 .footer(
-                    Button::new("host-close", "Close")
+                    Button::new("host-close", t(CommonMsg::Close))
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(HostEvent::Dismissed))),
                 )
                 .into_any_element();
@@ -225,7 +277,7 @@ impl Render for HostDialog {
         };
         let memory: Vec<(u32, SharedString)> = MEMORY_CHOICES
             .iter()
-            .map(|mb| (*mb, format!("{} GB", mb / 1024).into()))
+            .map(|mb| (*mb, format::memory_mb((*mb).into()).into()))
             .collect();
         let pick_memory = {
             let entity = entity.clone();
@@ -247,25 +299,19 @@ impl Render for HostDialog {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(note(format!(
-                        "Makes a server from {}'s mods and configs, as a Modrinth modpack. Client-only mods from Modrinth are left out. The server is created stopped.",
-                        self.instance_name
-                    )))
-                    .children(self.blocked.clone().map(error_line))
+                    .child(note(tr!(M::HostIntro, name = self.instance_name)))
+                    .children(self.blocked.as_ref().map(|why| error_line(why.get())))
                     .when(self.blocked.is_none(), |this| {
-                        this.child(label("Core"))
+                        this.child(label(t(M::CoreLabel)))
                             .child(pills("host-core", core_choices, &self.core, pick_core))
                             .child(self.username.clone())
                             .child(self.password.clone())
-                            .child(note("Your password is sent once to sign in, and isn't kept."))
-                            .child(label("Server name"))
+                            .child(note(t(M::PasswordNotKept)))
+                            .child(label(t(M::ServerName)))
                             .child(self.name.clone())
-                            .child(label("Memory"))
+                            .child(label(t(M::Memory)))
                             .child(pills("host-memory", memory, &self.max_ram, pick_memory))
-                            .child(note(format!(
-                                "The game port is the first free one from {} on the core's machine.",
-                                hosting::FIRST_PORT
-                            )))
+                            .child(note(tr!(M::GamePortHint, port = hosting::FIRST_PORT)))
                             .child(
                                 div()
                                     .flex()
@@ -282,15 +328,11 @@ impl Render for HostDialog {
                                         },
                                     ))
                                     .child(
-                                        note(format!(
-                                            "I agree to the Minecraft EULA ({EULA_URL}). Lodestone Core accepts it for the new server."
-                                        ))
-                                        .flex_1()
-                                        .min_w_0(),
+                                        note(tr!(M::EulaAgree, url = EULA_URL)).flex_1().min_w_0(),
                                     ),
                             )
                     })
-                    .children(self.stage.clone().map(|stage| {
+                    .children(self.stage.as_ref().map(|stage| {
                         div()
                             .flex()
                             .flex_row()
@@ -298,19 +340,19 @@ impl Render for HostDialog {
                             .gap_2()
                             .text_color(colors::GRAY_400)
                             .child(LoadingDots)
-                            .child(note(stage))
+                            .child(note(stage.label()))
                     }))
                     .children(self.error.clone().map(error_line)),
             )
             .footer(
-                Button::new("host-submit", "Create server")
+                Button::new("host-submit", t(M::CreateServer))
                     .variant(ButtonVariant::Primary)
                     .loading(busy)
                     .disabled(busy || self.blocked.is_some() || !eula)
                     .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
             )
             .footer(
-                Button::new("host-cancel", "Cancel")
+                Button::new("host-cancel", t(CommonMsg::Cancel))
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(HostEvent::Dismissed))),
             )
             .into_any_element()
@@ -341,11 +383,10 @@ impl Servers {
                 )
             })
             .collect();
-        let blocked = hosting::check_hostable(&instance).err().or_else(|| {
-            cores
-                .is_empty()
-                .then(|| "Add your Lodestone core on the Servers page first.".to_string())
-        });
+        let blocked = hosting::check_hostable(&instance)
+            .err()
+            .map(Text::from)
+            .or_else(|| cores.is_empty().then(|| M::AddCoreFirst.into()));
         let dialog = cx.new(|cx| {
             HostDialog::new(
                 instance.id.clone(),
@@ -376,12 +417,12 @@ impl Servers {
 
     fn host(&mut self, dialog: &Entity<HostDialog>, request: HostRequest, cx: &mut Context<Self>) {
         let Some(index) = self.core_index(&request.core_uuid) else {
-            return dialog.update(cx, |d, cx| d.fail("That core is gone.", cx));
+            return dialog.update(cx, |d, cx| d.fail(t(M::CoreGone), cx));
         };
         let instance_id = dialog.read(cx).instance_id.clone();
         let store = self.instances.read(cx).store();
         let Ok(instance) = store.get(&instance_id) else {
-            return dialog.update(cx, |d, cx| d.fail("The instance is gone.", cx));
+            return dialog.update(cx, |d, cx| d.fail(t(M::InstanceGone), cx));
         };
         let game_dir = store.game_dir(&instance_id);
         let instance_dir = store.dir(&instance_id);
@@ -392,7 +433,7 @@ impl Servers {
         let core_uuid = core.saved.uuid.clone();
         let previous = link::load_link(&instance_dir);
         let refresh_core = core_uuid.clone();
-        let (stage_tx, mut stage_rx) = futures::channel::mpsc::unbounded::<String>();
+        let (stage_tx, mut stage_rx) = futures::channel::mpsc::unbounded::<HostStage>();
         let work = cx.background_spawn(async move {
             let on_modrinth = export::modrinth_files(&instance_dir);
             let plan = export::plan(&instance, &game_dir, &on_modrinth)
@@ -403,14 +444,11 @@ impl Servers {
                 .and_then(|()| hosting::read_pack_file(&file));
             let _ = std::fs::remove_file(&file);
             let bytes = written.map_err(HostError::Other)?;
-            let _ = stage_tx.unbounded_send("Signing in…".into());
+            let _ = stage_tx.unbounded_send(HostStage::SigningIn);
             let session = client.session(&request.username, &request.password).await?;
             drop(request.password);
             let port = client.free_port(&session, hosting::FIRST_PORT).await?;
-            let _ = stage_tx.unbounded_send(format!(
-                "Uploading the modpack ({:.1} MB)…",
-                bytes.len() as f64 / (1024.0 * 1024.0)
-            ));
+            let _ = stage_tx.unbounded_send(HostStage::Uploading(bytes.len() as u64));
             let file_name = format!("{}.mrpack", request.name.replace(['/', '\\', ':'], "-"));
             let uploaded = client.upload_pack(&session, &file_name, &bytes).await?;
             if let Some(reason) = uploaded.unsupported_reason {
@@ -418,8 +456,8 @@ impl Servers {
             }
             let upload_id = uploaded
                 .upload_id
-                .ok_or_else(|| HostError::Other("The core didn't keep the modpack.".into()))?;
-            let _ = stage_tx.unbounded_send("Creating the server…".into());
+                .ok_or_else(|| HostError::Other(t(M::PackNotKept).into()))?;
+            let _ = stage_tx.unbounded_send(HostStage::Creating);
             let settings = HostSettings {
                 name: request.name.clone(),
                 port,
@@ -454,14 +492,15 @@ impl Servers {
             let result = work.await;
             let _ = this.update(cx, |this, cx| match result {
                 Ok((name, port, downloads)) => {
-                    let relinked = previous
-                        .map(|link| format!(" This instance was linked to {}; it now belongs to the new server.", link.server_name))
-                        .unwrap_or_default();
                     dialog.update(cx, |d, cx| {
                         d.stage = None;
-                        d.done = Some(format!(
-                            "{name} is on {core_name}, on port {port}. The core is setting it up now: it installs Fabric and downloads {downloads} mod file(s) from Modrinth.\n\nThe server is stopped. Start it from the Servers page or the dashboard when you're ready; this instance is ready to join it.{relinked}"
-                        ).into());
+                        d.done = Some(HostDone {
+                            name,
+                            core_name,
+                            port,
+                            downloads: downloads.into(),
+                            relinked: previous.map(|link| link.server_name),
+                        });
                         cx.notify();
                     });
                     this.reload_links(cx);
@@ -470,16 +509,21 @@ impl Servers {
                     }
                     cx.notify();
                 }
-                Err(HostError::Core(CoreError::SignedOut)) => dialog.update(cx, |d, cx| {
-                    d.fail("The core signed you out right after signing in. Try again.", cx)
-                }),
-                Err(HostError::Core(err)) => dialog.update(cx, |d, cx| d.fail(err.to_string(), cx)),
+                Err(HostError::Core(CoreError::SignedOut)) => {
+                    dialog.update(cx, |d, cx| d.fail(t(M::SignedOutRightAway), cx))
+                }
+                Err(HostError::Core(err)) => {
+                    dialog.update(cx, |d, cx| d.fail(super::core_error(&err), cx))
+                }
                 Err(HostError::Other(err)) => dialog.update(cx, |d, cx| d.fail(err, cx)),
             });
         }));
     }
 
     /// Shows "Host on a Lodestone core" in a given state, for the offscreen screenshots.
+    /// `stage` and `done` are the English the dialog shows then; it shows the same
+    /// messages in the current language: uploading a 3.2 MB modpack, and the instance
+    /// hosted on the first core, on port 25566, with 24 mod files.
     pub fn preview_host(
         &mut self,
         instance_id: &str,
@@ -488,11 +532,22 @@ impl Servers {
         cx: &mut Context<Self>,
     ) {
         self.open_host(instance_id, cx);
+        let core_name = self
+            .cores
+            .first()
+            .map(|c| c.saved.name.clone())
+            .unwrap_or_default();
         if let Some((dialog, _)) = self.extras.host.current() {
             dialog.update(cx, |d, cx| {
                 d.preview("correct horse", true, cx);
-                d.stage = stage.map(|s| s.to_string().into());
-                d.done = done.map(|s| s.to_string().into());
+                d.stage = stage.map(|_| HostStage::Uploading(3_355_443));
+                d.done = done.map(|_| HostDone {
+                    name: d.instance_name.clone(),
+                    core_name,
+                    port: 25566,
+                    downloads: 24,
+                    relinked: None,
+                });
             });
         }
     }

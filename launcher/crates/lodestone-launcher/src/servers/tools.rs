@@ -14,11 +14,10 @@ use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     Render, SharedString, Window, div, prelude::*,
 };
-use launcher_core::wording;
 use launcher_core::{
     Secret,
     cores::{
-        ServerInstance, ServerState,
+        CoreError, ServerInstance, ServerState,
         resource_pack::{self, ServerResourcePack},
         worlds as server_worlds,
     },
@@ -26,11 +25,12 @@ use launcher_core::{
 };
 
 use super::{
-    Servers,
-    extras::{error_line, label, megabytes, note, pills},
+    Notice, Servers, core_error,
+    extras::{error_line, label, note, pills},
 };
 use crate::{
     components::{Button, ButtonVariant, Dialog, Icon, LoadingDots, TextInput},
+    i18n::{CommonMsg, ServersMsg as M, format, t, tr},
     theme::{colors, layout},
 };
 
@@ -47,13 +47,62 @@ pub enum PackState {
     Loading,
     None,
     Pack(ServerResourcePack),
-    Unavailable(SharedString),
+    /// Not signed in to the core.
+    SignIn,
+    Unavailable(CoreError),
 }
 
 #[derive(Clone, Debug)]
 pub enum ToolBusy {
-    World(SharedString, Arc<Progress>),
+    World(WorldStage, Arc<Progress>),
     Pack,
+}
+
+/// Where a world download is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorldStage {
+    SigningIn,
+    Zipping,
+    Downloading,
+    Importing,
+}
+
+impl WorldStage {
+    /// The stage, with how far it is when that is known.
+    fn label(self, progress: &Progress) -> String {
+        let snapshot = progress.snapshot();
+        let (done, total) = (snapshot.bytes_done, snapshot.bytes_total);
+        let size = format::bytes_binary;
+        match self {
+            WorldStage::SigningIn => t(M::StageSigningIn).into(),
+            WorldStage::Zipping => t(M::WorldZipping).into(),
+            WorldStage::Downloading if done > 0 && total > 0 => tr!(
+                M::WorldDownloadingOf,
+                done = size(done),
+                total = size(total)
+            ),
+            WorldStage::Downloading if done > 0 => {
+                tr!(M::WorldDownloadingSize, done = size(done))
+            }
+            WorldStage::Downloading => t(M::WorldDownloading).into(),
+            WorldStage::Importing if done > 0 && total > 0 => {
+                tr!(M::WorldImportingOf, done = size(done), total = size(total))
+            }
+            WorldStage::Importing => t(M::WorldImporting).into(),
+        }
+    }
+}
+
+/// A stage by its English name, as the offscreen screenshots give it.
+impl From<&str> for WorldStage {
+    fn from(name: &str) -> Self {
+        match name {
+            "Signing in…" => WorldStage::SigningIn,
+            "The core is zipping the world…" => WorldStage::Zipping,
+            "Importing…" => WorldStage::Importing,
+            _ => WorldStage::Downloading,
+        }
+    }
 }
 
 pub enum ToolsEvent {
@@ -108,7 +157,7 @@ impl ServerTools {
             targets,
             target,
             username: cx.new(|cx| {
-                let input = TextInput::new(cx).with_placeholder("Username");
+                let input = TextInput::new(cx).with_placeholder(M::Username);
                 match username {
                     Some(username) => input.with_text(username),
                     None => input,
@@ -116,7 +165,7 @@ impl ServerTools {
             }),
             password: cx.new(|cx| {
                 TextInput::new(cx)
-                    .with_placeholder("Password")
+                    .with_placeholder(M::Password)
                     .with_masked()
             }),
             pack: PackState::Loading,
@@ -156,7 +205,7 @@ impl ServerTools {
         let password = self.password.read(cx).text().to_string();
         if username.is_empty() || password.is_empty() {
             self.result = Some((
-                format!("Enter your username and password for this core. Downloading a world needs permission to read the server's files, which this {}'s key doesn't have.", wording::COMPUTER).into(),
+                tr!(M::WorldNeedsPassword, computer = t(CommonMsg::ThisComputer)).into(),
                 true,
             ));
             cx.notify();
@@ -181,7 +230,7 @@ impl ServerTools {
                 .find(|(i, _)| i == id)
                 .map(|(_, name)| name.clone())
                 .unwrap_or_default(),
-            Target::NewMatching => "a new instance".into(),
+            Target::NewMatching => t(M::ANewInstance).into(),
         }
     }
 }
@@ -197,7 +246,7 @@ impl Render for ServerTools {
             .iter()
             .map(|(id, name)| (Target::Instance(id.clone()), name.clone().into()))
             .collect();
-        choices.push((Target::NewMatching, "New matching instance".into()));
+        choices.push((Target::NewMatching, t(M::NewMatchingInstance).into()));
         let pick = {
             let entity = entity.clone();
             move |target: Target, cx: &mut App| {
@@ -212,8 +261,9 @@ impl Render for ServerTools {
 
         let pack_section = match &self.pack {
             PackState::Loading => div().child(LoadingDots).into_any_element(),
-            PackState::None => note("This server doesn't set a resource pack.").into_any_element(),
-            PackState::Unavailable(why) => note(why.clone()).into_any_element(),
+            PackState::None => note(t(M::NoResourcePack)).into_any_element(),
+            PackState::SignIn => note(t(M::SignInToSeePack)).into_any_element(),
+            PackState::Unavailable(err) => note(core_error(err)).into_any_element(),
             PackState::Pack(pack) => div()
                 .flex()
                 .flex_col()
@@ -234,7 +284,7 @@ impl Render for ServerTools {
                                 .child(pack.label()),
                         )
                         .child(
-                            Button::new("download-server-pack", "Download to instance")
+                            Button::new("download-server-pack", t(M::DownloadToInstance))
                                 .icon(Icon::Download)
                                 .loading(matches!(self.busy, Some(ToolBusy::Pack)))
                                 .disabled(busy)
@@ -246,39 +296,21 @@ impl Render for ServerTools {
                                 })),
                         ),
                 )
-                .child(note(format!(
-                    "{}{}Minecraft downloads it when you join; saving it in {} makes it ready offline too.",
-                    if pack.required {
-                        "Players must accept it to join. "
-                    } else {
-                        ""
+                .child(note(tr!(
+                    match (pack.required, pack.sha1.is_empty()) {
+                        (false, false) => M::PackNote,
+                        (true, false) => M::PackNoteRequired,
+                        (false, true) => M::PackNoteNoSha,
+                        (true, true) => M::PackNoteRequiredNoSha,
                     },
-                    if pack.sha1.is_empty() {
-                        "The server gives no SHA-1 for it. "
-                    } else {
-                        ""
-                    },
-                    self.target_name()
+                    target = self.target_name()
                 )))
                 .into_any_element(),
         };
 
         let world_progress = match &self.busy {
             Some(ToolBusy::World(stage, progress)) => {
-                let snapshot = progress.snapshot();
-                let text = if snapshot.bytes_done > 0 {
-                    if snapshot.bytes_total > 0 {
-                        format!(
-                            "{stage} {} of {}",
-                            megabytes(snapshot.bytes_done),
-                            megabytes(snapshot.bytes_total)
-                        )
-                    } else {
-                        format!("{stage} {}", megabytes(snapshot.bytes_done))
-                    }
-                } else {
-                    stage.to_string()
-                };
+                let text = stage.label(progress);
                 Some(
                     div()
                         .flex()
@@ -308,21 +340,19 @@ impl Render for ServerTools {
                 .flex()
                 .flex_col()
                 .gap_3()
-                .child(label("Instance"))
+                .child(label(t(M::InstanceLabel)))
                 .child(pills("tools-target", choices, &self.target, pick))
-                .child(label("Resource pack"))
+                .child(label(t(M::ResourcePack)))
                 .child(pack_section)
-                .child(label("World"))
+                .child(label(t(M::World)))
                 .child(note(if stopped {
-                    format!("A singleplayer copy of the server's world, in a new world folder. Changes you make in it stay on this {}.", wording::COMPUTER)
+                    tr!(M::WorldCopyHint, computer = t(CommonMsg::ThisComputer))
                 } else {
-                    "Stop the server to download its world: a running server can be writing to it.".to_string()
+                    t(M::StopToDownload).to_string()
                 }))
                 .child(self.username.clone())
                 .child(self.password.clone())
-                .child(note(
-                    "Your password is sent once to sign in for this download, and isn't kept.",
-                ))
+                .child(note(t(M::PasswordNotKeptDownload)))
                 .children(world_progress)
                 .children(self.result.clone().map(|(message, error)| {
                     if error {
@@ -333,7 +363,7 @@ impl Render for ServerTools {
                 })),
         )
         .footer(
-            Button::new("download-world", "Download world")
+            Button::new("download-world", t(M::DownloadWorld))
                 .variant(ButtonVariant::Primary)
                 .icon(Icon::Download)
                 .loading(matches!(self.busy, Some(ToolBusy::World(..))))
@@ -341,7 +371,7 @@ impl Render for ServerTools {
                 .on_click(cx.listener(|this, _, _, cx| this.download_world(cx))),
         )
         .footer(
-            Button::new("server-tools-close", "Close")
+            Button::new("server-tools-close", t(CommonMsg::Close))
                 .variant(ButtonVariant::Secondary)
                 .on_click(cx.listener(|_, _, _, cx| cx.emit(ToolsEvent::Dismissed))),
         )
@@ -398,14 +428,7 @@ impl Servers {
             return;
         }
         let Some(key) = key else {
-            tools.update(cx, |t, cx| {
-                t.set_pack(
-                    PackState::Unavailable(
-                        "Sign in to this core to see the server's resource pack.".into(),
-                    ),
-                    cx,
-                )
-            });
+            tools.update(cx, |t, cx| t.set_pack(PackState::SignIn, cx));
             return;
         };
         let fetch = cx.background_spawn(async move { client.resource_pack(&key, &uuid).await });
@@ -413,7 +436,7 @@ impl Servers {
             let pack = match fetch.await {
                 Ok(Some(pack)) => PackState::Pack(pack),
                 Ok(None) => PackState::None,
-                Err(err) => PackState::Unavailable(err.to_string().into()),
+                Err(err) => PackState::Unavailable(err),
             };
             tools.update(cx, |t, cx| t.set_pack(pack, cx));
         }));
@@ -440,11 +463,12 @@ impl Servers {
                     _ if server.has_pack() && self.notice.is_none() => {
                         // the dialog closes so any prompt about the mods can show
                         self.extras.tools.close(cx);
-                        self.notice = Some((
-                            "Creating the matching instance".into(),
-                            "It is made once the server's mods are downloaded. Then open More… on the server again, pick it, and download again."
-                                .into(),
-                        ));
+                        self.notice = Some(Notice::new(|| {
+                            (
+                                t(M::CreatingMatching).into(),
+                                tr!(M::CreatingMatchingBody, more = t(M::More)),
+                            )
+                        }));
                         cx.notify();
                         return Err(String::new());
                     }
@@ -452,14 +476,14 @@ impl Servers {
                         return Err(self
                             .notice
                             .take()
-                            .map(|(_, message)| message.to_string())
-                            .unwrap_or_else(|| "Couldn't create the instance.".into()));
+                            .map(|notice| notice.text().1)
+                            .unwrap_or_else(|| t(M::CouldNotCreateInstance).into()));
                     }
                 }
             }
         };
         if self.instances.read(cx).is_active(&id) {
-            return Err("Quit the game in that instance first.".into());
+            return Err(t(M::QuitGameFirst).into());
         }
         Ok(id)
     }
@@ -516,14 +540,13 @@ impl Servers {
             .map(|i| i.name.clone())
             .unwrap_or_default();
         let progress = Arc::new(Progress::default());
-        let stage = |text: &str| ToolBusy::World(text.to_string().into(), progress.clone());
         tools.update(cx, |t, cx| {
             t.target = Target::Instance(instance_id.clone());
-            t.busy = Some(stage("Signing in…"));
+            t.busy = Some(ToolBusy::World(WorldStage::SigningIn, progress.clone()));
             cx.notify();
         });
         self.tick_tools(tools, cx);
-        let (stage_tx, stage_rx) = futures::channel::mpsc::unbounded::<&'static str>();
+        let (stage_tx, stage_rx) = futures::channel::mpsc::unbounded::<WorldStage>();
         let work = cx.background_spawn({
             let progress = progress.clone();
             let server_name = server.name.clone();
@@ -531,10 +554,10 @@ impl Servers {
             async move {
                 let session = client.session(&username, &password).await?;
                 drop(password);
-                let _ = stage_tx.unbounded_send("The core is zipping the world…");
+                let _ = stage_tx.unbounded_send(WorldStage::Zipping);
                 let download = client.world_download(&session, &uuid).await?;
                 drop(session);
-                let _ = stage_tx.unbounded_send("Downloading");
+                let _ = stage_tx.unbounded_send(WorldStage::Downloading);
                 std::fs::create_dir_all(&dirs.instance).map_err(|e| e.to_string())?;
                 let zip = dirs.instance.join(format!(
                     ".lodestone-server-world-{}.zip",
@@ -545,7 +568,7 @@ impl Servers {
                     client
                         .download_file(&download.key, &zip, 64 << 30, &progress, &cancel)
                         .await?;
-                    let _ = stage_tx.unbounded_send("Importing…");
+                    let _ = stage_tx.unbounded_send(WorldStage::Importing);
                     server_worlds::import(&dirs, &zip, &download, &server_name, &progress, &cancel)
                         .map_err(|e| ToolError::Other(e.to_string()))
                 }
@@ -564,7 +587,7 @@ impl Servers {
                     let progress = progress.clone();
                     let _ = tools.update(cx, |t, cx| {
                         if t.busy.is_some() {
-                            t.busy = Some(ToolBusy::World(stage.into(), progress));
+                            t.busy = Some(ToolBusy::World(stage, progress));
                             cx.notify();
                         }
                     });
@@ -577,12 +600,10 @@ impl Servers {
             let result = work.await;
             let (message, error) = match result {
                 Ok(folder) => (
-                    format!(
-                        "Imported as the world \"{folder}\" in {instance_name}. Open it from Singleplayer; it's a copy, so changes don't go back to the server."
-                    ),
+                    tr!(M::WorldImported, folder = folder, instance = instance_name),
                     false,
                 ),
-                Err(ToolError::Core(err)) => (err.to_string(), true),
+                Err(ToolError::Core(err)) => (core_error(&err), true),
                 Err(ToolError::Other(err)) => (err, true),
             };
             tools.update(cx, |t, cx| t.finish(message, error, cx));
@@ -626,9 +647,9 @@ impl Servers {
         self.tasks.push(cx.spawn(async move |_, cx| {
             let (message, error) = match work.await {
                 Ok(path) => (
-                    format!(
-                        "Saved as {} in the instance's resource packs. Turn it on there to use it on other servers too.",
-                        path.file_name().unwrap_or_default().to_string_lossy()
+                    tr!(
+                        M::PackSaved,
+                        file = path.file_name().unwrap_or_default().to_string_lossy()
                     ),
                     false,
                 ),
@@ -664,12 +685,12 @@ impl Servers {
 /// Why a world download failed.
 #[derive(Debug)]
 enum ToolError {
-    Core(launcher_core::cores::CoreError),
+    Core(CoreError),
     Other(String),
 }
 
-impl From<launcher_core::cores::CoreError> for ToolError {
-    fn from(err: launcher_core::cores::CoreError) -> Self {
+impl From<CoreError> for ToolError {
+    fn from(err: CoreError) -> Self {
         ToolError::Core(err)
     }
 }

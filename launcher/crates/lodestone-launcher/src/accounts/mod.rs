@@ -1,6 +1,7 @@
 //! The app's account state: the account list from `launcher-core`, the
 //! in-memory Minecraft sessions, the skin heads, and the Keychain.
 
+pub mod auth_errors;
 mod keychain;
 pub mod offline_dialog;
 pub mod sign_in;
@@ -25,6 +26,8 @@ use launcher_core::{
     paths::DataDir,
     settings, skin,
 };
+
+use crate::i18n::{ShellMsg as M, t, tr};
 
 pub use keychain::KeychainStore;
 
@@ -93,17 +96,12 @@ impl Accounts {
         let (store, problem) = AccountStore::open(data_dir.accounts_file());
         let notice = problem.map(|problem| {
             SharedString::from(match problem {
-                OpenProblem::TooNew(_) => {
-                    "Your accounts were saved by a newer Lodestone Launcher. Changes made here won't be saved."
-                        .to_string()
-                }
-                OpenProblem::Corrupt { moved_to, .. } => format!(
-                    "accounts.json couldn't be read, so Lodestone Launcher started without accounts.{}",
-                    moved_to
-                        .map(|path| format!(" The old file is at {}.", path.display()))
-                        .unwrap_or_default()
-                ),
-                OpenProblem::Unreadable(err) => format!("Couldn't read your accounts: {err}"),
+                OpenProblem::TooNew(_) => t(M::AccountsTooNew).to_string(),
+                OpenProblem::Corrupt { moved_to, .. } => match moved_to {
+                    Some(path) => tr!(M::AccountsCorruptMoved, path = path.display()),
+                    None => t(M::AccountsCorrupt).to_string(),
+                },
+                OpenProblem::Unreadable(err) => tr!(M::CouldntReadAccounts, error = err),
             })
         });
         let launcher_identity = settings::load_or_default(&data_dir.settings_file())
@@ -189,7 +187,7 @@ impl Accounts {
         match result {
             Ok(_) => self.launcher_identity = enabled,
             Err(err) => {
-                self.notice = Some(format!("Couldn't save your settings: {err}").into());
+                self.notice = Some(tr!(M::CouldntSaveSettings, error = err).into());
             }
         }
         cx.notify();
@@ -217,7 +215,7 @@ impl Accounts {
 
     fn report(&mut self, result: Result<(), impl std::fmt::Display>) {
         if let Err(err) = result {
-            self.notice = Some(format!("Couldn't save your accounts: {err}").into());
+            self.notice = Some(tr!(M::CouldntSaveAccounts, error = err).into());
         }
     }
 
@@ -268,9 +266,10 @@ impl Accounts {
                 if let Err(err) = store.delete(&key).await {
                     this.update(cx, |this, cx| {
                         this.notice = Some(
-                            format!(
-                                "Couldn't remove {}'s saved sign-in: {err:#}",
-                                account.username
+                            tr!(
+                                M::CouldntRemoveSignIn,
+                                name = account.username,
+                                error = format!("{err:#}")
                             )
                             .into(),
                         );
@@ -349,9 +348,7 @@ impl Accounts {
         cx: &mut Context<Self>,
     ) -> Task<Result<LaunchAccount, String>> {
         let Some(account) = self.store.active().cloned() else {
-            return Task::ready(Err(
-                "Add an account first: sign in with Microsoft, or add an offline account.".into(),
-            ));
+            return Task::ready(Err(t(M::AddAccountFirst).into()));
         };
         if account.is_offline() {
             return Task::ready(Ok(LaunchAccount::offline(&account)));
@@ -365,10 +362,7 @@ impl Accounts {
             self.sessions.get(&account.id),
             Some(SessionState::NeedsSignIn)
         ) {
-            return Task::ready(Err(format!(
-                "Sign in to {} again: its saved sign-in has expired.",
-                account.username
-            )));
+            return Task::ready(Err(tr!(M::SignInExpired, name = account.username)));
         }
         self.sessions
             .insert(account.id.clone(), SessionState::Refreshing);
@@ -394,13 +388,10 @@ impl Accounts {
                     Err(err) if err.needs_sign_in() => {
                         this.sessions
                             .insert(account.id.clone(), SessionState::NeedsSignIn);
-                        Err(format!(
-                            "Sign in to {} again: its saved sign-in has expired.",
-                            account.username
-                        ))
+                        Err(tr!(M::SignInExpired, name = account.username))
                     }
                     Err(err) => {
-                        let message = err.message();
+                        let message = auth_errors::message(&err);
                         this.sessions
                             .insert(account.id.clone(), SessionState::Failed(err));
                         Err(message)
@@ -409,7 +400,7 @@ impl Accounts {
                 cx.notify();
                 outcome
             })
-            .unwrap_or_else(|_| Err("The launcher is closing.".into()))
+            .unwrap_or_else(|_| Err(t(M::LauncherClosing).into()))
         })
     }
 

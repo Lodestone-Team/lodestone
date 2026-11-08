@@ -13,6 +13,7 @@ use super::{Instances, Versions, loader_picker::LoaderPicker, modpack_browser::M
 use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonVariant, Dialog, LoadingDots, TextInput, Toggle},
+    i18n::{CommonMsg, InstanceSettingsMsg as M, format, t, tr},
     theme::{self, colors, leading, radius, text, weights},
 };
 
@@ -98,8 +99,8 @@ impl Focusable for NewInstanceDialog {
 impl NewInstanceDialog {
     pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
         instances.update(cx, |instances, cx| instances.load_versions(cx));
-        let name = cx.new(|cx| TextInput::new(cx).with_placeholder("My instance"));
-        let search = cx.new(|cx| TextInput::new(cx).with_placeholder("Search versions"));
+        let name = cx.new(|cx| TextInput::new(cx).with_placeholder(M::MyInstance));
+        let search = cx.new(|cx| TextInput::new(cx).with_placeholder(M::SearchVersions));
         let observe = vec![
             cx.observe(&instances, |this, _, cx| {
                 this.pick_default(cx);
@@ -195,7 +196,7 @@ impl NewInstanceDialog {
     /// Installs the picked modpack version as a new instance.
     fn install_modpack(&mut self, cx: &mut Context<Self>) {
         let Some((project, version)) = self.modpacks.read(cx).selection() else {
-            self.error = Some("Pick a modpack and a version.".into());
+            self.error = Some(t(M::PickModpack).into());
             cx.notify();
             return;
         };
@@ -213,7 +214,7 @@ impl NewInstanceDialog {
             files: true,
             directories: false,
             multiple: true,
-            prompt: Some("Import".into()),
+            prompt: Some(t(M::Import).into()),
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = picked.await else {
@@ -235,7 +236,7 @@ impl NewInstanceDialog {
 
     fn create(&mut self, cx: &mut Context<Self>) {
         let Some(version) = self.selected.clone() else {
-            self.error = Some("Choose a Minecraft version.".into());
+            self.error = Some(t(M::ChooseGameVersion).into());
             cx.notify();
             return;
         };
@@ -279,7 +280,7 @@ impl NewInstanceDialog {
                 .size_full()
                 .text_color(colors::GRAY_500)
                 .child(LoadingDots)
-                .child("Loading Mojang's version list")
+                .child(t(M::LoadingVersionList))
                 .into_any_element(),
             Versions::Failed(error) => div()
                 .flex()
@@ -290,7 +291,7 @@ impl NewInstanceDialog {
                 .text_center()
                 .text_color(colors::RED_200)
                 .text_size(theme::text_size(text::SMALL))
-                .child(format!("Couldn't load the versions: {error}"))
+                .child(tr!(M::CouldntLoadVersions, error = error))
                 .into_any_element(),
             Versions::Ready(all) => {
                 let search = self.search.read(cx).text().to_string();
@@ -302,7 +303,7 @@ impl NewInstanceDialog {
                         .justify_center()
                         .size_full()
                         .text_color(colors::GRAY_500)
-                        .child("No versions match.")
+                        .child(t(M::NoVersionsMatch))
                         .into_any_element()
                 } else {
                     uniform_list(
@@ -347,23 +348,28 @@ impl NewInstanceDialog {
 }
 
 fn kind_label(kind: MojangVersionType) -> &'static str {
-    match kind {
-        MojangVersionType::Release => "Release",
-        MojangVersionType::Snapshot => "Snapshot",
-        MojangVersionType::OldBeta => "Beta",
-        MojangVersionType::OldAlpha => "Alpha",
-        MojangVersionType::Other => "Other",
+    t(match kind {
+        MojangVersionType::Release => M::KindRelease,
+        MojangVersionType::Snapshot => M::KindSnapshot,
+        MojangVersionType::OldBeta => M::KindBeta,
+        MojangVersionType::OldAlpha => M::KindAlpha,
+        MojangVersionType::Other => M::KindOther,
+    })
+}
+
+/// A version's release day, "Jun 13, 2024", from the manifest's `2024-06-13T…`.
+fn release_date(time: Option<&str>) -> String {
+    let Some(day) = time.and_then(|time| time.get(..10)) else {
+        return String::new();
+    };
+    match chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d") {
+        Ok(date) => format::short_date(date, true),
+        Err(_) => day.to_string(),
     }
 }
 
 fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::Stateful<gpui::Div> {
-    let date: SharedString = version
-        .release_time
-        .as_deref()
-        .and_then(|time| time.get(..10))
-        .unwrap_or_default()
-        .to_string()
-        .into();
+    let date: SharedString = release_date(version.release_time.as_deref()).into();
     div()
         .id(("version", index))
         .keyboard_focus()
@@ -393,14 +399,18 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
         )
         .child(
             div()
-                .w(px(64.))
+                .flex_none()
+                .w(px(72.))
+                .truncate()
                 .text_size(theme::text_size(text::SMALL))
                 .text_color(colors::GRAY_500)
                 .child(kind_label(version.kind)),
         )
         .child(
             div()
-                .w(px(76.))
+                .flex_none()
+                .w(px(96.))
+                .truncate()
                 .text_size(theme::text_size(text::SMALL))
                 .text_color(colors::GRAY_500)
                 .child(date),
@@ -445,19 +455,20 @@ impl Render for NewInstanceDialog {
             .selected
             .clone()
             .map(|id| match self.loader.read(cx).choice() {
-                Ok(Some(loader)) => format!(
-                    "Minecraft {id} with {} {}",
-                    loader.kind.label(),
-                    loader.version
+                Ok(Some(loader)) => tr!(
+                    M::GameWithLoader,
+                    version = id,
+                    loader = loader.kind.label(),
+                    loader_version = loader.version
                 ),
                 _ => format!("Minecraft {id}"),
             })
-            .unwrap_or_else(|| "No version selected".into())
+            .unwrap_or_else(|| t(M::NoVersionSelected).into())
             .into();
         let mode = self.mode;
         let switch = crate::instances::content::view::pills(
             "new-instance-mode",
-            vec!["Minecraft version".into(), "Modpack".into()],
+            vec![t(M::MinecraftVersion).into(), t(M::Modpack).into()],
             match mode {
                 Mode::Version => 0,
                 Mode::Modpack => 1,
@@ -486,13 +497,13 @@ impl Render for NewInstanceDialog {
                 version.loaders.first().cloned().unwrap_or_default()
             )
             .into(),
-            (None, Mode::Modpack, None) => "No modpack picked".into(),
+            (None, Mode::Modpack, None) => t(M::NoModpackPicked).into(),
         };
         let body = match mode {
             Mode::Modpack => self.modpacks.clone().into_any_element(),
             Mode::Version => self.version_body(&entity, filter, cx).into_any_element(),
         };
-        Dialog::new("new-instance", "New instance", self.focus.clone())
+        Dialog::new("new-instance", t(M::NewInstance), self.focus.clone())
             .width(px(860.))
             .on_close({
                 let entity = entity.clone();
@@ -505,7 +516,7 @@ impl Render for NewInstanceDialog {
                     .gap_3()
                     .text_size(theme::text_size(text::MEDIUM))
                     .child(div().flex().child(switch))
-                    .child(label("NAME"))
+                    .child(label(t(M::NameLabel)))
                     .child(self.name.clone())
                     .child(body)
                     .child(
@@ -522,25 +533,25 @@ impl Render for NewInstanceDialog {
             )
             .map(|dialog| match mode {
                 Mode::Version => dialog.footer(
-                    Button::new("create-instance", "Create instance")
+                    Button::new("create-instance", t(M::CreateInstance))
                         .variant(ButtonVariant::Primary)
                         .disabled(self.selected.is_none())
                         .on_click(cx.listener(|this, _, _, cx| this.create(cx))),
                 ),
                 Mode::Modpack => dialog.footer(
-                    Button::new("install-modpack", "Install modpack")
+                    Button::new("install-modpack", t(M::InstallModpack))
                         .variant(ButtonVariant::Primary)
                         .disabled(modpack_selection.is_none())
                         .on_click(cx.listener(|this, _, _, cx| this.install_modpack(cx))),
                 ),
             })
             .footer(
-                Button::new("import-mrpack", "Import .mrpack…")
+                Button::new("import-mrpack", t(M::ImportMrpack))
                     .variant(ButtonVariant::Secondary)
                     .on_click(cx.listener(|this, _, _, cx| this.pick_mrpack(cx))),
             )
             .footer(
-                Button::new("cancel-new-instance", "Cancel")
+                Button::new("cancel-new-instance", t(CommonMsg::Cancel))
                     .variant(ButtonVariant::Ghost)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(NewInstanceDismissed))),
             )
@@ -574,28 +585,30 @@ impl NewInstanceDialog {
                     .gap_3()
                     .flex_1()
                     .min_w_0()
-                    .child(div().pt_1().child(label("MINECRAFT VERSION")))
+                    .child(div().pt_1().child(label(t(M::MinecraftVersionLabel))))
                     .child(self.search.clone())
                     .child(
                         div()
                             .flex()
                             .flex_row()
-                            .gap_4()
+                            .flex_wrap()
+                            .gap_x_4()
+                            .gap_y_2()
                             .child(filter_toggle(
                                 "filter-releases",
-                                "Releases",
+                                t(M::Releases),
                                 filter.releases,
                                 toggle(|f| &mut f.releases),
                             ))
                             .child(filter_toggle(
                                 "filter-snapshots",
-                                "Snapshots",
+                                t(M::Snapshots),
                                 filter.snapshots,
                                 toggle(|f| &mut f.snapshots),
                             ))
                             .child(filter_toggle(
                                 "filter-old",
-                                "Old versions",
+                                t(M::OldVersions),
                                 filter.old,
                                 toggle(|f| &mut f.old),
                             )),
@@ -609,7 +622,7 @@ impl NewInstanceDialog {
                     .gap_3()
                     .flex_1()
                     .min_w_0()
-                    .child(div().pt_1().child(label("MOD LOADER")))
+                    .child(div().pt_1().child(label(t(M::ModLoaderLabel))))
                     .child(self.loader.clone()),
             )
     }

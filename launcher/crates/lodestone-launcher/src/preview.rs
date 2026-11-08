@@ -546,8 +546,8 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             cx,
         ),
         "rosetta" => shell.preview_launch_failed(
-            "Rosetta 2 is needed",
-            launcher_core::game::platform::ROSETTA_MISSING,
+            crate::i18n::t(crate::i18n::InstancesMsg::RosettaNeeded),
+            crate::instances::rosetta_missing(),
             cx,
         ),
         scene if is_worlds_scene(scene) => {

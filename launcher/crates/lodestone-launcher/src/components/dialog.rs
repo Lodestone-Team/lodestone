@@ -213,7 +213,14 @@ impl RenderOnce for Dialog {
                             .children(self.body),
                     )
                     .when(!self.footer.is_empty(), |this| {
-                        this.child(div().flex().flex_row().gap_2().children(self.footer))
+                        this.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .flex_wrap()
+                                .gap_2()
+                                .children(self.footer),
+                        )
                     }),
             })
             .with_animation(

@@ -29,6 +29,7 @@ use lodestone_minecraft::modrinth::{
 
 use super::Instances;
 use crate::components::TextInput;
+use crate::i18n::{ContentMsg as M, format, t, tr};
 
 /// Results per page.
 pub const PAGE_SIZE: u32 = 20;
@@ -120,11 +121,9 @@ pub struct Section {
 impl Section {
     fn new(kind: ContentKind, cx: &mut Context<ContentView>) -> Self {
         let placeholder = match kind {
-            ContentKind::Mod => "Search mods on Modrinth, or paste a Modrinth link",
-            ContentKind::ResourcePack => {
-                "Search resource packs on Modrinth, or paste a Modrinth link"
-            }
-            ContentKind::ShaderPack => "Search shader packs on Modrinth, or paste a Modrinth link",
+            ContentKind::Mod => M::SearchModsPlaceholder,
+            ContentKind::ResourcePack => M::SearchResourcePacksPlaceholder,
+            ContentKind::ShaderPack => M::SearchShaderPacksPlaceholder,
         };
         let search = cx.new(|cx| TextInput::new(cx).with_placeholder(placeholder));
         Self {
@@ -355,15 +354,11 @@ impl ContentView {
     /// Whether a change can be made now, saying why not if it can't.
     fn can_change(&mut self, cx: &mut Context<Self>) -> bool {
         if self.locked(cx) {
-            self.set_message(
-                "Stop the game first: it rewrites these files when it exits.",
-                true,
-                cx,
-            );
+            self.set_message(t(M::StopGameFirst), true, cx);
             return false;
         }
         if self.job.is_some() {
-            self.set_message("Wait for the install to finish.", true, cx);
+            self.set_message(t(M::WaitForInstall), true, cx);
             return false;
         }
         true
@@ -524,16 +519,17 @@ impl ContentView {
                         let count = updates.len();
                         section.updates = updates;
                         if count == 0 && !quiet {
-                            this.set_message(
-                                format!("Every {} from Modrinth is up to date.", kind.noun()),
-                                false,
-                                cx,
-                            );
+                            let message = match kind {
+                                ContentKind::Mod => M::AllModsUpToDate,
+                                ContentKind::ResourcePack => M::AllResourcePacksUpToDate,
+                                ContentKind::ShaderPack => M::AllShaderPacksUpToDate,
+                            };
+                            this.set_message(t(message), false, cx);
                         }
                     }
                     Err(_) if quiet => {}
                     Err(err) => {
-                        this.set_message(format!("Couldn't check for updates: {err}"), true, cx)
+                        this.set_message(tr!(M::CouldntCheckUpdates, error = err), true, cx)
                     }
                 }
                 cx.notify();
@@ -564,13 +560,10 @@ impl ContentView {
                 let mut target = target;
                 for request in requests {
                     let kind = request.kind;
-                    progress.set_label(format!(
-                        "Checking {}",
-                        request
-                            .project
-                            .as_ref()
-                            .map_or("the dependencies", |p| p.title.as_str())
-                    ));
+                    progress.set_label(match &request.project {
+                        Some(project) => tr!(M::CheckingProject, name = project.title),
+                        None => t(M::CheckingDependencies).to_string(),
+                    });
                     let plan = install::plan(&api, &dirs, &target, request).await?;
                     let outcome = install::execute(
                         &api,
@@ -862,18 +855,22 @@ impl ContentView {
                     .collect();
                 let failed: Vec<String> = results
                     .iter()
-                    .filter_map(|(name, r)| r.as_ref().err().map(|err| format!("{name}: {err}")))
+                    .filter_map(|(name, r)| {
+                        r.as_ref()
+                            .err()
+                            .map(|err| tr!(M::FileError, name = name, error = err))
+                    })
                     .collect();
-                let mut message = String::new();
-                if !added.is_empty() {
-                    message.push_str(&format!("Added {}.", added.join(", ")));
-                }
-                if !failed.is_empty() {
-                    if !message.is_empty() {
-                        message.push(' ');
-                    }
-                    message.push_str(&format!("Not added: {}", failed.join("; ")));
-                }
+                let message = match (added.is_empty(), failed.is_empty()) {
+                    (false, true) => tr!(M::AddedFiles, files = format::list(&added)),
+                    (true, false) => tr!(M::NotAddedFiles, files = failed.join("; ")),
+                    (false, false) => tr!(
+                        M::AddedAndNotAdded,
+                        added = format::list(&added),
+                        failed = failed.join("; ")
+                    ),
+                    (true, true) => String::new(),
+                };
                 this.set_message(message, !failed.is_empty(), cx);
                 this.reload(kind, cx);
                 if kind == ContentKind::Mod {
@@ -893,7 +890,14 @@ impl ContentView {
             files: true,
             directories: kind.allows_folders(),
             multiple: true,
-            prompt: Some(format!("Add to {}", kind.label()).into()),
+            prompt: Some(
+                t(match kind {
+                    ContentKind::Mod => M::AddToMods,
+                    ContentKind::ResourcePack => M::AddToResourcePacks,
+                    ContentKind::ShaderPack => M::AddToShaders,
+                })
+                .into(),
+            ),
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = picked.await else {
@@ -1078,11 +1082,8 @@ impl ContentView {
                         }
                         None => {
                             this.section_mut(kind).browse.results = Load::Failed(
-                                format!(
-                                    "That link is a {}, which Lodestone Launcher doesn't install yet.",
-                                    target.project.project_type
-                                )
-                                .into(),
+                                tr!(M::LinkNotInstallable, kind = target.project.project_type)
+                                    .into(),
                             );
                         }
                     }
@@ -1344,18 +1345,24 @@ fn outcome_message(outcome: &InstallOutcome) -> String {
         .map(|(title, _)| title.as_str())
         .collect();
     let mut message = match titles.as_slice() {
-        [] => "Nothing was installed.".to_string(),
-        [one] => format!("Installed {one}."),
-        [rest @ .., last] => format!("Installed {} and {last}.", rest.join(", ")),
+        [] => t(M::NothingInstalled).to_string(),
+        [one] => tr!(M::InstalledOne, name = one),
+        [rest @ .., last] => tr!(M::InstalledMany, names = format::list(rest), last = last),
+    };
+    let gap = match crate::i18n::locale() {
+        crate::i18n::Locale::ZhHans | crate::i18n::Locale::ZhHant => "",
+        crate::i18n::Locale::En | crate::i18n::Locale::Fr => " ",
     };
     if !outcome.removed.is_empty() {
-        message.push_str(&format!(" Replaced {}.", outcome.removed.join(", ")));
+        message.push_str(gap);
+        message.push_str(&tr!(M::Replaced, files = format::list(&outcome.removed)));
     }
     for skipped in &outcome.skipped {
-        message.push_str(&format!(
-            " Skipped {}: {}.",
-            skipped.project,
-            skipped.reason.trim_end_matches('.')
+        message.push_str(gap);
+        message.push_str(&tr!(
+            M::Skipped,
+            name = skipped.project,
+            reason = skipped.reason.trim_end_matches('.')
         ));
     }
     message

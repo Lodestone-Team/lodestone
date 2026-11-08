@@ -12,7 +12,6 @@ use gpui::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, SharedString, Task,
     UniformListScrollHandle,
 };
-use launcher_core::wording;
 use launcher_core::{
     Secret,
     cores::{
@@ -26,17 +25,50 @@ use launcher_core::{
 };
 use lodestone_minecraft::console_format::{ParsedConsoleLine, parse_console_line};
 
-use crate::{accounts::Accounts, components::TextInput};
+use super::core_error;
+use crate::{
+    accounts::Accounts,
+    components::TextInput,
+    i18n::{CommonMsg, ServersMsg as M, t, tr},
+};
 
 /// How a stream is doing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StreamStatus {
     Connecting,
     Live,
-    /// Dropped; trying again. Why, for people.
+    /// Dropped; trying again. Why, for people (in English: the connection's error).
     Reconnecting(SharedString),
-    /// Not followed: why, for people.
-    Off(SharedString),
+    /// Not followed.
+    Off(OffReason),
+}
+
+/// Why a stream isn't followed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OffReason {
+    /// The console wasn't asked for at sign-in (the screenshots say so).
+    NotAllowedAtSignIn,
+    /// This device's key may not read the console.
+    ConsoleNotAllowed,
+    Failed(CoreError),
+}
+
+impl OffReason {
+    /// Why, for people, in the current language.
+    pub fn label(&self) -> String {
+        let computer = t(CommonMsg::ThisComputer);
+        match self {
+            OffReason::NotAllowedAtSignIn => {
+                tr!(M::ConsoleNotAllowedAtSignIn, computer = computer)
+            }
+            OffReason::ConsoleNotAllowed => tr!(
+                M::ConsoleKeyCantRead,
+                computer = computer,
+                option = t(M::ReadConsole)
+            ),
+            OffReason::Failed(err) => core_error(err),
+        }
+    }
 }
 
 /// A console line, parsed once.
@@ -62,7 +94,7 @@ pub enum LinkState {
     /// The core is too old to link accounts.
     Unsupported,
     Known(Vec<MinecraftLink>),
-    Failed(SharedString),
+    Failed(CoreError),
 }
 
 pub struct ServerDetail {
@@ -139,9 +171,7 @@ impl ServerDetail {
             events_status: StreamStatus::Connecting,
             console_status: StreamStatus::Connecting,
             console: Vec::new(),
-            chat: cx.new(|cx| {
-                TextInput::new(cx).with_placeholder("Say something, or /command to run one")
-            }),
+            chat: cx.new(|cx| TextInput::new(cx).with_placeholder(M::ChatPlaceholder)),
             sending: false,
             chat_error: None,
             links: LinkState::Loading,
@@ -184,13 +214,7 @@ impl ServerDetail {
         this.console_status = if access.console_read {
             StreamStatus::Live
         } else {
-            StreamStatus::Off(
-                format!(
-                    "Reading the console wasn't allowed when this {} signed in.",
-                    wording::COMPUTER
-                )
-                .into(),
-            )
+            StreamStatus::Off(OffReason::NotAllowedAtSignIn)
         };
         this.push_console(console.iter().enumerate().map(|(i, message)| ConsoleLine {
             snowflake: i as i64 + 1,
@@ -231,17 +255,13 @@ impl ServerDetail {
                         if access.console_read {
                             this.follow_stream(StreamKind::Console, cx);
                         } else {
-                            this.console_status = StreamStatus::Off(
-                                format!("This {}'s key can't read the console. Sign in again and allow \"Read the console\", if your user may use it.", wording::COMPUTER)
-                                    .into(),
-                            );
+                            this.console_status = StreamStatus::Off(OffReason::ConsoleNotAllowed);
                         }
                     }
                     Err(CoreError::SignedOut) => cx.emit(DetailEvent::SignedOut),
                     Err(err) => {
-                        let message: SharedString = err.to_string().into();
-                        this.events_status = StreamStatus::Off(message.clone());
-                        this.console_status = StreamStatus::Off(message);
+                        this.events_status = StreamStatus::Off(OffReason::Failed(err.clone()));
+                        this.console_status = StreamStatus::Off(OffReason::Failed(err));
                     }
                 }
                 if this.players.is_none() {
@@ -314,7 +334,7 @@ impl ServerDetail {
             LiveMessage::Output(line) => self.push_console([line]),
             LiveMessage::Ended(CoreError::SignedOut) => cx.emit(DetailEvent::SignedOut),
             LiveMessage::Ended(err) => {
-                *self.status_mut(kind) = StreamStatus::Off(err.to_string().into())
+                *self.status_mut(kind) = StreamStatus::Off(OffReason::Failed(err))
             }
         }
         cx.notify();
@@ -419,7 +439,7 @@ impl ServerDetail {
                         this.follow = true;
                     }
                     Err(CoreError::SignedOut) => cx.emit(DetailEvent::SignedOut),
-                    Err(err) => this.chat_error = Some(err.to_string().into()),
+                    Err(err) => this.chat_error = Some(core_error(&err).into()),
                 }
                 cx.notify();
             })
@@ -440,7 +460,7 @@ impl ServerDetail {
                 this.links = match result {
                     Ok(links) => LinkState::Known(links),
                     Err(CoreError::TooOld) => LinkState::Unsupported,
-                    Err(err) => LinkState::Failed(err.to_string().into()),
+                    Err(err) => LinkState::Failed(err),
                 };
                 cx.notify();
             })
@@ -493,14 +513,11 @@ impl ServerDetail {
                         client
                             .link_minecraft_account(&key, &uuid, &name, &token)
                             .await
-                            .map_err(|err| err.to_string())
+                            .map_err(|err| core_error(&err))
                     })
                     .await
                 }
-                Ok(_) => Err(
-                    "Offline accounts can't be linked: their UUID comes from the name, so it proves nothing."
-                        .to_string(),
-                ),
+                Ok(_) => Err(t(M::OfflineCantLink).to_string()),
                 Err(message) => Err(message),
             };
             this.update(cx, |this, cx| {
@@ -509,8 +526,12 @@ impl ServerDetail {
                     Ok(link) => {
                         this.link_notice = Some((
                             false,
-                            format!("Linked {} to {}.", link.minecraft_name, this.user_label())
-                                .into(),
+                            tr!(
+                                M::LinkedTo,
+                                account = link.minecraft_name,
+                                user = this.user_label()
+                            )
+                            .into(),
                         ));
                         this.load_links(cx);
                     }
@@ -536,7 +557,7 @@ impl ServerDetail {
             this.update(cx, |this, cx| {
                 match result {
                     Ok(()) => this.load_links(cx),
-                    Err(err) => this.link_notice = Some((true, err.to_string().into())),
+                    Err(err) => this.link_notice = Some((true, core_error(&err).into())),
                 }
                 cx.notify();
             })
@@ -548,7 +569,7 @@ impl ServerDetail {
     pub fn user_label(&self) -> String {
         self.username
             .clone()
-            .unwrap_or_else(|| "your Lodestone user".into())
+            .unwrap_or_else(|| t(M::YourLodestoneUser).into())
     }
 
     /// Whether the selected Microsoft account is linked already.

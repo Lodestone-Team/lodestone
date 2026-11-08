@@ -11,16 +11,25 @@ use launcher_core::{
 
 use crate::{
     components::TextInput,
-    instances::thousands,
+    i18n::{CommonMsg, InstanceSettingsMsg as M, Text, format, t, tr},
     theme::{self, text, weights},
 };
 
-/// Parses memory in MiB, with an optional `G`/`M` suffix: `4G`, `4096`, `512M`.
+/// Parses memory in MiB, with an optional `G`/`M` suffix: `4G`, `4096`, `512M`, and
+/// the French units: `4 Go`, `512 Mo`. A decimal comma is read as a point.
 pub fn parse_ram(text: &str) -> Option<u32> {
-    let text = text.trim().to_ascii_uppercase();
-    let (number, factor) = if let Some(gib) = text.strip_suffix("GB").or(text.strip_suffix('G')) {
+    let text = text.trim().to_ascii_uppercase().replace(',', ".");
+    let (number, factor) = if let Some(gib) = text
+        .strip_suffix("GB")
+        .or(text.strip_suffix("GO"))
+        .or(text.strip_suffix('G'))
+    {
         (gib.trim(), 1024.0)
-    } else if let Some(mib) = text.strip_suffix("MB").or(text.strip_suffix('M')) {
+    } else if let Some(mib) = text
+        .strip_suffix("MB")
+        .or(text.strip_suffix("MO"))
+        .or(text.strip_suffix('M'))
+    {
         (mib.trim(), 1.0)
     } else {
         (text.as_str(), 1.0)
@@ -44,23 +53,21 @@ pub struct MemoryCheck {
 pub fn check_memory(min: &str, max: &str, total_bytes: Option<u64>) -> MemoryCheck {
     let (Some(min), Some(max)) = (parse_ram(min), parse_ram(max)) else {
         return MemoryCheck {
-            error: Some(
-                "Enter memory in MB (such as 4096) or GB (such as 4G), at least 256 MB.".into(),
-            ),
+            error: Some(t(M::MemoryFormat).into()),
             ..MemoryCheck::default()
         };
     };
     if min > max {
         return MemoryCheck {
-            error: Some("The minimum is more than the maximum.".into()),
+            error: Some(t(M::MemoryMinAboveMax).into()),
             ..MemoryCheck::default()
         };
     }
     let warning = max_ram_is_high(max, total_bytes).then(|| {
-        format!(
-            "That is more than three quarters of this {}'s memory, which leaves too little for {} and your other apps.",
-            wording::COMPUTER,
-            wording::OS
+        tr!(
+            M::MemoryTooHigh,
+            computer = t(CommonMsg::ThisComputer),
+            os = wording::OS
         )
     });
     MemoryCheck {
@@ -73,31 +80,31 @@ pub fn check_memory(min: &str, max: &str, total_bytes: Option<u64>) -> MemoryChe
 /// "This Mac has 16 GB of memory."
 pub fn total_memory_label(total_bytes: Option<u64>) -> Option<SharedString> {
     total_bytes.map(|bytes| {
-        format!(
-            "This {} has {} GB of memory.",
-            wording::COMPUTER,
-            thousands(bytes / (1024 * 1024 * 1024))
+        tr!(
+            M::TotalMemory,
+            computer = t(CommonMsg::ThisComputerStart),
+            size = format::memory_mb(bytes / (1024 * 1024))
         )
         .into()
     })
 }
 
-/// "512 MB – 4,096 MB".
+/// "512 MB – 4 GB".
 pub fn memory_label((min, max): (u32, u32)) -> String {
-    format!(
-        "{} MB – {} MB",
-        thousands(min.into()),
-        thousands(max.into())
+    tr!(
+        M::MemoryRange,
+        min = format::memory_mb(min.into()),
+        max = format::memory_mb(max.into())
     )
 }
 
 pub fn window_label(window: &WindowSettings) -> String {
     let size = match window.resolution {
         Some(r) => format!("{} × {}", r.width, r.height),
-        None => "The game's default size".to_string(),
+        None => t(M::WindowDefaultSize).to_string(),
     };
     if window.fullscreen {
-        format!("{size}, fullscreen")
+        tr!(M::WindowFullscreen, size = size)
     } else {
         size
     }
@@ -120,7 +127,17 @@ pub fn input<V: 'static>(
     text: String,
     placeholder: &str,
 ) -> Entity<TextInput> {
-    let placeholder = placeholder.to_string();
+    input_with(cx, text, placeholder.to_string())
+}
+
+/// A text field with a placeholder that can be a message, which follows the
+/// language: `input_with(cx, text, InstanceSettingsMsg::Value)`.
+pub fn input_with<V: 'static>(
+    cx: &mut Context<V>,
+    text: String,
+    placeholder: impl Into<Text>,
+) -> Entity<TextInput> {
+    let placeholder = placeholder.into();
     cx.new(|cx| {
         TextInput::new(cx)
             .with_placeholder(placeholder)
@@ -155,7 +172,7 @@ impl Fields {
             ),
             width: input(cx, width, "854"),
             height: input(cx, height, "480"),
-            env: input(cx, format_env(values.env), "NAME=value"),
+            env: input_with(cx, format_env(values.env), M::EnvPlaceholder),
             fullscreen: values.window.fullscreen,
         }
     }
@@ -210,7 +227,7 @@ impl Fields {
                 let parse = |s: &str| s.parse::<u32>().ok().filter(|v| (100..=16384).contains(v));
                 match (parse(&width), parse(&height)) {
                     (Some(width), Some(height)) => Some(Resolution { width, height }),
-                    _ => return Err("The window size needs a width and a height in pixels.".into()),
+                    _ => return Err(t(M::WindowSizeInvalid).into()),
                 }
             }
         };
@@ -221,7 +238,7 @@ impl Fields {
     }
 
     pub fn env(&self, cx: &App) -> Result<std::collections::BTreeMap<String, String>, String> {
-        parse_env(&Self::text(&self.env, cx)).map_err(|err| format!("Environment variables: {err}"))
+        parse_env(&Self::text(&self.env, cx)).map_err(|err| tr!(M::EnvInvalid, error = err))
     }
 }
 
@@ -244,6 +261,8 @@ mod tests {
         assert_eq!(parse_ram("4G"), Some(4096));
         assert_eq!(parse_ram(" 2.5 gb "), Some(2560));
         assert_eq!(parse_ram("512M"), Some(512));
+        assert_eq!(parse_ram("4 Go"), Some(4096));
+        assert_eq!(parse_ram("1,5G"), Some(1536));
         assert_eq!(parse_ram("100"), None);
         assert_eq!(parse_ram("lots"), None);
         assert_eq!(parse_ram(""), None);
@@ -261,10 +280,11 @@ mod tests {
         assert_eq!(high.values, Some((1024, 14336)));
         assert!(high.warning.unwrap().contains("three quarters"));
         assert!(check_memory("x", "4G", total).error.is_some());
-        assert_eq!(memory_label((512, 4096)), "512 MB – 4,096 MB");
+        assert_eq!(memory_label((512, 4096)), "512 MB – 4 GB");
+        assert_eq!(memory_label((512, 6144 + 512)), "512 MB – 6.5 GB");
         assert_eq!(
             total_memory_label(total).unwrap(),
-            format!("This {} has 16 GB of memory.", wording::COMPUTER)
+            format!("{} has 16 GB of memory.", t(CommonMsg::ThisComputerStart))
         );
     }
 }

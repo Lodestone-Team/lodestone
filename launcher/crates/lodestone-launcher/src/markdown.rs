@@ -343,7 +343,7 @@ pub fn render(
             this.child(
                 div()
                     .text_color(colors::GRAY_500)
-                    .child("The rest of the description is on Modrinth."),
+                    .child(crate::i18n::t(crate::i18n::ShellMsg::RestOnModrinth)),
             )
         })
         .into_any_element()

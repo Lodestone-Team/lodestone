@@ -1,9 +1,168 @@
 use crate::i18n::{ContentMsg as M, ContentPlural as P};
 
 pub fn text(message: M) -> &'static str {
-    match message {}
+    match message {
+        M::KindMods => "模组",
+        M::KindResourcePacks => "资源包",
+        M::KindShaders => "光影",
+        M::InstalledTab => "已安装",
+        M::BrowseModrinth => "浏览 Modrinth",
+        M::Vanilla => "原版",
+
+        M::SearchModsPlaceholder => "在 Modrinth 上搜索模组，或粘贴 Modrinth 链接",
+        M::SearchResourcePacksPlaceholder => "在 Modrinth 上搜索资源包，或粘贴 Modrinth 链接",
+        M::SearchShaderPacksPlaceholder => "在 Modrinth 上搜索光影包，或粘贴 Modrinth 链接",
+
+        M::StopGameFirst => "请先停止游戏：游戏退出时会重写这些文件。",
+        M::WaitForInstall => "请等待安装完成。",
+        M::GameRunning => {
+            "游戏正在运行。停止游戏后才能更改其内容：游戏退出时会重写 options.txt 和光影设置。"
+        }
+
+        M::AllModsUpToDate => "来自 Modrinth 的模组都已是最新版本。",
+        M::AllResourcePacksUpToDate => "来自 Modrinth 的资源包都已是最新版本。",
+        M::AllShaderPacksUpToDate => "来自 Modrinth 的光影包都已是最新版本。",
+        M::CouldntCheckUpdates => "无法检查更新：{error}",
+
+        M::CheckingProject => "正在检查 {name}",
+        M::CheckingDependencies => "正在检查依赖项",
+        M::FilesProgress => "{done}/{total} 个文件",
+        M::BytesProgress => "{done} / {total}",
+
+        M::NothingInstalled => "没有安装任何内容。",
+        M::InstalledOne => "已安装 {name}。",
+        M::InstalledMany => "已安装 {names} 和 {last}。",
+        M::Replaced => "已替换 {files}。",
+        M::Skipped => "已跳过 {name}：{reason}。",
+
+        M::AddedFiles => "已添加 {files}。",
+        M::FileError => "{name}：{error}",
+        M::NotAddedFiles => "未添加：{files}",
+        M::AddedAndNotAdded => "已添加 {added}。未添加：{failed}",
+        M::AddToMods => "添加到模组",
+        M::AddToResourcePacks => "添加到资源包",
+        M::AddToShaders => "添加到光影",
+
+        M::LinkNotInstallable => "该链接指向“{kind}”类型的项目，Lodestone Launcher 暂不支持安装。",
+
+        M::CheckForUpdates => "检查更新",
+        M::UpdateAll => "全部更新（{count}）",
+        M::AddFile => "添加文件…",
+        M::ItemFolder => "{name} · 文件夹",
+        M::Compatible => "兼容",
+        M::OlderVersion => "旧版本",
+        M::NewerVersion => "新版本",
+        M::MadeForOlder => "为较旧的 Minecraft 版本制作",
+        M::MadeForNewer => "为较新的 Minecraft 版本制作",
+        M::NotOnModrinth => "不在 Modrinth 上",
+        M::UpdateTo => "更新到 {version}",
+        M::NoModsYet => "还没有模组。浏览 Modrinth，或将 .jar 文件拖放到这里。",
+        M::NoResourcePacksYet => "还没有资源包。浏览 Modrinth，或将 .zip 文件或文件夹拖放到这里。",
+        M::NoShaderPacksYet => "还没有光影包。浏览 Modrinth，或将 .zip 文件或文件夹拖放到这里。",
+        M::ReadingFolder => "正在读取 {folder} 文件夹",
+        M::CouldntReadFolder => "无法读取 {folder} 文件夹：{error}",
+        M::SomeFilesNotMatched => "部分文件无法与 Modrinth 匹配：{error}",
+        M::EnabledHeader => "已启用 · 资源包重叠时，靠上的优先",
+        M::AvailableHeader => "可用",
+        M::ShadersOff => "关闭光影",
+        M::NormalLook => "Minecraft 的原始画面。",
+
+        M::ModsNeedLoader => "模组需要模组加载器",
+        M::ShadersNeedLoader => "光影需要模组加载器",
+        M::VanillaSwitchMods => {
+            "此实例是原版 Minecraft。模组需要通过 {loader} 等模组加载器运行；切换会保留你的世界和设置，{loader} 会在你下次点击“开始游戏”时安装。"
+        }
+        M::VanillaSwitchShaders => {
+            "此实例是原版 Minecraft。光影需要通过 {loader} 等模组加载器运行；切换会保留你的世界和设置，{loader} 会在你下次点击“开始游戏”时安装。"
+        }
+        M::VanillaNoLoaderMods => {
+            "此实例是原版 Minecraft {version}。模组需要模组加载器，但 Lodestone Launcher 支持的加载器都无法在此版本上运行：Fabric 从 1.14 开始支持，Forge 也没有适用于此版本的构建。使用较新版本的新实例即可使用模组。"
+        }
+        M::VanillaNoLoaderShaders => {
+            "此实例是原版 Minecraft {version}。光影需要模组加载器，但 Lodestone Launcher 支持的加载器都无法在此版本上运行：Fabric 从 1.14 开始支持，Forge 也没有适用于此版本的构建。使用较新版本的新实例即可使用光影。"
+        }
+        M::VanillaCheckFailedMods => {
+            "此实例是原版 Minecraft。模组需要模组加载器，但无法检查哪个加载器适用：{error}"
+        }
+        M::VanillaCheckFailedShaders => {
+            "此实例是原版 Minecraft。光影需要模组加载器，但无法检查哪个加载器适用：{error}"
+        }
+        M::VanillaCheckingMods => {
+            "此实例是原版 Minecraft。模组需要通过模组加载器运行；正在检查哪个加载器能在 Minecraft {version} 上运行…"
+        }
+        M::VanillaCheckingShaders => {
+            "此实例是原版 Minecraft。光影需要通过模组加载器运行；正在检查哪个加载器能在 Minecraft {version} 上运行…"
+        }
+        M::SwitchTo => "切换到 {loader}",
+        M::NewFabricInstance => "新建 Fabric 实例…",
+
+        M::ShaderModUsingPack => "{shader_mod} 正在使用 {pack}。",
+        M::ShaderModUsingBuiltIn => "{shader_mod} 正在使用内置光影。",
+        M::ShaderModInstalledOff => "{shader_mod} 已安装；光影已关闭。",
+        M::ShaderModPickPack => {
+            "在下方选择一个光影包。{shader_mod} 会在游戏启动时从 {file} 读取你的选择。"
+        }
+        M::ShadersNeedShaderMod => "光影需要光影模组",
+        M::OptiFineNote => {
+            "OptiFine 也可以使用，但它不在 Modrinth 上，且其许可协议不允许 Lodestone 下载。如果你更喜欢它，请从 optifine.net 下载，然后在“{mods}”中用“{add_file}”添加 jar 文件（Fabric 还需要 OptiFabric）。"
+        }
+        M::LookingForShaderMod => "正在 Modrinth 上查找适用于此版本的光影模组",
+        M::CouldntAskModrinth => "无法连接 Modrinth：{error}",
+        M::InstallShaderMod => "安装 {shader_mod} {version}",
+        M::ShaderModRunsOn => {
+            "Minecraft 本身无法加载光影包，需要借助光影模组。{shader_mod} 可在此实例的 {loader} 上运行。"
+        }
+        M::ShaderModComesWith => "它会附带安装 {shader_mod} 所需的 {dependency}。",
+        M::ShaderModUnavailable => {
+            "Minecraft 本身无法加载光影包，需要借助光影模组。{reason} Fabric 实例始终可以使用 Iris。"
+        }
+
+        M::BrowsingNeedsNetwork => "浏览 Modrinth 需要网络连接。",
+        M::SortRelevance => "相关性",
+        M::SortDownloads => "下载量",
+        M::SortFollows => "关注数",
+        M::SortNewest => "最新",
+        M::SortUpdated => "最近更新",
+        M::OnlyShowModsFor => "仅显示适用于 {target} 的模组",
+        M::OnlyShowResourcePacksFor => "仅显示适用于 {target} 的资源包",
+        M::OnlyShowShaderPacksFor => "仅显示适用于 {target} 的光影包",
+        M::SearchingModrinth => "正在搜索 Modrinth",
+        M::NothingMatches => "Modrinth 上没有匹配的结果。",
+        M::PageOf => "第 {page} 页，共 {pages} 页",
+        M::ByAuthor => "作者：{author}",
+        M::InstalledBadge => "已安装",
+        M::OptionalOnServers => "服务器上可选",
+        M::DownloadsCompact => "{count}次下载",
+        M::FollowsCompact => "{count}人关注",
+        M::FollowersCompact => "{count}位关注者",
+
+        M::BackToResults => "返回结果",
+        M::LoadingProject => "正在加载项目",
+        M::ViewOnModrinth => "在 Modrinth 上查看",
+        M::Versions => "版本",
+        M::Description => "介绍",
+        M::LoadingVersions => "正在加载版本",
+        M::ShowAllVersions => "显示适用于其他加载器和 Minecraft 版本的版本",
+        M::AlsoInstallDependencies => "同时安装必需的依赖项",
+        M::NoVersionFits => "{project} 没有适用于此实例的版本。打开“{show_all}”即可查看全部版本。",
+        M::ShowVersionsShort => "显示版本…",
+        M::InstallAnyway => "仍然安装…",
+        M::InstallItAnyway => "确认仍然安装",
+        M::InstallWith => "与 {shader_mod} 一起安装",
+        M::Release => "正式版",
+        M::Beta => "测试版",
+        M::Alpha => "早期测试版",
+    }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
-    match message {}
+    match message {
+        P::ResourcePacksEnabled => ["{count} 个资源包，已启用 {enabled} 个"; 2],
+        P::ModsEnabled => ["{count} 个模组，已启用 {enabled} 个"; 2],
+        P::ShaderPacks => ["{count} 个光影包"; 2],
+        P::Downloads => ["{count} 次下载"; 2],
+        P::Follows => ["{count} 人关注"; 2],
+        P::Followers => ["{count} 位关注者"; 2],
+        P::MoreVersions => ["Modrinth 上还有 {count} 个版本。"; 2],
+    }
 }

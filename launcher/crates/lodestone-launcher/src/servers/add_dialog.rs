@@ -5,12 +5,12 @@ use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render, SharedString,
     Window, div, prelude::*,
 };
-use launcher_core::wording;
 use launcher_core::{Secret, cores::live::LauncherScope};
 
 use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonVariant, Dialog, TextInput, Toggle},
+    i18n::{CommonMsg, ServersMsg as M, t, tr},
     theme::{self, colors, leading, radius, text, weights},
 };
 
@@ -27,10 +27,19 @@ impl KeyExpiry {
     pub const ALL: [KeyExpiry; 3] = [KeyExpiry::Days90, KeyExpiry::Year, KeyExpiry::Never];
 
     pub fn label(self) -> &'static str {
+        t(match self {
+            KeyExpiry::Days90 => M::KeyDays90,
+            KeyExpiry::Year => M::KeyYear,
+            KeyExpiry::Never => M::KeyNever,
+        })
+    }
+
+    /// The choice's element id, the same in every language.
+    fn id(self) -> &'static str {
         match self {
-            KeyExpiry::Days90 => "90 days",
-            KeyExpiry::Year => "1 year",
-            KeyExpiry::Never => "Never",
+            KeyExpiry::Days90 => "key-expiry-90-days",
+            KeyExpiry::Year => "key-expiry-year",
+            KeyExpiry::Never => "key-expiry-never",
         }
     }
 
@@ -98,16 +107,16 @@ impl AddServerDialog {
         let signing_in = address.is_some();
         Self {
             address: cx.new(|cx| {
-                let input = TextInput::new(cx).with_placeholder("192.168.1.20 or localhost:16662");
+                let input = TextInput::new(cx).with_placeholder(M::AddressPlaceholder);
                 match &address {
                     Some(address) => input.with_text(address.clone()).with_disabled(true),
                     None => input,
                 }
             }),
-            username: cx.new(|cx| TextInput::new(cx).with_placeholder("Username (optional)")),
+            username: cx.new(|cx| TextInput::new(cx).with_placeholder(M::UsernameOptional)),
             password: cx.new(|cx| {
                 TextInput::new(cx)
-                    .with_placeholder("Password")
+                    .with_placeholder(M::Password)
                     .with_masked()
             }),
             expiry: KeyExpiry::default(),
@@ -156,16 +165,13 @@ impl AddServerDialog {
         let username = self.username.read(cx).text().trim().to_string();
         let password = self.password.read(cx).text().to_string();
         if address.is_empty() {
-            return self.fail("Enter the core's address.".into(), cx);
+            return self.fail(t(M::EnterAddress).into(), cx);
         }
         if self.signing_in && username.is_empty() {
-            return self.fail("Enter your username and password.".into(), cx);
+            return self.fail(t(M::EnterUsernamePassword).into(), cx);
         }
         if !username.is_empty() && password.is_empty() {
-            return self.fail(
-                "Enter your password, or leave the username empty.".into(),
-                cx,
-            );
+            return self.fail(t(M::EnterPassword).into(), cx);
         }
         let signing_in = !username.is_empty();
         self.busy = true;
@@ -201,6 +207,8 @@ impl AddServerDialog {
                 .gap_3()
                 .child(
                     div()
+                        .flex_1()
+                        .min_w_0()
                         .text_size(theme::text_size(text::SMALL))
                         .text_color(colors::GRAY_400)
                         .child(title),
@@ -213,9 +221,9 @@ impl AddServerDialog {
             .flex()
             .flex_col()
             .gap_2()
-            .child(label("Console access (optional)"))
+            .child(label(t(M::ConsoleAccess)))
             .child(row(
-                "Read the console",
+                t(M::ReadConsole),
                 Toggle::new("console-read", self.console.console_read).on_change(
                     move |value, _, cx| {
                         let value = *value;
@@ -227,7 +235,7 @@ impl AddServerDialog {
                 ),
             ))
             .child(row(
-                "Send chat and commands",
+                t(M::SendChat),
                 Toggle::new("console-write", self.console.console_write).on_change(
                     move |value, _, cx| {
                         let value = *value;
@@ -243,7 +251,10 @@ impl AddServerDialog {
                     .text_size(theme::text_size(text::SMALL))
                     .line_height(theme::line_height(text::SMALL, leading::NORMAL))
                     .text_color(colors::GRAY_500)
-                    .child(format!("Only where your user may use the console. Commands can do anything an operator can, so allow them only on a {} you trust.", wording::COMPUTER)),
+                    .child(tr!(
+                        M::ConsoleAccessHint,
+                        computer = t(CommonMsg::ThisComputer)
+                    )),
             )
     }
 }
@@ -259,11 +270,11 @@ fn label(text_value: &'static str) -> impl IntoElement {
 impl Render for AddServerDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
-        let title = if self.signing_in {
-            "Sign in to server"
+        let title = t(if self.signing_in {
+            M::SignInTitle
         } else {
-            "Add server"
-        };
+            M::AddServer
+        });
         let expiry = self.expiry;
         let pills = crate::components::ArrowGroup::new("key-expiry")
             .flex()
@@ -277,7 +288,7 @@ impl Render for AddServerDialog {
             .children(KeyExpiry::ALL.into_iter().map(|choice| {
                 let selected = choice == expiry;
                 div()
-                    .id(choice.label())
+                    .id(choice.id())
                     .keyboard_focus()
                     .px_3()
                     .py_1()
@@ -310,15 +321,16 @@ impl Render for AddServerDialog {
                         div()
                             .text_size(theme::text_size(text::MEDIUM))
                             .text_color(colors::GRAY_400)
+                            .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
                             .child(if self.signing_in {
-                                format!("Sign in to start and stop servers and see the ones that aren't listed publicly. Lodestone Launcher makes its own key for this {}; your password isn't kept.", wording::COMPUTER)
+                                tr!(M::SignInIntro, computer = t(CommonMsg::ThisComputer))
                             } else {
-                                "The address of a Lodestone core. Without signing in you see the servers its owner lists publicly.".to_string()
+                                t(M::AddIntro).to_string()
                             }),
                     )
-                    .child(label("Address"))
+                    .child(label(t(M::Address)))
                     .child(self.address.clone())
-                    .child(label("Sign in (optional)"))
+                    .child(label(t(M::SignInOptional)))
                     .child(self.username.clone())
                     .child(self.password.clone())
                     .child(
@@ -330,11 +342,17 @@ impl Render for AddServerDialog {
                             .gap_3()
                             .child(
                                 div()
+                                    .flex_1()
+                                    .min_w_0()
                                     .text_size(theme::text_size(text::SMALL))
+                                    .line_height(theme::line_height(text::SMALL, leading::NORMAL))
                                     .text_color(colors::GRAY_500)
-                                    .child(format!("This {}'s key expires after", wording::COMPUTER)),
+                                    .child(tr!(
+                                        M::KeyExpiresAfter,
+                                        computer = t(CommonMsg::ThisComputer)
+                                    )),
                             )
-                            .child(pills),
+                            .child(pills.flex_none()),
                     )
                     .child(self.console_choices(cx))
                     .when(expiry == KeyExpiry::Never, |this| {
@@ -342,7 +360,8 @@ impl Render for AddServerDialog {
                             div()
                                 .text_size(theme::text_size(text::SMALL))
                                 .text_color(colors::YELLOW)
-                                .child("A key that never expires works until you revoke it in the dashboard."),
+                                .line_height(theme::line_height(text::SMALL, leading::NORMAL))
+                                .child(t(M::NeverExpiresWarning)),
                         )
                     })
                     .children(self.error.clone().map(|error| {
@@ -355,13 +374,20 @@ impl Render for AddServerDialog {
                     })),
             )
             .footer(
-                Button::new("add-server-submit", if self.signing_in { "Sign in" } else { "Add server" })
-                    .variant(ButtonVariant::Primary)
-                    .loading(self.busy)
-                    .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
+                Button::new(
+                    "add-server-submit",
+                    if self.signing_in {
+                        t(CommonMsg::SignIn)
+                    } else {
+                        t(M::AddServer)
+                    },
+                )
+                .variant(ButtonVariant::Primary)
+                .loading(self.busy)
+                .on_click(cx.listener(|this, _, _, cx| this.submit(cx))),
             )
             .footer(
-                Button::new("add-server-cancel", "Cancel")
+                Button::new("add-server-cancel", t(CommonMsg::Cancel))
                     .variant(ButtonVariant::Secondary)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(AddServerEvent::Dismissed))),
             )

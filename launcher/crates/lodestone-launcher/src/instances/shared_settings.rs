@@ -23,6 +23,9 @@ use crate::{
         Button, ButtonSize, ButtonVariant, TextInput, Toggle,
         settings::{SettingRow, card, link, muted_link, section, tag, value},
     },
+    i18n::{
+        CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, Text, format, t, tr, trn,
+    },
     theme::{self, colors, radius, text},
 };
 
@@ -135,7 +138,8 @@ pub struct InstanceSharedSettings {
     state: State,
     expanded: BTreeSet<Category>,
     editing: Option<(String, Entity<TextInput>)>,
-    message: Option<(SharedString, bool)>,
+    /// A message under the section, and whether it is an error.
+    message: Option<(Text, bool)>,
     /// Whether the game was running at the last look, to reload when it stops.
     active: bool,
     _observe: Subscription,
@@ -223,10 +227,7 @@ impl InstanceSharedSettings {
         let dir = self.dir(cx);
         let data = self.instances.read(cx).data_dir().clone();
         let result = shared_options::set_preferred(&data, Some(&self.instance_id), Some(&dir));
-        self.message = Some((
-            "In-game changes in this instance now update every instance.".into(),
-            false,
-        ));
+        self.message = Some((M::MadePreferred.into(), false));
         self.after(result, cx);
     }
 
@@ -251,7 +252,7 @@ impl InstanceSharedSettings {
 
     fn edit(&mut self, row: &Row, cx: &mut Context<Self>) {
         let text = row.local.clone().unwrap_or_default();
-        let input = super::fields::input(cx, text, "Value");
+        let input = super::fields::input_with(cx, text, M::Value);
         self.editing = Some((row.key.clone(), input));
         cx.notify();
     }
@@ -286,18 +287,18 @@ impl InstanceSharedSettings {
         let overridden = rows.iter().filter(|r| r.overridden).count();
         let with_value = rows.iter().filter(|r| r.shared.is_some()).count();
         let summary = if !shared {
-            "Not shared (launcher Settings)".to_string()
+            t(M::NotShared).to_string()
         } else {
-            let mut parts = vec![format!("{with_value} shared")];
+            let mut parts = vec![trn!(P::SharedCount, with_value)];
             if overridden > 0 {
-                parts.push(format!("{overridden} overridden"));
+                parts.push(trn!(P::OverriddenCount, overridden));
             }
             parts.join(" · ")
         };
         let keys: Vec<String> = rows.iter().map(|r| r.key.clone()).collect();
         let all_overridden = !rows.is_empty() && overridden == rows.len();
         let can_open = shared && !rows.is_empty();
-        SettingRow::new(category.label())
+        SettingRow::new(category_label(category))
             .child(
                 div()
                     .text_size(theme::text_size(text::SMALL))
@@ -308,11 +309,11 @@ impl InstanceSharedSettings {
                 row.child(
                     muted_link(
                         ("shared-category-bulk", category as usize),
-                        if all_overridden {
-                            "Share all"
+                        t(if all_overridden {
+                            M::ShareAll
                         } else {
-                            "Override all"
-                        },
+                            M::OverrideAll
+                        }),
                     )
                     .when(!busy, |link| {
                         link.on_click(cx.listener(move |this, _, _, cx| {
@@ -325,7 +326,7 @@ impl InstanceSharedSettings {
                 row.child(
                     link(
                         ("shared-category", category as usize),
-                        if expanded { "Hide" } else { "Show" },
+                        t(if expanded { M::Hide } else { M::Show }),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if !this.expanded.remove(&category) {
@@ -357,24 +358,24 @@ impl InstanceSharedSettings {
         let shared_text = row
             .shared
             .as_deref()
-            .map_or("Not shared yet".to_string(), |v| row.show(v));
+            .map_or_else(|| t(M::NotSharedYet).to_string(), |v| row.show(v));
         let local_text = row
             .local
             .as_deref()
-            .map_or("Not in options.txt".to_string(), |v| row.show(v));
+            .map_or_else(|| t(M::NotInOptions).to_string(), |v| row.show(v));
         let edit_row = row.clone();
         let line = SettingRow::new(row.label.clone()).indent();
         let line = match (row.overridden, editing) {
             (true, Some(input)) => line
                 .child(div().w(px(180.)).child(input))
                 .child(
-                    Button::new(("shared-save", id), "Save")
+                    Button::new(("shared-save", id), t(CommonMsg::Save))
                         .variant(ButtonVariant::Primary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
                 )
                 .child(
-                    muted_link(("shared-cancel", id), "Cancel").on_click(cx.listener(
+                    muted_link(("shared-cancel", id), t(CommonMsg::Cancel)).on_click(cx.listener(
                         |this, _, _, cx| {
                             this.editing = None;
                             cx.notify();
@@ -383,14 +384,14 @@ impl InstanceSharedSettings {
                 ),
             (true, None) => line
                 .child(value(local_text, false))
-                .child(tag("This instance", colors::BLUE_200))
+                .child(tag(t(M::ThisInstance), colors::BLUE_200))
                 .when(!busy, |line| {
                     line.child(
-                        link(("shared-edit", id), "Edit")
+                        link(("shared-edit", id), t(CommonMsg::Edit))
                             .on_click(cx.listener(move |this, _, _, cx| this.edit(&edit_row, cx))),
                     )
                     .child(
-                        muted_link(("shared-use", id), format!("Use shared ({shared_text})"))
+                        muted_link(("shared-use", id), tr!(M::UseShared, value = shared_text))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.set_overrides(vec![key.clone()], false, cx)
                             })),
@@ -398,10 +399,10 @@ impl InstanceSharedSettings {
                 }),
             (false, _) => line
                 .child(value(shared_text, true))
-                .child(tag("Shared", colors::GRAY_500))
+                .child(tag(t(M::Shared), colors::GRAY_500))
                 .when(!busy, |line| {
                     line.child(
-                        link(("shared-override", id), "Override").on_click(cx.listener(
+                        link(("shared-override", id), t(M::Override)).on_click(cx.listener(
                             move |this, _, _, cx| this.set_overrides(vec![key.clone()], true, cx),
                         )),
                     )
@@ -409,6 +410,28 @@ impl InstanceSharedSettings {
         };
         line.into_any_element()
     }
+}
+
+/// A category's name, in the current language.
+pub fn category_label(category: Category) -> &'static str {
+    t(match category {
+        Category::Controls => M::CategoryControls,
+        Category::Video => M::CategoryVideo,
+        Category::Sound => M::CategorySound,
+        Category::Accessibility => M::CategoryAccessibility,
+        Category::Language => M::CategoryLanguage,
+    })
+}
+
+/// What a category holds, in the current language.
+pub fn category_description(category: Category) -> &'static str {
+    t(match category {
+        Category::Controls => M::CategoryControlsDescription,
+        Category::Video => M::CategoryVideoDescription,
+        Category::Sound => M::CategorySoundDescription,
+        Category::Accessibility => M::CategoryAccessibilityDescription,
+        Category::Language => M::CategoryLanguageDescription,
+    })
 }
 
 /// The labels of up to three keys, for messages.
@@ -423,11 +446,12 @@ fn labels(rows: &[Row], keys: &BTreeMap<String, String>) -> String {
         .collect();
     let more = names.len().saturating_sub(3);
     names.truncate(3);
-    let mut text_ = names.join(", ");
+    let list = format::list(&names);
     if more > 0 {
-        text_.push_str(&format!(" and {more} more"));
+        trn!(P::AndMore, more, names = list)
+    } else {
+        list
     }
-    text_
 }
 
 impl Render for InstanceSharedSettings {
@@ -459,32 +483,25 @@ impl Render for InstanceSharedSettings {
         let changed = self.state.sharing.changed.clone();
 
         let source = if !enabled {
-            "Off: this instance keeps its own options.txt, and nothing is read back from it."
-                .to_string()
+            t(M::SharingOff).to_string()
         } else if is_preferred {
-            "This is the preferred instance: settings you change in-game here update every instance."
-                .to_string()
+            t(M::SharingPreferred).to_string()
         } else {
             match &preferred_name {
-                Some(name) => format!(
-                    "Settings changed in-game in {name} reach this instance at its next launch."
-                ),
-                None => {
-                    "No instance is preferred, so shared values change only in the launcher's Settings."
-                        .to_string()
-                }
+                Some(name) => tr!(M::SharingFrom, name = name),
+                None => t(M::SharingNoPreferred).to_string(),
             }
         };
 
         let mut items: Vec<AnyElement> = vec![
-            SettingRow::new("Use shared settings")
+            SettingRow::new(t(M::UseSharedSettings))
                 .hint(source)
                 .when(enabled && is_preferred, |row| {
-                    row.child(tag("Preferred", colors::GREEN_300))
+                    row.child(tag(t(M::Preferred), colors::GREEN_300))
                 })
                 .when(enabled && !is_preferred, |row| {
                     row.child(
-                        link("make-preferred", "Make preferred")
+                        link("make-preferred", t(M::MakePreferred))
                             .on_click(cx.listener(|this, _, _, cx| this.make_preferred(cx))),
                     )
                 })
@@ -496,10 +513,7 @@ impl Render for InstanceSharedSettings {
                         ),
                 )
                 .when(busy, |row| {
-                    row.note(
-                        "Stop the game to change these: it rewrites options.txt when it quits.",
-                        colors::GRAY_400,
-                    )
+                    row.note(t(M::StopGameToChange), colors::GRAY_400)
                 })
                 .into_any_element(),
         ];
@@ -516,10 +530,7 @@ impl Render for InstanceSharedSettings {
             }
         }
 
-        let mut body = section(
-            "Shared game settings",
-            Some("Mouse, key bindings, video, sound and more from options.txt, kept the same in every instance.".into()),
-        );
+        let mut body = section(t(M::SharedGameSettings), Some(t(M::SharedLead).into()));
         if !changed.is_empty() && enabled {
             let count = changed.len();
             body = body.child(
@@ -533,15 +544,11 @@ impl Render for InstanceSharedSettings {
                     .border_1()
                     .border_color(colors::YELLOW.opacity(30))
                     .bg(colors::YELLOW.opacity(5))
-                    .child(
-                        div()
-                            .text_color(colors::GRAY_300)
-                            .child(format!(
-                                "{count} setting{} you changed in-game ({}) will be replaced by the shared ones next launch.",
-                                if count == 1 { "" } else { "s" },
-                                labels(&rows, &changed)
-                            )),
-                    )
+                    .child(div().text_color(colors::GRAY_300).child(trn!(
+                        P::ChangedInGame,
+                        count,
+                        names = labels(&rows, &changed)
+                    )))
                     .child(
                         div()
                             .flex()
@@ -549,21 +556,23 @@ impl Render for InstanceSharedSettings {
                             .items_center()
                             .gap_3()
                             .child(
-                                Button::new("keep-changes", "Keep them for this instance")
+                                Button::new("keep-changes", t(M::KeepForInstance))
                                     .variant(ButtonVariant::Secondary)
                                     .size(ButtonSize::Slim)
                                     .on_click(cx.listener(|this, _, _, cx| this.keep_changes(cx))),
                             )
                             .child(
-                                muted_link("dismiss-changes", "Dismiss")
-                                    .on_click(cx.listener(|this, _, _, cx| this.dismiss_changes(cx))),
+                                muted_link("dismiss-changes", t(M::Dismiss)).on_click(
+                                    cx.listener(|this, _, _, cx| this.dismiss_changes(cx)),
+                                ),
                             ),
                     ),
             );
         }
         let message = self
             .message
-            .clone()
+            .as_ref()
+            .map(|(message, error)| (message.get(), *error))
             .or(self.state.error.clone().map(|e| (e, true)));
         body.child(card(items))
             .when_some(message, |this, (message, error)| {

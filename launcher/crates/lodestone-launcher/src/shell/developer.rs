@@ -2,59 +2,39 @@
 //! explain it before it is turned on and offer to sign accounts out when it is
 //! turned off.
 
-use gpui::{
-    AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*, px,
-};
-use launcher_core::wording;
-
 use super::{LauncherShell, Modal};
 use crate::{
     components::{
         Button, ButtonVariant, Dialog, Toggle,
         settings::{SettingRow, card},
     },
+    i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     theme::{self, colors, leading, text, weights},
 };
-
-/// The badge on accounts signed in as the Minecraft Launcher.
-pub const BADGE: &str = "Launcher identity";
+use gpui::{
+    AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*, px,
+};
 
 /// The disclosure shown before the option is turned on, as (heading, paragraph).
 pub fn disclosure() -> Vec<(&'static str, SharedString)> {
     vec![
+        (t(M::WhatThisDoes), t(M::WhatThisDoesBody).into()),
+        (t(M::Risks), t(M::RisksBody).into()),
+        (t(M::WhyHere), t(M::WhyHereBody).into()),
         (
-            "What this does",
-            "Lodestone Launcher will tell Microsoft that it is Mojang's official Minecraft Launcher, using that launcher's public client ID, instead of Lodestone's own registered app. Microsoft and Mojang haven't approved this, Lodestone isn't affiliated with them, and it may be against Microsoft's terms for their apps."
-                .into(),
+            t(M::WhenSignIn),
+            tr!(M::WhenSignInBody, add = t(M::AddMicrosoftAccount)).into(),
         ),
         (
-            "Risks",
-            "Microsoft can block this at any time. If it does, accounts signed in this way stop working. Use it only for personal testing until Lodestone's app is approved."
-                .into(),
-        ),
-        (
-            "Why it's here",
-            "Lodestone's own app is still waiting for Mojang's approval, so normal Microsoft sign-in can't finish yet."
-                .into(),
-        ),
-        (
-            "When you sign in",
-            "Add Microsoft account gives you a code. Enter it at microsoft.com/link and sign in to your Microsoft account there. Microsoft's pages may show Minecraft's name instead of Lodestone's. If the code doesn't work, you can sign in with a link instead: your browser opens login.live.com, and you paste back the address of the blank page it ends on."
-                .into(),
-        ),
-        (
-            "What the launcher gets",
-            format!(
-                "The same as a normal sign-in: tokens that let it play Minecraft as that account. The long-lived one is kept in your {} and the rest only in memory. These accounts are marked \"Launcher identity\" in the account menu.",
-                wording::KEYCHAIN_IN_FULL
+            t(M::WhatLauncherGets),
+            tr!(
+                M::WhatLauncherGetsBody,
+                keychain = t(CommonMsg::KeychainInFull),
+                badge = t(M::LauncherIdentity),
             )
             .into(),
         ),
-        (
-            "How to undo it",
-            "Turn this setting off and sign those accounts out. Lodestone Launcher offers to sign them out when you turn it off."
-                .into(),
-        ),
+        (t(M::HowToUndo), t(M::HowToUndoBody).into()),
     ]
 }
 
@@ -69,8 +49,8 @@ fn paragraph(text: impl Into<SharedString>) -> impl IntoElement {
 /// Settings > Developer.
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let enabled = shell.accounts.read(cx).launcher_identity_enabled();
-    card([SettingRow::new("Sign in as the Minecraft Launcher")
-        .hint("New Microsoft sign-ins use the official Minecraft Launcher's app instead of Lodestone's, while Lodestone's waits for Mojang's approval. For personal testing.")
+    card([SettingRow::new(t(M::SignInAsLauncher))
+        .hint(t(M::SignInAsLauncherHint))
         .child(
             Toggle::new("launcher-identity", enabled).on_change(cx.listener(
                 |this, value: &bool, window, cx| this.request_launcher_identity(*value, window, cx),
@@ -127,7 +107,7 @@ impl LauncherShell {
         let entity = cx.entity();
         Dialog::new(
             "enable-launcher-identity",
-            "Sign in as the Minecraft Launcher?",
+            t(M::SignInAsLauncherTitle),
             focus,
         )
         .on_close(move |_, cx| entity.update(cx, |this, cx| this.close_modal(cx)))
@@ -156,7 +136,7 @@ impl LauncherShell {
                 })),
         )
         .footer(
-            Button::new("confirm-launcher-identity", "I understand, turn it on")
+            Button::new("confirm-launcher-identity", t(M::TurnItOn))
                 .variant(ButtonVariant::Primary)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.accounts
@@ -165,7 +145,7 @@ impl LauncherShell {
                 })),
         )
         .footer(
-            Button::new("cancel-launcher-identity", "Cancel")
+            Button::new("cancel-launcher-identity", t(CommonMsg::Cancel))
                 .variant(ButtonVariant::Secondary)
                 .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
         )
@@ -180,53 +160,52 @@ impl LauncherShell {
     ) -> AnyElement {
         let entity = cx.entity();
         let accounts = match usernames {
-            [one] => format!("{one} is signed in as the Minecraft Launcher."),
-            many => format!(
-                "{} accounts are signed in as the Minecraft Launcher: {}.",
-                many.len(),
-                many.join(", ")
-            ),
+            [one] => tr!(M::OneLauncherAccount, name = one),
+            many => trn!(P::LauncherAccounts, many.len(), names = format::list(many)),
         };
-        Dialog::new("disable-launcher-identity", "Turn off the Minecraft Launcher sign-in?", focus)
-            .on_close(move |_, cx| entity.update(cx, |this, cx| this.close_modal(cx)))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(paragraph(
-                        "New Microsoft sign-ins will use Lodestone's own app again.",
-                    ))
-                    .child(paragraph(format!(
-                        "{accounts} Kept accounts go on working until Microsoft blocks this. Signing out removes them from Lodestone Launcher and deletes their saved sign-ins from your {}.",
-                        wording::KEYCHAIN
-                    ))),
-            )
-            .footer(
-                Button::new("disable-and-sign-out", "Turn off and sign out")
-                    .variant(ButtonVariant::Danger)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.accounts.update(cx, |accounts, cx| {
-                            accounts.set_launcher_identity(false, cx);
-                            accounts.sign_out_launcher_identity_accounts(cx);
-                        });
-                        this.close_modal(cx);
-                    })),
-            )
-            .footer(
-                Button::new("disable-keep-accounts", "Turn off only")
-                    .variant(ButtonVariant::Secondary)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.accounts
-                            .update(cx, |accounts, cx| accounts.set_launcher_identity(false, cx));
-                        this.close_modal(cx);
-                    })),
-            )
-            .footer(
-                Button::new("cancel-disable-launcher-identity", "Cancel")
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-            )
-            .into_any_element()
+        Dialog::new(
+            "disable-launcher-identity",
+            t(M::TurnOffLauncherTitle),
+            focus,
+        )
+        .on_close(move |_, cx| entity.update(cx, |this, cx| this.close_modal(cx)))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(paragraph(t(M::TurnOffLauncherBody)))
+                .child(paragraph(tr!(
+                    M::TurnOffLauncherAccounts,
+                    accounts = accounts,
+                    keychain = t(CommonMsg::Keychain),
+                ))),
+        )
+        .footer(
+            Button::new("disable-and-sign-out", t(M::TurnOffAndSignOut))
+                .variant(ButtonVariant::Danger)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.accounts.update(cx, |accounts, cx| {
+                        accounts.set_launcher_identity(false, cx);
+                        accounts.sign_out_launcher_identity_accounts(cx);
+                    });
+                    this.close_modal(cx);
+                })),
+        )
+        .footer(
+            Button::new("disable-keep-accounts", t(M::TurnOffOnly))
+                .variant(ButtonVariant::Secondary)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.accounts
+                        .update(cx, |accounts, cx| accounts.set_launcher_identity(false, cx));
+                    this.close_modal(cx);
+                })),
+        )
+        .footer(
+            Button::new("cancel-disable-launcher-identity", t(CommonMsg::Cancel))
+                .variant(ButtonVariant::Ghost)
+                .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+        )
+        .into_any_element()
     }
 }

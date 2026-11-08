@@ -8,13 +8,13 @@ use gpui::{
     px,
 };
 use launcher_core::settings::{DEFAULT_MIN_RAM_MB, InstanceDefaults, default_max_ram_mb};
-use launcher_core::wording;
 
 use crate::{
     components::{
         TextInput, Toggle,
         settings::{SettingRow, Toast, card},
     },
+    i18n::{CommonMsg, FormatMsg, ShellMsg as M, format, t, tr},
     instances::{
         Instances,
         fields::{self, Fields, Values},
@@ -92,7 +92,7 @@ impl LauncherSettings {
             .instances
             .update(cx, |instances, cx| instances.save_defaults(defaults, cx));
         let (message, error): (SharedString, bool) = match &result {
-            Ok(()) => ("Saved".into(), false),
+            Ok(()) => (t(CommonMsg::Saved).into(), false),
             Err(err) => (err.clone().into(), true),
         };
         self.toast
@@ -133,7 +133,7 @@ impl LauncherSettings {
         let check = self.fields.memory(total, cx);
         let (min, max) = check
             .values
-            .ok_or_else(|| format!("Memory: {}", check.error.unwrap_or_default()))?;
+            .ok_or_else(|| tr!(M::MemoryError, error = check.error.unwrap_or_default()))?;
         // The launcher's own defaults stay unset, so they follow this Mac.
         defaults.min_ram = (min != DEFAULT_MIN_RAM_MB).then_some(min);
         defaults.max_ram = (max != default_max_ram_mb(total)).then_some(max);
@@ -162,12 +162,14 @@ impl Render for LauncherSettings {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let total = self.instances.read(cx).total_memory();
         let memory_check = self.fields.memory(total, cx);
-        let memory_hint = format!(
-            "{} The default is {} MB to {} MB: half this {}'s memory, at most 4 GB.",
-            fields::total_memory_label(total).unwrap_or_default(),
-            DEFAULT_MIN_RAM_MB,
-            crate::instances::thousands(default_max_ram_mb(total).into()),
-            wording::COMPUTER
+        let megabytes = |mb: u64| tr!(FormatMsg::Megabytes, size = format::number(mb));
+        let memory_hint = tr!(
+            M::MemoryDefaultHint,
+            total = fields::total_memory_label(total).unwrap_or_default(),
+            min = megabytes(DEFAULT_MIN_RAM_MB.into()),
+            max = megabytes(default_max_ram_mb(total).into()),
+            computer = t(CommonMsg::ThisComputer),
+            limit = format::memory_mb(4096),
         );
         let window_error = self.fields.window(cx).err();
         let env_error = self.fields.env(cx).err();
@@ -177,12 +179,16 @@ impl Render for LauncherSettings {
             .w_full()
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
             .child(card([
-                SettingRow::new("Memory")
+                SettingRow::new(t(M::Memory))
                     .hint(memory_hint.trim().to_string())
                     .child(sized(&self.fields.min_ram, 84.))
                     .child("–")
                     .child(sized(&self.fields.max_ram, 84.))
-                    .child(div().text_color(colors::GRAY_500).child("MB"))
+                    .child(
+                        div()
+                            .text_color(colors::GRAY_500)
+                            .child(t(M::MegabytesUnit)),
+                    )
                     .note_opt(
                         memory_check
                             .error
@@ -190,8 +196,8 @@ impl Render for LauncherSettings {
                             .or(memory_check.warning.map(|w| (w.into(), colors::YELLOW))),
                     )
                     .into_any_element(),
-                SettingRow::new("Window")
-                    .hint("Leave the size empty for the game's default.")
+                SettingRow::new(t(M::Window))
+                    .hint(t(M::WindowHint))
                     .child(sized(&self.fields.width, 72.))
                     .child("×")
                     .child(sized(&self.fields.height, 72.))
@@ -199,7 +205,7 @@ impl Render for LauncherSettings {
                         div()
                             .ml_2()
                             .text_color(colors::GRAY_400)
-                            .child("Fullscreen"),
+                            .child(t(M::Fullscreen)),
                     )
                     .child(
                         Toggle::new("default-fullscreen", self.fields.fullscreen).on_change(
@@ -211,16 +217,16 @@ impl Render for LauncherSettings {
                     )
                     .note_opt(window_error.map(|e| (e.into(), colors::RED_200)))
                     .into_any_element(),
-                SettingRow::new("JVM arguments")
-                    .hint("Separated by spaces; quote values with spaces.")
+                SettingRow::new(t(M::JvmArguments))
+                    .hint(t(M::JvmArgumentsHint))
                     .child(sized(&self.fields.jvm_args, 280.))
                     .into_any_element(),
-                SettingRow::new("Game arguments")
-                    .hint("Passed to Minecraft itself.")
+                SettingRow::new(t(M::GameArguments))
+                    .hint(t(M::GameArgumentsHint))
                     .child(sized(&self.fields.game_args, 280.))
                     .into_any_element(),
-                SettingRow::new("Environment variables")
-                    .hint("NAME=value, separated by spaces.")
+                SettingRow::new(t(M::EnvironmentVariables))
+                    .hint(t(M::EnvironmentVariablesHint))
                     .child(sized(&self.fields.env, 280.))
                     .note_opt(env_error.map(|e| (e.into(), colors::RED_200)))
                     .into_any_element(),
