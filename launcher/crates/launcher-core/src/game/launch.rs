@@ -572,6 +572,23 @@ pub fn split_args(text: &str) -> Vec<String> {
     args
 }
 
+/// Joins arguments into text that [`split_args`] splits back into the same arguments,
+/// quoting only those that need it: `-Dname=a b` and `-Xss2m` are `"-Dname=a b" -Xss2m`.
+/// Backslashes stay as they are, so Windows paths need no escaping.
+pub fn join_args<S: AsRef<str>>(args: &[S]) -> String {
+    let quote = |arg: &str| {
+        if !arg.is_empty() && !arg.contains(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
+            return arg.to_string();
+        }
+        // `split_args` has no escapes, so a `"` closes the quotes and goes in single ones.
+        format!("\"{}\"", arg.replace('"', r#""'"'""#))
+    };
+    args.iter()
+        .map(|arg| quote(arg.as_ref()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,6 +609,27 @@ mod tests {
             ["-Xss2m", "-Dname=a b", "-Dq=its", ""]
         );
         assert!(split_args("   ").is_empty());
+    }
+
+    #[test]
+    fn joins_arguments_so_they_split_back() {
+        let args = [
+            "-Xss2m",
+            r"-Dpath=C:\Path With Spaces\x",
+            r"-Dunc=\\server\share\dir",
+            r"-Ddir=C:\dir\",
+            r#"-Dq=say "hi", it's"#,
+            "",
+            "-Dtab=a\tb",
+        ];
+        let text = join_args(&args);
+        assert_eq!(
+            text,
+            "-Xss2m \"-Dpath=C:\\Path With Spaces\\x\" -Dunc=\\\\server\\share\\dir \
+             -Ddir=C:\\dir\\ \"-Dq=say \"'\"'\"hi\"'\"'\", it's\" \"\" \"-Dtab=a\tb\""
+        );
+        assert_eq!(split_args(&text), args);
+        assert_eq!(join_args::<&str>(&[]), "");
     }
 
     #[test]
