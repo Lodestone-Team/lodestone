@@ -30,6 +30,7 @@ import {
 } from 'components/Settings/permissionDescriptions';
 import UserApiKeys from 'components/Settings/ApiKeys/UserApiKeys';
 import { useDocumentTitle } from 'usehooks-ts';
+import { NO_SCRIPTING_MESSAGE, useCoreCapabilities } from 'data/SystemInfo';
 
 // a user's permission rows (title, description, toggle) while the user loads
 const PermissionsSkeleton = () => (
@@ -61,6 +62,7 @@ export const UserSettings = () => {
   const canManageUsers = userInfo?.is_owner || false;
   const uid = useUid();
   const { data: globalSettings } = useGlobalSettings();
+  const { macros: macrosAvailable } = useCoreCapabilities();
 
   const updateCachedPermissions = (
     permissions: UserPermission,
@@ -336,10 +338,16 @@ export const UserSettings = () => {
                     Macros, Extensions and Atom Instances
                   </div>
                   <div className="text-medium font-medium tracking-medium text-white/50 italic">
-                    Only the owner can use macros, install extensions, and
-                    create or control atom instances. These can&apos;t be
-                    granted to other users. Docker instances use the normal
-                    instance permissions.
+                    {macrosAvailable ? (
+                      <>
+                        Only the owner can use macros, install extensions, and
+                        create or control atom instances. These can&apos;t be
+                        granted to other users. Docker instances use the normal
+                        instance permissions.
+                      </>
+                    ) : (
+                      NO_SCRIPTING_MESSAGE
+                    )}
                   </div>
                 </div>
               </div>

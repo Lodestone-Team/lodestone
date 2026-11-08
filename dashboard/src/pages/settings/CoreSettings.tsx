@@ -8,7 +8,11 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 import { useCodeExecution } from 'data/CodeExecution';
 import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
 import { LodestoneContext } from 'data/LodestoneContext';
-import { useCoreInfo } from 'data/SystemInfo';
+import {
+  NO_SCRIPTING_MESSAGE,
+  useCoreCapabilities,
+  useCoreInfo,
+} from 'data/SystemInfo';
 import { useUserInfo } from 'data/UserInfo';
 import { Form, Formik, FormikHelpers } from 'formik';
 import { useContext, useState } from 'react';
@@ -62,6 +66,12 @@ export const CoreSettings = () => {
   const allowLanHttp = globalSettings?.allow_lan_http === true;
   const { enabled: codeExecutionEnabled, locked: codeExecutionLocked } =
     useCodeExecution();
+  // without Deno, code execution only covers custom Java commands
+  const { macros: macrosAvailable, isPending: capabilitiesPending } =
+    useCoreCapabilities();
+  const codeExecutionCovers = macrosAvailable
+    ? 'macros, atom instances, extensions, instance scripts and custom Java commands'
+    : 'custom Java commands';
   // use a promise to track if safemode is successfully disabled
 
   const errorString = errorToString(error);
@@ -170,23 +180,23 @@ export const CoreSettings = () => {
     <ToggleBox
       label={'Code Execution'}
       value={codeExecutionEnabled}
-      isLoading={isLoading}
+      isLoading={isLoading || capabilitiesPending}
       error={errorString}
       disabled={!can_change_core_settings || codeExecutionLocked}
       canRead={userInfo !== undefined}
       description={
-        codeExecutionLocked ? (
-          <>
-            Allow macros, atom instances, extensions, instance scripts and
-            custom Java commands to run on this core.
+        <>
+          Allow {codeExecutionCovers} to run on this core.
+          {!macrosAvailable && (
+            <span className="block italic">{NO_SCRIPTING_MESSAGE}</span>
+          )}
+          {codeExecutionLocked && (
             <span className="block italic">
               Locked by the server administrator
               (LODESTONE_DISABLE_CODE_EXECUTION or --disable-code-execution).
             </span>
-          </>
-        ) : (
-          'Allow macros, atom instances, extensions, instance scripts and custom Java commands to run on this core.'
-        )
+          )}
+        </>
       }
       onChange={async (value) => {
         if (value) {
@@ -368,10 +378,11 @@ export const CoreSettings = () => {
       closeButtonText="Cancel"
       type={'danger'}
     >
-      Running macros and atom instances will be stopped. Macros, atom instances,
-      extensions, instance scripts and custom Java commands will not run on this
-      core until you turn code execution back on. Nothing is started again
-      automatically.
+      {macrosAvailable
+        ? 'Running macros and atom instances will be stopped. Macros, atom instances, extensions, instance scripts and custom Java commands'
+        : 'Custom Java commands'}{' '}
+      will not run on this core until you turn code execution back on. Nothing
+      is started again automatically.
     </ConfirmDialog>
   );
 

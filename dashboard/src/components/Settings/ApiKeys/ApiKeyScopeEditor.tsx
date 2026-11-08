@@ -10,6 +10,7 @@ import {
   UnsafePermissions,
 } from 'components/Settings/permissionDescriptions';
 import { canGrantToApiKey } from 'data/ApiKeys';
+import { NO_SCRIPTING_MESSAGE, useCoreCapabilities } from 'data/SystemInfo';
 
 /**
  * The permissions of an API key with a custom scope. The same controls and
@@ -30,6 +31,7 @@ export default function ApiKeyScopeEditor({
   instances: InstanceInfo[];
   safeMode: boolean;
 }) {
+  const { macros: macrosAvailable } = useCoreCapabilities();
   const instanceUuids = instances.map((instance) => instance.uuid);
   const instanceName = (uuid: string) =>
     instances.find((instance) => instance.uuid === uuid)?.name || uuid;
@@ -129,9 +131,15 @@ export default function ApiKeyScopeEditor({
           Macros, Extensions and Atom Instances
         </div>
         <div className="text-medium font-medium tracking-medium text-white/50 italic">
-          Keys with custom access can&apos;t use macros, install extensions, or
-          create or control atom instances, even if they belong to the owner. A
-          key with full access can, if you can.
+          {macrosAvailable ? (
+            <>
+              Keys with custom access can&apos;t use macros, install extensions,
+              or create or control atom instances, even if they belong to the
+              owner. A key with full access can, if you can.
+            </>
+          ) : (
+            NO_SCRIPTING_MESSAGE
+          )}
         </div>
       </div>
     </div>
