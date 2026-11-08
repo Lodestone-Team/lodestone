@@ -28,6 +28,7 @@ pub mod settings;
 pub mod shared_options;
 pub mod skin;
 pub mod storage;
+pub mod wording;
 pub mod worlds;
 
 pub use secret::{MemorySecretStore, Secret, SecretStore};

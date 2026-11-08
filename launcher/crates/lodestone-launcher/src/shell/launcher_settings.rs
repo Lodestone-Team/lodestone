@@ -8,6 +8,7 @@ use gpui::{
     px,
 };
 use launcher_core::settings::{DEFAULT_MIN_RAM_MB, InstanceDefaults, default_max_ram_mb};
+use launcher_core::wording;
 
 use crate::{
     components::{
@@ -162,10 +163,11 @@ impl Render for LauncherSettings {
         let total = self.instances.read(cx).total_memory();
         let memory_check = self.fields.memory(total, cx);
         let memory_hint = format!(
-            "{} The default is {} MB to {} MB: half this Mac's memory, at most 4 GB.",
+            "{} The default is {} MB to {} MB: half this {}'s memory, at most 4 GB.",
             fields::total_memory_label(total).unwrap_or_default(),
             DEFAULT_MIN_RAM_MB,
-            crate::instances::thousands(default_max_ram_mb(total).into())
+            crate::instances::thousands(default_max_ram_mb(total).into()),
+            wording::COMPUTER
         );
         let window_error = self.fields.window(cx).err();
         let env_error = self.fields.env(cx).err();

@@ -44,7 +44,11 @@ impl Cause {
                 "Java refused one of the settings. Check the JVM arguments and memory in Settings."
             }
             Cause::Graphics => {
-                "The game couldn't set up its window or OpenGL. Update macOS, or try without a custom window size or fullscreen."
+                if cfg!(target_os = "macos") {
+                    "The game couldn't set up its window or OpenGL. Update macOS, or try without a custom window size or fullscreen."
+                } else {
+                    "The game couldn't set up its window or OpenGL. Update your graphics drivers, or try without a custom window size or fullscreen."
+                }
             }
         }
     }

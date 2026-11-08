@@ -7,6 +7,7 @@ use gpui::{
     AnyElement, Context, ExternalPaths, IntoElement, ObjectFit, Render, RenderImage, SharedString,
     Window, div, img, prelude::*, px,
 };
+use launcher_core::wording;
 use launcher_core::{
     content::{
         ContentKind,
@@ -678,7 +679,7 @@ impl ContentView {
                         let name = name.clone();
                         if confirming {
                             this.child(
-                                Button::new(("confirm-delete", id_base), "Move to Trash")
+                                Button::new(("confirm-delete", id_base), wording::MOVE_TO_TRASH)
                                     .variant(ButtonVariant::Danger)
                                     .size(ButtonSize::Slim)
                                     .on_click(cx.listener(move |this, _, _, cx| {

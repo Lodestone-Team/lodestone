@@ -15,6 +15,7 @@ use gpui::{
 use launcher_core::auth::{
     AuthError, ClientIdentity, LinkSignIn, MsTokens, loopback::CancelHandle,
 };
+use launcher_core::wording;
 
 use super::Accounts;
 use crate::{
@@ -379,9 +380,10 @@ impl Render for SignInDialog {
                             .child(muted(
                                 "Sign in with the Microsoft account you play Minecraft: Java Edition with. You'll get a code to enter on Microsoft's website.",
                             ))
-                            .child(muted(
-                                "Lodestone Launcher keeps your sign-in in the macOS Keychain.",
-                            )),
+                            .child(muted(format!(
+                                "Lodestone Launcher keeps your sign-in in the {}.",
+                                wording::KEYCHAIN_IN_FULL
+                            ))),
                     )
                     .footer(
                         Button::new("get-code", "Get a code")
@@ -400,9 +402,10 @@ impl Render for SignInDialog {
                             .child(muted(
                                 "Sign in with the Microsoft account you play Minecraft: Java Edition with. Your browser opens to finish signing in.",
                             ))
-                            .child(muted(
-                                "Lodestone Launcher keeps your sign-in in the macOS Keychain.",
-                            )),
+                            .child(muted(format!(
+                                "Lodestone Launcher keeps your sign-in in the {}.",
+                                wording::KEYCHAIN_IN_FULL
+                            ))),
                     )
                     .footer(
                         Button::new("sign-in-browser", "Sign in with Microsoft")
