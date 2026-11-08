@@ -179,7 +179,7 @@ pub fn device_key_name(device: &str) -> String {
         .filter(|c| !c.is_control())
         .collect();
     let device = if device.is_empty() {
-        "this Mac".to_string()
+        format!("this {}", crate::wording::COMPUTER)
     } else {
         device
     };
@@ -330,7 +330,10 @@ mod tests {
             device_key_name("Peters-MacBook.local"),
             "Lodestone Launcher on Peters-MacBook"
         );
-        assert_eq!(device_key_name(""), "Lodestone Launcher on this Mac");
+        assert_eq!(
+            device_key_name(""),
+            format!("Lodestone Launcher on this {}", crate::wording::COMPUTER)
+        );
         assert_eq!(device_key_name(&"x".repeat(100)).chars().count(), 64);
         assert_eq!(device_key_name("a\u{7}b"), "Lodestone Launcher on ab");
         assert!(!host_name().contains('\0'));

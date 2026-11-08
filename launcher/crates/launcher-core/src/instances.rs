@@ -479,7 +479,7 @@ pub enum InstanceError {
         #[source]
         source: io::Error,
     },
-    #[error("couldn't move {path} to the Trash: {reason}")]
+    #[error("couldn't move {path} to {trash}: {reason}", trash = crate::wording::TRASH)]
     Trash { path: PathBuf, reason: String },
     #[error("couldn't use {path} as the icon: {reason}")]
     Icon { path: PathBuf, reason: String },
