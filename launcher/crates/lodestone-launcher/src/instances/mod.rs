@@ -17,7 +17,7 @@ use gpui::{App, AppContext as _, Context, Entity, EventEmitter, SharedString, Ta
 use launcher_core::{
     game::{
         crash::{self, CrashSummary, Outcome},
-        download::{CancelToken, Downloader, ProgressSnapshot, Sleep},
+        download::{CancelToken, Downloader, ProgressSnapshot, Sleep, Verify},
         install::{InstallError, InstallProgress, Installer, JavaChoice, Stage},
         launch::{self, LaunchCommand},
         log4j::{self, Level, LogLine, Redactor, Stream},
@@ -209,6 +209,11 @@ pub struct CrashInfo {
 pub enum InstancesEvent {
     Crashed(CrashInfo),
     LaunchFailed {
+        title: SharedString,
+        message: SharedString,
+    },
+    /// Something to tell the user, such as the result of "Verify game files".
+    Notice {
         title: SharedString,
         message: SharedString,
     },
@@ -516,6 +521,8 @@ impl Instances {
             let settings = instance.game_settings();
             let version = instance.game_version.clone();
             let prepare_progress = progress.clone();
+            let check_started = Instant::now();
+            let stats_progress = progress.clone();
             let prepared = cx
                 .background_spawn(async move {
                     std::fs::create_dir_all(&game_dir).map_err(|source| InstallError::Io {
@@ -547,7 +554,15 @@ impl Instances {
                 })
                 .await;
             this.update(cx, |this, cx| match prepared {
-                Ok((command, rosetta)) => this.start(&id, command, rosetta, cx),
+                Ok((command, rosetta)) => {
+                    if let Some(run) = this.runs.get_mut(&id) {
+                        run.log.note(
+                            Level::Info,
+                            check_summary(&stats_progress, check_started.elapsed()),
+                        );
+                    }
+                    this.start(&id, command, rosetta, cx)
+                }
                 Err(InstallError::Cancelled) => {
                     if let Some(run) = this.runs.get_mut(&id) {
                         run.log.note(Level::Warn, "Cancelled");
@@ -563,6 +578,104 @@ impl Instances {
                 Err(err) => this.fail(
                     &id,
                     "Couldn't start Minecraft".into(),
+                    err.to_string().into(),
+                    cx,
+                ),
+            })
+            .ok();
+        });
+        if let Some(run) = self.runs.get_mut(&run_id) {
+            run.task = Some(task);
+        }
+    }
+
+    /// "Verify game files": hashes every file of the instance's version, downloads
+    /// what is missing or broken, and rewrites the install records. Nothing starts.
+    pub fn verify(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.is_active(id) {
+            return;
+        }
+        let Ok(instance) = self.store.get(id) else {
+            return;
+        };
+        let progress = Arc::new(InstallProgress::default());
+        let cancel = CancelToken::new();
+        let run = self.runs.entry(id.to_string()).or_default();
+        run.log.note(
+            Level::Info,
+            format!(
+                "Verifying the game files of Minecraft {}",
+                instance.game_version
+            ),
+        );
+        run.state = RunState::Preparing {
+            progress: progress.clone(),
+            cancel: cancel.clone(),
+        };
+        run.ticker = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(150))
+                    .await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        }));
+        cx.notify();
+        let installer = self.installer.clone();
+        let machine = self.machine.clone();
+        let game_dir = self.store.game_dir(id);
+        let java = match &instance.java_override {
+            Some(path) => JavaChoice::Override(path.clone()),
+            None => JavaChoice::Mojang,
+        };
+        let id = id.to_string();
+        let run_id = id.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let started = Instant::now();
+            let verify_progress = progress.clone();
+            let result = cx
+                .background_spawn(async move {
+                    installer
+                        .prepare_with(
+                            &instance.game_version,
+                            &machine,
+                            &java,
+                            &game_dir,
+                            Verify::Full,
+                            &verify_progress,
+                            &cancel,
+                        )
+                        .await
+                })
+                .await;
+            this.update(cx, |this, cx| match result {
+                Ok(_) => {
+                    let summary = check_summary(&progress, started.elapsed());
+                    if let Some(run) = this.runs.get_mut(&id) {
+                        run.log.note(Level::Info, summary.clone());
+                    }
+                    this.set_idle(&id, cx);
+                    let (_, _, repaired) = progress.stats.counts();
+                    cx.emit(InstancesEvent::Notice {
+                        title: "Game files verified".into(),
+                        message: if repaired == 0 {
+                            format!("Every file was intact. {summary}").into()
+                        } else {
+                            format!("{repaired} missing or damaged file(s) were downloaded again. {summary}").into()
+                        },
+                    });
+                }
+                Err(InstallError::Cancelled) => {
+                    if let Some(run) = this.runs.get_mut(&id) {
+                        run.log.note(Level::Warn, "Cancelled");
+                    }
+                    this.set_idle(&id, cx);
+                }
+                Err(err) => this.fail(
+                    &id,
+                    "Couldn't verify the game files".into(),
                     err.to_string().into(),
                     cx,
                 ),
@@ -793,6 +906,19 @@ pub fn thousands(value: u64) -> String {
         out.push(c);
     }
     out
+}
+
+/// "Checked 4,091 game files in 45 ms: 4,091 unchanged, 0 hashed, 0 downloaded."
+fn check_summary(progress: &InstallProgress, elapsed: Duration) -> String {
+    let (trusted, hashed, downloaded) = progress.stats.counts();
+    format!(
+        "Checked {} game files in {} ms: {} unchanged since the last check, {} hashed, {} downloaded.",
+        thousands(trusted + hashed + downloaded),
+        thousands(elapsed.as_millis() as u64),
+        thousands(trusted),
+        thousands(hashed),
+        thousands(downloaded),
+    )
 }
 
 /// "2 h 5 min", "12 min", "Never".

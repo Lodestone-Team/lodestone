@@ -277,6 +277,7 @@ impl Render for InstanceSettings {
         };
         let fullscreen = self.fullscreen;
         let id = self.instance_id.clone();
+        let busy = self.instances.read(cx).is_active(&id);
         div()
             .id("instance-settings")
             .flex()
@@ -429,6 +430,22 @@ impl Render for InstanceSettings {
                         Button::new("save-settings", "Save")
                             .variant(ButtonVariant::Primary)
                             .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
+                    )
+                    .child(
+                        Button::new("verify-files", "Verify game files")
+                            .variant(ButtonVariant::Secondary)
+                            .disabled(busy)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                let id = this.instance_id.clone();
+                                this.instances
+                                    .update(cx, |instances, cx| instances.verify(&id, cx));
+                                this.message = Some((
+                                    "Checking every file; the progress is on the Play button."
+                                        .into(),
+                                    false,
+                                ));
+                                cx.notify();
+                            })),
                     )
                     .child(
                         Button::new("delete-instance", "Delete instance…")

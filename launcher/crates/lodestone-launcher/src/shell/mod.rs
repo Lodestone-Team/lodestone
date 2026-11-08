@@ -136,7 +136,8 @@ impl LauncherShell {
             }),
             cx.subscribe(&instances, |this, _, event, cx| match event {
                 InstancesEvent::Crashed(crash) => this.show_crash(crash.clone(), cx),
-                InstancesEvent::LaunchFailed { title, message } => {
+                InstancesEvent::LaunchFailed { title, message }
+                | InstancesEvent::Notice { title, message } => {
                     this.modal = Some(Modal::LaunchFailed {
                         title: title.clone(),
                         message: message.clone(),
