@@ -135,6 +135,73 @@ impl Document for ServersFile {
     const MIGRATIONS: &'static [Migration] = &[Ok];
 }
 
+/// Whether two entries are for the same core: the same id, or the same address. Only
+/// one core answers at an address, so a second entry for it is a stale copy.
+fn same_core(a: &SavedCore, b: &SavedCore) -> bool {
+    a.uuid == b.uuid || a.url == b.url
+}
+
+/// The entry that "Add server" or "Sign in" for the core at `url`, which says its id is
+/// `uuid`, updates: the entry with that id, else one at the same address (a signed-in
+/// one first). A core makes a new id each time it starts, so after a restart the entry
+/// added under the old id is still the one for this address, and signing in from it
+/// must not add a second one.
+pub fn find_existing(cores: &[SavedCore], uuid: &str, url: &str) -> Option<usize> {
+    cores.iter().position(|c| c.uuid == uuid).or_else(|| {
+        let at = |signed_in: bool| {
+            cores
+                .iter()
+                .position(|c| c.url == url && c.signed_in() == signed_in)
+        };
+        at(true).or_else(|| at(false))
+    })
+}
+
+/// An entry [`dedupe`] took out, and the id of the entry that stays for the same core.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Merged {
+    pub removed: SavedCore,
+    pub into: String,
+}
+
+/// Takes out every entry that is for the same core as another (see [`same_core`]),
+/// returning them in the order they were taken out. The entry at `keep` stays; for
+/// other pairs the signed-in entry stays, else the one added later. `saved` reads an
+/// entry's [`SavedCore`], so this works on the page's entries as on the file's.
+pub fn dedupe<T>(
+    entries: &mut Vec<T>,
+    saved: impl Fn(&T) -> &SavedCore,
+    mut keep: Option<usize>,
+) -> Vec<Merged> {
+    let mut merged = Vec::new();
+    loop {
+        let pair = (0..entries.len())
+            .flat_map(|i| (i + 1..entries.len()).map(move |j| (i, j)))
+            .find(|&(i, j)| same_core(saved(&entries[i]), saved(&entries[j])));
+        let Some((i, j)) = pair else {
+            break;
+        };
+        let (stay, gone) = if keep == Some(i) {
+            (i, j)
+        } else if keep == Some(j) {
+            (j, i)
+        } else if saved(&entries[i]).signed_in() && !saved(&entries[j]).signed_in() {
+            (i, j)
+        } else {
+            (j, i)
+        };
+        let into = saved(&entries[stay]).uuid.clone();
+        let removed = saved(&entries.remove(gone)).clone();
+        if let Some(k) = keep.as_mut()
+            && *k > gone
+        {
+            *k -= 1;
+        }
+        merged.push(Merged { removed, into });
+    }
+    merged
+}
+
 /// `servers.json` in the data directory.
 pub fn servers_file(data_root: &Path) -> PathBuf {
     data_root.join("servers.json")
@@ -322,6 +389,93 @@ mod tests {
         let mut edited = core.clone();
         edited.trusted_as = None;
         assert!(!edited.is_trusted());
+    }
+
+    fn core(uuid: &str, url: &str, signed_in: bool) -> SavedCore {
+        SavedCore {
+            uuid: uuid.into(),
+            url: url.into(),
+            name: "Home".into(),
+            username: signed_in.then(|| "steve".into()),
+            key_id: signed_in.then(|| format!("key-{uuid}")),
+            ..SavedCore::default()
+        }
+    }
+
+    const HOME: &str = "http://localhost:16662";
+
+    #[test]
+    fn signing_in_after_a_core_restart_updates_the_same_entry() {
+        // added anonymously; the core restarted since and has a new id
+        let cores = vec![
+            core("friend", "https://10.0.0.2:16662", true),
+            core("before-restart", HOME, false),
+        ];
+        assert_eq!(find_existing(&cores, "after-restart", HOME), Some(1));
+        // the id still wins over the address
+        assert_eq!(
+            find_existing(&cores, "friend", "https://friend.example:16662"),
+            Some(0)
+        );
+        assert_eq!(
+            find_existing(&cores, "after-restart", "http://127.0.0.1:16662"),
+            None
+        );
+        // of two entries at the address, the signed-in one
+        let cores = vec![core("a", HOME, false), core("b", HOME, true)];
+        assert_eq!(find_existing(&cores, "c", HOME), Some(1));
+    }
+
+    #[test]
+    fn duplicates_merge_into_the_signed_in_entry() {
+        // what signing in used to do: a second, signed-in entry for the same address
+        let mut cores = vec![
+            core("anonymous", HOME, false),
+            core("friend", "https://10.0.0.2:16662", false),
+            core("signed-in", HOME, true),
+        ];
+        let merged = dedupe(&mut cores, |c| c, None);
+        assert_eq!(
+            merged,
+            [Merged {
+                removed: core("anonymous", HOME, false),
+                into: "signed-in".into(),
+            }]
+        );
+        assert_eq!(
+            cores,
+            [
+                core("friend", "https://10.0.0.2:16662", false),
+                core("signed-in", HOME, true)
+            ]
+        );
+        assert!(dedupe(&mut cores, |c| c, None).is_empty());
+    }
+
+    #[test]
+    fn dedupe_keeps_the_entry_asked_for() {
+        // the entry just signed in to stays, even before an older signed-in copy
+        let mut cores = vec![
+            core("old", HOME, true),
+            core("same-id", "http://127.0.0.1:16662", false),
+            core("new", "http://127.0.0.1:16662", false),
+            core("new", HOME, true),
+        ];
+        let merged = dedupe(&mut cores, |c| c, Some(3));
+        assert_eq!(cores, [core("new", HOME, true)]);
+        let removed: Vec<&str> = merged.iter().map(|m| m.removed.uuid.as_str()).collect();
+        assert_eq!(removed, ["old", "same-id", "new"]);
+        assert!(merged.iter().all(|m| m.into == "new"));
+
+        // without a preference, the later of two anonymous entries stays
+        let mut cores = vec![core("a", HOME, false), core("b", HOME, false)];
+        dedupe(&mut cores, |c| c, None);
+        assert_eq!(cores, [core("b", HOME, false)]);
+
+        // works on any entry that holds a SavedCore
+        let mut entries = vec![(1, core("a", HOME, false)), (2, core("b", HOME, true))];
+        dedupe(&mut entries, |(_, c)| c, Some(0));
+        assert_eq!(entries, [(1, core("a", HOME, false))]);
     }
 
     #[test]
