@@ -3,9 +3,9 @@
 //! are kept until Save; the Settings dialog shows the bar with Save and Discard, and
 //! asks before closing over unsaved ones.
 
+use crate::theme::px;
 use gpui::{
     App, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div, prelude::*,
-    px,
 };
 use launcher_core::settings::{DEFAULT_MIN_RAM_MB, InstanceDefaults, default_max_ram_mb};
 

@@ -2,6 +2,7 @@
 //! and read back after the game exits ([`launcher_core::shared_options`]), and the
 //! "Shared game settings" section of an instance's Settings tab.
 
+use crate::theme::px;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
@@ -9,7 +10,7 @@ use std::{
 
 use gpui::{
     AnyElement, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
-    prelude::*, px,
+    prelude::*,
 };
 use launcher_core::{
     game::log4j::Level,

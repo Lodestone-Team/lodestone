@@ -34,11 +34,12 @@
 //! changes in the dialog's own code: an unmigrated `Option` still compiles and opens
 //! animated, and closes at once.
 
+use crate::theme::px;
 use std::{rc::Rc, time::Duration};
 
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ElementId, FocusHandle, Hsla, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, Window, div, point, prelude::*, px,
+    MouseButton, ParentElement, RenderOnce, SharedString, Window, div, point, prelude::*,
 };
 
 use super::focus;
@@ -102,7 +103,7 @@ impl Dialog {
             body: Vec::new(),
             footer: Vec::new(),
             on_close: None,
-            width: layout::DIALOG_WIDTH,
+            width: layout::dialog_width(),
             frameless: None,
             edge_to_edge: None,
         }

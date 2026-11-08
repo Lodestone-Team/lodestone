@@ -339,6 +339,7 @@ impl Instances {
             ),
         };
         crate::i18n::apply(settings.language);
+        crate::theme::zoom::set(settings.zoom);
         crate::set_menus(cx);
         let mut this = Self {
             store,
@@ -488,6 +489,15 @@ impl Instances {
         }
         crate::i18n::apply(language);
         crate::set_menus(cx);
+        cx.refresh_windows();
+    }
+
+    /// Changes the interface's zoom (within the levels), saves it, and redraws.
+    pub fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
+        let zoom = crate::theme::zoom::set(zoom);
+        if let Err(err) = self.update_settings(|settings| settings.zoom = zoom, cx) {
+            self.notice = Some(err.into());
+        }
         cx.refresh_windows();
     }
 

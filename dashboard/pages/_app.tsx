@@ -11,6 +11,7 @@ import ReactGA from 'react-ga4';
 import ClientOnly from 'components/ClientOnly';
 import { useEffect } from 'react';
 import { initTheme, useResolvedTheme } from 'utils/theme';
+import { initDesktopZoom } from 'utils/zoom';
 import { I18nProvider } from 'i18n';
 
 // Font Awesome styles are imported (into a cascade layer) by globals.css
@@ -31,6 +32,8 @@ function MyApp({ Component, pageProps }: AppProps) {
   const theme = useResolvedTheme();
   // follow OS theme changes (for the "system" preference) and other tabs
   useEffect(initTheme, []);
+  // Ctrl/⌘ + and − in the desktop app
+  useEffect(initDesktopZoom, []);
 
   const renderIcon = (props: IconProps) => {
     // Cannot assign 'Success' to EventLevel, so I guess there won't be a success toast

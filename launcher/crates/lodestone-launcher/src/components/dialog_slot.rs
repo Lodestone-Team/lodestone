@@ -6,6 +6,7 @@
 //! a list of closing dialogs, which are still rendered, fading out, until their exit
 //! is over. See the module docs of [`super::dialog`] for how to use it.
 
+use crate::theme::px;
 use std::{
     cell::Cell,
     sync::atomic::{AtomicU64, Ordering},
@@ -14,7 +15,7 @@ use std::{
 
 use gpui::{
     AnyElement, AnyWindowHandle, Context, ElementId, FocusHandle, IntoElement, Window, div,
-    prelude::*, px,
+    prelude::*,
 };
 
 use super::dialog::prefers_reduced_motion;

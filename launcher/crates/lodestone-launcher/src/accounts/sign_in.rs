@@ -5,6 +5,7 @@
 //! signs in with the official launcher's client instead: a device code by default,
 //! or a pasted link from login.live.com's final page.
 
+use crate::theme::px;
 use std::time::Duration;
 
 use super::{Accounts, auth_errors};
@@ -16,7 +17,7 @@ use crate::{
 use futures::FutureExt as _;
 use gpui::{
     AsyncApp, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
-    Render, SharedString, Task, WeakEntity, Window, div, prelude::*, px,
+    Render, SharedString, Task, WeakEntity, Window, div, prelude::*,
 };
 use launcher_core::auth::{
     AuthError, ClientIdentity, LinkSignIn, MsTokens, loopback::CancelHandle,

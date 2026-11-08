@@ -1,7 +1,8 @@
 //! The main area: the selected instance's header and tabs, the tab's content, and
 //! the bottom bar with the large Play button.
 
-use gpui::{Context, IntoElement, ObjectFit, SharedString, div, img, prelude::*, px};
+use crate::theme::px;
+use gpui::{Context, IntoElement, ObjectFit, SharedString, div, img, prelude::*};
 use launcher_core::instances::Instance;
 
 use super::{InstanceTab, LauncherShell, loader_label};

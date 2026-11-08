@@ -4,9 +4,10 @@
 //! instance's Settings tab in its compact form: two settings rows, the loaders as one
 //! segmented control and the version in a dropdown.
 
+use crate::theme::px;
 use gpui::{
     AnyElement, Context, Entity, IntoElement, Render, SharedString, Subscription,
-    UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
+    UniformListScrollHandle, Window, div, prelude::*, uniform_list,
 };
 use launcher_core::game::loaders::{LoaderChoice, LoaderKind, LoaderVersion};
 

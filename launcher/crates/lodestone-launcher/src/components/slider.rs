@@ -1,9 +1,10 @@
+use crate::theme::px;
 use std::rc::Rc;
 
 use gpui::{
     App, Bounds, DispatchPhase, ElementId, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, Pixels, RenderOnce, SharedString, Window, canvas, div,
-    prelude::*, px,
+    prelude::*,
 };
 
 use super::focus::KeyboardFocus;

@@ -4,11 +4,12 @@
 //! Links open in the browser. Images are drawn only when the caller has them (it loads
 //! them from Modrinth's CDN, with a size cap); otherwise their alt text is shown.
 
+use crate::theme::px;
 use std::{collections::HashMap, ops::Range, sync::Arc};
 
 use gpui::{
     AnyElement, FontStyle, HighlightStyle, InteractiveText, IntoElement, ObjectFit, RenderImage,
-    SharedString, StrikethroughStyle, StyledText, UnderlineStyle, div, img, prelude::*, px,
+    SharedString, StrikethroughStyle, StyledText, UnderlineStyle, div, img, prelude::*,
 };
 use launcher_core::markdown::{Block, Inline};
 

@@ -6,6 +6,11 @@ pub fn text(message: M) -> &'static str {
         M::Language => "Langue",
         M::LanguageSystem => "Système",
         M::LanguageSystemIs => "Système ({language})",
+        M::Zoom => "Zoom",
+        M::ViewMenu => "Présentation",
+        M::ZoomIn => "Zoom avant",
+        M::ZoomOut => "Zoom arrière",
+        M::ActualSize => "Taille réelle",
 
         M::Play => "Jouer",
         M::Playing => "En jeu",

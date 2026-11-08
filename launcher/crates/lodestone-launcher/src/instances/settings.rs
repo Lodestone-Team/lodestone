@@ -9,11 +9,12 @@
 //! and can't be saved. One-off actions (the icon, the background, Unlink and the
 //! Maintenance buttons) happen at once.
 
+use crate::theme::px;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, IntoElement, ObjectFit, PathPromptOptions,
-    Render, RenderImage, SharedString, Subscription, Task, Window, div, img, prelude::*, px,
+    Render, RenderImage, SharedString, Subscription, Task, Window, div, img, prelude::*,
 };
 use launcher_core::{
     content::loader_change::{self, LoaderChangeCheck},
@@ -37,7 +38,7 @@ use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, LoadingDots, TextInput, Toggle,
         settings::{
-            CONTENT_WIDTH, SectionNav, SettingRow, Toast, card, left_overlay, link, muted_link,
+            SectionNav, SettingRow, Toast, card, content_width, left_overlay, link, muted_link,
             popover, popover_panel, section, section_list, section_menu_button, tag, unsaved_bar,
             value,
         },
@@ -51,7 +52,9 @@ use crate::{
 
 /// Below this window width the list of sections opens from a button instead of
 /// standing beside the settings.
-const NARROW_BELOW: gpui::Pixels = px(1040.);
+fn narrow_below() -> gpui::Pixels {
+    px(1040.)
+}
 
 /// How many screenshots the background picker offers.
 const SHOTS_OFFERED: usize = 24;
@@ -1846,7 +1849,7 @@ impl Render for InstanceSettings {
         let active = self.nav.active(titles.len());
         // Too narrow for the list beside the settings (the window less the sidebar
         // and the page's padding): it opens over them from a button instead.
-        let narrow = viewport_width < NARROW_BELOW;
+        let narrow = viewport_width < narrow_below();
         if !narrow {
             self.nav_open = false;
         }
@@ -1881,7 +1884,7 @@ impl Render for InstanceSettings {
             .children(
                 sections
                     .into_iter()
-                    .map(|(_, element)| div().w_full().max_w(CONTENT_WIDTH).child(element)),
+                    .map(|(_, element)| div().w_full().max_w(content_width()).child(element)),
             );
         let root = div()
             .relative()

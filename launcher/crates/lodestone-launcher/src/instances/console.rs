@@ -4,11 +4,12 @@
 //! The list follows new output until the user scrolls up, and follows again once
 //! they scroll back to the bottom. It keeps the last 10,000 rows.
 
+use crate::theme::px;
 use std::collections::BTreeSet;
 
 use gpui::{
     ClipboardItem, Context, Entity, IntoElement, Render, ScrollEvent, ScrollStrategy, SharedString,
-    Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
+    Subscription, UniformListScrollHandle, Window, div, prelude::*, uniform_list,
 };
 use launcher_core::game::log4j::{Level, Stream};
 
