@@ -19,8 +19,14 @@ runtime-shaders = ["gpui_platform/runtime_shaders"]
 screenshot = ["gpui_platform/test-support"]
 
 [dependencies]
+anyhow.workspace = true
+futures.workspace = true
 gpui.workspace = true
 gpui_platform = { workspace = true, features = ["font-kit"] }
+http_client.workspace = true
+image.workspace = true
+launcher-core.workspace = true
+url.workspace = true
 
 [[example]]
 name = "components"

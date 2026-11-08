@@ -2896,8 +2896,14 @@ dependencies = [
 name = "lodestone-launcher"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "futures",
  "gpui",
  "gpui_platform",
+ "http_client",
+ "image",
+ "launcher-core",
+ "url",
 ]
 
 [[package]]

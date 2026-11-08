@@ -290,7 +290,7 @@ impl RenderOnce for Button {
 
 /// Three pulsing dots, standing in for the dashboard's `BeatLoader`.
 #[derive(IntoElement)]
-struct LoadingDots;
+pub struct LoadingDots;
 
 impl RenderOnce for LoadingDots {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
