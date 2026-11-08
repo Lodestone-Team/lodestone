@@ -8,4 +8,12 @@ export type ModrinthMatch = { project_id: string, version_id: string, slug: stri
 /**
  * Only filled when updates were checked.
  */
-update: ModrinthUpdate | null, };
+update: ModrinthUpdate | null, 
+/**
+ * The project's `client_side`: `required`, `optional`, `unsupported` or `unknown`.
+ */
+client_side: string, 
+/**
+ * The project's `server_side`, with the same values.
+ */
+server_side: string, };

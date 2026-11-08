@@ -5,12 +5,11 @@ import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
 import Spinner from './Spinner';
 import { useUserAuthorized, useUserLoggedIn } from 'data/UserInfo';
-import UserMenu from 'components/UserMenu';
 import clsx from 'clsx';
 import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import IntegrationsList from './IntegrationsList';
-import CoreConnectionStatus from './CoreConnectionStatus';
+import SidebarFooter from './SidebarFooter';
 
 // the create form (formik, yup, setup manifests) loads when it is first opened
 const CreateInstanceFlow = lazy(
@@ -36,8 +35,7 @@ export default function LeftNav({ className }: { className?: string }) {
       // eslint-disable-next-line tailwindcss/no-contradicting-classname
       className={`overflow-y-overlay flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
     >
-      <div className="mt-10 flex w-full grow flex-col">
-        <UserMenu />
+      <div className="mt-8 flex w-full grow flex-col">
         <Transition
           appear
           show={showCreateInstance}
@@ -95,9 +93,7 @@ export default function LeftNav({ className }: { className?: string }) {
           </InstanceList>
         </div>
       </div>
-      <div className="sticky bottom-0 w-full border-t border-fade-700 bg-gray-850 py-2">
-        <CoreConnectionStatus />
-      </div>
+      <SidebarFooter />
     </div>
   );
 }

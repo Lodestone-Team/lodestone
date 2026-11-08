@@ -24,7 +24,7 @@ use crate::implementations::minecraft::{
 use crate::modpack::store::StoredPack;
 use crate::modpack::{
     describe_skipped, install_pack_contents, read_pack_async, write_port, ModpackInfo,
-    MAX_PACK_FILE_BYTES,
+    ModpackOrigin, MAX_PACK_FILE_BYTES,
 };
 use crate::modrinth::links::check_api_segment;
 use crate::modrinth::CDN_HOST;
@@ -229,10 +229,7 @@ async fn create_modpack_instance(
     let stored = match &request.source {
         ModpackSource::Modrinth { version_id } => modrinth_pack(&state, version_id).await?,
         ModpackSource::Upload { upload_id } => {
-            requester
-                .require(&state, UserAction::WriteGlobalFile)
-                .await?;
-            state
+            let stored = state
                 .mods
                 .packs
                 .get(upload_id)
@@ -242,7 +239,15 @@ async fn create_modpack_instance(
                     source: eyre!(
                         "The modpack was not found. Packs are kept for one hour; upload it again"
                     ),
-                })?
+                })?;
+            // an `upload_id` from `/modpack/inspect` is a Modrinth pack; only packs that
+            // were really uploaded need the permission to add any jar
+            if stored.uploader.is_some() {
+                requester
+                    .require(&state, UserAction::WriteGlobalFile)
+                    .await?;
+            }
+            stored
         }
     };
     // scripts in a pack are only copied for the owner, while code execution is on
@@ -251,6 +256,12 @@ async fn create_modpack_instance(
     if let Some(reason) = &pack.info.unsupported_reason {
         return Err(bad_request(reason.clone()));
     }
+    let origin = match &stored.version_id {
+        Some(version_id) => {
+            ModpackOrigin::from_modrinth(state.mods.modrinth.as_ref(), version_id).await?
+        }
+        None => ModpackOrigin::from_upload(&pack.info),
+    };
     let loader_version = pack
         .info
         .loader_version
@@ -272,6 +283,7 @@ async fn create_modpack_instance(
         auto_start: request.auto_start,
         restart_on_crash: request.restart_on_crash,
         backup_period: None,
+        modpack: Some(origin),
     };
     let title = format!(
         "Setting up Minecraft server {} from {}",

@@ -4,6 +4,7 @@
 //! metadata inside each jar, and a Modrinth lookup by SHA-512 hash (cached in memory).
 //! A mod is disabled by renaming `<name>.jar` to `<name>.jar.disabled`.
 
+pub mod client;
 pub mod install;
 pub mod metadata;
 pub mod restart;
@@ -23,6 +24,7 @@ use crate::modrinth::{search::compatible_loaders, ModrinthApi, ModrinthProject, 
 use crate::traits::t_configurable::{Game, MinecraftVariant};
 use crate::types::InstanceUuid;
 
+pub use client::ClientRequirement;
 pub use scan::ScannedFile;
 
 /// Mods and plugins may be at most this large.
@@ -30,50 +32,13 @@ pub const MAX_MOD_BYTES: u64 = 512 * 1024 * 1024;
 
 const DISABLED_SUFFIX: &str = ".disabled";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum InstalledModKind {
-    Mod,
-    Plugin,
-}
+pub use lodestone_minecraft::jar::{InstalledModKind, InstalledModLoader, ModFileMetadata};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum InstalledModLoader {
-    Fabric,
-    Forge,
-    Paper,
-    Spigot,
-}
-
-impl InstalledModLoader {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            InstalledModLoader::Fabric => "fabric",
-            InstalledModLoader::Forge => "forge",
-            InstalledModLoader::Paper => "paper",
-            InstalledModLoader::Spigot => "spigot",
-        }
-    }
-
-    pub fn kind(&self) -> InstalledModKind {
-        match self {
-            InstalledModLoader::Fabric | InstalledModLoader::Forge => InstalledModKind::Mod,
-            InstalledModLoader::Paper | InstalledModLoader::Spigot => InstalledModKind::Plugin,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub struct ModFileMetadata {
-    pub id: Option<String>,
-    pub name: Option<String>,
-    pub version: Option<String>,
-    pub description: Option<String>,
-    pub authors: Vec<String>,
+#[cfg(test)]
+crate::export_shared_bindings! {
+    export_bindings_installedmodkind => InstalledModKind,
+    export_bindings_installedmodloader => InstalledModLoader,
+    export_bindings_modfilemetadata => ModFileMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -95,6 +60,10 @@ pub struct ModrinthMatch {
     pub version_number: String,
     /// Only filled when updates were checked.
     pub update: Option<ModrinthUpdate>,
+    /// The project's `client_side`: `required`, `optional`, `unsupported` or `unknown`.
+    pub client_side: String,
+    /// The project's `server_side`, with the same values.
+    pub server_side: String,
 }
 
 impl ModrinthMatch {
@@ -111,6 +80,14 @@ impl ModrinthMatch {
             icon_url: project.and_then(|p| p.icon_url.clone()),
             version_number: version.version_number.clone(),
             update: None,
+            client_side: project
+                .map(|p| p.client_side.clone())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "unknown".to_string()),
+            server_side: project
+                .map(|p| p.server_side.clone())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "unknown".to_string()),
         }
     }
 }
@@ -126,10 +103,29 @@ pub struct InstalledMod {
     pub sha512: String,
     pub metadata: Option<ModFileMetadata>,
     pub modrinth: Option<ModrinthMatch>,
+    /// Whether players need this mod too.
+    pub client_requirement: ClientRequirement,
+    /// The display names of the installed mods that make players need this one.
+    pub required_by: Vec<String>,
 }
 
 impl InstalledMod {
-    pub fn new(file: ScannedFile, modrinth: Option<ModrinthMatch>) -> Self {
+    /// A mod with its own client requirement, without looking at other mods.
+    pub fn new(
+        file: ScannedFile,
+        modrinth: Option<ModrinthMatch>,
+        loader: InstalledModLoader,
+    ) -> Self {
+        let requirement = client::base_requirement(loader, &file, modrinth.as_ref());
+        Self::with_requirement(file, modrinth, requirement, Vec::new())
+    }
+
+    pub fn with_requirement(
+        file: ScannedFile,
+        modrinth: Option<ModrinthMatch>,
+        client_requirement: ClientRequirement,
+        required_by: Vec<String>,
+    ) -> Self {
         InstalledMod {
             file_name: file.file_name,
             enabled: file.enabled,
@@ -137,6 +133,8 @@ impl InstalledMod {
             sha512: file.sha512,
             metadata: file.metadata,
             modrinth,
+            client_requirement,
+            required_by,
         }
     }
 
@@ -160,6 +158,10 @@ pub struct InstalledModList {
     /// `mods` or `plugins`, relative to the instance.
     pub directory: String,
     pub restart_required: bool,
+    /// For Fabric, the instance's loader version, which players need too.
+    pub loader_version: Option<String>,
+    /// How many enabled mods players need.
+    pub client_required_count: u32,
     /// Sorted by display name, ignoring case.
     pub mods: Vec<InstalledMod>,
 }
@@ -399,6 +401,7 @@ pub async fn build_list(
     files: Vec<ScannedFile>,
     check_updates: bool,
     restart_required: bool,
+    loader_version: Option<String>,
 ) -> Result<InstalledModList, Error> {
     let mut matches = match match_files(api, &files).await {
         Ok(matches) => matches,
@@ -428,20 +431,42 @@ pub async fn build_list(
             }
         }
     }
-    let mut mods: Vec<InstalledMod> = files
+    let files: Vec<client::MatchedFile> = files
         .into_iter()
         .map(|file| {
-            let m = matches.get(&file.sha512).map(|(m, _)| m.clone());
-            InstalledMod::new(file, m)
+            let matched = matches.get(&file.sha512).cloned();
+            client::MatchedFile { file, matched }
+        })
+        .collect();
+    let requirements = client::client_requirements(folder.loader, &files);
+    let mut mods: Vec<InstalledMod> = files
+        .into_iter()
+        .zip(requirements)
+        .map(|(f, (requirement, required_by))| {
+            InstalledMod::with_requirement(
+                f.file,
+                f.matched.map(|(m, _)| m),
+                requirement,
+                required_by,
+            )
         })
         .collect();
     sort_mods(&mut mods);
+    let client_required_count = mods
+        .iter()
+        .filter(|m| m.enabled && m.client_requirement == ClientRequirement::Required)
+        .count() as u32;
     Ok(InstalledModList {
         kind: folder.kind(),
         loader: folder.loader,
         game_version: folder.game_version.clone(),
         directory: folder.directory().to_string(),
         restart_required,
+        loader_version: match folder.loader {
+            InstalledModLoader::Fabric => loader_version,
+            _ => None,
+        },
+        client_required_count,
         mods,
     })
 }
@@ -475,6 +500,7 @@ fn is_newer(candidate: &ModrinthVersion, current: &ModrinthVersion) -> bool {
 pub async fn match_files_or_none(
     api: &dyn ModrinthApi,
     files: Vec<ScannedFile>,
+    loader: InstalledModLoader,
 ) -> Vec<InstalledMod> {
     let matches = match match_files(api, &files).await {
         Ok(matches) => matches,
@@ -487,7 +513,7 @@ pub async fn match_files_or_none(
         .into_iter()
         .map(|file| {
             let m = matches.get(&file.sha512).map(|(m, _)| m.clone());
-            InstalledMod::new(file, m)
+            InstalledMod::new(file, m, loader)
         })
         .collect()
 }

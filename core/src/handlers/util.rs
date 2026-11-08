@@ -44,13 +44,13 @@ fn unauthorized() -> Error {
     }
 }
 
-/// Returns the user that `token` (a bare JWT) belongs to.
+/// Returns the user that `token` (a bare session JWT or API key) belongs to.
 pub async fn authenticate(state: &AppState, token: &str) -> Result<User, Error> {
     state.users_manager.read().await.try_auth_or_err(token)
 }
 
 /// Returns the user for a WebSocket `token` query parameter, which has the form
-/// `Bearer <jwt>` because browsers cannot set headers on WebSocket requests.
+/// `Bearer <token>` because browsers cannot set headers on WebSocket requests.
 pub async fn authenticate_query_token(state: &AppState, token: &str) -> Result<User, Error> {
     let token = parse_bearer_token(token).ok_or_else(unauthorized)?;
     authenticate(state, &token).await
@@ -204,7 +204,8 @@ pub fn require_owner_if_atom(
     }
 }
 
-/// A logged-in user, taken from the `Authorization: Bearer <jwt>` header.
+/// A logged-in user, taken from the `Authorization: Bearer <token>` header. The token is a
+/// session JWT or an API key; for a key, the user has only the key's powers.
 ///
 /// A missing or malformed header is rejected the same way `AuthBearer` rejects it; a token
 /// that does not belong to a user gets a 401 with the usual JSON error body.
@@ -249,11 +250,9 @@ impl AuthedUser {
         }
     }
 
+    /// See [`User::caused_by`]: names the API key too, for requests made with one.
     pub fn caused_by(&self) -> CausedBy {
-        CausedBy::User {
-            user_id: self.0.uid.clone(),
-            user_name: self.0.username.clone(),
-        }
+        self.0.caused_by()
     }
 
     pub fn into_inner(self) -> User {

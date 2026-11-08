@@ -2,17 +2,24 @@
 //! into a new instance folder.
 //!
 //! See <https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack>.
-//! Only Fabric packs are supported. Every path in a pack is checked here; the zip crate's
-//! own `extract` is never used.
+//! Only Fabric packs are supported. The index, the zip limits and the path checks are in
+//! [`lodestone_minecraft::mrpack`]; the zip crate's own `extract` is never used.
 
 pub mod store;
 
 use std::collections::HashMap;
-use std::io::{Read, Seek, Write};
-use std::path::{Component, Path, PathBuf};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 use color_eyre::eyre::{eyre, Context};
 use futures::TryStreamExt;
+use lodestone_minecraft::mrpack::{
+    self, check_files, check_overrides, check_zip_limits, for_each_override, open_pack, read_index,
+    OverrideItem, PathPolicy, Side,
+};
+pub use lodestone_minecraft::mrpack::{
+    PackDownload, SkippedPath, MAX_ENTRIES, MAX_PACK_FILE_BYTES, MAX_UNCOMPRESSED_BYTES,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -20,30 +27,8 @@ use crate::error::{Error, ErrorKind};
 use crate::handlers::util::{is_in_macros_dir, is_script_path};
 use crate::modrinth::ModrinthApi;
 
-/// The index file at the root of a pack.
-const INDEX_FILE: &str = "modrinth.index.json";
-/// The index may be at most this large.
-const MAX_INDEX_BYTES: u64 = 32 * 1024 * 1024;
-/// A pack may have at most this many zip entries.
-pub const MAX_ENTRIES: usize = 20_000;
-/// The files in a pack may be at most this large together, uncompressed.
-pub const MAX_UNCOMPRESSED_BYTES: u64 = 4 * 1024 * 1024 * 1024;
-/// A `.mrpack` file, and each file it downloads, may be at most this large.
-pub const MAX_PACK_FILE_BYTES: u64 = 1024 * 1024 * 1024;
-/// A path in a pack may be at most this many characters long.
-pub const MAX_PATH_CHARS: usize = 512;
 /// Files are downloaded this many at a time.
 const PARALLEL_DOWNLOADS: usize = 4;
-/// The hosts files may be downloaded from (the allow-list of the Modrinth pack format).
-pub const DOWNLOAD_HOSTS: [&str; 4] = [
-    "cdn.modrinth.com",
-    "github.com",
-    "raw.githubusercontent.com",
-    "gitlab.com",
-];
-/// The folders of a pack whose contents are copied into the instance, in order: later ones
-/// win. `client-overrides/` is skipped.
-const OVERRIDE_DIRS: [&str; 2] = ["overrides/", "server-overrides/"];
 /// Files at the root of the instance a pack may not replace: the EULA, which the user
 /// accepts, and the files Lodestone uses to start the server.
 const PROTECTED_ROOT_FILES: [&str; 5] = [
@@ -74,70 +59,56 @@ pub struct ModpackInfo {
     pub upload_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct IndexEnv {
-    #[serde(default)]
-    server: Option<String>,
+/// Where an instance created from a modpack came from. Kept in the instance's config.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ModpackOrigin {
+    /// Empty for an uploaded pack.
+    pub project_id: String,
+    /// Empty for an uploaded pack.
+    pub version_id: String,
+    pub name: String,
+    pub version_number: Option<String>,
+    /// The project icon, only ever a `https://cdn.modrinth.com/` URL.
+    pub icon_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct IndexFile {
-    path: String,
-    #[serde(default)]
-    hashes: HashMap<String, String>,
-    #[serde(default)]
-    env: Option<IndexEnv>,
-    #[serde(default)]
-    downloads: Vec<String>,
-    #[serde(default)]
-    file_size: u64,
+/// `url` if it is an `https://cdn.modrinth.com/` URL, else `None`.
+pub fn modrinth_cdn_url(url: Option<&str>) -> Option<String> {
+    let parsed = url::Url::parse(url?).ok()?;
+    let ok = parsed.scheme() == "https"
+        && parsed.host_str() == Some(crate::modrinth::CDN_HOST)
+        && parsed.port().is_none()
+        && parsed.username().is_empty()
+        && parsed.password().is_none();
+    ok.then(|| parsed.to_string())
 }
 
-impl IndexFile {
-    /// Files without `env`, or whose server side is not `unsupported`, are server files.
-    fn is_server_file(&self) -> bool {
-        self.env
-            .as_ref()
-            .and_then(|e| e.server.as_deref())
-            .is_none_or(|s| s != "unsupported")
+impl ModpackOrigin {
+    /// The origin of a pack from the Modrinth version `version_id`: the project's title and
+    /// icon, and the version number.
+    pub async fn from_modrinth(api: &dyn ModrinthApi, version_id: &str) -> Result<Self, Error> {
+        let version = api.version(version_id).await?;
+        let project = api.project(&version.project_id).await?;
+        Ok(ModpackOrigin {
+            project_id: project.id,
+            version_id: version.id,
+            name: project.title,
+            version_number: Some(version.version_number).filter(|v| !v.trim().is_empty()),
+            icon_url: modrinth_cdn_url(project.icon_url.as_deref()),
+        })
     }
-}
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Index {
-    format_version: u32,
-    game: String,
-    #[serde(default)]
-    version_id: Option<String>,
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    summary: Option<String>,
-    #[serde(default)]
-    files: Vec<IndexFile>,
-    #[serde(default)]
-    dependencies: HashMap<String, String>,
-}
-
-/// A file to download into the instance.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PackDownload {
-    /// Relative to the instance folder.
-    pub path: PathBuf,
-    pub urls: Vec<url::Url>,
-    pub sha1: String,
-    pub sha512: String,
-    pub size: u64,
-}
-
-/// A file of a pack that was not put into the instance, and why.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SkippedPath {
-    pub path: String,
-    pub reason: String,
+    /// The origin of an uploaded pack, from its index.
+    pub fn from_upload(info: &ModpackInfo) -> Self {
+        ModpackOrigin {
+            project_id: String::new(),
+            version_id: String::new(),
+            name: info.name.clone(),
+            version_number: info.version_number.clone(),
+            icon_url: None,
+        }
+    }
 }
 
 /// A pack that was read and checked.
@@ -149,170 +120,48 @@ pub struct Pack {
 }
 
 fn invalid_pack(message: impl std::fmt::Display) -> Error {
-    Error {
-        kind: ErrorKind::BadRequest,
-        source: eyre!("Not a valid Modrinth modpack: {message}"),
-    }
+    mrpack::invalid_pack(message).into()
 }
 
 fn unsafe_pack(message: impl std::fmt::Display) -> Error {
-    Error {
-        kind: ErrorKind::BadRequest,
-        source: eyre!("The modpack is unsafe: {message}"),
-    }
+    mrpack::unsafe_pack(message).into()
 }
 
-/// What to do with a path from a pack.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PathCheck {
-    Write(PathBuf),
-    Skip(String),
+/// The paths a pack may not write into an instance: anything named `.lodestone*` at any
+/// depth (Lodestone's own files), anything in `macros/`, the protected files at the root
+/// (such as `eula.txt`), and scripts unless `allow_scripts`.
+struct InstancePathPolicy {
+    allow_scripts: bool,
 }
 
-/// Windows device names, which cannot be used as file names there.
-fn is_windows_device_name(component: &str) -> bool {
-    let stem = component
-        .split('.')
-        .next()
-        .unwrap_or_default()
-        .trim_end()
-        .to_ascii_lowercase();
-    matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
-        || ((stem.starts_with("com") || stem.starts_with("lpt"))
-            && stem.len() == 4
-            && stem.as_bytes()[3].is_ascii_digit())
-}
-
-/// Checks a path from a pack (a `files[]` path, or an override relative to its folder).
-///
-/// Rejected, so the whole pack fails: empty or absolute paths, `..`, `\`, NUL, `:` (drive
-/// letters and Windows alternate data streams), control characters, empty or `.`
-/// components, names that Windows would change (trailing dots or spaces, device names),
-/// and paths longer than [`MAX_PATH_CHARS`].
-///
-/// Skipped: anything named `.lodestone*` at any depth (Lodestone's own files), anything in
-/// `macros/`, the protected files at the root (such as `eula.txt`), and scripts unless
-/// `allow_scripts`.
-pub fn check_pack_path(path: &str, is_dir: bool, allow_scripts: bool) -> Result<PathCheck, Error> {
-    let trimmed = if is_dir {
-        path.strip_suffix('/').unwrap_or(path)
-    } else {
-        path
-    };
-    let reject = |why: &str| Err(unsafe_pack(format!("{why}: {path:?}")));
-    if trimmed.is_empty() {
-        return reject("empty path");
-    }
-    if path.chars().count() > MAX_PATH_CHARS {
-        return Err(unsafe_pack(format!(
-            "a path is longer than {MAX_PATH_CHARS} characters"
-        )));
-    }
-    if trimmed.starts_with('/') {
-        return reject("absolute path");
-    }
-    if trimmed.contains(['\\', '\0', ':']) || trimmed.chars().any(|c| c.is_control()) {
-        return reject("invalid characters in path");
-    }
-    if trimmed.contains("..") {
-        return reject("path contains \"..\"");
-    }
-    let components: Vec<&str> = trimmed.split('/').collect();
-    for component in &components {
-        if component.is_empty() || *component == "." {
-            return reject("empty path component");
+impl PathPolicy for InstancePathPolicy {
+    fn skip_reason(&self, relative: &Path, components: &[&str], is_dir: bool) -> Option<String> {
+        if components
+            .iter()
+            .any(|c| c.to_lowercase().starts_with(".lodestone"))
+        {
+            return Some("Lodestone's own files cannot be replaced".into());
         }
-        if component.ends_with(['.', ' ']) {
-            return reject("name ends with a dot or space");
+        if is_in_macros_dir(relative) {
+            return Some("macros cannot come from a modpack".into());
         }
-        if is_windows_device_name(component) {
-            return reject("reserved file name");
+        if components.len() == 1
+            && PROTECTED_ROOT_FILES.contains(&components[0].to_lowercase().as_str())
+        {
+            return Some("this file cannot come from a modpack".into());
         }
+        if !is_dir && !self.allow_scripts && is_script_path(relative) {
+            return Some(
+                "script file: only the owner can add scripts, while code execution is on".into(),
+            );
+        }
+        None
     }
-    let relative: PathBuf = components.iter().collect();
-    // anything else could resolve outside the instance folder
-    if !relative
-        .components()
-        .all(|c| matches!(c, Component::Normal(_)))
-    {
-        return reject("path leaves the instance folder");
-    }
-
-    if components
-        .iter()
-        .any(|c| c.to_lowercase().starts_with(".lodestone"))
-    {
-        return Ok(PathCheck::Skip(
-            "Lodestone's own files cannot be replaced".into(),
-        ));
-    }
-    if is_in_macros_dir(&relative) {
-        return Ok(PathCheck::Skip("macros cannot come from a modpack".into()));
-    }
-    if components.len() == 1
-        && PROTECTED_ROOT_FILES.contains(&components[0].to_lowercase().as_str())
-    {
-        return Ok(PathCheck::Skip(
-            "this file cannot come from a modpack".into(),
-        ));
-    }
-    if !is_dir && !allow_scripts && is_script_path(&relative) {
-        return Ok(PathCheck::Skip(
-            "script file: only the owner can add scripts, while code execution is on".into(),
-        ));
-    }
-    Ok(PathCheck::Write(relative))
 }
 
 /// Whether `value` is a plausible Minecraft or loader version, which is used in URLs.
 fn is_valid_version(value: &str) -> bool {
     crate::modrinth::search::is_valid_filter_value(value)
-}
-
-fn open_pack(path: &Path) -> Result<zip::ZipArchive<std::fs::File>, Error> {
-    let file = std::fs::File::open(path).context("Failed to open the modpack")?;
-    zip::ZipArchive::new(file).map_err(|e| invalid_pack(format!("it is not a zip file ({e})")))
-}
-
-/// Checks the zip limits: entry count and total uncompressed size.
-fn check_zip_limits<R: Read + Seek>(
-    archive: &mut zip::ZipArchive<R>,
-    max_entries: usize,
-    max_bytes: u64,
-) -> Result<(), Error> {
-    if archive.len() > max_entries {
-        return Err(unsafe_pack(format!("it has more than {max_entries} files")));
-    }
-    let mut total = 0_u64;
-    for i in 0..archive.len() {
-        let entry = archive
-            .by_index_raw(i)
-            .map_err(|e| invalid_pack(format!("a zip entry cannot be read ({e})")))?;
-        total = total.saturating_add(entry.size());
-        if total > max_bytes {
-            return Err(unsafe_pack(format!(
-                "its files are larger than {} uncompressed",
-                crate::util::format_byte(max_bytes)
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn read_index<R: Read + Seek>(archive: &mut zip::ZipArchive<R>) -> Result<Index, Error> {
-    let entry = archive
-        .by_name(INDEX_FILE)
-        .map_err(|_| invalid_pack(format!("it has no {INDEX_FILE}")))?;
-    if entry.size() > MAX_INDEX_BYTES {
-        return Err(invalid_pack(format!("{INDEX_FILE} is too large")));
-    }
-    let mut bytes = Vec::new();
-    entry
-        .take(MAX_INDEX_BYTES)
-        .read_to_end(&mut bytes)
-        .map_err(|e| invalid_pack(format!("{INDEX_FILE} cannot be read ({e})")))?;
-    serde_json::from_slice(&bytes)
-        .map_err(|e| invalid_pack(format!("{INDEX_FILE} is invalid ({e})")))
 }
 
 /// Why no instance can be made from a pack with these dependencies, if any. Returns the
@@ -349,134 +198,11 @@ fn check_dependencies(
     }
 }
 
-/// Checks the server files of the index: their paths, hosts, hashes and sizes.
-fn check_files(
-    index: &Index,
-    allow_scripts: bool,
-) -> Result<(Vec<PackDownload>, Vec<SkippedPath>), Error> {
-    let mut downloads = Vec::new();
-    let mut skipped = Vec::new();
-    for file in index.files.iter().filter(|f| f.is_server_file()) {
-        let path = match check_pack_path(&file.path, false, allow_scripts)? {
-            PathCheck::Write(path) => path,
-            PathCheck::Skip(reason) => {
-                skipped.push(SkippedPath {
-                    path: file.path.clone(),
-                    reason,
-                });
-                continue;
-            }
-        };
-        if file.file_size > MAX_PACK_FILE_BYTES {
-            return Err(unsafe_pack(format!(
-                "{} is larger than {}",
-                file.path,
-                crate::util::format_byte(MAX_PACK_FILE_BYTES)
-            )));
-        }
-        let hash = |name: &str, len: usize| {
-            file.hashes
-                .get(name)
-                .map(|h| h.to_lowercase())
-                .filter(|h| h.len() == len && h.chars().all(|c| c.is_ascii_hexdigit()))
-                .ok_or_else(|| invalid_pack(format!("{} has no valid {name} hash", file.path)))
-        };
-        let sha1 = hash("sha1", 40)?;
-        let sha512 = hash("sha512", 128)?;
-        let urls: Vec<url::Url> = file
-            .downloads
-            .iter()
-            .filter_map(|u| url::Url::parse(u).ok())
-            .filter(|u| {
-                u.scheme() == "https"
-                    && u.port().is_none()
-                    && u.username().is_empty()
-                    && u.host_str().is_some_and(|h| DOWNLOAD_HOSTS.contains(&h))
-            })
-            .collect();
-        if urls.is_empty() {
-            return Err(unsafe_pack(format!(
-                "{} is not downloaded from an allowed host ({})",
-                file.path,
-                DOWNLOAD_HOSTS.join(", ")
-            )));
-        }
-        downloads.push(PackDownload {
-            path,
-            urls,
-            sha1,
-            sha512,
-            size: file.file_size,
-        });
-    }
-    Ok((downloads, skipped))
-}
-
-/// Checks the override entries: their paths, and that each is a file, folder or link.
-fn check_overrides<R: Read + Seek>(
-    archive: &mut zip::ZipArchive<R>,
-    allow_scripts: bool,
-) -> Result<Vec<SkippedPath>, Error> {
-    let mut skipped = Vec::new();
-    for_each_override(archive, allow_scripts, |_, item| {
-        if let OverrideItem::Skip { path, reason } = item {
-            skipped.push(SkippedPath { path, reason });
-        }
-        Ok(())
-    })?;
-    Ok(skipped)
-}
-
-enum OverrideItem<'a, R: Read> {
-    Dir(PathBuf),
-    File(PathBuf, zip::read::ZipFile<'a, R>),
-    Skip { path: String, reason: String },
-}
-
-/// Calls `f` for each entry in the override folders, in the order they are applied.
-fn for_each_override<R: Read + Seek>(
-    archive: &mut zip::ZipArchive<R>,
-    allow_scripts: bool,
-    mut f: impl FnMut(&str, OverrideItem<'_, R>) -> Result<(), Error>,
-) -> Result<(), Error> {
-    for prefix in OVERRIDE_DIRS {
-        for i in 0..archive.len() {
-            let entry = archive
-                .by_index(i)
-                .map_err(|e| invalid_pack(format!("a zip entry cannot be read ({e})")))?;
-            let name = entry
-                .name()
-                .map_err(|e| invalid_pack(format!("a zip entry name cannot be read ({e})")))?
-                .to_string();
-            let Some(relative) = name.strip_prefix(prefix) else {
-                continue;
-            };
-            if relative.is_empty() {
-                continue;
-            }
-            let is_dir = entry.is_dir();
-            let item = match check_pack_path(relative, is_dir, allow_scripts)? {
-                PathCheck::Skip(reason) => OverrideItem::Skip {
-                    path: relative.to_string(),
-                    reason,
-                },
-                PathCheck::Write(_) if entry.is_symlink() => OverrideItem::Skip {
-                    path: relative.to_string(),
-                    reason: "symbolic links are not copied".into(),
-                },
-                PathCheck::Write(path) if is_dir => OverrideItem::Dir(path),
-                PathCheck::Write(path) => OverrideItem::File(path, entry),
-            };
-            f(prefix, item)?;
-        }
-    }
-    Ok(())
-}
-
 /// Reads and checks the pack at `path`. A pack that cannot be used for an instance is
 /// returned with `unsupported_reason` set; a pack that is not a valid `.mrpack`, or is
 /// unsafe, is an error.
 pub fn read_pack(path: &Path, allow_scripts: bool) -> Result<Pack, Error> {
+    let policy = InstancePathPolicy { allow_scripts };
     let mut archive = open_pack(path)?;
     check_zip_limits(&mut archive, MAX_ENTRIES, MAX_UNCOMPRESSED_BYTES)?;
     let index = read_index(&mut archive)?;
@@ -497,8 +223,8 @@ pub fn read_pack(path: &Path, allow_scripts: bool) -> Result<Pack, Error> {
     {
         reason = Some("The pack's Minecraft version is not valid".into());
     }
-    let (downloads, mut skipped) = check_files(&index, allow_scripts)?;
-    skipped.extend(check_overrides(&mut archive, allow_scripts)?);
+    let (downloads, mut skipped) = check_files(&index, Side::Server, &policy)?;
+    skipped.extend(check_overrides(&mut archive, Side::Server, &policy)?);
     let name = index.name.trim().to_string();
     let info = ModpackInfo {
         name: if name.is_empty() {
@@ -651,7 +377,8 @@ fn extract_overrides(pack_path: &Path, root: &Path, allow_scripts: bool) -> Resu
     check_zip_limits(&mut archive, MAX_ENTRIES, MAX_UNCOMPRESSED_BYTES)?;
     let mut budget = MAX_UNCOMPRESSED_BYTES;
     let mut written = 0;
-    for_each_override(&mut archive, allow_scripts, |_, item| {
+    let policy = InstancePathPolicy { allow_scripts };
+    for_each_override(&mut archive, Side::Server, &policy, |_, item| {
         match item {
             OverrideItem::Dir(path) => {
                 let dir = root.join(&path);
@@ -663,7 +390,7 @@ fn extract_overrides(pack_path: &Path, root: &Path, allow_scripts: bool) -> Resu
             }
             OverrideItem::Skip { .. } => {}
         }
-        Ok(())
+        Ok::<_, Error>(())
     })?;
     Ok(written)
 }

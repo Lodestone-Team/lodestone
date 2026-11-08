@@ -2,6 +2,23 @@
 import type { Game } from "./Game";
 import type { InstanceState } from "./InstanceState";
 import type { InstanceUuid } from "./InstanceUuid";
+import type { ModpackOrigin } from "./ModpackOrigin";
 import type { Player } from "./Player";
 
-export type InstanceInfo = { uuid: InstanceUuid, name: string, game_type: Game, description: string, version: string, port: number, creation_time: bigint, path: string, auto_start: boolean, restart_on_crash: boolean, state: InstanceState, player_count: number | null, max_player_count: number | null, player_list: Array<Player> | null, };
+export type InstanceInfo = { uuid: InstanceUuid, name: string, game_type: Game, description: string, version: string, port: number, creation_time: bigint, path: string, auto_start: boolean, restart_on_crash: boolean, state: InstanceState, player_count: number | null, max_player_count: number | null, player_list: Array<Player> | null, 
+/**
+ * The icon of the modpack the instance was created from (a Modrinth CDN URL).
+ */
+icon_url: string | null, 
+/**
+ * The modpack the instance was created from.
+ */
+modpack: ModpackOrigin | null, 
+/**
+ * The Fabric loader version, Forge build or Paper build, when known.
+ */
+loader_version: string | null, 
+/**
+ * In MB, for Minecraft instances.
+ */
+min_ram: number | null, max_ram: number | null, };

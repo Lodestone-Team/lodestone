@@ -1,4 +1,5 @@
-//! The mods (or plugins) of an instance: `/instance/{uuid}/mods`.
+//! The mods (or plugins) of an instance: `/instance/{uuid}/mods`, and the client modpack
+//! of a Fabric instance: `/instance/{uuid}/mods/client_pack`.
 //!
 //! Listing needs `ReadInstanceFile`; changes need `WriteInstanceFile`. A jar that Modrinth
 //! does not know is arbitrary code, so uploading or enabling one also needs
@@ -11,19 +12,21 @@ use color_eyre::eyre::{eyre, Context};
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 
-use super::global_fs::multipart_error;
+use super::global_fs::{multipart_error, register_download, DownloadScope};
+use super::instance::sanitize_instance_dir_name;
 use super::util::{get_instance, AuthedUser};
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
 use crate::events::{Event, ProgressionEndValue};
 use crate::modrinth::links::check_api_segment;
+use crate::mods::client::{build_client_pack, ClientPackDownload};
 use crate::mods::install::{self, ModInstallRequest, ModInstallResult};
 use crate::mods::scan::{scan_file, scan_folder, sha512_of};
 use crate::mods::{
     bad_request, build_list, match_files_or_none, safe_jar_name, save_uploads, InstalledMod,
-    InstalledModList, ModFolder, MAX_MOD_BYTES,
+    InstalledModList, InstalledModLoader, ModFolder, MAX_MOD_BYTES,
 };
-use crate::prelude::GameInstance;
+use crate::prelude::{path_to_tmp, GameInstance};
 use crate::traits::t_configurable::TConfigurable;
 use crate::traits::t_server::TServer;
 use crate::types::InstanceUuid;
@@ -41,6 +44,14 @@ async fn mod_folder(
         &instance.path().await,
     )?;
     Ok((instance, folder))
+}
+
+/// The Fabric loader version of a Fabric instance.
+async fn fabric_loader_version(instance: &GameInstance) -> Option<String> {
+    match instance {
+        GameInstance::MinecraftInstance(i) => i.fabric_loader_version().await,
+        _ => None,
+    }
 }
 
 /// Remembers that the instance needs a restart if it is running.
@@ -89,7 +100,7 @@ async fn list_mods(
     requester
         .require(&state, UserAction::ReadInstanceFile(uuid.clone()))
         .await?;
-    let (_, folder) = mod_folder(&state, &uuid).await?;
+    let (instance, folder) = mod_folder(&state, &uuid).await?;
     let files = scan_folder(&folder).await?;
     let list = build_list(
         state.mods.modrinth.as_ref(),
@@ -97,6 +108,7 @@ async fn list_mods(
         files,
         query.check_updates.unwrap_or(false),
         state.mods.restart.is_required(&uuid),
+        fabric_loader_version(&instance).await,
     )
     .await?;
     Ok(Json(list))
@@ -249,7 +261,7 @@ async fn upload_mods(
     let files = save_uploads(&folder, uploads, query.overwrite.unwrap_or(false)).await?;
     note_change(&state, &uuid, &instance).await;
     Ok(Json(
-        match_files_or_none(state.mods.modrinth.as_ref(), files).await,
+        match_files_or_none(state.mods.modrinth.as_ref(), files, folder.loader).await,
     ))
 }
 
@@ -275,7 +287,8 @@ async fn set_enabled(
     if changed {
         note_change(&state, &uuid, &instance).await;
     }
-    let mut mods = match_files_or_none(state.mods.modrinth.as_ref(), vec![file]).await;
+    let mut mods =
+        match_files_or_none(state.mods.modrinth.as_ref(), vec![file], folder.loader).await;
     mods.pop()
         .map(Json)
         .ok_or_else(|| eyre!("The mod disappeared while it was changed").into())
@@ -313,10 +326,60 @@ async fn delete_mod(
     Ok(Json(()))
 }
 
+/// Builds the client modpack and returns a key for `GET /file/{key}`, the download
+/// mechanism of the file API. The pack is deleted when the key expires.
+async fn client_pack(
+    State(state): State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    requester: AuthedUser,
+) -> Result<Json<ClientPackDownload>, Error> {
+    requester
+        .require(&state, UserAction::ReadInstanceFile(uuid.clone()))
+        .await?;
+    let (instance, folder) = mod_folder(&state, &uuid).await?;
+    if folder.loader != InstalledModLoader::Fabric {
+        return Err(bad_request(
+            "Client modpacks are only available for Fabric servers",
+        ));
+    }
+    let name = instance.name().await;
+    tokio::fs::create_dir_all(path_to_tmp())
+        .await
+        .context("Failed to create the temporary folder")?;
+    let temp_dir =
+        tempfile::tempdir_in(path_to_tmp()).context("Failed to create a temporary folder")?;
+    let file_name = format!("{}-client.mrpack", sanitize_instance_dir_name(&name));
+    let out = temp_dir.path().join(&file_name);
+    let plan = build_client_pack(
+        state.mods.modrinth.as_ref(),
+        &folder,
+        &name,
+        fabric_loader_version(&instance).await.as_deref(),
+        &out,
+    )
+    .await?;
+    let key = register_download(
+        &state,
+        out,
+        Some(temp_dir),
+        // the whole user, so an API key's scope is checked again when the link is used
+        requester.0.clone(),
+        DownloadScope::InstanceFile(uuid),
+    )
+    .await;
+    Ok(Json(ClientPackDownload {
+        key,
+        file_name,
+        mod_count: (plan.index.files.len() + plan.included.len()) as u32,
+        included_jars: plan.included.len() as u32,
+    }))
+}
+
 pub fn get_instance_mods_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/{uuid}/mods", get(list_mods))
         .route("/instance/{uuid}/mods/install", post(install_mod))
+        .route("/instance/{uuid}/mods/client_pack", get(client_pack))
         .route(
             "/instance/{uuid}/mods/upload",
             post(upload_mods).layer(DefaultBodyLimit::disable()),

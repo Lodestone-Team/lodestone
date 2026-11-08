@@ -148,6 +148,14 @@ export const deleteInstanceDirectory = async (
   );
 };
 
+/**
+ * The URL that downloads a file the core registered under `key` (see
+ * `/file/{key}` in the core's global_fs.rs). Opened in a new tab, it works in
+ * browsers and in the desktop app.
+ */
+export const fileDownloadUrl = (key: string) =>
+  axios.defaults.baseURL + `/file/${key}`;
+
 /** @throws ApiError */
 export const requestInstanceFileUrl = async (
   uuid: string,
@@ -159,7 +167,7 @@ export const requestInstanceFileUrl = async (
     url: `/instance/${uuid}/fs/${Base64.encode(file.path, true)}/url`,
     timeout: timeout,
   });
-  return axios.defaults.baseURL + `/file/${tokenResponse}`;
+  return fileDownloadUrl(tokenResponse);
 };
 
 /** Shows a toast on failure. */

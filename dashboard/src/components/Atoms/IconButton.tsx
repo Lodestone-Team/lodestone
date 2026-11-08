@@ -46,6 +46,8 @@ export interface IconButtonProps extends VariantProps<typeof buttonClasses> {
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   type?: 'button' | 'submit' | 'reset';
   icon?: IconDefinition;
+  title?: string;
+  'aria-label'?: string;
 }
 
 // A styled button component

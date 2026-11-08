@@ -2,6 +2,8 @@ use std::io::Write;
 
 use serde_json::json;
 
+use lodestone_minecraft::mrpack::{PathCheck, INDEX_FILE};
+
 use super::*;
 use crate::modrinth::fake::{sha1_hex, sha512_hex, FakeModrinth};
 
@@ -260,39 +262,12 @@ fn rejects_files_from_other_hosts_or_without_hashes() {
     assert!(err.source.to_string().contains("larger than"));
 }
 
-#[test]
-fn path_safety_rejects() {
-    for path in [
-        "",
-        "/etc/passwd",
-        "../escape.txt",
-        "mods/../../escape.txt",
-        "a/..",
-        "mods\\a.jar",
-        "a\0b",
-        "C:/Windows/x",
-        "C:x",
-        "//server/share/x",
-        "a//b",
-        "./a",
-        "a/./b",
-        "a/b.",
-        "a/b ",
-        "con.txt",
-        "mods/nul",
-        "mods/COM1.jar",
-        "line\nbreak",
-    ] {
-        let err = check_pack_path(path, false, true).unwrap_err();
-        assert!(
-            err.source.to_string().starts_with("The modpack is unsafe"),
-            "{path:?}"
-        );
-    }
-    let long = format!("config/{}", "a".repeat(MAX_PATH_CHARS));
-    assert!(check_pack_path(&long, false, true).is_err());
-    let just_short_enough = "a".repeat(MAX_PATH_CHARS);
-    assert!(check_pack_path(&just_short_enough, false, true).is_ok());
+fn check_pack_path(
+    path: &str,
+    is_dir: bool,
+    allow_scripts: bool,
+) -> Result<PathCheck, lodestone_minecraft::Error> {
+    mrpack::check_pack_path(path, is_dir, &InstancePathPolicy { allow_scripts })
 }
 
 #[test]
@@ -343,23 +318,6 @@ fn path_safety_skips() {
             "{path}"
         );
     }
-}
-
-#[test]
-fn zip_limits() {
-    let p = pack(
-        index(vec![], fabric()),
-        &[
-            Entry::File("overrides/a.txt", b"0123456789"),
-            Entry::File("overrides/b.txt", b"0123456789"),
-        ],
-    );
-    let mut archive = open_pack(&p.path).unwrap();
-    assert!(check_zip_limits(&mut archive, 3, 1000).is_ok());
-    let err = check_zip_limits(&mut archive, 2, 1000).unwrap_err();
-    assert!(err.source.to_string().contains("more than 2 files"));
-    let err = check_zip_limits(&mut archive, 10, 15).unwrap_err();
-    assert!(err.source.to_string().contains("uncompressed"));
 }
 
 #[test]
@@ -578,4 +536,52 @@ fn skipped_message_is_short() {
     let message = describe_skipped(&skipped).unwrap();
     assert!(message.contains("and 5 more"));
     assert_eq!(describe_skipped(&[]), None);
+}
+
+#[tokio::test]
+async fn origin_from_a_modrinth_pack_keeps_cdn_icons_only() {
+    use crate::modrinth::fake::FakeVersion;
+    let fake = FakeModrinth::default();
+    fake.add(FakeVersion::new("pack", "pv1", "pack.mrpack"));
+    fake.set_icon_url("pack", "https://cdn.modrinth.com/data/pack/icon.png");
+    let origin = ModpackOrigin::from_modrinth(&fake, "pv1").await.unwrap();
+    assert_eq!(
+        origin,
+        ModpackOrigin {
+            project_id: "pack".into(),
+            version_id: "pv1".into(),
+            name: "Title of pack".into(),
+            version_number: Some("pv1-number".into()),
+            icon_url: Some("https://cdn.modrinth.com/data/pack/icon.png".into()),
+        }
+    );
+
+    for icon in [
+        "https://example.com/icon.png",
+        "http://cdn.modrinth.com/data/pack/icon.png",
+        "https://cdn.modrinth.com.evil.com/icon.png",
+        "https://cdn.modrinth.com:8443/icon.png",
+        "https://user@cdn.modrinth.com/icon.png",
+        "javascript:alert(1)",
+        "",
+    ] {
+        fake.set_icon_url("pack", icon);
+        let origin = ModpackOrigin::from_modrinth(&fake, "pv1").await.unwrap();
+        assert_eq!(origin.icon_url, None, "{icon}");
+    }
+    assert!(ModpackOrigin::from_modrinth(&fake, "missing")
+        .await
+        .is_err());
+}
+
+#[test]
+fn origin_from_an_uploaded_pack() {
+    let p = pack(index(vec![], fabric()), &[]);
+    let info = read_pack(&p.path, false).unwrap().info;
+    let origin = ModpackOrigin::from_upload(&info);
+    assert_eq!(origin.project_id, "");
+    assert_eq!(origin.version_id, "");
+    assert_eq!(origin.name, "Test Pack");
+    assert_eq!(origin.version_number.as_deref(), Some("1.2.3"));
+    assert_eq!(origin.icon_url, None);
 }

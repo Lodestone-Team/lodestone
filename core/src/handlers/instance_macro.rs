@@ -15,7 +15,6 @@ use crate::traits::t_configurable::manifest::SettingManifest;
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
-    events::CausedBy,
     macro_executor::MacroPID,
     prelude::GameInstance,
     traits::t_macro::{HistoryEntry, MacroEntry, TMacro, TaskEntry},
@@ -122,15 +121,7 @@ pub async fn run_macro(
     };
 
     instance
-        .run_macro(
-            &macro_name,
-            args,
-            valid_config,
-            CausedBy::User {
-                user_id: requester.uid,
-                user_name: requester.username,
-            },
-        )
+        .run_macro(&macro_name, args, valid_config, requester.caused_by())
         .await?;
 
     Ok(Json(()))

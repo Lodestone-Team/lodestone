@@ -41,6 +41,10 @@ tiny_http = "0.12"
 url = "2.2"
 uuid = { version = "1.1", features = ["serde"] }
 
+# The Minecraft and Modrinth logic shared with Lodestone Core. Its `zip` feature (reading
+# and writing .mrpack files and jars) is off: it needs zip 9, and Zed only locks zip 0.6.
+lodestone_minecraft = { path = "../crates/lodestone-minecraft", default-features = false }
+
 # The same patches Zed applies at v1.27.0, limited to crates in GPUI's tree.
 [patch.crates-io]
 async-task = { git = "https://github.com/zed-industries/async-task.git", rev = "015845a19fc31752c02367567d3b8900a406f9da" }
