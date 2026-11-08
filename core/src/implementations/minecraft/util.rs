@@ -139,14 +139,39 @@ fn mojang_version_id(version: &str) -> String {
     version.replace('_', "-")
 }
 
-async fn mojang_version_info(version: &str) -> Result<MojangVersionInfo, Error> {
+/// The manifest entry of `version`, which may use Forge's '_' naming.
+fn find_mojang_version<'a>(
+    versions: &'a [MojangVersion],
+    version: &str,
+) -> Result<&'a MojangVersion, Error> {
     let id = mojang_version_id(version);
-    let versions = mojang_versions().await?;
-    let entry = versions
+    versions
         .iter()
         .find(|v| v.id == id)
-        .ok_or_else(|| not_found(format!("Minecraft version {version} does not exist")))?;
+        .ok_or_else(|| not_found(format!("Minecraft version {version} does not exist")))
+}
+
+async fn mojang_version_info(version: &str) -> Result<MojangVersionInfo, Error> {
+    let versions = mojang_versions().await?;
+    let entry = find_mojang_version(&versions, version)?;
     get_json(&entry.url, &format!("the details of Minecraft {version}")).await
+}
+
+fn vanilla_server_url(info: MojangVersionInfo, version: &str) -> Result<String, Error> {
+    info.downloads
+        .and_then(|d| d.server)
+        .map(|s| s.url)
+        .ok_or_else(|| not_found(format!("Minecraft {version} has no server download")))
+}
+
+fn jre_major_version(info: &MojangVersionInfo) -> u64 {
+    let major = info.java_version.as_ref().map_or(8, |j| j.major_version);
+    // Adoptium doesn't provide Java 16; 17 is compatible and an LTS release
+    if major == 16 {
+        17
+    } else {
+        major
+    }
 }
 
 // ---- server jars ----
@@ -173,12 +198,7 @@ pub async fn get_server_jar_url(
 
 pub async fn get_vanilla_jar_url(version: &str) -> Result<(String, Flavour), Error> {
     let info = mojang_version_info(version).await?;
-    let url = info
-        .downloads
-        .and_then(|d| d.server)
-        .map(|s| s.url)
-        .ok_or_else(|| not_found(format!("Minecraft {version} has no server download")))?;
-    Ok((url, Flavour::Vanilla))
+    Ok((vanilla_server_url(info, version)?, Flavour::Vanilla))
 }
 
 #[derive(Deserialize)]
@@ -200,6 +220,12 @@ async fn newest_fabric_loader(version: &str) -> Result<String, Error> {
         "Fabric loader versions",
     )
     .await?;
+    select_fabric_loader(&entries, version)
+}
+
+/// The newest loader whose loader and intermediary are both stable, or else the newest
+/// stable loader.
+fn select_fabric_loader(entries: &[FabricLoaderEntry], version: &str) -> Result<String, Error> {
     let newest = |entries: Vec<&FabricLoaderEntry>| {
         entries
             .into_iter()
@@ -226,6 +252,10 @@ async fn newest_fabric_installer() -> Result<String, Error> {
         "Fabric installer versions",
     )
     .await?;
+    select_fabric_installer(entries)
+}
+
+fn select_fabric_installer(entries: Vec<FabricStable>) -> Result<String, Error> {
     entries
         .into_iter()
         .filter(|e| e.stable)
@@ -284,17 +314,12 @@ pub async fn get_forge_jar_url(
     let build = match forge_build_version {
         Some(ForgeBuildVersion(b)) => b.clone(),
         None => {
-            let response: BTreeMap<String, Vec<String>> = get_json(
+            let metadata: BTreeMap<String, Vec<String>> = get_json(
                 "https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json",
                 "Forge versions",
             )
             .await?;
-            response
-                .get(version)
-                .ok_or_else(|| not_found(format!("Forge has no builds for Minecraft {version}")))?
-                .last()
-                .ok_or_else(|| not_found(format!("Forge has no builds for Minecraft {version}")))?
-                .clone()
+            newest_forge_build(&metadata, version)?
         }
     };
 
@@ -308,14 +333,24 @@ pub async fn get_forge_jar_url(
     ))
 }
 
+/// The newest Forge build for `version` in Forge's maven metadata, which lists builds
+/// oldest first.
+fn newest_forge_build(
+    metadata: &BTreeMap<String, Vec<String>>,
+    version: &str,
+) -> Result<String, Error> {
+    metadata
+        .get(version)
+        .and_then(|builds| builds.last())
+        .cloned()
+        .ok_or_else(|| not_found(format!("Forge has no builds for Minecraft {version}")))
+}
+
 // ---- Java ----
 
 /// The Java major version that a Minecraft version needs.
 pub async fn get_jre_major_version(version: &str) -> Result<u64, Error> {
-    let info = mojang_version_info(version).await?;
-    let major = info.java_version.map_or(8, |j| j.major_version);
-    // Adoptium doesn't provide Java 16; 17 is compatible and an LTS release
-    Ok(if major == 16 { 17 } else { major })
+    Ok(jre_major_version(&mojang_version_info(version).await?))
 }
 
 /// The Adoptium download URL of the JRE for a Java major version on this machine.
@@ -386,7 +421,33 @@ mod tests {
     use crate::minecraft::{
         FabricInstallerVersion, FabricLoaderVersion, Flavour, ForgeBuildVersion, PaperBuildVersion,
     };
-    use tokio;
+
+    /// Recorded API responses, trimmed to what the tests need.
+    fn fixture<T: serde::de::DeserializeOwned>(json: &str) -> T {
+        serde_json::from_str(json).unwrap()
+    }
+
+    fn mojang_manifest() -> Vec<MojangVersion> {
+        fixture::<MojangVersionManifest>(include_str!("testdata/mojang_version_manifest.json"))
+            .versions
+    }
+
+    fn mojang_info(id: &str) -> MojangVersionInfo {
+        fixture(match id {
+            "1.18.2" => include_str!("testdata/mojang_1.18.2.json"),
+            "21w44a" => include_str!("testdata/mojang_21w44a.json"),
+            "1.8.4" => include_str!("testdata/mojang_1.8.4.json"),
+            "1.7.10-pre4" => include_str!("testdata/mojang_1.7.10-pre4.json"),
+            "a1.0.16" => include_str!("testdata/mojang_a1.0.16.json"),
+            _ => panic!("no fixture for {id}"),
+        })
+    }
+
+    /// What `mojang_version_info` returns, with the manifest and details read from fixtures.
+    fn offline_version_info(version: &str) -> Result<MojangVersionInfo, Error> {
+        let versions = mojang_manifest();
+        Ok(mojang_info(&find_mojang_version(&versions, version)?.id))
+    }
 
     #[test]
     fn test_compare_versions() {
@@ -403,31 +464,71 @@ mod tests {
         assert_eq!(mojang_version_id("1.20.1"), "1.20.1");
     }
 
-    #[tokio::test]
-    async fn test_get_vanilla_jar_url() {
-        assert_eq!(super::get_vanilla_jar_url("1.18.2").await.unwrap(), ("https://piston-data.mojang.com/v1/objects/c8f83c5655308435b3dcf03c06d9fe8740a77469/server.jar".to_string(), Flavour::Vanilla));
-        assert_eq!(super::get_vanilla_jar_url("21w44a").await.unwrap(), ("https://piston-data.mojang.com/v1/objects/ae583fd57a8c07f2d6fbadce1ce1e1379bf4b32d/server.jar".to_string(), Flavour::Vanilla));
-        assert_eq!(super::get_vanilla_jar_url("1.8.4").await.unwrap(), ("https://launcher.mojang.com/v1/objects/dd4b5eba1c79500390e0b0f45162fa70d38f8a3d/server.jar".to_string(), Flavour::Vanilla));
+    #[test]
+    fn vanilla_jar_urls_come_from_the_version_details() {
+        let url = |version: &str| vanilla_server_url(offline_version_info(version)?, version);
+        assert_eq!(url("1.18.2").unwrap(), "https://piston-data.mojang.com/v1/objects/c8f83c5655308435b3dcf03c06d9fe8740a77469/server.jar");
+        assert_eq!(url("21w44a").unwrap(), "https://piston-data.mojang.com/v1/objects/ae583fd57a8c07f2d6fbadce1ce1e1379bf4b32d/server.jar");
+        assert_eq!(url("1.8.4").unwrap(), "https://launcher.mojang.com/v1/objects/dd4b5eba1c79500390e0b0f45162fa70d38f8a3d/server.jar");
 
-        let err = super::get_vanilla_jar_url("1.8.4asdasd").await.unwrap_err();
+        assert!(matches!(
+            url("1.8.4asdasd").unwrap_err().kind,
+            ErrorKind::NotFound
+        ));
+        // very old versions have no server jar
+        let err = url("a1.0.16").unwrap_err();
         assert!(matches!(err.kind, ErrorKind::NotFound));
-    }
-
-    #[tokio::test]
-    async fn test_get_jre_url() {
-        assert_eq!(super::get_jre_major_version("1.8.4").await.unwrap(), 8);
-        assert_eq!(super::get_jre_major_version("1.18.2").await.unwrap(), 17);
-        // Forge names pre-releases with '_'
-        assert_eq!(
-            super::get_jre_major_version("1.7.10_pre4").await.unwrap(),
-            8
+        assert!(
+            err.source.to_string().contains("no server download"),
+            "{err:?}"
         );
-        assert!(super::get_jre_url("1.8.4asdasd").await.is_err());
     }
 
-    /// Test subject to fail if fabric updates their installer or loader
+    #[test]
+    fn java_versions_come_from_the_version_details() {
+        let major = |version: &str| offline_version_info(version).map(|i| jre_major_version(&i));
+        assert_eq!(major("1.8.4").unwrap(), 8);
+        assert_eq!(major("1.18.2").unwrap(), 17);
+        // Mojang says 16, which Adoptium does not provide
+        assert_eq!(major("21w44a").unwrap(), 17);
+        // Forge names pre-releases with '_'
+        assert_eq!(major("1.7.10_pre4").unwrap(), 8);
+        assert!(major("1.8.4asdasd").is_err());
+        // no javaVersion at all means Java 8
+        let info: MojangVersionInfo = fixture(r#"{ "downloads": null }"#);
+        assert_eq!(jre_major_version(&info), 8);
+    }
+
+    #[test]
+    fn newest_stable_fabric_loader_and_installer() {
+        let loaders: Vec<FabricLoaderEntry> =
+            fixture(include_str!("testdata/fabric_loader_1.19.json"));
+        // 0.20.0 and the older ones are not stable
+        assert_eq!(select_fabric_loader(&loaders, "1.19").unwrap(), "0.20.1");
+
+        // a loader with an unstable intermediary is only used when nothing better exists
+        let loaders: Vec<FabricLoaderEntry> = fixture(
+            r#"[
+                { "loader": { "version": "0.16.0", "stable": true }, "intermediary": { "version": "x", "stable": false } },
+                { "loader": { "version": "0.15.9", "stable": true }, "intermediary": { "version": "x", "stable": true } },
+                { "loader": { "version": "0.17.0", "stable": false }, "intermediary": { "version": "x", "stable": true } }
+            ]"#,
+        );
+        assert_eq!(select_fabric_loader(&loaders, "x").unwrap(), "0.15.9");
+        assert_eq!(select_fabric_loader(&loaders[..1], "x").unwrap(), "0.16.0");
+        let err = select_fabric_loader(&loaders[2..], "x").unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::NotFound));
+        assert!(select_fabric_loader(&[], "x").is_err());
+
+        let installers: Vec<FabricStable> = fixture(include_str!("testdata/fabric_installer.json"));
+        assert_eq!(select_fabric_installer(installers).unwrap(), "1.1.2");
+        let unstable: Vec<FabricStable> = fixture(r#"[{ "version": "1.0.0", "stable": false }]"#);
+        assert!(select_fabric_installer(unstable).is_err());
+    }
+
     #[tokio::test]
-    async fn test_get_fabric_jar_url() {
+    async fn fabric_jar_url_with_known_versions() {
+        // with both versions given, nothing is looked up
         assert_eq!(
             super::get_fabric_jar_url(
                 "1.19",
@@ -445,9 +546,79 @@ mod tests {
                 }
             )
         );
-        assert!(super::get_fabric_jar_url("21w44a", &None, &None)
+    }
+
+    #[test]
+    fn newest_forge_build_is_the_last_one_listed() {
+        let metadata: BTreeMap<String, Vec<String>> =
+            fixture(include_str!("testdata/forge_maven_metadata.json"));
+        assert_eq!(
+            newest_forge_build(&metadata, "1.7.10").unwrap(),
+            "1.7.10-10.13.4.1614-1.7.10"
+        );
+        assert_eq!(
+            newest_forge_build(&metadata, "1.7.10_pre4").unwrap(),
+            "1.7.10_pre4-10.12.2.1149-prerelease"
+        );
+        let err = newest_forge_build(&metadata, "1.19.3bruh").unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::NotFound));
+        let empty: BTreeMap<String, Vec<String>> = fixture(r#"{ "1.20.1": [] }"#);
+        assert!(newest_forge_build(&empty, "1.20.1").is_err());
+    }
+
+    #[tokio::test]
+    async fn forge_jar_url_with_known_build() {
+        let build = "1.7.10_pre4-10.12.2.1149-prerelease".to_string();
+        assert_eq!(
+            get_server_jar_url("1.7.10_pre4", &Flavour::Forge { build_version: Some(ForgeBuildVersion(build.clone())) }).await.unwrap(),
+            (
+                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.7.10_pre4-10.12.2.1149-prerelease/forge-1.7.10_pre4-10.12.2.1149-prerelease-installer.jar".to_string(),
+                Flavour::Forge { build_version: Some(ForgeBuildVersion(build)) }
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn spigot_is_not_supported() {
+        assert!(matches!(
+            get_server_jar_url("1.20.1", &Flavour::Spigot)
+                .await
+                .unwrap_err()
+                .kind,
+            ErrorKind::UnsupportedOperation
+        ));
+    }
+
+    // Contract checks against the live APIs: they only check that the services still
+    // answer the way the code expects. Run them with `cargo test -- --ignored`.
+
+    #[tokio::test]
+    #[ignore = "network: Mojang's version manifest and version details still have the fields we read"]
+    async fn network_mojang_contract() {
+        let versions = crate::minecraft::vanilla::get_vanilla_minecraft_versions()
             .await
-            .is_ok());
+            .unwrap();
+        for v in ["1.20.1", "1.16.5", "1.12.2", "1.8.9", "21w44a"] {
+            assert!(versions.contains(&v.to_string()), "missing {v}");
+        }
+        assert_eq!(super::get_vanilla_jar_url("1.18.2").await.unwrap(), ("https://piston-data.mojang.com/v1/objects/c8f83c5655308435b3dcf03c06d9fe8740a77469/server.jar".to_string(), Flavour::Vanilla));
+        assert_eq!(super::get_jre_major_version("1.18.2").await.unwrap(), 17);
+        assert_eq!(
+            super::get_jre_major_version("1.7.10_pre4").await.unwrap(),
+            8
+        );
+        let err = super::get_vanilla_jar_url("1.8.4asdasd").await.unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::NotFound));
+    }
+
+    #[tokio::test]
+    #[ignore = "network: Fabric meta still lists game versions, loaders and installers"]
+    async fn network_fabric_contract() {
+        let versions = crate::minecraft::fabric::get_fabric_minecraft_versions()
+            .await
+            .unwrap();
+        assert!(versions.contains(&"1.17.1".to_string()));
+        assert!(versions.contains(&"21w19a".to_string()));
         // only one of the two versions given: the other one is looked up
         let (url, _) = super::get_fabric_jar_url(
             "1.19",
@@ -458,10 +629,55 @@ mod tests {
         .unwrap();
         assert!(url.starts_with("https://meta.fabricmc.net/v2/versions/loader/1.19/0.14.8/"));
         assert!(!url.contains("//server"), "{url}");
+        let (_, flavour) = super::get_fabric_jar_url("21w44a", &None, &None)
+            .await
+            .unwrap();
+        assert!(matches!(
+            flavour,
+            Flavour::Fabric {
+                loader_version: Some(_),
+                installer_version: Some(_)
+            }
+        ));
     }
 
     #[tokio::test]
-    async fn test_get_paper_jar_url() {
+    #[ignore = "network: Forge's maven metadata still maps Minecraft versions to builds"]
+    async fn network_forge_contract() {
+        let versions = crate::minecraft::forge::get_forge_minecraft_versions()
+            .await
+            .unwrap();
+        for v in ["1.16.5", "1.16.4", "1.16.1"] {
+            assert!(versions.contains(&v.to_string()), "missing {v}");
+        }
+        // newest first
+        let pos = |v: &str| versions.iter().position(|x| x == v).unwrap();
+        assert!(pos("1.20.1") < pos("1.16.5"));
+        assert_eq!(
+            get_server_jar_url("1.7.10", &Flavour::Forge { build_version: None }).await.unwrap(),
+            (
+                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/forge-1.7.10-10.13.4.1614-1.7.10-installer.jar".to_string(),
+                Flavour::Forge { build_version: Some(ForgeBuildVersion("1.7.10-10.13.4.1614-1.7.10".to_string())) }
+            )
+        );
+        assert!(get_server_jar_url(
+            "1.19.3bruh",
+            &Flavour::Forge {
+                build_version: None
+            }
+        )
+        .await
+        .is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "network: PaperMC's Fill v3 API still lists versions and builds with downloads"]
+    async fn network_paper_contract() {
+        let versions = crate::minecraft::paper::get_paper_minecraft_versions()
+            .await
+            .unwrap();
+        let pos = |v: &str| versions.iter().position(|x| x == v).unwrap();
+        assert!(pos("1.20.1") < pos("1.16.5"));
         // Fill v3 serves jars from content-addressed URLs: check the host, file name and build.
         async fn check(version: &str, build: Option<i64>, expected_build: i64) {
             let (url, flavour) = super::get_paper_jar_url(version, &build.map(PaperBuildVersion))
@@ -480,53 +696,13 @@ mod tests {
             );
         }
         check("1.19.3", Some(308), 308).await;
-        check("1.13-pre7", Some(1), 1).await;
         // newest stable build of a version that no longer gets builds
         check("1.19", None, 81).await;
-
         assert!(super::get_paper_jar_url("1.19.3bruh", &None).await.is_err());
         assert!(
             super::get_paper_jar_url("1.19.3", &Some(PaperBuildVersion(999_999)))
                 .await
                 .is_err()
         );
-    }
-
-    #[tokio::test]
-    async fn test_get_forge_jar_url() {
-        get_forge_jar_url("1.18.2", &None).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_get_server_jar_url() {
-        assert_eq!(
-            get_server_jar_url("1.7.10", &Flavour::Forge { build_version: None }).await.unwrap(),
-            (
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/forge-1.7.10-10.13.4.1614-1.7.10-installer.jar".to_string(),
-                Flavour::Forge { build_version: Some(ForgeBuildVersion("1.7.10-10.13.4.1614-1.7.10".to_string())) }
-            )
-        );
-        assert_eq!(
-            get_server_jar_url("1.7.10_pre4", &Flavour::Forge { build_version: None }).await.unwrap(),
-            (
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.7.10_pre4-10.12.2.1149-prerelease/forge-1.7.10_pre4-10.12.2.1149-prerelease-installer.jar".to_string(),
-                Flavour::Forge { build_version: Some(ForgeBuildVersion("1.7.10_pre4-10.12.2.1149-prerelease".to_string())) }
-            )
-        );
-        assert!(get_server_jar_url(
-            "1.19.3bruh",
-            &Flavour::Forge {
-                build_version: None
-            }
-        )
-        .await
-        .is_err());
-        assert!(matches!(
-            get_server_jar_url("1.20.1", &Flavour::Spigot)
-                .await
-                .unwrap_err()
-                .kind,
-            ErrorKind::UnsupportedOperation
-        ));
     }
 }

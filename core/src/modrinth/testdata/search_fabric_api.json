@@ -1,0 +1,73 @@
+{
+  "hits": [
+    {
+      "project_id": "P7dR8mSH",
+      "slug": "fabric-api",
+      "project_type": "mod",
+      "title": "Fabric API",
+      "description": "Lightweight and modular API providing common hooks and intercompatibility measures utilized by mods using the Fabric toolchain.",
+      "author": "modmuss50",
+      "icon_url": "https://cdn.modrinth.com/data/P7dR8mSH/icon.png",
+      "downloads": 284323203,
+      "follows": 37632,
+      "categories": [
+        "fabric",
+        "library"
+      ],
+      "versions": [
+        "1.20.1",
+        "1.21.1"
+      ],
+      "date_modified": "2026-11-03T16:23:37.333443+00:00",
+      "client_side": "optional",
+      "server_side": "optional"
+    },
+    {
+      "project_id": "lzVo0Dll",
+      "slug": "fabric-permissions-api",
+      "project_type": "mod",
+      "title": "fabric-permissions-api",
+      "description": "A simple permissions API for Fabric.",
+      "author": "lucko",
+      "icon_url": "https://cdn.modrinth.com/data/lzVo0Dll/b8bf5b758d1f34a597846980b8f5a426862d8dc0.png",
+      "downloads": 916936,
+      "follows": 57,
+      "categories": [
+        "fabric",
+        "library",
+        "management"
+      ],
+      "versions": [
+        "1.20.1",
+        "1.21.1"
+      ],
+      "date_modified": "2026-05-27T07:12:15.475261+00:00",
+      "client_side": "unsupported",
+      "server_side": "required"
+    },
+    {
+      "project_id": "GQqXBMJA",
+      "slug": "chunk-storage-api-fabric",
+      "project_type": "mod",
+      "title": "Chunk Storage Api Fabric",
+      "description": "Library mod for Fabric",
+      "author": "tom5454",
+      "icon_url": "https://cdn.modrinth.com/data/GQqXBMJA/0c0a3ab0a71201a40f5b7453dcb434c8bb1744d6_96.webp",
+      "downloads": 3228,
+      "follows": 4,
+      "categories": [
+        "fabric",
+        "library"
+      ],
+      "versions": [
+        "1.20.1"
+      ],
+      "date_modified": "2024-01-03T14:29:19.819418+00:00",
+      "client_side": "required",
+      "server_side": "required"
+    }
+  ],
+  "offset": 0,
+  "limit": 3,
+  "total_hits": 44
+}

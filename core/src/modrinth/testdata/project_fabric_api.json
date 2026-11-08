@@ -1,0 +1,33 @@
+{
+  "id": "P7dR8mSH",
+  "slug": "fabric-api",
+  "project_type": "mod",
+  "title": "Fabric API",
+  "description": "Lightweight and modular API providing common hooks and intercompatibility measures utilized by mods using the Fabric toolchain.",
+  "body": "# Fabric API",
+  "icon_url": "https://cdn.modrinth.com/data/P7dR8mSH/icon.png",
+  "categories": [
+    "library"
+  ],
+  "loaders": [
+    "fabric"
+  ],
+  "game_versions": [
+    "1.20.1",
+    "1.21.1"
+  ],
+  "downloads": 284359624,
+  "followers": 37634,
+  "client_side": "optional",
+  "server_side": "optional",
+  "license": {
+    "id": "Apache-2.0"
+  },
+  "source_url": "https://github.com/FabricMC/fabric-api",
+  "issues_url": "https://github.com/FabricMC/fabric-api/issues",
+  "wiki_url": "https://docs.fabricmc.net/",
+  "discord_url": "https://discord.gg/v6v4pMv",
+  "gallery": [],
+  "published": "2021-01-22T11:04:41.419169Z",
+  "updated": "2026-11-03T16:23:42.854627Z"
+}

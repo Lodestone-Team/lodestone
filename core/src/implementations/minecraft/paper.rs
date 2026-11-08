@@ -66,12 +66,15 @@ pub async fn get_paper_minecraft_versions() -> Result<Vec<String>, Error> {
         .json()
         .await
         .context("Failed to get paper versions, unexpected response")?;
+    Ok(version_ids(response))
+}
 
-    Ok(response
+fn version_ids(response: VersionsResponse) -> Vec<String> {
+    response
         .versions
         .into_iter()
         .map(|entry| entry.version.id)
-        .collect())
+        .collect()
 }
 
 /// The server jar for `version`: the given build, or the newest stable build.
@@ -94,7 +97,11 @@ pub async fn get_paper_download(
         .json()
         .await
         .context("Failed to get paper builds, unexpected response")?;
+    select_download(builds, build)
+}
 
+/// The given build, or the newest stable one. `Ok(None)` when there is no such build.
+fn select_download(builds: Vec<Build>, build: Option<i64>) -> Result<Option<PaperDownload>, Error> {
     let selected = match build {
         Some(id) => builds.into_iter().find(|b| b.id == id),
         None => builds
@@ -120,14 +127,60 @@ pub async fn get_paper_download(
 mod test {
     use super::*;
 
-    #[tokio::test]
-    async fn test_get_paper_minecraft_versions() {
-        let versions = get_paper_minecraft_versions().await.unwrap();
+    #[test]
+    fn versions_are_listed_newest_first() {
+        let response: VersionsResponse =
+            serde_json::from_str(include_str!("testdata/paper_versions.json")).unwrap();
+        let versions = version_ids(response);
         for v in ["1.16.5", "1.16.4", "1.16.3", "1.16.2", "1.16.1"] {
             assert!(versions.contains(&v.to_string()), "missing {v}");
         }
-        // newest first, like the v2-based code returned after reversing
+        assert_eq!(versions[0], "26.3");
         let pos = |v: &str| versions.iter().position(|x| x == v).unwrap();
         assert!(pos("1.20.1") < pos("1.16.5"));
+    }
+
+    #[test]
+    fn selects_the_requested_or_newest_stable_build() {
+        let builds = || -> Vec<Build> {
+            serde_json::from_str(include_str!("testdata/paper_builds_1.19.json")).unwrap()
+        };
+        let newest = select_download(builds(), None).unwrap().unwrap();
+        assert_eq!(newest.build, 81);
+        assert_eq!(
+            newest.url,
+            "https://fill-data.papermc.io/v1/objects/0d39cacc51a77b2b071e1ce862fcbf0b4a4bd668cc7e8b313598d84fa09fabac/paper-1.19-81.jar"
+        );
+        // an explicitly requested build may be on any channel
+        let alpha = select_download(builds(), Some(5)).unwrap().unwrap();
+        assert_eq!(alpha.build, 5);
+        assert!(alpha.url.ends_with("/paper-1.19-5.jar"), "{}", alpha.url);
+        assert_eq!(select_download(builds(), Some(999_999)).unwrap(), None);
+
+        // a newer build on another channel is not "the newest stable"
+        let mixed: Vec<Build> = serde_json::from_str(
+            r#"[
+                { "id": 12, "channel": "ALPHA", "downloads": { "server:default": { "url": "https://x/12.jar" } } },
+                { "id": 11, "channel": "stable", "downloads": { "server:default": { "url": "https://x/11.jar" } } },
+                { "id": 10, "channel": "STABLE", "downloads": { "server:default": { "url": "https://x/10.jar" } } }
+            ]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            select_download(mixed, None).unwrap(),
+            Some(PaperDownload {
+                build: 11,
+                url: "https://x/11.jar".into()
+            })
+        );
+        let unstable: Vec<Build> = serde_json::from_str(
+            r#"[{ "id": 1, "channel": "BETA", "downloads": { "server:default": { "url": "https://x/1.jar" } } }]"#,
+        )
+        .unwrap();
+        assert_eq!(select_download(unstable, None).unwrap(), None);
+        // a build without a server jar is an error, not a missing build
+        let no_jar: Vec<Build> =
+            serde_json::from_str(r#"[{ "id": 1, "channel": "STABLE", "downloads": {} }]"#).unwrap();
+        assert!(select_download(no_jar, None).is_err());
     }
 }

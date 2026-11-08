@@ -705,7 +705,12 @@ mod tests {
             let bridge = bridge.clone();
             async move { bridge.call(ProcedureCallInner::GetState).await }
         });
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // the atom exits while the call waits for its answer
+        crate::test_util::wait_until("the call is pending", || {
+            let pending = !lock_pending(&bridge.pending).is_empty();
+            async move { pending }
+        })
+        .await;
         exit_tx.send(()).unwrap();
         let result = tokio::time::timeout(Duration::from_secs(5), call)
             .await
@@ -742,7 +747,8 @@ mod tests {
             let bridge = bridge.clone();
             async move { bridge.wait_ready().await }
         });
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        // let the waiter start waiting before the atom becomes ready
+        tokio::task::yield_now().await;
         bridge.state.send_replace(BridgeState::Ready);
         waiter.await.unwrap().unwrap();
     }
