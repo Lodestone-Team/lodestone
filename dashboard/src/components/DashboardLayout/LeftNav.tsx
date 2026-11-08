@@ -15,8 +15,10 @@ import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import IntegrationsList from './IntegrationsList';
 import SidebarFooter from './SidebarFooter';
+import { useT } from 'i18n';
 
 export default function LeftNav({ className }: { className?: string }) {
+  const t = useT();
   const {
     showCreateInstance,
     setShowCreateInstance,
@@ -34,14 +36,14 @@ export default function LeftNav({ className }: { className?: string }) {
     <div
       // overflow-y-auto is the fallback for browsers without overflow: overlay
       // eslint-disable-next-line tailwindcss/no-contradicting-classname
-      className={`overflow-y-overlay flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
+      className={`flex w-full flex-col items-center overflow-y-auto overflow-y-overlay px-2 ${className}`}
     >
       <div className="mt-8 flex w-full grow flex-col">
         <Transition appear show={showCreateInstance} as={Fragment}>
           <Dialog onClose={closeCreateInstance} className="z-10">
             <ModalBackdrop />
             <div className="fixed inset-0">
-              <div className="overflow-y-overlay flex min-h-full items-center justify-center p-4 text-center">
+              <div className="flex min-h-full items-center justify-center overflow-y-overlay p-4 text-center">
                 <ModalPanel>
                   <Suspense
                     fallback={
@@ -70,15 +72,19 @@ export default function LeftNav({ className }: { className?: string }) {
                 {...preloadCreateInstanceProps}
               >
                 <Button
-                  label={canCreateInstance ? "New server..." : "No permission"}
+                  label={
+                    canCreateInstance
+                      ? t('shell.nav.newServer')
+                      : t('shell.nav.noPermission')
+                  }
                   className={clsx(
                     'w-full text-medium font-medium tracking-normal',
                     showCreateInstance
-                      ? 'bg-gray-850 text-gray-300 outline-solid outline-1 outline-fade-700/10'
+                      ? 'bg-gray-850 text-gray-300 outline-1 outline-fade-700/10 outline-solid'
                       : 'text-white/50',
                     'disabled:text-white/30',
                     'enabled:hover:bg-gray-800 enabled:focus-visible:outline-hidden',
-                    'enabled:active:bg-gray-850 enabled:active:text-gray-300 enabled:active:outline-solid enabled:active:outline-1 enabled:active:outline-fade-700/10'
+                    'enabled:active:bg-gray-850 enabled:active:text-gray-300 enabled:active:outline-1 enabled:active:outline-fade-700/10 enabled:active:outline-solid'
                   )}
                   intention="none"
                   variant="text"

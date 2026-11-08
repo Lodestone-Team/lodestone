@@ -1,6 +1,7 @@
 import WarningAlert from 'components/Atoms/WarningAlert';
 import { CoreConnectionInfo } from 'data/LodestoneContext';
 import { isAxiosError, isLocalCore } from 'utils/util';
+import { useI18n } from 'i18n';
 
 /**
  * The protocol a new core connection starts with: http for a core on this
@@ -33,38 +34,36 @@ export default function CoreConnectionHelp({
   /** The core was picked from the saved list, so its protocol can't be edited. */
   savedCore?: boolean;
 }) {
+  const { t, rich } = useI18n();
   if (core.protocol === 'https') {
     const certificatePage = `https://${core.address}:${core.port}/`;
     return (
       <WarningAlert>
         <p>
-          If the core is running and uses its built-in certificate, this browser
-          has to trust that certificate once. Open{' '}
-          <a
-            href={certificatePage}
-            target="_blank"
-            rel="noreferrer"
-            className="wrap-break-word text-blue-200 underline hover:text-blue-300"
-          >
-            {certificatePage}
-          </a>
-          , accept the certificate warning, then come back and try again.
+          {rich('shell.connectionHelp.trustCertificate', {
+            link: (
+              <a
+                href={certificatePage}
+                target="_blank"
+                rel="noreferrer"
+                className="wrap-break-word text-blue-200 underline hover:text-blue-300"
+              >
+                {certificatePage}
+              </a>
+            ),
+          })}
         </p>
-        <p className="mt-2">
-          To make sure it is your core, compare the certificate fingerprint your
-          browser shows with the one in the core&apos;s log or in its Core
-          Settings.
-        </p>
+        <p className="mt-2">{t('shell.connectionHelp.fingerprint')}</p>
       </WarningAlert>
     );
   }
   return (
     <WarningAlert>
       <p>
-        Lodestone cores refuse plain HTTP from other devices by default.{' '}
+        {t('shell.connectionHelp.plainHttp')}{' '}
         {savedCore
-          ? 'Connect a new core with the same address and the https protocol.'
-          : 'Change the protocol to https and try again.'}
+          ? t('shell.connectionHelp.savedCore')
+          : t('shell.connectionHelp.changeProtocol')}
       </p>
     </WarningAlert>
   );

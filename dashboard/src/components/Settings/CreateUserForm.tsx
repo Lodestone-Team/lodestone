@@ -9,6 +9,7 @@ import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import { createNewUser } from 'utils/apis';
 import * as yup from 'yup';
 import WarningAlert from 'components/Atoms/WarningAlert';
+import { t as translate, useT } from 'i18n';
 
 export type CreateNewUserValues = {
   username: string;
@@ -17,12 +18,18 @@ export type CreateNewUserValues = {
 };
 
 const validationSchema = yup.object({
-  username: yup.string().required('Username is required'),
-  password: yup.string().required('Password is required'),
+  username: yup
+    .string()
+    .required(() => translate('settings.form.usernameRequired')),
+  password: yup
+    .string()
+    .required(() => translate('settings.form.passwordRequired')),
   password_confirm: yup
     .string()
-    .required('Password confirmation is required')
-    .oneOf([yup.ref('password')], 'Passwords must match'),
+    .required(() => translate('settings.form.confirmRequired'))
+    .oneOf([yup.ref('password')], () =>
+      translate('settings.form.passwordsMustMatch')
+    ),
 });
 
 export const CreateUserForm = ({
@@ -32,6 +39,7 @@ export const CreateUserForm = ({
   onSuccess: (values: CreateNewUserValues) => void;
   onCancel: () => void;
 }) => {
+  const t = useT();
   const gaEventTracker = useAnalyticsEventTracker('User Management');
   const queryClient = useQueryClient();
   const initialValues: CreateNewUserValues = {
@@ -87,16 +95,24 @@ export const CreateUserForm = ({
               <p>{status.error}</p>
             </WarningAlert>
           )}
-          <InputField name="username" label="Username" />
-          <InputField name="password" label="Password" type="password" />
+          <InputField name="username" label={t('settings.form.username')} />
           <InputField
-            name="password_confirm"
-            label="Confirm Password"
+            name="password"
+            label={t('settings.form.password')}
             type="password"
           />
-          <div className="flex flex-row justify-between">
-            <Button onClick={onCancel} label="Cancel" />
-            <Button type="submit" label="Create User" loading={isSubmitting} />
+          <InputField
+            name="password_confirm"
+            label={t('settings.form.confirmPassword')}
+            type="password"
+          />
+          <div className="flex flex-row justify-between gap-2">
+            <Button onClick={onCancel} label={t('common.cancel')} />
+            <Button
+              type="submit"
+              label={t('settings.form.createUser')}
+              loading={isSubmitting}
+            />
           </div>
         </Form>
       )}

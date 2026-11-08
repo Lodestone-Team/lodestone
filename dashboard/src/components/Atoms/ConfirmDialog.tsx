@@ -2,6 +2,7 @@ import { Dialog, Transition } from '@headlessui/react';
 import { ModalBackdrop, ModalPanel } from './Modal';
 import { Fragment, ReactNode, useEffect, useState } from 'react';
 import Button from './Button';
+import { useT } from 'i18n';
 
 export interface DialogProps {
   title: string;
@@ -26,6 +27,7 @@ export default function ConfirmDialog({
   isOpen,
   zIndex = 10,
 }: DialogProps) {
+  const t = useT();
   const [isLoading, setIsLoading] = useState(false);
   useEffect(() => {
     setIsLoading(false);
@@ -59,14 +61,14 @@ export default function ConfirmDialog({
               </Dialog.Description>
               <div className="flex flex-row gap-2">
                 <Button
-                  label={closeButtonText || 'Cancel'}
+                  label={closeButtonText || t('common.cancel')}
                   className={onConfirm ? 'w-fit' : 'grow'}
                   onClick={onClose}
                   disabled={isLoading}
                 />
                 {onConfirm && (
                   <Button
-                    label={confirmButtonText || 'Confirm'}
+                    label={confirmButtonText || t('common.confirm')}
                     intention={type === 'danger' ? 'danger' : 'info'}
                     loading={isLoading}
                     onClick={async () => {

@@ -12,6 +12,7 @@ import clsx from 'clsx';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 import { VirtualizedList } from '../../../Atoms/Form/ComboField';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
+import { useT } from 'i18n';
 
 /**
  * A combo box field that allows the user to select from a list of options, or
@@ -53,6 +54,7 @@ export default function FormComboField(props: ComboFieldProps) {
     filterOptions = defaultFilterOptions,
     ...rest
   } = props;
+  const t = useT();
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [query, setQuery] = useState('');
@@ -118,7 +120,7 @@ export default function FormComboField(props: ComboFieldProps) {
             <label className="relative text-medium font-medium text-gray-300">
               {label}
               {!optional && (
-                <span className="absolute ml-1 mt-1 text-[8px] text-red-200">
+                <span className="absolute mt-1 ml-1 text-[8px] text-red-200">
                   <FontAwesomeIcon icon={faAsterisk} />
                 </span>
               )}
@@ -126,10 +128,10 @@ export default function FormComboField(props: ComboFieldProps) {
           )}
           {errorText ? (
             <div className="text-medium font-medium tracking-medium text-red-200">
-              {errorText || 'Unknown error'}
+              {errorText || t('common.unknownError')}
             </div>
           ) : (
-            <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+            <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
               {description}
             </div>
           )}
@@ -140,7 +142,12 @@ export default function FormComboField(props: ComboFieldProps) {
             <Skeleton className="h-8.5 w-full rounded" />
           </SkeletonGroup>
         )}
-        <div className={clsx('relative w-5/12 shrink-0', loadingVisual && 'hidden')}>
+        <div
+          className={clsx(
+            'relative w-5/12 shrink-0',
+            loadingVisual && 'hidden'
+          )}
+        >
           <Combobox
             value={selectedValue ? selectedValue : ''}
             name={field.name}
@@ -163,10 +170,10 @@ export default function FormComboField(props: ComboFieldProps) {
           >
             <Combobox.Input
               className={clsx(
-                'input-outlines input-text-style group min-h-[1em] w-full rounded py-1.5 px-3',
+                'input-outlines input-text-style group min-h-[1em] w-full rounded px-3 py-1.5',
                 'enabled:hover:outline-white/30 enabled:ui-not-open:hover:bg-gray-700',
-                'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 ',
-                'enabled:ui-not-open:bg-gray-850  enabled:ui-not-open:active:bg-gray-850',
+                'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850',
+                'enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:active:bg-gray-850',
                 'enabled:ui-not-open:active:outline-white/30',
                 errorText ? 'input-border-error' : 'input-border-normal',
                 selectedValue ? 'text-gray-300' : 'text-gray-500'
@@ -174,9 +181,7 @@ export default function FormComboField(props: ComboFieldProps) {
               onChange={(event) => setQuery(event.target.value)}
               placeholder={placeholder}
             />
-            <Combobox.Button
-              className="group absolute inset-y-0 right-0 flex items-center pr-1.5"
-            >
+            <Combobox.Button className="group absolute inset-y-0 right-0 flex items-center pr-1.5">
               {icon}
             </Combobox.Button>
             <Transition
@@ -200,7 +205,7 @@ export default function FormComboField(props: ComboFieldProps) {
                       <Combobox.Option
                         value={query}
                         className={clsx(
-                          'relative cursor-default select-none rounded-md py-2 pl-3 pr-4 text-gray-300',
+                          'relative cursor-default rounded-md py-2 pr-4 pl-3 text-gray-300 select-none',
                           'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
                           'ui-selected:font-medium ui-not-selected:font-medium',
                           'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
@@ -209,13 +214,13 @@ export default function FormComboField(props: ComboFieldProps) {
                       >
                         <div className="flex flex-row justify-between">
                           <span className="block truncate pr-1">
-                            Add &#34;{query}&#34;
+                            {t('create.combo.add', { query })}
                           </span>
                         </div>
                       </Combobox.Option>
                     ) : (
-                      <div className="relative cursor-default select-none rounded-md bg-gray-800 py-2 pl-3 pr-4 text-gray-300">
-                        Nothing found.
+                      <div className="relative cursor-default rounded-md bg-gray-800 py-2 pr-4 pl-3 text-gray-300 select-none">
+                        {t('create.combo.nothingFound')}
                       </div>
                     )
                   ) : (

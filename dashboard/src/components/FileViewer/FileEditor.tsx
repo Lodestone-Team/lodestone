@@ -3,12 +3,19 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ClientFile } from 'bindings/ClientFile';
 import { InstanceContext } from 'data/InstanceContext';
 import type * as monaco from 'monaco-editor';
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { saveInstanceFile } from 'utils/apis';
 import * as toml from 'utils/monaco-languages/toml';
 import { useResolvedTheme } from 'utils/theme';
 import { SkeletonCode, SkeletonGroup } from 'components/Atoms/Skeleton';
+import { useT } from 'i18n';
 
 type Monaco = typeof monaco;
 
@@ -37,6 +44,7 @@ export function FileEditor({
   fileContent: string;
   setFileContent: (content: string) => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const fileContentRef = useRef<string | undefined>(undefined);
   fileContentRef.current = fileContent;
@@ -81,8 +89,8 @@ export function FileEditor({
   const monacoLanguage = monacoPath.endsWith('.lodestone_config')
     ? 'json'
     : monacoPath.endsWith('.toml')
-    ? 'toml'
-    : undefined;
+      ? 'toml'
+      : undefined;
 
   useIsomorphicLayoutEffect(() => {
     // set monaco theme, just a different background color
@@ -157,7 +165,10 @@ export function FileEditor({
       // shown only if the editor takes a while to start (its first load):
       // lines of code, appearing after a moment so a quick start shows nothing
       loading={
-        <SkeletonGroup label="Loading editor" className="size-full p-4">
+        <SkeletonGroup
+          label={t('files.editor.loading')}
+          className="size-full p-4"
+        >
           <SkeletonCode lines={16} />
         </SkeletonGroup>
       }

@@ -3,6 +3,7 @@ import { FieldHookConfig, useField } from 'formik';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import { faAsterisk } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { useT } from 'i18n';
 
 export type InputFieldProps = FieldHookConfig<string> & {
   label?: string;
@@ -18,6 +19,7 @@ export type InputFieldProps = FieldHookConfig<string> & {
 export default function FormInputField(props: InputFieldProps) {
   const { className, label, type, disabled, description, optional, ...rest } =
     props;
+  const t = useT();
   const [field, meta] = useField(props);
   const isError = meta.touched && meta.error && true;
   const errorText = isError ? meta.error : '';
@@ -30,7 +32,7 @@ export default function FormInputField(props: InputFieldProps) {
           <label className="relative text-medium font-medium text-gray-300">
             {label}
             {!optional && (
-              <span className="absolute ml-1 mt-1 text-[8px] text-red-200">
+              <span className="absolute mt-1 ml-1 text-[8px] text-red-200">
                 <FontAwesomeIcon icon={faAsterisk} />
               </span>
             )}
@@ -38,10 +40,10 @@ export default function FormInputField(props: InputFieldProps) {
         )}
         {errorText ? (
           <div className="text-medium font-medium tracking-medium text-red-200">
-            {errorText || 'Unknown error'}
+            {errorText || t('common.unknownError')}
           </div>
         ) : (
-          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+          <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
             {description}
           </div>
         )}

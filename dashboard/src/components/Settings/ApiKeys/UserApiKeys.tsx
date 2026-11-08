@@ -1,5 +1,6 @@
 import { PublicUser } from 'bindings/PublicUser';
 import { apiKeyKeys, revokeUserApiKey, useUserApiKeys } from 'data/ApiKeys';
+import { useT } from 'i18n';
 import ApiKeyList from './ApiKeyList';
 import { SettingsSection } from '../SettingsBlocks';
 
@@ -8,17 +9,13 @@ import { SettingsSection } from '../SettingsBlocks';
  * admins. Keys can be revoked here, but not created for someone else.
  */
 export default function UserApiKeys({ user }: { user: PublicUser }) {
+  const t = useT();
   const { data: keys, isLoading, error } = useUserApiKeys(user.uid);
 
   return (
     <SettingsSection
-      title="API keys"
-      lead={
-        <>
-          The keys {user.username} created. Revoke a key to cut off what uses it
-          at once. Only {user.username} can create keys for themselves.
-        </>
-      }
+      title={t('settings.apiKeys.title')}
+      lead={t('settings.apiKeys.userLead', { username: user.username })}
     >
       <ApiKeyList
         keys={keys}
@@ -26,7 +23,7 @@ export default function UserApiKeys({ user }: { user: PublicUser }) {
         error={error}
         queryKey={apiKeyKeys.ofUser(user.uid)}
         revoke={(key) => revokeUserApiKey(user.uid, key.id)}
-        emptyText={`${user.username} has no API keys.`}
+        emptyText={t('settings.apiKeys.userEmpty', { username: user.username })}
       />
     </SettingsSection>
   );

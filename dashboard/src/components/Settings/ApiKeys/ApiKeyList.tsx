@@ -10,6 +10,7 @@ import {
   isApiKeyExpired,
   removeApiKeyFromCache,
 } from 'data/ApiKeys';
+import { useI18n } from 'i18n';
 import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { ApiError, formatTimeAgo } from 'utils/util';
@@ -19,16 +20,6 @@ import {
   SettingsEmptyRow,
   SettingsRow,
 } from 'components/Settings/SettingsBlocks';
-
-const formatDate = (seconds: number) =>
-  new Date(seconds * 1000).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-
-const formatDateTime = (seconds: number) =>
-  new Date(seconds * 1000).toLocaleString();
 
 /**
  * A list of API keys, each with a Revoke button that confirms first.
@@ -47,8 +38,21 @@ export default function ApiKeyList({
   /** The query the keys come from; a revoked key is removed from it */
   queryKey: string[];
   revoke: (key: ApiKeyInfo) => Promise<unknown>;
+  /** shown when there are no keys (translated) */
   emptyText: string;
 }) {
+  const {
+    t,
+    formatDate: formatDateIn,
+    formatDateTime: formatDateTimeIn,
+  } = useI18n();
+  const formatDate = (seconds: number) =>
+    formatDateIn(seconds * 1000, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  const formatDateTime = (seconds: number) => formatDateTimeIn(seconds * 1000);
   const queryClient = useQueryClient();
   const [toRevoke, setToRevoke] = useState<ApiKeyInfo | null>(null);
 
@@ -63,7 +67,7 @@ export default function ApiKeyList({
     // key rows: name and prefix, scopes, dates, and the revoke button
     return (
       <SkeletonGroup
-        label="Loading API keys"
+        label={t('settings.apiKeys.loading')}
         className="w-full min-w-0 divide-y divide-fade-700 rounded-xl border border-fade-700 bg-gray-850"
       >
         {[0, 1].map((i) => (
@@ -86,9 +90,10 @@ export default function ApiKeyList({
   return (
     <>
       <ConfirmDialog
-        title="Revoke API key"
+        title={t('settings.apiKeys.revokeTitle')}
         type="danger"
-        confirmButtonText="Revoke"
+        confirmButtonText={t('settings.apiKeys.revoke')}
+        closeButtonText={t('common.cancel')}
         isOpen={toRevoke !== null}
         onClose={() => setToRevoke(null)}
         onConfirm={async () => {
@@ -100,16 +105,15 @@ export default function ApiKeyList({
             return;
           }
           removeApiKeyFromCache(queryClient, queryKey, toRevoke.id);
-          toast.success(`Revoked API key "${toRevoke.name}"`);
+          toast.success(t('settings.apiKeys.revoked', { name: toRevoke.name }));
           setToRevoke(null);
         }}
       >
-        {toRevoke && (
-          <>
-            Revoke &quot;{toRevoke.name}&quot; ({toRevoke.display})? Anything
-            using this key loses access at once. This can&apos;t be undone.
-          </>
-        )}
+        {toRevoke &&
+          t('settings.apiKeys.revokeBody', {
+            name: toRevoke.name,
+            display: toRevoke.display,
+          })}
       </ConfirmDialog>
       <SettingsCard>
         {keys.length === 0 ? (
@@ -135,7 +139,9 @@ export default function ApiKeyList({
                     </span>
                     <span className="flex flex-row flex-wrap gap-x-3">
                       <span title={formatDateTime(key.created_at)}>
-                        Created {formatDate(key.created_at)}
+                        {t('settings.apiKeys.createdOn', {
+                          date: formatDate(key.created_at),
+                        })}
                       </span>
                       <span
                         className={clsx(expired && 'text-red-200')}
@@ -146,10 +152,13 @@ export default function ApiKeyList({
                         }
                       >
                         {key.expires_at === null
-                          ? 'Expires: Never'
-                          : `${expired ? 'Expired' : 'Expires'} ${formatDate(
-                              key.expires_at
-                            )}`}
+                          ? t('settings.apiKeys.expiresNever')
+                          : t(
+                              expired
+                                ? 'settings.apiKeys.expiredOn'
+                                : 'settings.apiKeys.expiresOn',
+                              { date: formatDate(key.expires_at) }
+                            )}
                       </span>
                       <span
                         title={
@@ -158,17 +167,18 @@ export default function ApiKeyList({
                             : formatDateTime(key.last_used_at)
                         }
                       >
-                        Last used:{' '}
                         {key.last_used_at === null
-                          ? 'Never'
-                          : formatTimeAgo(key.last_used_at * 1000)}
+                          ? t('settings.apiKeys.lastUsedNever')
+                          : t('settings.apiKeys.lastUsed', {
+                              time: formatTimeAgo(key.last_used_at * 1000),
+                            })}
                       </span>
                     </span>
                   </>
                 }
               >
                 <Button
-                  label="Revoke"
+                  label={t('settings.apiKeys.revoke')}
                   intention="danger"
                   onClick={() => setToRevoke(key)}
                 />

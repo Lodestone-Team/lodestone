@@ -14,9 +14,11 @@ import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
 import ApiKeysSection from 'components/Settings/ApiKeys/ApiKeysSection';
 import { OwnMinecraftLinks } from 'components/Settings/MinecraftLinks';
 import AppearanceSetting from 'components/Settings/AppearanceSetting';
+import LanguageSetting from 'components/Settings/LanguageSetting';
 import ToggleBox from 'components/Atoms/Config/ToggleBox';
 import { useColoredConsole } from 'utils/hooks';
 import { toast } from 'react-toastify';
+import { useT } from 'i18n';
 import {
   SettingsCard,
   SettingsPage,
@@ -26,21 +28,27 @@ import {
 import { notifySaved } from 'components/Settings/savedToast';
 
 const ProfilePage = () => {
-  useDocumentTitle('User Profile - Lodestone');
+  const t = useT();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('settings.profile.documentTitle') })
+  );
   const uid = useUid();
   const queryClient = useQueryClient();
   const { userState, user } = useUserState();
   // read from the user info cache, so a rename shows up everywhere
-  const username = userState === 'logged-in' && user ? user.username : 'Guest';
+  const username =
+    userState === 'logged-in' && user
+      ? user.username
+      : t('settings.profile.guest');
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [coloredConsole, setColoredConsole] = useColoredConsole();
 
   useEffect(() => {
     if (userState === 'logged-out')
-      toast.warn("You're not logged in! Please log in to access this page.", {
+      toast.warn(t('settings.profile.notLoggedIn'), {
         toastId: 'profile-not-logged-in',
       });
-  }, [userState]);
+  }, [userState, t]);
 
   if (userState === 'loading') {
     return <PageLoading className="max-w-2xl" />;
@@ -75,7 +83,7 @@ const ProfilePage = () => {
             <div className="flex min-h-full items-center justify-center p-4">
               <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
                 <div className="text-h2 font-extrabold tracking-tight text-gray-300">
-                  Change password
+                  {t('settings.profile.changePassword')}
                 </div>
                 <ChangeSelfPasswordForm
                   onSuccess={() => setShowChangePassword(false)}
@@ -87,22 +95,23 @@ const ProfilePage = () => {
         </Dialog>
       </Transition>
       <SettingsPage
-        title="Profile"
-        description={`Profile preferences for ${username}`}
+        title={t('settings.profile.title')}
+        description={t('settings.profile.description', { username })}
       >
-        <SettingsSection title="Account">
+        <SettingsSection title={t('settings.profile.account')}>
           <SettingsCard>
             <InputBox
-              label={'Username'}
+              label={t('settings.profile.username')}
               value={username}
               type="text"
               onSubmit={rename}
               disabled={userState !== 'logged-in' || !user}
             />
-            <SettingsRow label="Password">
+            <SettingsRow label={t('settings.profile.password')}>
               <Button
-                label={'Change password'}
+                label={t('settings.profile.changePassword')}
                 size={'medium'}
+                className="whitespace-nowrap"
                 onClick={() => setShowChangePassword(true)}
               />
             </SettingsRow>
@@ -110,16 +119,17 @@ const ProfilePage = () => {
         </SettingsSection>
 
         <SettingsSection
-          title="Appearance"
-          lead="Saved in this browser, not on the core."
+          title={t('settings.profile.appearance')}
+          lead={t('settings.profile.appearanceLead')}
         >
           <SettingsCard>
+            <LanguageSetting />
             <AppearanceSetting />
             <ToggleBox
-              label="Colored console"
+              label={t('settings.profile.coloredConsole')}
               value={coloredConsole}
               onChange={async (value) => setColoredConsole(value)}
-              description="Shows the colors and styles servers print in the server console"
+              description={t('settings.profile.coloredConsoleHint')}
             />
           </SettingsCard>
         </SettingsSection>

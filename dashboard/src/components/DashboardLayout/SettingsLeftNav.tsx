@@ -14,15 +14,24 @@ import { useUid } from 'data/UserInfo';
 import { AccountSettingsTabList, CoreSettingsTabList } from '../../../pages';
 import { settingsNavItemClass } from 'components/Settings/SettingsToc';
 import { SettingsLink, SettingsTag } from 'components/Settings/SettingsBlocks';
+import { useT } from 'i18n';
 
 // the highlight of the current page, on the gray-875 sidebar
 const ACTIVE_CLASS =
   'bg-gray-800 text-gray-300 light:outline-1 light:outline-fade-700 light:outline-solid';
 
 const pageGroups = [
-  { label: 'Core', icon: faServer, pages: CoreSettingsTabList },
-  { label: 'Account', icon: faUser, pages: AccountSettingsTabList },
-];
+  {
+    labelKey: 'shell.settingsNav.core',
+    icon: faServer,
+    pages: CoreSettingsTabList,
+  },
+  {
+    labelKey: 'shell.settingsNav.account',
+    icon: faUser,
+    pages: AccountSettingsTabList,
+  },
+] as const;
 
 /** A caption over a group of the list, e.g. "Core" */
 function GroupLabel({
@@ -52,6 +61,7 @@ export default function SettingsLeftNav({
   /** a page or a user was picked, e.g. to close the overlay the list is in */
   onNavigate?: () => void;
 }) {
+  const t = useT();
   const { setPathname } = useContext(BrowserLocationContext);
   const { userList, selectedUser, selectUser } = useContext(SettingsContext);
   const uid = useUid();
@@ -64,10 +74,13 @@ export default function SettingsLeftNav({
         className
       )}
     >
-      <nav aria-label="Settings" className="flex w-full flex-col gap-4">
+      <nav
+        aria-label={t('shell.settingsNav.label')}
+        className="flex w-full flex-col gap-4"
+      >
         {pageGroups.map((group) => (
-          <div key={group.label} className="flex flex-col gap-0.5">
-            <GroupLabel icon={group.icon}>{group.label}</GroupLabel>
+          <div key={group.labelKey} className="flex flex-col gap-0.5">
+            <GroupLabel icon={group.icon}>{t(group.labelKey)}</GroupLabel>
             {group.pages.map((setting) => (
               <button
                 key={setting.path}
@@ -82,7 +95,7 @@ export default function SettingsLeftNav({
                   onNavigate?.();
                 }}
               >
-                {setting.title}
+                {t(setting.titleKey)}
               </button>
             ))}
           </div>
@@ -91,8 +104,8 @@ export default function SettingsLeftNav({
 
       {users.length > 0 && (
         <div className="flex min-h-0 w-full flex-col gap-0.5">
-          <div className="flex flex-row items-center justify-between pr-2.5">
-            <GroupLabel>Users</GroupLabel>
+          <div className="flex flex-row flex-wrap items-center justify-between gap-x-2 pr-2.5">
+            <GroupLabel>{t('shell.settingsNav.users')}</GroupLabel>
             <SettingsLink
               muted
               className="pb-1 text-small"
@@ -101,13 +114,13 @@ export default function SettingsLeftNav({
                 selectUser(null);
               }}
             >
-              Unselect user
+              {t('shell.settingsNav.unselectUser')}
             </SettingsLink>
           </div>
           <RadioGroup
             value={selectedUser}
             onChange={selectUser}
-            aria-label="Users"
+            aria-label={t('shell.settingsNav.users')}
             className="flex min-h-0 w-full flex-col items-stretch gap-0.5"
           >
             {users
@@ -140,7 +153,9 @@ export default function SettingsLeftNav({
                     >
                       <Avatar name={user.uid} />
                       <span className="truncate">{user.username}</span>
-                      {uid === user.uid && <SettingsTag>You</SettingsTag>}
+                      {uid === user.uid && (
+                        <SettingsTag>{t('common.you')}</SettingsTag>
+                      )}
                     </div>
                   )}
                 </RadioGroup.Option>

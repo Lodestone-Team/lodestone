@@ -17,31 +17,27 @@ import {
   SettingsSection,
 } from 'components/Settings/SettingsBlocks';
 import { notifySaved } from 'components/Settings/savedToast';
+import { type I18n, type MessageKey, useI18n, useT } from 'i18n';
 
-export const OWNER_ONLY_PUBLIC_MESSAGE = 'Only the owner can change this';
-
-const SCOPE_FLAGS: Array<{
+// the labels are message keys, translated when rendered
+const SCOPE_FLAGS = [
+  { key: 'status', labelKey: 'server.publicListing.flag.status' },
+  { key: 'address', labelKey: 'server.publicListing.flag.address' },
+  { key: 'client_pack', labelKey: 'server.publicListing.flag.clientPack' },
+] as const satisfies ReadonlyArray<{
   key: 'status' | 'address' | 'client_pack';
-  label: string;
-}> = [
-  { key: 'status', label: 'Status and players' },
-  { key: 'address', label: 'Address to join' },
-  { key: 'client_pack', label: 'Client mods download' },
-];
+  labelKey: MessageKey;
+}>;
 
 /** What anyone sees of a listed instance, as a sentence. */
-function shownText(scope: PublicScope) {
+function shownText({ t, formatList }: I18n, scope: PublicScope) {
   const shown = [
-    'name and version',
-    scope.status && 'status and player count',
-    scope.address && 'address',
-    scope.client_pack && 'client mods',
-  ].filter(Boolean);
-  const list =
-    shown.length > 1
-      ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}`
-      : shown[0];
-  return `Anyone who can reach this core sees its ${list}, without signing in.`;
+    t('server.publicListing.shown.nameVersion'),
+    scope.status && t('server.publicListing.shown.status'),
+    scope.address && t('server.publicListing.shown.address'),
+    scope.client_pack && t('server.publicListing.shown.clientPack'),
+  ].filter((item): item is string => !!item);
+  return t('server.publicListing.shownText', { list: formatList(shown) });
 }
 
 /**
@@ -78,6 +74,8 @@ export function PublicScopeRow({
   switchOn: boolean;
   canEdit: boolean;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const labelId = useId();
@@ -109,13 +107,16 @@ export function PublicScopeRow({
   };
 
   const description = !canEdit
-    ? OWNER_ONLY_PUBLIC_MESSAGE
+    ? t('server.publicListing.ownerOnly')
     : !switchOn && !scope.listed
-      ? 'Turn on "List servers publicly" first.'
+      ? t('server.publicListing.turnOnFirst')
       : scope.listed
-        ? shownText(scope) +
-          (switchOn ? '' : ' Hidden while "List servers publicly" is off.')
-        : 'Not shown without signing in.';
+        ? switchOn
+          ? shownText(i18n, scope)
+          : t('server.publicListing.hiddenWhileOff', {
+              shown: shownText(i18n, scope),
+            })
+        : t('server.publicListing.notShown');
 
   return (
     <SettingsRow
@@ -125,10 +126,10 @@ export function PublicScopeRow({
       hint={description}
       below={
         <div className="flex flex-row flex-wrap gap-x-6 gap-y-2">
-          {SCOPE_FLAGS.map(({ key, label }) => (
+          {SCOPE_FLAGS.map(({ key, labelKey }) => (
             <Checkbox
               key={key}
-              label={label}
+              label={t(labelKey)}
               checked={scope[key]}
               disabled={!canEdit || saving}
               onChange={(value) => void change({ [key]: value })}
@@ -137,7 +138,9 @@ export function PublicScopeRow({
         </div>
       }
     >
-      <span className="text-small font-medium text-gray-500">Public</span>
+      <span className="text-small font-medium whitespace-nowrap text-gray-500">
+        {t('server.publicListing.public')}
+      </span>
       <Toggle
         value={scope.listed}
         onChange={(value) => void change({ listed: value })}
@@ -154,6 +157,7 @@ export function PublicScopeRow({
  * nothing on cores without per-instance scopes.
  */
 export function PublicInstanceRows({ switchOn }: { switchOn: boolean }) {
+  const t = useT();
   const { data: overview } = useQuery({
     queryKey: overviewKey,
     queryFn: () =>
@@ -166,9 +170,7 @@ export function PublicInstanceRows({ switchOn }: { switchOn: boolean }) {
   if (!overview) return null;
   if (overview.instances.length === 0)
     return (
-      <SettingsEmptyRow>
-        No Minecraft Java Edition servers yet.
-      </SettingsEmptyRow>
+      <SettingsEmptyRow>{t('server.publicListing.noServers')}</SettingsEmptyRow>
     );
   return (
     <>
@@ -193,6 +195,7 @@ export function PublicInstanceRows({ switchOn }: { switchOn: boolean }) {
  * cores without it.
  */
 export function PublicListingSetting({ instance }: { instance: InstanceInfo }) {
+  const t = useT();
   const { data: userInfo } = useUserInfo();
   const { data: listing } = useQuery({
     queryKey: instanceKey(instance.uuid),
@@ -210,13 +213,13 @@ export function PublicListingSetting({ instance }: { instance: InstanceInfo }) {
   return (
     <SettingsSection
       id="server-settings-sharing"
-      title="Sharing"
-      lead="Who can find this server without signing in."
+      title={t('server.publicListing.title')}
+      lead={t('server.publicListing.lead')}
     >
       <SettingsCard>
         <PublicScopeRow
           uuid={instance.uuid}
-          label="Listed publicly"
+          label={t('server.publicListing.listedPublicly')}
           scope={listing}
           switchOn={listing.list_instances_publicly}
           canEdit={userInfo?.is_owner ?? false}

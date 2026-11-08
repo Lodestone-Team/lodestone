@@ -1,18 +1,23 @@
 /** Checks for the server resource pack form, the same rules as the core's. */
+import type { PlainMessageKey } from '../i18n/types.ts';
 
-/** Why `url` can't be a resource pack URL, or `null` when it can (or is empty). */
-export function packUrlError(url: string): string | null {
+/**
+ * Why `url` can't be a resource pack URL, as a message key to show with
+ * `t()`, or `null` when it can (or is empty). A key rather than the text, so
+ * this file stays free of the i18n runtime (it runs under `node --test`).
+ */
+export function packUrlErrorKey(url: string): PlainMessageKey | null {
   const trimmed = url.trim();
   if (!trimmed) return null;
-  if (/\s/.test(trimmed)) return 'The URL cannot contain spaces.';
+  if (/\s/.test(trimmed)) return 'common.resourcePack.urlSpaces';
   let parsed: URL;
   try {
     parsed = new URL(trimmed);
   } catch {
-    return 'That is not a URL.';
+    return 'common.resourcePack.notAUrl';
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
-    return 'The URL must start with http:// or https://.';
+    return 'common.resourcePack.urlScheme';
   return null;
 }
 

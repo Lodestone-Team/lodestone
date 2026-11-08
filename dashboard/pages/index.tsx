@@ -42,6 +42,7 @@ import RequireSetup from 'utils/router/RequireSetup';
 import { AppShellSkeleton } from 'components/DashboardLayout/LayoutSkeletons';
 import { lazyWithPreload } from 'utils/lazyWithPreload';
 import { settingsReturnPath } from 'utils/settingsReturn';
+import { t } from 'i18n';
 
 // The dashboard (and everything it pulls in: charts, the file editor, forms)
 // is loaded on demand, so the login screens don't wait for it.
@@ -113,12 +114,12 @@ const InstanceTabList = [
 
 export const CoreSettingsTabList = [
   {
-    title: 'General',
+    titleKey: 'shell.settings.general' as const,
     path: 'general',
     content: <CoreSettings />,
   },
   {
-    title: 'Users',
+    titleKey: 'shell.settings.users' as const,
     path: 'users',
     content: <UserSettings />,
   },
@@ -126,7 +127,7 @@ export const CoreSettingsTabList = [
 
 export const AccountSettingsTabList = [
   {
-    title: 'Profile',
+    titleKey: 'shell.settings.profile' as const,
     path: 'profile',
     content: <ProfilePage />,
   },
@@ -148,12 +149,14 @@ const decodeToken = (token: string): { uid: string; exp: number } | Error => {
   try {
     payload = jwtDecode(token);
   } catch {
-    return new Error('Invalid token');
+    return new Error(t('shell.token.invalid'));
   }
   if (typeof payload !== 'object' || payload === null)
-    return new Error('Invalid token');
-  if (typeof payload.exp !== 'number') return new Error('Invalid exp in token');
-  if (typeof payload.uid !== 'string') return new Error('Invalid uid in token');
+    return new Error(t('shell.token.invalid'));
+  if (typeof payload.exp !== 'number')
+    return new Error(t('shell.token.invalidExp'));
+  if (typeof payload.uid !== 'string')
+    return new Error(t('shell.token.invalidUid'));
   return { uid: payload.uid, exp: payload.exp };
 };
 
@@ -328,12 +331,12 @@ export default function App() {
       try {
         if (claims instanceof Error) throw claims;
         const msUntilExpiry = claims.exp * 1000 - Date.now();
-        if (msUntilExpiry <= 0) throw new Error('Token expired');
+        if (msUntilExpiry <= 0) throw new Error(t('shell.token.expired'));
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         // log out when the token expires, instead of failing every request
         if (msUntilExpiry < MAX_TIMEOUT_MS)
           logoutTimer = setTimeout(() => {
-            toast.warn('Your session has expired, please sign in again', {
+            toast.warn(t('shell.session.expired'), {
               toastId: 'sessionExpired',
             });
             setToken('', socket);
@@ -377,7 +380,7 @@ export default function App() {
     const bearer = `Bearer ${token}`;
     let verifying: Promise<void> | null = null;
     const logout = () => {
-      toast.warn('Your session is no longer valid, please sign in again', {
+      toast.warn(t('shell.session.invalid'), {
         toastId: 'sessionExpired',
       });
       setToken('', socket);

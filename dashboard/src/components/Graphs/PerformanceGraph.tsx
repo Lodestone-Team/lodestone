@@ -18,6 +18,7 @@ import { Line } from 'react-chartjs-2';
 import { useIntervalClock } from 'utils/hooks';
 import { asyncCallWithTimeout, cn } from 'utils/util';
 import { useResolvedTheme } from 'utils/theme';
+import { t as translate, useI18n } from 'i18n';
 
 ChartJS.register(
   CategoryScale,
@@ -91,11 +92,13 @@ export default function PerformanceGraph({
   unit?: string;
   getter?: () => Promise<[number, number]>;
 }): React.JSX.Element {
+  const { t, language, formatNumber } = useI18n();
   const [max, setMax] = useState(100);
   const axis = axisColors[useResolvedTheme()];
+  // seconds ago, shown in the tooltip
   const labels = Array.from(Array(timeWindow_s / pollrate_s).keys())
     .reverse()
-    .map((n) => pollrate_s * n + 's');
+    .map((n) => t('server.graph.seconds', { seconds: pollrate_s * n }));
 
   const [dataHistory, setDataHistory] = useState(
     new Array(timeWindow_s / pollrate_s).fill(NaN)
@@ -175,6 +178,8 @@ export default function PerformanceGraph({
   };
 
   const options: ChartOptions<'line'> = {
+    // formats the values in the tooltip
+    locale: language,
     responsive: true,
     // the wrapper below has the size (2:1, Chart.js's default for lines)
     maintainAspectRatio: false,
@@ -229,7 +234,8 @@ export default function PerformanceGraph({
           align: 'inner',
           callback: function (val: number | string, idx: number) {
             const num = idx + counter;
-            if (idx === 0) return `${timeWindow_s - 1}s`;
+            if (idx === 0)
+              return t('server.graph.seconds', { seconds: timeWindow_s - 1 });
             if (idx === timeWindow_s - 1) return '0';
             if (num % 5 !== 0) return null;
             return '';
@@ -261,7 +267,8 @@ export default function PerformanceGraph({
           padding: 10,
           align: 'end',
           callback: function (val: number | string, idx: number) {
-            if (val === 0 || val == displayMax) return val + unit;
+            if (val === 0 || val == displayMax)
+              return (typeof val === 'number' ? formatNumber(val) : val) + unit;
             if (idx % 2 !== 1) return null;
             return '';
           },
@@ -342,7 +349,9 @@ const externalTooltipHandler = (context: ScriptableTooltipContext<'line'>) => {
     // Add title lines
     titleLines.forEach((title) => {
       const titleEl = document.createElement('div');
-      titleEl.textContent = title + ':';
+      titleEl.textContent = translate('server.graph.tooltipTime', {
+        time: title,
+      });
       titleEl.style.margin = '0 0.25rem 0 0';
       tooltipEl.appendChild(titleEl);
     });

@@ -7,6 +7,7 @@ import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { SettingsRow } from 'components/Settings/SettingsBlocks';
+import { useT } from 'i18n';
 
 /**
  * A self controlled dropdown meant to represent a single value of a config
@@ -30,6 +31,7 @@ export default function SelectBox({
   actionIcon,
   actionIconClick,
   optimistic = true, // if true, the dropdown will change immediately and go into loading state, and will change back if onChange throws an error
+  optionLabel = (option) => option,
 }: {
   label: string;
   value?: string;
@@ -45,15 +47,19 @@ export default function SelectBox({
   actionIcon?: IconDefinition;
   actionIconClick?: () => void;
   optimistic?: boolean;
+  /** the text shown for an option, e.g. a translated name (default: itself) */
+  optionLabel?: (option: string) => string;
 }) {
-  const [value, setValue] = useState(initialValue || 'Select...');
+  const t = useT();
+  // '' while nothing is chosen: the button shows "Select…"
+  const [value, setValue] = useState(initialValue || '');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const labelId = useId();
 
   // set value to initialValue when initialValue changes
   useEffect(() => {
-    setValue(initialValue || 'Select...');
+    setValue(initialValue || '');
   }, [initialValue]);
 
   const onChange = async (newValue: string) => {
@@ -63,7 +69,7 @@ export default function SelectBox({
     setError(submitError);
     setIsLoading(false);
     if (submitError.length > 0) {
-      setValue(initialValue || 'Select...');
+      setValue(initialValue || '');
     }
   };
 
@@ -71,7 +77,7 @@ export default function SelectBox({
   disabled = disabled || !canRead || isLoadingProp;
   description = canRead
     ? (descriptionFunc?.(initialValue || value) ?? description)
-    : 'No permission';
+    : t('common.noPermission');
 
   const icon = isLoading ? (
     <BeatLoader
@@ -131,7 +137,11 @@ export default function SelectBox({
                 errorText ? 'input-border-error' : 'input-border-normal'
               )}
             >
-              {value}
+              {value
+                ? options.includes(value)
+                  ? optionLabel(value)
+                  : value
+                : t('common.select')}
               <div
                 className={clsx(
                   'pointer-events-none absolute items-center justify-end',
@@ -170,7 +180,9 @@ export default function SelectBox({
                   >
                     {({ active }) => (
                       <div className="flex flex-row justify-between">
-                        <span className="block truncate pr-1">{option}</span>
+                        <span className="block truncate pr-1">
+                          {optionLabel(option)}
+                        </span>
                         <div
                           onClick={actionIconClick}
                           className="absolute right-3"
@@ -189,13 +201,13 @@ export default function SelectBox({
                 ))}
                 {(initialValue === undefined || initialValue.length === 0) && (
                   <Listbox.Option
-                    key={'Select...'}
+                    key="select-placeholder"
                     value={''}
                     className={`relative cursor-default bg-gray-700 py-2 pr-4 pl-8 text-gray-400 select-none`}
                     disabled
                   >
                     <span className={`block truncate font-medium`}>
-                      Select...
+                      {t('common.select')}
                     </span>
                   </Listbox.Option>
                 )}
