@@ -1069,6 +1069,17 @@ impl MinecraftInstance {
         Ok(())
     }
 
+    /// The Fabric loader version of a Fabric instance, or `None`.
+    pub async fn fabric_loader_version(&self) -> Option<String> {
+        match &self.config.lock().await.flavour {
+            Flavour::Fabric {
+                loader_version: Some(FabricLoaderVersion(version)),
+                ..
+            } => Some(version.clone()),
+            _ => None,
+        }
+    }
+
     pub fn get_rcon(&self) -> Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>> {
         self.rcon_conn.clone()
     }
