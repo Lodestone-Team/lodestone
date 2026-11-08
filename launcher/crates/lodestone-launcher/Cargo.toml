@@ -29,6 +29,8 @@ image.workspace = true
 launcher-core.workspace = true
 url.workspace = true
 lodestone_minecraft.workspace = true
+lodestone_trace.workspace = true
+log.workspace = true
 serde_json.workspace = true
 # The control socket for lodestone-launcher-cli (`src/control`).
 launcher-control.workspace = true

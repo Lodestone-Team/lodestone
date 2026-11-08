@@ -280,6 +280,12 @@ impl Jobs {
     }
 
     fn finish(&mut self, id: u64, result: ApiResult) {
+        launcher_core::trace::emit("job.finished", || match &result {
+            Ok(_) => json!({ "job": id, "state": "succeeded" }),
+            Err(error) => {
+                json!({ "job": id, "state": if error.code == codes::CANCELLED { "cancelled" } else { "failed" }, "error": { "code": error.code, "message": error.message } })
+            }
+        });
         if let Some(job) = self.list.iter_mut().find(|j| j.id == id) {
             job.finished = Some(now());
             job._task = None;
@@ -324,6 +330,14 @@ impl Control {
             let mut jobs = self.jobs.borrow_mut();
             jobs.next += 1;
             let id = jobs.next;
+            launcher_core::trace::emit("job.started", || {
+                json!({
+                    "job": id,
+                    "kind": spec.kind,
+                    "label": spec.label,
+                    "instance": spec.instance.as_ref().map(|i| i.id.clone()),
+                })
+            });
             jobs.list.push(Job {
                 id,
                 spec,

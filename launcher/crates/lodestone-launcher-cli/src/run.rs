@@ -143,6 +143,7 @@ mod unix {
                 follow,
             } => logs(&mut client, global, mode, &instance, lines, follow),
             Plan::Events { params, count } => events(&mut client, global, mode, params, count),
+            Plan::Trace { params, count } => trace(&mut client, global, mode, params, count),
         }
     }
 
@@ -308,6 +309,54 @@ mod unix {
                 _ => {}
             }
         }
+    }
+
+    /// `trace watch`: each event as a line, `HH:MM:SS.mmm topic {data}` for people.
+    fn trace(
+        client: &mut Client,
+        global: &Global,
+        mode: Mode,
+        params: Value,
+        count: Option<usize>,
+    ) -> Result<(), ErrorObject> {
+        let subscribed = client
+            .call("trace.subscribe", params)
+            .map_err(|err| err.to_error())??;
+        let subscription = subscribed["subscription"].as_u64();
+        let deadline = deadline(global);
+        let mut seen = 0;
+        while count.is_none_or(|count| seen < count) {
+            let wait = match deadline {
+                None => None,
+                Some(deadline) => {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    if left.is_zero() {
+                        return Ok(());
+                    }
+                    Some(left)
+                }
+            };
+            let message = match client.next_message(wait) {
+                Ok(message) => message,
+                Err(ClientError::Timeout) => return Ok(()),
+                Err(err) => return Err(err.to_error()),
+            };
+            if let Message::Event {
+                subscription: number,
+                event,
+                data,
+            } = message
+                && Some(number) == subscription
+                && event == "trace"
+            {
+                match mode {
+                    Mode::Json => output::line(mode, &data),
+                    Mode::Human => println!("{}", output::trace_line(&data)),
+                }
+                seen += 1;
+            }
+        }
+        Ok(())
     }
 
     fn events(

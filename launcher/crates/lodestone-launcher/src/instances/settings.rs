@@ -194,6 +194,12 @@ pub struct InstanceSettings {
     /// The list of sections is open over the settings, in a narrow window.
     nav_open: bool,
     toast: Toast,
+    /// For Undo: the fields' values when last looked at (only the form's own
+    /// settings are set; see `form_values`), what the saved instance had then, and
+    /// where the form's last unsaved step started.
+    form_last: Option<Instance>,
+    form_seen: Option<Instance>,
+    form_base: Option<Instance>,
     _modpack_task: Option<Task<()>>,
     _check: Option<Task<()>>,
     _prompt: Option<Task<()>>,
@@ -219,6 +225,25 @@ pub fn update_candidate(versions: &[RawVersion], current: &ModpackRecord) -> Opt
         })?;
     (newest.id != current.version_id && newest.date_published > current.date_published)
         .then(|| newest.clone())
+}
+
+/// Only the settings the Settings tab's fields edit, for comparing the fields' values.
+fn form_values(instance: &Instance) -> Instance {
+    Instance {
+        id: instance.id.clone(),
+        name: instance.name.clone(),
+        group: instance.group.clone(),
+        loader: instance.loader,
+        loader_version: instance.loader_version.clone(),
+        java_override: instance.java_override.clone(),
+        memory: instance.memory,
+        jvm_args: instance.jvm_args.clone(),
+        game_args: instance.game_args.clone(),
+        window: instance.window,
+        env: instance.env.clone(),
+        prerelease_updates: instance.prerelease_updates,
+        ..Instance::default()
+    }
 }
 
 impl InstanceSettings {
@@ -329,6 +354,9 @@ impl InstanceSettings {
             nav: SectionNav::default(),
             nav_open: false,
             toast: Toast::default(),
+            form_last: None,
+            form_seen: None,
+            form_base: None,
             _modpack_task: None,
             _check: None,
             _prompt: None,
@@ -421,6 +449,15 @@ impl InstanceSettings {
         let Some(instance) = self.instance(cx) else {
             return;
         };
+        crate::undo::forget_form(cx.entity_id(), cx);
+        self.form_base = None;
+        self.load_form(&instance, cx);
+        self.sync_loader(cx);
+    }
+
+    /// Shows `instance`'s values in the fields (only the form's own settings are
+    /// read): the saved ones on Discard, or those Undo puts back.
+    fn load_form(&mut self, instance: &Instance, cx: &mut Context<Self>) {
         let (defaults, total) = {
             let instances = self.instances.read(cx);
             (instances.defaults().clone(), instances.total_memory())
@@ -458,8 +495,91 @@ impl InstanceSettings {
         };
         self.prerelease_updates = instance.prerelease_updates;
         self.java_check = JavaCheck::None;
-        self.sync_loader(cx);
+        // The loader as `instance` has it; picked by hand if the saved one differs.
+        let choice = instance.loader_choice();
+        let touched = self
+            .instance(cx)
+            .is_some_and(|saved| saved.loader_choice() != choice);
+        self.loader
+            .update(cx, |loader, cx| loader.restore_choice(choice, touched, cx));
+        self.form_last = Some(form_values(instance));
         cx.notify();
+    }
+
+    /// Notes an unsaved edit of the fields as a step for Undo: a field's edits in a
+    /// row are one step. Also shows a change saved elsewhere (Undo of a saved step,
+    /// the CLI) when the fields have no unsaved edits.
+    fn track_edits(&mut self, cx: &mut Context<Self>) {
+        use super::undo::{changed_fields, describe_instance};
+        use crate::undo::{Step, StepKey, UndoError};
+        let Some(saved) = self.instance(cx) else {
+            return;
+        };
+        let saved_values = form_values(&saved);
+        if let Some(seen) = self.form_seen.clone()
+            && seen != saved_values
+        {
+            self.form_seen = Some(saved_values.clone());
+            if self.form_last.as_ref() == Some(&seen) && !self.prompting {
+                self.load_form(&saved, cx);
+                return;
+            }
+        }
+        self.form_seen.get_or_insert(saved_values);
+        let Ok(now) = self.read_fields(&saved, cx).map(|i| form_values(&i)) else {
+            return;
+        };
+        let Some(last) = self.form_last.replace(now.clone()) else {
+            return;
+        };
+        if last == now || crate::undo::replaying(cx) {
+            return;
+        }
+        let fields = changed_fields(&last, &now);
+        let key = StepKey::Form {
+            view: cx.entity_id(),
+            fields: fields.iter().fold(0, |bits, field| bits | field.bit()),
+        };
+        // the same fields as the last step: it grows instead
+        let base = match self.form_base.clone() {
+            Some(base) if crate::undo::last_key(cx) == Some(key) => base,
+            _ => last,
+        };
+        crate::undo::pop_if(key, cx);
+        if base == now {
+            self.form_base = None;
+            return;
+        }
+        self.form_base = Some(base.clone());
+        let changed = changed_fields(&base, &now);
+        let (said_before, said_after) = (
+            describe_instance(&base, &changed),
+            describe_instance(&now, &changed),
+        );
+        let view = cx.entity().downgrade();
+        let step = Step::new(
+            key,
+            move || said_before.clone(),
+            move || said_after.clone(),
+            {
+                let view = view.clone();
+                move |cx| {
+                    view.update(cx, |this, cx| {
+                        this.form_base = None;
+                        this.load_form(&base, cx)
+                    })
+                    .map_err(|_| UndoError::Gone)
+                }
+            },
+            move |cx| {
+                view.update(cx, |this, cx| {
+                    this.form_base = None;
+                    this.load_form(&now, cx)
+                })
+                .map_err(|_| UndoError::Gone)
+            },
+        );
+        crate::undo::record(step, cx);
     }
 
     /// The question to ask before saving `instance`, if its loader change needs one.
@@ -528,9 +648,13 @@ impl InstanceSettings {
             }
         }
         let running = self.instances.read(cx).is_active(&instance.id);
-        let result = self
-            .instances
-            .update(cx, |instances, cx| instances.save(&instance, cx));
+        let result = self.instances.update(cx, |instances, cx| {
+            instances.undoable(&instance.id, cx, |instances, cx| {
+                instances.save(&instance, cx)
+            })
+        });
+        // The form's unsaved steps become this one saved step.
+        crate::undo::forget_form(cx.entity_id(), cx);
         match result {
             Ok(()) => {
                 let loader_changed = before.is_some_and(|before| {
@@ -712,9 +836,9 @@ impl InstanceSettings {
                 return;
             };
             this.update(cx, |this, cx| {
-                let result = this
-                    .instances
-                    .update(cx, |instances, cx| instances.set_icon(&id, &path, cx));
+                let result = this.instances.update(cx, |instances, cx| {
+                    instances.undoable(&id, cx, |instances, cx| instances.set_icon(&id, &path, cx))
+                });
                 match result {
                     Ok(()) => this.set_message(t(CommonMsg::Saved), false, cx),
                     Err(err) => this.set_message(err, true, cx),
@@ -729,7 +853,9 @@ impl InstanceSettings {
         self.icon_picker = None;
         let id = self.instance_id.clone();
         let result = self.instances.update(cx, |instances, cx| {
-            instances.set_icon_name(&id, icon.as_deref(), cx)
+            instances.undoable(&id, cx, |instances, cx| {
+                instances.set_icon_name(&id, icon.as_deref(), cx)
+            })
         });
         match result {
             Ok(()) => self.set_message(t(CommonMsg::Saved), false, cx),
@@ -753,9 +879,11 @@ impl InstanceSettings {
                 return;
             };
             this.update(cx, |this, cx| {
-                let result = this
-                    .instances
-                    .update(cx, |instances, cx| instances.set_background(&id, &path, cx));
+                let result = this.instances.update(cx, |instances, cx| {
+                    instances.undoable(&id, cx, |instances, cx| {
+                        instances.set_background(&id, &path, cx)
+                    })
+                });
                 match result {
                     Ok(()) => this.set_message(t(M::SavedSeePlayTab), false, cx),
                     Err(err) => this.set_message(err, true, cx),
@@ -831,9 +959,11 @@ impl InstanceSettings {
     fn use_background(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         self.background_picker = false;
         let id = self.instance_id.clone();
-        let result = self
-            .instances
-            .update(cx, |instances, cx| instances.set_background(&id, &path, cx));
+        let result = self.instances.update(cx, |instances, cx| {
+            instances.undoable(&id, cx, |instances, cx| {
+                instances.set_background(&id, &path, cx)
+            })
+        });
         match result {
             Ok(()) => self.set_message(t(M::SavedSeePlayTab), false, cx),
             Err(err) => self.set_message(err, true, cx),
@@ -889,15 +1019,19 @@ impl InstanceSettings {
         let result = match tab {
             BackgroundTab::Default if instance.background_mode() != BackgroundMode::Default => {
                 self.background_picker = false;
-                self.instances
-                    .update(cx, |instances, cx| instances.clear_background(&id, cx))
+                self.instances.update(cx, |instances, cx| {
+                    instances.undoable(&id, cx, |instances, cx| instances.clear_background(&id, cx))
+                })
             }
             BackgroundTab::Image
                 if matches!(instance.background_mode(), BackgroundMode::Slideshow(_))
                     && instance.background.is_some() =>
             {
-                self.instances
-                    .update(cx, |instances, cx| instances.set_slideshow(&id, None, cx))
+                self.instances.update(cx, |instances, cx| {
+                    instances.undoable(&id, cx, |instances, cx| {
+                        instances.set_slideshow(&id, None, cx)
+                    })
+                })
             }
             BackgroundTab::Slideshow
                 if !matches!(instance.background_mode(), BackgroundMode::Slideshow(_)) =>
@@ -909,7 +1043,9 @@ impl InstanceSettings {
                     SlideshowSource::Instance
                 };
                 self.instances.update(cx, |instances, cx| {
-                    instances.set_slideshow(&id, Some(source), cx)
+                    instances.undoable(&id, cx, |instances, cx| {
+                        instances.set_slideshow(&id, Some(source), cx)
+                    })
                 })
             }
             _ => {
@@ -923,7 +1059,9 @@ impl InstanceSettings {
     fn set_slideshow_source(&mut self, source: SlideshowSource, cx: &mut Context<Self>) {
         let id = self.instance_id.clone();
         let result = self.instances.update(cx, |instances, cx| {
-            instances.set_slideshow(&id, Some(source), cx)
+            instances.undoable(&id, cx, |instances, cx| {
+                instances.set_slideshow(&id, Some(source), cx)
+            })
         });
         self.background_result(result, cx);
     }
@@ -1695,6 +1833,7 @@ fn auto_group_name(group: launcher_core::instances::AutoGroup) -> &'static str {
 
 impl Render for InstanceSettings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.track_edits(cx);
         let viewport_width = window.viewport_size().width;
         let (defaults, total, busy, background, required_java) = {
             let instances = self.instances.read(cx);

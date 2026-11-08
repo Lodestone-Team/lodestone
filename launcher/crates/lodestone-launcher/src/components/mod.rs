@@ -42,3 +42,23 @@ pub fn init(cx: &mut App) {
     focus::init(cx);
     text_input::init(cx);
 }
+
+/// Emits `ui.click` (or another `ui.*` topic) for a shared control, with its element
+/// id and label, for the debug traces. Labels are the control's own text, never what
+/// was typed.
+pub(crate) fn trace_ui(
+    topic: &str,
+    control: &str,
+    id: &gpui::ElementId,
+    detail: serde_json::Value,
+) {
+    launcher_core::trace::emit(topic, || {
+        let mut event = serde_json::json!({ "control": control, "id": id.to_string() });
+        if let (serde_json::Value::Object(event), serde_json::Value::Object(detail)) =
+            (&mut event, detail)
+        {
+            event.extend(detail);
+        }
+        event
+    });
+}

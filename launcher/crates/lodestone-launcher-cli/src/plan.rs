@@ -26,6 +26,8 @@ pub enum Plan {
     },
     /// Events as JSON lines.
     Events { params: Value, count: Option<usize> },
+    /// Trace events: lines for people, JSON lines otherwise.
+    Trace { params: Value, count: Option<usize> },
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -760,6 +762,18 @@ pub fn plan(
             },
             Jobs::Cancel { job } => call("jobs.cancel", vec![("job", json!(job))]),
         },
+        Command::Trace(t) => match t {
+            Trace::Topics => call("trace.topics", vec![]),
+            Trace::Snapshot => call("trace.snapshot", vec![]),
+            Trace::Watch(w) => Plan::Trace {
+                params: params(vec![
+                    ("topics", json!(w.topics)),
+                    ("backlog", json!(w.backlog)),
+                    ("since", json!(w.since)),
+                ]),
+                count: w.count,
+            },
+        },
         Command::Events(e) => Plan::Events {
             params: params(vec![
                 ("topics", json!(e.topics)),
@@ -940,6 +954,25 @@ mod tests {
             plan_of(&["events", "--topics", "state,notices", "--count", "3"]).unwrap(),
             Plan::Events { count: Some(3), .. }
         ));
+        assert_eq!(
+            plan_of(&[
+                "trace",
+                "watch",
+                "ui",
+                "*.error",
+                "--backlog",
+                "5",
+                "--count",
+                "2"
+            ])
+            .unwrap(),
+            Plan::Trace {
+                params: json!({ "topics": ["ui", "*.error"], "backlog": 5 }),
+                count: Some(2),
+            }
+        );
+        assert_eq!(call_of(&["trace", "snapshot"]).0, "trace.snapshot");
+        assert_eq!(call_of(&["trace", "topics"]).0, "trace.topics");
         assert!(
             Cli::try_parse_from([
                 "lodestone-launcher-cli",

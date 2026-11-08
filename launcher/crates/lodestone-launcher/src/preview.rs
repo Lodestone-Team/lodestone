@@ -74,6 +74,7 @@ pub const SCENES: &[&str] = &[
     "instance-linked",
     "settings",
     "settings-general",
+    "undo-toast",
     "settings-accounts",
     "settings-developer",
     "play-background",
@@ -126,6 +127,10 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
         // "Save your changes?", opened without a window, closed with Escape; Settings
         // stays open and takes focus back.
         "focus-escape-prompt" => &["escape", "tab"],
+        // Settings > General with "Group instances automatically" turned off, then
+        // Undo: the switch is on again and the toast offers Redo.
+        "undo-toast" if cfg!(target_os = "macos") => &["cmd-z"],
+        "undo-toast" => &["ctrl-z"],
         _ => &[],
     }
 }
@@ -703,6 +708,13 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 _ => crate::shell::SettingsPage::Defaults,
             };
             shell.open_settings(Some(page), None, cx);
+        }
+        "undo-toast" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::General), None, cx);
+            shell
+                .instances()
+                .clone()
+                .update(cx, |instances, cx| instances.set_auto_groups(false, cx));
         }
         "instance-linked" => servers::apply_linked_instance(shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),

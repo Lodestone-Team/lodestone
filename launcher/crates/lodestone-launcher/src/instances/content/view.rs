@@ -146,7 +146,18 @@ pub(crate) fn pills(
                             .hover(|style| style.text_color(colors::GRAY_400))
                     }
                 })
-                .on_click(move |_, window, cx| on_select(index, window, cx))
+                .on_click({
+                    let (pills, label) = (id, label.clone());
+                    move |_, window, cx| {
+                        crate::components::trace_ui(
+                            "ui.select",
+                            "pills",
+                            &gpui::ElementId::Name(pills.into()),
+                            serde_json::json!({ "index": index, "label": label.as_ref() }),
+                        );
+                        on_select(index, window, cx)
+                    }
+                })
                 .child(label)
         }))
 }

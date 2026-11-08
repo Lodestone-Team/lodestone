@@ -297,8 +297,35 @@ impl CoreClient {
             }
             .map_err(|err| CoreError::InvalidAddress(err.to_string()))
         };
-        let response = self.send_checked(request).await?;
+        let started = std::time::Instant::now();
+        let traced_path = path.split('?').next().unwrap_or_default().to_string();
+        let response = match self.send_checked(request).await {
+            Ok(response) => response,
+            Err(err) => {
+                let ms = started.elapsed().as_millis() as u64;
+                crate::trace::emit("core_http.error", || {
+                    serde_json::json!({
+                        "method": method.to_string(),
+                        "host": self.host(),
+                        "path": traced_path,
+                        "error": err.to_string(),
+                        "ms": ms,
+                    })
+                });
+                return Err(err);
+            }
+        };
         let status = response.status().as_u16();
+        let ms = started.elapsed().as_millis() as u64;
+        crate::trace::emit("core_http.response", || {
+            serde_json::json!({
+                "method": method.to_string(),
+                "host": self.host(),
+                "path": traced_path,
+                "status": status,
+                "ms": ms,
+            })
+        });
         let etag = response
             .headers()
             .get("etag")
