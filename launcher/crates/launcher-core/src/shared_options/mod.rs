@@ -777,6 +777,11 @@ impl Row {
             None => keycodes::label(value),
         }
     }
+
+    /// How the launcher lets the user change the value. A mod's key binding is typed.
+    pub fn control(&self) -> format::Control {
+        find(&self.key).map_or(format::Control::Text, format::control)
+    }
 }
 
 /// The rows to list: for the launcher's Settings (`instance` `None`), the settings the
