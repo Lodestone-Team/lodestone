@@ -164,19 +164,52 @@ pub fn core_error(err: &CoreError) -> String {
 /// answers (the interface shows `ServersMsg::FingerprintHelp` in its language).
 pub const FINGERPRINT_HELP: &str = M::FingerprintHelp.english();
 
+/// What a notice says: something went wrong or needs a look, something worked, or
+/// only what is going on. It decides the notice's color and icon.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NoticeKind {
+    #[default]
+    Warning,
+    Success,
+    Info,
+}
+
 /// A message at the top of the page: its title and text, made each time it is shown so
 /// it follows the language.
 #[derive(Clone)]
-pub struct Notice(Rc<dyn Fn() -> (String, String)>);
+pub struct Notice {
+    text: Rc<dyn Fn() -> (String, String)>,
+    pub kind: NoticeKind,
+}
 
 impl Notice {
+    /// A warning: a failure, or something to look at.
     pub fn new(text: impl Fn() -> (String, String) + 'static) -> Self {
-        Self(Rc::new(text))
+        Self {
+            text: Rc::new(text),
+            kind: NoticeKind::Warning,
+        }
+    }
+
+    /// Something that worked, such as an instance that is ready.
+    pub fn success(text: impl Fn() -> (String, String) + 'static) -> Self {
+        Self {
+            kind: NoticeKind::Success,
+            ..Self::new(text)
+        }
+    }
+
+    /// Only what is going on, or what to know.
+    pub fn info(text: impl Fn() -> (String, String) + 'static) -> Self {
+        Self {
+            kind: NoticeKind::Info,
+            ..Self::new(text)
+        }
     }
 
     /// The title and the text, in the current language.
     pub fn text(&self) -> (String, String) {
-        (self.0)()
+        (self.text)()
     }
 }
 
@@ -1140,7 +1173,7 @@ impl Servers {
         self.save();
         self.forget_key(uuid, cx);
         if let Some(id) = key_id {
-            self.notice = Some(Notice::new(move || {
+            self.notice = Some(Notice::info(move || {
                 (
                     tr!(M::SignedOutOf, name = name),
                     tr!(M::KeyStillValid, id = id),
@@ -1533,7 +1566,7 @@ impl Servers {
                         let name = instance.name.clone();
                         let version = instance.game_version.clone();
                         let loader = instance.loader_label();
-                        this.notice = Some(Notice::new(move || {
+                        this.notice = Some(Notice::success(move || {
                             let body = match skipped {
                                 0 => tr!(M::ReadyBody, version = version, loader = loader),
                                 n => {
@@ -2064,6 +2097,17 @@ impl Servers {
     pub fn preview_notice(&mut self, title: &str, message: &str) {
         let (title, message) = (title.to_string(), message.to_string());
         self.notice = Some(Notice::new(move || (title.clone(), message.clone())));
+    }
+
+    /// Shows "{name} is ready", for the offscreen screenshots.
+    pub fn preview_ready(&mut self, name: &str) {
+        let name = name.to_string();
+        self.notice = Some(Notice::success(move || {
+            (
+                tr!(M::ReadyTitle, name = name),
+                tr!(M::ReadyBody, version = "1.21.1", loader = "Fabric 0.16.14"),
+            )
+        }));
     }
 
     pub fn preview_prompt(

@@ -13,8 +13,8 @@ use launcher_core::cores::{
 use launcher_core::wording;
 
 use super::{
-    AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, Servers, TrustPrompt,
-    UpdatePrompt, core_error, loader_label, status_label, trust_explanation,
+    AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
+    TrustPrompt, UpdatePrompt, core_error, loader_label, status_label, trust_explanation,
 };
 use crate::{
     components::{
@@ -598,6 +598,11 @@ impl Render for Servers {
             )
             .children(self.notice.as_ref().map(|notice| {
                 let (title, message) = notice.text();
+                let (color, icon) = match notice.kind {
+                    NoticeKind::Warning => (colors::YELLOW, Some(Icon::TriangleExclamation)),
+                    NoticeKind::Success => (colors::GREEN_300, Some(Icon::Check)),
+                    NoticeKind::Info => (colors::BLUE_200, None),
+                };
                 div()
                     .flex()
                     .flex_row()
@@ -607,9 +612,9 @@ impl Render for Servers {
                     .py_3()
                     .rounded(radius::LG)
                     .border_1()
-                    .border_color(colors::YELLOW.opacity(30))
-                    .bg(colors::YELLOW.opacity(8))
-                    .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
+                    .border_color(color.opacity(30))
+                    .bg(color.opacity(8))
+                    .children(icon.map(|icon| div().pt_0p5().child(icon.render(px(14.), color))))
                     .child(
                         div()
                             .flex()
