@@ -10,6 +10,7 @@ import Spinner from 'components/DashboardLayout/Spinner';
 import { axiosPutSingleValue } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
+import ApiKeysSection from 'components/Settings/ApiKeys/ApiKeysSection';
 import { toast } from 'react-toastify';
 
 const ProfilePage = () => {
@@ -110,6 +111,8 @@ const ProfilePage = () => {
             onClick={() => setShowChangePassword(true)}
           />
         </div>
+
+        <ApiKeysSection enabled={userState === 'logged-in' && !!user} />
       </div>
     </div>
   );
