@@ -668,12 +668,31 @@ mod tests {
             Err(StatusCode::UNAUTHORIZED)
         );
 
-        // console: a query token
-        let console = core.ws_url(&format!(
-            "/instance/{INSTANCE}/console/stream?token={}",
-            query_token(&narrow)
-        ));
-        let (mut console, _) = tokio_tungstenite::connect_async(&console).await.unwrap();
+        // console: a query token. Reading it needs the console permission; a key that can
+        // only view the instance gets no console output.
+        let (with_console, _) = core
+            .create_key(
+                &core.owner_jwt,
+                "console",
+                custom(UserPermission {
+                    can_view_instance: [instance()].into(),
+                    can_access_instance_console: [instance()].into(),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        let console_url = |token: &str| {
+            core.ws_url(&format!(
+                "/instance/{INSTANCE}/console/stream?token={}",
+                query_token(token)
+            ))
+        };
+        let (mut console, _) = tokio_tungstenite::connect_async(&console_url(&with_console))
+            .await
+            .unwrap();
+        let (mut view_only_console, _) = tokio_tungstenite::connect_async(&console_url(&narrow))
+            .await
+            .unwrap();
         core.state
             .event_broadcaster
             .send(Event::new_instance_output(
@@ -683,6 +702,15 @@ mod tests {
             ));
         let frame = next_frame(&mut console).await.unwrap().unwrap();
         assert!(frame.to_text().unwrap().contains("hello from the console"));
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                view_only_console.next()
+            )
+            .await
+            .is_err(),
+            "a view-only key must not receive console output"
+        );
 
         // events: the token is in the filter
         let events = |token: &str| {
