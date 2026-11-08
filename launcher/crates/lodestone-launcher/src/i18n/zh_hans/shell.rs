@@ -388,6 +388,29 @@ pub fn text(message: M) -> &'static str {
         M::SignInExpired => "请重新登录“{name}”：其保存的登录信息已过期。",
         M::LauncherClosing => "启动器正在关闭。",
 
+        M::UpdatesSection => "更新",
+        M::UpdateAutomatically => "自动更新",
+        M::UpdateAutomaticallyHint => {
+            "在后台从 GitHub 下载 Lodestone Launcher 的新构建，下次启动启动器时生效。"
+        }
+        M::BuildNumber => "构建 {build}",
+        M::BuildNumberCommit => "构建 {build} · {commit}",
+        M::DevelopmentBuild => "开发构建",
+        M::UpdatesUnavailable => "此构建并非在 GitHub 上发布，因此不会自动更新。",
+        M::UpdateNotChecked => "Lodestone Launcher 每隔几小时会在 GitHub 上检查是否有新构建。",
+        M::UpdateChecking => "正在检查新构建…",
+        M::UpToDate => "当前已是最新构建。",
+        M::UpdateAvailable => "构建 {build} 现已可用。",
+        M::UpdateDownloading => "正在下载构建 {build}… {percent}",
+        M::UpdateReady => "构建 {build} 已安装，重启后即可使用。",
+        M::UpdateReadyPlaying => "构建 {build} 已安装，关闭游戏后即可重启。",
+        M::UpdateFailed => "无法更新：{error}",
+        M::CheckForUpdates => "立即检查",
+        M::DownloadUpdate => "下载",
+        M::RestartToUpdate => "重启",
+        M::UpdateReadyBadge => "更新已就绪",
+        M::UpdateAvailableBadge => "有可用更新",
+
         M::RestOnModrinth => "其余描述请在 Modrinth 上查看。",
     }
 }

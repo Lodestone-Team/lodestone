@@ -1,0 +1,201 @@
+name: Launcher - Nightly
+
+# Builds Lodestone Launcher for every push to main that changes it, and publishes the
+# binaries to the `launcher-nightly` pre-release with a `latest.json` manifest. The
+# launcher's updater (launcher/crates/launcher-core/src/update.rs) reads that manifest,
+# downloads the binary for its platform, checks its SHA-256 and installs it.
+#
+# Each build is numbered by this workflow's run number, compiled in as
+# LODESTONE_LAUNCHER_BUILD; a higher number is a newer build. Binaries carry the number
+# in their names, and `latest.json` is uploaded last, so a launcher never sees a
+# manifest whose files aren't there yet. The two newest builds' files are kept, so a
+# download that started just before a publish still finishes.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "launcher/**"
+      - "crates/lodestone-minecraft/**"
+      - ".github/workflows/launcher-release.yml"
+      - "rust-toolchain.toml"
+
+permissions:
+  contents: read
+
+# One publish at a time, in push order; a newer push waiting replaces an older one.
+concurrency:
+  group: launcher-nightly
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: launcher-nightly
+  LODESTONE_LAUNCHER_BUILD: ${{ github.run_number }}
+  LODESTONE_LAUNCHER_COMMIT: ${{ github.sha }}
+
+jobs:
+  prepare:
+    # Only main's builds are published as the nightly.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create the release if it is missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "Lodestone Launcher (nightly)" \
+              --notes "Builds of Lodestone Launcher from main. The launcher updates itself from here."
+          fi
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    outputs:
+      name: ${{ steps.publish.outputs.name }}
+      size: ${{ steps.publish.outputs.size }}
+      sha256: ${{ steps.publish.outputs.sha256 }}
+      version: ${{ steps.publish.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: launcher
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install --profile minimal --no-self-update
+
+      - name: Cache Dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          prefix-key: rust-cache
+          shared-key: launcher-windows-release
+          workspaces: launcher
+
+      - name: Build
+        run: cargo build --locked --release -p lodestone-launcher
+
+      - name: Upload the binary
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          name="lodestone-launcher-${LODESTONE_LAUNCHER_BUILD}-windows-x86_64.exe"
+          cp target/release/lodestone-launcher.exe "$name"
+          gh release upload "$TAG" "$name" --clobber
+          {
+            echo "name=$name"
+            echo "size=$(wc -c < "$name" | tr -d ' ')"
+            echo "sha256=$(sha256sum "$name" | cut -d' ' -f1)"
+            echo "version=$(sed -nE 's/^version = "(.*)"/\1/p' Cargo.toml | head -n1)"
+          } >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: prepare
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    outputs:
+      name: ${{ steps.publish.outputs.name }}
+      size: ${{ steps.publish.outputs.size }}
+      sha256: ${{ steps.publish.outputs.sha256 }}
+    defaults:
+      run:
+        working-directory: launcher
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install --profile minimal --no-self-update
+
+      - name: Cache Dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          prefix-key: rust-cache
+          shared-key: launcher-macos-release
+          workspaces: launcher
+
+      - name: Build
+        run: cargo build --locked --release -p lodestone-launcher
+
+      - name: Upload the binary
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          name="lodestone-launcher-${LODESTONE_LAUNCHER_BUILD}-macos-aarch64"
+          cp target/release/lodestone-launcher "$name"
+          gh release upload "$TAG" "$name" --clobber
+          {
+            echo "name=$name"
+            echo "size=$(wc -c < "$name" | tr -d ' ')"
+            echo "sha256=$(shasum -a 256 "$name" | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Write latest.json
+        env:
+          VERSION: ${{ needs.windows.outputs.version }}
+          WINDOWS_NAME: ${{ needs.windows.outputs.name }}
+          WINDOWS_SIZE: ${{ needs.windows.outputs.size }}
+          WINDOWS_SHA256: ${{ needs.windows.outputs.sha256 }}
+          MACOS_NAME: ${{ needs.macos.outputs.name }}
+          MACOS_SIZE: ${{ needs.macos.outputs.size }}
+          MACOS_SHA256: ${{ needs.macos.outputs.sha256 }}
+        run: |
+          jq -n \
+            --argjson build "$LODESTONE_LAUNCHER_BUILD" \
+            --arg commit "$GITHUB_SHA" \
+            --arg version "$VERSION" \
+            --arg published "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg wn "$WINDOWS_NAME" --argjson ws "$WINDOWS_SIZE" --arg wh "$WINDOWS_SHA256" \
+            --arg mn "$MACOS_NAME" --argjson ms "$MACOS_SIZE" --arg mh "$MACOS_SHA256" \
+            '{build: $build, commit: $commit, version: $version, published: $published,
+              assets: {
+                "windows-x86_64": {name: $wn, size: $ws, sha256: $wh},
+                "macos-aarch64": {name: $mn, size: $ms, sha256: $mh}
+              }}' > latest.json
+          cat latest.json
+
+      - name: Publish the manifest
+        run: gh release upload "$TAG" latest.json --clobber
+
+      - name: Point the release at this commit
+        run: |
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true
+          gh release edit "$TAG" --notes "Build $LODESTONE_LAUNCHER_BUILD of main, from $GITHUB_SHA. The launcher updates itself from here: Settings > General > Updates."
+
+      - name: Remove older builds
+        run: |
+          # Keep the files of the two newest builds.
+          names=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          keep=$(echo "$names" | sed -nE 's/^lodestone-launcher-([0-9]+)-.*/\1/p' | sort -n -u | tail -n 2)
+          for name in $names; do
+            build=$(echo "$name" | sed -nE 's/^lodestone-launcher-([0-9]+)-.*/\1/p')
+            if [ -n "$build" ] && ! echo "$keep" | grep -qx "$build"; then
+              gh release delete-asset "$TAG" "$name" --yes
+            fi
+          done

@@ -40,7 +40,9 @@ zip.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
     "Wdk_System_SystemServices",
+    "Win32_Foundation",
     "Win32_System_SystemInformation",
+    "Win32_System_Threading",
 ] }
 
 [dev-dependencies]

@@ -47,6 +47,7 @@ use crate::{
     },
     servers::{Servers, ServersEvent, view::ServersOverlay},
     theme::{self, colors, fonts, leading, radius, text, weights},
+    updater::Updater,
 };
 
 /// What the main area shows.
@@ -200,6 +201,8 @@ pub struct LauncherShell {
     servers_overlay: Entity<ServersOverlay>,
     /// Settings > Shared game settings.
     shared_settings: Entity<SharedSettings>,
+    /// Updating the launcher: Settings > General, and the top bar's notice.
+    updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
     settings: Option<(Entity<InstanceSettings>, [Subscription; 4])>,
     page: Page,
@@ -316,6 +319,11 @@ impl LauncherShell {
         // The Settings dialog draws their "Saved" notices.
         observe.push(cx.observe(&launcher_settings, |_, _, cx| cx.notify()));
         observe.push(cx.observe(&shared_settings, |_, _, cx| cx.notify()));
+        let updater = {
+            let instances = instances.clone();
+            cx.new(|cx| Updater::new(instances, cx))
+        };
+        observe.push(cx.observe(&updater, |_, _, cx| cx.notify()));
         let mut this = Self {
             accounts,
             instances,
@@ -326,6 +334,7 @@ impl LauncherShell {
             servers,
             servers_overlay,
             shared_settings,
+            updater,
             settings: None,
             page: Page::default(),
             tab: InstanceTab::default(),
@@ -356,6 +365,10 @@ impl LauncherShell {
 
     pub fn instances(&self) -> &Entity<Instances> {
         &self.instances
+    }
+
+    pub fn updater(&self) -> &Entity<Updater> {
+        &self.updater
     }
 
     pub fn console(&self) -> &Entity<Console> {
@@ -1516,7 +1529,7 @@ impl Render for LauncherShell {
             .text_color(colors::GRAY_300)
             .text_size(theme::text_size(text::MEDIUM))
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
-            .child(top_bar::render(cx))
+            .child(top_bar::render(self, cx))
             .child(
                 div()
                     .flex()

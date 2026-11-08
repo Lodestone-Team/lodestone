@@ -482,6 +482,35 @@ pub fn text(message: M) -> &'static str {
         M::SignInExpired => "Reconnectez-vous à {name}\u{a0}: sa connexion enregistrée a expiré.",
         M::LauncherClosing => "Le lanceur est en cours de fermeture.",
 
+        M::UpdatesSection => "Mises à jour",
+        M::UpdateAutomatically => "Mettre à jour automatiquement",
+        M::UpdateAutomaticallyHint => {
+            "Télécharge les nouveaux builds de Lodestone Launcher depuis GitHub en arrière-plan. Ils s’appliquent au prochain démarrage du lanceur."
+        }
+        M::BuildNumber => "Build {build}",
+        M::BuildNumberCommit => "Build {build} · {commit}",
+        M::DevelopmentBuild => "Build de développement",
+        M::UpdatesUnavailable => {
+            "Ce build n’a pas été publié sur GitHub, il ne se met donc pas à jour tout seul."
+        }
+        M::UpdateNotChecked => {
+            "Lodestone Launcher recherche un build plus récent sur GitHub toutes les quelques heures."
+        }
+        M::UpdateChecking => "Recherche d’un build plus récent…",
+        M::UpToDate => "C’est le build le plus récent.",
+        M::UpdateAvailable => "Le build {build} est disponible.",
+        M::UpdateDownloading => "Téléchargement du build {build}… {percent}",
+        M::UpdateReady => "Le build {build} est installé. Redémarrez pour l’utiliser.",
+        M::UpdateReadyPlaying => {
+            "Le build {build} est installé. Vous pourrez redémarrer une fois le jeu fermé."
+        }
+        M::UpdateFailed => "Impossible de mettre à jour\u{a0}: {error}",
+        M::CheckForUpdates => "Vérifier",
+        M::DownloadUpdate => "Télécharger",
+        M::RestartToUpdate => "Redémarrer",
+        M::UpdateReadyBadge => "Mise à jour prête",
+        M::UpdateAvailableBadge => "Mise à jour disponible",
+
         M::RestOnModrinth => "La suite de la description est sur Modrinth.",
     }
 }

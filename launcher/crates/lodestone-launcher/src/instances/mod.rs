@@ -476,6 +476,17 @@ impl Instances {
         }
     }
 
+    /// Settings > General > "Update automatically".
+    pub fn auto_update(&self) -> bool {
+        self.settings.auto_update
+    }
+
+    pub fn set_auto_update(&mut self, on: bool, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.auto_update = on, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
     /// Settings > General > Language.
     pub fn language(&self) -> crate::i18n::Language {
         self.settings.language
@@ -622,6 +633,13 @@ impl Instances {
         self.runs
             .get(id)
             .is_some_and(|run| !matches!(run.state, RunState::Idle))
+    }
+
+    /// Whether any instance is installing, starting or running.
+    pub fn any_active(&self) -> bool {
+        self.runs
+            .values()
+            .any(|run| !matches!(run.state, RunState::Idle))
     }
 
     pub fn is_running(&self, id: &str) -> bool {

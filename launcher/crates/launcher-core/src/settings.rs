@@ -43,6 +43,11 @@ pub struct Settings {
     /// default; left out of the file while it does.
     #[serde(default, skip_serializing_if = "is_default")]
     pub language: Language,
+    /// Settings > General > "Update automatically": new builds are downloaded and
+    /// installed in the background, and run when the launcher restarts. On by
+    /// default; left out of the file while on.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub auto_update: bool,
     #[serde(flatten)]
     pub other: Map<String, Value>,
 }
@@ -55,6 +60,7 @@ impl Default for Settings {
             collapsed_groups: BTreeSet::new(),
             auto_groups: true,
             language: Language::System,
+            auto_update: true,
             other: Map::new(),
         }
     }
