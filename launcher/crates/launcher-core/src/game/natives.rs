@@ -3,6 +3,11 @@
 //! The jars come from Mojang and are checked by SHA-1, but extraction still refuses
 //! anything that could write outside the natives directory: entries with absolute
 //! paths, `..` components, backslashes or drive prefixes, and symbolic links.
+//!
+//! zip 0.6.6 has advisories in `ZipArchive::extract` (symlinks, SUID bits and
+//! permissions applied through links) and in AES entries. This module never calls
+//! `extract`: it writes each regular file itself, with default permissions, and the
+//! `aes-crypto` feature is off.
 
 use std::{
     fs::{self, File},
@@ -65,7 +70,14 @@ pub fn extract(jar: &Path, dest: &Path, exclude: &[String]) -> Result<Vec<PathBu
         if excluded(&name, exclude) || entry.is_dir() {
             continue;
         }
-        let relative = safe_entry_path(&name).expect("checked above");
+        // Checked again: the name is read anew, and must never be trusted unchecked.
+        let Some(relative) = safe_entry_path(&name).filter(|_| !is_symlink(entry.unix_mode()))
+        else {
+            return Err(NativesError::UnsafeEntry {
+                jar: jar.to_owned(),
+                entry: name,
+            });
+        };
         let path = dest.join(relative);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(io_err(parent))?;
