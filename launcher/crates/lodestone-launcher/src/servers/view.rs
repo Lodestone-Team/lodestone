@@ -57,6 +57,18 @@ impl Servers {
         let signed_in = core.signed_in();
 
         let mut actions: Vec<AnyElement> = Vec::new();
+        if signed_in {
+            let (c, s) = (core_uuid.clone(), server.clone());
+            actions.push(
+                Button::new(SharedString::from(format!("details-{row_id}")), "Details")
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.open_detail(&c, s.clone(), cx)),
+                    )
+                    .into_any_element(),
+            );
+        }
         if let Some(busy) = busy {
             actions.push(
                 div()
@@ -316,6 +328,9 @@ impl Servers {
 
 impl Render for Servers {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(detail) = self.detail().cloned() {
+            return div().size_full().child(detail).into_any_element();
+        }
         let cards: Vec<AnyElement> = (0..self.cores.len())
             .map(|index| {
                 // the cards borrow `self` while their buttons need `cx`
@@ -424,6 +439,7 @@ impl Render for Servers {
                 )
             })
             .children(cards)
+            .into_any_element()
     }
 }
 

@@ -6,6 +6,8 @@
 //! is visible.
 
 pub mod add_dialog;
+pub mod detail;
+mod detail_view;
 pub mod view;
 
 use std::{
@@ -133,6 +135,8 @@ pub struct Servers {
     pub notice: Option<(SharedString, SharedString)>,
     dialog: Option<(Entity<AddServerDialog>, Subscription)>,
     pub prompt: Option<UpdatePrompt>,
+    /// A server's page, shown instead of the list (see [`detail`]).
+    detail: Option<(Entity<detail::ServerDetail>, Subscription)>,
     visible: bool,
     last_poll: Option<Instant>,
     /// No network, no Keychain: the offscreen screenshots.
@@ -162,6 +166,7 @@ impl Servers {
             notice: None,
             dialog: None,
             prompt: None,
+            detail: None,
             visible: false,
             last_poll: None,
             preview: false,
@@ -255,7 +260,7 @@ impl Servers {
                 cx.background_executor().timer(POLL_INTERVAL).await;
                 let alive = this
                     .update(cx, |this, cx| {
-                        if this.visible {
+                        if this.visible && this.detail.is_none() {
                             this.refresh_all(cx);
                         }
                     })
@@ -405,6 +410,7 @@ impl Servers {
         self.tasks.push(cx.spawn(async move |this, cx| {
             let credentials = request.username.clone().zip(request.password.clone());
             let expires_at = request.expires_at;
+            let console = request.console;
             let result = cx
                 .background_spawn(async move {
                     let info = client.info().await?;
@@ -413,7 +419,9 @@ impl Servers {
                     let key = match credentials {
                         Some((username, password)) => Some(
                             client
-                                .sign_in(&username, &password, &device, expires_at)
+                                .sign_in_with_scope(
+                                    &username, &password, &device, expires_at, console,
+                                )
                                 .await?,
                         ),
                         None => None,

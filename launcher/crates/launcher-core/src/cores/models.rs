@@ -122,6 +122,9 @@ pub struct KeyInfo {
     pub name: String,
     #[serde(default)]
     pub expires_at: Option<i64>,
+    /// What the key may do; `None` from a core that doesn't say.
+    #[serde(default)]
+    pub scope: Option<super::live::KeyScope>,
 }
 
 /// `POST /user/api_keys`. No `Debug`: it holds the key.

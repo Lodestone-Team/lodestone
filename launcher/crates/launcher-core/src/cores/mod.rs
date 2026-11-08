@@ -4,10 +4,13 @@
 //!   client packs);
 //! - [`store`]: the cores the launcher knows (`servers.json`) and their device keys;
 //! - [`pack`]: a server's client mods in a launcher instance;
-//! - [`join`]: where to join a server.
+//! - [`join`]: where to join a server;
+//! - [`live`]: a server's live state, players and console, and linking Minecraft
+//!   accounts.
 
 pub mod client;
 pub mod join;
+pub mod live;
 pub mod models;
 pub mod pack;
 pub mod store;

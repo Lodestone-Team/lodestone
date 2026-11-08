@@ -20,6 +20,9 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "c84af5b9
 # the platform verifier), from the same rev as GPUI.
 http_client = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35" }
 reqwest_client = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35" }
+# The same TLS settings (rustls with the platform verifier) for a core's WebSocket
+# streams, which don't go through the HTTP client.
+http_client_tls = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35" }
 
 launcher-core = { path = "crates/launcher-core" }
 
@@ -40,6 +43,8 @@ libc = "0.2"
 pulldown-cmark = { version = "0.13.0", default-features = false }
 # Zed's requirement and features.
 regex = { version = "1.5", default-features = false, features = ["std", "perf"] }
+# TLS around a core's WebSocket streams; Zed's requirement.
+rustls = "0.23.26"
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "os_rng"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
@@ -49,6 +54,9 @@ tempfile = "3.20.0"
 thiserror = "2.0.12"
 tiny_http = "0.12"
 # Moving deleted instances to the Trash: Zed's fork, at the rev Zed's `fs` crate uses.
+# A Lodestone core's live event and console streams, over a blocking socket. Zed locks
+# 0.28 (through async-tungstenite); no TLS feature, the launcher wraps rustls itself.
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 trash = { git = "https://github.com/zed-industries/trash-rs", rev = "41c6c800d884a89351f3b8856d12894cccee261d" }
 url = "2.2"
 uuid = { version = "1.1", features = ["serde"] }
