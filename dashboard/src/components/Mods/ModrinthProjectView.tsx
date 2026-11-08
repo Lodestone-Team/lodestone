@@ -8,8 +8,8 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useQueryClient } from '@tanstack/react-query';
 import { InstalledModList } from 'bindings/InstalledModList';
-import { ModKind } from 'bindings/ModKind';
-import { ModLoader } from 'bindings/ModLoader';
+import { InstalledModKind } from 'bindings/InstalledModKind';
+import { InstalledModLoader } from 'bindings/InstalledModLoader';
 import { ModrinthProject } from 'bindings/ModrinthProject';
 import { ModrinthVersion } from 'bindings/ModrinthVersion';
 import Button from 'components/Atoms/Button';
@@ -49,8 +49,8 @@ import {
 /** The instance a project view installs into. */
 export type InstallTarget = {
   uuid: string;
-  kind: ModKind;
-  loader: ModLoader;
+  kind: InstalledModKind;
+  loader: InstalledModLoader;
   gameVersion: string;
   installed: InstalledModList | undefined;
   canWrite: boolean;

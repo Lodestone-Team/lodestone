@@ -9,7 +9,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useQueryClient } from '@tanstack/react-query';
 import { InstalledMod } from 'bindings/InstalledMod';
 import { InstalledModList } from 'bindings/InstalledModList';
-import { ModKind } from 'bindings/ModKind';
+import { InstalledModKind } from 'bindings/InstalledModKind';
 import { ModInstallResult } from 'bindings/ModInstallResult';
 import Button from 'components/Atoms/Button';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
@@ -48,7 +48,7 @@ const ModRow = ({
   onDelete,
 }: {
   uuid: string;
-  kind: ModKind;
+  kind: InstalledModKind;
   mod: InstalledMod;
   canWrite: boolean;
   onDelete: (mod: InstalledMod) => void;

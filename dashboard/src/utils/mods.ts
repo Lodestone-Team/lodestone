@@ -1,11 +1,11 @@
 import { Game } from 'bindings/Game';
 import { InstalledMod } from 'bindings/InstalledMod';
-import { ModKind } from 'bindings/ModKind';
-import { ModLoader } from 'bindings/ModLoader';
+import { InstalledModKind } from 'bindings/InstalledModKind';
+import { InstalledModLoader } from 'bindings/InstalledModLoader';
 import { ModrinthVersion } from 'bindings/ModrinthVersion';
 
 /** What kind of add-ons an instance supports, and its Modrinth loader. */
-export type ModSupport = { kind: ModKind; loader: ModLoader };
+export type ModSupport = { kind: InstalledModKind; loader: InstalledModLoader };
 
 /**
  * The mod or plugin support of an instance, or null if it has none
@@ -28,24 +28,24 @@ export const getModSupport = (game: Game): ModSupport | null => {
   }
 };
 
-export const modTabTitle = (kind: ModKind) =>
+export const modTabTitle = (kind: InstalledModKind) =>
   kind === 'plugin' ? 'Plugins' : 'Mods';
 
 /** The singular noun for the kind, e.g. "mod". */
-export const modNoun = (kind: ModKind) =>
+export const modNoun = (kind: InstalledModKind) =>
   kind === 'plugin' ? 'plugin' : 'mod';
 
 /**
  * The Modrinth loaders whose versions the core installs on an instance with
  * this loader without `force` (MODS_SPEC 2, install step 1).
  */
-export const compatibleLoaders = (loader: ModLoader): string[] =>
+export const compatibleLoaders = (loader: InstalledModLoader): string[] =>
   loader === 'paper' ? ['paper', 'bukkit', 'spigot'] : [loader];
 
 /** Whether the core would install this version without `force`. */
 export const isVersionCompatible = (
   version: ModrinthVersion,
-  loader: ModLoader,
+  loader: InstalledModLoader,
   gameVersion: string
 ) =>
   version.game_versions.includes(gameVersion) &&
