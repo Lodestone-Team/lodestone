@@ -90,6 +90,29 @@
      the gray-800 rows and cards the placeholders sit in */
   --skeleton-base: #36393F;
   --skeleton-highlight: #404349;
+
+  /* Console text colours: the 16 ANSI colours (Minecraft codes map to them)
+     and the log levels. All at least 4.5:1 on the console (gray-900) and on a
+     hovered row (gray-800). 256 and 24-bit colours are adjusted in
+     utils/consoleFormat.ts, which keeps a copy of these backgrounds. */
+  --console-0: #979CA5;
+  --console-1: #F46F6B;
+  --console-2: #4FC46C;
+  --console-3: #D9B93C;
+  --console-4: #6AA5F2;
+  --console-5: #C985DD;
+  --console-6: #3FC2C9;
+  --console-7: #C9CBD0;
+  --console-8: #A2A7AF;
+  --console-9: #FF8A85;
+  --console-10: #7AE58F;
+  --console-11: #F5E168;
+  --console-12: #93BEFF;
+  --console-13: #E8A6F6;
+  --console-14: #78E7EC;
+  --console-15: #F5F6F7;
+  --console-warn: var(--yellow-300);
+  --console-error: var(--red-200);
 }
 
 /* Light theme, "Daylight lodestone": cool slate surfaces with crisp 1px lines.
@@ -152,6 +175,28 @@
   /* a little darker than #E6E9EE, so placeholders also show on the canvas */
   --skeleton-base: #DEE2E8;
   --skeleton-highlight: #F3F5F8;
+
+  /* Console text colours, at least 4.5:1 on the console (gray-900) and on a
+     hovered row (gray-800). Light colours become dark: white is a gray, bright
+     white nearly black, and yellow an amber. */
+  --console-0: #1A1D23;
+  --console-1: #B4282C;
+  --console-2: #1D7A3A;
+  --console-3: #8A5A00;
+  --console-4: #1F5FBF;
+  --console-5: #8E3AA8;
+  --console-6: #0E6F7C;
+  --console-7: #555B66;
+  --console-8: #666C77;
+  --console-9: #C62F2F;
+  --console-10: #0F7D3B;
+  --console-11: #8F6400;
+  --console-12: #2563D0;
+  --console-13: #A23AB6;
+  --console-14: #0A7684;
+  --console-15: #2B3038;
+  --console-warn: var(--yellow-300);
+  --console-error: var(--red-200);
 }
 
 @layer base {
