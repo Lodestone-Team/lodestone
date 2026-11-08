@@ -7,6 +7,7 @@ import server from './parts/server/zh-Hans.ts';
 import create from './parts/create/zh-Hans.ts';
 import files from './parts/files/zh-Hans.ts';
 import mods from './parts/mods/zh-Hans.ts';
+import consoleMessages from './parts/console/zh-Hans.ts';
 
 export const zhHans: Messages = {
   ...common,
@@ -16,4 +17,5 @@ export const zhHans: Messages = {
   ...create,
   ...files,
   ...mods,
+  ...consoleMessages,
 };

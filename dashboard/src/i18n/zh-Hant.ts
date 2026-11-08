@@ -7,6 +7,7 @@ import server from './parts/server/zh-Hant.ts';
 import create from './parts/create/zh-Hant.ts';
 import files from './parts/files/zh-Hant.ts';
 import mods from './parts/mods/zh-Hant.ts';
+import consoleMessages from './parts/console/zh-Hant.ts';
 
 export const zhHant: Messages = {
   ...common,
@@ -16,4 +17,5 @@ export const zhHant: Messages = {
   ...create,
   ...files,
   ...mods,
+  ...consoleMessages,
 };

@@ -49,4 +49,9 @@ export default {
   'common.notANumber': 'Ce n’est pas un nombre valide',
   'common.justNow': 'à l’instant',
   'common.pageTitle': '{page} - Lodestone',
+  'common.state.Starting': 'Démarrage',
+  'common.state.Running': 'En marche',
+  'common.state.Stopping': 'Arrêt en cours',
+  'common.state.Stopped': 'Arrêté',
+  'common.state.Error': 'Erreur',
 } satisfies CatalogOf<typeof en>;

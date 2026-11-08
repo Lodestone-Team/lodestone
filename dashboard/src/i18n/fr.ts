@@ -7,6 +7,7 @@ import server from './parts/server/fr.ts';
 import create from './parts/create/fr.ts';
 import files from './parts/files/fr.ts';
 import mods from './parts/mods/fr.ts';
+import consoleMessages from './parts/console/fr.ts';
 
 export const fr: Messages = {
   ...common,
@@ -16,4 +17,5 @@ export const fr: Messages = {
   ...create,
   ...files,
   ...mods,
+  ...consoleMessages,
 };

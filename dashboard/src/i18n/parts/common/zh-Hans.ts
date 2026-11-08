@@ -48,4 +48,9 @@ export default {
   'common.notANumber': '不是有效的数字',
   'common.justNow': '刚刚',
   'common.pageTitle': '{page} - Lodestone',
+  'common.state.Starting': '正在启动',
+  'common.state.Running': '运行中',
+  'common.state.Stopping': '正在停止',
+  'common.state.Stopped': '已停止',
+  'common.state.Error': '错误',
 } satisfies CatalogOf<typeof en>;

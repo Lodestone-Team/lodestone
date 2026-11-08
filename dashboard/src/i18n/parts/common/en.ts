@@ -47,4 +47,10 @@ export default {
   'common.justNow': 'just now',
   /** a page title in the browser tab, e.g. "Settings - Lodestone" */
   'common.pageTitle': '{page} - Lodestone',
+  /** a server's state (InstanceState), e.g. common.state.Running */
+  'common.state.Starting': 'Starting',
+  'common.state.Running': 'Running',
+  'common.state.Stopping': 'Stopping',
+  'common.state.Stopped': 'Stopped',
+  'common.state.Error': 'Error',
 } as const;

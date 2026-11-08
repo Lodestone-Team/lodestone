@@ -7,6 +7,7 @@ import server from './parts/server/en.ts';
 import create from './parts/create/en.ts';
 import files from './parts/files/en.ts';
 import mods from './parts/mods/en.ts';
+import consoleMessages from './parts/console/en.ts';
 
 export const en = {
   ...common,
@@ -16,4 +17,5 @@ export const en = {
   ...create,
   ...files,
   ...mods,
+  ...consoleMessages,
 } as const;
