@@ -578,6 +578,74 @@ fn a_game_the_launcher_didnt_see_exit_is_read_back_at_the_next_launch() {
 }
 
 #[test]
+fn concurrent_changes_are_not_lost() {
+    // Threads take the same file locks another launcher process would.
+    let world = World::new();
+    let a = world.instance("a", Some(&fixture("1.21.11")));
+    set_preferred(&world.data, Some("a"), Some(&a)).unwrap();
+    let root = world.data.root().to_path_buf();
+    let threads: Vec<_> = (0..6)
+        .map(|thread| {
+            let (root, a) = (root.clone(), a.clone());
+            std::thread::spawn(move || {
+                let data = DataDir::at(&root);
+                for i in 0..10 {
+                    match thread {
+                        0 => {
+                            before_launch(&data, "a", &a, "1.21.11", None).unwrap();
+                            after_exit(&data, "a", &a, "1.21.11").unwrap();
+                        }
+                        1 | 2 => {
+                            update_instance(&a, |sharing| {
+                                sharing.overrides.insert(format!("key_{thread}.{i}"));
+                            })
+                            .unwrap();
+                        }
+                        _ => {
+                            update_profile(&data, |profile| {
+                                let key = format!("key_{thread}.{i}");
+                                profile.values.insert(key, "key.keyboard.w".into());
+                            })
+                            .unwrap();
+                        }
+                    }
+                }
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    let profile = world.profile();
+    let sharing = load_instance(&a).unwrap();
+    for i in 0..10 {
+        for thread in [1, 2] {
+            assert!(sharing.overrides.contains(&format!("key_{thread}.{i}")));
+        }
+        for thread in 3..6 {
+            assert!(profile.values.contains_key(&format!("key_{thread}.{i}")));
+        }
+    }
+    assert_eq!(profile.preferred.as_deref(), Some("a"));
+}
+
+#[test]
+fn a_change_waits_for_the_lock() {
+    let world = World::new();
+    let held = lock(world.data.root()).unwrap();
+    let root = world.data.root().to_path_buf();
+    let writer = std::thread::spawn(move || {
+        set_value(&DataDir::at(&root), "renderDistance", "8").unwrap();
+    });
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let on_disk = storage::load::<Profile>(&profile_path(&world.data)).unwrap();
+    assert!(on_disk.document.values.is_empty());
+    drop(held);
+    writer.join().unwrap();
+    assert_eq!(world.profile().values["renderDistance"], "8");
+}
+
+#[test]
 fn equal_values_are_not_rewritten() {
     let world = World::new();
     let original = fixture("1.20.1");
