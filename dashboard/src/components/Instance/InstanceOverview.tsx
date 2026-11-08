@@ -17,6 +17,7 @@ import {
 
 import { useDocumentTitle } from 'usehooks-ts';
 import InstancePlayerList from './InstancePlayerList';
+import InstanceDetails from './InstanceDetails';
 
 const InstanceOverview = () => {
   useDocumentTitle('Instance Overview - Lodestone');
@@ -127,6 +128,7 @@ const InstanceOverview = () => {
       </div>
       <InstancePerformance />
       <InstancePlayerList />
+      <InstanceDetails instance={instance} />
     </>
   );
 };
