@@ -232,14 +232,6 @@ fn utf8(path: &Path) -> Result<String, LaunchError> {
         .ok_or_else(|| LaunchError::NonUtf8Path(path.to_owned()))
 }
 
-/// The classpath separator of `os`.
-fn classpath_separator(os: Os) -> &'static str {
-    match os {
-        Os::Windows => ";",
-        Os::MacOs | Os::Linux => ":",
-    }
-}
-
 /// The values of `${...}` placeholders.
 struct Values(Vec<(&'static str, String)>);
 
@@ -416,7 +408,7 @@ pub fn build_joining(
         .iter()
         .map(|path| utf8(path))
         .collect::<Result<Vec<_>, _>>()?
-        .join(classpath_separator(platform.os));
+        .join(platform.os.classpath_separator());
     let (width, height) = settings.resolution.unwrap_or((854, 480));
     let uuid = account.uuid.simple().to_string();
     let token = account.access_token.expose().to_string();
@@ -427,7 +419,7 @@ pub fn build_joining(
         ("classpath", classpath),
         (
             "classpath_separator",
-            classpath_separator(platform.os).to_string(),
+            platform.os.classpath_separator().to_string(),
         ),
         ("library_directory", utf8(&paths.libraries_dir)?),
         ("auth_player_name", account.username.clone()),
