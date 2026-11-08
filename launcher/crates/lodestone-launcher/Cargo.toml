@@ -1,0 +1,23 @@
+[package]
+name = "lodestone-launcher"
+description = "Lodestone Launcher, a Minecraft launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[features]
+default = ["runtime-shaders"]
+# Compile GPUI's Metal shaders when the app starts instead of at build time, so the
+# launcher builds with only the Command Line Tools. Zed's release builds precompile
+# them, which needs the `metal` compiler from a full Xcode install; build with
+# `--no-default-features` on such a machine to do the same.
+runtime-shaders = ["gpui_platform/runtime_shaders"]
+# Adds `--screenshot <file.png>` to the app and the components example, rendering
+# the window offscreen. Needs GPUI's test support, so it is for development only.
+screenshot = ["gpui_platform/test-support"]
+
+[dependencies]
+gpui.workspace = true
+gpui_platform = { workspace = true, features = ["font-kit"] }
