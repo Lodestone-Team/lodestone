@@ -127,6 +127,10 @@ pub struct FakeModrinth {
     files: Mutex<HashMap<String, Vec<u8>>>,
     /// URLs that were downloaded, in order.
     pub downloaded: Mutex<Vec<String>>,
+    /// `client_side` of projects; `optional` when not set.
+    client_sides: Mutex<HashMap<String, String>>,
+    /// Icons of projects; none when not set.
+    icons: Mutex<HashMap<String, String>>,
 }
 
 fn not_found() -> Error {
@@ -147,6 +151,29 @@ impl FakeModrinth {
 
     fn all(&self) -> Vec<FakeVersion> {
         self.versions.lock().unwrap().clone()
+    }
+
+    pub fn set_client_side(&self, project: &str, client_side: &str) {
+        self.client_sides
+            .lock()
+            .unwrap()
+            .insert(project.into(), client_side.into());
+    }
+
+    pub fn set_icon_url(&self, project: &str, url: &str) {
+        self.icons
+            .lock()
+            .unwrap()
+            .insert(project.into(), url.into());
+    }
+
+    fn project_for(&self, id: &str) -> ModrinthProject {
+        let mut project = Self::fake_project(id);
+        project.icon_url = self.icons.lock().unwrap().get(id).cloned();
+        if let Some(side) = self.client_sides.lock().unwrap().get(id) {
+            project.client_side = side.clone();
+        }
+        project
     }
 
     fn fake_project(id: &str) -> ModrinthProject {
@@ -194,7 +221,7 @@ impl ModrinthApi for FakeModrinth {
             .iter()
             .any(|v| v.version.project_id == id_or_slug)
         {
-            Ok(Self::fake_project(id_or_slug))
+            Ok(self.project_for(id_or_slug))
         } else {
             Err(not_found())
         }
@@ -205,7 +232,7 @@ impl ModrinthApi for FakeModrinth {
         Ok(ids
             .iter()
             .filter(|id| all.iter().any(|v| &v.version.project_id == *id))
-            .map(|id| Self::fake_project(id))
+            .map(|id| self.project_for(id))
             .collect())
     }
 

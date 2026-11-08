@@ -249,6 +249,11 @@ impl DockerBridge {
                 player_count: None,
                 max_player_count: None,
                 player_list: None,
+                icon_url: None,
+                modpack: None,
+                loader_version: None,
+                min_ram: None,
+                max_ram: None,
             };
             ret.push(instance);
         }

@@ -74,6 +74,58 @@ pub struct ModpackInfo {
     pub upload_id: Option<String>,
 }
 
+/// Where an instance created from a modpack came from. Kept in the instance's config.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ModpackOrigin {
+    /// Empty for an uploaded pack.
+    pub project_id: String,
+    /// Empty for an uploaded pack.
+    pub version_id: String,
+    pub name: String,
+    pub version_number: Option<String>,
+    /// The project icon, only ever a `https://cdn.modrinth.com/` URL.
+    pub icon_url: Option<String>,
+}
+
+/// `url` if it is an `https://cdn.modrinth.com/` URL, else `None`.
+pub fn modrinth_cdn_url(url: Option<&str>) -> Option<String> {
+    let parsed = url::Url::parse(url?).ok()?;
+    let ok = parsed.scheme() == "https"
+        && parsed.host_str() == Some(crate::modrinth::CDN_HOST)
+        && parsed.port().is_none()
+        && parsed.username().is_empty()
+        && parsed.password().is_none();
+    ok.then(|| parsed.to_string())
+}
+
+impl ModpackOrigin {
+    /// The origin of a pack from the Modrinth version `version_id`: the project's title and
+    /// icon, and the version number.
+    pub async fn from_modrinth(api: &dyn ModrinthApi, version_id: &str) -> Result<Self, Error> {
+        let version = api.version(version_id).await?;
+        let project = api.project(&version.project_id).await?;
+        Ok(ModpackOrigin {
+            project_id: project.id,
+            version_id: version.id,
+            name: project.title,
+            version_number: Some(version.version_number).filter(|v| !v.trim().is_empty()),
+            icon_url: modrinth_cdn_url(project.icon_url.as_deref()),
+        })
+    }
+
+    /// The origin of an uploaded pack, from its index.
+    pub fn from_upload(info: &ModpackInfo) -> Self {
+        ModpackOrigin {
+            project_id: String::new(),
+            version_id: String::new(),
+            name: info.name.clone(),
+            version_number: info.version_number.clone(),
+            icon_url: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IndexEnv {

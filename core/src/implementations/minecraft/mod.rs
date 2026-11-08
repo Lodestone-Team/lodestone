@@ -47,9 +47,10 @@ use crate::traits::t_configurable::manifest::{
     SettingManifest, SetupManifest, SetupValue,
 };
 
+use crate::modpack::ModpackOrigin;
 use crate::traits::t_macro::TaskEntry;
 use crate::traits::t_server::State;
-use crate::traits::TInstance;
+use crate::traits::{InstanceDetails, TInstance};
 use crate::types::{DotLodestoneConfig, InstanceUuid};
 use crate::util::{
     dont_spawn_terminal, download_file, format_byte, format_byte_download, unzip_file_async,
@@ -158,6 +159,8 @@ pub struct SetupConfig {
     pub auto_start: Option<bool>,
     pub restart_on_crash: Option<bool>,
     pub backup_period: Option<u32>,
+    /// The modpack the instance is created from, if any.
+    pub modpack: Option<ModpackOrigin>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RestoreConfig {
@@ -178,6 +181,38 @@ pub struct RestoreConfig {
     pub jre_major_version: u64,
     #[serde(default)]
     pub has_started: bool,
+    /// The modpack the instance was created from. Missing in older configs.
+    #[serde(default)]
+    pub modpack: Option<ModpackOrigin>,
+}
+
+impl RestoreConfig {
+    /// The [`InstanceDetails`] of an instance with this config.
+    pub fn details(&self) -> InstanceDetails {
+        let loader_version = match &self.flavour {
+            Flavour::Fabric {
+                loader_version: Some(FabricLoaderVersion(v)),
+                ..
+            } => Some(v.clone()),
+            Flavour::Forge {
+                build_version: Some(ForgeBuildVersion(b)),
+            } => Some(b.clone()),
+            Flavour::Paper {
+                build_version: Some(PaperBuildVersion(b)),
+            } => Some(b.to_string()),
+            _ => None,
+        };
+        InstanceDetails {
+            icon_url: self
+                .modpack
+                .as_ref()
+                .and_then(|m| crate::modpack::modrinth_cdn_url(m.icon_url.as_deref())),
+            modpack: self.modpack.clone(),
+            loader_version,
+            min_ram: Some(self.min_ram),
+            max_ram: Some(self.max_ram),
+        }
+    }
 }
 #[derive(Clone)]
 pub struct MinecraftInstance {
@@ -636,6 +671,7 @@ impl MinecraftInstance {
             auto_start: Some(setup_value.auto_start),
             restart_on_crash: Some(setup_value.restart_on_crash),
             backup_period: None,
+            modpack: None,
         })
     }
 
@@ -869,6 +905,7 @@ impl MinecraftInstance {
             jre_major_version,
             has_started: false,
             java_cmd: Some(jre.to_string_lossy().to_string()),
+            modpack: config.modpack,
         };
         // create config file
         write_file_atomically(
@@ -1069,6 +1106,17 @@ impl MinecraftInstance {
         Ok(())
     }
 
+    /// The Fabric loader version of a Fabric instance, or `None`.
+    pub async fn fabric_loader_version(&self) -> Option<String> {
+        match &self.config.lock().await.flavour {
+            Flavour::Fabric {
+                loader_version: Some(FabricLoaderVersion(version)),
+                ..
+            } => Some(version.clone()),
+            _ => None,
+        }
+    }
+
     pub fn get_rcon(&self) -> Arc<Mutex<Option<rcon::Connection<tokio::net::TcpStream>>>> {
         self.rcon_conn.clone()
     }
@@ -1089,7 +1137,12 @@ impl MinecraftInstance {
     }
 }
 
-impl TInstance for MinecraftInstance {}
+#[async_trait::async_trait]
+impl TInstance for MinecraftInstance {
+    async fn details(&self) -> InstanceDetails {
+        self.config.lock().await.details()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1135,6 +1188,73 @@ mod tests {
             assert_eq!(split_args(&join_args(&args)).unwrap(), args);
         }
         assert_eq!(join_args(&["".to_string()]), "");
+    }
+
+    /// A config written by an older Lodestone: no `modpack` field.
+    const OLD_CONFIG: &str = r#"{
+        "name": "Old", "version": "1.20.1",
+        "flavour": {"fabric": {"loader_version": "0.14.21", "installer_version": "0.11.2"}},
+        "description": "", "cmd_args": [], "java_cmd": null, "port": 25565,
+        "min_ram": 1024, "max_ram": 2048, "auto_start": false, "restart_on_crash": false,
+        "backup_period": null, "jre_major_version": 17
+    }"#;
+
+    #[test]
+    fn old_configs_load_without_a_modpack() {
+        let config: RestoreConfig = serde_json::from_str(OLD_CONFIG).unwrap();
+        assert_eq!(config.modpack, None);
+        let details = config.details();
+        assert_eq!(details.modpack, None);
+        assert_eq!(details.icon_url, None);
+        assert_eq!(details.loader_version.as_deref(), Some("0.14.21"));
+        assert_eq!(details.min_ram, Some(1024));
+        assert_eq!(details.max_ram, Some(2048));
+    }
+
+    #[test]
+    fn modpack_origin_is_stored_in_the_config() {
+        let mut config: RestoreConfig = serde_json::from_str(OLD_CONFIG).unwrap();
+        config.modpack = Some(ModpackOrigin {
+            project_id: "p".into(),
+            version_id: "v".into(),
+            name: "Pack".into(),
+            version_number: Some("1.0".into()),
+            icon_url: Some("https://cdn.modrinth.com/data/p/icon.png".into()),
+        });
+        let written = serde_json::to_string(&config).unwrap();
+        let read: RestoreConfig = serde_json::from_str(&written).unwrap();
+        assert_eq!(read.modpack, config.modpack);
+        let details = read.details();
+        assert_eq!(
+            details.icon_url.as_deref(),
+            Some("https://cdn.modrinth.com/data/p/icon.png")
+        );
+        assert_eq!(details.modpack.unwrap().name, "Pack");
+
+        // an icon edited by hand to point elsewhere is not shown
+        let mut edited = read;
+        if let Some(m) = edited.modpack.as_mut() {
+            m.icon_url = Some("https://example.com/x.png".into());
+        }
+        assert_eq!(edited.details().icon_url, None);
+    }
+
+    #[test]
+    fn loader_versions_of_other_flavours() {
+        let mut config: RestoreConfig = serde_json::from_str(OLD_CONFIG).unwrap();
+        config.flavour = Flavour::Paper {
+            build_version: Some(PaperBuildVersion(196)),
+        };
+        assert_eq!(config.details().loader_version.as_deref(), Some("196"));
+        config.flavour = Flavour::Forge {
+            build_version: Some(ForgeBuildVersion("1.20.1-47.2.0".into())),
+        };
+        assert_eq!(
+            config.details().loader_version.as_deref(),
+            Some("1.20.1-47.2.0")
+        );
+        config.flavour = Flavour::Vanilla;
+        assert_eq!(config.details().loader_version, None);
     }
 
     #[tokio::test]
