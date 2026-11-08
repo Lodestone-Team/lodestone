@@ -109,6 +109,7 @@ mod extension;
 pub mod global_settings;
 mod handlers;
 pub mod implementations;
+mod listen;
 pub mod macro_executor;
 mod migration;
 mod modpack;
@@ -1040,7 +1041,11 @@ pub async fn run(
         debug!("Port {port} is already in use, trying next port");
         port += 1;
     }
-    let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
+    let listeners = listen::bind_all_interfaces(port).map_err(|e| Error {
+        kind: ErrorKind::Internal,
+        source: Report::msg(format!("Failed to listen on port {port}: {e}")),
+    })?;
+    let listen_description = listeners.describe();
 
     Ok((
         {
@@ -1051,9 +1056,13 @@ pub async fn run(
                     // a page to open in a browser to trust the core's certificate
                     .route("/", axum::routing::get(tls::root_page))
                     .nest("/api/v1", api_routes);
-                let axum_server_handle = axum_server::Handle::<SocketAddr>::new();
+                let axum_server_handles: Vec<_> = listeners
+                    .listeners
+                    .iter()
+                    .map(|_| axum_server::Handle::<SocketAddr>::new())
+                    .collect();
                 let server_task = tokio::spawn({
-                    let axum_server_handle = axum_server_handle.clone();
+                    let axum_server_handles = axum_server_handles.clone();
                     async move {
                         let https = tls_setup.config.is_some();
                         let acceptor_allows_lan_http = allow_lan_http.clone();
@@ -1067,7 +1076,7 @@ pub async fn run(
                             } else {
                                 "from this machine only"
                             };
-                            info!("Lodestone Core live on {addr}, over HTTPS, and plain HTTP {plain_http}");
+                            info!("Lodestone Core live on {listen_description}, over HTTPS, and plain HTTP {plain_http}");
                         } else {
                             warn!(
                                 "HTTPS is not available. Lodestone Core is serving plain HTTP on all network interfaces, \
@@ -1075,14 +1084,31 @@ pub async fn run(
                                  To enable HTTPS, put cert.pem and key.pem in {}",
                                 tls_dir.display()
                             );
-                            info!("Lodestone Core live on {addr}, over plain HTTP");
+                            info!("Lodestone Core live on {listen_description}, over plain HTTP");
                         }
                         info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
-                        axum_server::bind(addr)
-                            .acceptor(acceptor)
-                            .handle(axum_server_handle)
-                            .serve(app.into_make_service())
-                            .await
+                        // one server per listener (two only where there are no dual-stack
+                        // sockets), all behind the same acceptor, so the same TLS and
+                        // LAN-HTTP rules apply whichever address family a client uses
+                        futures::future::try_join_all(
+                            listeners
+                                .listeners
+                                .into_iter()
+                                .zip(axum_server_handles)
+                                .map(|(listener, handle)| {
+                                    let acceptor = acceptor.clone();
+                                    let app = app.clone();
+                                    async move {
+                                        axum_server::from_tcp(listener)?
+                                            .acceptor(acceptor)
+                                            .handle(handle)
+                                            .serve(app.into_make_service())
+                                            .await
+                                    }
+                                }),
+                        )
+                        .await
+                        .map(|_| ())
                     }
                 });
                 // capture file into the move block
@@ -1099,7 +1125,9 @@ pub async fn run(
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
                 info!("Shutting down web server");
-                axum_server_handle.shutdown();
+                for handle in &axum_server_handles {
+                    handle.shutdown();
+                }
                 if let Err(e) = shared_state
                     .users_manager
                     .read()
