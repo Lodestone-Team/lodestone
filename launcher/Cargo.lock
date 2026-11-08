@@ -2912,6 +2912,7 @@ dependencies = [
  "lodestone_minecraft",
  "serde_json",
  "url",
+ "zip",
 ]
 
 [[package]]

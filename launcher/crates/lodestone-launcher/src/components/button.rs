@@ -350,11 +350,7 @@ impl IconButton {
 
 impl RenderOnce for IconButton {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let color = if self.disabled {
-            colors::GRAY_900
-        } else {
-            colors::GRAY_FADED.opacity(30)
-        };
+        let color = colors::GRAY_FADED.opacity(30);
         div()
             .id(self.id.clone())
             .group("icon-button")
@@ -368,6 +364,7 @@ impl RenderOnce for IconButton {
             .bg(colors::GRAY_800)
             .border_1()
             .border_color(colors::GRAY_FADED.opacity(30))
+            .when(self.disabled, |this| this.opacity(0.4))
             .when(!self.disabled, |this| {
                 this.cursor_pointer()
                     .hover(|style| {

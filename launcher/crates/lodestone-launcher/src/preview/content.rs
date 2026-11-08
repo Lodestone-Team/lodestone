@@ -1,0 +1,590 @@
+//! The Content tab's screenshots: sample mods, resource packs and shader packs written
+//! into the made-up instance, their provenance, and prepared Modrinth answers.
+
+use std::{collections::HashMap, fs, io::Write as _, path::Path};
+
+use gpui::Context;
+use launcher_core::content::{
+    ContentKind, InstanceDirs,
+    provenance::{Entry, ModrinthSource, Provenance},
+    shaders::{ShaderLoader, ShaderModOffer},
+};
+use lodestone_minecraft::modrinth::{
+    ModrinthProject, ModrinthSearchResponse, RawProject, RawVersion,
+};
+use serde_json::json;
+
+use crate::instances::content::ContentView;
+
+/// A square icon in two shades of `rgb`, with a lighter block in the middle.
+fn icon(rgb: [u8; 3]) -> image::RgbaImage {
+    image::RgbaImage::from_fn(64, 64, |x, y| {
+        let inner = (16..48).contains(&x) && (16..48).contains(&y);
+        let shade = if inner {
+            1.25
+        } else if (x / 8 + y / 8) % 2 == 0 {
+            1.0
+        } else {
+            0.85
+        };
+        let c = |v: u8| ((v as f32 * shade).min(255.0)) as u8;
+        image::Rgba([c(rgb[0]), c(rgb[1]), c(rgb[2]), 255])
+    })
+}
+
+fn png(rgb: [u8; 3]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(icon(rgb))
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .expect("a PNG encodes");
+    bytes
+}
+
+fn write_zip(path: &Path, entries: &[(&str, Vec<u8>)]) {
+    let _ = fs::create_dir_all(path.parent().expect("a folder"));
+    let Ok(file) = fs::File::create(path) else {
+        return;
+    };
+    let mut zip = zip::ZipWriter::new(file);
+    for (name, bytes) in entries {
+        if zip
+            .start_file(*name, zip::write::FileOptions::default())
+            .is_ok()
+        {
+            let _ = zip.write_all(bytes);
+        }
+    }
+    let _ = zip.finish();
+}
+
+fn fabric_mod(path: &Path, id: &str, name: &str, version: &str, color: Option<[u8; 3]>) {
+    let mut json = json!({"schemaVersion": 1, "id": id, "name": name, "version": version});
+    let mut entries = Vec::new();
+    if let Some(color) = color {
+        json["icon"] = json!(format!("assets/{id}/icon.png"));
+        entries.push((format!("assets/{id}/icon.png"), png(color)));
+    }
+    let mut all: Vec<(&str, Vec<u8>)> = vec![("fabric.mod.json", json.to_string().into_bytes())];
+    all.extend(entries.iter().map(|(n, b)| (n.as_str(), b.clone())));
+    write_zip(path, &all);
+}
+
+fn resource_pack(path: &Path, description: &str, format: serde_json::Value, color: [u8; 3]) {
+    let mut pack = json!({"description": description});
+    if let Some(object) = format.as_object() {
+        for (k, v) in object {
+            pack[k] = v.clone();
+        }
+    }
+    write_zip(
+        path,
+        &[
+            (
+                "pack.mcmeta",
+                json!({"pack": pack}).to_string().into_bytes(),
+            ),
+            ("pack.png", png(color)),
+        ],
+    );
+}
+
+fn source(project: &str, slug: &str, title: &str, version: &str, icon: bool) -> ModrinthSource {
+    ModrinthSource {
+        project_id: project.into(),
+        version_id: format!("{project}-{version}"),
+        slug: slug.into(),
+        title: title.into(),
+        icon_url: icon.then(|| icon_url(project)),
+        version_number: version.into(),
+        date_published: "2025-01-01T00:00:00Z".into(),
+        url: Some(format!(
+            "https://cdn.modrinth.com/data/{project}/versions/x/{slug}.jar"
+        )),
+        client_side: "required".into(),
+        server_side: "optional".into(),
+    }
+}
+
+fn icon_url(project: &str) -> String {
+    format!("https://cdn.modrinth.com/data/{project}/icon.png")
+}
+
+/// Records `file` as coming from Modrinth, with its real size and time so the listing
+/// trusts the entry without asking Modrinth.
+fn remember(
+    provenance: &mut Provenance,
+    dirs: &InstanceDirs,
+    kind: ContentKind,
+    file: &str,
+    source: ModrinthSource,
+) {
+    let path = dirs.content_dir(kind).join(file);
+    let Ok(metadata) = fs::metadata(&path) else {
+        return;
+    };
+    provenance.insert(
+        kind,
+        file,
+        Entry {
+            size: metadata.len(),
+            modified: metadata
+                .modified()
+                .ok()
+                .and_then(launcher_core::content::provenance::nanos),
+            sha1: lodestone_minecraft::hash::sha1_of(&path).unwrap_or_default(),
+            sha512: lodestone_minecraft::hash::sha512_of(&path).unwrap_or_default(),
+            modrinth: Some(source),
+            looked_up: false,
+        },
+    );
+}
+
+/// Writes the sample content of `scene` into the instance at `instance_dir`.
+pub fn fill(instance_dir: &Path, scene: &str) {
+    let dirs = InstanceDirs::new(instance_dir);
+    let mods = dirs.content_dir(ContentKind::Mod);
+    let packs = dirs.content_dir(ContentKind::ResourcePack);
+    let shaders = dirs.content_dir(ContentKind::ShaderPack);
+    let mut provenance = Provenance::default();
+
+    fabric_mod(
+        &mods.join("sodium-fabric-0.5.13+mc1.20.1.jar"),
+        "sodium",
+        "Sodium",
+        "0.5.13+mc1.20.1",
+        None,
+    );
+    fabric_mod(
+        &mods.join("fabric-api-0.92.2+1.20.1.jar"),
+        "fabric-api",
+        "Fabric API",
+        "0.92.2+1.20.1",
+        None,
+    );
+    fabric_mod(
+        &mods.join("modmenu-7.2.2.jar.disabled"),
+        "modmenu",
+        "Mod Menu",
+        "7.2.2",
+        None,
+    );
+    fabric_mod(
+        &mods.join("lithium-fabric-0.11.2.jar"),
+        "lithium",
+        "Lithium",
+        "0.11.2",
+        None,
+    );
+    fabric_mod(
+        &mods.join("homemade-tweaks.jar"),
+        "homemade",
+        "Homemade Tweaks",
+        "1.0.0",
+        Some([196, 120, 60]),
+    );
+    remember(
+        &mut provenance,
+        &dirs,
+        ContentKind::Mod,
+        "sodium-fabric-0.5.13+mc1.20.1.jar",
+        source("AANobbMI", "sodium", "Sodium", "mc1.20.1-0.5.13", true),
+    );
+    remember(
+        &mut provenance,
+        &dirs,
+        ContentKind::Mod,
+        "fabric-api-0.92.2+1.20.1.jar",
+        source(
+            "P7dR8mSH",
+            "fabric-api",
+            "Fabric API",
+            "0.92.2+1.20.1",
+            true,
+        ),
+    );
+    remember(
+        &mut provenance,
+        &dirs,
+        ContentKind::Mod,
+        "modmenu-7.2.2.jar.disabled",
+        source("mOgUt4GM", "modmenu", "Mod Menu", "7.2.2", true),
+    );
+    remember(
+        &mut provenance,
+        &dirs,
+        ContentKind::Mod,
+        "lithium-fabric-0.11.2.jar",
+        source("gvQqBUqZ", "lithium", "Lithium", "mc1.20.1-0.11.2", true),
+    );
+    if matches!(
+        scene,
+        "content-mods" | "content-shaders" | "content-browse" | "content-project"
+    ) {
+        fabric_mod(
+            &mods.join("iris-1.7.6+mc1.20.1.jar"),
+            "iris",
+            "Iris",
+            "1.7.6+mc1.20.1",
+            None,
+        );
+        remember(
+            &mut provenance,
+            &dirs,
+            ContentKind::Mod,
+            "iris-1.7.6+mc1.20.1.jar",
+            source("YL57xq9U", "iris", "Iris Shaders", "1.7.6+1.20.1", true),
+        );
+    }
+
+    resource_pack(
+        &packs.join("Faithful 32x - 1.20.1.zip"),
+        "§7The §6Faithful§7 look, at 32x",
+        json!({"pack_format": 15}),
+        [90, 150, 70],
+    );
+    resource_pack(
+        &packs.join("FreshAnimations_v1.9.zip"),
+        "Breathing new life into mobs",
+        json!({"pack_format": 15, "supported_formats": [15, 34]}),
+        [200, 140, 70],
+    );
+    resource_pack(
+        &packs.join("Old Classic Textures.zip"),
+        "Classic textures from 1.12",
+        json!({"pack_format": 3}),
+        [120, 120, 160],
+    );
+    resource_pack(
+        &packs.join("Stay True 1.21.zip"),
+        "Made for 1.21",
+        json!({"pack_format": 34}),
+        [70, 130, 170],
+    );
+    write_zip(
+        &packs.join("Nested Download.zip"),
+        &[(
+            "Nested Download/pack.mcmeta",
+            b"{\"pack\": {\"pack_format\": 15, \"description\": \"\"}}".to_vec(),
+        )],
+    );
+    let _ = fs::create_dir_all(packs.join("My Edits"));
+    let _ = fs::write(
+        packs.join("My Edits/pack.mcmeta"),
+        json!({"pack": {"pack_format": 15, "description": "Textures I made"}}).to_string(),
+    );
+    remember(
+        &mut provenance,
+        &dirs,
+        ContentKind::ResourcePack,
+        "Faithful 32x - 1.20.1.zip",
+        source("PB8Tee5S", "faithful-32x", "Faithful 32x", "1.20.1", false),
+    );
+    remember(
+        &mut provenance,
+        &dirs,
+        ContentKind::ResourcePack,
+        "FreshAnimations_v1.9.zip",
+        source(
+            "50dA9Sha",
+            "fresh-animations",
+            "Fresh Animations",
+            "1.9",
+            false,
+        ),
+    );
+    let _ = fs::write(
+        dirs.game.join("options.txt"),
+        "version:3465\nautoJump:false\nresourcePacks:[\"vanilla\",\"fabric\",\"file/Old Classic Textures.zip\",\"file/FreshAnimations_v1.9.zip\",\"file/Faithful 32x - 1.20.1.zip\"]\nincompatibleResourcePacks:[\"file/Old Classic Textures.zip\"]\nlang:en_us\n",
+    );
+
+    write_zip(
+        &shaders.join("ComplementaryReimagined_r5.3.zip"),
+        &[("shaders/composite.fsh", b"x".to_vec())],
+    );
+    write_zip(
+        &shaders.join("BSL_v8.2.09.zip"),
+        &[("shaders/final.fsh", b"x".to_vec())],
+    );
+    write_zip(
+        &shaders.join("MakeUp-UltraFast-9.2.zip"),
+        &[("MakeUp-UltraFast/shaders/final.fsh", b"x".to_vec())],
+    );
+    remember(
+        &mut provenance,
+        &dirs,
+        ContentKind::ShaderPack,
+        "ComplementaryReimagined_r5.3.zip",
+        source(
+            "HVnmMxH1",
+            "complementary-reimagined",
+            "Complementary Shaders - Reimagined",
+            "r5.3",
+            true,
+        ),
+    );
+    remember(
+        &mut provenance,
+        &dirs,
+        ContentKind::ShaderPack,
+        "BSL_v8.2.09.zip",
+        source("Q1vvjJYV", "bsl-shaders", "BSL Shaders", "v8.2.09", true),
+    );
+    let _ = fs::create_dir_all(dirs.game.join("config"));
+    let _ = fs::write(
+        dirs.game.join("config/iris.properties"),
+        "#This file stores configuration options for Iris\nenableShaders=true\nshaderPack=ComplementaryReimagined_r5.3.zip\n",
+    );
+    let _ = provenance.save(&dirs.instance);
+    if scene == "loader-change" {
+        for world in ["New World", "Creative build"] {
+            let dir = dirs.game.join("saves").join(world);
+            let _ = fs::create_dir_all(&dir);
+            let _ = fs::write(dir.join("level.dat"), b"not a real level");
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn version(
+    id: &str,
+    project: &str,
+    number: &str,
+    kind: &str,
+    loaders: &[&str],
+    games: &[&str],
+    date: &str,
+    size: u64,
+) -> RawVersion {
+    serde_json::from_value(json!({
+        "id": id, "project_id": project, "name": number, "version_number": number,
+        "version_type": kind, "loaders": loaders, "game_versions": games,
+        "date_published": date, "downloads": 1,
+        "files": [{"hashes": {"sha1": "0".repeat(40), "sha512": "0".repeat(128)},
+            "url": format!("https://cdn.modrinth.com/data/{project}/versions/{id}/file.jar"),
+            "filename": "file.jar", "primary": true, "size": size}],
+        "dependencies": [],
+    }))
+    .expect("a valid version")
+}
+
+fn project(
+    id: &str,
+    slug: &str,
+    title: &str,
+    description: &str,
+    downloads: u64,
+) -> ModrinthProject {
+    let raw: RawProject = serde_json::from_value(json!({
+        "id": id, "slug": slug, "project_type": "mod", "title": title, "description": description,
+        "icon_url": icon_url(id), "categories": ["optimization", "fabric", "quilt"],
+        "loaders": ["fabric", "quilt"], "downloads": downloads, "followers": downloads / 1500,
+        "client_side": "required", "server_side": "optional",
+    }))
+    .expect("a valid project");
+    raw.into()
+}
+
+fn icons() -> HashMap<String, std::sync::Arc<gpui::RenderImage>> {
+    [
+        ("AANobbMI", [70, 160, 210]),
+        ("P7dR8mSH", [210, 180, 120]),
+        ("mOgUt4GM", [140, 100, 200]),
+        ("gvQqBUqZ", [90, 190, 120]),
+        ("YL57xq9U", [110, 80, 210]),
+        ("HVnmMxH1", [230, 150, 60]),
+        ("Q1vvjJYV", [60, 120, 200]),
+        ("NNAgCjsB", [200, 90, 90]),
+        ("Bh37bMuy", [80, 170, 170]),
+    ]
+    .into_iter()
+    .map(|(id, rgb)| (icon_url(id), crate::images::render_image(icon(rgb))))
+    .collect()
+}
+
+pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>) {
+    match scene {
+        "content-mods" => view.preview_state(
+            ContentKind::Mod,
+            None,
+            HashMap::from([(
+                "fabric-api-0.92.2+1.20.1.jar".to_string(),
+                version(
+                    "fapi",
+                    "P7dR8mSH",
+                    "0.92.6+1.20.1",
+                    "release",
+                    &["fabric"],
+                    &["1.20.1"],
+                    "2025-06-01T00:00:00Z",
+                    2_000_000,
+                ),
+            )]),
+            icons(),
+            cx,
+        ),
+        "content-resourcepacks" => {
+            view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx)
+        }
+        "content-shaders" => {
+            view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
+        }
+        "content-shaders-missing" => view.preview_state(
+            ContentKind::ShaderPack,
+            Some(ShaderModOffer::Install {
+                loader: ShaderLoader::Iris,
+                version: Box::new(version(
+                    "iris176",
+                    "YL57xq9U",
+                    "1.7.6+1.20.1",
+                    "release",
+                    &["fabric", "quilt"],
+                    &["1.20.1"],
+                    "2025-01-02T00:00:00Z",
+                    2_500_000,
+                )),
+            }),
+            HashMap::new(),
+            icons(),
+            cx,
+        ),
+        "content-shaders-vanilla" => {
+            view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
+        }
+        "content-browse" => {
+            view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
+            let hits = [
+                (
+                    "AANobbMI",
+                    "sodium",
+                    "Sodium",
+                    "JellySquid",
+                    "The fastest and most compatible rendering optimization mod for Minecraft.",
+                    98_400_000_u64,
+                ),
+                (
+                    "P7dR8mSH",
+                    "fabric-api",
+                    "Fabric API",
+                    "modmuss50",
+                    "Lightweight and modular API providing common hooks and intercompatibility measures utilized by mods using the Fabric toolchain.",
+                    120_300_000,
+                ),
+                (
+                    "YL57xq9U",
+                    "iris",
+                    "Iris Shaders",
+                    "coderbot",
+                    "A modern shader pack loader for Minecraft intended to be compatible with existing OptiFine shader packs.",
+                    70_100_000,
+                ),
+                (
+                    "gvQqBUqZ",
+                    "lithium",
+                    "Lithium",
+                    "JellySquid",
+                    "No-compromises game logic optimization mod.",
+                    41_000_000,
+                ),
+                (
+                    "NNAgCjsB",
+                    "entityculling",
+                    "Entity Culling",
+                    "tr7zw",
+                    "Using async path-tracing to hide Block-/Entities that are not visible.",
+                    38_200_000,
+                ),
+                (
+                    "Bh37bMuy",
+                    "reeses-sodium-options",
+                    "Reese's Sodium Options",
+                    "FlashyReese",
+                    "Alternative Options Menu for Sodium.",
+                    21_700_000,
+                ),
+            ];
+            let response: ModrinthSearchResponse = serde_json::from_value(json!({
+                "hits": hits.iter().map(|(id, slug, title, author, description, downloads)| json!({
+                    "project_id": id, "slug": slug, "project_type": "mod", "title": title,
+                    "description": description, "author": author, "icon_url": icon_url(id),
+                    "downloads": downloads, "follows": downloads / 1400, "categories": [], "versions": [],
+                    "date_modified": "", "client_side": if *slug == "entityculling" { "optional" } else { "required" },
+                    "server_side": "optional",
+                })).collect::<Vec<_>>(),
+                "offset": 0, "limit": 20, "total_hits": 2481,
+            }))
+            .expect("a valid response");
+            view.preview_results(ContentKind::Mod, "", response.normalize(), cx);
+        }
+        "content-project" => {
+            view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
+            let versions = vec![
+                version(
+                    "AANobbMI-mc1.20.1-0.5.13",
+                    "AANobbMI",
+                    "mc1.20.1-0.5.13",
+                    "release",
+                    &["fabric", "quilt"],
+                    &["1.20.1"],
+                    "2025-03-10T00:00:00Z",
+                    1_140_000,
+                ),
+                version(
+                    "s6",
+                    "AANobbMI",
+                    "mc1.20.1-0.5.11",
+                    "release",
+                    &["fabric", "quilt"],
+                    &["1.20.1"],
+                    "2024-07-01T00:00:00Z",
+                    1_120_000,
+                ),
+                version(
+                    "s5",
+                    "AANobbMI",
+                    "mc1.20.1-0.5.10-beta.2",
+                    "beta",
+                    &["fabric"],
+                    &["1.20.1"],
+                    "2024-05-01T00:00:00Z",
+                    1_100_000,
+                ),
+                version(
+                    "s4",
+                    "AANobbMI",
+                    "mc1.20.1-0.5.8",
+                    "release",
+                    &["fabric", "quilt"],
+                    &["1.20", "1.20.1"],
+                    "2024-02-01T00:00:00Z",
+                    1_050_000,
+                ),
+                version(
+                    "s9",
+                    "AANobbMI",
+                    "mc1.21.1-0.6.13-fabric",
+                    "release",
+                    &["fabric"],
+                    &["1.21.1"],
+                    "2025-04-01T00:00:00Z",
+                    1_300_000,
+                ),
+            ];
+            view.preview_project(
+                ContentKind::Mod,
+                project(
+                    "AANobbMI",
+                    "sodium",
+                    "Sodium",
+                    "The fastest and most compatible rendering optimization mod for Minecraft. Now available for both NeoForge and Fabric!",
+                    98_400_000,
+                ),
+                versions,
+                cx,
+            );
+        }
+        _ => {}
+    }
+}
