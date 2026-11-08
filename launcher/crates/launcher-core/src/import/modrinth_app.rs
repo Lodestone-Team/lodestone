@@ -1,6 +1,7 @@
 //! The Modrinth App (modrinth/code, `packages/app-lib`).
 //!
-//! - Data folder `~/Library/Application Support/ModrinthApp` (`src/state/dirs.rs`,
+//! - Data folder `~/Library/Application Support/ModrinthApp`, `%APPDATA%\ModrinthApp` on
+//!   Windows (`dirs::data_dir()` in `src/state/dirs.rs`,
 //!   `apps/app/tauri.conf.json` identifier). Its `app.db` is SQLite in WAL mode
 //!   (`src/state/db.rs`), read with [`super::sqlite`]. Instances are folders in
 //!   `<settings.custom_dir, or the data folder>/profiles/<path>/`, which are the game
@@ -34,7 +35,7 @@ use super::{
     sqlite::{Database, Row, Value},
     subfolders,
 };
-use crate::game::loaders::LoaderKind;
+use crate::game::{launch::join_args, loaders::LoaderKind};
 
 pub const DATABASE: &str = "app.db";
 
@@ -211,8 +212,9 @@ fn apply(found: &mut Found, overrides: &Overrides, icon: Option<String>, icon_ro
         found.set_memory(None, u64::try_from(max).ok());
     }
     if let Some(Json::Array(args)) = &overrides.extra_args {
+        // Each element is one argument, which may hold spaces (`-Dx=C:\Program Files\y`).
         let args: Vec<&str> = args.iter().filter_map(Json::as_str).collect();
-        found.set_jvm_args(Some(&args.join(" ")));
+        found.set_jvm_args(Some(&join_args(&args)));
     }
     if overrides.java_path.is_some() {
         found.note(
@@ -270,4 +272,34 @@ pub fn read_profile_json(dir: &Path, icon_roots: &[&Path]) -> Result<Found, Stri
     roots.push(dir);
     apply(&mut found, &overrides, get(meta, "/icon"), &roots);
     Ok(found)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::launch::split_args;
+
+    #[test]
+    fn launch_args_keep_their_boundaries() {
+        let args = [
+            r"-Dpath=C:\Program Files\Example",
+            r"-Dunc=\\server\share\dir",
+            r"-Ddir=C:\Games\",
+            r#"-Dq=say "hi""#,
+            "-Xss2m",
+        ];
+        let mut found = Found::new(
+            Source::ModrinthApp,
+            "x",
+            PathBuf::from("x"),
+            WantedVersion::Exact("1.21.10".into()),
+        );
+        let overrides = Overrides {
+            java_path: None,
+            extra_args: Some(serde_json::json!(args)),
+            memory_max: None,
+        };
+        apply(&mut found, &overrides, None, &[]);
+        assert_eq!(split_args(found.jvm_args.as_deref().unwrap()), args);
+    }
 }

@@ -700,6 +700,77 @@ fn an_update_keeps_the_users_files() {
 }
 
 #[test]
+fn an_update_that_stops_part_way_is_undone() {
+    let fixture = fixture();
+    let versions = versions(&fixture);
+    let record = |version: &str| ModpackRecord {
+        project_id: "PACK".into(),
+        version_id: version.into(),
+        title: "Updatable".into(),
+        version_number: version.into(),
+        ..ModpackRecord::default()
+    };
+    let instance = import_pack(&fixture, &versions.v1, record("v1"), &CancelToken::new()).unwrap();
+    let dirs = InstanceDirs::new(fixture.store.dir(&instance.id));
+    let game = &dirs.game;
+    let current = ModpackRecord::load(&dirs.instance).unwrap();
+    let pack: PackInfo = modpack::read_pack(&versions.v2).unwrap();
+    let plan = update::plan(&dirs, &current, &pack, record("v2"), None);
+    assert_eq!(
+        plan.overrides_written,
+        [
+            "config/mine.toml",
+            "config/x.toml",
+            "config/y.toml",
+            "config/z.toml"
+        ]
+    );
+    let provenance_before = fs::read(dirs.instance.join("content.json")).unwrap();
+
+    // The last file can't be moved in: a folder is in its place since the plan was made
+    // (as when another program holds a file). Mods were removed and replaced by then.
+    fs::create_dir_all(game.join("config/z.toml/inside")).unwrap();
+    let api = fixture.mock.client();
+    let err = block_on(update::apply(
+        Some(&api),
+        &downloader(),
+        &dirs,
+        &plan,
+        &versions.v2,
+        false,
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap_err();
+    assert!(err.to_string().contains("were put back"), "{err}");
+
+    let read = |p: &str| fs::read_to_string(game.join(p)).unwrap();
+    assert_eq!(read("mods/a-1.jar"), "a one");
+    assert_eq!(read("mods/b-1.jar"), "b one");
+    assert_eq!(read("mods/c.jar"), "c one");
+    assert_eq!(read("mods/bundled.jar"), "bundled v1");
+    assert_eq!(read("config/x.toml"), "x v1");
+    assert_eq!(read("config/y.toml"), "y v1");
+    for added in [
+        "mods/a-2.jar",
+        "mods/b-2.jar",
+        "mods/d.jar",
+        "config/mine.toml",
+    ] {
+        assert!(!game.join(added).exists(), "{added} is left");
+    }
+    assert!(game.join("config/z.toml/inside").is_dir());
+    assert_eq!(
+        ModpackRecord::load(&dirs.instance).unwrap().version_id,
+        "v1"
+    );
+    assert_eq!(
+        fs::read(dirs.instance.join("content.json")).unwrap(),
+        provenance_before
+    );
+}
+
+#[test]
 fn downloads_a_versions_pack_from_the_cdn_only() {
     let fixture = fixture();
     let source = sample_pack(&fixture);

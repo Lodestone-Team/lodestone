@@ -1,6 +1,7 @@
 //! The app's instances: the list from `launcher-core`, the selected one, and each
 //! instance's run (installing, playing) with its console log.
 
+pub mod appearance;
 pub mod console;
 pub mod content;
 pub mod fields;
@@ -261,6 +262,9 @@ pub struct Instances {
     settings: Settings,
     /// Decoded custom icons, with the modification time they were read at.
     icons: HashMap<String, (Option<SystemTime>, Arc<RenderImage>)>,
+    /// Decoded Play backgrounds, and those being decoded.
+    backgrounds: HashMap<String, appearance::BackgroundEntry>,
+    background_tasks: HashMap<String, appearance::BackgroundTask>,
     loader_versions: HashMap<(LoaderKind, String), LoaderVersions>,
     loader_tasks: HashMap<(LoaderKind, String), Task<()>>,
     /// Exports in progress.
@@ -339,6 +343,8 @@ impl Instances {
             versions_task: None,
             settings,
             icons: HashMap::new(),
+            backgrounds: HashMap::new(),
+            background_tasks: HashMap::new(),
             loader_versions: HashMap::new(),
             loader_tasks: HashMap::new(),
             exports: Vec::new(),
@@ -379,6 +385,7 @@ impl Instances {
             self.selected = self.list.first().map(|i| i.id.clone());
         }
         self.load_icons();
+        self.load_backgrounds(cx);
         cx.notify();
     }
 

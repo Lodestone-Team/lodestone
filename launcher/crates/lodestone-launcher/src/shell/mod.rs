@@ -6,11 +6,15 @@ mod account_box;
 mod developer;
 mod launcher_settings;
 mod play;
+mod settings_modal;
 mod shared_settings;
 mod sidebar;
 mod top_bar;
+mod unsaved;
 
 pub use launcher_settings::LauncherSettings;
+use settings_modal::SettingsModal;
+pub use settings_modal::SettingsPage;
 pub use shared_settings::SharedSettings;
 pub use top_bar::TOP_BAR_HEIGHT;
 
@@ -45,7 +49,6 @@ use crate::{
 pub enum Page {
     #[default]
     Instance,
-    Settings,
     /// Lodestone cores and their servers.
     Servers,
 }
@@ -152,6 +155,11 @@ enum Modal {
         focus: FocusHandle,
         usernames: Vec<String>,
     },
+    /// Save or discard unsaved settings.
+    Unsaved {
+        focus: FocusHandle,
+        target: unsaved::UnsavedTarget,
+    },
 }
 
 /// The root view of the launcher window.
@@ -163,7 +171,7 @@ pub struct LauncherShell {
     content: Entity<ContentView>,
     /// The Worlds tab: worlds, backups and screenshots.
     worlds: Entity<WorldsView>,
-    /// The launcher's Settings page.
+    /// Settings > Instance defaults.
     launcher_settings: Entity<LauncherSettings>,
     /// The Servers page, and its dialogs over the window.
     servers: Entity<Servers>,
@@ -174,6 +182,11 @@ pub struct LauncherShell {
     settings: Option<(Entity<InstanceSettings>, [Subscription; 4])>,
     page: Page,
     tab: InstanceTab,
+    /// The launcher's Settings, a large dialog under the other dialogs.
+    settings_modal: DialogSlot<LauncherShell, SettingsModal>,
+    settings_page: SettingsPage,
+    /// The Settings pages are open over the page, in a narrow window.
+    settings_nav_open: bool,
     /// The dialog over the window, and those still fading out.
     modal: DialogSlot<LauncherShell, Modal>,
     account_menu_open: bool,
@@ -270,6 +283,9 @@ impl LauncherShell {
             let instances = instances.clone();
             cx.new(|cx| SharedSettings::new(instances, cx))
         };
+        // The Settings dialog draws their "Saved" notices.
+        observe.push(cx.observe(&launcher_settings, |_, _, cx| cx.notify()));
+        observe.push(cx.observe(&shared_settings, |_, _, cx| cx.notify()));
         let mut this = Self {
             accounts,
             instances,
@@ -283,6 +299,9 @@ impl LauncherShell {
             settings: None,
             page: Page::default(),
             tab: InstanceTab::default(),
+            settings_modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.settings_modal),
+            settings_page: SettingsPage::default(),
+            settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
             top_bar_drag_pending: false,
@@ -634,11 +653,23 @@ impl LauncherShell {
             .settings
             .as_ref()
             .map(|(settings, _)| settings.read(cx).instance_id().to_string());
+        // Another instance was selected while this one's Settings tab has unsaved
+        // changes: ask first, and keep the tab until then.
+        if let Some((view, _)) = &self.settings
+            && current.as_deref() != selected.as_ref().map(|i| i.id.as_str())
+            && view.read(cx).has_changes(cx)
+        {
+            let target = unsaved::UnsavedTarget::Instance(view.clone());
+            self.ask_unsaved(target, None, cx);
+            return;
+        }
         match selected {
             None => self.settings = None,
             Some(instance) if current.as_deref() != Some(instance.id.as_str()) => {
                 let instances = self.instances.clone();
-                let settings = cx.new(|cx| InstanceSettings::new(instances, &instance, cx));
+                let servers = self.servers.clone();
+                let settings =
+                    cx.new(|cx| InstanceSettings::new(instances, servers, &instance, cx));
                 let subscriptions = [
                     cx.subscribe(&settings, |this, _, DeleteRequested(id), cx| {
                         this.confirm_delete_instance(id, cx)
@@ -887,6 +918,12 @@ impl LauncherShell {
 
     /// Closes the dialog; it fades out.
     fn close_modal(&mut self, cx: &mut Context<Self>) {
+        // A loader change that wasn't confirmed: the Settings tab shows the saved loader.
+        if matches!(self.modal.current(), Some(Modal::LoaderChange { .. }))
+            && let Some(settings) = self.settings_view().cloned()
+        {
+            settings.update(cx, |settings, cx| settings.revert_loader(cx));
+        }
         self.modal.close(cx);
     }
 
@@ -1197,6 +1234,7 @@ impl LauncherShell {
             Modal::DisableLauncherIdentity { focus, usernames } => {
                 self.render_disable_launcher_identity(focus.clone(), usernames, cx)
             }
+            Modal::Unsaved { focus, target } => self.render_unsaved(focus.clone(), target, cx),
             Modal::SignIn { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Offline { dialog, .. } => dialog.clone().into_any_element(),
             Modal::RemoveAccount {
@@ -1324,20 +1362,11 @@ impl Render for LauncherShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
-            // The global game settings, then Developer.
-            Page::Settings => div()
-                .id("settings-page")
-                .flex()
-                .flex_col()
-                .size_full()
-                .overflow_y_scroll()
-                .pb_8()
-                .child(self.launcher_settings.clone())
-                .child(self.shared_settings.clone())
-                .child(developer::render(self, cx))
-                .into_any_element(),
             Page::Servers => self.servers.clone().into_any_element(),
         };
+        let settings = self.settings_modal.render(window, |modal| {
+            Some(self.render_settings(modal, window, cx))
+        });
         let modal = self
             .modal
             .render(window, |modal| self.render_modal(modal, cx));
@@ -1364,6 +1393,7 @@ impl Render for LauncherShell {
                     .child(sidebar::render(self, cx))
                     .child(div().flex().flex_1().min_w_0().h_full().child(main)),
             )
+            .children(settings)
             .children(modal)
             .child(self.servers_overlay.clone())
     }
