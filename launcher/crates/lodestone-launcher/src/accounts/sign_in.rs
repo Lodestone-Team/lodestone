@@ -1,5 +1,9 @@
 //! The "Sign in with Microsoft" dialog: the browser flow by default, a device code
 //! as the fallback, and friendly errors with a retry.
+//!
+//! With Settings > Developer > "Sign in as the Minecraft Launcher" on, the dialog
+//! signs in with the official launcher's client instead: a device code by default,
+//! or a pasted link from login.live.com's final page.
 
 use std::time::Duration;
 
@@ -8,11 +12,13 @@ use gpui::{
     AsyncApp, ClipboardItem, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     Render, SharedString, Task, WeakEntity, Window, div, prelude::*, px,
 };
-use launcher_core::auth::{AuthError, ClientIdentity, MsTokens, loopback::CancelHandle};
+use launcher_core::auth::{
+    AuthError, ClientIdentity, LinkSignIn, MsTokens, loopback::CancelHandle,
+};
 
 use super::Accounts;
 use crate::{
-    components::{Button, ButtonVariant, Dialog, Icon},
+    components::{Button, ButtonVariant, Dialog, Icon, TextInput},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -31,6 +37,11 @@ pub enum Stage {
         user_code: SharedString,
         verification_uri: SharedString,
         opened: bool,
+    },
+    /// Waiting for the address of login.live.com's final page, pasted by the user.
+    /// `error` is why the last paste was refused.
+    Link {
+        error: Option<AuthError>,
     },
     /// Signing in to Xbox Live and Minecraft.
     Finishing,
@@ -51,6 +62,11 @@ pub struct SignInDialog {
     /// The sign-in in progress. Dropping it cancels it.
     task: Option<Task<()>>,
     cancel: Option<CancelHandle>,
+    /// The client to sign in with, from the developer setting when the dialog opened.
+    identity: ClientIdentity,
+    /// The sign-in by pasted link in progress, and the field it is pasted into.
+    link: Option<LinkSignIn>,
+    link_input: Entity<TextInput>,
 }
 
 impl EventEmitter<SignInEvent> for SignInDialog {}
@@ -63,13 +79,24 @@ impl Focusable for SignInDialog {
 
 impl SignInDialog {
     pub fn new(accounts: Entity<Accounts>, cx: &mut Context<Self>) -> Self {
+        let identity = accounts.read(cx).sign_in_identity();
         Self {
             accounts,
             focus_handle: cx.focus_handle(),
             stage: Stage::Choose,
             task: None,
             cancel: None,
+            identity,
+            link: None,
+            link_input: cx.new(|cx| {
+                TextInput::new(cx)
+                    .with_placeholder("https://login.live.com/oauth20_desktop.srf?code=…")
+            }),
         }
+    }
+
+    fn launcher_identity(&self) -> bool {
+        self.identity == ClientIdentity::MinecraftLauncher
     }
 
     /// Shows `stage` without running a sign-in, for the offscreen screenshots.
@@ -88,6 +115,7 @@ impl SignInDialog {
             cancel.cancel();
         }
         self.task = None;
+        self.link = None;
     }
 
     fn cancel(&mut self, cx: &mut Context<Self>) {
@@ -121,8 +149,9 @@ impl SignInDialog {
         self.set_stage(Stage::RequestingCode, cx);
         let auth = self.accounts.read(cx).authenticator().clone();
         let executor = cx.background_executor().clone();
+        let identity = self.identity;
         self.task = Some(cx.spawn(async move |this, cx| {
-            let code = match auth.start_device_code(ClientIdentity::Lodestone).await {
+            let code = match auth.start_device_code(identity).await {
                 Ok(code) => code,
                 Err(err) => {
                     this.update(cx, |this, cx| this.set_stage(Stage::Failed(err), cx))
@@ -147,6 +176,59 @@ impl SignInDialog {
             let tokens = auth.complete_device_code(&code, &sleep).await;
             finish(this, tokens, cx).await;
         }));
+    }
+
+    /// Opens login.live.com's sign-in page and waits for the user to paste the
+    /// address of the page it ends on.
+    fn start_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.stop();
+        let sign_in = self.accounts.read(cx).authenticator().start_link_sign_in();
+        cx.open_url(sign_in.url().as_str());
+        self.link = Some(sign_in);
+        self.link_input
+            .update(cx, |input, cx| input.set_text("", cx));
+        window.focus(&self.link_input.focus_handle(cx), cx);
+        self.set_stage(Stage::Link { error: None }, cx);
+    }
+
+    fn reopen_link(&mut self, cx: &mut Context<Self>) {
+        if let Some(sign_in) = &self.link {
+            cx.open_url(sign_in.url().as_str());
+        }
+    }
+
+    /// Checks the pasted address. A bad one keeps the dialog on the paste step with
+    /// the reason; a good one is exchanged for tokens.
+    fn submit_link(&mut self, cx: &mut Context<Self>) {
+        let Some(sign_in) = &self.link else {
+            return;
+        };
+        // The address holds a sign-in code: it is checked here and never logged.
+        let pasted = self.link_input.read(cx).text().to_string();
+        let code = match sign_in.check(&pasted) {
+            Ok(code) => code,
+            Err(err) => return self.set_stage(Stage::Link { error: Some(err) }, cx),
+        };
+        // A code works once; clear it from the field.
+        self.link_input
+            .update(cx, |input, cx| input.set_text("", cx));
+        self.link = None;
+        self.set_stage(Stage::Finishing, cx);
+        let auth = self.accounts.read(cx).authenticator().clone();
+        self.task = Some(cx.spawn(async move |this, cx| {
+            let tokens = auth.exchange_link_code(&code).await;
+            finish(this, tokens, cx).await;
+        }));
+    }
+
+    /// The first step: the browser for Lodestone's app, a code for the
+    /// Minecraft Launcher's client.
+    fn start_default(&mut self, cx: &mut Context<Self>) {
+        if self.launcher_identity() {
+            self.start_device_code(cx);
+        } else {
+            self.start_browser(cx);
+        }
     }
 
     fn copy_code_and_open(&mut self, cx: &mut Context<Self>) {
@@ -206,6 +288,20 @@ async fn finish(
     }
 }
 
+/// Says that this sign-in uses the developer option.
+fn launcher_identity_note() -> impl IntoElement {
+    div()
+        .px_3()
+        .py_2()
+        .rounded(radius::LG)
+        .bg(colors::GRAY_800)
+        .text_size(theme::text_size(text::SMALL))
+        .line_height(theme::line_height(text::SMALL, leading::NORMAL))
+        .font_weight(weights::BOLD.into())
+        .text_color(colors::YELLOW)
+        .child("Developer option: signing in as the Minecraft Launcher, not as Lodestone Launcher. Microsoft's pages may show Minecraft's name instead of Lodestone's.")
+}
+
 fn muted(text: impl Into<SharedString>) -> impl IntoElement {
     div()
         .text_size(theme::text_size(text::MEDIUM))
@@ -251,10 +347,19 @@ impl Render for SignInDialog {
         let mut dialog = Dialog::new("sign-in", title, self.focus_handle.clone())
             .on_close(move |_, cx| entity.update(cx, |this, cx| this.dismiss(cx)));
 
+        let launcher_identity = self.launcher_identity();
+        // The other way to sign in: a code for Lodestone's app, a pasted link for
+        // the Minecraft Launcher's client (whose default is the code).
         let use_code = |cx: &mut Context<Self>| {
-            Button::new("use-code", "Use a code instead")
-                .variant(ButtonVariant::Ghost)
-                .on_click(cx.listener(|this, _, _, cx| this.start_device_code(cx)))
+            if launcher_identity {
+                Button::new("use-link", "Use a sign-in link instead")
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(cx.listener(|this, _, window, cx| this.start_link(window, cx)))
+            } else {
+                Button::new("use-code", "Use a code instead")
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(cx.listener(|this, _, _, cx| this.start_device_code(cx)))
+            }
         };
         let cancel = |cx: &mut Context<Self>| {
             Button::new("cancel-sign-in", "Cancel")
@@ -263,6 +368,28 @@ impl Render for SignInDialog {
         };
 
         match &self.stage {
+            Stage::Choose if launcher_identity => {
+                dialog = dialog
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(launcher_identity_note())
+                            .child(muted(
+                                "Sign in with the Microsoft account you play Minecraft: Java Edition with. You'll get a code to enter on Microsoft's website.",
+                            ))
+                            .child(muted(
+                                "Lodestone Launcher keeps your sign-in in the macOS Keychain.",
+                            )),
+                    )
+                    .footer(
+                        Button::new("get-code", "Get a code")
+                            .variant(ButtonVariant::Primary)
+                            .on_click(cx.listener(|this, _, _, cx| this.start_device_code(cx))),
+                    )
+                    .footer(use_code(cx));
+            }
             Stage::Choose => {
                 dialog = dialog
                     .child(
@@ -360,11 +487,51 @@ impl Render for SignInDialog {
                     )
                     .footer(cancel(cx));
             }
+            Stage::Link { error } => {
+                dialog = dialog
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(launcher_identity_note())
+                            .child(muted(
+                                "Sign in in the browser window that opened. Microsoft then shows a blank page. Copy that page's whole address from the address bar and paste it here.",
+                            ))
+                            .child(self.link_input.clone())
+                            .child(
+                                div()
+                                    .text_size(theme::text_size(text::SMALL))
+                                    .line_height(theme::line_height(text::SMALL, leading::NORMAL))
+                                    .font_weight(weights::BOLD.into())
+                                    .map(|this| match error {
+                                        Some(err) => this
+                                            .text_color(colors::RED_200)
+                                            .child(err.message()),
+                                        None => this.text_color(colors::GRAY_500).child(
+                                            "It starts with https://login.live.com/oauth20_desktop.srf",
+                                        ),
+                                    }),
+                            ),
+                    )
+                    .footer(
+                        Button::new("submit-link", "Sign in")
+                            .variant(ButtonVariant::Primary)
+                            .on_click(cx.listener(|this, _, _, cx| this.submit_link(cx))),
+                    )
+                    .footer(cancel(cx))
+                    .footer(
+                        Button::new("reopen-link", "Open the browser again")
+                            .variant(ButtonVariant::Ghost)
+                            .on_click(cx.listener(|this, _, _, cx| this.reopen_link(cx))),
+                    );
+            }
             Stage::Finishing => {
                 dialog = dialog.child(waiting("Signing in to Minecraft…"));
             }
             Stage::Failed(err) => {
-                let not_approved = *err == AuthError::AppNotApproved;
+                // Mojang approving the app is only pending for Lodestone's own client.
+                let not_approved = *err == AuthError::AppNotApproved && !launcher_identity;
                 dialog = dialog
                     .child(
                         div()
@@ -403,7 +570,7 @@ impl Render for SignInDialog {
                             } else {
                                 ButtonVariant::Primary
                             })
-                            .on_click(cx.listener(|this, _, _, cx| this.start_browser(cx))),
+                            .on_click(cx.listener(|this, _, _, cx| this.start_default(cx))),
                     )
                     .footer(use_code(cx));
             }
