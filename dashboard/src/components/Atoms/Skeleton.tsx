@@ -6,7 +6,14 @@ import { cn } from 'utils/util';
  */
 export function Skeleton({ className }: { className?: string }) {
   return (
-    <div className={cn('animate-pulse rounded-md bg-gray-800', className)} />
+    // gray-800 is white in the light theme, the colour of the cards and of the
+    // side panels around them, so light placeholders use the hover gray
+    <div
+      className={cn(
+        'animate-pulse rounded-md bg-gray-800 light:bg-gray-700',
+        className
+      )}
+    />
   );
 }
 
