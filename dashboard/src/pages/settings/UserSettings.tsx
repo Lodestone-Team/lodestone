@@ -22,6 +22,7 @@ import {
   PermissionDescription,
   UnsafePermissions,
 } from 'components/Settings/permissionDescriptions';
+import UserApiKeys from 'components/Settings/ApiKeys/UserApiKeys';
 import { useDocumentTitle } from 'usehooks-ts';
 
 export const UserSettings = () => {
@@ -286,6 +287,10 @@ export const UserSettings = () => {
                     instance permissions.
                   </div>
                 </div>
+              </div>
+              <HorizontalLine thicknessClass="h-0.5" className="-my-4" />
+              <div className="mb-10 pt-12">
+                <UserApiKeys user={selectedUser} />
               </div>
             </>
           )}
