@@ -296,7 +296,7 @@ impl RenderOnce for Dialog {
 /// GPUI does not read this setting, and the launcher has no Objective-C crate, so it
 /// is read through the Objective-C runtime that AppKit already loads.
 #[cfg(target_os = "macos")]
-pub(super) fn prefers_reduced_motion() -> bool {
+pub(crate) fn prefers_reduced_motion() -> bool {
     use std::ffi::{c_char, c_void};
 
     type Id = *mut c_void;
@@ -339,6 +339,6 @@ pub(super) fn prefers_reduced_motion() -> bool {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(super) fn prefers_reduced_motion() -> bool {
+pub(crate) fn prefers_reduced_motion() -> bool {
     false
 }

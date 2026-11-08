@@ -135,7 +135,11 @@ pub(crate) fn changed_fields(a: &Instance, b: &Instance) -> Vec<Field> {
     check(a.name == b.name, Field::Name);
     check(a.group == b.group, Field::Group);
     check(a.icon == b.icon, Field::Icon);
-    check(a.background == b.background, Field::Background);
+    // The slideshow is part of the Play background.
+    check(
+        a.background == b.background && a.slideshow == b.slideshow,
+        Field::Background,
+    );
     check(
         (a.loader, &a.loader_version) == (b.loader, &b.loader_version),
         Field::Loader,
@@ -365,6 +369,9 @@ mod tests {
         };
         let mut b = a.clone();
         assert!(changed_fields(&a, &b).is_empty());
+        let mut shows = a.clone();
+        shows.slideshow = Some(launcher_core::instances::SlideshowSource::Custom);
+        assert_eq!(changed_fields(&a, &shows), vec![Field::Background]);
         b.name = "Creative".into();
         b.prerelease_updates = true;
         assert_eq!(changed_fields(&a, &b), vec![Field::Name, Field::Prerelease]);
