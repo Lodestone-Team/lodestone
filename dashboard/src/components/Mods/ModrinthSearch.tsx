@@ -2,8 +2,16 @@ import {
   faChevronLeft,
   faChevronRight,
   faMagnifyingGlass,
+  faSort,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  Label,
+  Listbox,
+  ListboxButton,
+  ListboxOption,
+  ListboxOptions,
+} from '@headlessui/react';
 import { ModrinthProjectType } from 'bindings/ModrinthProjectType';
 import { ModrinthSearchHit } from 'bindings/ModrinthSearchHit';
 import { ModrinthSearchIndex } from 'bindings/ModrinthSearchIndex';
@@ -47,29 +55,65 @@ const SORT_OPTIONS: Array<[ModrinthSearchIndex, string]> = [
 const INPUT_CLASSES =
   'input-shape input-background input-outlines input-text-style input-border-normal';
 
-/** The sort order of a Modrinth search. */
+/**
+ * The sort order of a Modrinth search: a compact dropdown in the same style as
+ * the dashboard's other dropdowns (SelectBox), not the browser's native select,
+ * which macOS draws as a system popup button.
+ */
 export const SortSelect = ({
   value,
   onChange,
 }: {
   value: ModrinthSearchIndex;
   onChange: (index: ModrinthSearchIndex) => void;
-}) => (
-  <label className="flex flex-row items-center gap-2 text-medium text-white/50">
-    Sort by
-    <select
-      className={INPUT_CLASSES}
-      value={value}
-      onChange={(e) => onChange(e.target.value as ModrinthSearchIndex)}
-    >
-      {SORT_OPTIONS.map(([index, label]) => (
-        <option key={index} value={index}>
-          {label}
-        </option>
-      ))}
-    </select>
-  </label>
-);
+}) => {
+  const current = SORT_OPTIONS.find(([index]) => index === value)?.[1] ?? value;
+  return (
+    <Listbox value={value} onChange={onChange}>
+      <div className="flex flex-row items-center gap-2">
+        <Label className="text-medium font-medium tracking-medium text-white/50">
+          Sort by
+        </Label>
+        <ListboxButton
+          className={cn(
+            'input-outlines input-text-style input-border-normal group relative',
+            'min-w-44 rounded py-1.5 pr-9 pl-3 text-left font-medium',
+            'cursor-pointer hover:outline-white/30',
+            'ui-open:bg-gray-700 ui-not-open:bg-gray-850 ui-not-open:hover:bg-gray-700'
+          )}
+        >
+          {current}
+          <FontAwesomeIcon
+            icon={faSort}
+            className="pointer-events-none absolute top-1/2 right-3 w-4 -translate-y-1/2 text-gray-faded/30 group-hover:text-gray-500"
+          />
+        </ListboxButton>
+        <ListboxOptions
+          anchor={{ to: 'bottom end', gap: 8 }}
+          transition
+          className={cn(
+            'input-text-style z-40 w-(--button-width) overflow-auto rounded py-1',
+            'bg-gray-850 outline-1 outline-gray-550 drop-shadow-md outline-solid',
+            'transition duration-150 ease-in data-leave:data-closed:opacity-0'
+          )}
+        >
+          {SORT_OPTIONS.map(([index, label]) => (
+            <ListboxOption
+              key={index}
+              value={index}
+              className={cn(
+                'cursor-pointer py-2 pr-4 pl-3 font-medium text-gray-300 select-none',
+                'data-focus:bg-gray-800 data-selected:bg-gray-700 data-selected:data-focus:bg-gray-600'
+              )}
+            >
+              {label}
+            </ListboxOption>
+          ))}
+        </ListboxOptions>
+      </div>
+    </Listbox>
+  );
+};
 
 /** A result card's shape while the results load, so nothing jumps. */
 export const HitCardSkeleton = () => (
