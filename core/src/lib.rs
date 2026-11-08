@@ -321,6 +321,13 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Drops the buffered console output of one instance. Other instances' buffers and the
+    /// events buffer are untouched, and lines the instance prints afterwards are buffered
+    /// again.
+    pub async fn clear_console_buffer(&self, uuid: &InstanceUuid) {
+        self.console_out_buffer.lock().await.remove(uuid);
+    }
+
     /// Whether safe mode is on. Unlike `global_settings.lock().await.safe_mode()`, this
     /// takes no lock.
     pub fn safe_mode(&self) -> bool {
@@ -411,10 +418,6 @@ async fn flush_api_keys_periodically(users_manager: Arc<RwLock<UsersManager>>) {
         if let Err(e) = users_manager.read().await.flush_api_keys().await {
             error!("Failed to save API key last-used times: {e}");
         }
-    }
-
-    pub async fn clear_console_buffer(&self, uuid: &InstanceUuid) {
-        self.console_out_buffer.lock().await.remove(uuid);
     }
 }
 
