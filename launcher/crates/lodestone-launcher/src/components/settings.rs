@@ -625,10 +625,11 @@ pub fn unsaved_bar(
                 .border_1()
                 .border_color(colors::FADE_700)
                 .bg(colors::GRAY_750)
+                // A soft shadow, just enough to lift it off the page.
                 .shadow(vec![gpui::BoxShadow {
-                    color: shadow::COLOR.into(),
-                    offset: gpui::point(px(0.), px(6.)),
-                    blur_radius: px(18.),
+                    color: shadow::COLOR.opacity(35).into(),
+                    offset: gpui::point(px(0.), px(2.)),
+                    blur_radius: px(10.),
                     spread_radius: px(0.),
                     inset: false,
                 }])
