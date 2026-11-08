@@ -27,6 +27,7 @@ use super::{
 use crate::game::{
     download::{CancelToken, file_matches},
     libraries::{maven_path, safe_relative_path},
+    process::NoConsoleWindow as _,
 };
 
 /// The `{...}` values a processor's arguments use.
@@ -275,6 +276,7 @@ pub fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .no_console_window()
         .spawn()
         .map_err(|err| LoaderError::Invalid(format!("couldn't start {}: {err}", java.display())))?;
     let status = std::thread::scope(|scope| {
