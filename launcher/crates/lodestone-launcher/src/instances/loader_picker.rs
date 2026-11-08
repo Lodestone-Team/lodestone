@@ -222,7 +222,7 @@ fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::S
                 this.bg(colors::BLUE.opacity(35)).text_color(colors::WHITE)
             } else {
                 this.text_color(colors::GRAY_300)
-                    .hover(|style| style.bg(colors::GRAY_800))
+                    .hover(|style| style.bg(colors::GRAY_700))
             }
         })
         .child(
@@ -400,11 +400,7 @@ impl LoaderPicker {
         div()
             .flex()
             .flex_col()
-            .child(
-                SettingRow::new(t(M::ModLoader))
-                    .hint(t(M::ModLoaderHint))
-                    .child(self.segmented(cx)),
-            )
+            .child(SettingRow::new(t(M::ModLoader)).child(self.segmented(cx)))
             .when_some(version, |this, version| {
                 this.child(
                     div()

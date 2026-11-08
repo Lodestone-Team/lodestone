@@ -39,15 +39,9 @@ pub fn text(message: M) -> &'static str {
         M::Name => "名稱",
         M::Group => "群組",
         M::NoGroup => "無群組",
-        M::GroupHintAuto => "同一群組的實例會列在一起。沒有群組時列在「{group}」底下。",
-        M::GroupHint => "同一群組的實例會列在一起。",
         M::NameMissing => "請為實例命名。",
         M::Icon => "圖示",
-        M::IconHint => "顯示在側邊欄和啟動器各處。",
         M::PlayBackground => "開始遊戲頁背景",
-        M::PlayBackgroundHint => {
-            "顯示在「開始遊戲」分頁的名稱後方。啟動器會視圖片需要調暗文字下方的區域。"
-        }
         M::UseAsIcon => "用作圖示",
         M::UseAsBackground => "用作背景",
         M::SavedSeePlayTab => "已儲存。到「開始遊戲」分頁查看。",
@@ -75,7 +69,6 @@ pub fn text(message: M) -> &'static str {
 
         M::Vanilla => "原版",
         M::ModLoader => "模組載入器",
-        M::ModLoaderHint => "變更會在你下次按下「開始遊戲」時安裝。",
         M::LoaderVersion => "載入器版本",
         M::ChooseLoaderVersion => "請選擇 {loader} 版本。",
         M::ChooseVersion => "選擇版本",
@@ -94,9 +87,7 @@ pub fn text(message: M) -> &'static str {
         M::FromMrpack => "來自不在 Modrinth 上的 .mrpack 檔案，因此無法在這裡更新。",
         M::ViewOnModrinth => "在 Modrinth 上查看",
         M::Updates => "更新",
-        M::UpdatesHint => {
-            "更新會取代模組包本身的檔案，並保留你的模組、設定檔和世界。你會先看到有哪些變更。"
-        }
+        M::UpdatesHint => "保留你的模組、設定和世界。",
         M::DownloadingNewVersion => "正在下載新版本…",
         M::CheckingModrinth => "正在檢查 Modrinth…",
         M::UpdateTo => "更新至 {version}…",
@@ -106,19 +97,17 @@ pub fn text(message: M) -> &'static str {
         M::StopGameFirst => "請先停止遊戲，或等待更新完成。",
         M::CouldntPrepareUpdate => "無法準備更新：{error}",
 
-        M::LinkedServerHint => "位於 {core}。「開始遊戲」會加入該伺服器並讓模組保持一致。",
+        M::LinkedServerHint => "位於 {core}。「開始遊戲」會加入它並同步模組。",
         M::LinkedServerCoreRemoved => {
             "位於 {core}，此核心已從「伺服器」頁面移除。請在該頁重新加入此核心以加入伺服器。"
         }
         M::CoreRemoved => "核心已移除",
         M::Unlink => "解除連結",
         M::Unlinked => "已解除連結",
-        M::UnlinkNote => {
-            "解除連結會保留實例及其模組。「開始遊戲」將不再加入該伺服器，也不再更新其模組。"
-        }
+        M::UnlinkNote => "「開始遊戲」將不再加入該伺服器，模組會保留。",
 
         M::ChangeSetting => "變更",
-        M::JavaMemoryLead => "標示「預設」的值來自啟動器的設定。變更其中一個值即可只為此實例設定。",
+        M::JavaMemoryLead => "預設值來自啟動器設定。",
         M::Memory => "記憶體",
         M::Checking => "正在檢查…",
         M::JavaFound => "Java {major}（版本 {version}）",
@@ -127,44 +116,38 @@ pub fn text(message: M) -> &'static str {
         }
         M::MojangJavaVersion => "Mojang 提供的 Java {major}",
         M::MojangJava => "Mojang 提供的 Java",
-        M::JavaOverrideHint => "用來取代 Mojang 所提供 Java 的 java 執行檔。",
-        M::JavaHint => "Mojang 會為每個 Minecraft 版本提供合適的 Java。",
         M::UseThisJava => "使用此 Java",
         M::Check => "檢查",
         M::JvmArguments => "JVM 參數",
         M::GameArguments => "遊戲參數",
         M::NoArguments => "無",
         M::NoVariables => "無",
-        M::ArgumentsHint => "以空格分隔；含空格的值請加上引號。",
         M::Window => "視窗",
         M::Fullscreen => "全螢幕",
-        M::WindowHint => "大小留空即使用遊戲預設大小。",
         M::EnvironmentVariables => "環境變數",
-        M::EnvHint => "名稱=值，以空格分隔。",
 
         M::VerifyGameFiles => "驗證遊戲檔案",
-        M::VerifyHint => "檢查每個檔案，並下載遺失或損毀的檔案。",
+        M::VerifyHint => "重新下載缺少或損毀的檔案。",
         M::Verify => "驗證",
         M::VerifyStarted => "正在檢查每個檔案。進度會顯示在「開始遊戲」按鈕上。",
         M::Export => "匯出",
-        M::ExportHint => "其他啟動器可以匯入的 .mrpack 檔案。",
+        M::ExportHint => "匯出為 .mrpack 檔案。",
         M::ExportButton => "匯出…",
         M::Exporting => "正在匯出…",
         M::Duplicate => "製作副本",
-        M::DuplicateHint => "一份擁有獨立資料夾、模組和世界的副本。",
         M::HostOnCore => "在 Lodestone Core 上架設",
-        M::HostHint => "用此實例的模組在你的其中一個核心上建立伺服器。",
+        M::HostHint => "用此實例的模組建立伺服器。",
         M::HostButton => "架設…",
         M::DeleteInstance => "刪除實例",
-        M::DeleteHint => "刪除其資料夾，包括世界和模組。刪除前會先請你確認。",
+        M::DeleteHint => "包括其中的世界和模組。",
         M::DeleteButton => "刪除…",
 
-        M::SharedLead => "options.txt 中的滑鼠、按鍵、顯示、音效等設定，在每個實例中保持一致。",
+        M::SharedLead => "所有實例使用相同的遊戲選項。",
         M::UseSharedSettings => "使用共用設定",
-        M::SharingOff => "已關閉：此實例使用自己的 options.txt，也不會從中讀回任何內容。",
-        M::SharingPreferred => "這是首選實例：你在此實例的遊戲中變更的設定會套用到每個實例。",
-        M::SharingFrom => "在 {name} 的遊戲中變更的設定，會在此實例下次啟動時同步過來。",
-        M::SharingNoPreferred => "沒有首選實例，因此共用值只能在啟動器的設定中變更。",
+        M::SharingOff => "此實例保留自己的選項。",
+        M::SharingPreferred => "在這裡遊戲內的變更會同步到所有實例。",
+        M::SharingFrom => "接收 {name} 中遊戲內的變更。",
+        M::SharingNoPreferred => "共用值只能在設定中變更。",
         M::Preferred => "首選",
         M::MakePreferred => "設為首選",
         M::MadePreferred => "此實例中的遊戲內變更現在會套用到每個實例。",
@@ -188,12 +171,10 @@ pub fn text(message: M) -> &'static str {
         M::CategorySound => "音效",
         M::CategoryAccessibility => "協助工具與聊天",
         M::CategoryLanguage => "語言",
-        M::CategoryControlsDescription => "滑鼠靈敏度、反轉、原始輸入、按鍵、蹲下與衝刺切換",
-        M::CategoryVideoDescription => {
-            "視野、顯示與模擬距離、介面大小、亮度、全螢幕、垂直同步、最高 FPS、粒子、畫質"
-        }
-        M::CategorySoundDescription => "所有音量滑桿、字幕、方向性音訊",
-        M::CategoryAccessibilityDescription => "朗讀程式、文字背景、聊天大小與不透明度、效果",
+        M::CategoryControlsDescription => "滑鼠、按鍵綁定",
+        M::CategoryVideoDescription => "視野、顯示距離、介面大小、圖像品質",
+        M::CategorySoundDescription => "音量、字幕",
+        M::CategoryAccessibilityDescription => "朗讀程式、聊天、文字背景",
         M::CategoryLanguageDescription => "遊戲語言和字型",
 
         M::NewInstance => "新增實例",

@@ -119,6 +119,15 @@ impl TextInput {
         self
     }
 
+    /// Changes the placeholder of a field already shown.
+    pub fn set_placeholder(&mut self, placeholder: impl Into<Text>, cx: &mut Context<Self>) {
+        let placeholder = placeholder.into();
+        if placeholder.get() != self.placeholder.get() {
+            self.placeholder = placeholder;
+            cx.notify();
+        }
+    }
+
     pub fn with_text(mut self, text: impl Into<SharedString>) -> Self {
         self.content = text.into();
         self.selected_range = self.content.len()..self.content.len();

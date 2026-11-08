@@ -94,10 +94,7 @@ const ProfilePage = () => {
           </div>
         </Dialog>
       </Transition>
-      <SettingsPage
-        title={t('settings.profile.title')}
-        description={t('settings.profile.description', { username })}
-      >
+      <SettingsPage title={t('settings.profile.title')}>
         <SettingsSection title={t('settings.profile.account')}>
           <SettingsCard>
             <InputBox
@@ -129,7 +126,6 @@ const ProfilePage = () => {
               label={t('settings.profile.coloredConsole')}
               value={coloredConsole}
               onChange={async (value) => setColoredConsole(value)}
-              description={t('settings.profile.coloredConsoleHint')}
             />
           </SettingsCard>
         </SettingsSection>

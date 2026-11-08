@@ -381,34 +381,32 @@ impl Render for SharedSettings {
                     ))
                 }),
         );
-        let copy = SettingRow::new(t(M::StartFromInstance))
-            .hint(t(M::StartFromInstanceHint))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_end()
-                    .child(
-                        Button::new("copy-from-instance", t(M::CopyFromInstance))
-                            .variant(ButtonVariant::Secondary)
-                            .size(ButtonSize::Slim)
-                            .disabled(!has_instances)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.toggle_picker(Picker::CopyFrom, cx)
-                            })),
-                    )
-                    .when(self.picker == Some(Picker::CopyFrom), |this| {
-                        let close = cx.listener(|this, _: &(), _, cx| {
-                            this.picker = None;
-                            cx.notify();
-                        });
-                        this.child(popover(
-                            "copyfrom-popover",
-                            self.picker_list(Picker::CopyFrom, cx),
-                            move |window, cx| close(&(), window, cx),
-                        ))
-                    }),
-            );
+        let copy = SettingRow::new(t(M::StartFromInstance)).child(
+            div()
+                .flex()
+                .flex_col()
+                .items_end()
+                .child(
+                    Button::new("copy-from-instance", t(M::CopyFromInstance))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .disabled(!has_instances)
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.toggle_picker(Picker::CopyFrom, cx)),
+                        ),
+                )
+                .when(self.picker == Some(Picker::CopyFrom), |this| {
+                    let close = cx.listener(|this, _: &(), _, cx| {
+                        this.picker = None;
+                        cx.notify();
+                    });
+                    this.child(popover(
+                        "copyfrom-popover",
+                        self.picker_list(Picker::CopyFrom, cx),
+                        move |window, cx| close(&(), window, cx),
+                    ))
+                }),
+        );
         let reset = SettingRow::new(t(M::ClearShared))
             .danger()
             .hint(t(M::ClearSharedHint));
