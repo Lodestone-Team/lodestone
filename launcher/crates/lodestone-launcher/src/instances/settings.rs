@@ -18,6 +18,7 @@ use super::{
     Instances,
     fields::{self, Fields, Values, field, inherited, section, status},
     loader_picker::LoaderPicker,
+    shared_settings::InstanceSharedSettings,
 };
 use crate::{
     components::{Button, ButtonVariant, TextInput},
@@ -65,6 +66,8 @@ pub struct InstanceSettings {
     java: Entity<TextInput>,
     fields: Fields,
     loader: Entity<LoaderPicker>,
+    /// The "Shared game settings" section.
+    shared: Entity<InstanceSharedSettings>,
     overrides: Overrides,
     message: Option<(SharedString, bool)>,
     java_check: JavaCheck,
@@ -106,6 +109,11 @@ impl InstanceSettings {
             cx.observe(&fields.max_ram, |_, _, cx| cx.notify()),
             cx.observe(&loader, |_, _, cx| cx.notify()),
         ];
+        let shared = {
+            let instances = instances.clone();
+            let (id, game) = (instance.id.clone(), instance.game_version.clone());
+            cx.new(|cx| InstanceSharedSettings::new(instances, id, game, cx))
+        };
         Self {
             name: fields::input(cx, instance.name.clone(), "Name"),
             group: fields::input(cx, instance.group.clone().unwrap_or_default(), "No group"),
@@ -120,6 +128,7 @@ impl InstanceSettings {
             ),
             fields,
             loader,
+            shared,
             overrides: Overrides {
                 memory: instance.memory.is_some(),
                 arguments: instance.jvm_args.is_some() || instance.game_args.is_some(),
@@ -139,6 +148,10 @@ impl InstanceSettings {
 
     pub fn instance_id(&self) -> &str {
         &self.instance_id
+    }
+
+    pub fn shared_settings(&self) -> &Entity<InstanceSharedSettings> {
+        &self.shared
     }
 
     fn text(&self, input: &Entity<TextInput>, cx: &App) -> String {
@@ -696,6 +709,7 @@ impl Render for InstanceSettings {
                             .child(env),
                     ),
             )
+            .child(self.shared.clone())
             .child(
                 div()
                     .flex()
