@@ -1,6 +1,7 @@
-//! Finding other launchers' instances: in each launcher's default folder on macOS, or in
-//! a folder the user picks (a launcher's data folder or one instance's folder). Only
-//! reads.
+//! Finding other launchers' instances: in each launcher's default folder on macOS or
+//! Windows, or in a folder the user picks (a launcher's data folder or one instance's
+//! folder). MultiMC on Windows and portable installs keep their data beside the app, so
+//! they're only found when picked. Only reads.
 
 use std::path::{Path, PathBuf};
 
@@ -30,44 +31,56 @@ impl Launcher {
     }
 }
 
-/// Where to look: the home folder and the application folders.
+/// Where to look.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Locations {
     pub home: PathBuf,
+    /// Where apps keep the user's data: `~/Library/Application Support` on macOS, the
+    /// roaming `AppData` folder (`%APPDATA%`) on Windows.
+    pub app_data: PathBuf,
+    /// The user's Documents folder, wherever it was moved (into OneDrive, say).
+    pub documents: PathBuf,
+    /// Folders of macOS app bundles.
     pub applications: Vec<PathBuf>,
 }
 
 impl Locations {
-    /// This Mac's: the user's home, `/Applications` and `~/Applications`.
+    /// This computer's, from the system's known folders; on macOS the app bundles in
+    /// `/Applications` and `~/Applications` too.
     pub fn current() -> Option<Self> {
         let home = dirs::home_dir()?;
+        let applications = if cfg!(target_os = "macos") {
+            vec![PathBuf::from("/Applications"), home.join("Applications")]
+        } else {
+            Vec::new()
+        };
         Some(Self {
-            applications: vec![PathBuf::from("/Applications"), home.join("Applications")],
+            app_data: dirs::data_dir()?,
+            documents: dirs::document_dir().unwrap_or_else(|| home.join("Documents")),
+            applications,
             home,
         })
     }
 
     /// Every default folder, by launcher, whether it exists or not.
     pub fn candidates(&self) -> Vec<(Source, PathBuf)> {
-        let support = self.home.join("Library/Application Support");
+        let data = |name: &str| self.app_data.join(name);
+        let curseforge = |base: &Path| base.join("curseforge").join("minecraft").join("Instances");
         let mut list = vec![
-            (Source::Vanilla, support.join("minecraft")),
-            (Source::Prism, support.join("PrismLauncher")),
-            (Source::Prism, support.join("PolyMC")),
-            (Source::MultiMc, support.join("MultiMC")),
-            (Source::ModrinthApp, support.join("ModrinthApp")),
-            (Source::ModrinthApp, support.join("com.modrinth.theseus")),
-            (Source::AtLauncher, support.join("ATLauncher")),
-            (
-                Source::CurseForge,
-                self.home.join("Documents/curseforge/minecraft/Instances"),
-            ),
-            (
-                Source::CurseForge,
-                self.home.join("curseforge/minecraft/Instances"),
-            ),
-            (Source::GdLauncher, support.join("gdlauncher_next")),
-            (Source::GdLauncherCarbon, support.join("gdlauncher_carbon")),
+            // The official launcher's folder is `minecraft` on macOS, `.minecraft` on Windows.
+            (Source::Vanilla, data("minecraft")),
+            (Source::Vanilla, data(".minecraft")),
+            (Source::Prism, data("PrismLauncher")),
+            (Source::Prism, data("PolyMC")),
+            (Source::MultiMc, data("MultiMC")),
+            (Source::ModrinthApp, data("ModrinthApp")),
+            (Source::ModrinthApp, data("com.modrinth.theseus")),
+            // Where ATLauncher's Windows installer puts it; its data is beside it.
+            (Source::AtLauncher, data("ATLauncher")),
+            (Source::CurseForge, curseforge(&self.documents)),
+            (Source::CurseForge, curseforge(&self.home)),
+            (Source::GdLauncher, data("gdlauncher_next")),
+            (Source::GdLauncherCarbon, data("gdlauncher_carbon")),
         ];
         for apps in &self.applications {
             list.push((Source::MultiMc, apps.join("MultiMC.app/Data")));
