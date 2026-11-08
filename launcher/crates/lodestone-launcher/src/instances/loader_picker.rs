@@ -63,7 +63,7 @@ impl LoaderPicker {
         cx.notify();
     }
 
-    fn set_kind(&mut self, kind: Option<LoaderKind>, cx: &mut Context<Self>) {
+    pub fn set_kind(&mut self, kind: Option<LoaderKind>, cx: &mut Context<Self>) {
         if self.kind == kind {
             return;
         }

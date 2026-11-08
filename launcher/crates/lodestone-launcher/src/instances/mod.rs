@@ -2,6 +2,7 @@
 //! instance's run (installing, playing) with its console log.
 
 pub mod console;
+pub mod content;
 pub mod fields;
 pub mod loader_picker;
 pub mod new_instance;
@@ -17,6 +18,7 @@ use std::{
 use futures::StreamExt as _;
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, RenderImage, SharedString, Task};
 use launcher_core::{
+    content::{InstanceDirs, Modrinth, Target},
     export,
     game::{
         crash::{self, CrashSummary, Outcome},
@@ -232,6 +234,8 @@ pub enum InstancesEvent {
         title: SharedString,
         message: SharedString,
     },
+    /// The instance's loader was changed outside its Settings tab.
+    LoaderChanged(String),
 }
 
 pub struct Instances {
@@ -258,6 +262,13 @@ pub struct Instances {
     exports: Vec<Task<()>>,
     /// Replaces the Play button's state, for the offscreen screenshots.
     preview_state: Option<PlayState>,
+    /// The Modrinth client the Content tab shares, with its cache. `None` keeps the
+    /// offscreen screenshots offline.
+    modrinth: Option<Arc<Modrinth>>,
+    /// The downloader for content files.
+    content_downloader: Downloader,
+    /// "Switch to Fabric" in progress.
+    loader_switch: Option<Task<()>>,
 }
 
 impl EventEmitter<InstancesEvent> for Instances {}
@@ -285,6 +296,8 @@ impl Instances {
         let http = launcher_core::http::default_client().expect("could not start the HTTP client");
         let download_http =
             launcher_core::http::download_client().expect("could not start the HTTP client");
+        let modrinth = Arc::new(Modrinth::production(http.clone()));
+        let content_downloader = Downloader::new(download_http.clone(), gpui_sleep(cx));
         let installer = Installer::new(
             http,
             Downloader::new(download_http, gpui_sleep(cx)),
@@ -318,6 +331,9 @@ impl Instances {
             loader_tasks: HashMap::new(),
             exports: Vec::new(),
             preview_state: None,
+            modrinth: Some(modrinth),
+            content_downloader,
+            loader_switch: None,
         };
         this.reload(cx);
         if settings_notice.is_some() {
@@ -629,10 +645,11 @@ impl Instances {
             return;
         };
         let game_dir = self.store.game_dir(id);
+        let instance_dir = self.store.dir(id);
         let write = cx.background_spawn(async move {
-            // Content management (a later milestone) will know which mods are on
-            // Modrinth; until then every mod goes into the overrides.
-            let plan = export::plan(&instance, &game_dir, &HashMap::new())?;
+            // Files that came from Modrinth are listed by URL; the rest are copied.
+            let on_modrinth = export::modrinth_files(&instance_dir);
+            let plan = export::plan(&instance, &game_dir, &on_modrinth)?;
             export::write(&plan, &out)?;
             Ok::<_, export::ExportError>((plan, out))
         });
@@ -706,6 +723,111 @@ impl Instances {
 
     pub fn game_dir(&self, id: &str) -> PathBuf {
         self.store.game_dir(id)
+    }
+
+    /// The Modrinth client, unless the app is offline (the offscreen screenshots).
+    pub fn modrinth(&self) -> Option<Arc<Modrinth>> {
+        self.modrinth.clone()
+    }
+
+    /// Keeps the Content tab off the network, for the offscreen screenshots.
+    pub fn preview_offline(&mut self) {
+        self.modrinth = None;
+    }
+
+    pub fn content_downloader(&self) -> Downloader {
+        self.content_downloader.clone()
+    }
+
+    pub fn content_dirs(&self, id: &str) -> InstanceDirs {
+        InstanceDirs::new(self.store.dir(id))
+    }
+
+    /// What the instance accepts, without its shader mod (the Content tab adds it).
+    pub fn content_target(&self, id: &str) -> Option<Target> {
+        let instance = self.list.iter().find(|i| i.id == id)?;
+        Some(Target::new(instance.game_version.clone(), instance.loader))
+    }
+
+    pub fn is_switching_loader(&self) -> bool {
+        self.loader_switch.is_some()
+    }
+
+    /// Makes a vanilla instance a Fabric one, with Fabric's newest stable loader for its
+    /// Minecraft version: the same change as picking Fabric in its Settings tab. Fabric
+    /// installs the next time the game starts.
+    pub fn switch_to_fabric(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.is_active(id) || self.loader_switch.is_some() {
+            return;
+        }
+        let Ok(instance) = self.store.get(id) else {
+            return;
+        };
+        let installer = self.installer.clone();
+        let game_version = instance.game_version.clone();
+        let fetch = cx.background_spawn(async move {
+            installer
+                .loader_versions(LoaderKind::Fabric, &game_version)
+                .await
+        });
+        let id = id.to_string();
+        self.loader_switch = Some(cx.spawn(async move |this, cx| {
+            let result = fetch.await;
+            this.update(cx, |this, cx| {
+                this.loader_switch = None;
+                let version = match result {
+                    Ok(list) => list
+                        .iter()
+                        .find(|v| v.recommended)
+                        .or_else(|| list.iter().find(|v| v.stable))
+                        .or_else(|| list.first())
+                        .cloned(),
+                    Err(err) => {
+                        cx.emit(InstancesEvent::LaunchFailed {
+                            title: "Couldn't switch to Fabric".into(),
+                            message: err.to_string().into(),
+                        });
+                        cx.notify();
+                        return;
+                    }
+                };
+                let Some(version) = version else {
+                    cx.emit(InstancesEvent::LaunchFailed {
+                        title: "Couldn't switch to Fabric".into(),
+                        message: format!(
+                            "Fabric has no loader for Minecraft {}.",
+                            instance.game_version
+                        )
+                        .into(),
+                    });
+                    cx.notify();
+                    return;
+                };
+                let mut changed = instance.clone();
+                changed.loader = launcher_core::instances::Loader::Fabric;
+                changed.loader_version = Some(version.id.clone());
+                match this.save(&changed, cx) {
+                    Ok(()) => {
+                        cx.emit(InstancesEvent::LoaderChanged(id.clone()));
+                        cx.emit(InstancesEvent::Notice {
+                            title: "Switched to Fabric".into(),
+                            message: format!(
+                                "{} now uses Fabric {}. It installs the next time you press Play.",
+                                changed.name, version.display
+                            )
+                            .into(),
+                        });
+                    }
+                    Err(err) => cx.emit(InstancesEvent::LaunchFailed {
+                        title: "Couldn't switch to Fabric".into(),
+                        message: err.into(),
+                    }),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
     }
 
     /// The Play button's state for the selected instance.

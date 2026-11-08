@@ -9,6 +9,7 @@ use gpui::{
     Subscription, Task, Window, div, img, prelude::*, px,
 };
 use launcher_core::{
+    content::loader_change::{self, LoaderChangeCheck},
     game::runtime::{self, JavaInfo},
     instances::{Instance, Loader, Memory},
 };
@@ -25,6 +26,17 @@ use crate::{
 
 /// Asks the shell to confirm deleting the instance.
 pub struct DeleteRequested(pub String);
+
+/// Asks the shell to confirm a loader change that leaves mods behind or puts worlds at
+/// risk.
+#[derive(Clone, Debug)]
+pub struct LoaderChangePrompt {
+    /// The instance as it will be saved.
+    pub instance: Instance,
+    /// The loader it uses now.
+    pub from: Loader,
+    pub check: LoaderChangeCheck,
+}
 
 /// The result of checking the Java override.
 #[derive(Clone, Debug)]
@@ -62,6 +74,7 @@ pub struct InstanceSettings {
 }
 
 impl EventEmitter<DeleteRequested> for InstanceSettings {}
+impl EventEmitter<LoaderChangePrompt> for InstanceSettings {}
 
 impl InstanceSettings {
     pub fn new(instances: Entity<Instances>, instance: &Instance, cx: &mut Context<Self>) -> Self {
@@ -151,26 +164,102 @@ impl InstanceSettings {
         cx.notify();
     }
 
+    /// Saves the fields. A loader change that would leave enabled mods unable to load,
+    /// or worlds without their modded blocks, asks first (see [`LoaderChangePrompt`]).
     fn save(&mut self, cx: &mut Context<Self>) {
         let before = self.instance(cx);
-        let result = self.read_fields(cx).and_then(|instance| {
-            self.instances
-                .update(cx, |instances, cx| instances.save(&instance, cx))
-                .map(|()| instance)
-        });
+        let instance = match self.read_fields(cx) {
+            Ok(instance) => instance,
+            Err(err) => return self.set_message(err, true, cx),
+        };
+        if let Some(prompt) = self.loader_change_prompt(before.as_ref(), &instance, cx) {
+            cx.emit(prompt);
+            return;
+        }
+        self.commit(instance, &[], cx);
+    }
+
+    /// The question to ask before saving `instance`, if its loader change needs one.
+    fn loader_change_prompt(
+        &self,
+        before: Option<&Instance>,
+        instance: &Instance,
+        cx: &App,
+    ) -> Option<LoaderChangePrompt> {
+        let before = before?;
+        if before.loader == instance.loader {
+            return None;
+        }
+        let dirs = self.instances.read(cx).content_dirs(&instance.id);
+        let check = loader_change::check(
+            &dirs,
+            before.loader,
+            instance.loader,
+            &instance.game_version,
+        )
+        .ok()?;
+        check.needs_confirmation().then(|| LoaderChangePrompt {
+            instance: instance.clone(),
+            from: before.loader,
+            check,
+        })
+    }
+
+    /// The prompt for changing the loader to `loader` at `version`, as Save would ask
+    /// it, for the offscreen screenshots.
+    pub fn preview_loader_change(
+        &self,
+        loader: Loader,
+        version: &str,
+        cx: &App,
+    ) -> Option<LoaderChangePrompt> {
+        let before = self.instance(cx)?;
+        let mut instance = before.clone();
+        instance.loader = loader;
+        instance.loader_version = Some(version.to_string());
+        self.loader_change_prompt(Some(&before), &instance, cx)
+    }
+
+    /// Saves `instance`, after turning off `disable` (mods, with `.disabled`).
+    pub fn commit(&mut self, instance: Instance, disable: &[String], cx: &mut Context<Self>) {
+        let before = self.instance(cx);
+        if !disable.is_empty() {
+            let dirs = self.instances.read(cx).content_dirs(&instance.id);
+            if let Err(err) = loader_change::disable_mods(&dirs, disable) {
+                return self.set_message(format!("Couldn't turn the mods off: {err}"), true, cx);
+            }
+        }
+        let running = self.instances.read(cx).is_active(&instance.id);
+        let result = self
+            .instances
+            .update(cx, |instances, cx| instances.save(&instance, cx));
         match result {
-            Ok(instance) => {
+            Ok(()) => {
                 let loader_changed = before.is_some_and(|before| {
                     (before.loader, &before.loader_version)
                         != (instance.loader, &instance.loader_version)
                 });
-                let message = if loader_changed {
-                    format!(
-                        "Saved. {} installs the next time you press Play.",
+                let turned_off = match disable.len() {
+                    0 => String::new(),
+                    1 => " 1 mod was turned off.".to_string(),
+                    n => format!(" {n} mods were turned off."),
+                };
+                let message = match (loader_changed, running) {
+                    (true, true) => format!(
+                        "Saved. The game is running; {} installs the next time it starts.{turned_off}",
                         instance.loader_label()
-                    )
-                } else {
-                    "Saved. The changes apply the next time you press Play.".to_string()
+                    ),
+                    (true, false) => format!(
+                        "Saved. {} installs the next time you press Play.{turned_off}",
+                        instance.loader_label()
+                    ),
+                    (false, true) => {
+                        "Saved. The game is running, so the changes apply the next time it starts."
+                            .to_string()
+                    }
+                    (false, false) => {
+                        "Saved. The changes apply the next time you press Play.".to_string()
+                    }
                 };
                 self.set_message(message, false, cx);
             }

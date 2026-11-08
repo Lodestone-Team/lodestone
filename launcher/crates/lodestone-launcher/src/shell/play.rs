@@ -91,10 +91,11 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                             .into_any_element(),
                     },
                     (InstanceTab::Logs, Some(_)) => shell.console.clone().into_any_element(),
-                    (InstanceTab::Mods | InstanceTab::Worlds, Some(_)) => placeholder(
-                        "Mods and worlds come in the next milestone of Lodestone Launcher.",
-                    )
-                    .into_any_element(),
+                    (InstanceTab::Content, Some(_)) => shell.content.clone().into_any_element(),
+                    (InstanceTab::Worlds, Some(_)) => {
+                        placeholder("Worlds come in a later milestone of Lodestone Launcher.")
+                            .into_any_element()
+                    }
                     (other, None) => placeholder(format!(
                         "{} appear here once you have an instance.",
                         other.label()

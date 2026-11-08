@@ -331,6 +331,8 @@ impl From<RawProject> for ModrinthProject {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct RawHashes {
     #[serde(default)]
+    pub sha1: Option<String>,
+    #[serde(default)]
     pub sha512: Option<String>,
 }
 
@@ -367,6 +369,16 @@ pub struct RawVersion {
     pub files: Vec<RawVersionFile>,
     #[serde(default)]
     pub dependencies: Vec<ModrinthDependency>,
+}
+
+impl RawVersion {
+    /// The primary file, or the first file if none is primary.
+    pub fn primary_file(&self) -> Option<&RawVersionFile> {
+        self.files
+            .iter()
+            .find(|f| f.primary)
+            .or_else(|| self.files.first())
+    }
 }
 
 impl From<RawVersion> for ModrinthVersion {
@@ -425,6 +437,9 @@ mod tests {
             ]
         }))
         .unwrap();
+        assert_eq!(raw.primary_file().unwrap().filename, "y.jar");
+        assert_eq!(raw.files[0].hashes.sha1.as_deref(), Some("aa"));
+        assert_eq!(raw.files[1].hashes.sha1, None);
         let version = ModrinthVersion::from(raw);
         assert_eq!(version.files[0].sha512, "abc");
         assert_eq!(version.primary_file().unwrap().filename, "y.jar");

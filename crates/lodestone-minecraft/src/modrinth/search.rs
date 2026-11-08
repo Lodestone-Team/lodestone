@@ -46,6 +46,52 @@ fn optional_filter(value: Option<String>, what: &str) -> Result<Option<String>, 
     }
 }
 
+fn check_query(query: Option<String>) -> Result<Option<String>, Error> {
+    let query = query
+        .map(|q| q.trim().to_string())
+        .filter(|q| !q.is_empty());
+    if let Some(q) = &query {
+        if q.chars().count() > MAX_QUERY_CHARS {
+            return Err(bad_request(format!(
+                "The search text cannot be longer than {MAX_QUERY_CHARS} characters"
+            )));
+        }
+        if q.chars().any(|c| c.is_control()) {
+            return Err(bad_request(
+                "The search text cannot contain control characters",
+            ));
+        }
+    }
+    Ok(query)
+}
+
+fn check_offset(offset: Option<u32>) -> Result<u32, Error> {
+    let offset = offset.unwrap_or(0);
+    if offset > MAX_SEARCH_OFFSET {
+        return Err(bad_request("The search offset is too large"));
+    }
+    Ok(offset)
+}
+
+/// The query string for Modrinth's `GET /search`.
+fn search_query_pairs(
+    query: &Option<String>,
+    facets: &[Vec<String>],
+    index: ModrinthSearchIndex,
+    offset: u32,
+    limit: u32,
+) -> Vec<(&'static str, String)> {
+    let mut pairs = Vec::new();
+    if let Some(q) = query {
+        pairs.push(("query", q.clone()));
+    }
+    pairs.push(("facets", serde_json::to_string(facets).unwrap_or_default()));
+    pairs.push(("index", index.as_str().to_string()));
+    pairs.push(("offset", offset.to_string()));
+    pairs.push(("limit", limit.to_string()));
+    pairs
+}
+
 impl SearchParams {
     /// Checks the values a client sent. `limit` is capped at [`MAX_SEARCH_LIMIT`].
     pub fn new(
@@ -57,25 +103,8 @@ impl SearchParams {
         offset: Option<u32>,
         limit: Option<u32>,
     ) -> Result<Self, Error> {
-        let query = query
-            .map(|q| q.trim().to_string())
-            .filter(|q| !q.is_empty());
-        if let Some(q) = &query {
-            if q.chars().count() > MAX_QUERY_CHARS {
-                return Err(bad_request(format!(
-                    "The search text cannot be longer than {MAX_QUERY_CHARS} characters"
-                )));
-            }
-            if q.chars().any(|c| c.is_control()) {
-                return Err(bad_request(
-                    "The search text cannot contain control characters",
-                ));
-            }
-        }
-        let offset = offset.unwrap_or(0);
-        if offset > MAX_SEARCH_OFFSET {
-            return Err(bad_request("The search offset is too large"));
-        }
+        let query = check_query(query)?;
+        let offset = check_offset(offset)?;
         Ok(Self {
             query,
             project_type,
@@ -122,18 +151,125 @@ impl SearchParams {
 
     /// The query string for Modrinth's `GET /search`.
     pub fn query_pairs(&self) -> Vec<(&'static str, String)> {
-        let mut pairs = Vec::new();
-        if let Some(q) = &self.query {
-            pairs.push(("query", q.clone()));
+        search_query_pairs(
+            &self.query,
+            &self.facets(),
+            self.index,
+            self.offset,
+            self.limit,
+        )
+    }
+}
+
+/// What a game client's folder holds, as Modrinth project types: mods, resource packs and
+/// shader packs. Lodestone Launcher browses these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClientProjectType {
+    Mod,
+    ResourcePack,
+    Shader,
+}
+
+impl ClientProjectType {
+    /// The Modrinth `project_type`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ClientProjectType::Mod => "mod",
+            ClientProjectType::ResourcePack => "resourcepack",
+            ClientProjectType::Shader => "shader",
         }
-        pairs.push((
-            "facets",
-            serde_json::to_string(&self.facets()).unwrap_or_default(),
-        ));
-        pairs.push(("index", self.index.as_str().to_string()));
-        pairs.push(("offset", self.offset.to_string()));
-        pairs.push(("limit", self.limit.to_string()));
-        pairs
+    }
+
+    pub fn from_project_type(project_type: &str) -> Option<Self> {
+        match project_type {
+            "mod" => Some(ClientProjectType::Mod),
+            "resourcepack" => Some(ClientProjectType::ResourcePack),
+            "shader" => Some(ClientProjectType::Shader),
+            _ => None,
+        }
+    }
+}
+
+/// A checked search for content that runs on a game client. Unlike [`SearchParams`], it
+/// has no server-side facet; mod searches hide mods that don't run on the client instead.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClientSearchParams {
+    pub query: Option<String>,
+    pub project_type: ClientProjectType,
+    pub game_version: Option<String>,
+    /// Any of these Modrinth loaders (categories). Empty for no loader filter.
+    pub loaders: Vec<String>,
+    pub index: ModrinthSearchIndex,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+impl ClientSearchParams {
+    /// Checks the values, as [`SearchParams::new`] does.
+    pub fn new(
+        query: Option<String>,
+        project_type: ClientProjectType,
+        game_version: Option<String>,
+        loaders: Vec<String>,
+        index: Option<ModrinthSearchIndex>,
+        offset: Option<u32>,
+        limit: Option<u32>,
+    ) -> Result<Self, Error> {
+        let mut checked = Vec::new();
+        for loader in loaders {
+            if let Some(loader) = optional_filter(Some(loader), "loader")? {
+                let loader = loader.to_lowercase();
+                if !checked.contains(&loader) {
+                    checked.push(loader);
+                }
+            }
+        }
+        Ok(Self {
+            query: check_query(query)?,
+            project_type,
+            game_version: optional_filter(game_version, "game version")?,
+            loaders: checked,
+            index: index.unwrap_or_default(),
+            offset: check_offset(offset)?,
+            limit: limit
+                .unwrap_or(DEFAULT_SEARCH_LIMIT)
+                .clamp(1, MAX_SEARCH_LIMIT),
+        })
+    }
+
+    /// The Modrinth facets: the project type, the loaders (any of them), the game version,
+    /// and for mods a client-side facet so server-only mods are hidden.
+    pub fn facets(&self) -> Vec<Vec<String>> {
+        let mut facets = vec![vec![format!("project_type:{}", self.project_type.as_str())]];
+        if !self.loaders.is_empty() {
+            facets.push(
+                self.loaders
+                    .iter()
+                    .map(|l| format!("categories:{l}"))
+                    .collect(),
+            );
+        }
+        if let Some(game_version) = &self.game_version {
+            facets.push(vec![format!("versions:{game_version}")]);
+        }
+        if self.project_type == ClientProjectType::Mod {
+            facets.push(vec![
+                "client_side:required".to_string(),
+                "client_side:optional".to_string(),
+            ]);
+        }
+        facets
+    }
+
+    /// The query string for Modrinth's `GET /search`.
+    pub fn query_pairs(&self) -> Vec<(&'static str, String)> {
+        search_query_pairs(
+            &self.query,
+            &self.facets(),
+            self.index,
+            self.offset,
+            self.limit,
+        )
     }
 }
 
@@ -244,6 +380,66 @@ mod tests {
         assert!(pairs.contains(&("limit", "20".to_string())));
         assert!(pairs.contains(&("offset", "0".to_string())));
         assert!(pairs.contains(&("query", "sodium".to_string())));
+    }
+
+    #[test]
+    fn client_search_facets() {
+        let new = |project_type, gv: Option<&str>, loaders: &[&str]| {
+            ClientSearchParams::new(
+                Some("x".into()),
+                project_type,
+                gv.map(String::from),
+                loaders.iter().map(|l| l.to_string()).collect(),
+                None,
+                None,
+                None,
+            )
+        };
+        let mods = new(
+            ClientProjectType::Mod,
+            Some("1.20.1"),
+            &["Quilt", "fabric", "quilt"],
+        )
+        .unwrap()
+        .facets();
+        assert_eq!(
+            mods,
+            vec![
+                vec!["project_type:mod".to_string()],
+                vec![
+                    "categories:quilt".to_string(),
+                    "categories:fabric".to_string()
+                ],
+                vec!["versions:1.20.1".to_string()],
+                vec![
+                    "client_side:required".to_string(),
+                    "client_side:optional".to_string()
+                ],
+            ]
+        );
+        // no server-side facet anywhere: shader and resource packs are client-only
+        for project_type in [ClientProjectType::ResourcePack, ClientProjectType::Shader] {
+            let facets = new(project_type, None, &[]).unwrap().facets();
+            assert_eq!(
+                facets,
+                vec![vec![format!("project_type:{}", project_type.as_str())]]
+            );
+        }
+        let shaders = new(
+            ClientProjectType::Shader,
+            Some("1.21.1"),
+            &["iris", "optifine"],
+        )
+        .unwrap()
+        .facets();
+        assert_eq!(shaders[1], vec!["categories:iris", "categories:optifine"]);
+        assert!(new(ClientProjectType::Mod, None, &["fabric,forge"]).is_err());
+        assert!(new(ClientProjectType::Mod, Some("1.20\"]]"), &[]).is_err());
+        assert_eq!(
+            ClientProjectType::from_project_type("resourcepack"),
+            Some(ClientProjectType::ResourcePack)
+        );
+        assert_eq!(ClientProjectType::from_project_type("modpack"), None);
     }
 
     #[test]
