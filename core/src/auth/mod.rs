@@ -1,3 +1,4 @@
+pub mod api_key;
 pub mod hashed_password;
 pub mod jwt_token;
 pub mod login_limiter;

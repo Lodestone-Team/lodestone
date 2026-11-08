@@ -4,7 +4,7 @@ use argon2::{Argon2, PasswordVerifier};
 use color_eyre::eyre::{eyre, Context};
 use jsonwebtoken::{Algorithm, Validation};
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{error, warn};
 use ts_rs::TS;
 
 use crate::{
@@ -18,6 +18,7 @@ use crate::{
 };
 
 use super::{
+    api_key::{self, ApiKeyInfo, ApiKeyRecord, ApiKeyScope, ApiKeyStore, CreatedApiKey},
     hashed_password::{hash_password, HashedPassword},
     jwt_token::JwtToken,
     permission::UserPermission,
@@ -30,6 +31,20 @@ pub struct Claim {
     pub uid: UserId,
     pub exp: usize,
 }
+/// How the request a [`User`] value was made for authenticated.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum AuthSource {
+    /// A session token from `POST /user/login`, or a user read from the store.
+    #[default]
+    Session,
+    /// An API key. The key's permissions are already applied to the `User`.
+    ApiKey {
+        id: String,
+        name: String,
+        expires_at: Option<i64>,
+    },
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct User {
     pub uid: UserId,
@@ -39,6 +54,9 @@ pub struct User {
     pub is_admin: bool,
     pub permissions: UserPermission,
     pub secret: UserSecret,
+    /// Set per request by [`UsersManager::try_auth`]; never saved.
+    #[serde(skip)]
+    pub auth_source: AuthSource,
 }
 
 impl User {
@@ -57,8 +75,47 @@ impl User {
             is_admin,
             permissions,
             secret: UserSecret::default(),
+            auth_source: AuthSource::Session,
         }
     }
+
+    /// Who to name in events and logs for what this request does: the username, plus the
+    /// key's name for a request made with an API key.
+    pub fn caused_by(&self) -> CausedBy {
+        let user_name = match &self.auth_source {
+            AuthSource::Session => self.username.clone(),
+            AuthSource::ApiKey { name, .. } => format!("{} (API key: {name})", self.username),
+        };
+        CausedBy::User {
+            user_id: self.uid.clone(),
+            user_name,
+        }
+    }
+
+    pub fn is_api_key(&self) -> bool {
+        matches!(self.auth_source, AuthSource::ApiKey { .. })
+    }
+
+    /// Fails with 403 for a request made with an API key, whatever its scope.
+    pub fn require_session(&self) -> Result<(), Error> {
+        if self.is_api_key() {
+            return Err(Error {
+                kind: ErrorKind::PermissionDenied,
+                source: eyre!(api_key::SESSION_REQUIRED_MESSAGE),
+            });
+        }
+        Ok(())
+    }
+
+    /// Whether this request's API key has expired since it authenticated. Always `false`
+    /// for sessions.
+    pub fn api_key_expired(&self, now: i64) -> bool {
+        match &self.auth_source {
+            AuthSource::Session => false,
+            AuthSource::ApiKey { expires_at, .. } => api_key::is_expired(*expires_at, now),
+        }
+    }
+
     fn get_permission_level(&self) -> u8 {
         if self.is_owner {
             u8::MAX
@@ -455,11 +512,12 @@ impl From<User> for PublicUser {
     }
 }
 
-#[derive(Clone)]
 pub struct UsersManager {
     event_broadcaster: EventBroadcaster,
     users: HashMap<UserId, User>,
     path_to_users: PathBuf,
+    /// Kept next to the users file, as `api_keys.json`.
+    api_keys: ApiKeyStore,
 }
 
 impl UsersManager {
@@ -468,13 +526,25 @@ impl UsersManager {
         users: HashMap<UserId, User>,
         path_to_users: PathBuf,
     ) -> Self {
+        let api_keys = ApiKeyStore::new(path_to_users.with_file_name("api_keys.json"));
         Self {
             event_broadcaster,
             users,
             path_to_users,
+            api_keys,
         }
     }
+
+    /// Loads the users, then their API keys.
     pub async fn load_users(&mut self) -> Result<(), Error> {
+        self.load_users_file().await?;
+        self.api_keys.load().await;
+        let users = &self.users;
+        self.api_keys.retain_users(|uid| users.contains_key(uid));
+        Ok(())
+    }
+
+    async fn load_users_file(&mut self) -> Result<(), Error> {
         let mut options = tokio::fs::OpenOptions::new();
         options.read(true).create(true).write(true);
         #[cfg(unix)]
@@ -568,6 +638,11 @@ impl UsersManager {
         let user = self.users.remove(uid.as_ref());
         match self.write_to_file().await {
             Ok(()) => {
+                // the keys stop working at once, as they are removed from memory even if
+                // saving fails; keys of a missing user never authenticate anyway
+                if let Err(e) = self.api_keys.remove_user(uid.as_ref()).await {
+                    error!("Failed to save the API keys after deleting a user: {e}");
+                }
                 if let Some(_user) = user.as_ref() {
                     self.event_broadcaster.send(Event {
                         event_inner: EventInner::UserEvent(UserEvent {
@@ -803,14 +878,201 @@ impl UsersManager {
         }
     }
 
+    /// The user a request with `token` (a session JWT or an API key) acts as, or `None`.
+    ///
+    /// Every route authenticates through this, so it is the one place that turns an API key
+    /// into its [`User`], see [`api_key::effective_user`].
     pub fn try_auth(&self, token: &str) -> Option<User> {
+        if token.starts_with(api_key::API_KEY_PREFIX) {
+            return self.try_auth_api_key(token);
+        }
         let claimed_uid = decode_no_verify(token)?;
         let claimed_requester = self.users.get(&claimed_uid)?;
         let requester_uid = decode_token(token, &claimed_requester.secret)?;
         if claimed_uid != requester_uid {
             return None;
         }
-        Some(claimed_requester.to_owned())
+        let mut user = claimed_requester.to_owned();
+        user.auth_source = AuthSource::Session;
+        Some(user)
+    }
+
+    fn try_auth_api_key(&self, token: &str) -> Option<User> {
+        let Some(parsed) = api_key::parse_key(token) else {
+            warn!("API key authentication failed: the key is malformed");
+            return None;
+        };
+        let fail = |reason: &str| {
+            warn!(
+                "API key authentication failed for key {}: {reason}",
+                parsed.id
+            );
+            None
+        };
+        let Some(record) = self.api_keys.get(parsed.id) else {
+            return fail("no such key");
+        };
+        if !record.verify_secret(parsed.secret) {
+            return fail("wrong secret");
+        }
+        let now = api_key::now();
+        if record.is_expired(now) {
+            return fail("the key has expired");
+        }
+        let Some(user) = self.users.get(&record.uid) else {
+            return fail("its user no longer exists");
+        };
+        self.api_keys.record_use(&record.id, now);
+        Some(api_key::effective_user(record, user))
+    }
+
+    /// `user` (from [`UsersManager::try_auth`]) as it is now: with its user's current
+    /// permissions and, for an API key, the key's current scope. `None` if the user was
+    /// deleted, or the key was revoked or has expired.
+    ///
+    /// Use this, not [`UsersManager::get_user`], to re-read the user a request or stream
+    /// acts as: the stored user has all of the user's powers, which a custom key does not.
+    pub fn refresh_user(&self, user: &User) -> Option<User> {
+        let stored = self.users.get(&user.uid)?;
+        match &user.auth_source {
+            AuthSource::Session => {
+                let mut refreshed = stored.clone();
+                refreshed.auth_source = AuthSource::Session;
+                Some(refreshed)
+            }
+            AuthSource::ApiKey { id, .. } => {
+                let record = self.api_keys.get(id)?;
+                if record.uid != user.uid || record.is_expired(api_key::now()) {
+                    return None;
+                }
+                Some(api_key::effective_user(record, stored))
+            }
+        }
+    }
+
+    /// The API keys of `uid`, newest first.
+    pub fn list_api_keys(&self, uid: &UserId) -> Vec<ApiKeyInfo> {
+        self.api_keys.list_for_user(uid)
+    }
+
+    /// Creates an API key for `uid`. `name` and `expires_at` must already be validated.
+    /// The reply is the only place the key is ever returned.
+    pub async fn create_api_key(
+        &mut self,
+        uid: &UserId,
+        name: String,
+        expires_at: Option<i64>,
+        scope: ApiKeyScope,
+        caused_by: CausedBy,
+    ) -> Result<CreatedApiKey, Error> {
+        let username = self
+            .users
+            .get(uid)
+            .ok_or_else(|| Error {
+                kind: ErrorKind::NotFound,
+                source: eyre!("User not found"),
+            })?
+            .username
+            .clone();
+        if self.api_keys.count_for_user(uid) >= api_key::MAX_API_KEYS_PER_USER {
+            return Err(Error {
+                kind: ErrorKind::BadRequest,
+                source: eyre!(
+                    "You already have {} API keys, the most allowed. Revoke one first",
+                    api_key::MAX_API_KEYS_PER_USER
+                ),
+            });
+        }
+        let new = loop {
+            let new = api_key::generate_key()?;
+            if self.api_keys.get(&new.id).is_none() {
+                break new;
+            }
+        };
+        let record = ApiKeyRecord {
+            id: new.id.clone(),
+            name,
+            uid: uid.clone(),
+            created_at: api_key::now(),
+            expires_at,
+            last_used_at: None,
+            scope,
+            secret_sha256: api_key::hash_secret(&new.secret),
+        };
+        let info = record.info();
+        self.api_keys.insert(record).await?;
+        self.send_api_key_event(
+            uid,
+            &username,
+            UserEventInner::ApiKeyCreated {
+                key_id: info.id.clone(),
+                name: info.name.clone(),
+            },
+            caused_by,
+        );
+        Ok(CreatedApiKey { key: new.key, info })
+    }
+
+    /// Revokes the key `id` of `uid`. It stops working at once. 404 if `uid` has no such
+    /// key.
+    pub async fn revoke_api_key(
+        &mut self,
+        uid: &UserId,
+        id: &str,
+        caused_by: CausedBy,
+    ) -> Result<(), Error> {
+        let record = self.api_keys.remove(uid, id).await?.ok_or_else(|| Error {
+            kind: ErrorKind::NotFound,
+            source: eyre!("API key not found"),
+        })?;
+        let username = self
+            .users
+            .get(uid)
+            .map(|u| u.username.clone())
+            .unwrap_or_else(|| uid.to_string());
+        self.send_api_key_event(
+            uid,
+            &username,
+            UserEventInner::ApiKeyRevoked {
+                key_id: record.id,
+                name: record.name,
+            },
+            caused_by,
+        );
+        Ok(())
+    }
+
+    fn send_api_key_event(
+        &self,
+        uid: &UserId,
+        username: &str,
+        inner: UserEventInner,
+        caused_by: CausedBy,
+    ) {
+        let details = match &inner {
+            UserEventInner::ApiKeyCreated { name, .. } => {
+                format!("API key `{name}` created for {username}")
+            }
+            UserEventInner::ApiKeyRevoked { name, .. } => {
+                format!("API key `{name}` revoked for {username}")
+            }
+            _ => String::new(),
+        };
+        self.event_broadcaster.send(Event {
+            event_inner: EventInner::UserEvent(UserEvent {
+                user_id: uid.clone(),
+                user_event_inner: inner,
+            }),
+            details,
+            snowflake: Snowflake::default(),
+            caused_by,
+        });
+    }
+
+    /// Saves the API keys' last-used times, if any changed since the last save. Called
+    /// once a minute and at shutdown.
+    pub async fn flush_api_keys(&self) -> Result<(), Error> {
+        self.api_keys.flush().await
     }
 
     pub fn try_auth_or_err(&self, token: &str) -> Result<User, Error> {

@@ -147,6 +147,16 @@ pub enum UserEventInner {
     PermissionChanged {
         new_permissions: Box<UserPermission>,
     },
+    /// An API key of the user was created. Never carries the key or its hash.
+    ApiKeyCreated {
+        key_id: String,
+        name: String,
+    },
+    /// An API key of the user was revoked, by them or by an owner or admin.
+    ApiKeyRevoked {
+        key_id: String,
+        name: String,
+    },
 }
 
 impl AsRef<UserEventInner> for UserEventInner {
