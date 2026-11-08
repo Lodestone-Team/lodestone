@@ -3,7 +3,7 @@ import { InstanceContext } from 'data/InstanceContext';
 import { useInstanceManifest } from 'data/InstanceManifest';
 import { useContext, useState, useEffect, useMemo } from 'react';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
-import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
+import { axiosWrapper, errorToString } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { Toggle } from 'components/Atoms/Toggle';
 import { InstanceInfo } from 'bindings/InstanceInfo';
@@ -24,6 +24,14 @@ import { SettingOverrides } from './InstanceSettingsCreate/SettingOverrides';
 import { PublicListingSetting } from './PublicListingSetting';
 import { ResourcePackSetting } from './ResourcePackSetting';
 import { useDocumentTitle } from 'usehooks-ts';
+import {
+  SettingsCard,
+  SettingsEmptyRow,
+  SettingsRow,
+  SettingsSection,
+} from 'components/Settings/SettingsBlocks';
+import { SettingsWithToc } from 'components/Settings/SettingsToc';
+import { notifySaved } from 'components/Settings/savedToast';
 
 type StartupSetting = 'auto_start' | 'restart_on_crash';
 
@@ -34,12 +42,12 @@ const STARTUP_SETTINGS: Array<{
 }> = [
   {
     key: 'auto_start',
-    label: 'Auto Start',
+    label: 'Auto start',
     description: 'Start this server when Lodestone Core starts',
   },
   {
     key: 'restart_on_crash',
-    label: 'Restart on Crash',
+    label: 'Restart on crash',
     description: 'Start this server again if it crashes',
   },
 ];
@@ -75,6 +83,7 @@ function StartupSettings({
         headers: { 'Content-Type': 'application/json' },
       });
       await queryClient.invalidateQueries({ queryKey: ['instances', 'list'] });
+      notifySaved();
     } catch (err) {
       toast.error(errorToString(err));
     } finally {
@@ -83,57 +92,49 @@ function StartupSettings({
   };
 
   return (
-    <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
-      <div className="w-full shrink-0">
-        <h2 className="text-h2 font-extrabold tracking-medium">Automation</h2>
-        <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-          When Lodestone starts this server by itself
-        </h3>
-      </div>
-      <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
+    <SettingsSection
+      id="server-settings-automation"
+      title="Automation"
+      lead="When Lodestone starts this server by itself."
+    >
+      <SettingsCard>
         {STARTUP_SETTINGS.map(({ key, label, description }) => (
-          <div
+          <SettingsRow
             key={key}
-            className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3"
+            className="group relative"
+            label={label}
+            labelId={`startup-setting-${key}`}
+            hint={canEdit ? description : disabledReason}
           >
-            <div className="flex min-w-0 grow flex-col">
-              <label className="text-medium font-medium text-gray-300">
-                {label}
-              </label>
-              <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
-                {canEdit ? description : disabledReason}
-              </div>
-            </div>
-            <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
-              <Toggle
-                value={pending[key] ?? instance[key]}
-                onChange={(value) => void change(key, value)}
-                disabled={!canEdit || saving}
-              />
-            </div>
-          </div>
+            <Toggle
+              value={pending[key] ?? instance[key]}
+              onChange={(value) => void change(key, value)}
+              disabled={!canEdit || saving}
+              aria-labelledby={`startup-setting-${key}`}
+            />
+          </SettingsRow>
         ))}
-      </div>
-    </div>
+      </SettingsCard>
+    </SettingsSection>
   );
 }
 
 /** The settings sections' shape, while the settings load. */
 function InstanceSettingsSkeleton() {
   return (
-    <SkeletonGroup className="flex flex-col">
+    <SkeletonGroup className="flex max-w-170 flex-col gap-6.5">
       {[4, 2].map((rows, i) => (
-        <div key={i} className="mb-16 flex flex-col gap-4 @4xl:flex-row">
-          <div className="flex w-full shrink-0 flex-col gap-2">
-            <Skeleton className="h-6 w-40" />
-            <Skeleton className="h-5 w-72 max-w-full" />
+        <div key={i} className="flex flex-col">
+          <div className="mb-2.5 flex flex-col gap-1.5">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3.5 w-64 max-w-full" />
           </div>
           {/* setting rows: name and description, and the control */}
-          <div className="flex w-full min-w-0 flex-col divide-y divide-gray-faded/30 overflow-hidden rounded-lg border border-gray-faded/30">
+          <div className="flex w-full min-w-0 flex-col divide-y divide-fade-700 rounded-xl border border-fade-700 bg-gray-850">
             {Array.from({ length: rows }, (_, row) => (
               <div
                 key={row}
-                className="flex h-17 flex-row items-center justify-between gap-4 bg-gray-800 px-4"
+                className="flex min-h-14 flex-row items-center justify-between gap-4 px-4 py-3"
               >
                 <div className="flex grow flex-col gap-2">
                   <Skeleton className="h-3.5 w-36 rounded-sm" />
@@ -217,92 +218,77 @@ export default function InstanceSetting() {
         Please backup any important data before proceeding.
       </ConfirmDialog>
 
-      {sections.map((section) => (
-        <div
-          key={section.section_id}
-          className="mb-16 flex flex-col gap-4 @4xl:flex-row"
-        >
-          <div className="w-full shrink-0">
-            <h2 className="text-h2 font-extrabold tracking-medium">
-              {section.name}
-            </h2>
-            <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-              {section.description}
-            </h3>
-          </div>
-          <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-            {Object.keys(section['settings']).length ? (
-              Object.keys(section['settings']).map((settingKey: string) => {
-                const setting: SettingFieldObject =
-                  section['settings'][settingKey];
-                return (
-                  <SettingField
-                    instance={instance}
-                    setting={setting}
-                    key={settingKey}
-                    sectionId={section.section_id}
-                    settingId={settingKey}
-                    error={error}
-                    descriptionFunc={
-                      SettingOverrides[settingKey]?.descriptionFunc ?? undefined
-                    }
-                  />
-                );
-              })
-            ) : (
-              <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
-                <h2 className="text-h3 font-bold tracking-medium text-white/50">
-                  Not available at this moment
-                </h2>
-                <h2 className="text-medium font-medium tracking-medium text-white/50">
-                  Try to start this server at least once
-                </h2>
-              </div>
-            )}
-          </div>
-        </div>
-      ))}
-      <StartupSettings
-        instance={instance}
-        canEdit={can_access_instance_setting}
-        disabledReason={
-          canControlInstance ? 'No permission' : OWNER_ONLY_ATOM_MESSAGE
-        }
-      />
-      <PublicListingSetting instance={instance} />
-      <ResourcePackSetting
-        instance={instance}
-        canEdit={can_access_instance_setting}
-        disabledReason="No permission"
-      />
-      <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
-        <div className="w-full shrink-0">
-          <h2 className="text-h2 font-extrabold tracking-medium">
-            Danger Zone
-          </h2>
-          <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-            These settings can cause irreversible damage to your server!
-          </h3>
-        </div>
-        <div className="w-full min-w-0 rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-          <div className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
-            <div className="flex min-w-0 grow flex-col">
-              <label className="text-medium font-medium text-gray-300">
-                Delete Server
-              </label>
-              {can_delete_instance ? (
-                <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
-                  Permanently deletes this server and its data
-                </div>
+      <SettingsWithToc>
+        {sections.map((section) => (
+          <SettingsSection
+            key={section.section_id}
+            id={`server-settings-${section.section_id}`}
+            title={section.name}
+            lead={section.description}
+          >
+            <SettingsCard>
+              {Object.keys(section['settings']).length ? (
+                Object.keys(section['settings']).map((settingKey: string) => {
+                  const setting: SettingFieldObject =
+                    section['settings'][settingKey];
+                  return (
+                    <SettingField
+                      instance={instance}
+                      setting={setting}
+                      key={settingKey}
+                      sectionId={section.section_id}
+                      settingId={settingKey}
+                      error={error}
+                      descriptionFunc={
+                        SettingOverrides[settingKey]?.descriptionFunc ??
+                        undefined
+                      }
+                    />
+                  );
+                })
               ) : (
-                <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
-                  {canControlInstance
-                    ? 'No permission'
-                    : OWNER_ONLY_ATOM_MESSAGE}
-                </div>
+                <SettingsEmptyRow>
+                  <span className="block font-mediumbold text-gray-400">
+                    Not available at this moment
+                  </span>
+                  Try to start this server at least once
+                </SettingsEmptyRow>
               )}
-            </div>
-            <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
+            </SettingsCard>
+          </SettingsSection>
+        ))}
+        <StartupSettings
+          instance={instance}
+          canEdit={can_access_instance_setting}
+          disabledReason={
+            canControlInstance ? 'No permission' : OWNER_ONLY_ATOM_MESSAGE
+          }
+        />
+        <PublicListingSetting instance={instance} />
+        <ResourcePackSetting
+          instance={instance}
+          canEdit={can_access_instance_setting}
+          disabledReason="No permission"
+        />
+        <SettingsSection
+          id="server-settings-danger"
+          title="Danger zone"
+          lead="These settings can cause irreversible damage to your server."
+          danger
+        >
+          <SettingsCard danger>
+            <SettingsRow
+              className="group relative"
+              label="Delete server"
+              danger
+              hint={
+                can_delete_instance
+                  ? 'Permanently deletes this server and its data'
+                  : canControlInstance
+                    ? 'No permission'
+                    : OWNER_ONLY_ATOM_MESSAGE
+              }
+            >
               <Button
                 label="Delete"
                 intention="danger"
@@ -311,10 +297,10 @@ export default function InstanceSetting() {
                   setShowDeleteDialog(true);
                 }}
               />
-            </div>
-          </div>
-        </div>
-      </div>
+            </SettingsRow>
+          </SettingsCard>
+        </SettingsSection>
+      </SettingsWithToc>
     </>
   );
 }

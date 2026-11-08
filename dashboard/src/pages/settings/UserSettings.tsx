@@ -1,11 +1,9 @@
-import { Dialog, Switch, Transition } from '@headlessui/react';
+import { Dialog, Transition } from '@headlessui/react';
 import { ModalBackdrop, ModalPanel } from 'components/Atoms/Modal';
 import { useQueryClient } from '@tanstack/react-query';
 import { PublicUser } from 'bindings/PublicUser';
 import { UserPermission } from 'bindings/UserPermission';
-import clsx from 'clsx';
 import Button from 'components/Atoms/Button';
-import { HorizontalLine } from 'components/Atoms/HorizontalLine';
 import MultiSelectGrid from 'components/Atoms/MultiSelectGrid';
 import { Toggle } from 'components/Atoms/Toggle';
 import UserBox from 'components/UserBox';
@@ -33,15 +31,29 @@ import UserApiKeys from 'components/Settings/ApiKeys/UserApiKeys';
 import { UserMinecraftLinks } from 'components/Settings/MinecraftLinks';
 import { useDocumentTitle } from 'usehooks-ts';
 import { NO_SCRIPTING_MESSAGE, useCoreCapabilities } from 'data/SystemInfo';
+import {
+  SettingsCard,
+  SettingsLink,
+  SettingsPage,
+  SettingsRow,
+  SettingsSection,
+} from 'components/Settings/SettingsBlocks';
+import { notifySaved } from 'components/Settings/savedToast';
 
 // a user's permission rows (title, description, toggle) while the user loads
 const PermissionsSkeleton = () => (
-  <SkeletonGroup label="Loading the user" className="flex flex-col gap-10">
+  <SkeletonGroup
+    label="Loading the user"
+    className="flex flex-col divide-y divide-fade-700 rounded-xl border border-fade-700 bg-gray-850"
+  >
     {Array.from({ length: 6 }, (_, i) => (
-      <div key={i} className="flex flex-row items-center justify-between gap-4">
+      <div
+        key={i}
+        className="flex min-h-14 flex-row items-center justify-between gap-4 px-4 py-3"
+      >
         <div className="flex grow flex-col gap-2">
-          <Skeleton className="h-4 w-48 rounded-sm" />
-          <Skeleton className="h-3.5 w-72 max-w-full rounded-sm" />
+          <Skeleton className="h-3.5 w-48 rounded-sm" />
+          <Skeleton className="h-3 w-72 max-w-full rounded-sm" />
         </div>
         <Skeleton className="h-6 w-11 shrink-0 rounded-full" />
       </div>
@@ -115,6 +127,7 @@ export const UserSettings = () => {
       try {
         await changeUserPermissions(user.uid, newPermissions);
         updateCachedPermissions(newPermissions, user.uid);
+        notifySaved();
       } catch (e) {
         toast.error(errorToString(e));
       }
@@ -122,25 +135,21 @@ export const UserSettings = () => {
   };
 
   const UserBoxes = !selectedUser && !openingUser && (
-    <div className="flex w-full flex-col gap-4 @4xl:flex-row">
-      <div className="flex w-full flex-row flex-nowrap items-end justify-between gap-4 @4xl:w-[28rem] @4xl:flex-col @4xl:items-start @4xl:justify-start">
-        <div>
-          <h2 className="text-h2 font-bold tracking-tight text-gray-300">
-            All Members
-            {!userListLoading && ` (${Object.keys(userList).length})`}
-          </h2>
-          <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-            A list of all users. Click into a user to manage
-          </h3>
-        </div>
+    <SettingsSection
+      title={`All members${
+        userListLoading ? '' : ` (${Object.keys(userList).length})`
+      }`}
+      lead="A list of all users. Click a user to manage them."
+      action={
         <Button
-          label="Create New User"
+          label="Create new user"
           className="whitespace-nowrap"
           onClick={() => {
             setShowCreateUser(true);
           }}
         />
-      </div>
+      }
+    >
       {userListLoading ? (
         // user rows: avatar, name and role
         <SkeletonGroup label="Loading users" className="w-full min-w-0">
@@ -148,12 +157,12 @@ export const UserSettings = () => {
             rows={3}
             icon="round"
             secondLine
-            className="divide-y divide-gray-faded/30 overflow-hidden rounded-lg border border-gray-faded/30"
-            rowClassName="h-15 bg-gray-800 px-4"
+            className="divide-y divide-fade-700 rounded-xl border border-fade-700 bg-gray-850"
+            rowClassName="h-14 px-4"
           />
         </SkeletonGroup>
       ) : (
-        <div className="h-fit w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
+        <SettingsCard>
           {Object.keys(userList)
             .sort((a, b) =>
               userList[a].uid === uid
@@ -169,49 +178,33 @@ export const UserSettings = () => {
                 onClick={() => selectUser(userList[uid])}
               />
             ))}
-        </div>
+        </SettingsCard>
       )}
-    </div>
+    </SettingsSection>
   );
 
   const UserPermissions = (
     permissionList: PermissionDescription[],
     disabled: boolean
   ) =>
-    selectedUser && (
-      <div className="mb-10 flex w-full flex-col gap-10">
-        {permissionList.map((permission) => {
-          const currentSettings =
-            selectedUser.permissions[permission.permission];
-          const permissionType = typeof currentSettings;
-          return (
-            <div
-              key={permission.permission}
-              className={clsx(
-                'flex gap-4',
-                permissionType === 'boolean' &&
-                  'flex-row items-center justify-between',
-                permissionType === 'object' && 'flex-col'
-              )}
-            >
-              <div>
-                <div
-                  className={clsx(
-                    'text-h3 leading-tight font-bold tracking-medium',
-                    disabled ? 'text-white/50' : 'text-gray-300'
-                  )}
-                >
-                  {permission.title}
-                </div>
-                <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50 italic">
-                  The user {permission.allows}
-                </div>
-              </div>
+    selectedUser &&
+    permissionList.map((permission) => {
+      const currentSettings = selectedUser.permissions[permission.permission];
+      const labelId = `permission-${permission.permission}`;
+      return (
+        <SettingsRow
+          key={permission.permission}
+          label={permission.title}
+          labelId={labelId}
+          disabled={disabled}
+          hint={<>The user {permission.allows}</>}
+          below={
+            <>
               {typeof currentSettings === 'object' && !instanceList && (
                 // the instance checkboxes, while the instances load
                 <SkeletonGroup
                   label="Loading servers"
-                  className="grid grid-cols-2 gap-4 rounded-lg border border-gray-faded/30 bg-gray-800 px-6 py-4"
+                  className="grid grid-cols-2 gap-4 rounded-lg border border-fade-700 bg-gray-900 px-4 py-3"
                 >
                   {Array.from({ length: 4 }, (_, i) => (
                     <div key={i} className="flex flex-row items-center gap-3">
@@ -223,7 +216,7 @@ export const UserSettings = () => {
               )}
               {typeof currentSettings === 'object' && instanceList && (
                 <MultiSelectGrid
-                  className="rounded-lg border border-gray-faded/30 bg-gray-800 px-6 py-4"
+                  className="rounded-lg border border-fade-700 bg-gray-900 px-4 py-3"
                   options={
                     Object.values(instanceList || {}).map(
                       (instance) => instance.uuid
@@ -256,23 +249,25 @@ export const UserSettings = () => {
                   disabled={!canManageUsers || disabled}
                 />
               )}
-              {typeof currentSettings === 'boolean' && (
-                <Toggle
-                  value={currentSettings}
-                  onChange={(value: boolean) => {
-                    changePermission(selectedUser, (latest) => ({
-                      ...latest,
-                      [permission.permission]: value,
-                    }));
-                  }}
-                  disabled={!canManageUsers || disabled}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
+            </>
+          }
+        >
+          {typeof currentSettings === 'boolean' && (
+            <Toggle
+              value={currentSettings}
+              onChange={(value: boolean) => {
+                changePermission(selectedUser, (latest) => ({
+                  ...latest,
+                  [permission.permission]: value,
+                }));
+              }}
+              disabled={!canManageUsers || disabled}
+              aria-labelledby={labelId}
+            />
+          )}
+        </SettingsRow>
+      );
+    });
 
   // TODO: add non-owner view (can't manage users, can only change their own password)
   return (
@@ -302,35 +297,47 @@ export const UserSettings = () => {
           </div>
         </Dialog>
       </Transition>
-      <div className="@container relative mx-auto mb-10 flex h-full w-full max-w-2xl flex-row justify-center">
-        <div className="flex w-full flex-col gap-12 overflow-y-scroll px-4 pt-8">
-          <h1 className="dashboard-instance-heading">User Settings</h1>
-          {UserBoxes}
-          {openingUser && <PermissionsSkeleton />}
-          {UserPermissions(NormalPermissions, false)}
-          {selectedUser && (
-            <>
-              <HorizontalLine thicknessClass="h-0.5" className="-my-4" />
-              <div className="flex flex-col gap-8">
-                <div>
-                  <div className="pt-12 text-h2 leading-tight font-bold tracking-tight text-red-200">
-                    Unsafe Settings
-                  </div>
-                  <div className="text-h3 font-medium tracking-medium text-red-200">
-                    Turn off safe mode in core settings to grant these
-                    permissions to non-owner users.
-                  </div>
-                </div>
+      <SettingsPage
+        title="Users"
+        description={
+          selectedUser ? (
+            <span className="flex flex-row flex-wrap items-baseline gap-x-2">
+              <span className="truncate">{selectedUser.username}</span>
+              <SettingsLink onClick={() => selectUser(null)}>
+                All users
+              </SettingsLink>
+            </span>
+          ) : (
+            'The accounts on this core and what each one can do.'
+          )
+        }
+      >
+        {UserBoxes}
+        {openingUser && <PermissionsSkeleton />}
+        {selectedUser && (
+          <>
+            <SettingsSection
+              title="Permissions"
+              lead={`What ${selectedUser.username} can do on this core.`}
+            >
+              <SettingsCard>
+                {UserPermissions(NormalPermissions, false)}
+              </SettingsCard>
+            </SettingsSection>
+            <SettingsSection
+              title="Unsafe permissions"
+              lead="Turn off safe mode in core settings to grant these permissions to non-owner users."
+            >
+              <SettingsCard danger>
                 {UserPermissions(
                   UnsafePermissions,
                   globalSettings?.safe_mode || false
                 )}
-                <div className="-mt-6 mb-10">
-                  <div className="text-h3 leading-tight font-bold tracking-medium text-white/50">
-                    Macros, Extensions and Atom Servers
-                  </div>
-                  <div className="text-medium font-medium tracking-medium text-white/50 italic">
-                    {macrosAvailable ? (
+                <SettingsRow
+                  label="Macros, extensions and atom servers"
+                  disabled
+                  hint={
+                    macrosAvailable ? (
                       <>
                         Only the owner can use macros, install extensions, and
                         create or control atom servers. These can&apos;t be
@@ -339,26 +346,21 @@ export const UserSettings = () => {
                       </>
                     ) : (
                       NO_SCRIPTING_MESSAGE
-                    )}
-                  </div>
-                </div>
-              </div>
-              <HorizontalLine thicknessClass="h-0.5" className="-my-4" />
-              <div className="mb-10 pt-12">
-                <UserApiKeys user={selectedUser} />
-              </div>
-              {canManageUsers && (
-                <div className="mb-10">
-                  <UserMinecraftLinks
-                    uid={selectedUser.uid}
-                    username={selectedUser.username}
-                  />
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+                    )
+                  }
+                />
+              </SettingsCard>
+            </SettingsSection>
+            <UserApiKeys user={selectedUser} />
+            {canManageUsers && (
+              <UserMinecraftLinks
+                uid={selectedUser.uid}
+                username={selectedUser.username}
+              />
+            )}
+          </>
+        )}
+      </SettingsPage>
       {/* TODO: your own section */}
     </>
   );

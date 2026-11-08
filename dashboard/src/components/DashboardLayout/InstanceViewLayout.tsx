@@ -35,6 +35,8 @@ export const InstanceViewLayout = () => {
     // While the list loads, keep the URL: a link to an instance's tab (for
     // example /dashboard/mods?instance=…&modrinth=…) must not be sent home.
     if (queryInstanceId && !instances) return;
+    // the settings modal is open over this page: its URL is a settings page
+    if (location.pathname.startsWith('/settings/')) return;
     if (queryInstanceId && instances && queryInstanceId in instances) {
       if (!location.pathname.startsWith('/dashboard'))
         setPathname('/dashboard/overview');
@@ -75,7 +77,7 @@ export const InstanceViewLayout = () => {
         onResize={setLeftNavSize}
         containerClassNames="min-h-0"
       >
-        <LeftNav className="select-none border-r border-fade-700 bg-gray-850" />
+        <LeftNav className="border-r border-fade-700 bg-gray-850 select-none" />
       </ResizePanel>
       <div className="mx-8 h-full min-w-0 grow child:h-full">
         <Suspense fallback={<PageLoading />}>

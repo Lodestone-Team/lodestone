@@ -17,6 +17,13 @@ import AppearanceSetting from 'components/Settings/AppearanceSetting';
 import ToggleBox from 'components/Atoms/Config/ToggleBox';
 import { useColoredConsole } from 'utils/hooks';
 import { toast } from 'react-toastify';
+import {
+  SettingsCard,
+  SettingsPage,
+  SettingsRow,
+  SettingsSection,
+} from 'components/Settings/SettingsBlocks';
+import { notifySaved } from 'components/Settings/savedToast';
 
 const ProfilePage = () => {
   useDocumentTitle('User Profile - Lodestone');
@@ -53,11 +60,11 @@ const ProfilePage = () => {
           ? { ...oldList, [uid]: { ...oldList[uid], username: value } }
           : oldList
     );
+    notifySaved();
   };
 
   return (
-    // used to possibly center the content
-    <div className="@container relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center">
+    <>
       <Transition appear show={showChangePassword} as={Fragment}>
         <Dialog
           onClose={() => setShowChangePassword(false)}
@@ -68,7 +75,7 @@ const ProfilePage = () => {
             <div className="flex min-h-full items-center justify-center p-4">
               <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
                 <div className="text-h2 font-extrabold tracking-tight text-gray-300">
-                  Change Password
+                  Change password
                 </div>
                 <ChangeSelfPasswordForm
                   onSuccess={() => setShowChangePassword(false)}
@@ -79,54 +86,49 @@ const ProfilePage = () => {
           </div>
         </Dialog>
       </Transition>
-      <div className="flex w-full grow flex-col items-stretch gap-2 px-4 pt-8">
-        <div>
-          <h1 className="dashboard-instance-heading text-gray-300">Profile</h1>
-          <p className="mt-1 text-medium font-mediumbold">
-            Profile preferences for {username}
-          </p>
-        </div>
+      <SettingsPage
+        title="Profile"
+        description={`Profile preferences for ${username}`}
+      >
+        <SettingsSection title="Account">
+          <SettingsCard>
+            <InputBox
+              label={'Username'}
+              value={username}
+              type="text"
+              onSubmit={rename}
+              disabled={userState !== 'logged-in' || !user}
+            />
+            <SettingsRow label="Password">
+              <Button
+                label={'Change password'}
+                size={'medium'}
+                onClick={() => setShowChangePassword(true)}
+              />
+            </SettingsRow>
+          </SettingsCard>
+        </SettingsSection>
 
-        <div className="mt-8 w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-          <InputBox
-            label={'Username'}
-            value={username}
-            type="text"
-            onSubmit={rename}
-            disabled={userState !== 'logged-in' || !user}
-          />
-        </div>
-
-        <div className="mt-8 text-h3 font-extrabold text-gray-300">
-          Appearance
-        </div>
-        {/* saved in this browser, not on the core */}
-        <div className="mt-4 w-full min-w-0 overflow-clip rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 child:last:border-b-0">
-          <AppearanceSetting />
-          <ToggleBox
-            label="Colored console"
-            value={coloredConsole}
-            onChange={async (value) => setColoredConsole(value)}
-            description="Shows the colors and styles servers print in the server console"
-          />
-        </div>
-
-        <div className="mt-8 text-h3 font-extrabold text-gray-300">
-          Password and Authentication
-        </div>
-        <div className="mt-4">
-          <Button
-            label={'Change Password'}
-            size={'medium'}
-            onClick={() => setShowChangePassword(true)}
-          />
-        </div>
+        <SettingsSection
+          title="Appearance"
+          lead="Saved in this browser, not on the core."
+        >
+          <SettingsCard>
+            <AppearanceSetting />
+            <ToggleBox
+              label="Colored console"
+              value={coloredConsole}
+              onChange={async (value) => setColoredConsole(value)}
+              description="Shows the colors and styles servers print in the server console"
+            />
+          </SettingsCard>
+        </SettingsSection>
 
         <ApiKeysSection enabled={userState === 'logged-in' && !!user} />
 
         <OwnMinecraftLinks enabled={userState === 'logged-in' && !!user} />
-      </div>
-    </div>
+      </SettingsPage>
+    </>
   );
 };
 
