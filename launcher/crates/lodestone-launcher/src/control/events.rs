@@ -4,7 +4,7 @@
 
 use std::{collections::HashMap, collections::VecDeque, time::Duration};
 
-use gpui::{App, AppContext as _};
+use gpui::App;
 use launcher_control::{Message, codes};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -127,9 +127,13 @@ impl Notices {
                 Some(id.clone()),
                 Value::Null,
             ),
-            ServersEvent::Failed { title, message } => {
-                self.push("server_failed", title.as_ref(), message.as_ref(), None, Value::Null)
-            }
+            ServersEvent::Failed { title, message } => self.push(
+                "server_failed",
+                title.as_ref(),
+                message.as_ref(),
+                None,
+                Value::Null,
+            ),
             ServersEvent::ShowServers => {}
         }
     }
@@ -216,7 +220,10 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
         let instances = control.instances.read(cx);
         for instance in instances.list() {
             let (_, cursor) = instances.log_tail(&instance.id, 0);
-            cursors.insert(instance.id.clone(), cursor.saturating_sub(params.backlog as u64));
+            cursors.insert(
+                instance.id.clone(),
+                cursor.saturating_sub(params.backlog as u64),
+            );
         }
     }
     let mut notice_seq = control.notices.borrow().last_seq();
@@ -255,7 +262,10 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
                         .map(|(stage, snapshot)| progress_json(stage.label(), snapshot))
                         .unwrap_or(Value::Null);
                     let before = states.get(&id).cloned();
-                    if state && before.as_ref().map(|b| b.0) != Some(status.state) && !(first && status.state == "idle") {
+                    if state
+                        && before.as_ref().map(|b| b.0) != Some(status.state)
+                        && !(first && status.state == "idle")
+                    {
                         events.push((
                             "state",
                             json!({
@@ -290,7 +300,11 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
                         let fresh = before.is_none() && first;
                         if jobs && changed_state && !fresh {
                             events.push(("job", json.clone()));
-                        } else if progress && changed_progress && job_state == JobState::Running && !fresh {
+                        } else if progress
+                            && changed_progress
+                            && job_state == JobState::Running
+                            && !fresh
+                        {
                             events.push(("job_progress", json.clone()));
                         }
                         job_states.insert(id, (job_state, json["progress"].clone()));
@@ -346,7 +360,9 @@ pub fn unsubscribe(call: Call, _: &mut App) -> Reply {
         .control
         .remove_subscription(call.connection, params.subscription)
     {
-        ready(Ok(json!({ "subscription": params.subscription, "ended": true })))
+        ready(Ok(
+            json!({ "subscription": params.subscription, "ended": true }),
+        ))
     } else {
         ready(Err(api_error(
             codes::NOT_FOUND,

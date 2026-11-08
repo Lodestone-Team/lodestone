@@ -107,7 +107,11 @@ mod tests {
     fn deep_paths_move_to_a_private_folder() {
         let deep = PathBuf::from("/private/tmp").join("x".repeat(120));
         let path = socket_path(&deep);
-        assert!(path.as_os_str().len() <= MAX_SOCKET_PATH, "{}", path.display());
+        assert!(
+            path.as_os_str().len() <= MAX_SOCKET_PATH,
+            "{}",
+            path.display()
+        );
         assert!(path.starts_with(fallback_dir()));
         // the same data dir gives the same socket, another dir another one
         assert_eq!(path, socket_path(&deep));

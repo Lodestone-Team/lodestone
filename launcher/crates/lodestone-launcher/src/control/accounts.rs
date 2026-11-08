@@ -5,7 +5,7 @@
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
-use gpui::{App, AppContext as _};
+use gpui::App;
 use launcher_control::{ErrorObject, Message, codes};
 use launcher_core::accounts::{Account, AccountKind};
 use serde::Deserialize;
@@ -117,7 +117,9 @@ pub fn switch(call: Call, cx: &mut App) -> Reply {
     call.control
         .accounts
         .update(cx, |accounts, cx| accounts.switch(&account.id, cx));
-    ready(Ok(json!({ "account": account_json(&account, &call.control, cx) })))
+    ready(Ok(
+        json!({ "account": account_json(&account, &call.control, cx) }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -154,7 +156,9 @@ pub fn remove(call: Call, cx: &mut App) -> Reply {
     call.control
         .accounts
         .update(cx, |accounts, cx| accounts.remove(&account.id, cx));
-    ready(Ok(json!({ "removed": account.id, "username": account.username })))
+    ready(Ok(
+        json!({ "removed": account.id, "username": account.username }),
+    ))
 }
 
 /// "Add Microsoft account" with a device code: asks Microsoft for a code, returns it

@@ -231,7 +231,11 @@ fn accept_loop(server: Server, backend: Arc<dyn Backend>, stop: Arc<AtomicBool>)
             }
         }
         if connections.load(Ordering::SeqCst) >= MAX_CONNECTIONS {
-            refuse(&mut stream, codes::BUSY, "Too many connections to the launcher.");
+            refuse(
+                &mut stream,
+                codes::BUSY,
+                "Too many connections to the launcher.",
+            );
             continue;
         }
         connections.fetch_add(1, Ordering::SeqCst);
@@ -352,7 +356,10 @@ fn serve_connection(id: u64, stream: UnixStream, backend: &dyn Backend) {
         let Ok(text) = std::str::from_utf8(&line) else {
             outbox.respond(
                 Value::Null,
-                Err(ErrorObject::new(codes::PARSE_ERROR, "The line isn't UTF-8.")),
+                Err(ErrorObject::new(
+                    codes::PARSE_ERROR,
+                    "The line isn't UTF-8.",
+                )),
             );
             continue;
         };

@@ -39,7 +39,7 @@ use std::{
 };
 
 use futures::StreamExt as _;
-use gpui::{App, AppContext as _, AsyncApp, Entity, Subscription, Task};
+use gpui::{App, AsyncApp, Entity, Subscription, Task};
 use launcher_control::{
     ErrorObject, PROTOCOL_VERSION, Request, codes, paths,
     server::{Backend, Outbox, Server, ServerHandle},
@@ -48,7 +48,12 @@ use launcher_core::{cores::CoreError, instances::Instance};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use crate::{accounts::Accounts, instances::Instances, servers::Servers};
+use crate::{
+    accounts::Accounts,
+    instances::{Instances, content::ContentView, worlds::WorldsView},
+    servers::Servers,
+    shell::LauncherShell,
+};
 
 pub use jobs::{JobState, Jobs};
 
@@ -100,7 +105,11 @@ pub struct Method {
     pub handler: fn(Call, &mut App) -> Reply,
 }
 
-const fn method(name: &'static str, summary: &'static str, handler: fn(Call, &mut App) -> Reply) -> Method {
+const fn method(
+    name: &'static str,
+    summary: &'static str,
+    handler: fn(Call, &mut App) -> Reply,
+) -> Method {
     Method {
         name,
         summary,
@@ -124,109 +133,449 @@ const fn destructive(
 
 /// Every method, in the order `meta.methods` lists them.
 pub const METHODS: &[Method] = &[
-    method("meta.ping", "The launcher's version and protocol version.", meta_ping),
-    method("meta.methods", "Every method with its summary.", meta_methods),
-    method("meta.status", "The whole launcher at a glance: instances, runs, jobs, accounts, cores.", meta_status),
+    method(
+        "meta.ping",
+        "The launcher's version and protocol version.",
+        meta_ping,
+    ),
+    method(
+        "meta.methods",
+        "Every method with its summary.",
+        meta_methods,
+    ),
+    method(
+        "meta.status",
+        "The whole launcher at a glance: instances, runs, jobs, accounts, cores.",
+        meta_status,
+    ),
     // instances
-    method("instances.list", "Instances with their effective sidebar group and state.", instances::list),
-    method("instances.show", "One instance, with its settings and what it is doing.", instances::show),
-    method("instances.select", "Selects the instance in the window.", instances::select),
-    method("instances.versions", "Minecraft versions to make an instance with.", instances::versions),
-    method("instances.loader_versions", "A mod loader's versions for a Minecraft version.", instances::loader_versions),
-    method("instances.create", "Makes an instance (vanilla or with a mod loader).", instances::create),
-    method("instances.rename", "Renames an instance.", instances::rename),
-    method("instances.set_group", "Puts an instance in a sidebar group, or none.", instances::set_group),
-    method("instances.set_icon", "Sets an instance's icon: an image, a library icon, an emoji, or none.", instances::set_icon),
-    method("instances.set_background", "Sets or clears an instance's Play background.", instances::set_background),
-    method("instances.duplicate", "Copies an instance.", instances::duplicate),
-    destructive("instances.delete", "Moves an instance to the Trash.", instances::delete),
-    method("instances.export", "Writes an instance as a Modrinth modpack (.mrpack).", instances::export),
-    method("instances.verify", "Checks every game file and downloads missing or broken ones.", instances::verify),
+    method(
+        "instances.list",
+        "Instances with their effective sidebar group and state.",
+        instances::list,
+    ),
+    method(
+        "instances.show",
+        "One instance, with its settings and what it is doing.",
+        instances::show,
+    ),
+    method(
+        "instances.select",
+        "Selects the instance in the window.",
+        instances::select,
+    ),
+    method(
+        "instances.versions",
+        "Minecraft versions to make an instance with.",
+        instances::versions,
+    ),
+    method(
+        "instances.loader_versions",
+        "A mod loader's versions for a Minecraft version.",
+        instances::loader_versions,
+    ),
+    method(
+        "instances.create",
+        "Makes an instance (vanilla or with a mod loader).",
+        instances::create,
+    ),
+    method(
+        "instances.rename",
+        "Renames an instance.",
+        instances::rename,
+    ),
+    method(
+        "instances.set_group",
+        "Puts an instance in a sidebar group, or none.",
+        instances::set_group,
+    ),
+    method(
+        "instances.set_icon",
+        "Sets an instance's icon: an image, a library icon, an emoji, or none.",
+        instances::set_icon,
+    ),
+    method(
+        "instances.set_background",
+        "Sets or clears an instance's Play background.",
+        instances::set_background,
+    ),
+    method(
+        "instances.duplicate",
+        "Copies an instance.",
+        instances::duplicate,
+    ),
+    destructive(
+        "instances.delete",
+        "Moves an instance to the Trash.",
+        instances::delete,
+    ),
+    method(
+        "instances.export",
+        "Writes an instance as a Modrinth modpack (.mrpack).",
+        instances::export,
+    ),
+    method(
+        "instances.verify",
+        "Checks every game file and downloads missing or broken ones.",
+        instances::verify,
+    ),
     // play
-    method("play.launch", "Starts the game (joining the linked server, or a given address).", instances::launch),
-    method("play.stop", "Stops the game, or cancels its preparation.", instances::stop),
-    method("play.status", "What each instance's game is doing.", instances::status),
+    method(
+        "play.launch",
+        "Starts the game (joining the linked server, or a given address).",
+        instances::launch,
+    ),
+    method(
+        "play.stop",
+        "Stops the game, or cancels its preparation.",
+        instances::stop,
+    ),
+    method(
+        "play.status",
+        "What each instance's game is doing.",
+        instances::status,
+    ),
     method("play.logs", "An instance's console rows.", instances::logs),
-    destructive("play.clear_logs", "Clears an instance's console.", instances::clear_logs),
+    destructive(
+        "play.clear_logs",
+        "Clears an instance's console.",
+        instances::clear_logs,
+    ),
     // settings
-    method("settings.instance.get", "An instance's settings: its own and the defaults they follow.", settings::instance_get),
-    method("settings.instance.set", "Changes an instance's settings.", settings::instance_set),
-    method("settings.instance.reset", "Makes instance settings follow the launcher defaults again.", settings::instance_reset),
-    method("settings.defaults.get", "The launcher's instance defaults.", settings::defaults_get),
-    method("settings.defaults.set", "Changes the launcher's instance defaults.", settings::defaults_set),
-    method("settings.defaults.reset", "Resets launcher defaults to the built-in values.", settings::defaults_reset),
-    method("settings.general.get", "General settings, such as automatic sidebar groups.", settings::general_get),
-    method("settings.general.set", "Changes general settings.", settings::general_set),
-    method("settings.developer.get", "Developer settings.", settings::developer_get),
-    method("settings.developer.set", "Changes developer settings.", settings::developer_set),
-    method("shared.get", "Shared game settings: categories, values, the instance they sync from.", settings::shared_get),
-    method("shared.set_value", "Sets one shared game setting.", settings::shared_set_value),
-    method("shared.set_category", "Shares a category of game settings, or stops sharing it.", settings::shared_set_category),
-    method("shared.sync_from", "The instance whose in-game changes become the shared values.", settings::shared_sync_from),
-    method("shared.copy_from", "Copies an instance's current game settings into the shared values.", settings::shared_copy_from),
-    destructive("shared.clear", "Forgets every shared value.", settings::shared_clear),
-    method("shared.instance.get", "An instance's shared settings: on or off, its overrides.", settings::shared_instance_get),
-    method("shared.instance.set", "Turns sharing on or off for an instance, or overrides keys.", settings::shared_instance_set),
+    method(
+        "settings.instance.get",
+        "An instance's settings: its own and the defaults they follow.",
+        settings::instance_get,
+    ),
+    method(
+        "settings.instance.set",
+        "Changes an instance's settings.",
+        settings::instance_set,
+    ),
+    method(
+        "settings.instance.reset",
+        "Makes instance settings follow the launcher defaults again.",
+        settings::instance_reset,
+    ),
+    method(
+        "settings.defaults.get",
+        "The launcher's instance defaults.",
+        settings::defaults_get,
+    ),
+    method(
+        "settings.defaults.set",
+        "Changes the launcher's instance defaults.",
+        settings::defaults_set,
+    ),
+    method(
+        "settings.defaults.reset",
+        "Resets launcher defaults to the built-in values.",
+        settings::defaults_reset,
+    ),
+    method(
+        "settings.general.get",
+        "General settings, such as automatic sidebar groups.",
+        settings::general_get,
+    ),
+    method(
+        "settings.general.set",
+        "Changes general settings.",
+        settings::general_set,
+    ),
+    method(
+        "settings.developer.get",
+        "Developer settings.",
+        settings::developer_get,
+    ),
+    method(
+        "settings.developer.set",
+        "Changes developer settings.",
+        settings::developer_set,
+    ),
+    method(
+        "shared.get",
+        "Shared game settings: categories, values, the instance they sync from.",
+        settings::shared_get,
+    ),
+    method(
+        "shared.set_value",
+        "Sets one shared game setting.",
+        settings::shared_set_value,
+    ),
+    method(
+        "shared.set_category",
+        "Shares a category of game settings, or stops sharing it.",
+        settings::shared_set_category,
+    ),
+    method(
+        "shared.sync_from",
+        "The instance whose in-game changes become the shared values.",
+        settings::shared_sync_from,
+    ),
+    method(
+        "shared.copy_from",
+        "Copies an instance's current game settings into the shared values.",
+        settings::shared_copy_from,
+    ),
+    destructive(
+        "shared.clear",
+        "Forgets every shared value.",
+        settings::shared_clear,
+    ),
+    method(
+        "shared.instance.get",
+        "An instance's shared settings: on or off, its overrides.",
+        settings::shared_instance_get,
+    ),
+    method(
+        "shared.instance.set",
+        "Turns sharing on or off for an instance, or overrides keys.",
+        settings::shared_instance_set,
+    ),
     // content
-    method("content.list", "Installed mods, resource packs or shader packs.", content::list),
-    method("content.search", "Searches Modrinth for content that fits the instance.", content::search),
-    method("content.versions", "A Modrinth project's versions, with whether each fits.", content::versions),
-    method("content.install", "Installs a Modrinth project (with its required mods).", content::install),
-    method("content.add_file", "Adds a local mod, resource pack or shader pack file.", content::add_file),
-    destructive("content.remove", "Moves installed content to the Trash.", content::remove),
-    method("content.enable", "Turns installed content on.", content::enable),
-    method("content.disable", "Turns installed content off.", content::disable),
-    method("content.updates", "Newer versions of installed content.", content::updates),
-    method("content.update", "Updates installed content (some or all).", content::update),
-    method("content.switch_loader", "Changes an instance's mod loader.", content::switch_loader),
+    method(
+        "content.list",
+        "Installed mods, resource packs or shader packs.",
+        content::list,
+    ),
+    method(
+        "content.search",
+        "Searches Modrinth for content that fits the instance.",
+        content::search,
+    ),
+    method(
+        "content.versions",
+        "A Modrinth project's versions, with whether each fits.",
+        content::versions,
+    ),
+    method(
+        "content.install",
+        "Installs a Modrinth project (with its required mods).",
+        content::install,
+    ),
+    method(
+        "content.add_file",
+        "Adds a local mod, resource pack or shader pack file.",
+        content::add_file,
+    ),
+    destructive(
+        "content.remove",
+        "Moves installed content to the Trash.",
+        content::remove,
+    ),
+    method(
+        "content.enable",
+        "Turns installed content on.",
+        content::enable,
+    ),
+    method(
+        "content.disable",
+        "Turns installed content off.",
+        content::disable,
+    ),
+    method(
+        "content.updates",
+        "Newer versions of installed content.",
+        content::updates,
+    ),
+    method(
+        "content.update",
+        "Updates installed content (some or all).",
+        content::update,
+    ),
+    method(
+        "content.switch_loader",
+        "Changes an instance's mod loader.",
+        content::switch_loader,
+    ),
     // modpacks
-    method("modpacks.search", "Searches Modrinth for modpacks.", content::modpack_search),
-    method("modpacks.install", "Makes an instance from a modpack (Modrinth or .mrpack).", content::modpack_install),
-    method("modpacks.check", "Whether an instance's modpack has a newer version.", content::modpack_check),
-    method("modpacks.update", "Updates an instance's modpack (shows the plan first).", content::modpack_update),
+    method(
+        "modpacks.search",
+        "Searches Modrinth for modpacks.",
+        content::modpack_search,
+    ),
+    method(
+        "modpacks.install",
+        "Makes an instance from a modpack (Modrinth or .mrpack).",
+        content::modpack_install,
+    ),
+    method(
+        "modpacks.check",
+        "Whether an instance's modpack has a newer version.",
+        content::modpack_check,
+    ),
+    method(
+        "modpacks.update",
+        "Updates an instance's modpack (shows the plan first).",
+        content::modpack_update,
+    ),
     // worlds
     method("worlds.list", "An instance's worlds.", worlds::list),
     method("worlds.backups", "A world's backups.", worlds::backups),
     method("worlds.backup", "Backs up a world.", worlds::backup),
-    method("worlds.restore", "Restores a backup as a copy, or replaces the world with it.", worlds::restore),
-    destructive("worlds.delete", "Moves a world to the Trash.", worlds::delete),
-    destructive("worlds.delete_backup", "Moves a backup to the Trash.", worlds::delete_backup),
-    method("worlds.download", "Downloads a server's world from its core into an instance.", servers::download_world),
+    method(
+        "worlds.restore",
+        "Restores a backup as a copy, or replaces the world with it.",
+        worlds::restore,
+    ),
+    destructive(
+        "worlds.delete",
+        "Moves a world to the Trash.",
+        worlds::delete,
+    ),
+    destructive(
+        "worlds.delete_backup",
+        "Moves a backup to the Trash.",
+        worlds::delete_backup,
+    ),
+    method(
+        "worlds.download",
+        "Downloads a server's world from its core into an instance.",
+        servers::download_world,
+    ),
     // accounts
-    method("accounts.list", "Accounts and the active one. Never tokens.", accounts::list),
-    method("accounts.switch", "Makes an account the active one.", accounts::switch),
-    method("accounts.add_offline", "Adds an offline account (development builds or LODESTONE_LAUNCHER_OFFLINE=1).", accounts::add_offline),
-    destructive("accounts.remove", "Removes an account and its saved sign-in.", accounts::remove),
-    method("accounts.sign_in", "Starts a Microsoft sign-in with a device code; returns the code and URL.", accounts::sign_in),
+    method(
+        "accounts.list",
+        "Accounts and the active one. Never tokens.",
+        accounts::list,
+    ),
+    method(
+        "accounts.switch",
+        "Makes an account the active one.",
+        accounts::switch,
+    ),
+    method(
+        "accounts.add_offline",
+        "Adds an offline account (development builds or LODESTONE_LAUNCHER_OFFLINE=1).",
+        accounts::add_offline,
+    ),
+    destructive(
+        "accounts.remove",
+        "Removes an account and its saved sign-in.",
+        accounts::remove,
+    ),
+    method(
+        "accounts.sign_in",
+        "Starts a Microsoft sign-in with a device code; returns the code and URL.",
+        accounts::sign_in,
+    ),
     // import
-    method("import.detect", "Other launchers' instances on this Mac, or in a folder.", import::detect),
-    method("import.run", "Imports instances from another launcher.", import::run),
+    method(
+        "import.detect",
+        "Other launchers' instances on this Mac, or in a folder.",
+        import::detect,
+    ),
+    method(
+        "import.run",
+        "Imports instances from another launcher.",
+        import::run,
+    ),
     // cores and servers
-    method("cores.list", "Lodestone cores and their servers.", servers::cores_list),
-    method("cores.add", "Adds a core (and signs in to it).", servers::cores_add),
-    destructive("cores.remove", "Removes a core and forgets its key on this device.", servers::cores_remove),
-    destructive("cores.trust", "Trusts a core for mods: its mods install without the advisory.", servers::cores_trust),
-    method("cores.untrust", "Stops trusting a core for mods.", servers::cores_untrust),
-    method("cores.trust_certificate", "Pins a core's certificate after the user compared its fingerprint.", servers::cores_trust_certificate),
-    method("cores.sign_out", "Forgets this device's key for a core.", servers::cores_sign_out),
-    method("servers.list", "Servers on the cores.", servers::servers_list),
+    method(
+        "cores.list",
+        "Lodestone cores and their servers.",
+        servers::cores_list,
+    ),
+    method(
+        "cores.add",
+        "Adds a core (and signs in to it).",
+        servers::cores_add,
+    ),
+    destructive(
+        "cores.remove",
+        "Removes a core and forgets its key on this device.",
+        servers::cores_remove,
+    ),
+    destructive(
+        "cores.trust",
+        "Trusts a core for mods: its mods install without the advisory.",
+        servers::cores_trust,
+    ),
+    method(
+        "cores.untrust",
+        "Stops trusting a core for mods.",
+        servers::cores_untrust,
+    ),
+    method(
+        "cores.trust_certificate",
+        "Pins a core's certificate after the user compared its fingerprint.",
+        servers::cores_trust_certificate,
+    ),
+    method(
+        "cores.sign_out",
+        "Forgets this device's key for a core.",
+        servers::cores_sign_out,
+    ),
+    method(
+        "servers.list",
+        "Servers on the cores.",
+        servers::servers_list,
+    ),
     method("servers.start", "Starts a server.", servers::start),
     method("servers.stop", "Stops a server.", servers::stop),
-    method("servers.join", "Plays the server's linked instance and joins it.", servers::join),
-    method("servers.create_instance", "Makes an instance matching a server, with its mods.", servers::create_instance),
-    method("servers.link", "Links an instance to a server.", servers::link),
-    method("servers.unlink", "Unlinks an instance from its server.", servers::unlink),
-    method("servers.host", "Hosts an instance's modpack as a new server on a core.", servers::host),
-    method("servers.resource_pack", "Saves a server's resource pack into an instance.", servers::resource_pack),
-    method("prompts.list", "Questions the window is asking about servers.", servers::prompts_list),
-    method("prompts.answer", "Answers a question the window is asking.", servers::prompts_answer),
+    method(
+        "servers.join",
+        "Plays the server's linked instance and joins it.",
+        servers::join,
+    ),
+    method(
+        "servers.create_instance",
+        "Makes an instance matching a server, with its mods.",
+        servers::create_instance,
+    ),
+    method(
+        "servers.link",
+        "Links an instance to a server.",
+        servers::link,
+    ),
+    method(
+        "servers.unlink",
+        "Unlinks an instance from its server.",
+        servers::unlink,
+    ),
+    method(
+        "servers.host",
+        "Hosts an instance's modpack as a new server on a core.",
+        servers::host,
+    ),
+    method(
+        "servers.resource_pack",
+        "Saves a server's resource pack into an instance.",
+        servers::resource_pack,
+    ),
+    method(
+        "prompts.list",
+        "Questions the window is asking about servers.",
+        servers::prompts_list,
+    ),
+    method(
+        "prompts.answer",
+        "Answers a question the window is asking.",
+        servers::prompts_answer,
+    ),
     // jobs and events
-    method("jobs.list", "Long operations, running and finished.", jobs::list),
+    method(
+        "jobs.list",
+        "Long operations, running and finished.",
+        jobs::list,
+    ),
     method("jobs.get", "One job.", jobs::get),
-    method("jobs.wait", "Waits for a job, with progress lines.", jobs::wait),
+    method(
+        "jobs.wait",
+        "Waits for a job, with progress lines.",
+        jobs::wait,
+    ),
     method("jobs.cancel", "Cancels a job.", jobs::cancel),
-    method("events.subscribe", "Streams log lines, game states, progress, jobs and notices.", events::subscribe),
-    method("events.unsubscribe", "Ends a subscription.", events::unsubscribe),
+    method(
+        "events.subscribe",
+        "Streams log lines, game states, progress, jobs and notices.",
+        events::subscribe,
+    ),
+    method(
+        "events.unsubscribe",
+        "Ends a subscription.",
+        events::unsubscribe,
+    ),
 ];
 
 /// A request being handled.
@@ -241,9 +590,8 @@ pub struct Call {
 impl Call {
     /// The parameters, read into `T`.
     pub fn params<T: DeserializeOwned>(&self) -> Result<T, ErrorObject> {
-        serde_json::from_value(self.params.clone()).map_err(|err| {
-            api_error(codes::INVALID_PARAMS, format!("Bad parameters: {err}"))
-        })
+        serde_json::from_value(self.params.clone())
+            .map_err(|err| api_error(codes::INVALID_PARAMS, format!("Bad parameters: {err}")))
     }
 
     /// Refuses a destructive request without `"confirm": true`.
@@ -269,6 +617,12 @@ pub fn confirmed(params: &Value) -> bool {
     params.get("confirm") == Some(&Value::Bool(true))
 }
 
+/// The window's views the API keeps in step.
+pub struct Views {
+    pub content: Option<Entity<ContentView>>,
+    pub worlds: Option<Entity<WorldsView>>,
+}
+
 /// A ready reply.
 pub fn ready(result: ApiResult) -> Reply {
     Task::ready(result)
@@ -279,6 +633,9 @@ pub struct Control {
     pub accounts: Entity<Accounts>,
     pub instances: Entity<Instances>,
     pub servers: Entity<Servers>,
+    /// The Content and Worlds tabs, reloaded after a change to the instance they show.
+    pub content: Option<Entity<ContentView>>,
+    pub worlds: Option<Entity<WorldsView>>,
     pub jobs: RefCell<Jobs>,
     pub notices: RefCell<events::Notices>,
     /// Running subscriptions by connection, then by number.
@@ -294,6 +651,7 @@ impl Control {
         accounts: Entity<Accounts>,
         instances: Entity<Instances>,
         servers: Entity<Servers>,
+        views: Views,
         socket: PathBuf,
         cx: &mut App,
     ) -> Rc<Self> {
@@ -318,6 +676,8 @@ impl Control {
                 accounts,
                 instances,
                 servers,
+                content: views.content,
+                worlds: views.worlds,
                 jobs: RefCell::new(Jobs::default()),
                 notices: RefCell::new(events::Notices::default()),
                 subscriptions: RefCell::new(HashMap::new()),
@@ -518,7 +878,7 @@ struct Forward {
 enum Incoming {
     Request {
         connection: u64,
-        request: Request,
+        request: Box<Request>,
         outbox: Outbox,
     },
     Closed(u64),
@@ -529,7 +889,7 @@ impl Backend for Forward {
         let id = request.id.clone();
         let sent = self.tx.unbounded_send(Incoming::Request {
             connection,
-            request,
+            request: Box::new(request),
             outbox: outbox.clone(),
         });
         if sent.is_err() {
@@ -548,12 +908,10 @@ impl Backend for Forward {
 /// Serves the control socket for the app's entities. Without a socket (another
 /// launcher already serves this data directory, or the folder can't be used) the app
 /// runs as before, and says so on stderr.
-pub fn start(
-    accounts: &Entity<Accounts>,
-    instances: &Entity<Instances>,
-    servers: &Entity<Servers>,
-    cx: &mut App,
-) {
+pub fn start(shell: &LauncherShell, cx: &mut App) {
+    let accounts = shell.accounts();
+    let instances = shell.instances();
+    let servers = shell.servers();
     let root = accounts.read(cx).data_dir().root().to_path_buf();
     let path = paths::socket_path(&root);
     let server = match Server::bind(&path) {
@@ -587,6 +945,10 @@ pub fn start(
         accounts.clone(),
         instances.clone(),
         servers.clone(),
+        Views {
+            content: Some(shell.content().clone()),
+            worlds: Some(shell.worlds().clone()),
+        },
         path,
         cx,
     );
@@ -600,7 +962,7 @@ pub fn start(
                     outbox,
                 } => {
                     let control = control.clone();
-                    cx.update(|cx| control.handle(connection, request, outbox, cx));
+                    cx.update(|cx| control.handle(connection, *request, outbox, cx));
                 }
                 Incoming::Closed(connection) => control.closed(connection),
             }
@@ -644,10 +1006,16 @@ mod tests {
         ];
         assert_eq!(find_instance(&list, "a1").unwrap().name, "Survival");
         assert_eq!(find_instance(&list, "survival").unwrap().id, "a1");
-        assert_eq!(find_instance(&list, "nope").unwrap_err().code, codes::NOT_FOUND);
+        assert_eq!(
+            find_instance(&list, "nope").unwrap_err().code,
+            codes::NOT_FOUND
+        );
         let ambiguous = find_instance(&list, "CREATIVE").unwrap_err();
         assert_eq!(ambiguous.code, codes::AMBIGUOUS);
-        assert_eq!(ambiguous.data.unwrap()["matches"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            ambiguous.data.unwrap()["matches"].as_array().unwrap().len(),
+            2
+        );
         assert_eq!(find_instance(&list, "c3").unwrap().name, "creative");
     }
 
@@ -686,6 +1054,9 @@ mod tests {
         });
         assert_eq!(cert.code, codes::UNTRUSTED_CERTIFICATE);
         assert_eq!(cert.data.unwrap()["fingerprint"], "AB:CD");
-        assert_eq!(core_error(CoreError::BadCredentials).code, codes::PERMISSION_DENIED);
+        assert_eq!(
+            core_error(CoreError::BadCredentials).code,
+            codes::PERMISSION_DENIED
+        );
     }
 }

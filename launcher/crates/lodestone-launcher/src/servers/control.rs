@@ -15,7 +15,7 @@ use launcher_core::{
         self, CoreClient, ServerInstance,
         client::display_address,
         hosting::{self, HostSettings},
-        link::{self, ServerLink},
+        link,
         live::LauncherScope,
         resource_pack,
         store::{self, SavedCore},
@@ -28,8 +28,7 @@ use launcher_core::{
 use serde_json::json;
 
 use super::{
-    AddFailure, CoreEntry, CoreStatus, FINGERPRINT_HELP, Servers, certificate_outcome,
-    pinned_http,
+    AddFailure, CoreEntry, CoreStatus, FINGERPRINT_HELP, Servers, certificate_outcome, pinned_http,
 };
 use crate::control::{api_error, core_error};
 
@@ -120,22 +119,6 @@ impl Servers {
         self.cores
             .iter()
             .any(|c| c.refreshing || matches!(c.status, CoreStatus::Loading))
-    }
-
-    pub(crate) fn control_refresh(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.reload_links(cx);
-        self.refresh(index, cx);
-    }
-
-    /// The instances linked to servers, by instance id.
-    pub(crate) fn control_links(&self) -> Vec<(String, ServerLink)> {
-        let mut links: Vec<_> = self
-            .instance_links
-            .iter()
-            .map(|(id, link)| (id.clone(), link.clone()))
-            .collect();
-        links.sort_by(|a, b| a.0.cmp(&b.0));
-        links
     }
 
     /// Links an existing instance to a server, as "Create matching instance" does for
@@ -268,7 +251,7 @@ impl Servers {
                                 )
                             } else {
                                 format!(
-                                    "This Mac doesn't trust the HTTPS certificate of {host}, so nothing was sent to it. Ask the user to compare its fingerprint, then add the core again with --fingerprint. {FINGERPRINT_HELP}"
+                                    "This {} doesn't trust the HTTPS certificate of {host}, so nothing was sent to it. Ask the user to compare its fingerprint, then add the core again with --fingerprint. {FINGERPRINT_HELP}", launcher_core::wording::COMPUTER
                                 )
                             };
                             return Err(api_error(codes::UNTRUSTED_CERTIFICATE, message)
@@ -526,9 +509,10 @@ impl Servers {
             set_stage("Downloading");
             std::fs::create_dir_all(&dirs.instance)
                 .map_err(|e| api_error(codes::FAILED, e.to_string()))?;
-            let zip = dirs
-                .instance
-                .join(format!(".lodestone-server-world-{}.zip", std::process::id()));
+            let zip = dirs.instance.join(format!(
+                ".lodestone-server-world-{}.zip",
+                std::process::id()
+            ));
             let result = async {
                 client
                     .download_file(&download.key, &zip, 64 << 30, &progress, &cancel)
@@ -570,9 +554,7 @@ impl Servers {
                 .resource_pack(&key, &server.uuid)
                 .await
                 .map_err(core_error)?
-                .ok_or_else(|| {
-                    api_error(codes::NOT_FOUND, "The server has no resource pack.")
-                })?;
+                .ok_or_else(|| api_error(codes::NOT_FOUND, "The server has no resource pack."))?;
             let path = resource_pack::download(http, &pack, &server.name, &packs)
                 .await
                 .map_err(|e| api_error(codes::FAILED, e))?;

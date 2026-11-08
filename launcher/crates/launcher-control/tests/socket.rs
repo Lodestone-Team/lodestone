@@ -9,9 +9,9 @@ use std::{
 };
 
 use launcher_control::{
-    ErrorObject, Message, codes,
+    ErrorObject, Message,
     client::{Client, ClientError},
-    current_uid,
+    codes, current_uid,
     server::{Backend, BindError, Outbox, Server},
 };
 use serde_json::{Value, json};
@@ -105,7 +105,11 @@ fn requests_get_their_responses() {
     assert_eq!(result, Ok(json!({ "done": true })));
     assert_eq!(
         progress,
-        [json!({ "step": 1 }), json!({ "step": 2 }), json!({ "step": 3 })]
+        [
+            json!({ "step": 1 }),
+            json!({ "step": 2 }),
+            json!({ "step": 3 })
+        ]
     );
 
     let error = client.call("nope", json!({})).unwrap().unwrap_err();
@@ -173,7 +177,10 @@ fn bad_lines_are_answered_with_codes() {
         } => (id, error.code),
         other => panic!("not an error: {other:?}"),
     };
-    assert_eq!(error(ask("{oops")), (Value::Null, codes::PARSE_ERROR.into()));
+    assert_eq!(
+        error(ask("{oops")),
+        (Value::Null, codes::PARSE_ERROR.into())
+    );
     assert_eq!(
         error(ask(r#"{"v":2,"id":5,"method":"echo"}"#)),
         (json!(5), codes::PROTOCOL_VERSION.into())

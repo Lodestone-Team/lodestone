@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use gpui::{App, AppContext as _, SharedString};
+use gpui::{App, SharedString};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
     Secret,
@@ -31,10 +31,11 @@ use super::{
     poll_until, ready,
 };
 use crate::servers::{
-    AdvisoryAnswer, CoreEntry, CoreStatus, Servers, TRUST_EXPLANATION,
+    AdvisoryAnswer, CoreEntry, CoreStatus, Servers,
     add_dialog::KeyExpiry,
     control::{AddCore, HostCore},
     host::{EULA_URL, MEMORY_CHOICES},
+    trust_explanation,
 };
 
 fn lower(value: impl std::fmt::Debug) -> String {
@@ -109,7 +110,12 @@ pub fn cores_summary(control: &Control, cx: &App) -> Value {
 }
 
 /// Fetches every core's list (as the page does while shown), and waits for them.
-fn fresh(control: &Rc<Control>, call: &Call, cached: bool, cx: &mut App) -> gpui::Task<Result<(), ErrorObject>> {
+fn fresh(
+    control: &Rc<Control>,
+    call: &Call,
+    cached: bool,
+    cx: &mut App,
+) -> gpui::Task<Result<(), ErrorObject>> {
     if cached {
         return gpui::Task::ready(Ok(()));
     }
@@ -120,9 +126,13 @@ fn fresh(control: &Rc<Control>, call: &Call, cached: bool, cx: &mut App) -> gpui
     let outbox = call.outbox.clone();
     cx.spawn(async move |cx| {
         // a core that doesn't answer in time is listed with what it said last
-        let _ = poll_until(cx, Some(&outbox), Duration::from_millis(150), Duration::from_secs(25), |cx| {
-            (!control.servers.read(cx).control_refreshing()).then_some(())
-        })
+        let _ = poll_until(
+            cx,
+            Some(&outbox),
+            Duration::from_millis(150),
+            Duration::from_secs(25),
+            |cx| (!control.servers.read(cx).control_refreshing()).then_some(()),
+        )
         .await;
         Ok(())
     })
@@ -154,7 +164,11 @@ pub fn cores_list(call: Call, cx: &mut App) -> Reply {
 pub fn servers_list(call: Call, cx: &mut App) -> Reply {
     let params: ListParams = params!(call);
     let control = call.control.clone();
-    let only = call.params.get("core").and_then(Value::as_str).map(str::to_string);
+    let only = call
+        .params
+        .get("core")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let refresh = fresh(&control, &call, params.cached, cx);
     cx.spawn(async move |cx| {
         refresh.await?;
@@ -182,7 +196,12 @@ fn core_param(call: &Call, servers: &Servers) -> Result<usize, ErrorObject> {
         .params
         .get("core")
         .and_then(Value::as_str)
-        .ok_or_else(|| api_error(codes::INVALID_PARAMS, "Name the core: its id, name or address."))?;
+        .ok_or_else(|| {
+            api_error(
+                codes::INVALID_PARAMS,
+                "Name the core: its id, name or address.",
+            )
+        })?;
     servers.control_core(reference)
 }
 
@@ -193,7 +212,12 @@ fn find_server(call: &Call, servers: &Servers) -> Result<(String, ServerInstance
         .params
         .get("server")
         .and_then(Value::as_str)
-        .ok_or_else(|| api_error(codes::INVALID_PARAMS, "Name the server: its id or its name."))?;
+        .ok_or_else(|| {
+            api_error(
+                codes::INVALID_PARAMS,
+                "Name the server: its id or its name.",
+            )
+        })?;
     let only = match call.params.get("core").and_then(Value::as_str) {
         Some(core) => Some(servers.control_core(core)?),
         None => None,
@@ -284,7 +308,7 @@ pub fn cores_add(call: Call, cx: &mut App) -> Reply {
                 "signed_in": added.signed_in,
                 "trusted_for_mods": added.trusted,
             },
-            "trust": if added.trusted { Value::Null } else { json!(format!("Not trusted for mods: installing a server's mods asks first. {TRUST_EXPLANATION} To trust it, the user decides and runs `cores trust <core> --yes`.")) },
+            "trust": if added.trusted { Value::Null } else { json!(format!("Not trusted for mods: installing a server's mods asks first. {} To trust it, the user decides and runs `cores trust <core> --yes`.", trust_explanation())) },
         }))
     })
 }
@@ -308,13 +332,16 @@ pub fn cores_trust(call: Call, cx: &mut App) -> Reply {
     let index = tri!(core_param(&call, control.servers.read(cx)));
     let name = control.servers.read(cx).cores[index].saved.name.clone();
     tri!(call.confirm(format!(
-        "trusts {name} for mods, so its servers' mods install without the advisory. {TRUST_EXPLANATION}"
+        "trusts {name} for mods, so its servers' mods install without the advisory. {}",
+        trust_explanation()
     )));
     control
         .servers
         .update(cx, |servers, _| servers.control_set_trusted(index, true));
     let servers = control.servers.read(cx);
-    ready(Ok(json!({ "core": core_json(&servers.cores[index], servers, false) })))
+    ready(Ok(
+        json!({ "core": core_json(&servers.cores[index], servers, false) }),
+    ))
 }
 
 pub fn cores_untrust(call: Call, cx: &mut App) -> Reply {
@@ -324,7 +351,9 @@ pub fn cores_untrust(call: Call, cx: &mut App) -> Reply {
         .servers
         .update(cx, |servers, cx| servers.set_trusted(index, false, cx));
     let servers = control.servers.read(cx);
-    ready(Ok(json!({ "core": core_json(&servers.cores[index], servers, false) })))
+    ready(Ok(
+        json!({ "core": core_json(&servers.cores[index], servers, false) }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -441,7 +470,7 @@ fn advisory_json(prompt: &crate::servers::AdvisoryPrompt) -> Value {
         "configs": advisory.configs,
         "other": advisory.other,
         "unchecked": advisory.unchecked,
-        "explanation": TRUST_EXPLANATION,
+        "explanation": trust_explanation(),
     })
 }
 
@@ -458,7 +487,12 @@ fn changes_json(prompt: &crate::servers::UpdatePrompt) -> Value {
 
 /// Answers the advisory for `server_name` as `accept` says; the error when it isn't
 /// accepted.
-fn handle_advisory(servers: &mut Servers, server_name: &str, accept: bool, cx: &mut gpui::Context<Servers>) -> Option<Result<(), ErrorObject>> {
+fn handle_advisory(
+    servers: &mut Servers,
+    server_name: &str,
+    accept: bool,
+    cx: &mut gpui::Context<Servers>,
+) -> Option<Result<(), ErrorObject>> {
     let prompt = servers.advisory.current()?;
     if prompt.server_name != server_name {
         return None;
@@ -610,6 +644,7 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
     let before = notice_of(control.servers.read(cx));
     let row = (core.clone(), server.uuid.clone());
     let name = server.name.clone();
+    let label = format!("Creating an instance for {name}");
     let core_id = core.clone();
     let server_id = server.uuid.clone();
     control
@@ -652,11 +687,7 @@ pub fn create_instance(call: Call, cx: &mut App) -> Reply {
             })
         }))
     });
-    let job = control.start_job(
-        JobSpec::new("create_instance", format!("Creating an instance for {}", row.1)),
-        work,
-        cx,
-    );
+    let job = control.start_job(JobSpec::new("create_instance", label), work, cx);
     control.reply_job(&call, job, cx)
 }
 
@@ -666,12 +697,14 @@ pub fn link(call: Call, cx: &mut App) -> Reply {
     let (core, server) = tri!(find_server(&call, control.servers.read(cx)));
     let id = instance.id.clone();
     let name = server.name.clone();
-    control
-        .servers
-        .update(cx, |servers, cx| servers.control_link(&core, &server, &id, cx));
+    control.servers.update(cx, |servers, cx| {
+        servers.control_link(&core, &server, &id, cx)
+    });
     let linked = control.servers.read(cx).instance_link(&id);
     match linked {
-        Some(link) => ready(Ok(json!({ "instance": id, "server": name, "core_name": link.core_name }))),
+        Some(link) => ready(Ok(
+            json!({ "instance": id, "server": name, "core_name": link.core_name }),
+        )),
         None => ready(Err(api_error(
             codes::FAILED,
             notice_of(control.servers.read(cx))
@@ -684,7 +717,12 @@ pub fn link(call: Call, cx: &mut App) -> Reply {
 pub fn unlink(call: Call, cx: &mut App) -> Reply {
     let control = &call.control;
     let instance = tri!(control.instance_param(&call, cx));
-    if control.servers.read(cx).instance_link(&instance.id).is_none() {
+    if control
+        .servers
+        .read(cx)
+        .instance_link(&instance.id)
+        .is_none()
+    {
         return ready(Err(api_error(
             codes::CONFLICT,
             format!("{} isn't linked to a server.", instance.name),
@@ -749,9 +787,9 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
     };
     let job_stage = stage.clone();
     let id = instance.id.clone();
-    let work = control
-        .servers
-        .update(cx, |servers, cx| servers.control_host(&id, request, stage, cx));
+    let work = control.servers.update(cx, |servers, cx| {
+        servers.control_host(&id, request, stage, cx)
+    });
     let job = control.start_job(
         JobSpec::new("host", format!("Hosting {} as {name}", instance.name))
             .instance(&instance)
@@ -769,9 +807,9 @@ pub fn resource_pack(call: Call, cx: &mut App) -> Reply {
     let (core, server) = tri!(find_server(&call, control.servers.read(cx)));
     let index = tri!(control.servers.read(cx).control_core(&core));
     let id = instance.id.clone();
-    let task = control
-        .servers
-        .update(cx, |servers, cx| servers.control_download_pack(index, server, &id, cx));
+    let task = control.servers.update(cx, |servers, cx| {
+        servers.control_download_pack(index, server, &id, cx)
+    });
     cx.spawn(async move |_| {
         let file = task.await?;
         Ok(json!({ "instance": id, "file": file, "note": "Saved in the instance's resource packs; turn it on with `content enable`." }))
@@ -827,11 +865,14 @@ pub fn download_world(call: Call, cx: &mut App) -> Reply {
         }))
     });
     let job = control.start_job(
-        JobSpec::new("world_download", format!("Downloading {server_name}'s world"))
-            .instance(&instance)
-            .progress(Progress::Files(progress))
-            .stage(stage)
-            .cancel(Cancel::Token(cancel)),
+        JobSpec::new(
+            "world_download",
+            format!("Downloading {server_name}'s world"),
+        )
+        .instance(&instance)
+        .progress(Progress::Files(progress))
+        .stage(stage)
+        .cancel(Cancel::Token(cancel)),
         work,
         cx,
     );
@@ -865,7 +906,7 @@ pub fn prompts_list(call: Call, cx: &mut App) -> Reply {
         prompts.push(json!({
             "prompt": "trust",
             "answers": ["trust", "no"],
-            "details": { "core": prompt.core, "name": prompt.name, "address": prompt.address, "explanation": TRUST_EXPLANATION },
+            "details": { "core": prompt.core, "name": prompt.name, "address": prompt.address, "explanation": trust_explanation() },
         }));
     }
     ready(Ok(json!({ "prompts": prompts })))
@@ -905,23 +946,31 @@ pub fn prompts_answer(call: Call, cx: &mut App) -> Reply {
     let bad = || {
         api_error(
             codes::INVALID_PARAMS,
-            format!("\"{}\" doesn't answer the {} prompt; `prompts list` gives the answers.", params.answer, params.prompt),
+            format!(
+                "\"{}\" doesn't answer the {} prompt; `prompts list` gives the answers.",
+                params.answer, params.prompt
+            ),
         )
     };
     match (params.prompt.as_str(), params.answer.as_str()) {
         ("update", answer @ ("update" | "play")) => {
             let update = answer == "update";
-            control.servers.update(cx, |s, cx| s.answer_prompt(update, cx));
-        }
-        ("update", "cancel") => control.servers.update(cx, |s, cx| s.cancel_prompt(cx)),
-        ("advisory", "install_once") => control
-            .servers
-            .update(cx, |s, cx| s.answer_advisory(AdvisoryAnswer::InstallOnce, cx)),
-        ("advisory", "trust") => {
-            tri!(call.confirm(format!("trusts the core for mods from now on. {TRUST_EXPLANATION}")));
             control
                 .servers
-                .update(cx, |s, cx| s.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx))
+                .update(cx, |s, cx| s.answer_prompt(update, cx));
+        }
+        ("update", "cancel") => control.servers.update(cx, |s, cx| s.cancel_prompt(cx)),
+        ("advisory", "install_once") => control.servers.update(cx, |s, cx| {
+            s.answer_advisory(AdvisoryAnswer::InstallOnce, cx)
+        }),
+        ("advisory", "trust") => {
+            tri!(call.confirm(format!(
+                "trusts the core for mods from now on. {}",
+                trust_explanation()
+            )));
+            control.servers.update(cx, |s, cx| {
+                s.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx)
+            })
         }
         ("advisory", "cancel") => control
             .servers
@@ -940,17 +989,23 @@ pub fn prompts_answer(call: Call, cx: &mut App) -> Reply {
                 )
                 .with_data(json!({ "fingerprint": presented }))));
             }
-            control.servers.update(cx, |s, cx| s.answer_certificate(true, cx))
+            control
+                .servers
+                .update(cx, |s, cx| s.answer_certificate(true, cx))
         }
         ("certificate", "reject") => control
             .servers
             .update(cx, |s, cx| s.answer_certificate(false, cx)),
         ("trust", "trust") => {
-            tri!(call.confirm(format!("trusts the core for mods. {TRUST_EXPLANATION}")));
+            tri!(call.confirm(format!("trusts the core for mods. {}", trust_explanation())));
             control.servers.update(cx, |s, cx| s.answer_trust(true, cx))
         }
-        ("trust", "no") => control.servers.update(cx, |s, cx| s.answer_trust(false, cx)),
+        ("trust", "no") => control
+            .servers
+            .update(cx, |s, cx| s.answer_trust(false, cx)),
         _ => return ready(Err(bad())),
     }
-    ready(Ok(json!({ "prompt": params.prompt, "answer": params.answer })))
+    ready(Ok(
+        json!({ "prompt": params.prompt, "answer": params.answer }),
+    ))
 }

@@ -10,7 +10,9 @@ use gpui::{App, AppContext as _};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
     game::download::CancelToken,
-    import::{self, CopyOptions, Found, ImportProgress, ImportRequest, Launcher, Locations, detect},
+    import::{
+        self, CopyOptions, Found, ImportProgress, ImportRequest, Launcher, Locations, detect,
+    },
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -96,7 +98,11 @@ pub fn run(call: Call, cx: &mut App) -> Reply {
     let control = call.control.clone();
     let (installer, store, api) = {
         let instances = control.instances.read(cx);
-        (instances.installer(), instances.store(), instances.modrinth())
+        (
+            instances.installer(),
+            instances.store(),
+            instances.modrinth(),
+        )
     };
     let slot: Arc<Mutex<Option<Arc<ImportProgress>>>> = Arc::new(Mutex::new(None));
     let stage = Arc::new(Mutex::new(String::new()));

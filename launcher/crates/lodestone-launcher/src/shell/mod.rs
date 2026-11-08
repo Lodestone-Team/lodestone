@@ -338,6 +338,11 @@ impl LauncherShell {
         &self.console
     }
 
+    /// For the control API (`crate::control`).
+    pub fn accounts(&self) -> &Entity<Accounts> {
+        &self.accounts
+    }
+
     pub fn content(&self) -> &Entity<ContentView> {
         &self.content
     }

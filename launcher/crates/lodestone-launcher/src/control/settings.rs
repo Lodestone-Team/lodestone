@@ -59,12 +59,22 @@ impl GameSettingsParams {
     }
 
     /// The memory, checked as the Settings tab checks it.
-    fn memory(&self, current: (u32, u32), total: Option<u64>) -> Result<Option<(u32, u32)>, ErrorObject> {
+    fn memory(
+        &self,
+        current: (u32, u32),
+        total: Option<u64>,
+    ) -> Result<Option<(u32, u32)>, ErrorObject> {
         if self.min_memory.is_none() && self.max_memory.is_none() {
             return Ok(None);
         }
-        let min = self.min_memory.clone().unwrap_or_else(|| current.0.to_string());
-        let max = self.max_memory.clone().unwrap_or_else(|| current.1.to_string());
+        let min = self
+            .min_memory
+            .clone()
+            .unwrap_or_else(|| current.0.to_string());
+        let max = self
+            .max_memory
+            .clone()
+            .unwrap_or_else(|| current.1.to_string());
         let check = check_memory(&min, &max, total);
         match (check.values, check.error) {
             (Some(values), _) => Ok(Some(values)),
@@ -101,12 +111,20 @@ pub fn parse_resolution(text: &str) -> Result<Option<Resolution>, ErrorObject> {
     let bad = || {
         api_error(
             codes::INVALID_PARAMS,
-            format!("\"{text}\" isn't a window size: give WIDTHxHEIGHT, each 100 to 16384, or default."),
+            format!(
+                "\"{text}\" isn't a window size: give WIDTHxHEIGHT, each 100 to 16384, or default."
+            ),
         )
     };
-    let (width, height) = text
-        .split_once(['x', '×', ' ', '*'])
-        .ok_or_else(bad)?;
+    let joined = text.replace(['×', '*'], "x");
+    let (width, height) = if joined.contains('x') {
+        joined.split_once('x').ok_or_else(bad)?
+    } else {
+        joined
+            .trim()
+            .split_once(char::is_whitespace)
+            .ok_or_else(bad)?
+    };
     let side = |s: &str| {
         s.trim()
             .parse::<u32>()
@@ -237,7 +255,10 @@ fn reset_keys(keys: Vec<String>) -> Result<Vec<String>, ErrorObject> {
     if let Some(bad) = keys.iter().find(|k| !INSTANCE_KEYS.contains(&k.as_str())) {
         return Err(api_error(
             codes::INVALID_PARAMS,
-            format!("No setting \"{bad}\". Settings: {}.", INSTANCE_KEYS.join(", ")),
+            format!(
+                "No setting \"{bad}\". Settings: {}.",
+                INSTANCE_KEYS.join(", ")
+            ),
         ));
     }
     Ok(keys)
@@ -407,7 +428,9 @@ fn developer_json(control: &Control, cx: &App) -> Value {
 }
 
 pub fn developer_get(call: Call, cx: &mut App) -> Reply {
-    ready(Ok(json!({ "developer": developer_json(&call.control, cx) })))
+    ready(Ok(
+        json!({ "developer": developer_json(&call.control, cx) }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -427,9 +450,9 @@ pub fn developer_set(call: Call, cx: &mut App) -> Reply {
         if let Err(err) = call.confirm(
             "makes new Microsoft sign-ins tell Microsoft that Lodestone Launcher is Mojang's Minecraft Launcher",
         ) {
-            let disclosure: Vec<Value> = crate::shell::developer::DISCLOSURE
+            let disclosure: Vec<Value> = crate::shell::developer::disclosure()
                 .iter()
-                .map(|(heading, text)| json!({ "heading": heading, "text": text }))
+                .map(|(heading, text)| json!({ "heading": heading, "text": text.to_string() }))
                 .collect();
             return ready(Err(err.with_data(json!({ "disclosure": disclosure }))));
         }
@@ -442,9 +465,9 @@ pub fn developer_set(call: Call, cx: &mut App) -> Reply {
             )));
         }
         tri!(call.confirm("signs out every account signed in as the Minecraft Launcher"));
-        control
-            .accounts
-            .update(cx, |accounts, cx| accounts.sign_out_launcher_identity_accounts(cx));
+        control.accounts.update(cx, |accounts, cx| {
+            accounts.sign_out_launcher_identity_accounts(cx)
+        });
     }
     let on = params.sign_in_as_minecraft_launcher;
     control
@@ -466,7 +489,10 @@ fn category(name: &str) -> Result<Category, ErrorObject> {
     Category::ALL
         .into_iter()
         .find(|c| {
-            serde_json::to_value(c).ok().and_then(|v| v.as_str().map(str::to_string)).as_deref()
+            serde_json::to_value(c)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+                .as_deref()
                 == Some(name)
                 || c.label().eq_ignore_ascii_case(name)
         })
@@ -603,7 +629,11 @@ pub fn shared_clear(call: Call, cx: &mut App) -> Reply {
     shared_get(call, cx)
 }
 
-fn instance_sharing_json(control: &Control, instance: &Instance, cx: &App) -> Result<Value, ErrorObject> {
+fn instance_sharing_json(
+    control: &Control,
+    instance: &Instance,
+    cx: &App,
+) -> Result<Value, ErrorObject> {
     let instances = control.instances.read(cx);
     let data = instances.data_dir();
     let dir = instances.instance_dir(&instance.id);
@@ -679,8 +709,12 @@ pub fn shared_instance_set(call: Call, cx: &mut App) -> Reply {
     }
     if !params.override_keys.is_empty() {
         tri!(
-            shared_options::set_overrides(&dir, params.override_keys.iter().map(String::as_str), true)
-                .map_err(shared_error)
+            shared_options::set_overrides(
+                &dir,
+                params.override_keys.iter().map(String::as_str),
+                true
+            )
+            .map_err(shared_error)
         );
     }
     if !params.share.is_empty() {
@@ -697,8 +731,14 @@ pub fn shared_instance_set(call: Call, cx: &mut App) -> Reply {
     }
     for (key, value) in &params.set {
         tri!(
-            shared_options::set_instance_value(&dir, &instance.game_version, Some(&jar), key, value)
-                .map_err(shared_error)
+            shared_options::set_instance_value(
+                &dir,
+                &instance.game_version,
+                Some(&jar),
+                key,
+                value
+            )
+            .map_err(shared_error)
         );
     }
     ready(instance_sharing_json(control, &instance, cx))

@@ -29,7 +29,7 @@ use serde_json::{Value, json};
 
 use super::{
     ApiResult, Call, Control, Reply, api_error,
-    instances::{absolute, failed, parse_loader, params, tri},
+    instances::{absolute, failed, params, parse_loader, tri},
     jobs::{Cancel, JobSpec, Progress},
     poll_until, ready,
 };
@@ -74,7 +74,9 @@ fn sort(text: Option<&str>) -> Result<Option<ModrinthSearchIndex>, ErrorObject> 
         Some(other) => {
             return Err(api_error(
                 codes::INVALID_PARAMS,
-                format!("No sort \"{other}\". Sorts: relevance, downloads, follows, newest, updated."),
+                format!(
+                    "No sort \"{other}\". Sorts: relevance, downloads, follows, newest, updated."
+                ),
             ));
         }
     }))
@@ -90,7 +92,11 @@ fn modrinth(control: &Control, cx: &App) -> Result<Arc<Modrinth>, ErrorObject> {
 
 /// The instance's folders and what it accepts, with its shader mod, as the Content tab
 /// works it out.
-fn context(control: &Control, instance: &Instance, cx: &App) -> Result<(InstanceDirs, Target), ErrorObject> {
+fn context(
+    control: &Control,
+    instance: &Instance,
+    cx: &App,
+) -> Result<(InstanceDirs, Target), ErrorObject> {
     let instances = control.instances.read(cx);
     let dirs = instances.content_dirs(&instance.id);
     let mut target = instances
@@ -108,7 +114,10 @@ fn can_change(control: &Control, instance: &Instance, cx: &App) -> Result<(), Er
     if let Some(job) = control.jobs.borrow().running_for("content", &instance.id) {
         return Err(api_error(
             codes::BUSY,
-            format!("Job {job} is changing {}'s content; wait for it (`jobs wait {job}`).", instance.name),
+            format!(
+                "Job {job} is changing {}'s content; wait for it (`jobs wait {job}`).",
+                instance.name
+            ),
         ));
     }
     Ok(())
@@ -252,7 +261,10 @@ pub fn search(call: Call, cx: &mut App) -> Reply {
         Some(reference) if !params.all => {
             let instance = tri!(control.instance(reference, cx));
             let (_, target) = tri!(context(&control, &instance, cx));
-            (Some(target.game_version.clone()), target.search_loaders(kind))
+            (
+                Some(target.game_version.clone()),
+                target.search_loaders(kind),
+            )
         }
         _ => (None, Vec::new()),
     };
@@ -293,10 +305,12 @@ async fn resolve_project(
             .map_err(|err| api_error(codes::NOT_FOUND, err.to_string()))?;
         return Ok((target.project, target.version));
     }
-    let project = api
-        .project(reference)
-        .await
-        .map_err(|err| api_error(codes::NOT_FOUND, format!("Modrinth has no project \"{reference}\": {err}")))?;
+    let project = api.project(reference).await.map_err(|err| {
+        api_error(
+            codes::NOT_FOUND,
+            format!("Modrinth has no project \"{reference}\": {err}"),
+        )
+    })?;
     Ok((project, None))
 }
 
@@ -443,7 +457,9 @@ fn start_install(
     let work = cx.spawn(async move |cx| {
         let requests = plan(cx).await?;
         let outcome = cx
-            .background_spawn(run_requests(api, downloader, dirs, target, requests, progress, cancel))
+            .background_spawn(run_requests(
+                api, downloader, dirs, target, requests, progress, cancel,
+            ))
             .await;
         if let Some(control) = refresh.upgrade() {
             let mut all = kinds.clone();
@@ -482,7 +498,10 @@ pub fn install(call: Call, cx: &mut App) -> Reply {
         label,
         async move |_cx| {
             let (project, linked_version) = resolve_project(&api, &params.project).await?;
-            let kind = match (wanted_kind, ContentKind::from_project_type(&project.project_type)) {
+            let kind = match (
+                wanted_kind,
+                ContentKind::from_project_type(&project.project_type),
+            ) {
                 (Some(kind), _) => kind,
                 (None, Some(kind)) => kind,
                 (None, None) => {
@@ -535,7 +554,10 @@ pub fn install(call: Call, cx: &mut App) -> Reply {
             {
                 return Err(api_error(
                     codes::CONFLICT,
-                    format!("{} {} doesn't fit this instance: {reason} Pass --force to install it anyway.", project.title, version.version_number),
+                    format!(
+                        "{} {} doesn't fit this instance: {reason} Pass --force to install it anyway.",
+                        project.title, version.version_number
+                    ),
                 ));
             }
             let mut requests = Vec::new();
@@ -657,7 +679,12 @@ async fn find_items(
                             || m.project_id == wanted
                             || m.title.eq_ignore_ascii_case(wanted)
                     })
-                    || item.file.meta.id.as_deref().is_some_and(|id| id.eq_ignore_ascii_case(wanted))
+                    || item
+                        .file
+                        .meta
+                        .id
+                        .as_deref()
+                        .is_some_and(|id| id.eq_ignore_ascii_case(wanted))
             })
             .collect();
         match matches.as_slice() {
@@ -665,7 +692,9 @@ async fn find_items(
             [] => {
                 return Err(api_error(
                     codes::NOT_FOUND,
-                    format!("Nothing installed is called \"{wanted}\". List it with `content list`."),
+                    format!(
+                        "Nothing installed is called \"{wanted}\". List it with `content list`."
+                    ),
                 ));
             }
             _ => {
@@ -695,7 +724,10 @@ fn change_items(
     }
     tri!(can_change(&control, &instance, cx));
     if params.items.is_empty() {
-        return ready(Err(api_error(codes::INVALID_PARAMS, "Name what to change.")));
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "Name what to change.",
+        )));
     }
     let kind = match &params.kind {
         Some(kind) => Some(tri!(parse_kind(kind))),
@@ -709,7 +741,9 @@ fn change_items(
         let find_target = target.clone();
         let names = params.items.clone();
         let items = cx
-            .background_spawn(async move { find_items(api, &find_dirs, &find_target, kind, &names).await })
+            .background_spawn(async move {
+                find_items(api, &find_dirs, &find_target, kind, &names).await
+            })
             .await?;
         let results: Vec<Value> = cx.update(|cx| {
             let instance = control.instance(&id, cx)?;
@@ -731,21 +765,39 @@ fn content_failed(err: launcher_core::content::ContentError) -> ErrorObject {
 }
 
 pub fn remove(call: Call, cx: &mut App) -> Reply {
-    change_items(call, cx, Some("moves to the Trash:"), |dirs, target, item| {
-        files::delete(dirs, target, item.file.kind, &item.file.file_name).map_err(content_failed)?;
-        Ok(json!({ "file": item.file.file_name, "removed": true, "trash": true }))
-    })
+    change_items(
+        call,
+        cx,
+        Some("moves to the Trash:"),
+        |dirs, target, item| {
+            files::delete(dirs, target, item.file.kind, &item.file.file_name)
+                .map_err(content_failed)?;
+            Ok(json!({ "file": item.file.file_name, "removed": true, "trash": true }))
+        },
+    )
 }
 
-fn set_enabled(dirs: &InstanceDirs, target: &Target, item: &Item, enabled: bool) -> Result<Value, ErrorObject> {
+fn set_enabled(
+    dirs: &InstanceDirs,
+    target: &Target,
+    item: &Item,
+    enabled: bool,
+) -> Result<Value, ErrorObject> {
     match item.file.kind {
         ContentKind::Mod => {
-            let name = files::set_mod_enabled(dirs, &item.file.file_name, enabled).map_err(content_failed)?;
+            let name = files::set_mod_enabled(dirs, &item.file.file_name, enabled)
+                .map_err(content_failed)?;
             Ok(json!({ "file": name, "enabled": enabled }))
         }
         ContentKind::ResourcePack => {
-            files::set_pack_enabled(dirs, target, &item.file.file_name, enabled, item.compatibility)
-                .map_err(content_failed)?;
+            files::set_pack_enabled(
+                dirs,
+                target,
+                &item.file.file_name,
+                enabled,
+                item.compatibility,
+            )
+            .map_err(content_failed)?;
             Ok(json!({ "file": item.file.file_name, "enabled": enabled }))
         }
         ContentKind::ShaderPack => {
@@ -756,19 +808,29 @@ fn set_enabled(dirs: &InstanceDirs, target: &Target, item: &Item, enabled: bool)
                     "There is no shader mod to use the pack: install Iris (or OptiFine) first.",
                 )
             })?;
-            files::select_shader(dirs, loader, enabled.then_some(item.file.file_name.as_str()))
-                .map_err(content_failed)?;
-            Ok(json!({ "file": item.file.file_name, "enabled": enabled, "selected_shader": enabled }))
+            files::select_shader(
+                dirs,
+                loader,
+                enabled.then_some(item.file.file_name.as_str()),
+            )
+            .map_err(content_failed)?;
+            Ok(
+                json!({ "file": item.file.file_name, "enabled": enabled, "selected_shader": enabled }),
+            )
         }
     }
 }
 
 pub fn enable(call: Call, cx: &mut App) -> Reply {
-    change_items(call, cx, None, |dirs, target, item| set_enabled(dirs, target, item, true))
+    change_items(call, cx, None, |dirs, target, item| {
+        set_enabled(dirs, target, item, true)
+    })
 }
 
 pub fn disable(call: Call, cx: &mut App) -> Reply {
-    change_items(call, cx, None, |dirs, target, item| set_enabled(dirs, target, item, false))
+    change_items(call, cx, None, |dirs, target, item| {
+        set_enabled(dirs, target, item, false)
+    })
 }
 
 #[derive(Deserialize)]
@@ -792,7 +854,11 @@ async fn find_updates(
         let mut updates: Vec<(String, RawVersion)> = updates.into_iter().collect();
         // "Update all" goes by project
         updates.sort_by(|a, b| a.1.project_id.cmp(&b.1.project_id));
-        all.extend(updates.into_iter().map(|(file, version)| (kind, file, version)));
+        all.extend(
+            updates
+                .into_iter()
+                .map(|(file, version)| (kind, file, version)),
+        );
     }
     Ok(all)
 }
@@ -868,7 +934,10 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
                     if wanted.is_empty() {
                         "Everything is up to date.".to_string()
                     } else {
-                        format!("No update for {}. See `content updates`.", wanted.join(", "))
+                        format!(
+                            "No update for {}. See `content updates`.",
+                            wanted.join(", ")
+                        )
                     },
                 ));
             }
@@ -914,7 +983,11 @@ pub fn switch_loader(call: Call, cx: &mut App) -> Reply {
         if instance.loader != Loader::None {
             return ready(Err(api_error(
                 codes::INVALID_PARAMS,
-                format!("{} has {} already; name the loader to change to.", instance.name, instance.loader_label()),
+                format!(
+                    "{} has {} already; name the loader to change to.",
+                    instance.name,
+                    instance.loader_label()
+                ),
             )));
         }
         let seq = control.notices.borrow().last_seq();
@@ -924,16 +997,23 @@ pub fn switch_loader(call: Call, cx: &mut App) -> Reply {
             .update(cx, |instances, cx| instances.switch_to_mod_loader(&id, cx));
         let outbox = call.outbox.clone();
         return cx.spawn(async move |cx| {
-            poll_until(cx, Some(&outbox), Duration::from_millis(200), Duration::from_secs(120), |cx| {
-                (!control.instances.read(cx).loader_switch_running()).then_some(())
-            })
+            poll_until(
+                cx,
+                Some(&outbox),
+                Duration::from_millis(200),
+                Duration::from_secs(120),
+                |cx| (!control.instances.read(cx).loader_switch_running()).then_some(()),
+            )
             .await?;
             let notice = control
                 .notices
                 .borrow()
                 .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed"));
             match notice {
-                Some(n) if n.is_failure() => Err(api_error(codes::FAILED, format!("{}: {}", n.title, n.message))),
+                Some(n) if n.is_failure() => Err(api_error(
+                    codes::FAILED,
+                    format!("{}: {}", n.title, n.message),
+                )),
                 Some(n) => Ok(json!({ "instance": id, "title": n.title, "message": n.message })),
                 None => Ok(json!({ "instance": id })),
             }
@@ -1080,15 +1160,24 @@ pub fn modpack_install(call: Call, cx: &mut App) -> Reply {
         (None, Some(file)) => {
             tri!(absolute(file));
             if file.extension().and_then(|e| e.to_str()) != Some("mrpack") {
-                return ready(Err(api_error(codes::INVALID_PARAMS, "A modpack file ends in .mrpack.")));
+                return ready(Err(api_error(
+                    codes::INVALID_PARAMS,
+                    "A modpack file ends in .mrpack.",
+                )));
             }
             let seq = control.notices.borrow().last_seq();
             let before = last_import(&control, cx);
             let file = file.clone();
-            control
-                .instances
-                .update(cx, |instances, cx| instances.import_files(vec![file.clone()], cx));
-            return follow_import(&call, before, seq, format!("Importing {}", file.display()), cx);
+            control.instances.update(cx, |instances, cx| {
+                instances.import_files(vec![file.clone()], cx)
+            });
+            return follow_import(
+                &call,
+                before,
+                seq,
+                format!("Importing {}", file.display()),
+                cx,
+            );
         }
         (Some(_), None) => {}
     }
@@ -1134,7 +1223,13 @@ pub fn modpack_install(call: Call, cx: &mut App) -> Reply {
 }
 
 fn last_import(control: &Control, cx: &App) -> Option<u64> {
-    control.instances.read(cx).imports().iter().map(|j| j.id).max()
+    control
+        .instances
+        .read(cx)
+        .imports()
+        .iter()
+        .map(|j| j.id)
+        .max()
 }
 
 /// Follows the window's modpack import that just started, until it ends.
@@ -1206,14 +1301,18 @@ pub fn modpack_check(call: Call, cx: &mut App) -> Reply {
             "update_available": false,
         })));
     }
-    let Some(fetch) = control
-        .instances
-        .update(cx, |instances, cx| instances.modpack_versions(&record.project_id, cx))
-    else {
-        return ready(Err(api_error(codes::UNAVAILABLE, "Modrinth isn't available.")));
+    let Some(fetch) = control.instances.update(cx, |instances, cx| {
+        instances.modpack_versions(&record.project_id, cx)
+    }) else {
+        return ready(Err(api_error(
+            codes::UNAVAILABLE,
+            "Modrinth isn't available.",
+        )));
     };
     cx.spawn(async move |_| {
-        let versions = fetch.await.map_err(|err| api_error(codes::UNAVAILABLE, err))?;
+        let versions = fetch
+            .await
+            .map_err(|err| api_error(codes::UNAVAILABLE, err))?;
         let candidate = update_candidate(&versions, &record);
         Ok(json!({
             "instance": instance.id,
@@ -1279,11 +1378,13 @@ pub fn modpack_update(call: Call, cx: &mut App) -> Reply {
             "The modpack isn't from Modrinth, so it can't be updated.",
         )));
     }
-    let Some(fetch) = control
-        .instances
-        .update(cx, |instances, cx| instances.modpack_versions(&record.project_id, cx))
-    else {
-        return ready(Err(api_error(codes::UNAVAILABLE, "Modrinth isn't available.")));
+    let Some(fetch) = control.instances.update(cx, |instances, cx| {
+        instances.modpack_versions(&record.project_id, cx)
+    }) else {
+        return ready(Err(api_error(
+            codes::UNAVAILABLE,
+            "Modrinth isn't available.",
+        )));
     };
     let call = Rc::new(call);
     cx.spawn(async move |cx| {
@@ -1373,7 +1474,10 @@ mod tests {
     #[test]
     fn reads_kinds() {
         assert_eq!(parse_kind("mods").unwrap(), ContentKind::Mod);
-        assert_eq!(parse_kind("resource-pack").unwrap(), ContentKind::ResourcePack);
+        assert_eq!(
+            parse_kind("resource-pack").unwrap(),
+            ContentKind::ResourcePack
+        );
         assert_eq!(parse_kind("Shader_Packs").unwrap(), ContentKind::ShaderPack);
         assert!(parse_kind("datapack").is_err());
         assert!(sort(Some("downloads")).is_ok());

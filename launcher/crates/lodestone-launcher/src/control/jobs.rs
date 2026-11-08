@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use gpui::{App, AppContext as _, Task};
+use gpui::{App, Task};
 use launcher_control::{ErrorObject, Message, codes};
 use launcher_core::{
     content::install::InstallProgress,
@@ -370,7 +370,10 @@ impl Control {
             loop {
                 let (outcome, json) = cx.update(|cx| {
                     let jobs = control.jobs.borrow();
-                    (jobs.outcome(id), jobs.get_json(id, control.instances.read(cx)))
+                    (
+                        jobs.outcome(id),
+                        jobs.get_json(id, control.instances.read(cx)),
+                    )
                 });
                 match outcome {
                     None => {
@@ -461,7 +464,10 @@ pub fn get(call: Call, cx: &mut App) -> Reply {
         Some(job) => ready(Ok(json!({ "job": job }))),
         None => ready(Err(api_error(
             codes::NOT_FOUND,
-            format!("No job {}. Finished jobs are kept for a while only.", params.job),
+            format!(
+                "No job {}. Finished jobs are kept for a while only.",
+                params.job
+            ),
         ))),
     }
 }

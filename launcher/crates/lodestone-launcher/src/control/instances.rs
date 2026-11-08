@@ -32,7 +32,7 @@ macro_rules! params {
     ($call:expr) => {
         match $call.params() {
             Ok(params) => params,
-            Err(err) => return ready(Err(err)),
+            Err(err) => return $crate::control::ready(Err(err)),
         }
     };
 }
@@ -42,7 +42,7 @@ macro_rules! tri {
     ($result:expr) => {
         match $result {
             Ok(value) => value,
-            Err(err) => return ready(Err(err)),
+            Err(err) => return $crate::control::ready(Err(err)),
         }
     };
 }
@@ -411,7 +411,10 @@ pub fn rename(call: Call, cx: &mut App) -> Reply {
     let mut instance = tri!(call.control.instance_param(&call, cx));
     let name = params.name.trim();
     if name.is_empty() {
-        return ready(Err(api_error(codes::INVALID_PARAMS, "Give the instance a name.")));
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            "Give the instance a name.",
+        )));
     }
     instance.name = name.to_string();
     ready(save_changed(&call.control, instance, cx))
@@ -489,11 +492,15 @@ pub fn set_icon(call: Call, cx: &mut App) -> Reply {
             )));
         }
         let icon = IconChoice::library(&name);
-        call.control
-            .instances
-            .update(cx, |instances, cx| instances.set_icon_name(&id, Some(&icon), cx))
+        call.control.instances.update(cx, |instances, cx| {
+            instances.set_icon_name(&id, Some(&icon), cx)
+        })
     } else if let Some(emoji) = params.emoji {
-        let tile = match params.tile.as_deref().map(|t| u32::from_str_radix(t.trim_start_matches('#'), 16)) {
+        let tile = match params
+            .tile
+            .as_deref()
+            .map(|t| u32::from_str_radix(t.trim_start_matches('#'), 16))
+        {
             None => 0x3A3A4A,
             Some(Ok(tile)) if tile <= 0xFF_FFFF => tile,
             Some(_) => {
@@ -505,11 +512,14 @@ pub fn set_icon(call: Call, cx: &mut App) -> Reply {
         };
         let icon = IconChoice::emoji(tile, emoji.trim());
         if !core_instances::valid_icon_name(&icon) {
-            return ready(Err(api_error(codes::INVALID_PARAMS, "That emoji can't be an icon.")));
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                "That emoji can't be an icon.",
+            )));
         }
-        call.control
-            .instances
-            .update(cx, |instances, cx| instances.set_icon_name(&id, Some(&icon), cx))
+        call.control.instances.update(cx, |instances, cx| {
+            instances.set_icon_name(&id, Some(&icon), cx)
+        })
     } else if instance.icon.as_deref() == Some(core_instances::CUSTOM_ICON) {
         call.control
             .instances
@@ -521,7 +531,9 @@ pub fn set_icon(call: Call, cx: &mut App) -> Reply {
     };
     tri!(failed(result));
     let current = tri!(call.control.instance(&id, cx));
-    ready(Ok(json!({ "instance": { "id": id, "icon": current.icon } })))
+    ready(Ok(
+        json!({ "instance": { "id": id, "icon": current.icon } }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -539,9 +551,9 @@ pub fn set_background(call: Call, cx: &mut App) -> Reply {
     let result = match (params.image, params.clear) {
         (Some(image), false) => {
             tri!(absolute(&image));
-            call.control
-                .instances
-                .update(cx, |instances, cx| instances.set_background(&id, &image, cx))
+            call.control.instances.update(cx, |instances, cx| {
+                instances.set_background(&id, &image, cx)
+            })
         }
         (None, true) => call
             .control
@@ -556,7 +568,9 @@ pub fn set_background(call: Call, cx: &mut App) -> Reply {
     };
     tri!(failed(result));
     let current = tri!(call.control.instance(&id, cx));
-    ready(Ok(json!({ "instance": { "id": id, "background": current.background } })))
+    ready(Ok(
+        json!({ "instance": { "id": id, "background": current.background } }),
+    ))
 }
 
 /// Paths come from another process with another working directory.
@@ -596,7 +610,9 @@ pub fn delete(call: Call, cx: &mut App) -> Reply {
         .instances
         .update(cx, |instances, cx| instances.delete(&instance.id, cx));
     tri!(failed(result));
-    ready(Ok(json!({ "deleted": instance.id, "name": instance.name, "trash": true })))
+    ready(Ok(
+        json!({ "deleted": instance.id, "name": instance.name, "trash": true }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -691,17 +707,18 @@ fn follow_run(
         if status.state == "running" {
             return Ok(json!({ "state": "running", "pid": status.pid }));
         }
-        let notice = control
-            .notices
-            .borrow()
-            .find_since(seq, |n| matches!(n.kind, "notice" | "launch_failed" | "crashed"));
+        let notice = control.notices.borrow().find_since(seq, |n| {
+            matches!(n.kind, "notice" | "launch_failed" | "crashed")
+        });
         match notice {
             Some(notice) if notice.is_failure() => Err(api_error(
                 codes::FAILED,
                 format!("{}: {}", notice.title, notice.message),
             )
             .with_data(notice.to_json())),
-            Some(notice) => Ok(json!({ "state": "idle", "title": notice.title, "message": notice.message })),
+            Some(notice) => {
+                Ok(json!({ "state": "idle", "title": notice.title, "message": notice.message }))
+            }
             None => Err(api_error(codes::CANCELLED, "Cancelled.")),
         }
     })
@@ -841,9 +858,13 @@ pub fn stop(call: Call, cx: &mut App) -> Reply {
     }
     let outbox = call.outbox.clone();
     cx.spawn(async move |cx| {
-        poll_until(cx, Some(&outbox), Duration::from_millis(200), Duration::from_secs(60), |cx| {
-            (control.instances.read(cx).run_status(&id).state == "idle").then_some(())
-        })
+        poll_until(
+            cx,
+            Some(&outbox),
+            Duration::from_millis(200),
+            Duration::from_secs(60),
+            |cx| (control.instances.read(cx).run_status(&id).state == "idle").then_some(()),
+        )
         .await?;
         Ok(json!({ "instance": id, "state": "idle" }))
     })
@@ -920,7 +941,10 @@ mod tests {
     #[test]
     fn reads_server_addresses() {
         let join = |text: &str| parse_join(text).map(|j| (j.host, j.port));
-        assert_eq!(join("mc.example.com").unwrap(), ("mc.example.com".into(), 25565));
+        assert_eq!(
+            join("mc.example.com").unwrap(),
+            ("mc.example.com".into(), 25565)
+        );
         assert_eq!(join("10.0.0.5:25570").unwrap(), ("10.0.0.5".into(), 25570));
         assert_eq!(join("[::1]:25566").unwrap(), ("::1".into(), 25566));
         assert_eq!(join("[::1]").unwrap(), ("::1".into(), 25565));
@@ -933,8 +957,14 @@ mod tests {
     #[test]
     fn reads_loaders() {
         assert_eq!(parse_loader("Fabric").unwrap(), Some(LoaderKind::Fabric));
-        assert_eq!(parse_loader("neoforge").unwrap(), Some(LoaderKind::NeoForge));
+        assert_eq!(
+            parse_loader("neoforge").unwrap(),
+            Some(LoaderKind::NeoForge)
+        );
         assert_eq!(parse_loader("vanilla").unwrap(), None);
-        assert_eq!(parse_loader("rift").unwrap_err().code, codes::INVALID_PARAMS);
+        assert_eq!(
+            parse_loader("rift").unwrap_err().code,
+            codes::INVALID_PARAMS
+        );
     }
 }

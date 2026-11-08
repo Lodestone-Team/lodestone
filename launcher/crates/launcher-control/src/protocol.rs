@@ -67,6 +67,8 @@ impl Request {
 
     /// Reads a request line. A line that isn't a request is answered with the error,
     /// and the `id` when it could be read (else `null`).
+    // The error is the answer to send, once per bad line; its size doesn't matter.
+    #[allow(clippy::result_large_err)]
     pub fn parse(line: &str) -> Result<Request, (Value, ErrorObject)> {
         let value: Value = serde_json::from_str(line).map_err(|err| {
             (
@@ -235,8 +237,8 @@ impl Message {
 
     /// Reads a line from the launcher.
     pub fn parse(line: &str) -> Result<Message, String> {
-        let value: Value =
-            serde_json::from_str(line).map_err(|err| format!("The launcher sent bad JSON: {err}"))?;
+        let value: Value = serde_json::from_str(line)
+            .map_err(|err| format!("The launcher sent bad JSON: {err}"))?;
         let Value::Object(mut object) = value else {
             return Err("The launcher sent something that isn't a JSON object.".into());
         };
@@ -346,22 +348,70 @@ pub mod codes {
         (INVALID_REQUEST, 2, "The JSON isn't a request."),
         (METHOD_NOT_FOUND, 2, "No such method."),
         (INVALID_PARAMS, 2, "A parameter is missing or wrong."),
-        (NOT_RUNNING, 3, "Lodestone Launcher isn't running (or the socket is elsewhere)."),
-        (UNSUPPORTED_PLATFORM, 3, "This platform has no control socket (Windows, for now)."),
-        (NOT_FOUND, 4, "No such instance, account, world, core, server or job."),
-        (AMBIGUOUS, 4, "The name matches more than one thing; use the id."),
-        (CONFIRMATION_REQUIRED, 5, "Destructive: ask the user, then pass --yes."),
-        (UNTRUSTED_CORE, 6, "The core isn't trusted for mods: the user decides."),
-        (UNTRUSTED_CERTIFICATE, 6, "The core's certificate isn't trusted: the user compares the fingerprint."),
-        (MODS_CHANGED, 6, "The server's mods changed: the user decides whether to update."),
-        (EULA_REQUIRED, 6, "Minecraft's EULA must be accepted by the user."),
+        (
+            NOT_RUNNING,
+            3,
+            "Lodestone Launcher isn't running (or the socket is elsewhere).",
+        ),
+        (
+            UNSUPPORTED_PLATFORM,
+            3,
+            "This platform has no control socket (Windows, for now).",
+        ),
+        (
+            NOT_FOUND,
+            4,
+            "No such instance, account, world, core, server or job.",
+        ),
+        (
+            AMBIGUOUS,
+            4,
+            "The name matches more than one thing; use the id.",
+        ),
+        (
+            CONFIRMATION_REQUIRED,
+            5,
+            "Destructive: ask the user, then pass --yes.",
+        ),
+        (
+            UNTRUSTED_CORE,
+            6,
+            "The core isn't trusted for mods: the user decides.",
+        ),
+        (
+            UNTRUSTED_CERTIFICATE,
+            6,
+            "The core's certificate isn't trusted: the user compares the fingerprint.",
+        ),
+        (
+            MODS_CHANGED,
+            6,
+            "The server's mods changed: the user decides whether to update.",
+        ),
+        (
+            EULA_REQUIRED,
+            6,
+            "Minecraft's EULA must be accepted by the user.",
+        ),
         (BUSY, 7, "The game or another job is running."),
         (CONFLICT, 7, "Conflicts with what is there."),
-        (TIMEOUT, 8, "Waiting took longer than --timeout; the job goes on."),
+        (
+            TIMEOUT,
+            8,
+            "Waiting took longer than --timeout; the job goes on.",
+        ),
         (UNAVAILABLE, 9, "Not available here (feature off, offline)."),
         (NOT_SIGNED_IN, 9, "Sign in first."),
-        (PERMISSION_DENIED, 9, "Refused: another user, or not allowed."),
-        (PROTOCOL_VERSION, 9, "The CLI and the launcher are from different releases."),
+        (
+            PERMISSION_DENIED,
+            9,
+            "Refused: another user, or not allowed.",
+        ),
+        (
+            PROTOCOL_VERSION,
+            9,
+            "The CLI and the launcher are from different releases.",
+        ),
         (CANCELLED, 10, "Cancelled."),
     ];
 
@@ -395,9 +445,15 @@ mod tests {
         assert_eq!(code("not json"), codes::PARSE_ERROR);
         assert_eq!(code("[1]"), codes::INVALID_REQUEST);
         assert_eq!(code(r#"{"v":1,"method":"x"}"#), codes::INVALID_REQUEST);
-        assert_eq!(code(r#"{"v":1,"id":{},"method":"x"}"#), codes::INVALID_REQUEST);
+        assert_eq!(
+            code(r#"{"v":1,"id":{},"method":"x"}"#),
+            codes::INVALID_REQUEST
+        );
         assert_eq!(code(r#"{"v":1,"id":1}"#), codes::INVALID_REQUEST);
-        assert_eq!(code(r#"{"v":2,"id":1,"method":"x"}"#), codes::PROTOCOL_VERSION);
+        assert_eq!(
+            code(r#"{"v":2,"id":1,"method":"x"}"#),
+            codes::PROTOCOL_VERSION
+        );
         assert_eq!(code(r#"{"id":1,"method":"x"}"#), codes::PROTOCOL_VERSION);
         assert_eq!(
             code(r#"{"v":1,"id":1,"method":"x","params":[1]}"#),

@@ -70,7 +70,9 @@ fn find_world(dirs: &InstanceDirs, reference: &str) -> Result<World, ErrorObject
     }
     let matches: Vec<&World> = list
         .iter()
-        .filter(|w| w.name().eq_ignore_ascii_case(reference) || w.folder.eq_ignore_ascii_case(reference))
+        .filter(|w| {
+            w.name().eq_ignore_ascii_case(reference) || w.folder.eq_ignore_ascii_case(reference)
+        })
         .collect();
     match matches.as_slice() {
         [world] => Ok((*world).clone()),
@@ -97,7 +99,10 @@ fn find_backup(dirs: &InstanceDirs, world: &World, reference: &str) -> Result<Ba
     found.ok_or_else(|| {
         api_error(
             codes::NOT_FOUND,
-            format!("{} has no backup \"{reference}\". List them with `worlds backups`.", world.name()),
+            format!(
+                "{} has no backup \"{reference}\". List them with `worlds backups`.",
+                world.name()
+            ),
         )
     })
 }
@@ -117,7 +122,12 @@ fn target(call: &Call, cx: &App) -> Result<Target, ErrorObject> {
         .params
         .get("world")
         .and_then(Value::as_str)
-        .ok_or_else(|| api_error(codes::INVALID_PARAMS, "Name the world: its folder or its name."))?;
+        .ok_or_else(|| {
+            api_error(
+                codes::INVALID_PARAMS,
+                "Name the world: its folder or its name.",
+            )
+        })?;
     let world = find_world(&dirs, reference)?;
     Ok(Target {
         control,
@@ -138,7 +148,10 @@ fn can_change(target: &Target, cx: &App) -> Result<(), ErrorObject> {
     {
         return Err(api_error(
             codes::BUSY,
-            format!("Job {job} is working on {}'s worlds; wait for it.", target.instance.name),
+            format!(
+                "Job {job} is working on {}'s worlds; wait for it.",
+                target.instance.name
+            ),
         ));
     }
     Ok(())
@@ -184,7 +197,9 @@ fn run(
     call: &Call,
     target: Target,
     kind_label: String,
-    work: impl FnOnce(&InstanceDirs, &Downloads, &CancelToken) -> Result<Value, WorldError> + Send + 'static,
+    work: impl FnOnce(&InstanceDirs, &Downloads, &CancelToken) -> Result<Value, WorldError>
+    + Send
+    + 'static,
     cx: &mut App,
 ) -> Reply {
     tri!(can_change(&target, cx));
@@ -269,7 +284,11 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
         }
     };
     let folder = target.world.folder.clone();
-    let label = format!("Restoring {} from {}", target.world.name(), backup.file_name);
+    let label = format!(
+        "Restoring {} from {}",
+        target.world.name(),
+        backup.file_name
+    );
     run(
         &call,
         target,
@@ -277,10 +296,18 @@ pub fn restore(call: Call, cx: &mut App) -> Reply {
         move |dirs, progress, cancel| {
             let restored = match mode {
                 // a copy removes nothing
-                RestoreMode::Copy => {
-                    worlds::restore_with(dirs, &folder, &backup.path, mode, |_| Ok(()), progress, cancel)?
+                RestoreMode::Copy => worlds::restore_with(
+                    dirs,
+                    &folder,
+                    &backup.path,
+                    mode,
+                    |_| Ok(()),
+                    progress,
+                    cancel,
+                )?,
+                RestoreMode::Replace => {
+                    worlds::restore(dirs, &folder, &backup.path, mode, progress, cancel)?
                 }
-                RestoreMode::Replace => worlds::restore(dirs, &folder, &backup.path, mode, progress, cancel)?,
             };
             Ok(json!({
                 "world": restored.folder,
