@@ -37,11 +37,11 @@ fn server(
         game_version: version.into(),
         loader,
         loader_version: loader_version.map(str::to_string),
-        port: 25565,
+        port: Some(25565),
         state,
         player_count: players.map(|p| p.0),
         max_player_count: players.map(|p| p.1),
-        has_client_pack: loader == ServerLoader::Fabric,
+        has_client_pack: Some(loader == ServerLoader::Fabric),
         playit_address: playit.map(str::to_string),
         listed: true,
     }
