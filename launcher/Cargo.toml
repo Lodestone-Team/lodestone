@@ -1,0 +1,26 @@
+# Lodestone Launcher has its own workspace and lockfile, so the core's CI does not
+# build GPUI and GPUI's dependencies stay out of the root Cargo.lock.
+[workspace]
+members = ["crates/lodestone-launcher"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0"
+authors = ["Lodestone Team"]
+publish = false
+
+[workspace.dependencies]
+# GPUI from Zed's latest stable release, v1.27.0. Bump `rev` together with the
+# `[patch.crates-io]` entries below, which mirror Zed's own at the same tag.
+gpui = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35", default-features = false }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35", default-features = false }
+
+# The same patches Zed applies at v1.27.0, limited to crates in GPUI's tree.
+[patch.crates-io]
+async-task = { git = "https://github.com/zed-industries/async-task.git", rev = "015845a19fc31752c02367567d3b8900a406f9da" }
+calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee14c40066d64777e2a36b6ffcc22590" }
+async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
+khronos-egl = { git = "https://github.com/zed-industries/khronos-egl", rev = "42214b36347b108fd9630ca6254b96dde59e04fe" }
+windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }

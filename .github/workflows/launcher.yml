@@ -1,0 +1,59 @@
+name: Launcher - Check
+
+# Lodestone Launcher is its own Cargo workspace (launcher/), so the core's CI never
+# builds it. This workflow checks it on macOS, the first supported platform, and only
+# runs when the launcher or this file changes.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "launcher/**"
+      - ".github/workflows/launcher.yml"
+      - "rust-toolchain.toml"
+  push:
+    branches:
+      - main
+    paths:
+      - "launcher/**"
+      - ".github/workflows/launcher.yml"
+      - "rust-toolchain.toml"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  launcher-check:
+    runs-on: macos-latest
+
+    defaults:
+      run:
+        working-directory: launcher
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    # Installs the toolchain pinned in the repository's rust-toolchain.toml.
+    - name: Install Rust toolchain
+      shell: bash
+      run: rustup toolchain install --profile minimal --component rustfmt,clippy --no-self-update
+
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        prefix-key: rust-cache
+        shared-key: launcher-macos
+        workspaces: launcher
+
+    - name: Format
+      run: cargo fmt --all --check
+
+    - name: Clippy
+      run: cargo clippy --locked --all-targets -- -D warnings
+
+    - name: Test
+      run: cargo test --locked --no-fail-fast
