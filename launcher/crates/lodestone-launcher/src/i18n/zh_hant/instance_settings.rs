@@ -89,8 +89,6 @@ pub fn text(message: M) -> &'static str {
         M::FromServerMods => "來自 {server} 的模組：「開始遊戲」會讓它們與伺服器保持一致。",
         M::FromMrpack => "來自不在 Modrinth 上的 .mrpack 檔案，因此無法在這裡更新。",
         M::ViewOnModrinth => "在 Modrinth 上查看",
-        M::Updates => "更新",
-        M::UpdatesHint => "保留你的模組、設定和世界。",
         M::DownloadingNewVersion => "正在下載新版本…",
         M::CheckingModrinth => "正在檢查 Modrinth…",
         M::UpdateTo => "更新至 {version}…",
@@ -153,6 +151,9 @@ pub fn text(message: M) -> &'static str {
         M::SharingNoPreferred => "共用值只能在設定中變更。",
         M::Preferred => "首選",
         M::MakePreferred => "設為首選",
+        M::PreferredExplained => {
+            "在首選實例的遊戲中變更的設定會成為共用設定，每個使用共用設定的實例會在下次啟動時取得這些設定。只能有一個首選實例。"
+        }
         M::MadePreferred => "此實例中的遊戲內變更現在會套用到每個實例。",
         M::StopGameToChange => "請先停止遊戲再變更：遊戲結束時會重寫 options.txt。",
         M::NotShared => "未共用（啟動器設定）",

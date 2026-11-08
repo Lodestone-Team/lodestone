@@ -90,8 +90,6 @@ pub fn text(message: M) -> &'static str {
             "Depuis un fichier .mrpack absent de Modrinth\u{a0}: il ne peut pas être mis à jour ici."
         }
         M::ViewOnModrinth => "Voir sur Modrinth",
-        M::Updates => "Mises à jour",
-        M::UpdatesHint => "Conserve vos mods, configurations et mondes.",
         M::DownloadingNewVersion => "Téléchargement de la nouvelle version…",
         M::CheckingModrinth => "Vérification sur Modrinth…",
         M::UpdateTo => "Mettre à jour vers {version}…",
@@ -158,6 +156,9 @@ pub fn text(message: M) -> &'static str {
         M::SharingNoPreferred => "Les valeurs partagées ne changent que dans les Paramètres.",
         M::Preferred => "Préférée",
         M::MakePreferred => "Rendre préférée",
+        M::PreferredExplained => {
+            "Les réglages modifiés en jeu dans l’instance préférée deviennent les réglages partagés, et chaque instance qui les partage les reçoit à son prochain lancement. Une seule instance est préférée."
+        }
         M::MadePreferred => {
             "Les changements faits en jeu dans cette instance s’appliquent désormais à chaque instance."
         }

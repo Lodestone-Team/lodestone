@@ -105,8 +105,6 @@ crate::i18n::messages! {
         FromServerMods = "From the mods of {server}: Play keeps them in step with the server.",
         FromMrpack = "From a .mrpack file that isn't on Modrinth, so it can't be updated here.",
         ViewOnModrinth = "View on Modrinth",
-        Updates = "Updates",
-        UpdatesHint = "Keeps your mods, configs and worlds.",
         DownloadingNewVersion = "Downloading the new version…",
         CheckingModrinth = "Checking Modrinth…",
         /// {version} is the pack's version, "1.4.2".
@@ -181,6 +179,8 @@ crate::i18n::messages! {
         /// A tag on the preferred instance.
         Preferred = "Preferred",
         MakePreferred = "Make preferred",
+        /// The tooltip of "Preferred" and "Make preferred".
+        PreferredExplained = "Settings you change in-game in the preferred instance become the shared ones, and every instance that shares them gets them the next time it starts. Only one instance is preferred.",
         MadePreferred = "In-game changes in this instance now update every instance.",
         StopGameToChange = "Stop the game to change these: it rewrites options.txt when it quits.",
         /// A category the launcher's Settings doesn't share.

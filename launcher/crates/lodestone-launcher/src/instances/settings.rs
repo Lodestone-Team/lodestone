@@ -1281,7 +1281,7 @@ impl InstanceSettings {
                     Some(status_text(t(M::UpToDate).into(), colors::GREEN_300))
                 }
                 (Load::NotLoaded, _) if record.on_modrinth() => Some(
-                    Button::new("check-modpack", t(M::CheckForUpdates))
+                    Button::new("check-modpack", t(M::Check))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.check_modpack(cx)))
@@ -1303,8 +1303,7 @@ impl InstanceSettings {
         ];
         if let Some(update) = update {
             rows.push(
-                SettingRow::new(t(M::Updates))
-                    .hint(t(M::UpdatesHint))
+                SettingRow::new(t(M::CheckForUpdates))
                     .child(update)
                     .into_any_element(),
             );

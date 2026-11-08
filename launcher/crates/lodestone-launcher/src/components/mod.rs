@@ -15,6 +15,7 @@ mod slider;
 mod tabs;
 mod text_input;
 mod toggle;
+mod tooltip;
 
 pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
 pub use dialog::Dialog;
@@ -28,6 +29,7 @@ pub use slider::Slider;
 pub use tabs::Tabs;
 pub use text_input::TextInput;
 pub use toggle::Toggle;
+pub use tooltip::{TextTooltip, text_tooltip};
 
 use gpui::{App, ClickEvent, Window};
 

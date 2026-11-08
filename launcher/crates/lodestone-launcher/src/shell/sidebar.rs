@@ -1,7 +1,7 @@
 use crate::theme::px;
 use gpui::{
-    AnyElement, Context, ExternalPaths, IntoElement, Render, SharedString, Transformation, Window,
-    div, prelude::*, radians,
+    AnyElement, Context, ExternalPaths, IntoElement, SharedString, Transformation, div, prelude::*,
+    radians,
 };
 use launcher_core::instances::{AutoGroup, Instance, last_played};
 
@@ -161,25 +161,6 @@ enum RowPlace {
     LastPlayed,
 }
 
-/// A small label shown while the pointer rests on a row.
-struct TextTooltip(SharedString);
-
-impl Render for TextTooltip {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .px_2()
-            .py_1()
-            .rounded(radius::MD)
-            .border_1()
-            .border_color(colors::FADE_700)
-            .bg(colors::GRAY_850)
-            .text_size(theme::text_size(text::SMALL))
-            .font_weight(weights::MEDIUM.into())
-            .text_color(colors::GRAY_300)
-            .child(self.0.clone())
-    }
-}
-
 /// "Played 2 hours ago · 2 h 5 min in total", for an instance that has been played.
 fn played_summary(instance: &Instance) -> Option<String> {
     let when = Ago::since(instance.last_played?).played();
@@ -271,7 +252,7 @@ fn instance_row(
             )
         })
         .when_some(tooltip, |this, tooltip| {
-            this.tooltip(move |_, cx| cx.new(|_| TextTooltip(tooltip.clone())).into())
+            this.tooltip(crate::components::text_tooltip(tooltip))
         })
         .on_click(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
         .into_any_element()
