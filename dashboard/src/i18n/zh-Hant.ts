@@ -932,9 +932,7 @@ export const zhHant: Messages = {
   // GameTypeSelectForm: the first step, picking a game
   'create.gameType.title': '選擇遊戲',
   'create.gameType.subtitle': '你的伺服器要用來做什麼？',
-  'create.gameType.docker': '了解 Docker 伺服器（測試版）',
   'create.gameType.new': '新功能',
-  'create.gameType.fetchFailed': '取得伺服器時發生錯誤',
   'create.gameType.modpack': 'Modrinth 模組包',
   'create.gameType.modpackDescription': '從 Modrinth 模組包建立 Fabric 伺服器',
 

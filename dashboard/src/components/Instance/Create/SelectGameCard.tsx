@@ -8,11 +8,14 @@ const SelectGameCard = ({
   game_type,
   className,
   onClick,
+  badge,
 }: {
   title: string;
   description: string;
   game_type: Game;
   className?: string;
+  /** a short label beside the title, e.g. "New" */
+  badge?: string;
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) => {
   return (
@@ -32,8 +35,15 @@ const SelectGameCard = ({
     >
       <div className="relative">
         <GameIcon game_type={game_type} className="absolute h-6 w-6" />
-        <div className="ml-8 text-h3 leading-6 font-mediumbold text-gray-300">
-          {title}
+        <div className="ml-8 flex flex-row items-baseline gap-2">
+          <span className="text-h3 leading-6 font-mediumbold text-gray-300">
+            {title}
+          </span>
+          {badge && (
+            <span className="text-small font-bold whitespace-nowrap text-yellow-300">
+              {badge}
+            </span>
+          )}
         </div>
       </div>
       <div className="mt-2 text-medium leading-5 font-medium text-white/50 italic">

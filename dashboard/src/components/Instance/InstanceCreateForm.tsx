@@ -277,8 +277,6 @@ export default function InstanceCreateForm({
             <div className="flex min-w-0 flex-1 flex-col p-8">
               {activeStep == 0 ? (
                 <GameTypeSelectForm
-                  manifestLoading={isLoading}
-                  manifestError={!!error}
                   onSelectModpack={() => setModpackMode(true)}
                 />
               ) : (

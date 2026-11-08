@@ -1049,9 +1049,7 @@ export const fr: Messages = {
   // GameTypeSelectForm: the first step, picking a game
   'create.gameType.title': 'Choisissez un jeu',
   'create.gameType.subtitle': 'À quoi servira votre serveur ?',
-  'create.gameType.docker': 'En savoir plus sur les serveurs Docker (bêta)',
-  'create.gameType.new': 'NOUVEAU !',
-  'create.gameType.fetchFailed': 'Erreur lors de la récupération du serveur',
+  'create.gameType.new': 'Nouveau',
   'create.gameType.modpack': 'Modpack Modrinth',
   'create.gameType.modpackDescription':
     'Créer un serveur Fabric à partir d’un modpack Modrinth',
