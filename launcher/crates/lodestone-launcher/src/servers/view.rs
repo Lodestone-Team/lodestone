@@ -12,10 +12,12 @@ use launcher_core::cores::{
 
 use super::{
     AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, FINGERPRINT_HELP, Servers,
-    TRUST_EXPLANATION, TrustPrompt,
+    TRUST_EXPLANATION, TrustPrompt, UpdatePrompt,
 };
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Dialog, Icon, LoadingDots, Toggle},
+    components::{
+        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, LoadingDots, Toggle,
+    },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -607,40 +609,80 @@ impl ServersOverlay {
 }
 
 impl Render for ServersOverlay {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let servers = self.servers.read(cx);
-        if let Some(prompt) = &servers.cert_prompt {
-            return certificate_dialog(&self.servers, prompt).into_any_element();
-        }
-        if let Some(prompt) = &servers.trust_prompt {
-            return trust_dialog(&self.servers, prompt).into_any_element();
-        }
-        if let Some(prompt) = &servers.advisory {
-            return advisory_dialog(&self.servers, prompt).into_any_element();
-        }
-        if let Some(dialog) = servers.dialog() {
-            return dialog.clone().into_any_element();
-        }
-        let Some(prompt) = &servers.prompt else {
-            return div().into_any_element();
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let entity = &self.servers;
+        let servers = entity.read(cx);
+        // One open dialog shows at a time, the first of: the certificate, trust, the
+        // advisory, "Add server", the update prompt. Those closing fade out under it.
+        let mut shown = false;
+        let mut pick = |slot_open: bool| {
+            let show = slot_open && !shown;
+            shown |= show;
+            show
         };
-        let entity = self.servers.clone();
-        let changes = &prompt.changes;
-        let mut lines: Vec<String> = Vec::new();
-        for (names, verb) in [
-            (&changes.added, "New"),
-            (&changes.updated, "Changed"),
-            (&changes.removed, "Removed"),
-            (&changes.other, "Config"),
-        ] {
-            for name in names.iter().take(6) {
-                lines.push(format!("{verb}: {name}"));
-            }
+        let cert = pick(servers.cert_prompt.is_open());
+        let trust = pick(servers.trust_prompt.is_open());
+        let advisory = pick(servers.advisory.is_open());
+        let add = pick(servers.dialog.is_open());
+        let update = pick(servers.prompt.is_open());
+        let window = &*window;
+        let mut children = Vec::new();
+        children.extend(slot_layers(&servers.prompt, update, window, |prompt| {
+            Some(update_dialog(entity, prompt))
+        }));
+        children.extend(slot_layers(&servers.dialog, add, window, |(dialog, _)| {
+            Some(dialog.clone().into_any_element())
+        }));
+        children.extend(slot_layers(&servers.advisory, advisory, window, |prompt| {
+            Some(advisory_dialog(entity, prompt).into_any_element())
+        }));
+        children.extend(slot_layers(
+            &servers.trust_prompt,
+            trust,
+            window,
+            |prompt| Some(trust_dialog(entity, prompt).into_any_element()),
+        ));
+        children.extend(slot_layers(&servers.cert_prompt, cert, window, |prompt| {
+            Some(certificate_dialog(entity, prompt).into_any_element())
+        }));
+        div().absolute().inset_0().children(children)
+    }
+}
+
+/// The dialogs of `slot`: all of them when its open one is the one shown, else only
+/// those closing.
+fn slot_layers<T>(
+    slot: &DialogSlot<Servers, T>,
+    show_open: bool,
+    window: &Window,
+    render: impl FnMut(&T) -> Option<AnyElement>,
+) -> Vec<AnyElement> {
+    if show_open {
+        slot.render(window, render)
+    } else {
+        slot.render_closing(window, render)
+    }
+}
+
+/// "<server> has different mods": update before joining, or play as it is.
+fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement {
+    let entity = servers.clone();
+    let changes = &prompt.changes;
+    let mut lines: Vec<String> = Vec::new();
+    for (names, verb) in [
+        (&changes.added, "New"),
+        (&changes.updated, "Changed"),
+        (&changes.removed, "Removed"),
+        (&changes.other, "Config"),
+    ] {
+        for name in names.iter().take(6) {
+            lines.push(format!("{verb}: {name}"));
         }
-        let update = self.servers.clone();
-        let play = self.servers.clone();
-        let cancel = self.servers.clone();
-        Dialog::new(
+    }
+    let update = servers.clone();
+    let play = servers.clone();
+    let cancel = servers.clone();
+    Dialog::new(
             "update-server-mods",
             format!("{} has different mods", prompt.server.name),
             prompt.focus.clone(),
@@ -677,7 +719,6 @@ impl Render for ServersOverlay {
                 .on_click(move |_, _, cx| cancel.update(cx, |this, cx| this.cancel_prompt(cx))),
         )
         .into_any_element()
-    }
 }
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {

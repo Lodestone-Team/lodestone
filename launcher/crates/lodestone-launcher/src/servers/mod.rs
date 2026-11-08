@@ -55,7 +55,7 @@ use launcher_core::{
 };
 use url::Url;
 
-use crate::{accounts::Accounts, instances::Instances};
+use crate::{accounts::Accounts, components::DialogSlot, instances::Instances};
 use add_dialog::{AddRequest, AddServerDialog, AddServerEvent};
 
 /// How often the lists are fetched while the page is visible.
@@ -248,6 +248,7 @@ pub struct CertPrompt {
     pub focus: FocusHandle,
 }
 
+#[derive(Clone)]
 enum CertTarget {
     /// "Add server" continues once the certificate is trusted.
     Add(AddRequest, Entity<AddServerDialog>),
@@ -300,13 +301,13 @@ pub struct Servers {
     pub busy: HashMap<RowKey, Busy>,
     /// A message at the top of the page.
     pub notice: Option<(SharedString, SharedString)>,
-    dialog: Option<(Entity<AddServerDialog>, Subscription)>,
-    pub prompt: Option<UpdatePrompt>,
+    dialog: DialogSlot<Servers, (Entity<AddServerDialog>, Subscription)>,
+    pub prompt: DialogSlot<Servers, UpdatePrompt>,
     /// A server's page, shown instead of the list (see [`detail`]).
     detail: Option<(Entity<detail::ServerDetail>, Subscription)>,
-    pub advisory: Option<AdvisoryPrompt>,
-    pub cert_prompt: Option<CertPrompt>,
-    pub trust_prompt: Option<TrustPrompt>,
+    pub advisory: DialogSlot<Servers, AdvisoryPrompt>,
+    pub cert_prompt: DialogSlot<Servers, CertPrompt>,
+    pub trust_prompt: DialogSlot<Servers, TrustPrompt>,
     visible: bool,
     last_poll: Option<Instant>,
     /// No network, no Keychain: the offscreen screenshots.
@@ -335,12 +336,12 @@ impl Servers {
             instance_links: HashMap::new(),
             busy: HashMap::new(),
             notice: None,
-            dialog: None,
-            prompt: None,
+            dialog: DialogSlot::new(|this: &mut Servers| &mut this.dialog),
+            prompt: DialogSlot::new(|this: &mut Servers| &mut this.prompt),
             detail: None,
-            advisory: None,
-            cert_prompt: None,
-            trust_prompt: None,
+            advisory: DialogSlot::new(|this: &mut Servers| &mut this.advisory),
+            cert_prompt: DialogSlot::new(|this: &mut Servers| &mut this.cert_prompt),
+            trust_prompt: DialogSlot::new(|this: &mut Servers| &mut this.trust_prompt),
             visible: false,
             last_poll: None,
             preview: false,
@@ -580,7 +581,15 @@ impl Servers {
     }
 
     pub fn dialog(&self) -> Option<&Entity<AddServerDialog>> {
-        self.dialog.as_ref().map(|(dialog, _)| dialog)
+        self.dialog.current().map(|(dialog, _)| dialog)
+    }
+
+    /// Closes "Add server" if `dialog` is the open one: one that is fading out has
+    /// nothing more to say.
+    fn close_add_dialog(&mut self, dialog: &Entity<AddServerDialog>, cx: &mut Context<Self>) {
+        if self.dialog() == Some(dialog) {
+            self.dialog.close(cx);
+        }
     }
 
     /// "Add server", or "Sign in" for a core that is already added (`existing`).
@@ -590,14 +599,13 @@ impl Servers {
             .map(|c| display_address(&c.url));
         let dialog = cx.new(|cx| AddServerDialog::new(prefill, cx));
         let subscription = cx.subscribe(&dialog, |this, dialog, event, cx| match event {
-            AddServerEvent::Dismissed => {
-                this.dialog = None;
-                cx.notify();
+            AddServerEvent::Dismissed => this.close_add_dialog(&dialog, cx),
+            AddServerEvent::Submit(request) if this.dialog() == Some(&dialog) => {
+                this.add_core(request.clone(), dialog, None, cx)
             }
-            AddServerEvent::Submit(request) => this.add_core(request.clone(), dialog, None, cx),
+            AddServerEvent::Submit(_) => {}
         });
-        self.dialog = Some((dialog, subscription));
-        cx.notify();
+        self.dialog.open((dialog, subscription), cx);
     }
 
     /// Adds (or signs in to) the core at `request.address`. `accepted` is a certificate
@@ -675,16 +683,19 @@ impl Servers {
                                 cx,
                             )
                         });
-                        this.cert_prompt = Some(CertPrompt {
-                            address: address.clone(),
-                            host,
-                            name,
-                            presented,
-                            previous,
-                            target: CertTarget::Add(request, dialog.clone()),
-                            focus: cx.focus_handle(),
-                        });
-                        cx.notify();
+                        let focus = cx.focus_handle();
+                        this.cert_prompt.open(
+                            CertPrompt {
+                                address: address.clone(),
+                                host,
+                                name,
+                                presented,
+                                previous,
+                                target: CertTarget::Add(request, dialog.clone()),
+                                focus,
+                            },
+                            cx,
+                        );
                     })
                     .ok();
                     return;
@@ -761,15 +772,19 @@ impl Servers {
                     }
                 };
                 this.save();
-                this.dialog = None;
+                this.close_add_dialog(&dialog, cx);
                 if existing.is_none() && !trusted && !was_trusted {
-                    this.trust_prompt = Some(TrustPrompt {
-                        core: uuid,
-                        name,
-                        address: address.clone(),
-                        after_add: true,
-                        focus: cx.focus_handle(),
-                    });
+                    let focus = cx.focus_handle();
+                    this.trust_prompt.open(
+                        TrustPrompt {
+                            core: uuid,
+                            name,
+                            address: address.clone(),
+                            after_add: true,
+                            focus,
+                        },
+                        cx,
+                    );
                 }
                 this.refresh(index, cx);
                 cx.notify();
@@ -796,7 +811,7 @@ impl Servers {
             }) => (host.clone(), presented.clone(), Some(pinned.clone())),
             _ => return,
         };
-        self.cert_prompt = Some(CertPrompt {
+        let prompt = CertPrompt {
             address: display_address(&core.url),
             host,
             name: Some(core.saved.name.clone()),
@@ -804,17 +819,17 @@ impl Servers {
             previous,
             target: CertTarget::Core(core.saved.uuid.clone()),
             focus: cx.focus_handle(),
-        });
-        cx.notify();
+        };
+        self.cert_prompt.open(prompt, cx);
     }
 
     /// The answer to the certificate prompt.
     pub fn answer_certificate(&mut self, trust: bool, cx: &mut Context<Self>) {
-        let Some(prompt) = self.cert_prompt.take() else {
+        let Some(prompt) = self.cert_prompt.close(cx) else {
             return;
         };
         let pin = CertificatePin::new(&prompt.host, &prompt.presented);
-        match prompt.target {
+        match prompt.target.clone() {
             CertTarget::Add(request, dialog) => {
                 if trust {
                     dialog.update(cx, |d, cx| d.set_busy(cx));
@@ -855,13 +870,14 @@ impl Servers {
             return;
         };
         if trusted {
-            self.trust_prompt = Some(TrustPrompt {
+            let prompt = TrustPrompt {
                 core: core.saved.uuid.clone(),
                 name: core.saved.name.clone(),
                 address: display_address(&core.url),
                 after_add: false,
                 focus: cx.focus_handle(),
-            });
+            };
+            self.trust_prompt.open(prompt, cx);
         } else {
             core.saved.set_trusted(false);
             self.save();
@@ -871,10 +887,11 @@ impl Servers {
 
     /// The answer to "Do you trust <core>?".
     pub fn answer_trust(&mut self, trust: bool, cx: &mut Context<Self>) {
-        let Some(prompt) = self.trust_prompt.take() else {
+        let Some(prompt) = self.trust_prompt.close(cx) else {
             return;
         };
-        if trust && let Some(index) = self.core_index(&prompt.core) {
+        let core = prompt.core.clone();
+        if trust && let Some(index) = self.core_index(&core) {
             self.cores[index].saved.set_trusted(true);
             self.save();
         }
@@ -1167,15 +1184,18 @@ impl Servers {
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
                 let update = matches!(pending, PendingPull::Sync(_));
-                this.advisory = Some(AdvisoryPrompt {
-                    core_name,
-                    server_name,
-                    advisory,
-                    update,
-                    pending: Some(pending),
-                    focus: cx.focus_handle(),
-                });
-                cx.notify();
+                let focus = cx.focus_handle();
+                this.advisory.open(
+                    AdvisoryPrompt {
+                        core_name,
+                        server_name,
+                        advisory,
+                        update,
+                        pending: Some(pending),
+                        focus,
+                    },
+                    cx,
+                );
             })
             .ok();
         }));
@@ -1184,7 +1204,7 @@ impl Servers {
 
     /// The answer to the advisory.
     pub fn answer_advisory(&mut self, answer: AdvisoryAnswer, cx: &mut Context<Self>) {
-        let Some(mut prompt) = self.advisory.take() else {
+        let Some(prompt) = self.advisory.close(cx) else {
             return;
         };
         let Some(pending) = prompt.pending.take() else {
@@ -1368,21 +1388,25 @@ impl Servers {
                     Ok(Check::Changed(boxed)) => {
                         let (pack_path, plan, etag) = *boxed;
                         let changes = PackChanges::from_plan(&plan);
-                        this.prompt = Some(UpdatePrompt {
-                            core: core_uuid.clone(),
-                            server: server.clone(),
-                            instance_id: instance_id.clone(),
-                            changes,
-                            pending: Some(PendingSync {
+                        let focus = cx.focus_handle();
+                        this.prompt.open(
+                            UpdatePrompt {
                                 core: core_uuid.clone(),
-                                server,
-                                instance_id,
-                                pack_path,
-                                plan: Arc::new(plan),
-                                etag,
-                            }),
-                            focus: cx.focus_handle(),
-                        });
+                                server: server.clone(),
+                                instance_id: instance_id.clone(),
+                                changes,
+                                pending: Some(PendingSync {
+                                    core: core_uuid.clone(),
+                                    server,
+                                    instance_id,
+                                    pack_path,
+                                    plan: Arc::new(plan),
+                                    etag,
+                                }),
+                                focus,
+                            },
+                            cx,
+                        );
                     }
                     Err(err) => {
                         this.fail_core(&core_uuid, "Couldn't check the server's mods", err, cx)
@@ -1474,7 +1498,7 @@ impl Servers {
 
     /// The answer to the update prompt: update first, or play as it is.
     pub fn answer_prompt(&mut self, update: bool, cx: &mut Context<Self>) {
-        let Some(mut prompt) = self.prompt.take() else {
+        let Some(prompt) = self.prompt.close(cx) else {
             return;
         };
         let Some(pending) = prompt.pending.take() else {
@@ -1482,14 +1506,19 @@ impl Servers {
             return;
         };
         if !update {
+            let (core, server, instance_id) = (
+                prompt.core.clone(),
+                prompt.server.clone(),
+                prompt.instance_id.clone(),
+            );
             let _ = std::fs::remove_file(&pending.pack_path);
-            return self.join(&prompt.core, &prompt.server, &prompt.instance_id, cx);
+            return self.join(&core, &server, &instance_id, cx);
         }
         self.gate(PendingPull::Sync(pending), PullKind::ModSync, cx);
     }
 
     pub fn cancel_prompt(&mut self, cx: &mut Context<Self>) {
-        if let Some(pending) = self.prompt.take().and_then(|p| p.pending) {
+        if let Some(pending) = self.prompt.close(cx).and_then(|p| p.pending.take()) {
             let _ = std::fs::remove_file(&pending.pack_path);
         }
         cx.notify();
@@ -1783,14 +1812,15 @@ impl Servers {
         changes: PackChanges,
         cx: &mut Context<Self>,
     ) {
-        self.prompt = Some(UpdatePrompt {
+        let prompt = UpdatePrompt {
             core: core.into(),
             server,
             instance_id: instance_id.into(),
             changes,
             pending: None,
             focus: cx.focus_handle(),
-        });
+        };
+        self.prompt.open(prompt, cx);
     }
 
     pub fn preview_advisory(
@@ -1800,14 +1830,15 @@ impl Servers {
         advisory: Advisory,
         cx: &mut Context<Self>,
     ) {
-        self.advisory = Some(AdvisoryPrompt {
+        let prompt = AdvisoryPrompt {
             core_name: core_name.into(),
             server_name: server_name.into(),
             advisory,
             update: false,
             pending: None,
             focus: cx.focus_handle(),
-        });
+        };
+        self.advisory.open(prompt, cx);
     }
 
     pub fn preview_certificate(
@@ -1820,7 +1851,7 @@ impl Servers {
         let Some(core) = self.cores.get(index) else {
             return;
         };
-        self.cert_prompt = Some(CertPrompt {
+        let prompt = CertPrompt {
             address: display_address(&core.url),
             host: core.url.host_str().unwrap_or_default().to_string(),
             name: Some(core.saved.name.clone()),
@@ -1828,20 +1859,22 @@ impl Servers {
             previous: previous.map(str::to_string),
             target: CertTarget::Core(core.saved.uuid.clone()),
             focus: cx.focus_handle(),
-        });
+        };
+        self.cert_prompt.open(prompt, cx);
     }
 
     pub fn preview_trust(&mut self, index: usize, cx: &mut Context<Self>) {
         let Some(core) = self.cores.get(index) else {
             return;
         };
-        self.trust_prompt = Some(TrustPrompt {
+        let prompt = TrustPrompt {
             core: core.saved.uuid.clone(),
             name: core.saved.name.clone(),
             address: display_address(&core.url),
             after_add: true,
             focus: cx.focus_handle(),
-        });
+        };
+        self.trust_prompt.open(prompt, cx);
     }
 
     pub fn instances(&self) -> &Entity<Instances> {
