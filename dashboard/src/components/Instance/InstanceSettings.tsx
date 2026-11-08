@@ -4,6 +4,8 @@ import { useInstanceManifest } from 'data/InstanceManifest';
 import { useContext, useState, useEffect } from 'react';
 import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
 import Button from 'components/Atoms/Button';
+import { Toggle } from 'components/Atoms/Toggle';
+import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useUserAuthorized } from 'data/UserInfo';
 import {
   OWNER_ONLY_ATOM_MESSAGE,
@@ -19,6 +21,95 @@ import {
 } from './InstanceSettingsCreate/SettingObject';
 import { SettingOverrides } from './InstanceSettingsCreate/SettingOverrides';
 import { useDocumentTitle } from 'usehooks-ts';
+
+type StartupSetting = 'auto_start' | 'restart_on_crash';
+
+const STARTUP_SETTINGS: Array<{
+  key: StartupSetting;
+  label: string;
+  description: string;
+}> = [
+  {
+    key: 'auto_start',
+    label: 'Auto Start',
+    description: 'Start this instance when Lodestone Core starts',
+  },
+  {
+    key: 'restart_on_crash',
+    label: 'Restart on Crash',
+    description: 'Start this instance again if it crashes',
+  },
+];
+
+/** Toggles for auto start and restart on crash. */
+function StartupSettings({
+  instance,
+  canEdit,
+  disabledReason,
+}: {
+  instance: InstanceInfo;
+  canEdit: boolean;
+  disabledReason: string;
+}) {
+  const queryClient = useQueryClient();
+  // the value being saved, shown until the instance list has the new value
+  const [pending, setPending] = useState<
+    Partial<Record<StartupSetting, boolean>>
+  >({});
+  const saving = Object.keys(pending).length > 0;
+
+  const change = async (key: StartupSetting, value: boolean) => {
+    setPending({ [key]: value });
+    try {
+      await axiosWrapper<void>({
+        method: 'PUT',
+        url: `/instance/${instance.uuid}/${key}`,
+        data: JSON.stringify(value),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      await queryClient.invalidateQueries({ queryKey: ['instances', 'list'] });
+    } catch (err) {
+      toast.error(errorToString(err));
+    } finally {
+      setPending({});
+    }
+  };
+
+  return (
+    <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
+      <div className="w-full shrink-0">
+        <h2 className="text-h2 font-extrabold tracking-medium">Automation</h2>
+        <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
+          When Lodestone starts this instance by itself
+        </h3>
+      </div>
+      <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
+        {STARTUP_SETTINGS.map(({ key, label, description }) => (
+          <div
+            key={key}
+            className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3"
+          >
+            <div className="flex min-w-0 grow flex-col">
+              <label className="text-medium font-medium text-gray-300">
+                {label}
+              </label>
+              <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
+                {canEdit ? description : disabledReason}
+              </div>
+            </div>
+            <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
+              <Toggle
+                value={pending[key] ?? instance[key]}
+                onChange={(value) => void change(key, value)}
+                disabled={!canEdit || saving}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function InstanceSetting() {
   useDocumentTitle('Instance Settings - Lodestone');
@@ -36,6 +127,9 @@ export default function InstanceSetting() {
   const canControlInstance = useCanControlInstance(instance);
   const can_delete_instance =
     useUserAuthorized('can_delete_instance') && canControlInstance;
+  const can_access_instance_setting =
+    useUserAuthorized('can_access_instance_setting', instance.uuid) &&
+    canControlInstance;
   const queryClient = useQueryClient();
 
   const [sections, setSections] = useState<SectionFieldObject[]>([]);
@@ -61,7 +155,9 @@ export default function InstanceSetting() {
             url: `/instance/${instance.uuid}`,
           })
             .then(() => {
-              queryClient.invalidateQueries({ queryKey: ['instances', 'list'] });
+              queryClient.invalidateQueries({
+                queryKey: ['instances', 'list'],
+              });
               selectInstance(null);
             })
             .catch((err) => {
@@ -89,7 +185,7 @@ export default function InstanceSetting() {
             <h2 className="text-h2 font-extrabold tracking-medium">
               {section.name}
             </h2>
-            <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+            <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
               {section.description}
             </h3>
           </div>
@@ -125,12 +221,19 @@ export default function InstanceSetting() {
           </div>
         </div>
       ))}
+      <StartupSettings
+        instance={instance}
+        canEdit={can_access_instance_setting}
+        disabledReason={
+          canControlInstance ? 'No permission' : OWNER_ONLY_ATOM_MESSAGE
+        }
+      />
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
         <div className="w-full shrink-0">
           <h2 className="text-h2 font-extrabold tracking-medium">
             Danger Zone
           </h2>
-          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
+          <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
             These settings can cause irreversible damage to your server!
           </h3>
         </div>
@@ -141,11 +244,11 @@ export default function InstanceSetting() {
                 Delete Instance
               </label>
               {can_delete_instance ? (
-                <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+                <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
                   Permanently deletes this instance and its data
                 </div>
               ) : (
-                <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+                <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
                   {canControlInstance
                     ? 'No permission'
                     : OWNER_ONLY_ATOM_MESSAGE}
