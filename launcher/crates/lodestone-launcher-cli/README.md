@@ -37,6 +37,17 @@ Destructive commands (delete, remove, replace) need `--yes`; on a terminal witho
 the CLI asks. Long commands wait with progress; `--no-wait` returns a job to follow with
 `jobs wait`.
 
+## Debug traces
+
+`trace snapshot`, `trace topics` and `trace watch [patterns…]` read the launcher's debug
+traces: clicks on its controls, the actions keys ran, dialogs, navigation, saved
+settings, HTTP requests (method, host, path, status, time), the game's launch, exit and
+console, jobs, and logged warnings and errors. The launcher keeps the last 2000 events in
+memory; busy topics (`game.log`, `download.file`, `perf.frame`, `log.debug`) are only
+sent while someone watches. Nothing is written to disk or sent anywhere, typed text is
+never traced, and payloads are scrubbed of anything that looks like a password, token
+or key.
+
 ## For AI agents
 
 See [SKILL.md](SKILL.md): when to use it, the commands, the JSON shapes, the exit codes,

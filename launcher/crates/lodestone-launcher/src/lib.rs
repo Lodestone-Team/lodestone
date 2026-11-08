@@ -19,6 +19,7 @@ pub mod preview;
 pub mod servers;
 pub mod shell;
 pub mod theme;
+mod trace_hooks;
 pub mod undo;
 pub mod updater;
 
@@ -39,6 +40,7 @@ pub fn init(cx: &mut App) {
         eprintln!("lodestone-launcher: could not load the bundled fonts: {err:#}");
     }
     components::init(cx);
+    trace_hooks::install(cx);
 
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);

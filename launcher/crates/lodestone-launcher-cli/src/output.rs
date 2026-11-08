@@ -184,9 +184,34 @@ fn item_block(item: &Value, depth: usize, out: &mut String) {
     }
 }
 
+/// A trace event for people: `14:02:07.120  ui.click  {"control":"button",…}`, the time
+/// in UTC.
+pub fn trace_line(event: &Value) -> String {
+    let ms = event["at_ms"].as_u64().unwrap_or(0);
+    let day = ms % 86_400_000;
+    let time = format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        day / 3_600_000,
+        day / 60_000 % 60,
+        day / 1000 % 60,
+        day % 1000
+    );
+    let topic = event["topic"].as_str().unwrap_or("?");
+    format!("{time}  {topic:<18} {}", event["data"])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trace_lines_read_well() {
+        let event = json!({ "seq": 4, "at_ms": 1_700_000_527_120u64, "topic": "ui.click", "data": { "id": "save" } });
+        assert_eq!(
+            trace_line(&event),
+            "22:22:07.120  ui.click           {\"id\":\"save\"}"
+        );
+    }
 
     #[test]
     fn people_get_readable_text() {

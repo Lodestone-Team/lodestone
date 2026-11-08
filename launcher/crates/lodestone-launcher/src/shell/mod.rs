@@ -10,6 +10,7 @@ mod settings_modal;
 mod shared_settings;
 mod sidebar;
 mod top_bar;
+mod trace_state;
 mod unsaved;
 
 use crate::theme::px;
@@ -211,6 +212,8 @@ pub struct LauncherShell {
     /// The launcher's Settings, a large dialog under the other dialogs.
     settings_modal: DialogSlot<LauncherShell, SettingsModal>,
     settings_page: SettingsPage,
+    /// What the debug traces last recorded of the window.
+    trace: trace_state::TraceState,
     /// The Settings pages are open over the page, in a narrow window.
     settings_nav_open: bool,
     /// The dialog over the window, and those still fading out.
@@ -343,6 +346,7 @@ impl LauncherShell {
             tab: InstanceTab::default(),
             settings_modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.settings_modal),
             settings_page: SettingsPage::default(),
+            trace: Default::default(),
             settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
@@ -1553,6 +1557,7 @@ impl LauncherShell {
 
 impl Render for LauncherShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.trace_frame(window, cx);
         if self._focus_lost.is_none() {
             self._focus_lost = Some(focus::install(&self.root_focus, window, cx));
         }
@@ -1572,6 +1577,19 @@ impl Render for LauncherShell {
         div()
             .id("launcher-shell")
             .track_focus(&self.root_focus)
+            // For the debug traces: where the pointer went down, to place clicks on
+            // elements that aren't shared controls.
+            .capture_any_mouse_down(|event, _, _| {
+                let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
+                launcher_core::trace::emit("ui.pointer", || {
+                    serde_json::json!({
+                        "x": x.round(),
+                        "y": y.round(),
+                        "button": format!("{:?}", event.button).to_lowercase(),
+                        "clicks": event.click_count,
+                    })
+                });
+            })
             .on_action(|_: &focus::FocusNext, window, cx| focus::step(true, window, cx))
             .on_action(|_: &focus::FocusPrev, window, cx| focus::step(false, window, cx))
             .on_action(cx.listener(|this, _: &crate::ZoomIn, _, cx| this.zoom_by(true, cx)))
