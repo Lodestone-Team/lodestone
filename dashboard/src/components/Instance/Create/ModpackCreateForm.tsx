@@ -32,6 +32,7 @@ import FormInputField from './SetupFormFields/FormInputField';
 import FormRadioField from './SetupFormFields/FormRadioField';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { t, useT } from 'i18n';
+import WizardSteps from './WizardSteps';
 
 type Step = 'source' | 'version' | 'settings';
 
@@ -439,6 +440,18 @@ export default function ModpackCreateForm({
     } else onBack();
   };
 
+  // A step in the rail that's done: "Select game" leaves the modpack flow; the
+  // others go back as Back does.
+  const goToStep = (i: number) => {
+    if (i === 0) onBack();
+    else if (i === 1 && !preset && step !== 'source') {
+      cancelInspect();
+      setStep('source');
+      setInfo(null);
+      setSource(null);
+    } else if (i === 2 && step === 'settings') setStep('version');
+  };
+
   const submit = async (
     values: SettingsValues,
     actions: FormikHelpers<SettingsValues>
@@ -491,23 +504,18 @@ export default function ModpackCreateForm({
     // A fixed height: the dialog is centered, so a height that followed the
     // content would move the whole dialog on every step and loading state.
     <div className="flex h-175 max-h-[calc(100vh-2rem)] w-203 rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg">
-      <div className="w-45 shrink-0 border-r border-gray-700 pt-8">
-        <div className="px-4 py-2 text-left font-sans text-medium leading-5 font-medium tracking-medium text-white/50">
-          {t('create.step.selectGame')}
-        </div>
-        {STEPS.map(([id, labelKey]) => (
-          <div
-            key={id}
-            className={cn(
-              'px-4 py-2 text-left font-sans text-medium leading-5 font-medium tracking-medium text-white/50',
-              step === id && 'font-extrabold text-white'
-            )}
-          >
-            {t(labelKey)}
-          </div>
-        ))}
-      </div>
-      <div className="flex w-158 min-w-0 flex-col p-8">
+      <WizardSteps
+        steps={[
+          t('create.step.selectGame'),
+          ...STEPS.map(([, labelKey]) => t(labelKey)),
+        ]}
+        // "Select game" comes before the modpack's own steps
+        current={1 + STEPS.findIndex(([id]) => id === step)}
+        onSelect={submitting ? undefined : goToStep}
+        // a preset pack was picked elsewhere: there's no search to go back to
+        canSelect={(i) => !(i === 1 && preset)}
+      />
+      <div className="flex min-w-0 flex-1 flex-col p-8">
         <div className="flex min-h-0 grow flex-col text-left">
           {/* not needed when a preset skips it (Back then leaves the flow) */}
           {!preset && (
