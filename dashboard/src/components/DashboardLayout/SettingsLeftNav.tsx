@@ -9,7 +9,7 @@ import Avatar from 'components/Atoms/Avatar';
 import clsx from 'clsx';
 import { useUid } from 'data/UserInfo';
 import { AccountSettingsTabList, CoreSettingsTabList } from '../../../pages';
-import CoreConnectionStatus from './CoreConnectionStatus';
+import SidebarFooter from './SidebarFooter';
 
 
 
@@ -150,9 +150,7 @@ export default function SettingsLeftNav({ className }: { className?: string }) {
           </RadioGroup>
         }
       </div>
-      <div className="sticky bottom-0 w-full border-t border-fade-700 bg-gray-850 py-2">
-        <CoreConnectionStatus />
-      </div>
+      <SidebarFooter showSettings={false} />
     </div>
   );
 }

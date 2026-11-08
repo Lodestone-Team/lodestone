@@ -144,6 +144,68 @@ async fn check_update_with_dialog(app: AppHandle) -> tauri_plugin_updater::Resul
 /// How long Quit waits for the core to stop the game servers before exiting anyway.
 const CORE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Ports the dashboard is served on, tried in order. The webview keeps localStorage
+/// (saved cores, tokens, settings) per origin, and the port is part of the origin, so
+/// the dashboard must get the same port every launch. A random port each time meant a
+/// fresh, empty localStorage on every start, which always showed the first-time setup.
+#[cfg_attr(dev, allow(dead_code))]
+const DASHBOARD_PORTS: std::ops::RangeInclusive<u16> = 16663..=16672;
+
+/// The first free port of [`DASHBOARD_PORTS`], or any free port if they are all taken.
+#[cfg_attr(dev, allow(dead_code))]
+fn dashboard_port() -> Option<u16> {
+    pick_dashboard_port(
+        DASHBOARD_PORTS,
+        portpicker::is_free,
+        portpicker::pick_unused_port,
+    )
+}
+
+#[cfg_attr(dev, allow(dead_code))]
+fn pick_dashboard_port(
+    preferred: std::ops::RangeInclusive<u16>,
+    is_free: impl Fn(u16) -> bool,
+    any_free: impl FnOnce() -> Option<u16>,
+) -> Option<u16> {
+    preferred
+        .into_iter()
+        .find(|&port| is_free(port))
+        .or_else(any_free)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dashboard_port_is_stable_when_free() {
+        assert_eq!(
+            pick_dashboard_port(DASHBOARD_PORTS, |_| true, || Some(1)),
+            Some(16663)
+        );
+    }
+
+    #[test]
+    fn dashboard_port_skips_taken_ports() {
+        assert_eq!(
+            pick_dashboard_port(DASHBOARD_PORTS, |p| p >= 16665, || Some(1)),
+            Some(16665)
+        );
+    }
+
+    #[test]
+    fn dashboard_port_falls_back_to_any_free_port() {
+        assert_eq!(
+            pick_dashboard_port(DASHBOARD_PORTS, |_| false, || Some(40000)),
+            Some(40000)
+        );
+        assert_eq!(
+            pick_dashboard_port(DASHBOARD_PORTS, |_| false, || None),
+            None
+        );
+    }
+}
+
 /// Asks the core to shut down (stop servers, clean up), waits for that to finish or for
 /// [`CORE_SHUTDOWN_TIMEOUT`], then exits the app.
 async fn quit_app(
@@ -238,7 +300,7 @@ async fn main() {
     {
         // The localhost plugin binds this port later, so another program could take it in
         // between. The plugin only accepts a port number, so this cannot be closed here.
-        let Some(port) = portpicker::pick_unused_port() else {
+        let Some(port) = dashboard_port() else {
             show_startup_error(&"no free local port for the dashboard");
             return;
         };
