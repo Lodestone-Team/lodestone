@@ -11,7 +11,7 @@ use launcher_core::content::Modrinth;
 use lodestone_minecraft::{
     modrinth::{
         ClientProjectType, ClientSearchParams, ModrinthProject, ModrinthSearchIndex,
-        ModrinthSearchResponse, RawVersion,
+        ModrinthSearchResponse, ModrinthVersionType, RawVersion,
     },
     util::format_byte,
 };
@@ -222,7 +222,7 @@ impl ModpackBrowser {
                     match versions {
                         Ok(versions) => {
                             if picked.version.is_none() {
-                                picked.version = versions.first().map(|v| v.id.clone());
+                                picked.version = default_version(&versions);
                             }
                             picked.versions = Load::Ready(versions);
                         }
@@ -264,7 +264,7 @@ impl ModpackBrowser {
         self.results = Load::Ready(results);
         self.picked = Some(Picked {
             project: Load::Ready(project),
-            version: versions.first().map(|v| v.id.clone()),
+            version: default_version(&versions),
             versions: Load::Ready(versions),
             show_description: false,
             _task: None,
@@ -655,5 +655,43 @@ impl Render for ModpackBrowser {
                     .bg(colors::GRAY_900)
                     .child(self.render_picked(cx)),
             )
+    }
+}
+
+/// The version picked when a modpack opens: the newest release, as the dashboard does,
+/// or the newest version when the pack has no releases. Modrinth lists newest first.
+fn default_version(versions: &[RawVersion]) -> Option<String> {
+    versions
+        .iter()
+        .find(|v| v.version_type == ModrinthVersionType::Release)
+        .or_else(|| versions.first())
+        .map(|v| v.id.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn version(id: &str, kind: &str) -> RawVersion {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "project_id": "p", "version_type": kind
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_modpack_opens_on_its_newest_release() {
+        // Modrinth's order, newest first: a beta above the newest release.
+        let versions = [
+            version("beta3", "beta"),
+            version("rel2", "release"),
+            version("beta2", "beta"),
+            version("rel1", "release"),
+        ];
+        assert_eq!(default_version(&versions).as_deref(), Some("rel2"));
+        // No release at all: the newest version.
+        let betas = [version("b2", "beta"), version("a1", "alpha")];
+        assert_eq!(default_version(&betas).as_deref(), Some("b2"));
+        assert_eq!(default_version(&[]), None);
     }
 }
