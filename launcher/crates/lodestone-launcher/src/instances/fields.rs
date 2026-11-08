@@ -2,18 +2,16 @@
 //! environment variables. The launcher's Settings page edits the global values; an
 //! instance's Settings tab edits its overrides of them.
 
-use gpui::{
-    App, AppContext as _, Context, Entity, IntoElement, SharedString, Window, div, prelude::*, px,
-};
+use gpui::{App, AppContext as _, Context, Entity, IntoElement, SharedString, div, prelude::*};
 use launcher_core::{
     instances::{Resolution, WindowSettings, format_env, parse_env},
     settings::max_ram_is_high,
 };
 
 use crate::{
-    components::{TextInput, Toggle},
+    components::TextInput,
     instances::thousands,
-    theme::{self, colors, fonts, text, weights},
+    theme::{self, text, weights},
 };
 
 /// Parses memory in MiB, with an optional `G`/`M` suffix: `4G`, `4096`, `512M`.
@@ -151,11 +149,7 @@ impl Fields {
             ),
             width: input(cx, width, "854"),
             height: input(cx, height, "480"),
-            env: input(
-                cx,
-                format_env(values.env),
-                "MESA_GL_VERSION_OVERRIDE=4.5 NAME=\"a value\"",
-            ),
+            env: input(cx, format_env(values.env), "NAME=value"),
             fullscreen: values.window.fullscreen,
         }
     }
@@ -203,51 +197,6 @@ impl Fields {
     }
 }
 
-/// A section heading with a hint.
-pub fn section(title: &'static str, hint: Option<SharedString>) -> gpui::Div {
-    div().flex().flex_col().gap_2().child(
-        div()
-            .flex()
-            .flex_row()
-            .items_baseline()
-            .gap_2()
-            .child(
-                div()
-                    .font_family(fonts::HEADING)
-                    .text_size(theme::text_size(text::H3))
-                    .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_300)
-                    .child(title),
-            )
-            .when_some(hint, |this, hint| {
-                this.child(
-                    div()
-                        .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::GRAY_500)
-                        .child(hint),
-                )
-            }),
-    )
-}
-
-pub fn field(caption: &'static str, input: impl IntoElement) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .gap_1()
-        .child(caption_text(caption))
-        .child(input)
-}
-
-pub fn caption_text(caption: &'static str) -> impl IntoElement {
-    div()
-        .text_size(theme::text_size(text::SMALL))
-        .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_500)
-        .child(caption)
-}
-
 /// A line of feedback under a field.
 pub fn status(text_: impl Into<SharedString>, color: theme::Color) -> impl IntoElement {
     div()
@@ -255,104 +204,6 @@ pub fn status(text_: impl Into<SharedString>, color: theme::Color) -> impl IntoE
         .font_weight(weights::BOLD.into())
         .text_color(color)
         .child(text_.into())
-}
-
-/// A toggle with its label.
-pub fn labelled_toggle(
-    id: &'static str,
-    label: &'static str,
-    value: bool,
-    on_change: impl Fn(&bool, &mut Window, &mut App) + 'static,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .child(Toggle::new(id, value).on_change(on_change))
-        .child(
-            div()
-                .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_400)
-                .child(label),
-        )
-}
-
-/// What an instance shows while it follows the launcher's setting.
-pub fn inherited(text_: impl Into<SharedString>) -> impl IntoElement {
-    div()
-        .px_3()
-        .py_2()
-        .rounded(theme::radius::LG)
-        .border_1()
-        .border_color(colors::FADE_700)
-        .bg(colors::GRAY_850)
-        .flex()
-        .flex_row()
-        .gap_2()
-        .child(
-            div()
-                .text_color(colors::GRAY_300)
-                .font_weight(weights::BOLD.into())
-                .child(text_.into()),
-        )
-        .child(
-            div()
-                .text_color(colors::GRAY_500)
-                .child("from the launcher's Settings"),
-        )
-}
-
-/// The memory inputs and their checks.
-pub fn memory_inputs(fields: &Fields, check: &MemoryCheck) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .gap_4()
-                .max_w(px(420.))
-                .child(field("MINIMUM (MB)", fields.min_ram.clone()))
-                .child(field("MAXIMUM (MB)", fields.max_ram.clone())),
-        )
-        .when_some(check.error.clone(), |this, error| {
-            this.child(status(error, colors::RED_200))
-        })
-        .when_some(check.warning.clone(), |this, warning| {
-            this.child(status(warning, colors::YELLOW))
-        })
-}
-
-/// The window inputs; `on_fullscreen` is called with the new value.
-pub fn window_inputs(
-    fields: &Fields,
-    id: &'static str,
-    on_fullscreen: impl Fn(&bool, &mut Window, &mut App) + 'static,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_end()
-        .gap_4()
-        .child(
-            div()
-                .w(px(120.))
-                .child(field("WIDTH", fields.width.clone())),
-        )
-        .child(
-            div()
-                .w(px(120.))
-                .child(field("HEIGHT", fields.height.clone())),
-        )
-        .child(div().pb_2().child(labelled_toggle(
-            id,
-            "Fullscreen",
-            fields.fullscreen,
-            on_fullscreen,
-        )))
 }
 
 #[cfg(test)]
