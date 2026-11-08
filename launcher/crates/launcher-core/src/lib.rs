@@ -16,6 +16,7 @@ pub mod export;
 pub mod game;
 pub mod http;
 pub mod instances;
+pub mod modpack;
 pub mod offline;
 pub mod paths;
 pub mod screenshots;
