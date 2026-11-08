@@ -231,25 +231,54 @@ impl Installer {
     /// Fetches a small JSON file, keeping a copy in the cache to fall back on when
     /// the network is down.
     async fn fetch_cached(&self, url: &str, cache_name: &str) -> Result<Vec<u8>, InstallError> {
+        Ok(self
+            .fetch_cached_or_missing(url, cache_name, &[])
+            .await?
+            .unwrap_or_default())
+    }
+
+    /// Like [`Self::fetch_cached`], but a response with one of the `missing` statuses
+    /// means "there is nothing for this" (`None`) rather than an error: Fabric's meta
+    /// answers 400, and Quilt's 404, for a Minecraft version they don't support.
+    pub(crate) async fn fetch_cached_or_missing(
+        &self,
+        url: &str,
+        cache_name: &str,
+        missing: &[u16],
+    ) -> Result<Option<Vec<u8>>, InstallError> {
+        enum Fetched {
+            Body(Vec<u8>),
+            Missing,
+        }
         let cache = self.data.cache_dir().join(cache_name);
         let fetched = async {
-            let request = http::get(url, None).map_err(|err| err.to_string())?;
+            let request = http::get(url, None).map_err(|err| format!("{url}: {err}"))?;
             let response = http::send(&*self.http, request)
                 .await
-                .map_err(|err| err.to_string())?;
-            if !response.is_success() {
-                return Err(format!("HTTP {}", response.status));
+                .map_err(|err| format!("{url}: {err}"))?;
+            if missing.contains(&response.status) {
+                return Ok(Fetched::Missing);
             }
-            Ok(response.body)
+            if !response.is_success() {
+                return Err(format!("{url}: HTTP {}", response.status));
+            }
+            Ok(Fetched::Body(response.body))
         }
         .await;
         match fetched {
-            Ok(body) => {
+            Ok(Fetched::Body(body)) => {
                 // Best effort: the cache only matters when offline.
                 let _ = storage::write_atomic(&cache, &body);
-                Ok(body)
+                Ok(Some(body))
             }
-            Err(reason) => fs::read(&cache).map_err(|_| InstallError::Network(reason)),
+            Ok(Fetched::Missing) => {
+                // A copy from before would now be wrong.
+                let _ = fs::remove_file(&cache);
+                Ok(None)
+            }
+            Err(reason) => fs::read(&cache)
+                .map(Some)
+                .map_err(|_| InstallError::Network(reason)),
         }
     }
 

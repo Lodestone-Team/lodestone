@@ -708,3 +708,49 @@ fn an_old_forge_library_without_a_sha1_file_must_match_the_listed_checksums() {
         "{err}"
     );
 }
+
+#[test]
+fn a_minecraft_version_a_loader_does_not_support_has_no_loader_versions() {
+    let fixture = Fixture::new();
+    let installer = fixture.installer();
+    // Fabric's meta answers 400 (with `[]`) and Quilt's 404 for versions they don't
+    // support, such as 1.8.9: that's "no versions", not a download failure.
+    let fabric_url = "https://meta.fabricmc.net/v2/versions/loader/1.8.9";
+    fixture.server.serve(
+        fabric_url,
+        Entry {
+            status: 400,
+            ..Entry::ok("[]")
+        },
+    );
+    let versions = block_on(installer.loader_versions(LoaderKind::Fabric, "1.8.9")).unwrap();
+    assert!(versions.is_empty());
+    // The Quilt URL isn't served at all, so the test server answers 404.
+    let versions = block_on(installer.loader_versions(LoaderKind::Quilt, "1.8.9")).unwrap();
+    assert!(versions.is_empty());
+
+    // A list cached from before is dropped, not shown, once the answer is "unsupported".
+    let cache = fixture.data.path().join("cache/loaders/fabric-1.8.9.json");
+    fs::create_dir_all(cache.parent().unwrap()).unwrap();
+    fs::write(
+        &cache,
+        br#"[{"loader": {"version": "0.1.0", "stable": true}}]"#,
+    )
+    .unwrap();
+    let versions = block_on(installer.loader_versions(LoaderKind::Fabric, "1.8.9")).unwrap();
+    assert!(versions.is_empty());
+    assert!(!cache.exists());
+
+    // Any other error is still an error, and says which address failed.
+    fixture.server.serve(
+        "https://meta.fabricmc.net/v2/versions/loader/1.12.2",
+        Entry {
+            status: 503,
+            ..Entry::ok("busy")
+        },
+    );
+    let err = block_on(installer.loader_versions(LoaderKind::Fabric, "1.12.2")).unwrap_err();
+    let message = err.to_string();
+    assert!(message.contains("HTTP 503"), "{message}");
+    assert!(message.contains("/v2/versions/loader/1.12.2"), "{message}");
+}
