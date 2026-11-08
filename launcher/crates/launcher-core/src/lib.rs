@@ -23,6 +23,7 @@ pub mod paths;
 pub mod screenshots;
 pub mod secret;
 pub mod settings;
+pub mod shared_options;
 pub mod skin;
 pub mod storage;
 pub mod worlds;
