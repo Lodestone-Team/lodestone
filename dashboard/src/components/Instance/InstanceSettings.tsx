@@ -57,6 +57,10 @@ function StartupSettings({
     Partial<Record<StartupSetting, boolean>>
   >({});
   const saving = Object.keys(pending).length > 0;
+  // these can change from the CLI or another dashboard, so fetch them fresh
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: ['instances', 'list'] });
+  }, [queryClient, instance.uuid]);
 
   const change = async (key: StartupSetting, value: boolean) => {
     setPending({ [key]: value });
