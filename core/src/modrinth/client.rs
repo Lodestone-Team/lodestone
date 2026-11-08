@@ -480,7 +480,7 @@ impl ModrinthApi for ModrinthClient {
             .map_err(|e| failed(e.without_url().to_string()))?;
         let status = response.status();
         if !status.is_success() {
-            return Err(failed(format!("the server answered {status}")));
+            return Err(failed(format!("the host answered {status}")));
         }
         if response.content_length().is_some_and(|len| len > max_bytes) {
             return Err(too_large(max_bytes));

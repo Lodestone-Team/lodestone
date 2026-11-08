@@ -319,41 +319,41 @@ impl User {
                 kind: ErrorKind::PermissionDenied,
                 source: match action {
                     UserAction::ViewInstance(_) => {
-                        eyre!("You don't have permission to view this instance")
+                        eyre!("You don't have permission to view this server")
                     }
                     UserAction::StartInstance(_) => {
-                        eyre!("You don't have permission to start this instance")
+                        eyre!("You don't have permission to start this server")
                     }
                     UserAction::StopInstance(_) => {
-                        eyre!("You don't have permission to stop this instance")
+                        eyre!("You don't have permission to stop this server")
                     }
                     UserAction::AccessConsole(_) => {
-                        eyre!("You don't have permission to access this instance's console")
+                        eyre!("You don't have permission to access this server's console")
                     }
                     UserAction::ReadConsole(_) => {
-                        eyre!("You don't have permission to read this instance's console")
+                        eyre!("You don't have permission to read this server's console")
                     }
                     UserAction::AccessSetting(_) => {
-                        eyre!("You don't have permission to access this instance's setting")
+                        eyre!("You don't have permission to access this server's setting")
                     }
                     UserAction::ReadResource(_) => {
-                        eyre!("You don't have permission to read this instance's resource")
+                        eyre!("You don't have permission to read this server's resource")
                     }
                     UserAction::WriteResource(_) => {
-                        eyre!("You don't have permission to write this instance's resource")
+                        eyre!("You don't have permission to write this server's resource")
                     }
                     UserAction::AccessMacro(_) => eyre!("Only the owner can use macros"),
                     UserAction::ReadInstanceFile(_) => {
-                        eyre!("You don't have permission to read this instance's file")
+                        eyre!("You don't have permission to read this server's file")
                     }
                     UserAction::WriteInstanceFile(_) => {
-                        eyre!("You don't have permission to write this instance's file")
+                        eyre!("You don't have permission to write this server's file")
                     }
                     UserAction::CreateInstance => {
-                        eyre!("You don't have permission to create instance")
+                        eyre!("You don't have permission to create servers")
                     }
                     UserAction::DeleteInstance => {
-                        eyre!("You don't have permission to delete instance")
+                        eyre!("You don't have permission to delete servers")
                     }
                     UserAction::ReadGlobalFile => {
                         eyre!("You don't have permission to read global file")
@@ -1839,11 +1839,11 @@ mod permission_tests {
         let owner = user(true, false, UserPermission::default());
         let admin = user(false, true, all_permissions(&[uuid("a")]));
         assert!(owner.owner_only("do it").is_ok());
-        let err = admin.owner_only("manage atom instances").unwrap_err();
+        let err = admin.owner_only("manage atom servers").unwrap_err();
         assert!(matches!(err.kind, ErrorKind::PermissionDenied));
         assert_eq!(
             err.source.to_string(),
-            "Only the owner can manage atom instances"
+            "Only the owner can manage atom servers"
         );
     }
 

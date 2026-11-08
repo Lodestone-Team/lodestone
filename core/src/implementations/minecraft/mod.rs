@@ -752,7 +752,7 @@ impl MinecraftInstance {
                 )
                 .await,
             )
-            .context("Could not create some files or directories for instance")
+            .context("Could not create some files or directories for the server")
             .map_err(|e| {
                 error!("{e}");
                 e

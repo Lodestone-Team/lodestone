@@ -84,7 +84,7 @@ docker build -f core/Dockerfile -t lodestone_core .
 
 > **Note**
 > You may add additional ports as you wish to forward, but 16662 is the default port served in the image.
-> You may add a volume for your lodestone instance to be accessible, in the example below, you can create a volume first by using `docker volume create lodestone`.
+> You may add a volume to keep the data of your Lodestone Core accessible, in the example below, you can create a volume first by using `docker volume create lodestone`.
 
 Docker CLI example:
 ```sh
@@ -169,7 +169,7 @@ These instructions apply to Ubuntu 20.04 LTS and later.
 
 #### Building without Deno
 
-Macros, tasks, instance scripts (`prelaunch`), extensions and atom (generic TypeScript) instances run on the Deno runtime, which is behind the `deno` cargo feature. It is on by default. Turning it off builds a much smaller core much faster:
+Macros, tasks, server scripts (`prelaunch`), extensions and atom (generic TypeScript) servers run on the Deno runtime, which is behind the `deno` cargo feature. It is on by default. Turning it off builds a much smaller core much faster:
 
 ```sh
 cargo build -p lodestone_core --no-default-features
@@ -182,10 +182,10 @@ Without the feature:
 
 * Macro, task, extension and `/instance/create_generic` routes answer `501 Not Implemented` (error kind `UnsupportedOperation`, naming the missing capability).
 * Prelaunch scripts are skipped; the server still starts.
-* Atom instances on disk are not restored. The core logs a warning, keeps their files and restores them again once it is built with the feature. Macros and their configs stay on disk too.
+* Atom servers on disk are not restored. The core logs a warning, keeps their files and restores them again once it is built with the feature. Macros and their configs stay on disk too.
 * `GET /api/v1/info` reports `"capabilities": { "macros": false, "generic_instances": false, ... }`, and the dashboard hides the features this core lacks.
 
-Minecraft instances, mods, modpacks, Docker instances, playit.gg and everything else work as usual. The code execution setting still controls custom Java commands.
+Minecraft servers, mods, modpacks, Docker servers, playit.gg and everything else work as usual. The code execution setting still controls custom Java commands.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 

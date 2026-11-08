@@ -95,30 +95,30 @@ impl State {
     ) -> Result<State, Error> {
         let state = match (*self, action) {
             (State::Starting, StateAction::UserStart) => {
-                Err(eyre!("Cannot start an instance that is already starting"))
+                Err(eyre!("Cannot start a server that is already starting"))
             }
             // a server that never finishes starting must still be stoppable
             (State::Starting, StateAction::UserStop) => Ok(State::Stopping),
             (_, StateAction::InstanceStart) => Ok(State::Running),
             (_, StateAction::InstanceStop) => Ok(State::Stopped),
             (State::Running, StateAction::UserStart) => {
-                Err(eyre!("Cannot start an instance that is already running"))
+                Err(eyre!("Cannot start a server that is already running"))
             }
             (State::Running, StateAction::UserStop) => Ok(State::Stopping),
             (State::Stopping, StateAction::UserStart) => {
-                Err(eyre!("Cannot start an instance that is stopping"))
+                Err(eyre!("Cannot start a server that is stopping"))
             }
             (State::Stopping, StateAction::UserStop) => {
-                Err(eyre!("Cannot stop an instance that is already stopping"))
+                Err(eyre!("Cannot stop a server that is already stopping"))
             }
             (State::Stopped, StateAction::UserStart) => Ok(State::Starting),
             (State::Stopped, StateAction::UserStop) => {
-                Err(eyre!("Cannot stop an instance that is already stopped"))
+                Err(eyre!("Cannot stop a server that is already stopped"))
             }
             // let the user retry after an error
             (State::Error, StateAction::UserStart) => Ok(State::Starting),
             (State::Error, StateAction::UserStop) => Err(eyre!(
-                "Cannot stop an instance that is in an error state, kill it instead"
+                "Cannot stop a server that is in an error state, kill it instead"
             )),
         }?;
         if let Some(on_transit) = on_transit {
