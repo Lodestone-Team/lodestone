@@ -20,6 +20,7 @@ pub mod offline;
 pub mod paths;
 pub mod secret;
 pub mod settings;
+pub mod shared_options;
 pub mod skin;
 pub mod storage;
 
