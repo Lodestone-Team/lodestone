@@ -6,8 +6,11 @@ use launcher_core::instances::Instance;
 
 use super::{InstanceTab, LauncherShell};
 use crate::{
-    components::{Align, Button, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs},
+    components::{
+        Align, Button, ButtonSize, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs,
+    },
     instances::{PlayState, play_time},
+    servers::InstanceLink,
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -15,6 +18,9 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
     let tab = shell.tab;
     let selected = InstanceTab::ALL.iter().position(|t| *t == tab).unwrap_or(0);
     let instance = shell.instances.read(cx).selected().cloned();
+    let link = instance
+        .as_ref()
+        .and_then(|i| shell.servers.read(cx).instance_link(&i.id));
     let (title, subtitle): (SharedString, SharedString) = match &instance {
         Some(instance) => (
             instance.name.clone().into(),
@@ -62,7 +68,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                                 .text_color(colors::GRAY_500)
                                 .font_weight(weights::BOLD.into())
                                 .child(subtitle),
-                        ),
+                        )
+                        .children(link.as_ref().map(linked_to)),
                 )
                 .child(
                     Tabs::new("instance-tabs", InstanceTab::ALL.map(InstanceTab::label))
@@ -186,6 +193,38 @@ fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl In
         )
 }
 
+/// "Linked to Survival SMP on Peter's core", under the instance's name.
+fn linked_to(link: &InstanceLink) -> impl IntoElement + use<> {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .mt_1()
+        .child(
+            div()
+                .flex_none()
+                .size(px(6.))
+                .rounded_full()
+                .bg(colors::BLUE_200),
+        )
+        .child(
+            div()
+                .truncate()
+                .text_size(theme::text_size(text::SMALL))
+                .font_weight(weights::BOLD.into())
+                .text_color(colors::BLUE_200)
+                .child(if link.core_known {
+                    format!("Linked to {} on {}", link.server_name, link.core_name)
+                } else {
+                    format!(
+                        "Linked to {} on {} (that core was removed from the Servers page)",
+                        link.server_name, link.core_name
+                    )
+                }),
+        )
+}
+
 /// "Minecraft 1.20.1", or "Minecraft 1.20.1 with Fabric 0.16.14".
 fn described(instance: &Instance) -> String {
     match instance.loader.kind() {
@@ -280,6 +319,21 @@ fn play_bar(
     };
     let id = instance.map(|i| i.id.clone());
     let stop_id = id.clone();
+    // An instance made for a server plays on it: the same mod check as the Servers
+    // page, then the game joins. "Play without joining" is the plain Play.
+    let servers = shell.servers.read(cx);
+    let link = id.as_ref().and_then(|id| servers.instance_link(id));
+    let busy = id
+        .as_ref()
+        .and_then(|id| servers.instance_busy(id))
+        .map(|busy| busy.label());
+    let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
+    let (state, caption) = match (&link, busy) {
+        (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),
+        (Some(link), None) if joins => (state, Some(format!("and join {}", link.server_name))),
+        _ => (state, None),
+    };
+    let single_id = id.clone();
     div()
         .flex()
         .flex_row()
@@ -300,20 +354,47 @@ fn play_bar(
             instance.is_some(),
         ))
         .child(
-            PlayButton::new("play")
-                .state(state)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(id) = &id {
-                        this.instances
-                            .update(cx, |instances, cx| instances.play(id, cx));
-                    }
-                }))
-                .on_stop(cx.listener(move |this, _, _, cx| {
-                    if let Some(id) = &stop_id {
-                        this.instances
-                            .update(cx, |instances, cx| instances.stop(id, cx));
-                    }
-                })),
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_1()
+                .child(
+                    PlayButton::new("play")
+                        .state(state)
+                        .when_some(caption, |button, caption| button.caption(caption))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let Some(id) = &id else {
+                                return;
+                            };
+                            if joins {
+                                this.servers
+                                    .update(cx, |servers, cx| servers.play_instance(id, cx));
+                            } else {
+                                this.instances
+                                    .update(cx, |instances, cx| instances.play(id, cx));
+                            }
+                        }))
+                        .on_stop(cx.listener(move |this, _, _, cx| {
+                            if let Some(id) = &stop_id {
+                                this.instances
+                                    .update(cx, |instances, cx| instances.stop(id, cx));
+                            }
+                        })),
+                )
+                .when(joins, |this| {
+                    this.child(
+                        Button::new("play-without-joining", "Play without joining")
+                            .size(ButtonSize::Slim)
+                            .variant(ButtonVariant::Ghost)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(id) = &single_id {
+                                    this.instances
+                                        .update(cx, |instances, cx| instances.play(id, cx));
+                                }
+                            })),
+                    )
+                }),
         )
         .child(picker(
             "version-picker",

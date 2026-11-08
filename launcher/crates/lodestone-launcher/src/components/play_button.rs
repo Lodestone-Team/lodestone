@@ -31,6 +31,7 @@ pub struct PlayButton {
     state: PlayButtonState,
     on_click: Option<ClickHandler>,
     on_stop: Option<ClickHandler>,
+    caption: Option<SharedString>,
 }
 
 const WIDTH: f32 = 260.;
@@ -43,7 +44,14 @@ impl PlayButton {
             state: PlayButtonState::Ready,
             on_click: None,
             on_stop: None,
+            caption: None,
         }
+    }
+
+    /// A line under "PLAY" (ready or disabled): "and join Survival SMP".
+    pub fn caption(mut self, caption: impl Into<SharedString>) -> Self {
+        self.caption = Some(caption.into());
+        self
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
@@ -141,7 +149,31 @@ impl RenderOnce for PlayButton {
                                 .when_some(self.on_click, |this, on_click| this.on_click(on_click))
                         }
                     })
-                    .child("PLAY")
+                    .map(|this| match self.caption {
+                        None => this.child("PLAY"),
+                        Some(caption) => this.child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .min_w_0()
+                                .px_3()
+                                .child("PLAY")
+                                .child(
+                                    div()
+                                        .max_w_full()
+                                        .truncate()
+                                        .font_family(fonts::SANS)
+                                        .text_size(theme::text_size(text::SMALL))
+                                        .line_height(theme::line_height(
+                                            text::SMALL,
+                                            leading::TIGHT,
+                                        ))
+                                        .font_weight(weights::BOLD.into())
+                                        .child(caption),
+                                ),
+                        ),
+                    })
                     .into_any_element()
             }
             PlayButtonState::Preparing {

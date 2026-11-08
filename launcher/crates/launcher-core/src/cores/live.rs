@@ -36,6 +36,7 @@ use url::Url;
 use super::{
     CoreClient, CoreError, ServerState,
     client::{REQUEST_TIMEOUT, segment},
+    tls::{CertificatePin, PinVerifier},
 };
 use crate::{Secret, USER_AGENT};
 
@@ -394,7 +395,7 @@ impl LiveStream {
     /// It stops when dropped, when `tx`'s receiver is gone, or when the core refuses
     /// the key.
     pub fn open(
-        base: &Url,
+        client: &CoreClient,
         key: Secret,
         server: &str,
         kind: StreamKind,
@@ -403,11 +404,14 @@ impl LiveStream {
         let stop = Arc::new(AtomicBool::new(false));
         let thread = {
             let stop = stop.clone();
-            let base = base.clone();
+            let target = Target {
+                base: client.base().clone(),
+                pin: client.pin().cloned(),
+            };
             let server = server.to_string();
             std::thread::Builder::new()
                 .name("lodestone-core-stream".into())
-                .spawn(move || run(&base, &key, &server, &kind, &tx, &stop))
+                .spawn(move || run(&target, &key, &server, &kind, &tx, &stop))
                 .ok()
         };
         Self { stop, thread }
@@ -470,8 +474,15 @@ pub fn ws_url(base: &Url, path: &str) -> Result<Url, CoreError> {
     Ok(url)
 }
 
+/// Where a stream connects: the core's address, and the certificate the user trusted
+/// for it, if any.
+struct Target {
+    base: Url,
+    pin: Option<CertificatePin>,
+}
+
 fn run(
-    base: &Url,
+    target: &Target,
     key: &Secret,
     server: &str,
     kind: &StreamKind,
@@ -481,7 +492,7 @@ fn run(
     let stopped = || stop.load(Ordering::SeqCst) || tx.is_closed();
     let mut backoff = Duration::from_secs(1);
     while !stopped() {
-        let reason = match connect(base, key, server, kind) {
+        let reason = match connect(target, key, server, kind) {
             Ok(socket) => {
                 backoff = Duration::from_secs(1);
                 if tx.unbounded_send(LiveMessage::Connected).is_err() {
@@ -492,7 +503,9 @@ fn run(
             Err(
                 err @ (CoreError::SignedOut
                 | CoreError::Forbidden(_)
-                | CoreError::InvalidAddress(_)),
+                | CoreError::InvalidAddress(_)
+                | CoreError::Untrusted { .. }
+                | CoreError::CertificateChanged { .. }),
             ) => {
                 let _ = tx.unbounded_send(LiveMessage::Ended(err));
                 return;
@@ -615,13 +628,19 @@ impl Write for Stream {
     }
 }
 
-fn io_error(err: &io::Error) -> CoreError {
-    let text = err.to_string();
-    let lower = text.to_ascii_lowercase();
-    if lower.contains("certificate") || lower.contains("unknownissuer") {
-        CoreError::Untrusted
+fn is_certificate_error(err: &io::Error) -> bool {
+    let lower = err.to_string().to_ascii_lowercase();
+    lower.contains("certificate") || lower.contains("unknownissuer")
+}
+
+fn io_error(err: &io::Error, host: &str) -> CoreError {
+    if is_certificate_error(err) {
+        CoreError::Untrusted {
+            host: host.to_string(),
+            fingerprint: None,
+        }
     } else {
-        CoreError::Unreachable(text)
+        CoreError::Unreachable(err.to_string())
     }
 }
 
@@ -650,60 +669,110 @@ fn refusal(response: &Response) -> CoreError {
     }
 }
 
+/// The TLS settings to try, in order: the pinned certificate first, as the HTTP client
+/// does, then the platform verifier (a certificate macOS trusts now still works).
+fn tls_configs(pin: Option<&CertificatePin>) -> Vec<Arc<rustls::ClientConfig>> {
+    let mut configs = Vec::new();
+    if let Some(pin) = pin {
+        // the provider Zed's own TLS configuration uses, as `PinnedHttp` does
+        let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+        let verifier = Arc::new(PinVerifier::new(Some(pin.clone()), provider.clone()));
+        if let Ok(builder) = rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+        {
+            configs.push(Arc::new(
+                builder
+                    .dangerous()
+                    .with_custom_certificate_verifier(verifier)
+                    .with_no_client_auth(),
+            ));
+        }
+    }
+    configs.push(Arc::new(http_client_tls::tls_config()));
+    configs
+}
+
+fn open_tcp(base: &Url, host: &str) -> Result<TcpStream, CoreError> {
+    let addrs = base
+        .socket_addrs(|| None)
+        .map_err(|err| CoreError::Unreachable(err.to_string()))?;
+    let mut last_error = None;
+    for addr in addrs {
+        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+            Ok(tcp) => {
+                let _ = tcp.set_nodelay(true);
+                tcp.set_read_timeout(Some(READ_TICK))
+                    .map_err(|err| io_error(&err, host))?;
+                tcp.set_write_timeout(Some(REQUEST_TIMEOUT))
+                    .map_err(|err| io_error(&err, host))?;
+                return Ok(tcp);
+            }
+            Err(err) => last_error = Some(err),
+        }
+    }
+    Err(match last_error {
+        Some(err) => io_error(&err, host),
+        None => CoreError::Unreachable("The address didn't resolve".into()),
+    })
+}
+
+fn server_name(
+    host: &url::Host<&str>,
+) -> Result<rustls::pki_types::ServerName<'static>, CoreError> {
+    Ok(match host {
+        url::Host::Domain(domain) => rustls::pki_types::ServerName::try_from(domain.to_string())
+            .map_err(|_| CoreError::InvalidAddress("That isn't a host name".into()))?,
+        url::Host::Ipv4(ip) => {
+            rustls::pki_types::ServerName::IpAddress(std::net::IpAddr::V4(*ip).into())
+        }
+        url::Host::Ipv6(ip) => {
+            rustls::pki_types::ServerName::IpAddress(std::net::IpAddr::V6(*ip).into())
+        }
+    })
+}
+
 fn connect(
-    base: &Url,
+    target: &Target,
     key: &Secret,
     server: &str,
     kind: &StreamKind,
 ) -> Result<WebSocket<Stream>, CoreError> {
     segment(server)?;
+    let base = &target.base;
     let url = ws_url(base, &stream_path(key, server, kind))?;
     let host = base
         .host()
         .ok_or_else(|| CoreError::InvalidAddress("The core address has no host".into()))?;
-    let addrs = base
-        .socket_addrs(|| None)
-        .map_err(|err| CoreError::Unreachable(err.to_string()))?;
-    let mut last_error = None;
-    let mut tcp = None;
-    for addr in addrs {
-        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
-            Ok(stream) => {
-                tcp = Some(stream);
-                break;
+    let host_label = base.host_str().unwrap_or_default().to_string();
+    let configs: Vec<Option<Arc<rustls::ClientConfig>>> = if base.scheme() == "https" {
+        tls_configs(target.pin.as_ref())
+            .into_iter()
+            .map(Some)
+            .collect()
+    } else {
+        vec![None]
+    };
+    let mut result = Err(CoreError::Unreachable("No way to connect".into()));
+    for config in configs {
+        let tcp = open_tcp(base, &host_label)?;
+        let stream = match config {
+            Some(config) => {
+                let connection = rustls::ClientConnection::new(config, server_name(&host)?)
+                    .map_err(|err| CoreError::Unreachable(err.to_string()))?;
+                Stream::Tls(Box::new(rustls::StreamOwned::new(connection, tcp)))
             }
-            Err(err) => last_error = Some(err),
+            None => Stream::Plain(tcp),
+        };
+        result = handshake(&url, stream, &host_label);
+        // the next TLS settings may accept the certificate
+        if !matches!(result, Err(CoreError::Untrusted { .. })) {
+            return result;
         }
     }
-    let tcp = tcp.ok_or_else(|| match last_error {
-        Some(err) => io_error(&err),
-        None => CoreError::Unreachable("The address didn't resolve".into()),
-    })?;
-    let _ = tcp.set_nodelay(true);
-    tcp.set_read_timeout(Some(READ_TICK))
-        .map_err(|err| io_error(&err))?;
-    tcp.set_write_timeout(Some(REQUEST_TIMEOUT))
-        .map_err(|err| io_error(&err))?;
-    let stream = if base.scheme() == "https" {
-        let name = match host {
-            url::Host::Domain(domain) => {
-                rustls::pki_types::ServerName::try_from(domain.to_string())
-                    .map_err(|_| CoreError::InvalidAddress("That isn't a host name".into()))?
-            }
-            url::Host::Ipv4(ip) => {
-                rustls::pki_types::ServerName::IpAddress(std::net::IpAddr::V4(ip).into())
-            }
-            url::Host::Ipv6(ip) => {
-                rustls::pki_types::ServerName::IpAddress(std::net::IpAddr::V6(ip).into())
-            }
-        };
-        let config = Arc::new(http_client_tls::tls_config());
-        let connection = rustls::ClientConnection::new(config, name)
-            .map_err(|err| CoreError::Unreachable(err.to_string()))?;
-        Stream::Tls(Box::new(rustls::StreamOwned::new(connection, tcp)))
-    } else {
-        Stream::Plain(tcp)
-    };
+    result
+}
+
+fn handshake(url: &Url, stream: Stream, host: &str) -> Result<WebSocket<Stream>, CoreError> {
     let mut request = url
         .as_str()
         .into_client_request()
@@ -728,7 +797,7 @@ fn connect(
                 return Err(refusal(&response));
             }
             Err(HandshakeError::Failure(tungstenite::Error::Io(err))) => {
-                return Err(io_error(&err));
+                return Err(io_error(&err, host));
             }
             // never the error's text: it can quote the request, whose URL holds the key
             Err(HandshakeError::Failure(_)) => {

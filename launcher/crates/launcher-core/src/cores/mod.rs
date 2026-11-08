@@ -2,18 +2,25 @@
 //!
 //! - [`client`]: the core's API (`/info`, the instance lists, signing in, start/stop,
 //!   client packs);
-//! - [`store`]: the cores the launcher knows (`servers.json`) and their device keys;
-//! - [`pack`]: a server's client mods in a launcher instance;
+//! - [`tls`]: pinned certificates for cores macOS doesn't trust;
+//! - [`store`]: the cores the launcher knows (`servers.json`), their device keys, pins
+//!   and whether the user trusts them for mods;
+//! - [`trust`]: the advisory before installing code from a core that isn't trusted;
+//! - [`link`] and [`sync`]: an instance made for a server, and its mods kept in step
+//!   with the server's client pack through the modpack import and update;
 //! - [`join`]: where to join a server;
 //! - [`live`]: a server's live state, players and console, and linking Minecraft
 //!   accounts.
 
 pub mod client;
 pub mod join;
+pub mod link;
 pub mod live;
 pub mod models;
-pub mod pack;
 pub mod store;
+pub mod sync;
+pub mod tls;
+pub mod trust;
 
 pub use client::{CoreClient, CoreError, PackFetch, parse_address};
 pub use models::{CoreInfo, ServerInstance, ServerList, ServerLoader, ServerState};
@@ -62,11 +69,11 @@ mod tests {
             game_version: "1.20.1".into(),
             loader,
             loader_version: version.map(str::to_string),
-            port: 25565,
+            port: Some(25565),
             state: ServerState::Stopped,
             player_count: None,
             max_player_count: None,
-            has_client_pack: false,
+            has_client_pack: Some(false),
             playit_address: None,
             listed: false,
         }

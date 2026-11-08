@@ -34,11 +34,11 @@ fn smp() -> ServerInstance {
         game_version: "1.20.1".into(),
         loader: ServerLoader::Fabric,
         loader_version: Some("0.16.14".into()),
-        port: 25565,
+        port: Some(25565),
         state: ServerState::Running,
         player_count: Some(3),
         max_player_count: Some(20),
-        has_client_pack: true,
+        has_client_pack: Some(true),
         playit_address: None,
         listed: true,
     }
@@ -84,6 +84,9 @@ fn core(servers: &mut crate::servers::Servers) {
                 username: Some("peter".into()),
                 key_id: Some("k3y1d0000000".into()),
                 key_expires_at: None,
+                certificate: None,
+                trusted: false,
+                trusted_as: None,
             },
             CoreStatus::Online(ServerList {
                 core_name: "Peter's Lodestone Core".into(),

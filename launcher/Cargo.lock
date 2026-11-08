@@ -2801,6 +2801,7 @@ dependencies = [
  "tungstenite",
  "url",
  "uuid",
+ "zed-reqwest",
  "zip",
 ]
 

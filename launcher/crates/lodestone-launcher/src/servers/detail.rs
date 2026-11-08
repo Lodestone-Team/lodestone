@@ -7,14 +7,11 @@
 //! console opt-ins chosen at sign-in, within the user's own permissions. The streams
 //! run on their own threads and stop when the page closes.
 
-use std::sync::Arc;
-
 use futures::{StreamExt as _, channel::mpsc};
 use gpui::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, SharedString, Task,
     UniformListScrollHandle,
 };
-use http_client::HttpClient;
 use launcher_core::{
     Secret,
     cores::{
@@ -27,7 +24,6 @@ use launcher_core::{
     game::launch::UserType,
 };
 use lodestone_minecraft::console_format::{ParsedConsoleLine, parse_console_line};
-use url::Url;
 
 use crate::{accounts::Accounts, components::TextInput};
 
@@ -105,8 +101,7 @@ impl EventEmitter<DetailEvent> for ServerDetail {}
 impl ServerDetail {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        http: Arc<dyn HttpClient>,
-        base: Url,
+        client: CoreClient,
         key: Secret,
         core_uuid: String,
         core_name: String,
@@ -116,7 +111,7 @@ impl ServerDetail {
         cx: &mut Context<Self>,
     ) -> Self {
         let mut this = Self::empty(core_uuid, core_name, username, server, key, accounts, cx);
-        this.client = Some(CoreClient::new(http, base));
+        this.client = Some(client);
         this.start(cx);
         this
     }
@@ -258,7 +253,7 @@ impl ServerDetail {
         };
         let (tx, mut rx) = mpsc::unbounded();
         self.streams.push(LiveStream::open(
-            client.base(),
+            client,
             self.key.clone(),
             &self.server.uuid,
             kind.clone(),
@@ -582,13 +577,12 @@ impl super::Servers {
         let Some(key) = core.key.clone() else {
             return;
         };
-        let (http, base, accounts) = (self.http.clone(), core.url.clone(), self.accounts.clone());
+        let (client, accounts) = (self.client(core), self.accounts.clone());
         let (name, username) = (core.saved.name.clone(), core.saved.username.clone());
         let core_uuid = core_uuid.to_string();
         let detail = cx.new(|cx| {
             ServerDetail::new(
-                http,
-                base,
+                client,
                 key,
                 core_uuid.clone(),
                 name,

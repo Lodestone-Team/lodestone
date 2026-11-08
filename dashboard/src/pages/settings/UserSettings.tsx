@@ -1,4 +1,5 @@
 import { Dialog, Switch, Transition } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from 'components/Atoms/Modal';
 import { useQueryClient } from '@tanstack/react-query';
 import { PublicUser } from 'bindings/PublicUser';
 import { UserPermission } from 'bindings/UserPermission';
@@ -276,25 +277,15 @@ export const UserSettings = () => {
   // TODO: add non-owner view (can't manage users, can only change their own password)
   return (
     <>
-      <Transition
-        appear
-        show={showCreateUser}
-        as={Fragment}
-        enter="ease-out duration-200"
-        enterFrom="opacity-0"
-        enterTo="opacity-100"
-        leave="ease-in duration-150"
-        leaveFrom="opacity-100"
-        leaveTo="opacity-0"
-      >
+      <Transition appear show={showCreateUser} as={Fragment}>
         <Dialog
           onClose={() => setShowCreateUser(false)}
           className="relative z-10"
         >
-          <div className="fixed inset-0 bg-scrim" />
+          <ModalBackdrop />
           <div className="fixed inset-0 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
-              <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pt-16 pb-8">
+              <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pt-16 pb-8">
                 <h1 className="text-h1 font-bold tracking-tight text-gray-300">
                   Create a new user account
                 </h1>
@@ -306,7 +297,7 @@ export const UserSettings = () => {
                   onSuccess={() => setShowCreateUser(false)}
                   onCancel={() => setShowCreateUser(false)}
                 />
-              </Dialog.Panel>
+              </ModalPanel>
             </div>
           </div>
         </Dialog>

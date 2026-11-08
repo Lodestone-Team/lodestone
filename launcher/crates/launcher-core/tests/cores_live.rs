@@ -438,7 +438,7 @@ fn the_event_stream_reports_state_and_players_and_reconnects() {
     ]);
     let (tx, mut rx) = mpsc::unbounded();
     let stream = LiveStream::open(
-        &mock.base,
+        &CoreClient::new(http::default_client().unwrap(), mock.base.clone()),
         Secret::new(KEY),
         "inst-1",
         StreamKind::Events,
@@ -475,7 +475,7 @@ fn the_console_stream_follows_output_and_stops_when_refused() {
     ]);
     let (tx, mut rx) = mpsc::unbounded();
     let _stream = LiveStream::open(
-        &mock.base,
+        &CoreClient::new(http::default_client().unwrap(), mock.base.clone()),
         Secret::new(KEY),
         "inst-1",
         StreamKind::Console,
@@ -509,7 +509,7 @@ fn a_forbidden_stream_says_why() {
     let mock = MockStreams::start(vec![Connection::Refuse(403)]);
     let (tx, mut rx) = mpsc::unbounded();
     let _stream = LiveStream::open(
-        &mock.base,
+        &CoreClient::new(http::default_client().unwrap(), mock.base.clone()),
         Secret::new(KEY),
         "inst-1",
         StreamKind::Console,

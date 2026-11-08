@@ -1,4 +1,5 @@
 import { Dialog } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from 'components/Atoms/Modal';
 
 export default function CreateFolderModal({
   modalOpen,
@@ -14,12 +15,12 @@ export default function CreateFolderModal({
       open={modalOpen}
       onClose={() => setModalOpen(false)}
     >
-      <div className="fixed inset-0 bg-scrim-strong" />
+      <ModalBackdrop strong />
       <div className="fixed inset-0 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-4 text-center">
-          <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
+          <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
             {children}
-          </Dialog.Panel>
+          </ModalPanel>
         </div>
       </div>
     </Dialog>

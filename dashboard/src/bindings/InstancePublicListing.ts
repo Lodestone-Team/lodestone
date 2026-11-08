@@ -3,10 +3,8 @@
 /**
  * `GET /instance/{uuid}/public_listing`.
  */
-export type InstancePublicListing = {
-  listed: boolean;
-  /**
-   * The global switch: while it is off, a listed instance is not shown either.
-   */
-  list_instances_publicly: boolean;
-};
+export type InstancePublicListing = { 
+/**
+ * The global switch: while it is off, a listed instance is not shown either.
+ */
+list_instances_publicly: boolean, listed: boolean, status: boolean, address: boolean, client_pack: boolean, };

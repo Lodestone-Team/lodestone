@@ -22,6 +22,7 @@ md-5.workspace = true
 pulldown-cmark.workspace = true
 rand.workspace = true
 regex.workspace = true
+reqwest.workspace = true
 reqwest_client.workspace = true
 rustls.workspace = true
 serde.workspace = true

@@ -187,7 +187,7 @@ fn state_color(state: ServerState) -> Color {
         ServerState::Running => colors::GREEN_200,
         ServerState::Starting | ServerState::Stopping => colors::YELLOW,
         ServerState::Error => colors::RED_200,
-        ServerState::Stopped | ServerState::Unknown => colors::GRAY_500,
+        ServerState::Stopped | ServerState::Unknown | ServerState::Hidden => colors::GRAY_500,
     }
 }
 

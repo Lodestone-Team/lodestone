@@ -26,6 +26,19 @@ http_client_tls = { git = "https://github.com/zed-industries/zed", rev = "c84af5
 
 launcher-core = { path = "crates/launcher-core" }
 
+# Certificate pinning for HTTPS cores with a self-signed certificate (`launcher-core`'s
+# `cores::tls`): a reqwest client with our own rustls verifier, wrapped in Zed's
+# `ReqwestClient`. Both are in GPUI's tree already; Zed's requirement and features.
+rustls = "0.23.26"
+reqwest = { git = "https://github.com/zed-industries/reqwest.git", rev = "33bc764aa15ff7b200bf7c93bd96e24878d53e14", default-features = false, features = [
+    "http2",
+    "macos-system-configuration",
+    "rustls-tls-native-roots",
+    "socks",
+    "stream",
+], package = "zed-reqwest", version = "0.12.15-zed" }
+
+
 # Third-party crates. Each resolves to the version in Zed v1.27.0's Cargo.lock, and
 # uses the requirement and features Zed declares where Zed declares it.
 anyhow = "1.0.86"
@@ -43,8 +56,6 @@ libc = "0.2"
 pulldown-cmark = { version = "0.13.0", default-features = false }
 # Zed's requirement and features.
 regex = { version = "1.5", default-features = false, features = ["std", "perf"] }
-# TLS around a core's WebSocket streams; Zed's requirement.
-rustls = "0.23.26"
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "os_rng"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }

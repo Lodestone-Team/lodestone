@@ -139,6 +139,13 @@ impl AddServerDialog {
         cx.notify();
     }
 
+    /// Waiting again, after the certificate prompt was answered.
+    pub fn set_busy(&mut self, cx: &mut Context<Self>) {
+        self.busy = true;
+        self.error = None;
+        cx.notify();
+    }
+
     fn submit(&mut self, cx: &mut Context<Self>) {
         if self.busy {
             return;
