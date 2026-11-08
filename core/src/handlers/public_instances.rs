@@ -4,10 +4,13 @@
 //!   instances and their client modpacks, without signing in, while the owner allows it;
 //! - `GET /launcher/instances` and `GET /launcher/instances/{uuid}/client-pack`: the same
 //!   for the instances a signed-in user (or launcher key) can view;
-//! - `GET`/`PUT /instance/{uuid}/public_listing`: whether an instance is listed.
+//! - `GET`/`PUT /instance/{uuid}/public_listing`: whether an instance is listed, and
+//!   what it shows (its [`PublicScope`]); only the owner changes it;
+//! - `GET /public_listing`: the scope of every instance, for the owner.
 //!
-//! The public routes give out only what a player needs to join (see [`PublicInstance`]),
-//! are cached, and answer "not found" alike for missing, unlisted and hidden instances.
+//! The public routes give out only what a player needs to join and the instance's scope
+//! allows (see [`PublicInstance`]), are cached, and answer "not found" alike for
+//! missing, unlisted and hidden instances.
 
 use axum::{
     body::Body,
@@ -37,7 +40,8 @@ use crate::{
     prelude::GameInstance,
     public_listing::{
         has_enabled_jar, pack_fingerprint, sha256_of, BuiltPack, CachedPack, InstancePublicListing,
-        PackSlot, PublicInstance, PublicInstanceList, PublicLoader,
+        InstancePublicScope, PackSlot, PublicInstance, PublicInstanceList, PublicListingOverview,
+        PublicLoader, PublicScope, PublicScopeChange,
     },
     traits::{
         t_configurable::{Game, MinecraftVariant, TConfigurable},
@@ -102,10 +106,11 @@ async fn playit_addresses(state: &AppState) -> Vec<(u16, String)> {
         .await
 }
 
-/// An instance as [`PublicInstance`], or `None` if it is not a Minecraft Java instance.
+/// An instance as [`PublicInstance`] with the fields `scope` shows, or `None` if it is
+/// not a Minecraft Java instance. `scope.listed` is only reported, not checked.
 async fn public_instance(
     instance: &GameInstance,
-    listed: bool,
+    scope: PublicScope,
     playit: &[(u16, String)],
 ) -> Option<PublicInstance> {
     let info = instance.get_instance_info().await;
@@ -113,32 +118,41 @@ async fn public_instance(
         return None;
     };
     let loader = loader_of(variant);
-    let has_client_pack =
-        loader == PublicLoader::Fabric && has_enabled_jar(instance.path().await.join("mods")).await;
+    let has_client_pack = if scope.client_pack {
+        Some(
+            loader == PublicLoader::Fabric
+                && has_enabled_jar(instance.path().await.join("mods")).await,
+        )
+    } else {
+        None
+    };
     let playit_address = playit
         .iter()
         .find(|(port, _)| u32::from(*port) == info.port)
         .map(|(_, address)| address.clone());
+    let status = scope.status;
+    let address = scope.address;
     Some(PublicInstance {
         uuid: info.uuid,
         name: info.name,
         game_version: info.version,
         loader,
         loader_version: info.loader_version,
-        port: info.port,
-        state: info.state,
-        player_count: info.player_count,
-        max_player_count: info.max_player_count,
+        port: address.then_some(info.port),
+        state: status.then_some(info.state),
+        player_count: status.then_some(info.player_count),
+        max_player_count: status.then_some(info.max_player_count),
         has_client_pack,
-        playit_address,
-        listed,
+        playit_address: address.then_some(playit_address),
+        listed: scope.listed,
     })
 }
 
-/// The instances `include` accepts, oldest first.
+/// The instances `include` gives a scope, oldest first, each showing what its scope
+/// allows.
 async fn instance_list(
     state: &AppState,
-    include: impl Fn(&InstanceUuid) -> bool,
+    include: impl Fn(&InstanceUuid) -> Option<PublicScope>,
 ) -> PublicInstanceList {
     let (core_name, listing_enabled) = {
         let settings = state.global_settings.lock().await;
@@ -147,20 +161,20 @@ async fn instance_list(
     let mut chosen = Vec::new();
     for instance in all_instances(state) {
         let uuid = instance.uuid().await;
-        if include(&uuid) {
-            chosen.push((instance.creation_time().await, uuid, instance));
+        if let Some(scope) = include(&uuid) {
+            chosen.push((instance.creation_time().await, scope, instance));
         }
     }
     chosen.sort_by_key(|(created, _, _)| *created);
-    let playit = if chosen.is_empty() {
-        Vec::new()
-    } else {
+    // fetched only when an address is shown
+    let playit = if chosen.iter().any(|(_, scope, _)| scope.address) {
         playit_addresses(state).await
+    } else {
+        Vec::new()
     };
     let mut instances = Vec::new();
-    for (_, uuid, instance) in chosen {
-        let listed = state.public_listing.is_listed(&uuid);
-        if let Some(entry) = public_instance(&instance, listed, &playit).await {
+    for (_, scope, instance) in chosen {
+        if let Some(entry) = public_instance(&instance, scope, &playit).await {
             instances.push(entry);
         }
     }
@@ -172,10 +186,11 @@ async fn instance_list(
     }
 }
 
-/// Whether anyone may see the instance: the switch is on and it is listed.
-async fn is_public(state: &AppState, uuid: &InstanceUuid) -> bool {
-    state.global_settings.lock().await.list_instances_publicly()
-        && state.public_listing.is_listed(uuid)
+/// What anyone may see of the instance: its scope while the switch is on and it is
+/// listed, else `None`.
+async fn public_scope(state: &AppState, uuid: &InstanceUuid) -> Option<PublicScope> {
+    let scope = state.public_listing.scope(uuid);
+    (state.global_settings.lock().await.list_instances_publicly() && scope.listed).then_some(scope)
 }
 
 async fn get_public_instances(State(state): State<AppState>) -> Json<PublicInstanceList> {
@@ -184,7 +199,10 @@ async fn get_public_instances(State(state): State<AppState>) -> Json<PublicInsta
     }
     let enabled = state.global_settings.lock().await.list_instances_publicly();
     let listing = state.public_listing.clone();
-    let list = instance_list(&state, |uuid| enabled && listing.is_listed(uuid)).await;
+    let list = instance_list(&state, |uuid| {
+        Some(listing.scope(uuid)).filter(|scope| enabled && scope.listed)
+    })
+    .await;
     state.public_listing.store_list(list.clone()).await;
     Json(list)
 }
@@ -194,8 +212,14 @@ async fn get_launcher_instances(
     requester: AuthedUser,
 ) -> Json<PublicInstanceList> {
     Json(
+        // the requester's permissions decide, not the public scope
         instance_list(&state, |uuid| {
-            requester.can_perform_action(&UserAction::ViewInstance(uuid.clone()))
+            requester
+                .can_perform_action(&UserAction::ViewInstance(uuid.clone()))
+                .then(|| PublicScope {
+                    listed: state.public_listing.is_listed(uuid),
+                    ..PublicScope::ALL
+                })
         })
         .await,
     )
@@ -330,7 +354,10 @@ async fn get_public_client_pack(
     Path(uuid): Path<InstanceUuid>,
     headers: HeaderMap,
 ) -> Result<Response, Error> {
-    if !is_public(&state, &uuid).await || !state.instances.contains_key(&uuid) {
+    let shared = public_scope(&state, &uuid)
+        .await
+        .is_some_and(|scope| scope.client_pack);
+    if !shared || !state.instances.contains_key(&uuid) {
         return Err(not_found());
     }
     pack_response(&state, &uuid, &headers).await
@@ -355,27 +382,88 @@ async fn get_public_listing(
     Path(uuid): Path<InstanceUuid>,
     requester: AuthedUser,
 ) -> Result<Json<InstancePublicListing>, Error> {
+    // anyone who can see the instance sees what it shows publicly; only the owner changes it
     requester
-        .require(&state, UserAction::AccessSetting(uuid.clone()))
+        .require(&state, UserAction::ViewInstance(uuid.clone()))
         .await?;
     get_instance(&state, &uuid)?;
     Ok(Json(InstancePublicListing {
-        listed: state.public_listing.is_listed(&uuid),
+        scope: state.public_listing.scope(&uuid),
         list_instances_publicly: state.global_settings.lock().await.list_instances_publicly(),
     }))
 }
 
-/// The rule for listing an instance: settings access to it, and the global switch for
-/// turning it on.
-fn check_set_listed(
+/// `GET /public_listing`, for the owner: every Minecraft Java instance, oldest first.
+async fn get_public_listing_overview(
+    State(state): State<AppState>,
+    requester: AuthedUser,
+) -> Result<Json<PublicListingOverview>, Error> {
+    requester.require_owner()?;
+    let mut instances = Vec::new();
+    for instance in all_instances(&state) {
+        if !is_minecraft_java(&instance).await {
+            continue;
+        }
+        let uuid = instance.uuid().await;
+        instances.push((
+            instance.creation_time().await,
+            InstancePublicScope {
+                scope: state.public_listing.scope(&uuid),
+                name: instance.name().await,
+                uuid,
+            },
+        ));
+    }
+    // Creation times are in seconds, so instances made in the same second are ordered by
+    // name, then uuid: the order never depends on the instance map's iteration order.
+    instances.sort_by(|(a_created, a), (b_created, b)| {
+        a_created
+            .cmp(b_created)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.uuid.to_string().cmp(&b.uuid.to_string()))
+    });
+    Ok(Json(PublicListingOverview {
+        list_instances_publicly: state.global_settings.lock().await.list_instances_publicly(),
+        instances: instances.into_iter().map(|(_, entry)| entry).collect(),
+    }))
+}
+
+/// The body of `PUT /instance/{uuid}/public_listing`: a bare boolean lists or unlists
+/// (as before scopes), an object changes the flags it names.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum ListingRequest {
+    Listed(bool),
+    Change(PublicScopeChange),
+}
+
+impl ListingRequest {
+    fn into_change(self) -> PublicScopeChange {
+        match self {
+            ListingRequest::Listed(listed) => PublicScopeChange {
+                listed: Some(listed),
+                ..Default::default()
+            },
+            ListingRequest::Change(change) => change,
+        }
+    }
+}
+
+/// The rule for changing what an instance shows publicly: only the owner, and the global
+/// switch for listing an instance that is not listed yet.
+fn check_change(
     requester: &User,
-    uuid: &InstanceUuid,
-    listed: bool,
+    current: PublicScope,
+    change: &PublicScopeChange,
     switch_on: bool,
-    safe_mode: bool,
 ) -> Result<(), Error> {
-    requester.try_action(&UserAction::AccessSetting(uuid.clone()), safe_mode)?;
-    if listed && !switch_on {
+    if !requester.is_owner {
+        return Err(Error {
+            kind: ErrorKind::PermissionDenied,
+            source: eyre!("Only the owner can change whether an instance is public"),
+        });
+    }
+    if change.listed == Some(true) && !current.listed && !switch_on {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
             source: eyre!("Listing instances publicly is turned off in Core Settings"),
@@ -384,32 +472,57 @@ fn check_set_listed(
     Ok(())
 }
 
+/// What an instance shows, for the event log: "listed publicly (status, address)".
+fn describe(scope: PublicScope) -> String {
+    if !scope.listed {
+        return "no longer listed publicly".to_string();
+    }
+    let shown: Vec<&str> = [
+        (scope.status, "status"),
+        (scope.address, "address"),
+        (scope.client_pack, "client mods"),
+    ]
+    .into_iter()
+    .filter_map(|(on, name)| on.then_some(name))
+    .collect();
+    if shown.is_empty() {
+        "listed publicly (name and version only)".to_string()
+    } else {
+        format!("listed publicly ({})", shown.join(", "))
+    }
+}
+
 async fn set_public_listing(
     State(state): State<AppState>,
     Path(uuid): Path<InstanceUuid>,
     requester: AuthedUser,
-    Json(listed): Json<bool>,
-) -> Result<Json<()>, Error> {
+    Json(request): Json<ListingRequest>,
+) -> Result<Json<PublicScope>, Error> {
+    let change = request.into_change();
     let switch_on = state.global_settings.lock().await.list_instances_publicly();
-    check_set_listed(&requester, &uuid, listed, switch_on, state.safe_mode())?;
+    check_change(
+        &requester,
+        state.public_listing.scope(&uuid),
+        &change,
+        switch_on,
+    )?;
     let instance = get_instance(&state, &uuid)?;
-    if listed && !is_minecraft_java(&instance).await {
+    if !is_minecraft_java(&instance).await {
         return Err(bad_request(
             "Only Minecraft Java Edition instances can be listed publicly",
         ));
     }
-    state.public_listing.set_listed(&uuid, listed).await?;
-    state.event_broadcaster.send(Event {
-        event_inner: EventInner::GlobalSettingsChanged,
-        details: format!(
-            "{} {} publicly",
-            instance.name().await,
-            if listed { "listed" } else { "no longer listed" }
-        ),
-        snowflake: Snowflake::default(),
-        caused_by: requester.caused_by(),
-    });
-    Ok(Json(()))
+    let before = state.public_listing.scope(&uuid);
+    let scope = state.public_listing.change(&uuid, &change).await?;
+    if scope != before {
+        state.event_broadcaster.send(Event {
+            event_inner: EventInner::GlobalSettingsChanged,
+            details: format!("{} {}", instance.name().await, describe(scope)),
+            snowflake: Snowflake::default(),
+            caused_by: requester.caused_by(),
+        });
+    }
+    Ok(Json(scope))
 }
 
 pub fn get_public_instance_routes(state: AppState) -> Router {
@@ -428,6 +541,7 @@ pub fn get_public_instance_routes(state: AppState) -> Router {
             "/instance/{uuid}/public_listing",
             get(get_public_listing).put(set_public_listing),
         )
+        .route("/public_listing", get(get_public_listing_overview))
         .with_state(state)
 }
 
