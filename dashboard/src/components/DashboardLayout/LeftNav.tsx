@@ -3,6 +3,7 @@ import { Fragment, Suspense, useContext } from 'react';
 import Button from 'components/Atoms/Button';
 import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from 'components/Atoms/Modal';
 import {
   CreateInstanceFlow,
   CreateInstanceFlowSkeleton,
@@ -36,22 +37,12 @@ export default function LeftNav({ className }: { className?: string }) {
       className={`overflow-y-overlay flex w-full flex-col items-center overflow-y-auto px-2 ${className}`}
     >
       <div className="mt-8 flex w-full grow flex-col">
-        <Transition
-          appear
-          show={showCreateInstance}
-          as={Fragment}
-          enter="ease-out duration-200"
-          enterFrom="opacity-0"
-          enterTo="opacity-100"
-          leave="ease-in duration-150"
-          leaveFrom="opacity-100"
-          leaveTo="opacity-0"
-        >
+        <Transition appear show={showCreateInstance} as={Fragment}>
           <Dialog onClose={closeCreateInstance} className="z-10">
-            <div className="fixed inset-0 bg-scrim" />
+            <ModalBackdrop />
             <div className="fixed inset-0">
               <div className="overflow-y-overlay flex min-h-full items-center justify-center p-4 text-center">
-                <Dialog.Panel>
+                <ModalPanel>
                   <Suspense
                     fallback={
                       <CreateInstanceFlowSkeleton modpack={!!modpackPreset} />
@@ -62,7 +53,7 @@ export default function LeftNav({ className }: { className?: string }) {
                       modpackPreset={modpackPreset}
                     />
                   </Suspense>
-                </Dialog.Panel>
+                </ModalPanel>
               </div>
             </div>
           </Dialog>

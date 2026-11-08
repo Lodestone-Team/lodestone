@@ -1,5 +1,6 @@
 import { faClone } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from 'components/Atoms/Modal';
 import { CreatedApiKey } from 'bindings/CreatedApiKey';
 import Button from 'components/Atoms/Button';
 import { cliCoreUrl } from 'data/ApiKeys';
@@ -61,21 +62,15 @@ export default function CreatedApiKeyDialog({
       appear
       show={isOpen && created !== null}
       as={Fragment}
-      enter="ease-out duration-200"
-      enterFrom="opacity-0"
-      enterTo="opacity-100"
-      leave="ease-in duration-150"
-      leaveFrom="opacity-100"
-      leaveTo="opacity-0"
       afterLeave={afterLeave}
     >
       {/* Clicking outside or pressing Escape doesn't close it: the key would
           be lost. Only the Done button does. */}
       <Dialog onClose={() => undefined} className="relative z-10">
-        <div className="fixed inset-0 bg-scrim" />
+        <ModalBackdrop />
         <div className="fixed inset-0 overflow-y-auto">
           <div className="flex min-h-full items-center justify-center p-4">
-            <Dialog.Panel className="flex w-150 max-w-full flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
+            <ModalPanel className="flex w-150 max-w-full flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
               <Dialog.Title className="text-h2 font-extrabold tracking-tight text-gray-300">
                 API key &quot;{created?.info.name}&quot; created
               </Dialog.Title>
@@ -94,7 +89,7 @@ export default function CreatedApiKeyDialog({
               <div className="flex flex-row justify-end">
                 <Button label="Done" intention="primary" onClick={onClose} />
               </div>
-            </Dialog.Panel>
+            </ModalPanel>
           </div>
         </div>
       </Dialog>
