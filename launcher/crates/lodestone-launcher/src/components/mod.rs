@@ -8,6 +8,7 @@ mod dialog_slot;
 mod icon;
 mod list_row;
 mod play_button;
+pub mod settings;
 mod tabs;
 mod text_input;
 mod toggle;
