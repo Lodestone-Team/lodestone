@@ -355,29 +355,60 @@ mod tests {
         ])
     }
 
+    /// The dark theme's CSS variables (`:root, [data-theme='dark'] { --name: value; }`)
+    /// from the dashboard's `globals.css`. The dashboard's light theme came later;
+    /// the launcher has only the dark one.
+    fn dark_css_variables() -> BTreeMap<String, String> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../dashboard/src/globals.css");
+        let css = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("reading {}: {err}", path.display()));
+        let start = css
+            .find("[data-theme='dark'] {")
+            .expect("globals.css has a dark theme block");
+        let body = &css[start..start + css[start..].find('}').unwrap()];
+        body.lines()
+            .filter_map(|line| {
+                let line = line.trim().strip_prefix("--")?;
+                let (name, value) = line.split_once(':')?;
+                Some((
+                    name.trim().to_string(),
+                    value.trim().trim_end_matches(';').to_string(),
+                ))
+            })
+            .collect()
+    }
+
     #[test]
     fn colors_match_tailwind() {
         let config = tailwind_config();
+        let variables = dark_css_variables();
         let mut tailwind = flatten(object(&config, "colors"));
         // `current` is CSS's currentColor, which has no fixed value.
         assert_eq!(tailwind.remove("current").as_deref(), Some("currentColor"));
-        let tailwind: BTreeMap<_, _> = tailwind
-            .into_iter()
-            .map(|(name, value)| {
-                let hex = if value == "transparent" {
-                    "#00000000".to_string()
-                } else {
-                    value.to_uppercase()
-                };
-                (name, hex)
-            })
-            .collect();
+        let resolve = |value: &str| -> String {
+            if value == "transparent" {
+                return "#00000000".to_string();
+            }
+            match value
+                .strip_prefix("var(--")
+                .and_then(|v| v.strip_suffix(')'))
+            {
+                Some(name) => variables
+                    .get(name)
+                    .unwrap_or_else(|| panic!("--{name} is not in the dark theme"))
+                    .to_uppercase(),
+                None => value.to_uppercase(),
+            }
+        };
 
-        let tokens: BTreeMap<String, String> = token_colors()
-            .into_iter()
-            .map(|(name, color)| (name.to_string(), color.to_hex()))
-            .collect();
-        assert_eq!(tokens, tailwind);
+        // Every launcher token has the dashboard's (dark theme) value. The dashboard
+        // also has semantic colours for its light theme that the launcher doesn't use.
+        for (name, color) in token_colors() {
+            let value = tailwind
+                .get(name)
+                .unwrap_or_else(|| panic!("{name} is not in the dashboard's colours"));
+            assert_eq!(color.to_hex(), resolve(value), "{name}");
+        }
     }
 
     #[test]
