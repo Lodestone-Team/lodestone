@@ -1,6 +1,9 @@
 version: 2
 
 # Every ecosystem waits 14 days after a release before proposing it (supply-chain cooldown).
+#
+# Version updates are paused (open-pull-requests-limit: 0) to save GitHub Actions
+# resources while CI is disabled. Remove those lines to turn them back on.
 updates:
   - package-ecosystem: cargo
     directory: /
@@ -8,6 +11,7 @@ updates:
       interval: weekly
     cooldown:
       default-days: 14
+    open-pull-requests-limit: 0
 
   - package-ecosystem: npm
     directory: /dashboard
@@ -15,6 +19,7 @@ updates:
       interval: weekly
     cooldown:
       default-days: 14
+    open-pull-requests-limit: 0
 
   # Actions are pinned to commit SHAs; Dependabot updates the SHA and the "# vX.Y.Z" comment.
   - package-ecosystem: github-actions
@@ -23,6 +28,7 @@ updates:
       interval: weekly
     cooldown:
       default-days: 14
+    open-pull-requests-limit: 0
 
   # Base images are pinned by digest in core/Dockerfile, core/githubactions.Dockerfile
   # and dashboard/Dockerfile.
@@ -34,3 +40,4 @@ updates:
       interval: weekly
     cooldown:
       default-days: 14
+    open-pull-requests-limit: 0
