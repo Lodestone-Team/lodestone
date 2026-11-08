@@ -35,6 +35,14 @@ impl Os {
             Os::MacOs
         }
     }
+
+    /// The separator between the entries of a Java classpath (`-cp`) on this OS.
+    pub fn classpath_separator(self) -> &'static str {
+        match self {
+            Os::Windows => ";",
+            Os::MacOs | Os::Linux => ":",
+        }
+    }
 }
 
 /// A CPU architecture.
@@ -237,6 +245,13 @@ mod tests {
         assert_eq!(Arch::X86.rule_name(), "x86");
         assert_eq!(Arch::Arm64.bits(), "64");
         assert_eq!(Arch::X86.bits(), "32");
+    }
+
+    #[test]
+    fn classpath_separators() {
+        assert_eq!(Os::Windows.classpath_separator(), ";");
+        assert_eq!(Os::MacOs.classpath_separator(), ":");
+        assert_eq!(Os::Linux.classpath_separator(), ":");
     }
 
     #[cfg(target_os = "macos")]
