@@ -184,6 +184,17 @@ impl SharedSettings {
         self.done(result, None, cx);
     }
 
+    fn set_narrator_off(&mut self, off: bool, cx: &mut Context<Self>) {
+        let data = self.instances.read(cx).data_dir().clone();
+        let result = shared_options::set_narrator_off(&data, off);
+        let message = if off {
+            "The narrator stays off in every instance, new ones included."
+        } else {
+            "Each instance keeps its own narrator setting again."
+        };
+        self.done(result, Some(message.into()), cx);
+    }
+
     /// Saves a value picked with a switch, choice or slider straight away.
     fn set_now(&mut self, key: &str, text: &str, cx: &mut Context<Self>) {
         let data = self.instances.read(cx).data_dir().clone();
@@ -462,6 +473,27 @@ impl Render for SharedSettings {
                 .into_any_element(),
         );
 
+        let accessibility_shared = self.profile.shares(Category::Accessibility);
+        let narrator = SettingRow::new("Keep the narrator off")
+            .hint(
+                "In every instance, new ones included: the narrator stays off, and Minecraft's first-start accessibility screen, which reads itself aloud, is skipped.",
+            )
+            .note_opt((!accessibility_shared).then(|| {
+                (
+                    SharedString::from(
+                        "Accessibility & chat isn't shared, so each instance keeps its own narrator setting.",
+                    ),
+                    colors::YELLOW,
+                )
+            }))
+            .child(
+                Toggle::new("narrator-off", shared_options::narrator_off(&self.profile))
+                    .disabled(!accessibility_shared)
+                    .on_change(cx.listener(|this, off: &bool, _, cx| {
+                        this.set_narrator_off(*off, cx)
+                    })),
+            );
+
         div()
             .id("shared-game-settings")
             .flex()
@@ -473,6 +505,7 @@ impl Render for SharedSettings {
                 copy.into_any_element(),
                 reset.into_any_element(),
             ])))
+            .child(section("Narrator", None).child(card([narrator.into_any_element()])))
             .child(
                 section(
                     "What's shared",

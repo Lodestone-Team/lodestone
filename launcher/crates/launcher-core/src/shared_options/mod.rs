@@ -704,6 +704,31 @@ pub fn set_value(data: &DataDir, key: &str, text: &str) -> Result<Profile, Share
     })
 }
 
+/// The keys "Keep the narrator off" shares: the narrator off, and the game's first-start
+/// accessibility screen (which the narrator reads aloud) skipped.
+pub const NARRATOR_OFF: [(&str, &str); 2] = [("narrator", "0"), ("onboardAccessibility", "false")];
+
+/// Whether the global set keeps the narrator off in every instance.
+pub fn narrator_off(profile: &Profile) -> bool {
+    NARRATOR_OFF
+        .iter()
+        .all(|(key, value)| profile.values.get(*key).map(String::as_str) == Some(*value))
+}
+
+/// Keeps the narrator off in every instance, new ones included, or stops sharing those
+/// values so each instance keeps its own.
+pub fn set_narrator_off(data: &DataDir, off: bool) -> Result<Profile, SharedError> {
+    update_profile(data, |profile| {
+        for (key, value) in NARRATOR_OFF {
+            if off {
+                profile.values.insert(key.to_string(), value.to_string());
+            } else {
+                profile.values.remove(key);
+            }
+        }
+    })
+}
+
 fn parse_value(key: &str, text: &str) -> Result<String, SharedError> {
     match find(key) {
         Some(spec) => format::parse_input(spec, text).map_err(SharedError::Invalid),
