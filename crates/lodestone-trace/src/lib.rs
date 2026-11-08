@@ -338,10 +338,7 @@ pub fn scrub_str(text: &str) -> Option<String> {
     let words: Vec<String> = text
         .split(' ')
         .scan(false, |after_scheme, word| {
-            let out = if *after_scheme && !word.is_empty() {
-                changed = true;
-                REDACTED.to_string()
-            } else if looks_like_token(word) {
+            let out = if (*after_scheme && !word.is_empty()) || looks_like_token(word) {
                 changed = true;
                 REDACTED.to_string()
             } else if let Some(clean) = scrub_query(word) {
