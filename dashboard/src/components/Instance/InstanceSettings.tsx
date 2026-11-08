@@ -269,11 +269,7 @@ export default function InstanceSetting() {
           canControlInstance ? 'No permission' : OWNER_ONLY_ATOM_MESSAGE
         }
       />
-      <PublicListingSetting
-        instance={instance}
-        canEdit={can_access_instance_setting}
-        disabledReason="No permission"
-      />
+      <PublicListingSetting instance={instance} />
       <ResourcePackSetting
         instance={instance}
         canEdit={can_access_instance_setting}

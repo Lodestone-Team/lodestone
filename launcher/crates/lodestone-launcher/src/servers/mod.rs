@@ -590,7 +590,13 @@ impl Servers {
         }
         let key: RowKey = (link.core_uuid.clone(), link.server_uuid.clone());
         self.links.insert(key.clone(), instance.id.clone());
-        if !server.has_client_pack {
+        if !server.has_pack() {
+            if server.mods_hidden() {
+                self.notice = Some((
+                    format!("Created {} without the server's mods", server.name).into(),
+                    "The owner hasn't shared this server's client mods, so the instance has only its Minecraft version and loader. Add any mods it needs yourself.".into(),
+                ));
+            }
             cx.notify();
             return;
         }
@@ -712,7 +718,7 @@ impl Servers {
             cx.emit(ServersEvent::OpenInstance(instance_id));
             return;
         }
-        if !server.has_client_pack {
+        if !server.has_pack() {
             return self.join(core_uuid, &server, &instance_id, cx);
         }
         let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
@@ -844,7 +850,11 @@ impl Servers {
         let Some(target) = join_target(&core.url, server) else {
             return self.fail(
                 "Couldn't join the server",
-                "The server's address or port isn't one Minecraft can join.",
+                if server.address_shown() {
+                    "The server's address or port isn't one Minecraft can join."
+                } else {
+                    cores::models::ADDRESS_HIDDEN
+                },
                 cx,
             );
         };

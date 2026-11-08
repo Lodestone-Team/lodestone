@@ -67,11 +67,11 @@ mod tests {
             game_version: "1.20.1".into(),
             loader,
             loader_version: version.map(str::to_string),
-            port: 25565,
+            port: Some(25565),
             state: ServerState::Stopped,
             player_count: None,
             max_player_count: None,
-            has_client_pack: false,
+            has_client_pack: Some(false),
             playit_address: None,
             listed: false,
         }

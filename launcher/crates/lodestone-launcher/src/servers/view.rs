@@ -7,6 +7,7 @@ use gpui::{
 };
 use launcher_core::cores::{
     CoreError, ServerInstance, ServerLoader, ServerState, client::display_address,
+    models::ADDRESS_HIDDEN,
 };
 
 use super::{CoreEntry, CoreStatus, Servers};
@@ -20,7 +21,7 @@ fn state_color(state: ServerState) -> theme::Color {
         ServerState::Running => colors::GREEN_200,
         ServerState::Starting | ServerState::Stopping => colors::YELLOW,
         ServerState::Error => colors::RED_200,
-        ServerState::Stopped | ServerState::Unknown => colors::GRAY_500,
+        ServerState::Stopped | ServerState::Unknown | ServerState::Hidden => colors::GRAY_500,
     }
 }
 
@@ -120,12 +121,22 @@ impl Servers {
                     .into_any_element(),
                 );
             } else {
+                // without the status, the server may be running
+                let joinable =
+                    server.address_shown() && (running || server.state == ServerState::Hidden);
+                if !server.address_shown() {
+                    actions.push(
+                        small(ADDRESS_HIDDEN)
+                            .text_color(colors::GRAY_500)
+                            .into_any_element(),
+                    );
+                }
                 let (c, s) = (core_uuid.clone(), server.clone());
                 actions.push(
                     Button::new(SharedString::from(format!("play-{row_id}")), "Play")
                         .size(ButtonSize::Slim)
                         .variant(ButtonVariant::Primary)
-                        .disabled(!running)
+                        .disabled(!joinable)
                         .on_click(cx.listener(move |this, _, _, cx| this.play(&c, s.clone(), cx)))
                         .into_any_element(),
                 );
@@ -157,13 +168,15 @@ impl Servers {
             .py_2p5()
             .border_t_1()
             .border_color(colors::FADE_700)
-            .child(
-                div()
-                    .flex_none()
-                    .size(px(8.))
-                    .rounded_full()
-                    .bg(state_color(server.state)),
-            )
+            .when(server.state != ServerState::Hidden, |this| {
+                this.child(
+                    div()
+                        .flex_none()
+                        .size(px(8.))
+                        .rounded_full()
+                        .bg(state_color(server.state)),
+                )
+            })
             .child(
                 div()
                     .flex()

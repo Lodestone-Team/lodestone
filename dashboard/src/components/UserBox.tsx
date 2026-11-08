@@ -5,6 +5,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Dialog, Menu, Transition } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from './Atoms/Modal';
 import { useQueryClient } from '@tanstack/react-query';
 import { PublicUser } from 'bindings/PublicUser';
 import clsx from 'clsx';
@@ -45,25 +46,15 @@ export default function UserBox({
         className
       )}
     >
-      <Transition
-        appear
-        show={showChangePassword}
-        as={Fragment}
-        enter="ease-out duration-200"
-        enterFrom="opacity-0"
-        enterTo="opacity-100"
-        leave="ease-in duration-150"
-        leaveFrom="opacity-100"
-        leaveTo="opacity-0"
-      >
+      <Transition appear show={showChangePassword} as={Fragment}>
         <Dialog
           onClose={() => setShowChangePassword(false)}
           className="relative z-10"
         >
-          <div className="fixed inset-0 bg-scrim" />
+          <ModalBackdrop />
           <div className="fixed inset-0 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
-              <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
+              <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
                 <h1 className="text-h1 font-bold tracking-tight text-gray-300">
                   Change password
                 </h1>
@@ -79,7 +70,7 @@ export default function UserBox({
                     onCancel={() => setShowChangePassword(false)}
                   />
                 )}
-              </Dialog.Panel>
+              </ModalPanel>
             </div>
           </div>
         </Dialog>

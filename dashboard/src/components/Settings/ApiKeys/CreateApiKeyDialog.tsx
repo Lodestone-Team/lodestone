@@ -1,4 +1,5 @@
 import { Dialog, Transition } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from 'components/Atoms/Modal';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiKeyScope } from 'bindings/ApiKeyScope';
 import { CreatedApiKey } from 'bindings/CreatedApiKey';
@@ -102,22 +103,12 @@ export default function CreateApiKeyDialog({
   };
 
   return (
-    <Transition
-      appear
-      show={isOpen}
-      as={Fragment}
-      enter="ease-out duration-200"
-      enterFrom="opacity-0"
-      enterTo="opacity-100"
-      leave="ease-in duration-150"
-      leaveFrom="opacity-100"
-      leaveTo="opacity-0"
-    >
+    <Transition appear show={isOpen} as={Fragment}>
       <Dialog onClose={onClose} className="relative z-10">
-        <div className="fixed inset-0 bg-scrim" />
+        <ModalBackdrop />
         <div className="fixed inset-0 overflow-y-auto">
           <div className="flex min-h-full items-center justify-center p-4">
-            <Dialog.Panel className="flex w-180 max-w-full flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
+            <ModalPanel className="flex w-180 max-w-full flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
               <Dialog.Title className="text-h2 font-extrabold tracking-tight text-gray-300">
                 Create API key
               </Dialog.Title>
@@ -192,7 +183,7 @@ export default function CreateApiKeyDialog({
                   </Form>
                 )}
               </Formik>
-            </Dialog.Panel>
+            </ModalPanel>
           </div>
         </div>
       </Dialog>

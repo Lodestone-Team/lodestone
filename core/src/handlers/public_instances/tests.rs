@@ -208,6 +208,28 @@ impl Core {
         .await
     }
 
+    async fn set_scope(&self, uuid: &InstanceUuid, change: Value) -> (StatusCode, Value) {
+        self.call(
+            Method::PUT,
+            &format!("/instance/{uuid}/public_listing"),
+            Some(&self.owner_jwt),
+            Some(change),
+        )
+        .await
+    }
+
+    /// The public entry of `uuid`, which must be listed.
+    async fn public_entry(&self, uuid: &InstanceUuid) -> Value {
+        let list = self.public_list().await;
+        list["instances"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["uuid"] == uuid.to_string())
+            .unwrap_or_else(|| panic!("{uuid} is not in {list}"))
+            .clone()
+    }
+
     async fn create_key(&self, token: &str, scope: Value) -> String {
         let (status, body) = self
             .call(
@@ -286,9 +308,13 @@ async fn only_listed_instances_are_shown_while_the_switch_is_on() {
         )
         .await;
     assert_eq!(status, StatusCode::OK);
+    // listed with the defaults: status and address, not the client pack
     assert_eq!(
         body,
-        json!({ "listed": true, "list_instances_publicly": true })
+        json!({
+            "listed": true, "status": true, "address": true, "client_pack": false,
+            "list_instances_publicly": true
+        })
     );
 
     let list = core.public_list().await;
@@ -300,23 +326,14 @@ async fn only_listed_instances_are_shown_while_the_switch_is_on() {
     assert_eq!(entry["loader_version"], "0.16.14");
     assert_eq!(entry["port"], 25570);
     assert_eq!(entry["state"], "Stopped");
-    assert_eq!(entry["has_client_pack"], true);
     assert_eq!(entry["playit_address"], Value::Null);
     assert_eq!(entry["listed"], true);
 
     // only the fields of the contract: no paths, description, owner or settings
-    let mut keys: Vec<&str> = entry
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
-    keys.sort();
     assert_eq!(
-        keys,
+        keys_of(entry),
         [
             "game_version",
-            "has_client_pack",
             "listed",
             "loader",
             "loader_version",
@@ -350,10 +367,152 @@ async fn only_listed_instances_are_shown_while_the_switch_is_on() {
     assert_eq!(core.public_list().await["instances"], json!([]));
 }
 
+/// The keys of a JSON object, sorted.
+fn keys_of(value: &Value) -> Vec<String> {
+    let mut keys: Vec<String> = value.as_object().unwrap().keys().cloned().collect();
+    keys.sort();
+    keys
+}
+
+const MINIMUM: [&str; 6] = [
+    "game_version",
+    "listed",
+    "loader",
+    "loader_version",
+    "name",
+    "uuid",
+];
+
 #[tokio::test]
-async fn listing_needs_settings_access() {
+async fn each_scope_flag_shows_exactly_its_fields() {
     let core = core().await;
     core.set_switch(true).await;
+    let (status, body) = core
+        .set_scope(
+            &core.fabric,
+            json!({ "listed": true, "status": false, "address": false, "client_pack": false }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body,
+        json!({ "listed": true, "status": false, "address": false, "client_pack": false })
+    );
+    let entry = core.public_entry(&core.fabric).await;
+    assert_eq!(keys_of(&entry), MINIMUM);
+
+    for (flag, fields) in [
+        ("status", vec!["max_player_count", "player_count", "state"]),
+        ("address", vec!["playit_address", "port"]),
+        ("client_pack", vec!["has_client_pack"]),
+    ] {
+        let (status, body) = core.set_scope(&core.fabric, json!({ flag: true })).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let entry = core.public_entry(&core.fabric).await;
+        let mut expected: Vec<String> = MINIMUM.iter().map(|k| k.to_string()).collect();
+        expected.extend(fields.iter().map(|k| k.to_string()));
+        expected.sort();
+        assert_eq!(keys_of(&entry), expected, "{flag}");
+        core.set_scope(&core.fabric, json!({ flag: false })).await;
+    }
+
+    // the values when shown: counts and the playit address are null when unknown
+    core.set_scope(
+        &core.fabric,
+        json!({ "status": true, "address": true, "client_pack": true }),
+    )
+    .await;
+    let entry = core.public_entry(&core.fabric).await;
+    assert_eq!(entry["state"], "Stopped");
+    assert_eq!(entry["port"], 25570);
+    assert_eq!(entry["playit_address"], Value::Null);
+    assert_eq!(entry["has_client_pack"], true);
+    assert!(entry.as_object().unwrap().contains_key("player_count"));
+
+    // a launcher key sees everything, whatever the public scope
+    core.set_scope(
+        &core.fabric,
+        json!({ "status": false, "address": false, "client_pack": false }),
+    )
+    .await;
+    let key = core
+        .create_key(&core.owner_jwt, json!({ "type": "launcher" }))
+        .await;
+    let (_, list) = core
+        .call(Method::GET, "/launcher/instances", Some(&key), None)
+        .await;
+    for entry in list["instances"].as_array().unwrap() {
+        assert_eq!(
+            keys_of(entry),
+            [
+                "game_version",
+                "has_client_pack",
+                "listed",
+                "loader",
+                "loader_version",
+                "max_player_count",
+                "name",
+                "player_count",
+                "playit_address",
+                "port",
+                "state",
+                "uuid"
+            ]
+        );
+    }
+
+    // unlisting keeps the scope for the next listing
+    core.set_listed(&core.fabric, false).await;
+    assert_eq!(core.public_list().await["instances"], json!([]));
+    core.set_listed(&core.fabric, true).await;
+    assert_eq!(keys_of(&core.public_entry(&core.fabric).await), MINIMUM);
+
+    // the owner's overview: every Minecraft instance and its scope
+    let (status, overview) = core
+        .call(Method::GET, "/public_listing", Some(&core.owner_jwt), None)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{overview}");
+    assert_eq!(overview["list_instances_publicly"], true);
+    assert_eq!(
+        overview["instances"],
+        json!([
+            {
+                "uuid": core.fabric.to_string(), "name": "Fabric server",
+                "listed": true, "status": false, "address": false, "client_pack": false
+            },
+            {
+                "uuid": core.vanilla.to_string(), "name": "Vanilla server",
+                "listed": false, "status": true, "address": true, "client_pack": false
+            }
+        ])
+    );
+
+    // unknown flags are refused
+    let (status, _) = core
+        .set_scope(&core.fabric, json!({ "players": true }))
+        .await;
+    assert!(status.is_client_error(), "{status}");
+}
+
+#[tokio::test]
+async fn only_the_owner_changes_what_is_public() {
+    let core = core().await;
+    core.set_switch(true).await;
+    let all: std::collections::HashSet<InstanceUuid> =
+        [core.fabric.clone(), core.vanilla.clone()].into();
+    let admin = add_user(&core.state, "admin", false, true, Default::default()).await;
+    let settings_member = add_user(
+        &core.state,
+        "settings",
+        false,
+        false,
+        UserPermission {
+            can_view_instance: all.clone(),
+            can_access_instance_setting: all.clone(),
+            ..Default::default()
+        },
+    )
+    .await;
     let viewer = add_user(
         &core.state,
         "viewer",
@@ -365,26 +524,53 @@ async fn listing_needs_settings_access() {
         },
     )
     .await;
-    let jwt = viewer.create_jwt().unwrap().to_string();
-    let (status, _) = core
-        .call(
-            Method::PUT,
-            &format!("/instance/{}/public_listing", core.fabric),
-            Some(&jwt),
-            Some(json!(true)),
-        )
+    let owner_key = core
+        .create_key(&core.owner_jwt, json!({ "type": "launcher" }))
         .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    // and only the owner turns the switch on or off
-    let (status, _) = core
-        .call(
-            Method::PUT,
-            "/global_settings/list_instances_publicly",
-            Some(&jwt),
-            Some(json!(false)),
-        )
-        .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    let mut tokens = vec![("owner's launcher key", owner_key)];
+    for (who, user) in [
+        ("admin", &admin),
+        ("member with settings access", &settings_member),
+        ("viewer", &viewer),
+    ] {
+        tokens.push((who, user.create_jwt().unwrap().to_string()));
+    }
+    for (who, token) in &tokens {
+        for body in [
+            json!(true),
+            json!(false),
+            json!({ "listed": true }),
+            json!({ "client_pack": true }),
+        ] {
+            let (status, reply) = core
+                .call(
+                    Method::PUT,
+                    &format!("/instance/{}/public_listing", core.fabric),
+                    Some(token),
+                    Some(body.clone()),
+                )
+                .await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{who} {body}: {reply}");
+        }
+        // nor the overview, nor the global switch
+        let (status, _) = core
+            .call(Method::GET, "/public_listing", Some(token), None)
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{who}");
+        let (status, _) = core
+            .call(
+                Method::PUT,
+                "/global_settings/list_instances_publicly",
+                Some(token),
+                Some(json!(false)),
+            )
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{who}");
+    }
+    assert_eq!(
+        core.state.public_listing.scope(&core.fabric),
+        PublicScope::default()
+    );
     assert!(core
         .state
         .global_settings
@@ -392,28 +578,39 @@ async fn listing_needs_settings_access() {
         .await
         .list_instances_publicly());
 
-    let settings_user = add_user(
-        &core.state,
-        "settings",
-        false,
-        false,
-        UserPermission {
-            can_access_instance_setting: [core.vanilla.clone()].into(),
-            ..Default::default()
-        },
-    )
-    .await;
-    let jwt = settings_user.create_jwt().unwrap().to_string();
+    // anyone who sees the instance sees its scope, read-only
+    let viewer_jwt = &tokens[3].1;
+    core.set_listed(&core.fabric, true).await;
     let (status, body) = core
         .call(
-            Method::PUT,
-            &format!("/instance/{}/public_listing", core.vanilla),
-            Some(&jwt),
-            Some(json!(true)),
+            Method::GET,
+            &format!("/instance/{}/public_listing", core.fabric),
+            Some(viewer_jwt),
+            None,
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert!(core.state.public_listing.is_listed(&core.vanilla));
+    assert_eq!(body["listed"], true);
+    let (status, _) = core
+        .call(
+            Method::GET,
+            &format!("/instance/{}/public_listing", core.vanilla),
+            Some(viewer_jwt),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // the owner may unlist with the switch off, but not list
+    core.set_switch(false).await;
+    let (status, _) = core.set_listed(&core.vanilla, true).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = core
+        .set_scope(&core.vanilla, json!({ "status": false }))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = core.set_listed(&core.fabric, false).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 /// Parses a client pack and returns its index.
@@ -439,6 +636,35 @@ async fn the_client_pack_is_public_only_when_listed() {
         StatusCode::NOT_FOUND
     );
     core.set_listed(&core.fabric, true).await;
+    // listed, but the client pack is not shared by default: the same 404
+    let (status, body) = core
+        .call(
+            Method::GET,
+            &format!("/public/instances/{}/client-pack", core.fabric),
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        body,
+        core.call(
+            Method::GET,
+            "/public/instances/nope/client-pack",
+            None,
+            None
+        )
+        .await
+        .1
+    );
+    assert!(!core
+        .public_entry(&core.fabric)
+        .await
+        .as_object()
+        .unwrap()
+        .contains_key("has_client_pack"));
+    core.set_scope(&core.fabric, json!({ "client_pack": true }))
+        .await;
     let response = core.client.get(&url).send().await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
@@ -490,7 +716,11 @@ async fn the_client_pack_is_public_only_when_listed() {
     assert_eq!(changed.headers()["x-lodestone-included-jars"], "2");
 
     // a vanilla server has no pack
-    core.set_listed(&core.vanilla, true).await;
+    core.set_scope(
+        &core.vanilla,
+        json!({ "listed": true, "client_pack": true }),
+    )
+    .await;
     let (status, body) = core
         .call(
             Method::GET,
@@ -502,8 +732,24 @@ async fn the_client_pack_is_public_only_when_listed() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(body.to_string().contains("only available for Fabric"));
 
-    // unlisted again: gone
+    // the client pack unshared: gone
+    core.set_scope(&core.fabric, json!({ "client_pack": false }))
+        .await;
+    assert_eq!(
+        core.client.get(&url).send().await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+    // and unlisted with it shared: gone too
+    core.set_scope(&core.fabric, json!({ "client_pack": true }))
+        .await;
     core.set_listed(&core.fabric, false).await;
+    assert_eq!(
+        core.client.get(&url).send().await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+    // and with the switch off
+    core.set_listed(&core.fabric, true).await;
+    core.set_switch(false).await;
     assert_eq!(
         core.client.get(&url).send().await.unwrap().status(),
         StatusCode::NOT_FOUND
@@ -774,20 +1020,57 @@ fn etags_match_with_or_without_weak_prefix() {
 
 #[test]
 fn listing_rule() {
-    let uuid = InstanceUuid::from("x".to_string());
-    let with_settings = User::new(
-        "a".into(),
-        "pw",
-        false,
-        false,
-        UserPermission {
-            can_access_instance_setting: [uuid.clone()].into(),
+    let owner = User::new("o".into(), "pw", true, false, Default::default());
+    let admin = User::new("a".into(), "pw", false, true, Default::default());
+    let list = PublicScopeChange {
+        listed: Some(true),
+        ..Default::default()
+    };
+    let unlist = PublicScopeChange {
+        listed: Some(false),
+        ..Default::default()
+    };
+    let scope_only = PublicScopeChange {
+        status: Some(false),
+        ..Default::default()
+    };
+    let unlisted = PublicScope::default();
+    let listed = PublicScope {
+        listed: true,
+        ..Default::default()
+    };
+    assert!(check_change(&owner, unlisted, &list, true).is_ok());
+    assert!(check_change(&owner, unlisted, &list, false).is_err());
+    // already listed: no switch needed to keep it so
+    assert!(check_change(&owner, listed, &list, false).is_ok());
+    assert!(check_change(&owner, listed, &unlist, false).is_ok());
+    assert!(check_change(&owner, unlisted, &scope_only, false).is_ok());
+    for change in [list, unlist, scope_only] {
+        let err = check_change(&admin, listed, &change, true).unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::PermissionDenied));
+    }
+}
+
+#[test]
+fn event_details_name_what_is_shown() {
+    assert_eq!(
+        describe(PublicScope {
+            listed: true,
             ..Default::default()
-        },
+        }),
+        "listed publicly (status, address)"
     );
-    assert!(check_set_listed(&with_settings, &uuid, true, true, true).is_ok());
-    assert!(check_set_listed(&with_settings, &uuid, true, false, false).is_err());
-    assert!(check_set_listed(&with_settings, &uuid, false, false, false).is_ok());
-    let without = User::new("b".into(), "pw", false, false, Default::default());
-    assert!(check_set_listed(&without, &uuid, false, true, false).is_err());
+    assert_eq!(
+        describe(PublicScope {
+            listed: true,
+            status: false,
+            address: false,
+            client_pack: false
+        }),
+        "listed publicly (name and version only)"
+    );
+    assert_eq!(
+        describe(PublicScope::default()),
+        "no longer listed publicly"
+    );
 }

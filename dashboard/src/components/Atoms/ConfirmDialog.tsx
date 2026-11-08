@@ -1,4 +1,5 @@
 import { Dialog, Transition } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from './Modal';
 import { Fragment, ReactNode, useEffect, useState } from 'react';
 import Button from './Button';
 
@@ -31,17 +32,7 @@ export default function ConfirmDialog({
   }, [isOpen]);
 
   return (
-    <Transition
-      appear
-      show={isOpen}
-      as={Fragment}
-      enter="ease-out duration-200"
-      enterFrom="opacity-0"
-      enterTo="opacity-100"
-      leave="ease-in duration-150"
-      leaveFrom="opacity-100"
-      leaveTo="opacity-0"
-    >
+    <Transition appear show={isOpen} as={Fragment}>
       <Dialog
         as="div"
         className="relative"
@@ -50,10 +41,10 @@ export default function ConfirmDialog({
         }}
         onClose={onClose}
       >
-        <div className="fixed inset-0 bg-scrim" />
+        <ModalBackdrop />
         <div className="fixed inset-0 overflow-y-auto drop-shadow-lg">
           <div className="flex min-h-full items-center justify-center">
-            <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-6 rounded-2xl border border-gray-faded/30 bg-gray-850 p-12">
+            <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-6 rounded-2xl border border-gray-faded/30 bg-gray-850 p-12">
               <Dialog.Title
                 as="h1"
                 className="text-h1 font-extrabold leading-tight tracking-tight text-gray-300"
@@ -91,7 +82,7 @@ export default function ConfirmDialog({
                   />
                 )}
               </div>
-            </Dialog.Panel>
+            </ModalPanel>
           </div>
         </div>
       </Dialog>
