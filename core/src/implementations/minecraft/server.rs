@@ -27,7 +27,9 @@ use crate::util::{dont_spawn_terminal, list_dir, local_port_available};
 
 use super::properties::PropertiesDocument;
 use super::r#macro::resolve_macro_invocation;
-use super::{java_binary, Flavour, ForgeBuildVersion, MinecraftInstance, RestoreConfig};
+use super::{
+    java_binary, split_args, Flavour, ForgeBuildVersion, MinecraftInstance, RestoreConfig,
+};
 use tracing::{error, info, warn};
 
 /// Minecraft's default port, used when server.properties has no `server-port`
@@ -368,6 +370,38 @@ impl MinecraftInstance {
         Ok(())
     }
 
+    /// The command that launches the server, and the program's name for error messages.
+    /// A custom command replaces the whole Java command. It can run anything, so it is only
+    /// launched while code execution is on, like the macros.
+    async fn launch_command(
+        &self,
+        config: &RestoreConfig,
+        jre: &Path,
+    ) -> Result<(Command, String), Error> {
+        if let Some(custom) = config
+            .custom_cmd
+            .as_deref()
+            .filter(|c| !c.trim().is_empty())
+        {
+            self.macro_executor.require_code_execution()?;
+            let mut parts = split_args(custom)?.into_iter();
+            let program = parts
+                .next()
+                .ok_or_else(|| eyre!("The custom command has no program to run"))?;
+            let mut command = Command::new(&program);
+            command.args(parts);
+            return Ok((command, program));
+        }
+        let mut command = Command::new(jre);
+        command
+            .arg(format!("-Xmx{}M", config.max_ram))
+            .arg(format!("-Xms{}M", config.min_ram))
+            .args(config.cmd_args.iter().filter(|s| !s.is_empty()));
+        self.add_jar_args(&mut command, config).await?;
+        command.arg("nogui");
+        Ok((command, jre.display().to_string()))
+    }
+
     /// Everything start() does after moving to Starting. On error the caller rolls the
     /// state back.
     async fn launch(&self, name: &str, caused_by: &CausedBy) -> Result<(), Error> {
@@ -402,27 +436,7 @@ impl MinecraftInstance {
             .map(PathBuf::from)
             .unwrap_or_else(|| java_binary(&self.path_to_runtimes, config.jre_major_version));
 
-        let mut command = if config.custom_cmd.as_deref().unwrap_or_default().is_empty() {
-            let mut command = Command::new(&jre);
-            command
-                .arg(format!("-Xmx{}M", config.max_ram))
-                .arg(format!("-Xms{}M", config.min_ram))
-                .args(config.cmd_args.iter().filter(|s| !s.is_empty()));
-            self.add_jar_args(&mut command, &config).await?;
-            command.arg("nogui");
-            command
-        } else {
-            let mut args: Vec<String> = config
-                .custom_cmd
-                .clone()
-                .unwrap_or_default()
-                .split(' ')
-                .map(String::from)
-                .collect();
-            let mut command = Command::new(args.remove(0));
-            command.args(args.iter().filter(|s| !s.is_empty()));
-            command
-        };
+        let (mut command, program) = self.launch_command(&config, &jre).await?;
         command.current_dir(&self.path_to_instance);
         dont_spawn_terminal(&mut command)
             .stdout(Stdio::piped())
@@ -438,7 +452,7 @@ impl MinecraftInstance {
             }
             let mut child = command
                 .spawn()
-                .context(format!("Failed to start the server with {}", jre.display()))?;
+                .context(format!("Failed to start the server with {program}"))?;
             let (Some(stdin), Some(stdout), Some(stderr)) =
                 (child.stdin.take(), child.stdout.take(), child.stderr.take())
             else {
@@ -925,6 +939,7 @@ impl TServer for MinecraftInstance {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_support::{config, instance};
     use super::*;
 
     fn settings(text: &str) -> Result<LaunchSettings, Error> {
@@ -949,5 +964,95 @@ mod tests {
 
         assert!(settings("server-port=70000\n").is_err());
         assert!(settings("server-port=abc\n").is_err());
+    }
+
+    async fn command_of(
+        instance: &MinecraftInstance,
+    ) -> Result<(String, Vec<String>, String), Error> {
+        let config = instance.config.lock().await.clone();
+        let jre = PathBuf::from(config.java_cmd.clone().unwrap());
+        let (command, program) = instance.launch_command(&config, &jre).await?;
+        let command = command.as_std();
+        Ok((
+            command.get_program().to_string_lossy().to_string(),
+            command
+                .get_args()
+                .map(|a| a.to_string_lossy().to_string())
+                .collect(),
+            program,
+        ))
+    }
+
+    #[tokio::test]
+    async fn default_launch_command_is_java() {
+        let dir = tempfile::tempdir().unwrap();
+        let (instance, _) = instance(dir.path(), config(None), true).await;
+        let (program, args, _) = command_of(&instance).await.unwrap();
+        assert_eq!(program, "/opt/jre/bin/java");
+        assert_eq!(
+            args,
+            [
+                "-Xmx2048M".to_string(),
+                "-Xms1024M".to_string(),
+                "-Xss4M".to_string(),
+                "-jar".to_string(),
+                dir.path().join("server.jar").to_string_lossy().to_string(),
+                "nogui".to_string(),
+            ]
+        );
+        // an empty custom command is the same as none
+        let (instance, _) =
+            super::super::test_support::instance(dir.path(), config(Some("  ")), true).await;
+        assert_eq!(command_of(&instance).await.unwrap().0, "/opt/jre/bin/java");
+    }
+
+    #[tokio::test]
+    async fn default_launch_command_reports_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut forge = config(None);
+        forge["flavour"] = serde_json::json!({"forge": {"build_version": null}});
+        let (instance, _) = instance(dir.path(), forge, true).await;
+        let err = command_of(&instance).await.unwrap_err();
+        assert!(err.source.to_string().contains("Forge version"), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn custom_launch_command_replaces_java() {
+        let dir = tempfile::tempdir().unwrap();
+        let custom = r#""/opt/my java/bin/java" '-Dname=My Server' -jar  server.jar"#;
+        let (instance, _) = instance(dir.path(), config(Some(custom)), true).await;
+        let (program, args, name) = command_of(&instance).await.unwrap();
+        assert_eq!(program, "/opt/my java/bin/java");
+        assert_eq!(name, "/opt/my java/bin/java");
+        assert_eq!(args, ["-Dname=My Server", "-jar", "server.jar"]);
+    }
+
+    #[tokio::test]
+    async fn custom_launch_command_needs_code_execution() {
+        let dir = tempfile::tempdir().unwrap();
+        let (instance, switch) = instance(dir.path(), config(Some("./run.sh")), true).await;
+        assert_eq!(command_of(&instance).await.unwrap().0, "./run.sh");
+
+        switch.set(false);
+        let err = command_of(&instance).await.unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::PermissionDenied), "{err:?}");
+        assert_eq!(
+            err.source.to_string(),
+            crate::global_settings::CODE_EXECUTION_DISABLED_MESSAGE
+        );
+
+        // the default command does not depend on the switch
+        let (instance, switch) =
+            super::super::test_support::instance(dir.path(), config(None), false).await;
+        assert!(!switch.is_enabled());
+        assert_eq!(command_of(&instance).await.unwrap().0, "/opt/jre/bin/java");
+    }
+
+    #[tokio::test]
+    async fn custom_launch_command_with_an_unclosed_quote_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let (instance, _) = instance(dir.path(), config(Some("run.sh \"x")), true).await;
+        let err = command_of(&instance).await.unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::BadRequest), "{err:?}");
     }
 }

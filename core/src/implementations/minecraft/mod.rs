@@ -689,6 +689,9 @@ impl MinecraftInstance {
         cmd_args_config_map.insert(max_ram.get_identifier().to_owned(), max_ram.into());
         let java_cmd = CmdArgSetting::JavaCmd(java_cmd);
         cmd_args_config_map.insert(java_cmd.get_identifier().to_owned(), java_cmd.into());
+        let custom_cmd =
+            CmdArgSetting::CustomCmd(restore_config.custom_cmd.clone().unwrap_or_default());
+        cmd_args_config_map.insert(custom_cmd.get_identifier().to_owned(), custom_cmd.into());
 
         let cmd_line_section_manifest = SectionManifest::new(
             CmdArgSetting::get_section_id().to_string(),
@@ -906,6 +909,7 @@ impl MinecraftInstance {
             jre_major_version,
             has_started: false,
             java_cmd: Some(jre.to_string_lossy().to_string()),
+            custom_cmd: None,
             modpack: config.modpack,
         };
         // create config file
@@ -1231,6 +1235,7 @@ mod tests {
     fn old_configs_load_without_a_modpack() {
         let config: RestoreConfig = serde_json::from_str(OLD_CONFIG).unwrap();
         assert_eq!(config.modpack, None);
+        assert_eq!(config.custom_cmd, None);
         let details = config.details();
         assert_eq!(details.modpack, None);
         assert_eq!(details.icon_url, None);
@@ -1294,5 +1299,57 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
         // no temporary files are left behind
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+}
+
+/// Builds an instance in a temporary folder for the tests of the other modules.
+#[cfg(test)]
+mod test_support {
+    use super::*;
+    use crate::global_settings::CodeExecutionSwitch;
+    use crate::traits::t_configurable::GameType;
+
+    /// The config of a Fabric instance as JSON, with `custom_cmd` as given.
+    pub(super) fn config(custom_cmd: Option<&str>) -> serde_json::Value {
+        serde_json::json!({
+            "name": "Test", "version": "1.20.1",
+            "flavour": {"fabric": {"loader_version": "0.14.21", "installer_version": "0.11.2"}},
+            "description": "", "cmd_args": ["-Xss4M"], "java_cmd": "/opt/jre/bin/java",
+            "custom_cmd": custom_cmd, "port": 25565, "min_ram": 1024, "max_ram": 2048,
+            "auto_start": false, "restart_on_crash": false, "backup_period": null,
+            "jre_major_version": 17
+        })
+    }
+
+    /// An instance with the config `config` (a [`RestoreConfig`] as JSON), and the code
+    /// execution switch it uses.
+    pub(super) async fn instance(
+        dir: &Path,
+        config: serde_json::Value,
+        code_execution: bool,
+    ) -> (MinecraftInstance, CodeExecutionSwitch) {
+        // the managed Java runtimes folder is only used to build paths in these tests
+        crate::prelude::try_init_paths(std::env::temp_dir().join("lodestone-core-tests")).unwrap();
+        std::fs::write(
+            dir.join(".lodestone_minecraft_config.json"),
+            config.to_string(),
+        )
+        .unwrap();
+        let (event_broadcaster, _rx) = EventBroadcaster::new(64);
+        let switch = CodeExecutionSwitch::new(code_execution);
+        let macro_executor = MacroExecutor::new(
+            event_broadcaster.clone(),
+            tokio::runtime::Handle::current(),
+            switch.clone(),
+        );
+        let instance = MinecraftInstance::restore(
+            dir.to_path_buf(),
+            DotLodestoneConfig::new(InstanceUuid::default(), GameType::MinecraftJava),
+            event_broadcaster,
+            macro_executor,
+        )
+        .await
+        .unwrap();
+        (instance, switch)
     }
 }
