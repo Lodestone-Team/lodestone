@@ -78,6 +78,12 @@ crate::i18n::messages! {
         /// No mod loader: the game as Mojang ships it.
         Vanilla = "Vanilla",
         ModLoader = "Mod loader",
+        /// What each loader is for, on its card in "New instance".
+        AboutVanilla = "Minecraft as Mojang ships it.",
+        AboutFabric = "Light and quick to update. Most performance mods.",
+        AboutQuilt = "Fabric-compatible, with its own extras.",
+        AboutForge = "The classic. Big content mods and older packs.",
+        AboutNeoForge = "Forge's successor, for newer versions.",
         /// Whether Modrinth content updates to beta and alpha versions.
         PrereleaseUpdates = "Beta and alpha updates",
         PrereleaseUpdatesHint = "Off, mods already on a beta still get betas.",
@@ -88,11 +94,7 @@ crate::i18n::messages! {
         LoadingLoaderVersions = "Loading {loader} versions",
         /// {error} is the problem, in English.
         CouldntLoadVersions = "Couldn't load the versions: {error}",
-        CouldntLoadLoaderVersions = "Couldn't load the {loader} versions: {error}",
         NoVersionsFor = "No versions for Minecraft {game}.",
-        LoaderHasNoVersions = "{loader} has no versions for Minecraft {game}.",
-        PlainMinecraft = "Plain Minecraft, without mods.",
-        ChooseGameVersionFirst = "Choose a Minecraft version first.",
         /// A tag on a loader version.
         Recommended = "Recommended",
         Beta = "Beta",
@@ -215,10 +217,6 @@ crate::i18n::messages! {
         NewInstance = "New instance",
         /// The dialog's two modes.
         MinecraftVersion = "Minecraft version",
-        /// Labels above the fields, in capitals.
-        NameLabel = "NAME",
-        MinecraftVersionLabel = "MINECRAFT VERSION",
-        ModLoaderLabel = "MOD LOADER",
         /// The name field's placeholder.
         MyInstance = "My instance",
         SearchVersions = "Search versions",
@@ -234,10 +232,6 @@ crate::i18n::messages! {
         KindOther = "Other",
         LoadingVersionList = "Loading Mojang's version list",
         NoVersionsMatch = "No versions match.",
-        /// {version} is "1.21.4", {loader} "Fabric", {loader_version} "0.16.9".
-        GameWithLoader = "Minecraft {version} with {loader} {loader_version}",
-        NoVersionSelected = "No version selected",
-        NoModpackPicked = "No modpack picked",
         PickModpack = "Pick a modpack and a version.",
         ChooseGameVersion = "Choose a Minecraft version.",
         CreateInstance = "Create instance",

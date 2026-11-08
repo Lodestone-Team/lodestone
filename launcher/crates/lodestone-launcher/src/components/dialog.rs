@@ -80,6 +80,10 @@ pub struct Dialog {
     title: SharedString,
     focus_handle: FocusHandle,
     body: Vec<AnyElement>,
+    /// Beside the title, at the end of its row.
+    header_end: Vec<AnyElement>,
+    /// At the start of the footer; the footer's other elements then sit at its end.
+    footer_start: Vec<AnyElement>,
     footer: Vec<AnyElement>,
     on_close: Option<CloseHandler>,
     width: gpui::Pixels,
@@ -101,6 +105,8 @@ impl Dialog {
             title: title.into(),
             focus_handle,
             body: Vec::new(),
+            header_end: Vec::new(),
+            footer_start: Vec::new(),
             footer: Vec::new(),
             on_close: None,
             width: layout::dialog_width(),
@@ -127,6 +133,19 @@ impl Dialog {
     /// A wider dialog than the dashboard's 500 px, for two columns.
     pub fn width(mut self, width: gpui::Pixels) -> Self {
         self.width = width;
+        self
+    }
+
+    /// Adds an element at the end of the title's row, such as a switch.
+    pub fn header_end(mut self, element: impl IntoElement) -> Self {
+        self.header_end.push(element.into_any_element());
+        self
+    }
+
+    /// Adds an element to the start of the row at the bottom; the elements added
+    /// with [`Self::footer`] then line up at its end, primary action last.
+    pub fn footer_start(mut self, element: impl IntoElement) -> Self {
+        self.footer_start.push(element.into_any_element());
         self
     }
 
@@ -200,11 +219,21 @@ impl RenderOnce for Dialog {
                     .p_12()
                     .child(
                         div()
-                            .text_size(theme::text_size(text::H1))
-                            .line_height(theme::line_height(text::H1, leading::TIGHT))
-                            .font_weight(weights::EXTRABOLD.into())
-                            .text_color(colors::GRAY_300)
-                            .child(self.title),
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_4()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(theme::text_size(text::H1))
+                                    .line_height(theme::line_height(text::H1, leading::TIGHT))
+                                    .font_weight(weights::EXTRABOLD.into())
+                                    .text_color(colors::GRAY_300)
+                                    .child(self.title),
+                            )
+                            .children(self.header_end),
                     )
                     .child(
                         div()
@@ -214,12 +243,16 @@ impl RenderOnce for Dialog {
                             .children(self.body),
                     )
                     .when(!self.footer.is_empty(), |this| {
+                        let split = !self.footer_start.is_empty();
                         this.child(
                             div()
                                 .flex()
                                 .flex_row()
                                 .flex_wrap()
+                                .items_center()
                                 .gap_2()
+                                .children(self.footer_start)
+                                .when(split, |row| row.child(div().flex_1()))
                                 .children(self.footer),
                         )
                     }),
