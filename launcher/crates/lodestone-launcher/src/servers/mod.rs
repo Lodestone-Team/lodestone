@@ -1003,6 +1003,25 @@ impl Servers {
         })
     }
 
+    /// Forgets which server the instance was made for, so Play no longer joins it or
+    /// keeps its mods in step. The instance keeps its mods.
+    pub fn unlink_instance(
+        &mut self,
+        instance_id: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let dir = self.instances.read(cx).instance_dir(instance_id);
+        let path = link::link_path(&dir);
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .map_err(|err| format!("Couldn't unlink the instance: {err}"))?;
+        }
+        self.instance_links.remove(instance_id);
+        self.links.retain(|_, id| id != instance_id);
+        cx.notify();
+        Ok(())
+    }
+
     /// What the instance's server row is doing, for the instance page.
     pub fn instance_busy(&self, instance_id: &str) -> Option<&Busy> {
         let link = self.instance_links.get(instance_id)?;

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useLocation } from 'react-router';
 import { RadioGroup } from '@headlessui/react';
 import { InstanceContext } from 'data/InstanceContext';
 import { useContext } from 'react';
@@ -28,7 +28,8 @@ export const SelectedInstanceInfo = ({
   const { selectedInstance, isReady } = useContext(InstanceContext);
 
   const { setPathname, searchParams } = useContext(BrowserLocationContext);
-  const setActive = useMemo(() => location.pathname.split('/')[2], [location.pathname]);
+  // the location this page renders (the settings modal can be open over it)
+  const setActive = useLocation().pathname.split('/')[2];
   const { data: globalSettings } = useGlobalSettings();
   // macros are owner only
   const { canManage } = useCodeExecution();
@@ -77,7 +78,7 @@ export const SelectedInstanceInfo = ({
   if (!selectedInstance || !uuid) {
     return (
       <div className="mx-1 px-1 text-gray-faded/30">
-        <div className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
+        <div className="text-small leading-snug font-bold text-gray-faded/30 light:text-ink-muted">
           SELECTED INSTANCE
         </div>
         <div className="mt-2 flex h-[17.625rem] justify-center rounded-md border border-dashed text-center text-gray-faded/30 light:border-line-strong light:text-ink-muted">
@@ -96,10 +97,10 @@ export const SelectedInstanceInfo = ({
 
   return (
     <RadioGroup
-      className={`child:w-full mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 ${className}`}
+      className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 child:w-full ${className}`}
       onChange={setPathname}
     >
-      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
+      <RadioGroup.Label className="text-small leading-snug font-bold text-gray-faded/30 light:text-ink-muted">
         SELECTED INSTANCE
       </RadioGroup.Label>
 
@@ -116,11 +117,11 @@ export const SelectedInstanceInfo = ({
               className={clsx(
                 'flex flex-row items-center gap-x-1.5',
                 'cursor-pointer rounded-md px-2 py-1',
-                'text-medium font-medium leading-5 tracking-normal',
+                'text-medium leading-5 font-medium tracking-normal',
                 'hover:bg-gray-800',
-                'focus-visible:outline-hidden focus-visible:ring-4 focus-visible:ring-blue-faded/50',
+                'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden',
                 setActive === tab.path
-                  ? 'bg-gray-800 outline-solid outline-1 outline-fade-700'
+                  ? 'bg-gray-800 outline-1 outline-fade-700 outline-solid'
                   : ''
               )}
               onClick={() => setPathname(`/dashboard/${tab.path}`)}

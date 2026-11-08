@@ -1,17 +1,21 @@
 //! Choosing a mod loader and its version for a Minecraft version: a row of loaders
 //! (Vanilla, Fabric, Quilt, Forge, NeoForge) and the chosen loader's versions, newest
-//! first, with the recommended one picked. Used by "New instance" and by an
-//! instance's Settings tab.
+//! first, with the recommended one picked. Used by "New instance", and by an
+//! instance's Settings tab in its compact form: two settings rows, the loaders as one
+//! segmented control and the version in a dropdown.
 
 use gpui::{
-    Context, Entity, IntoElement, Render, SharedString, Subscription, UniformListScrollHandle,
-    Window, div, prelude::*, px, uniform_list,
+    AnyElement, Context, Entity, IntoElement, Render, SharedString, Subscription,
+    UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
 };
 use launcher_core::game::loaders::{LoaderChoice, LoaderKind, LoaderVersion};
 
 use super::{Instances, LoaderVersions};
 use crate::{
-    components::LoadingDots,
+    components::{
+        LoadingDots,
+        settings::{SettingRow, popover, popover_panel, select_button, tag},
+    },
     theme::{self, colors, radius, text, weights},
 };
 
@@ -23,6 +27,12 @@ pub struct LoaderPicker {
     selected: Option<String>,
     list_height: f32,
     scroll: UniformListScrollHandle,
+    /// Two settings rows with a version dropdown, instead of a list.
+    compact: bool,
+    /// The compact form's version list is open.
+    open: bool,
+    /// A loader or a version was picked since the choice was last set.
+    touched: bool,
     _observe: Subscription,
 }
 
@@ -45,10 +55,34 @@ impl LoaderPicker {
             selected: initial.map(|c| c.version),
             list_height,
             scroll: UniformListScrollHandle::new(),
+            compact: false,
+            open: false,
+            touched: false,
             _observe: observe,
         };
         this.load(cx);
         this
+    }
+
+    /// The form for an instance's Settings tab: two settings rows.
+    pub fn compact(mut self) -> Self {
+        self.compact = true;
+        self
+    }
+
+    /// Shows `choice`, as the instance has it saved.
+    pub fn set_choice(&mut self, choice: Option<LoaderChoice>, cx: &mut Context<Self>) {
+        let kind = choice.as_ref().map(|c| c.kind);
+        let selected = choice.map(|c| c.version);
+        if self.kind == kind && self.selected == selected {
+            return;
+        }
+        self.kind = kind;
+        self.selected = selected;
+        self.open = false;
+        self.touched = false;
+        self.load(cx);
+        cx.notify();
     }
 
     /// Follows a change of Minecraft version: the loader stays, its version is
@@ -67,6 +101,7 @@ impl LoaderPicker {
         if self.kind == kind {
             return;
         }
+        self.touched = true;
         self.kind = kind;
         self.selected = None;
         self.load(cx);
@@ -122,6 +157,12 @@ impl LoaderPicker {
         }
     }
 
+    /// Whether a loader or a version was picked by hand, rather than the recommended
+    /// version being picked when the list loaded.
+    pub fn touched(&self) -> bool {
+        self.touched
+    }
+
     pub fn kind(&self) -> Option<LoaderKind> {
         self.kind
     }
@@ -161,13 +202,7 @@ impl LoaderPicker {
 }
 
 fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::Stateful<gpui::Div> {
-    let tag: Option<(&'static str, theme::Color)> = if version.recommended {
-        Some(("Recommended", colors::GREEN_300))
-    } else if !version.stable {
-        Some(("Beta", colors::YELLOW))
-    } else {
-        None
-    };
+    let tag = version_tag(version);
     div()
         .id(("loader-version", index))
         .flex()
@@ -205,8 +240,194 @@ fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::S
         })
 }
 
+impl LoaderPicker {
+    /// The loaders as one segmented control.
+    fn segmented(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let options =
+            std::iter::once(("Vanilla", None)).chain(LoaderKind::ALL.map(|k| (k.label(), Some(k))));
+        div()
+            .flex()
+            .flex_row()
+            .p(px(2.))
+            .gap(px(2.))
+            .rounded(radius::LG)
+            .border_1()
+            .border_color(colors::GRAY_700)
+            .bg(colors::GRAY_900)
+            .children(options.enumerate().map(|(index, (label, kind))| {
+                let selected = self.kind == kind;
+                div()
+                    .id(("loader-segment", index))
+                    .px_2p5()
+                    .py_1()
+                    .rounded(radius::MD)
+                    .cursor_pointer()
+                    .font_weight(weights::BOLD.into())
+                    .text_size(theme::text_size(text::SMALL))
+                    .map(|this| {
+                        if selected {
+                            this.bg(colors::GRAY_700).text_color(colors::GRAY_300)
+                        } else {
+                            this.text_color(colors::GRAY_400)
+                                .hover(|style| style.text_color(colors::GRAY_300))
+                        }
+                    })
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_kind(kind, cx)))
+            }))
+    }
+
+    /// The chosen version in a dropdown, or what the list is doing.
+    fn version_control(&self, kind: LoaderKind, game: &str, cx: &mut Context<Self>) -> AnyElement {
+        let note = |text_: String, color: theme::Color| {
+            div()
+                .max_w(px(300.))
+                .text_size(theme::text_size(text::SMALL))
+                .text_color(color)
+                .child(text_)
+                .into_any_element()
+        };
+        let list = match self.versions(cx) {
+            LoaderVersions::NotLoaded | LoaderVersions::Loading => {
+                return div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(colors::GRAY_500)
+                    .child(LoadingDots)
+                    .child(format!("Loading {} versions", kind.label()))
+                    .into_any_element();
+            }
+            LoaderVersions::Failed(error) => {
+                return note(
+                    format!("Couldn't load the versions: {error}"),
+                    colors::RED_200,
+                );
+            }
+            LoaderVersions::Ready(list) if list.is_empty() => {
+                return note(
+                    format!("No versions for Minecraft {game}."),
+                    colors::GRAY_500,
+                );
+            }
+            LoaderVersions::Ready(list) => list,
+        };
+        let chosen = self
+            .selected
+            .as_ref()
+            .and_then(|id| list.iter().find(|v| &v.id == id));
+        let label = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .font_weight(weights::BOLD.into())
+                    .child(chosen.map_or_else(
+                        || SharedString::from("Choose a version"),
+                        |v| v.display.clone().into(),
+                    )),
+            )
+            .when_some(chosen.and_then(version_tag), |this, (text_, color)| {
+                this.child(tag(text_, color))
+            });
+        let rows = list.len();
+        let panel_height = (rows as f32 * 28. + 10.).min(260.);
+        div()
+            .flex()
+            .flex_col()
+            .items_end()
+            .child(
+                select_button("loader-version-select", label).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.open = !this.open;
+                        cx.notify();
+                    },
+                )),
+            )
+            .when(self.open, |this| {
+                this.child(popover(
+                    popover_panel("loader-version-list")
+                        .w(px(280.))
+                        .h(px(panel_height))
+                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                            this.open = false;
+                            cx.notify();
+                        }))
+                        .child(
+                            uniform_list(
+                                "loader-versions",
+                                rows,
+                                cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                                    range
+                                        .filter_map(|index| list.get(index).map(|v| (index, v)))
+                                        .map(|(index, version)| {
+                                            let selected =
+                                                this.selected.as_deref() == Some(&version.id);
+                                            let id = version.id.clone();
+                                            version_row(index, version, selected).on_click(
+                                                cx.listener(move |this, _, _, cx| {
+                                                    this.selected = Some(id.clone());
+                                                    this.touched = true;
+                                                    this.open = false;
+                                                    cx.notify();
+                                                }),
+                                            )
+                                        })
+                                        .collect()
+                                }),
+                            )
+                            .track_scroll(&self.scroll)
+                            .size_full(),
+                        ),
+                ))
+            })
+            .into_any_element()
+    }
+
+    fn render_compact(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let version = match (self.kind, self.game_version.clone()) {
+            (Some(kind), Some(game)) => Some(self.version_control(kind, &game, cx)),
+            _ => None,
+        };
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                SettingRow::new("Mod loader")
+                    .hint("A change installs the next time you press Play.")
+                    .child(self.segmented(cx)),
+            )
+            .when_some(version, |this, version| {
+                this.child(
+                    div()
+                        .border_t_1()
+                        .border_color(colors::FADE_700)
+                        .child(SettingRow::new("Loader version").child(version)),
+                )
+            })
+    }
+}
+
+/// "Recommended" or "Beta", for a version.
+fn version_tag(version: &LoaderVersion) -> Option<(&'static str, theme::Color)> {
+    if version.recommended {
+        Some(("Recommended", colors::GREEN_300))
+    } else if !version.stable {
+        Some(("Beta", colors::YELLOW))
+    } else {
+        None
+    }
+}
+
 impl Render for LoaderPicker {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.compact {
+            return self.render_compact(cx).into_any_element();
+        }
         let chips: Vec<_> = std::iter::once(("Vanilla", None))
             .chain(LoaderKind::ALL.map(|k| (k.label(), Some(k))))
             .enumerate()
@@ -293,5 +514,6 @@ impl Render for LoaderPicker {
                     .bg(colors::GRAY_900)
                     .child(body),
             )
+            .into_any_element()
     }
 }
