@@ -362,7 +362,8 @@ async fn client_pack(
         &state,
         out,
         Some(temp_dir),
-        requester.uid.clone(),
+        // the whole user, so an API key's scope is checked again when the link is used
+        requester.0.clone(),
         DownloadScope::InstanceFile(uuid),
     )
     .await;
