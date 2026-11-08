@@ -105,6 +105,7 @@ fn source(project: &str, slug: &str, title: &str, version: &str, icon: bool) -> 
         )),
         client_side: "required".into(),
         server_side: "optional".into(),
+        version_type: None,
     }
 }
 

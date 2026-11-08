@@ -91,6 +91,8 @@ pub fn instance_json(instance: &Instance, instances: &Instances, servers: &Serve
             "version_number": record.version_number,
         })),
         "dir": instances.content_dirs(&instance.id).instance,
+        // Left out of instance.json while off.
+        "prerelease_updates": instance.prerelease_updates,
     });
     if let (Value::Object(object), Value::Object(extra)) = (&mut value, extra) {
         object.extend(extra);
@@ -433,6 +435,19 @@ pub fn set_group(call: Call, cx: &mut App) -> Reply {
         .group
         .map(|g| g.trim().to_string())
         .filter(|g| !g.is_empty());
+    ready(save_changed(&call.control, instance, cx))
+}
+
+#[derive(Deserialize)]
+struct PrereleaseParams {
+    on: bool,
+}
+
+/// "Beta and alpha updates": whether content may update to pre-release versions.
+pub fn set_prerelease_updates(call: Call, cx: &mut App) -> Reply {
+    let params: PrereleaseParams = params!(call);
+    let mut instance = tri!(call.control.instance_param(&call, cx));
+    instance.prerelease_updates = params.on;
     ready(save_changed(&call.control, instance, cx))
 }
 

@@ -69,6 +69,8 @@ pub fn text(message: M) -> &'static str {
 
         M::Vanilla => "原版",
         M::ModLoader => "模组加载器",
+        M::PrereleaseUpdates => "测试版和 Alpha 版更新",
+        M::PrereleaseUpdatesHint => "关闭时，已是测试版的模组仍会收到测试版。",
         M::LoaderVersion => "加载器版本",
         M::ChooseLoaderVersion => "请选择 {loader} 版本。",
         M::ChooseVersion => "选择版本",

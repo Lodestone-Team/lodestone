@@ -78,6 +78,9 @@ crate::i18n::messages! {
         /// No mod loader: the game as Mojang ships it.
         Vanilla = "Vanilla",
         ModLoader = "Mod loader",
+        /// Whether Modrinth content updates to beta and alpha versions.
+        PrereleaseUpdates = "Beta and alpha updates",
+        PrereleaseUpdatesHint = "Off, mods already on a beta still get betas.",
         LoaderVersion = "Loader version",
         /// {loader} is Fabric, Quilt, Forge or NeoForge.
         ChooseLoaderVersion = "Choose a {loader} version.",

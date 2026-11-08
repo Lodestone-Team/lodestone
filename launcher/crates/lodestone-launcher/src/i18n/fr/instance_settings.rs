@@ -66,6 +66,8 @@ pub fn text(message: M) -> &'static str {
 
         M::Vanilla => "Vanilla",
         M::ModLoader => "Chargeur de mods",
+        M::PrereleaseUpdates => "Mises à jour bêta et alpha",
+        M::PrereleaseUpdatesHint => "Désactivé, un mod déjà en bêta reçoit encore des bêtas.",
         M::LoaderVersion => "Version du chargeur",
         M::ChooseLoaderVersion => "Choisissez une version de {loader}.",
         M::ChooseVersion => "Choisir une version",

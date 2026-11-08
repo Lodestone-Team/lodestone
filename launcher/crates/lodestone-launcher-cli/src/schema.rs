@@ -27,6 +27,12 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ("instances create", "instances.create", false, false),
     ("instances rename", "instances.rename", false, false),
     ("instances group", "instances.set_group", false, false),
+    (
+        "instances prerelease-updates",
+        "instances.set_prerelease_updates",
+        false,
+        false,
+    ),
     ("instances icon", "instances.set_icon", false, false),
     (
         "instances background",

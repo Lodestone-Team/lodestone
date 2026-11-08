@@ -4,7 +4,10 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use lodestone_minecraft::{hash, modrinth::RawVersion};
+use lodestone_minecraft::{
+    hash,
+    modrinth::{ModrinthVersionType, RawVersion},
+};
 
 use super::{
     ContentError, ContentKind, InstanceDirs, Modrinth, Target, io_error,
@@ -258,12 +261,32 @@ pub async fn list(
     })
 }
 
+/// The release types an update of a file may be, by the installed version's type:
+/// at least as stable, unless `prerelease` (the instance's "Beta and alpha updates")
+/// takes any. `None` puts no limit.
+pub fn update_types(
+    installed: Option<ModrinthVersionType>,
+    prerelease: bool,
+) -> Option<&'static [&'static str]> {
+    if prerelease {
+        return None;
+    }
+    match installed.unwrap_or(ModrinthVersionType::Release) {
+        ModrinthVersionType::Release => Some(&["release"]),
+        ModrinthVersionType::Beta => Some(&["release", "beta"]),
+        ModrinthVersionType::Alpha => None,
+    }
+}
+
 /// The newer versions of the listed files that came from Modrinth, by file name.
+/// Without `prerelease`, a file only updates to a version at least as stable as the
+/// one installed (see [`update_types`]).
 pub async fn check_updates(
     api: &Modrinth,
     dirs: &InstanceDirs,
     target: &Target,
     kind: ContentKind,
+    prerelease: bool,
 ) -> Result<HashMap<String, RawVersion>, ContentError> {
     let provenance = Provenance::load(&dirs.instance);
     let files = scan::scan(dirs, kind)?;
@@ -278,14 +301,27 @@ pub async fn check_updates(
     if by_hash.is_empty() {
         return Ok(HashMap::new());
     }
-    let hashes: Vec<String> = by_hash.keys().cloned().collect();
-    let latest = api
-        .latest_by_sha1(
-            &hashes,
-            &target.accepted_loaders(kind),
-            std::slice::from_ref(&target.game_version),
-        )
-        .await?;
+    // One request per set of allowed release types.
+    let mut groups: Vec<(Option<&[&str]>, Vec<String>)> = Vec::new();
+    for (hash, (_, source)) in &by_hash {
+        let types = update_types(source.version_type, prerelease);
+        match groups.iter_mut().find(|(t, _)| *t == types) {
+            Some((_, hashes)) => hashes.push(hash.clone()),
+            None => groups.push((types, vec![hash.clone()])),
+        }
+    }
+    let mut latest = HashMap::new();
+    for (types, hashes) in groups {
+        latest.extend(
+            api.latest_by_sha1(
+                &hashes,
+                &target.accepted_loaders(kind),
+                std::slice::from_ref(&target.game_version),
+                types,
+            )
+            .await?,
+        );
+    }
     let mut updates = HashMap::new();
     for (hash, version) in latest {
         let Some((file_name, source)) = by_hash.get(&hash) else {
@@ -300,4 +336,22 @@ pub async fn check_updates(
         }
     }
     Ok(updates)
+}
+
+#[cfg(test)]
+mod update_type_tests {
+    use super::*;
+
+    #[test]
+    fn updates_are_at_least_as_stable_unless_prereleases_are_on() {
+        use ModrinthVersionType::*;
+        assert_eq!(update_types(Some(Release), false), Some(&["release"][..]));
+        assert_eq!(update_types(None, false), Some(&["release"][..]));
+        assert_eq!(
+            update_types(Some(Beta), false),
+            Some(&["release", "beta"][..])
+        );
+        assert_eq!(update_types(Some(Alpha), false), None);
+        assert_eq!(update_types(Some(Release), true), None);
+    }
 }

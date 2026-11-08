@@ -386,18 +386,22 @@ impl Modrinth {
 
     /// The newest version for `loaders` and `game_versions` of the projects these files
     /// belong to, by hash.
+    /// The newest version of the files with `hashes` that fits `loaders` and
+    /// `game_versions`, by hash. `version_types` ("release", "beta", "alpha") limits
+    /// it to those kinds; `None` takes any.
     pub async fn latest_by_sha1(
         &self,
         hashes: &[String],
         loaders: &[String],
         game_versions: &[String],
+        version_types: Option<&[&str]>,
     ) -> Result<HashMap<String, RawVersion>, ModrinthError> {
-        self.hash_post(
-            "version_files/update",
-            hashes,
-            json!({ "loaders": loaders, "game_versions": game_versions }),
-        )
-        .await
+        let mut filters = json!({ "loaders": loaders, "game_versions": game_versions });
+        if let Some(types) = version_types {
+            filters["version_types"] = json!(types);
+        }
+        self.hash_post("version_files/update", hashes, filters)
+            .await
     }
 
     /// The project (and version) a pasted modrinth.com link points to.
