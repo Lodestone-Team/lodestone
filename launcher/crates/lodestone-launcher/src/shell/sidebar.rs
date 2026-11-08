@@ -1,4 +1,4 @@
-use gpui::{Context, IntoElement, div, prelude::*, px};
+use gpui::{Context, IntoElement, SharedString, div, img, prelude::*, px};
 
 use super::{LauncherShell, Page, account_box};
 use crate::{
@@ -36,13 +36,85 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .min_h_0()
                 .overflow_y_scroll()
                 .px_2()
-                .child(instance_list(cx)),
+                .child(instance_list(shell, cx)),
         )
         .child(footer(shell, cx))
 }
 
-/// The instances, each a row with its icon, name and version; empty for now.
-fn instance_list(cx: &mut Context<LauncherShell>) -> impl IntoElement {
+/// The instances, each a row with its icon, name and version.
+fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let instances = shell.instances.read(cx);
+    let selected = instances.selected().map(|i| i.id.clone());
+    let on_instance_page = shell.page == Page::Instance;
+    let rows: Vec<_> = instances
+        .list()
+        .iter()
+        .map(|instance| {
+            let id = instance.id.clone();
+            let active = instances.is_active(&id);
+            let running = instances.is_running(&id);
+            let is_selected = on_instance_page && selected.as_deref() == Some(id.as_str());
+            div()
+                .id(SharedString::from(format!("instance-{id}")))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .w_full()
+                .px_2()
+                .py_1()
+                .rounded(radius::MD)
+                .border_1()
+                .border_color(colors::TRANSPARENT)
+                .cursor_pointer()
+                .hover(|style| style.bg(colors::GRAY_800))
+                .when(is_selected, |this| {
+                    this.bg(colors::GRAY_800).border_color(colors::FADE_700)
+                })
+                .child(
+                    img("images/placeholder-cube.png")
+                        .flex_none()
+                        .size(px(20.))
+                        .rounded(radius::DEFAULT),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .truncate()
+                                .font_weight(weights::BOLD.into())
+                                .text_color(colors::GRAY_300)
+                                .child(instance.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .truncate()
+                                .text_size(theme::text_size(text::SMALL))
+                                .text_color(colors::GRAY_500)
+                                .child(instance.game_version.clone()),
+                        ),
+                )
+                .when(active, |this| {
+                    this.child(
+                        div()
+                            .flex_none()
+                            .size(px(8.))
+                            .rounded_full()
+                            .bg(if running {
+                                colors::GREEN_200
+                            } else {
+                                colors::YELLOW
+                            }),
+                    )
+                })
+                .on_click(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
+        })
+        .collect();
+    let empty = rows.is_empty();
     div()
         .flex()
         .flex_col()
@@ -50,29 +122,32 @@ fn instance_list(cx: &mut Context<LauncherShell>) -> impl IntoElement {
         .mx_1()
         .px_1()
         .child(section_label("INSTANCES"))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap_4()
-                .mt_2()
-                .py_4()
-                .px_6()
-                .rounded(radius::XL)
-                .border_2()
-                .border_dashed()
-                .border_color(colors::GRAY_FADED.opacity(10))
-                .child(Icon::Expand.render(px(28.), colors::GRAY_FADED.opacity(30)))
-                .child(
-                    div()
-                        .text_center()
-                        .italic()
-                        .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_FADED.opacity(30))
-                        .child("No instances yet."),
-                ),
-        )
+        .children(rows)
+        .when(empty, |this| {
+            this.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_4()
+                    .mt_2()
+                    .py_4()
+                    .px_6()
+                    .rounded(radius::XL)
+                    .border_2()
+                    .border_dashed()
+                    .border_color(colors::GRAY_FADED.opacity(10))
+                    .child(Icon::Expand.render(px(28.), colors::GRAY_FADED.opacity(30)))
+                    .child(
+                        div()
+                            .text_center()
+                            .italic()
+                            .font_weight(weights::BOLD.into())
+                            .text_color(colors::GRAY_FADED.opacity(30))
+                            .child("No instances yet."),
+                    ),
+            )
+        })
         .child(
             div().w_full().pt_1().pb_8().child(
                 Button::new("new-instance", "New instance...")

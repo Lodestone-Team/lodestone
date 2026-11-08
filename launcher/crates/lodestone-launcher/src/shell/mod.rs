@@ -10,8 +10,8 @@ mod top_bar;
 pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
-    AnyElement, Context, Entity, FocusHandle, Focusable as _, IntoElement, Render, Subscription,
-    Window, div, prelude::*,
+    AnyElement, ClipboardItem, Context, Entity, FocusHandle, Focusable as _, IntoElement, Render,
+    SharedString, Subscription, Window, div, prelude::*,
 };
 
 use crate::{
@@ -21,7 +21,13 @@ use crate::{
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
     components::{Button, ButtonVariant, Dialog},
-    theme::{self, colors, fonts, leading, text},
+    instances::{
+        CrashInfo, Instances, InstancesEvent,
+        console::Console,
+        new_instance::{NewInstanceDialog, NewInstanceDismissed},
+        settings::{DeleteRequested, InstanceSettings},
+    },
+    theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
 /// What the main area shows.
@@ -65,7 +71,26 @@ impl InstanceTab {
 
 /// The dialog over the window, if any.
 enum Modal {
-    NewInstance(FocusHandle),
+    NewInstance {
+        dialog: Entity<NewInstanceDialog>,
+        _events: Subscription,
+    },
+    Crash {
+        crash: CrashInfo,
+        focus: FocusHandle,
+        copied: bool,
+    },
+    LaunchFailed {
+        title: SharedString,
+        message: SharedString,
+        focus: FocusHandle,
+    },
+    DeleteInstance {
+        id: String,
+        name: String,
+        focus: FocusHandle,
+        error: Option<SharedString>,
+    },
     SignIn {
         dialog: Entity<SignInDialog>,
         _events: Subscription,
@@ -84,27 +109,137 @@ enum Modal {
 /// The root view of the launcher window.
 pub struct LauncherShell {
     accounts: Entity<Accounts>,
+    instances: Entity<Instances>,
+    console: Entity<Console>,
+    /// The Settings tab of the selected instance, rebuilt when the selection changes.
+    settings: Option<(Entity<InstanceSettings>, Subscription)>,
     page: Page,
     tab: InstanceTab,
     modal: Option<Modal>,
     account_menu_open: bool,
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
     top_bar_drag_pending: bool,
-    _observe_accounts: Subscription,
+    _observe: Vec<Subscription>,
 }
 
 impl LauncherShell {
-    pub fn new(accounts: Entity<Accounts>, cx: &mut Context<Self>) -> Self {
-        let observe = cx.observe(&accounts, |_, _, cx| cx.notify());
-        Self {
+    pub fn new(
+        accounts: Entity<Accounts>,
+        instances: Entity<Instances>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let observe = vec![
+            cx.observe(&accounts, |_, _, cx| cx.notify()),
+            cx.observe(&instances, |this, _, cx| {
+                this.sync_settings(cx);
+                cx.notify();
+            }),
+            cx.subscribe(&instances, |this, _, event, cx| match event {
+                InstancesEvent::Crashed(crash) => this.show_crash(crash.clone(), cx),
+                InstancesEvent::LaunchFailed { title, message } => {
+                    this.modal = Some(Modal::LaunchFailed {
+                        title: title.clone(),
+                        message: message.clone(),
+                        focus: cx.focus_handle(),
+                    });
+                    cx.notify();
+                }
+            }),
+        ];
+        let console = cx.new(|cx| Console::new(instances.clone(), cx));
+        let mut this = Self {
             accounts,
+            instances,
+            console,
+            settings: None,
             page: Page::default(),
             tab: InstanceTab::default(),
             modal: None,
             account_menu_open: false,
             top_bar_drag_pending: false,
-            _observe_accounts: observe,
+            _observe: observe,
+        };
+        this.sync_settings(cx);
+        this
+    }
+
+    pub fn instances(&self) -> &Entity<Instances> {
+        &self.instances
+    }
+
+    pub fn console(&self) -> &Entity<Console> {
+        &self.console
+    }
+
+    /// Rebuilds the Settings tab when another instance is selected.
+    fn sync_settings(&mut self, cx: &mut Context<Self>) {
+        let selected = self.instances.read(cx).selected().cloned();
+        let current = self
+            .settings
+            .as_ref()
+            .map(|(settings, _)| settings.read(cx).instance_id().to_string());
+        match selected {
+            None => self.settings = None,
+            Some(instance) if current.as_deref() != Some(instance.id.as_str()) => {
+                let instances = self.instances.clone();
+                let settings = cx.new(|cx| InstanceSettings::new(instances, &instance, cx));
+                let subscription = cx.subscribe(&settings, |this, _, DeleteRequested(id), cx| {
+                    this.confirm_delete_instance(id, cx)
+                });
+                self.settings = Some((settings, subscription));
+            }
+            Some(_) => {}
         }
+    }
+
+    pub fn settings_view(&self) -> Option<&Entity<InstanceSettings>> {
+        self.settings.as_ref().map(|(settings, _)| settings)
+    }
+
+    /// Shows the launch error dialog, for the offscreen screenshots.
+    pub fn preview_launch_failed(&mut self, title: &str, message: &str, cx: &mut Context<Self>) {
+        self.modal = Some(Modal::LaunchFailed {
+            title: title.to_string().into(),
+            message: message.to_string().into(),
+            focus: cx.focus_handle(),
+        });
+        cx.notify();
+    }
+
+    /// Shows the crash dialog.
+    pub fn show_crash(&mut self, crash: CrashInfo, cx: &mut Context<Self>) {
+        self.modal = Some(Modal::Crash {
+            crash,
+            focus: cx.focus_handle(),
+            copied: false,
+        });
+        cx.notify();
+    }
+
+    fn confirm_delete_instance(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(instance) = self
+            .instances
+            .read(cx)
+            .list()
+            .iter()
+            .find(|i| i.id == id)
+            .cloned()
+        else {
+            return;
+        };
+        self.modal = Some(Modal::DeleteInstance {
+            id: instance.id,
+            name: instance.name,
+            focus: cx.focus_handle(),
+            error: None,
+        });
+        cx.notify();
+    }
+
+    pub fn select_instance(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.page = Page::Instance;
+        self.instances
+            .update(cx, |instances, cx| instances.select(id, cx));
     }
 
     fn show(&mut self, page: Page, cx: &mut Context<Self>) {
@@ -112,7 +247,7 @@ impl LauncherShell {
         cx.notify();
     }
 
-    fn select_tab(&mut self, tab: InstanceTab, cx: &mut Context<Self>) {
+    pub fn select_tab(&mut self, tab: InstanceTab, cx: &mut Context<Self>) {
         self.tab = tab;
         cx.notify();
     }
@@ -128,9 +263,37 @@ impl LauncherShell {
     }
 
     fn open_new_instance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let focus = cx.focus_handle();
-        window.focus(&focus, cx);
-        self.modal = Some(Modal::NewInstance(focus));
+        self.open_new_instance_with(None, Some(window), cx);
+    }
+
+    /// Opens "New instance", with the fields filled in for screenshots.
+    pub fn open_new_instance_with(
+        &mut self,
+        fields: Option<(&str, &str)>,
+        window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
+        self.account_menu_open = false;
+        let instances = self.instances.clone();
+        let dialog = cx.new(|cx| {
+            let dialog = NewInstanceDialog::new(instances, cx);
+            match fields {
+                Some((name, search)) => dialog.with_fields(name, search, cx),
+                None => dialog,
+            }
+        });
+        let subscription = cx.subscribe(&dialog, |this, _, _: &NewInstanceDismissed, cx| {
+            this.page = Page::Instance;
+            this.tab = InstanceTab::Play;
+            this.close_modal(cx)
+        });
+        if let Some(window) = window {
+            window.focus(&dialog.focus_handle(cx), cx);
+        }
+        self.modal = Some(Modal::NewInstance {
+            dialog,
+            _events: subscription,
+        });
         cx.notify();
     }
 
@@ -235,15 +398,91 @@ impl LauncherShell {
             }
         };
         Some(match self.modal.as_ref()? {
-            Modal::NewInstance(focus) => Dialog::new("new-instance", "New instance", focus.clone())
+            Modal::NewInstance { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::Crash {
+                crash,
+                focus,
+                copied,
+            } => render_crash(crash, focus.clone(), *copied, close(cx), cx),
+            Modal::LaunchFailed {
+                title,
+                message,
+                focus,
+            } => Dialog::new("launch-failed", title.clone(), focus.clone())
                 .on_close(close(cx))
-                .child("Creating instances comes in a later milestone of Lodestone Launcher.")
+                .child(
+                    div()
+                        .text_color(colors::GRAY_400)
+                        .whitespace_normal()
+                        .children(message.split("\n\n").map(|paragraph| {
+                            let command = paragraph.starts_with("softwareupdate");
+                            div()
+                                .pb_2()
+                                .when(command, |this| {
+                                    this.font_family(fonts::MONO)
+                                        .text_color(colors::GRAY_300)
+                                        .px_3()
+                                        .py_2()
+                                        .rounded(radius::LG)
+                                        .bg(colors::GRAY_900)
+                                })
+                                .child(paragraph.to_string())
+                        })),
+                )
                 .footer(
-                    Button::new("close-new-instance", "Close")
+                    Button::new("close-launch-failed", "Close")
                         .variant(ButtonVariant::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
                 )
                 .into_any_element(),
+            Modal::DeleteInstance {
+                id,
+                name,
+                focus,
+                error,
+            } => {
+                let id = id.clone();
+                Dialog::new("delete-instance", format!("Delete {name}?"), focus.clone())
+                    .on_close(close(cx))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .text_color(colors::GRAY_400)
+                            .child("The instance's folder, with its worlds, mods and settings, moves to the Trash. You can put it back from there.")
+                            .when_some(error.clone(), |this, error| {
+                                this.child(div().text_color(colors::RED_200).child(error))
+                            }),
+                    )
+                    .footer(
+                        Button::new("confirm-delete-instance", "Move to Trash")
+                            .variant(ButtonVariant::Danger)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let result = this
+                                    .instances
+                                    .update(cx, |instances, cx| instances.delete(&id, cx));
+                                match result {
+                                    Ok(()) => {
+                                        this.tab = InstanceTab::Play;
+                                        this.close_modal(cx);
+                                    }
+                                    Err(err) => {
+                                        if let Some(Modal::DeleteInstance { error, .. }) = &mut this.modal {
+                                            *error = Some(err.into());
+                                        }
+                                        cx.notify();
+                                    }
+                                }
+                            })),
+                    )
+                    .footer(
+                        Button::new("cancel-delete-instance", "Cancel")
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
+            }
             Modal::SignIn { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Offline { dialog, .. } => dialog.clone().into_any_element(),
             Modal::RemoveAccount {
@@ -277,6 +516,94 @@ impl LauncherShell {
             }
         })
     }
+}
+
+/// The crash dialog: the exception, the likely causes in plain words, and the crash
+/// report and log.
+fn render_crash(
+    crash: &CrashInfo,
+    focus: FocusHandle,
+    copied: bool,
+    on_close: impl Fn(&mut Window, &mut gpui::App) + 'static,
+    cx: &mut Context<LauncherShell>,
+) -> AnyElement {
+    let summary = &crash.summary;
+    let headline = match (&summary.description, crash.exit_code) {
+        (Some(description), _) => format!("Minecraft crashed: {description}."),
+        (None, Some(code)) => format!("Minecraft stopped with exit code {code}."),
+        (None, None) => "Minecraft stopped unexpectedly.".to_string(),
+    };
+    let report = crash.report.clone();
+    let log_text = crash.log_text.clone();
+    Dialog::new("crash", format!("{} crashed", crash.instance_name), focus)
+        .on_close(on_close)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(div().text_color(colors::GRAY_400).child(headline))
+                .when_some(summary.exception.clone(), |this, exception| {
+                    this.child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .rounded(radius::LG)
+                            .bg(colors::GRAY_900)
+                            .border_1()
+                            .border_color(colors::RED_200.opacity(30))
+                            .font_family(fonts::MONO)
+                            .text_size(theme::text_size(text::SMALL))
+                            .text_color(colors::RED_200)
+                            .child(exception),
+                    )
+                })
+                .when(!summary.causes.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_size(theme::text_size(text::SMALL))
+                                    .font_weight(weights::BOLD.into())
+                                    .text_color(colors::GRAY_500)
+                                    .child("LIKELY CAUSE"),
+                            )
+                            .children(summary.causes.iter().map(|cause| {
+                                div()
+                                    .text_size(theme::text_size(text::MEDIUM))
+                                    .text_color(colors::GRAY_300)
+                                    .child(cause.explanation())
+                            })),
+                    )
+                }),
+        )
+        .when_some(report, |this, report| {
+            this.footer(
+                Button::new("open-crash-report", "Open crash report")
+                    .variant(ButtonVariant::Primary)
+                    .on_click(move |_, _, cx| cx.open_with_system(&report)),
+            )
+        })
+        .footer(
+            Button::new("copy-crash-log", if copied { "Copied" } else { "Copy log" })
+                .variant(ButtonVariant::Secondary)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(log_text.clone()));
+                    if let Some(Modal::Crash { copied, .. }) = &mut this.modal {
+                        *copied = true;
+                    }
+                    cx.notify();
+                })),
+        )
+        .footer(
+            Button::new("close-crash", "Close")
+                .variant(ButtonVariant::Ghost)
+                .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+        )
+        .into_any_element()
 }
 
 impl Render for LauncherShell {

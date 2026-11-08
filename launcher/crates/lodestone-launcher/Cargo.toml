@@ -28,8 +28,6 @@ image.workspace = true
 launcher-core.workspace = true
 url.workspace = true
 lodestone_minecraft.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true
 
 [[example]]

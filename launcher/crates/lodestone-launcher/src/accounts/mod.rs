@@ -18,7 +18,8 @@ use http_client::HttpClient;
 use launcher_core::{
     MemorySecretStore, SecretStore,
     accounts::{Account, AccountStore, OpenProblem},
-    auth::{AuthError, Authenticator, MinecraftSession, MsaConfig, SignedIn},
+    auth::{AuthError, Authenticator, MinecraftSession, MsaConfig, SignedIn, minecraft},
+    game::launch::LaunchAccount,
     paths::DataDir,
     skin,
 };
@@ -154,6 +155,10 @@ impl Accounts {
         &self.secrets
     }
 
+    pub fn data_dir(&self) -> &DataDir {
+        &self.data_dir
+    }
+
     fn report(&mut self, result: Result<(), impl std::fmt::Display>) {
         if let Err(err) = result {
             self.notice = Some(format!("Couldn't save your accounts: {err}").into());
@@ -280,6 +285,78 @@ impl Accounts {
         self.tasks.insert(id, task);
     }
 
+    /// Who to start the game as: the active account, with a fresh Minecraft token
+    /// for a Microsoft account. An expired session is refreshed first; if that
+    /// needs the browser, the error says so.
+    pub fn launch_account(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<LaunchAccount, String>> {
+        let Some(account) = self.store.active().cloned() else {
+            return Task::ready(Err(
+                "Add an account first: sign in with Microsoft, or add an offline account.".into(),
+            ));
+        };
+        if account.is_offline() {
+            return Task::ready(Ok(LaunchAccount::offline(&account)));
+        }
+        if let Some(SessionState::Ready(session)) = self.sessions.get(&account.id)
+            && !session.is_expired(SystemTime::now())
+        {
+            return Task::ready(Ok(launch_account_for(session)));
+        }
+        if matches!(
+            self.sessions.get(&account.id),
+            Some(SessionState::NeedsSignIn)
+        ) {
+            return Task::ready(Err(format!(
+                "Sign in to {} again: its saved sign-in has expired.",
+                account.username
+            )));
+        }
+        self.sessions
+            .insert(account.id.clone(), SessionState::Refreshing);
+        cx.notify();
+        let auth = self.auth.clone();
+        let secrets = self.secrets.clone();
+        cx.spawn(async move |this, cx| {
+            let store = secrets.store(cx);
+            let result = auth.refresh(&account, &*store).await;
+            this.update(cx, |this, cx| {
+                let outcome = match result {
+                    Ok(signed_in) => {
+                        let launch = launch_account_for(&signed_in.session);
+                        let result = this.store.update_profile(
+                            &account.id,
+                            &signed_in.account.username,
+                            signed_in.account.skin_url.clone(),
+                        );
+                        this.report(result);
+                        this.set_session(&account.id, signed_in.session, cx);
+                        Ok(launch)
+                    }
+                    Err(err) if err.needs_sign_in() => {
+                        this.sessions
+                            .insert(account.id.clone(), SessionState::NeedsSignIn);
+                        Err(format!(
+                            "Sign in to {} again: its saved sign-in has expired.",
+                            account.username
+                        ))
+                    }
+                    Err(err) => {
+                        let message = err.message();
+                        this.sessions
+                            .insert(account.id.clone(), SessionState::Failed(err));
+                        Err(message)
+                    }
+                };
+                cx.notify();
+                outcome
+            })
+            .unwrap_or_else(|_| Err("The launcher is closing.".into()))
+        })
+    }
+
     /// Stores the session and schedules a refresh shortly before it expires.
     fn set_session(&mut self, id: &str, session: MinecraftSession, cx: &mut Context<Self>) {
         let refresh_in = session
@@ -373,6 +450,18 @@ impl Accounts {
         let result = self.store.upsert_and_activate(account);
         self.report(result);
     }
+}
+
+/// The launch identity of a signed-in session. The token stays a [`Secret`].
+///
+/// [`Secret`]: launcher_core::Secret
+fn launch_account_for(session: &MinecraftSession) -> LaunchAccount {
+    LaunchAccount::microsoft(
+        &session.profile.name,
+        session.profile.id,
+        session.access_token.clone(),
+        minecraft::xuid_from_token(&session.access_token),
+    )
 }
 
 /// Decodes a cached skin head; `None` if it is missing or unreadable.
