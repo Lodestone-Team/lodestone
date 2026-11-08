@@ -2,10 +2,11 @@ import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Listbox, Transition } from '@headlessui/react';
 import clsx from 'clsx';
-import { useEffect, useState, Fragment } from 'react';
+import { useEffect, useId, useState, Fragment } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
+import { SettingsRow } from 'components/Settings/SettingsBlocks';
 
 /**
  * A self controlled dropdown meant to represent a single value of a config
@@ -48,6 +49,7 @@ export default function SelectBox({
   const [value, setValue] = useState(initialValue || 'Select...');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const labelId = useId();
 
   // set value to initialValue when initialValue changes
   useEffect(() => {
@@ -68,96 +70,84 @@ export default function SelectBox({
   const errorText = errorProp || error;
   disabled = disabled || !canRead || isLoadingProp;
   description = canRead
-    ? descriptionFunc?.(initialValue || value) ?? description
+    ? (descriptionFunc?.(initialValue || value) ?? description)
     : 'No permission';
 
-  const icon =
-    isLoading ? (
-      <BeatLoader
-        key="loading"
-        size="0.25rem"
-        cssOverride={{
-          width: '2rem',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          margin: `0 -0.5rem`,
-        }}
-        color="#6b7280"
-      />
-    ) : (
-      <FontAwesomeIcon
-        key="icon"
-        icon={faSort}
-        className={clsx(
-          'w-4 text-gray-faded/30',
-          'group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500'
-        )}
-      />
-    );
+  const icon = isLoading ? (
+    <BeatLoader
+      key="loading"
+      size="0.25rem"
+      cssOverride={{
+        width: '2rem',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        margin: `0 -0.5rem`,
+      }}
+      color="#6b7280"
+    />
+  ) : (
+    <FontAwesomeIcon
+      key="icon"
+      icon={faSort}
+      className={clsx(
+        'w-4 text-gray-faded/30',
+        'group-enabled:group-hover:cursor-pointer group-enabled:group-hover:text-gray-500'
+      )}
+    />
+  );
 
   return (
-    <div
-      className={clsx(
-        'group relative flex flex-row items-center justify-between',
-        'gap-4 bg-gray-800 px-4 py-3 text-medium',
-        className
-      )}
+    <SettingsRow
+      className={clsx('group relative', className)}
+      label={label}
+      labelId={labelId}
+      hint={description}
+      error={errorText}
+      controlClassName="w-5/12"
     >
-      <div className={`flex min-w-0 grow flex-col`}>
-        <label className="text-medium font-medium tracking-medium text-gray-300">
-          {label}
-        </label>
-        {errorText ? (
-          <div className="font-small text-medium tracking-medium text-red">
-            {errorText || 'Unknown error'}
-          </div>
-        ) : (
-          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
-            {description}
-          </div>
-        )}
-      </div>
       {isLoadingProp && (
         // the value is still loading: the dropdown's shape (after a moment)
-        <SkeletonGroup className="w-5/12 shrink-0">
+        <SkeletonGroup className="w-full">
           <Skeleton className="h-8 w-full rounded" />
         </SkeletonGroup>
       )}
-      <div className={clsx('relative w-5/12 shrink-0', isLoadingProp && 'hidden')}>
+      <div className={clsx('relative w-full', isLoadingProp && 'hidden')}>
         <Listbox
           value={value}
           onChange={onChange}
           disabled={disabled || isLoading}
         >
           <div className="relative w-full">
-          <Listbox.Button
-            className={clsx(
-              'input-outlines input-text-style group min-h-[1em] w-full rounded py-1.5 px-3',
-              'enabled:hover:outline-white/30',
-              'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850',
-              'enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:hover:bg-gray-700',
-              'enabled:ui-not-open:active:bg-gray-850 enabled:ui-not-open:active:outline-white/30',
-              errorText ? 'input-border-error' : 'input-border-normal'
-            )}
-          >
-            {value}
-            <div
+            <Listbox.Button
+              aria-labelledby={labelId}
               className={clsx(
-                'pointer-events-none absolute items-center justify-end',
-                'top-0 right-0 flex h-full flex-row py-1.5 px-3'
+                'input-outlines input-text-style group min-h-[1em] w-full rounded px-3 py-1.5',
+                'enabled:hover:outline-white/30',
+                // gray-900 like the text fields, so it shows on the gray-850 cards
+                'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-900',
+                'enabled:ui-not-open:bg-gray-900 enabled:ui-not-open:hover:bg-gray-700',
+                'enabled:ui-not-open:active:bg-gray-900 enabled:ui-not-open:active:outline-white/30',
+                errorText ? 'input-border-error' : 'input-border-normal'
               )}
             >
-              <div className="flex flex-row gap-2">{icon}</div>
-            </div>
-          </Listbox.Button>
+              {value}
+              <div
+                className={clsx(
+                  'pointer-events-none absolute items-center justify-end',
+                  'top-0 right-0 flex h-full flex-row px-3 py-1.5'
+                )}
+              >
+                <div className="flex flex-row gap-2">{icon}</div>
+              </div>
+            </Listbox.Button>
 
-          <Transition
-            as={Fragment}
-            leave="transition ease-in duration-150"
-            leaveFrom="opacity-100 translate-y-0"
-            leaveTo="opacity-0 -translate-y-1"
-          >
+            <Transition
+              as={Fragment}
+              leave="transition ease-in duration-150"
+              leaveFrom="opacity-100 translate-y-0"
+              leaveTo="opacity-0 -translate-y-1"
+            >
               {/* anchored below the button in a portal, as wide as the button */}
               <Listbox.Options
                 anchor={{ to: 'bottom', gap: 8 }}
@@ -171,7 +161,7 @@ export default function SelectBox({
                     key={option}
                     value={option}
                     className={clsx(
-                      'relative cursor-pointer select-none py-2 pl-3 pr-4 text-gray-300',
+                      'relative cursor-pointer py-2 pr-4 pl-3 text-gray-300 select-none',
                       'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
                       'ui-selected:font-medium ui-not-selected:font-medium',
                       'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
@@ -201,7 +191,7 @@ export default function SelectBox({
                   <Listbox.Option
                     key={'Select...'}
                     value={''}
-                    className={`relative cursor-default select-none bg-gray-700 py-2 pl-8 pr-4 text-gray-400`}
+                    className={`relative cursor-default bg-gray-700 py-2 pr-4 pl-8 text-gray-400 select-none`}
                     disabled
                   >
                     <span className={`block truncate font-medium`}>
@@ -210,10 +200,10 @@ export default function SelectBox({
                   </Listbox.Option>
                 )}
               </Listbox.Options>
-          </Transition>
+            </Transition>
           </div>
         </Listbox>
       </div>
-    </div>
+    </SettingsRow>
   );
 }

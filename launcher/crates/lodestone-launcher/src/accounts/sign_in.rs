@@ -496,7 +496,7 @@ impl Render for SignInDialog {
                             .gap_3()
                             .child(launcher_identity_note())
                             .child(muted(
-                                "Sign in in the browser window that opened. Microsoft then shows a blank page. Copy that page's whole address from the address bar and paste it here.",
+                                "Sign in in the browser window that opened. Microsoft then shows a page saying it is not normally shown. Copy the full address from the browser's address bar and paste it only into this launcher.",
                             ))
                             .child(self.link_input.clone())
                             .child(

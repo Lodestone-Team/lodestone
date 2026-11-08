@@ -395,6 +395,8 @@ fn detects_launchers_in_their_default_places() {
     fs::create_dir_all(support.join("PolyMC")).unwrap();
     let locations = Locations {
         home: home.path().to_path_buf(),
+        app_data: support,
+        documents: home.path().join("Documents"),
         applications: vec![apps],
     };
     let found = detect::detect(&locations);
@@ -413,13 +415,76 @@ fn detects_launchers_in_their_default_places() {
         ]
     );
     assert!(found.iter().all(|l| !l.instances.is_empty()));
+    let empty = tempfile::tempdir().unwrap();
     assert!(
         detect::detect(&Locations {
-            home: tempfile::tempdir().unwrap().path().to_path_buf(),
+            home: empty.path().to_path_buf(),
+            app_data: empty.path().join("Library/Application Support"),
+            documents: empty.path().join("Documents"),
             applications: Vec::new(),
         })
         .is_empty()
     );
+}
+
+/// The same on Windows: data in the roaming `AppData`, the official launcher's in
+/// `.minecraft`, ATLauncher installed there, CurseForge's in the home folder, and the
+/// Documents folder moved into OneDrive.
+#[test]
+fn detects_launchers_in_their_windows_places() {
+    let home = tempfile::tempdir().unwrap();
+    let roaming = home.path().join("AppData").join("Roaming");
+    copy_dir(&fixture("vanilla/minecraft"), &roaming.join(".minecraft"));
+    copy_dir(
+        &fixture("prism/PrismLauncher"),
+        &roaming.join("PrismLauncher"),
+    );
+    copy_dir(
+        &fixture("modrinth-app/ModrinthApp"),
+        &roaming.join("ModrinthApp"),
+    );
+    copy_dir(&fixture("atlauncher"), &roaming.join("ATLauncher"));
+    copy_dir(
+        &fixture("gdlauncher/gdlauncher_next"),
+        &roaming.join("gdlauncher_next"),
+    );
+    let documents = home.path().join("OneDrive").join("Documents");
+    copy_dir(
+        &fixture("curseforge/minecraft"),
+        &documents.join("curseforge").join("minecraft"),
+    );
+    let found = detect::detect(&Locations {
+        home: home.path().to_path_buf(),
+        app_data: roaming.clone(),
+        documents,
+        applications: Vec::new(),
+    });
+    let sources: Vec<Source> = found.iter().map(|l| l.source).collect();
+    assert_eq!(
+        sources,
+        [
+            Source::Vanilla,
+            Source::Prism,
+            Source::ModrinthApp,
+            Source::AtLauncher,
+            Source::CurseForge,
+            Source::GdLauncher,
+        ]
+    );
+    assert!(found.iter().all(|l| !l.instances.is_empty()));
+    assert_eq!(found[0].root, roaming.join(".minecraft"));
+    // CurseForge's default on Windows, in the home folder.
+    let home = tempfile::tempdir().unwrap();
+    let instances = home.path().join("curseforge").join("minecraft");
+    copy_dir(&fixture("curseforge/minecraft"), &instances);
+    let found = detect::detect(&Locations {
+        home: home.path().to_path_buf(),
+        app_data: home.path().join("AppData").join("Roaming"),
+        documents: home.path().join("Documents"),
+        applications: Vec::new(),
+    });
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].root, instances.join("Instances"));
 }
 
 fn request(found: &Found, game_version: &str, loader: Option<(LoaderKind, &str)>) -> ImportRequest {

@@ -35,7 +35,7 @@ export default function ConfirmDialog({
     <Transition appear show={isOpen} as={Fragment}>
       <Dialog
         as="div"
-        className="relative"
+        className="relative z-60"
         style={{
           zIndex,
         }}
@@ -47,7 +47,7 @@ export default function ConfirmDialog({
             <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-6 rounded-2xl border border-gray-faded/30 bg-gray-850 p-12">
               <Dialog.Title
                 as="h1"
-                className="text-h1 font-extrabold leading-tight tracking-tight text-gray-300"
+                className="text-h1 leading-tight font-extrabold tracking-tight text-gray-300"
               >
                 {title}
               </Dialog.Title>

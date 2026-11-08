@@ -87,6 +87,16 @@ pub struct WindowSettings {
 
 /// What `icon` is set to when the instance has its own `icon.png`.
 pub const CUSTOM_ICON: &str = "custom";
+/// The prefix of an icon from the launcher's library: `builtin:grass`.
+pub const BUILTIN_ICON: &str = "builtin:";
+/// The prefix of an emoji icon: `emoji:<tile colour as RRGGBB>:<emoji>`.
+pub const EMOJI_ICON: &str = "emoji:";
+/// What `background` is set to when the instance has its own `background.jpg`.
+pub const CUSTOM_BACKGROUND: &str = "custom";
+/// The instance's own Play background, in its folder.
+pub const BACKGROUND_FILE: &str = "background.jpg";
+/// Backgrounds are stored at most this size, keeping their aspect ratio.
+pub const BACKGROUND_MAX: (u32, u32) = (2560, 1600);
 /// The instance's own icon, in its folder.
 pub const ICON_FILE: &str = "icon.png";
 /// The size custom icons are stored at.
@@ -100,9 +110,14 @@ pub const ICON_SIZE: u32 = 128;
 pub struct Instance {
     pub id: String,
     pub name: String,
-    /// [`CUSTOM_ICON`] for the instance's own `icon.png`; otherwise the default.
+    /// [`CUSTOM_ICON`] for the instance's own `icon.png`, an icon from the library
+    /// ([`BUILTIN_ICON`]) or an emoji ([`EMOJI_ICON`]); `None` for the default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// [`CUSTOM_BACKGROUND`] for the instance's own Play background; `None` for the
+    /// launcher's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
     /// The sidebar group the instance is in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
@@ -143,6 +158,7 @@ impl Default for Instance {
             id: String::new(),
             name: String::new(),
             icon: None,
+            background: None,
             group: None,
             game_version: String::new(),
             loader: Loader::None,
@@ -362,6 +378,10 @@ pub enum InstanceError {
     Trash { path: PathBuf, reason: String },
     #[error("couldn't use {path} as the icon: {reason}")]
     Icon { path: PathBuf, reason: String },
+    #[error("couldn't use {path} as the background: {reason}")]
+    Background { path: PathBuf, reason: String },
+    #[error("{0:?} isn't an icon the launcher knows")]
+    IconName(String),
 }
 
 fn io_error(path: &Path) -> impl FnOnce(io::Error) -> InstanceError + '_ {
@@ -579,14 +599,57 @@ impl InstanceStore {
 
     /// Goes back to the default icon.
     pub fn clear_icon(&self, id: &str) -> Result<Instance, InstanceError> {
-        let mut instance = self.get(id)?;
-        let path = self.dir(id).join(ICON_FILE);
-        match fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-            Err(source) => return Err(InstanceError::Io { path, source }),
+        self.set_icon_name(id, None)
+    }
+
+    /// Uses an icon from the library or an emoji (see [`Instance::icon`]), or the
+    /// default for `None`, and removes the instance's own `icon.png`.
+    pub fn set_icon_name(&self, id: &str, icon: Option<&str>) -> Result<Instance, InstanceError> {
+        if let Some(icon) = icon
+            && !valid_icon_name(icon)
+        {
+            return Err(InstanceError::IconName(icon.to_string()));
         }
-        instance.icon = None;
+        let mut instance = self.get(id)?;
+        remove_if_present(&self.dir(id).join(ICON_FILE))?;
+        instance.icon = icon.map(str::to_string);
+        self.save(&instance)?;
+        Ok(instance)
+    }
+
+    /// The instance's own Play background, if it has one.
+    pub fn background_path(&self, instance: &Instance) -> Option<PathBuf> {
+        let path = self.dir(&instance.id).join(BACKGROUND_FILE);
+        (instance.background.as_deref() == Some(CUSTOM_BACKGROUND) && path.is_file())
+            .then_some(path)
+    }
+
+    /// Makes the image at `source` (PNG, JPEG, WebP or GIF) the instance's Play
+    /// background: scaled down to fit [`BACKGROUND_MAX`] and saved as its
+    /// `background.jpg`.
+    pub fn set_background(&self, id: &str, source: &Path) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        let error = |reason: String| InstanceError::Background {
+            path: source.to_owned(),
+            reason,
+        };
+        let bytes = fs::read(source).map_err(|err| error(err.to_string()))?;
+        if bytes.len() > 64 * 1024 * 1024 {
+            return Err(error("the image is larger than 64 MB".into()));
+        }
+        let jpeg = background_jpeg(&bytes).map_err(error)?;
+        let path = self.dir(id).join(BACKGROUND_FILE);
+        storage::write_atomic(&path, &jpeg).map_err(io_error(&path))?;
+        instance.background = Some(CUSTOM_BACKGROUND.to_string());
+        self.save(&instance)?;
+        Ok(instance)
+    }
+
+    /// Goes back to the launcher's Play background.
+    pub fn clear_background(&self, id: &str) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        remove_if_present(&self.dir(id).join(BACKGROUND_FILE))?;
+        instance.background = None;
         self.save(&instance)?;
         Ok(instance)
     }
@@ -698,6 +761,73 @@ impl InstanceStore {
 }
 
 /// `bytes` (a PNG or JPEG) as a square PNG of [`ICON_SIZE`] pixels.
+/// Whether `icon` is a library icon or an emoji in the form [`Instance::icon`] takes.
+/// The launcher decides which library names it draws; this keeps out what isn't one.
+pub fn valid_icon_name(icon: &str) -> bool {
+    if icon.len() > 64 || icon.chars().any(char::is_control) {
+        return false;
+    }
+    if let Some(name) = icon.strip_prefix(BUILTIN_ICON) {
+        return !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    }
+    if let Some(rest) = icon.strip_prefix(EMOJI_ICON) {
+        let Some((color, emoji)) = rest.split_once(':') else {
+            return false;
+        };
+        return color.len() == 6
+            && color.chars().all(|c| c.is_ascii_hexdigit())
+            && !emoji.is_empty()
+            && emoji.chars().count() <= 8;
+    }
+    false
+}
+
+fn remove_if_present(path: &Path) -> Result<(), InstanceError> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(InstanceError::Io {
+            path: path.to_owned(),
+            source,
+        }),
+    }
+}
+
+/// The image in `bytes` as a JPEG no larger than [`BACKGROUND_MAX`].
+pub fn background_jpeg(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let not_an_image =
+        |err: image::ImageError| format!("it is not a PNG, JPEG, WebP or GIF image ({err})");
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|err| err.to_string())?;
+    // Refuses images that would take too much memory to decode.
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(16_384);
+    limits.max_image_height = Some(16_384);
+    limits.max_alloc = Some(1024 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader.decode().map_err(not_an_image)?;
+    if image.width() == 0 || image.height() == 0 {
+        return Err("the image is empty".into());
+    }
+    let (max_w, max_h) = BACKGROUND_MAX;
+    let image = if image.width() > max_w || image.height() > max_h {
+        image.resize(max_w, max_h, image::imageops::FilterType::Triangle)
+    } else {
+        image
+    };
+    let rgb = image::DynamicImage::ImageRgb8(image.to_rgb8());
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
+        &mut jpeg, 88,
+    ))
+    .map_err(|err| err.to_string())?;
+    Ok(jpeg.into_inner())
+}
+
 pub fn icon_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let image = image::load_from_memory(bytes)
         .map_err(|err| format!("it is not a PNG or JPEG image ({err})"))?;
@@ -787,6 +917,53 @@ pub fn now() -> u64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn icon_names_are_library_icons_or_emoji() {
+        assert!(valid_icon_name("builtin:grass"));
+        assert!(valid_icon_name("builtin:diamond-ore"));
+        assert!(valid_icon_name("emoji:3DAE5E:🌲"));
+        assert!(valid_icon_name("emoji:1d8eb2:🧑‍🚀"));
+        assert!(!valid_icon_name("builtin:"));
+        assert!(!valid_icon_name("builtin:../icon"));
+        assert!(!valid_icon_name("emoji:green:🌲"));
+        assert!(!valid_icon_name("emoji:3DAE5E:"));
+        assert!(!valid_icon_name("emoji:3DAE5E:a\nb"));
+        assert!(!valid_icon_name("custom"));
+        assert!(!valid_icon_name("https://example.com/icon.png"));
+    }
+
+    #[test]
+    fn named_icons_and_backgrounds_are_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().join("instances"));
+        let instance = store.create("Pixel", "1.20.1", None).unwrap();
+        let source = dir.path().join("photo.png");
+        image::RgbImage::from_pixel(3000, 1000, image::Rgb([200, 210, 220]))
+            .save(&source)
+            .unwrap();
+
+        store.set_icon(&instance.id, &source).unwrap();
+        let named = store
+            .set_icon_name(&instance.id, Some("builtin:grass"))
+            .unwrap();
+        assert_eq!(named.icon.as_deref(), Some("builtin:grass"));
+        assert!(!store.dir(&instance.id).join(ICON_FILE).exists());
+        assert!(
+            store
+                .set_icon_name(&instance.id, Some("builtin:../x"))
+                .is_err()
+        );
+
+        let with_background = store.set_background(&instance.id, &source).unwrap();
+        let path = store.background_path(&with_background).unwrap();
+        let saved = image::open(&path).unwrap();
+        assert_eq!((saved.width(), saved.height()), (2560, 853));
+        let cleared = store.clear_background(&instance.id).unwrap();
+        assert_eq!(cleared.background, None);
+        assert!(!path.exists());
+    }
+
     use std::cell::RefCell;
 
     use serde_json::{Value, json};

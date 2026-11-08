@@ -8,6 +8,11 @@ import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { formatPackSize, isSha1, packUrlError } from 'utils/resourcePack';
 import { axiosWrapper, DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import {
+  SettingsCard,
+  SettingsRow,
+  SettingsSection,
+} from 'components/Settings/SettingsBlocks';
 
 const EMPTY: ServerResourcePack = {
   url: '',
@@ -103,37 +108,27 @@ export function ResourcePackSetting({
     }
   };
 
-  const row =
-    'flex flex-col gap-2 bg-gray-800 px-4 py-3 @4xl:flex-row @4xl:items-center @4xl:justify-between';
-  const label = 'text-medium font-medium text-gray-300';
-  const hint = 'text-medium font-medium tracking-medium text-white/50';
-
   return (
-    <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
-      <div className="w-full shrink-0">
-        <h2 className="text-h2 font-extrabold tracking-medium">
-          Resource Pack
-        </h2>
-        <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-          A pack players are asked to download when they join
-        </h3>
-      </div>
-      <div className="w-full min-w-0 overflow-hidden rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 child:last:border-b-0">
-        <div className={row}>
-          <div className="flex min-w-0 grow flex-col">
-            <label className={label} htmlFor="resource-pack-url">
-              URL
-            </label>
-            <div className={urlError ? 'text-small text-red' : hint}>
-              {!canEdit
-                ? disabledReason
-                : (urlError ??
-                  'A direct link to the pack zip. Leave it empty for none.')}
-            </div>
-          </div>
+    <SettingsSection
+      id="server-settings-resource-pack"
+      title="Resource pack"
+      lead="A pack players are asked to download when they join."
+    >
+      <SettingsCard>
+        <SettingsRow
+          label="URL"
+          htmlFor="resource-pack-url"
+          hint={
+            canEdit
+              ? 'A direct link to the pack zip. Leave it empty for none.'
+              : disabledReason
+          }
+          error={canEdit ? urlError : null}
+          controlClassName="w-5/12"
+        >
           <input
             id="resource-pack-url"
-            className={`${inputClass} @4xl:w-5/12`}
+            className={inputClass}
             value={draft.url}
             placeholder="https://example.com/pack.zip"
             maxLength={2048}
@@ -144,68 +139,63 @@ export function ResourcePackSetting({
               setHashNote(null);
             }}
           />
-        </div>
-        <div className={row}>
-          <div className="flex min-w-0 grow flex-col">
-            <label className={label} htmlFor="resource-pack-sha1">
-              SHA-1
-            </label>
-            <div className={sha1Error ? 'text-small text-red' : hint}>
-              {sha1Error ??
-                hashNote ??
-                'Lets players check the download and cache the pack.'}
-            </div>
-          </div>
-          <div className="flex flex-row gap-2 @4xl:w-5/12">
-            <input
-              id="resource-pack-sha1"
-              className={`${inputClass} font-mono`}
-              value={draft.sha1}
-              maxLength={40}
-              disabled={disabled}
-              autoComplete={DISABLE_AUTOFILL}
-              onChange={(e) => setDraft({ ...draft, sha1: e.target.value })}
-            />
-            <Button
-              label="Compute"
-              loading={busy === 'hashing'}
-              disabled={disabled || !draft.url.trim() || urlError !== null}
-              onClick={() => void computeSha1()}
-            />
-          </div>
-        </div>
-        <div className={row}>
-          <div className="flex min-w-0 grow flex-col">
-            <label className={label}>Require the pack</label>
-            <div className={hint}>Players who decline it are disconnected.</div>
-          </div>
+        </SettingsRow>
+        <SettingsRow
+          label="SHA-1"
+          htmlFor="resource-pack-sha1"
+          hint={
+            hashNote ?? 'Lets players check the download and cache the pack.'
+          }
+          error={sha1Error}
+          controlClassName="w-5/12"
+        >
+          <input
+            id="resource-pack-sha1"
+            className={`${inputClass} min-w-0 font-mono`}
+            value={draft.sha1}
+            maxLength={40}
+            disabled={disabled}
+            autoComplete={DISABLE_AUTOFILL}
+            onChange={(e) => setDraft({ ...draft, sha1: e.target.value })}
+          />
+          <Button
+            label="Compute"
+            className="shrink-0"
+            loading={busy === 'hashing'}
+            disabled={disabled || !draft.url.trim() || urlError !== null}
+            onClick={() => void computeSha1()}
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Require the pack"
+          labelId="resource-pack-required"
+          hint="Players who decline it are disconnected."
+        >
           <Toggle
             value={draft.required}
             onChange={(required) => setDraft({ ...draft, required })}
             disabled={disabled}
+            aria-labelledby="resource-pack-required"
           />
-        </div>
-        <div className={row}>
-          <div className="flex min-w-0 grow flex-col">
-            <label className={label} htmlFor="resource-pack-prompt">
-              Prompt
-            </label>
-            <div className={hint}>
-              The message shown when players are asked. Plain text, or a JSON
-              text component.
-            </div>
-          </div>
+        </SettingsRow>
+        <SettingsRow
+          label="Prompt"
+          htmlFor="resource-pack-prompt"
+          hint="The message shown when players are asked. Plain text, or a JSON text component."
+          controlClassName="w-5/12"
+        >
           <input
             id="resource-pack-prompt"
-            className={`${inputClass} @4xl:w-5/12`}
+            className={inputClass}
             value={draft.prompt}
             maxLength={2048}
             disabled={disabled}
             autoComplete={DISABLE_AUTOFILL}
             onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
           />
-        </div>
-        <div className="flex flex-row justify-end gap-2 bg-gray-800 px-4 py-3">
+        </SettingsRow>
+        {/* changes here are kept until saved, so the pack is set at once */}
+        <div className="flex flex-row justify-end gap-2 px-4 py-3">
           <Button
             label="Remove pack"
             disabled={disabled || !saved.url}
@@ -221,7 +211,7 @@ export function ResourcePackSetting({
             onClick={() => void save(draft)}
           />
         </div>
-      </div>
-    </div>
+      </SettingsCard>
+    </SettingsSection>
   );
 }
