@@ -194,7 +194,7 @@ fn prefers_reduced_motion() -> bool {
     // SAFETY: `objc_msgSend` is called through function types that match the two
     // methods: `+[NSWorkspace sharedWorkspace]` returns an object and takes no
     // arguments, and `-accessibilityDisplayShouldReduceMotion` returns a `BOOL`
-    // (0 or 1) and takes none. Both exist since macOS 10.12, and a missing class is
+    // (read as a byte) and takes none. Both exist since macOS 10.12, and a missing class is
     // checked before any message is sent.
     unsafe {
         let class = objc_getClass(c"NSWorkspace".as_ptr());
@@ -205,16 +205,18 @@ fn prefers_reduced_motion() -> bool {
             unsafe extern "C" fn(),
             unsafe extern "C" fn(Id, Sel) -> Id,
         >(objc_msgSend);
+        // `BOOL` is a `signed char` on Intel Macs and a `bool` on Apple silicon; read it
+        // as a byte and compare, so no value is ever reinterpreted as a Rust `bool`.
         let send_bool = std::mem::transmute::<
             unsafe extern "C" fn(),
-            unsafe extern "C" fn(Id, Sel) -> bool,
+            unsafe extern "C" fn(Id, Sel) -> i8,
         >(objc_msgSend);
         let workspace = send_id(class, sel_registerName(c"sharedWorkspace".as_ptr()));
         !workspace.is_null()
             && send_bool(
                 workspace,
                 sel_registerName(c"accessibilityDisplayShouldReduceMotion".as_ptr()),
-            )
+            ) != 0
     }
 }
 
