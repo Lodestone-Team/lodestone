@@ -587,3 +587,74 @@ pub fn left_overlay(
                 .child(panel),
         )
 }
+
+/// The bar that says a page has unsaved changes, with Discard and Save, drawn at
+/// the bottom of the page like the toast. The page must be `relative`.
+pub fn unsaved_bar(
+    id: &'static str,
+    message: impl Into<SharedString>,
+    can_save: bool,
+    on_discard: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+    on_save: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    let reduce_motion = super::dialog::prefers_reduced_motion();
+    div()
+        .absolute()
+        .bottom_5()
+        .left_0()
+        .right_0()
+        .flex()
+        .flex_row()
+        .justify_center()
+        .px_4()
+        .child(
+            div()
+                .id(id)
+                .occlude()
+                .relative()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_4()
+                .w_full()
+                .max_w(px(600.))
+                .pl_4()
+                .pr_2()
+                .py_2()
+                .rounded(radius::XL)
+                .border_1()
+                .border_color(colors::FADE_700)
+                .bg(colors::GRAY_750)
+                .shadow(vec![gpui::BoxShadow {
+                    color: shadow::COLOR.into(),
+                    offset: gpui::point(px(0.), px(6.)),
+                    blur_radius: px(18.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }])
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .font_weight(weights::BOLD.into())
+                        .text_color(colors::GRAY_300)
+                        .child(message.into()),
+                )
+                .child(muted_link((id, 0usize), "Discard").on_click(on_discard))
+                .child(
+                    crate::components::Button::new((id, 1usize), "Save")
+                        .variant(crate::components::ButtonVariant::Primary)
+                        .size(crate::components::ButtonSize::Slim)
+                        .disabled(!can_save)
+                        .on_click(on_save),
+                )
+                .with_animation(
+                    (id, 2usize),
+                    gpui::Animation::new(TOAST_ENTER).with_easing(|t| 1. - (1. - t).powi(3)),
+                    move |bar, delta| {
+                        let rise = if reduce_motion { 0. } else { TOAST_RISE };
+                        bar.opacity(delta).top(px(rise * (1. - delta)))
+                    },
+                ),
+        )
+}

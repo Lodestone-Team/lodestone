@@ -10,7 +10,9 @@ use crate::{
     accounts::SessionState,
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton,
-        settings::{CONTENT_WIDTH, SettingRow, card, left_overlay, link, muted_link, tag},
+        settings::{
+            CONTENT_WIDTH, SettingRow, card, left_overlay, link, muted_link, tag, unsaved_bar,
+        },
     },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
@@ -47,7 +49,7 @@ impl SettingsPage {
     fn lead(self) -> &'static str {
         match self {
             SettingsPage::Defaults => {
-                "Every instance uses these unless its own Settings tab changes them. Changes save as you make them."
+                "Every instance uses these unless its own Settings tab changes them."
             }
             SettingsPage::Shared => {
                 "One set of options.txt settings for every instance: mouse, key bindings, video, sound and more. An instance can override single values in its Settings tab."
@@ -92,6 +94,12 @@ impl LauncherShell {
             self.settings_modal.open(SettingsModal { focus }, cx);
         }
         cx.notify();
+    }
+
+    /// Changes Instance defaults without saving, for the offscreen screenshots.
+    pub fn preview_unsaved_defaults(&mut self, cx: &mut Context<Self>) {
+        self.launcher_settings
+            .update(cx, |settings, cx| settings.preview_change(cx));
     }
 
     /// Opens the pages over the page in a narrow window, for the offscreen screenshots.
@@ -144,6 +152,37 @@ impl LauncherShell {
             SettingsPage::Defaults => self.launcher_settings.read(cx).toast().render(),
             SettingsPage::Shared => self.shared_settings.read(cx).toast().render(),
             _ => None,
+        }
+        .map(IntoElement::into_any_element);
+        // Unsaved changes to Instance defaults show a bar with Save and Discard on
+        // every page, instead of the toast.
+        let unsaved = {
+            let settings = self.launcher_settings.read(cx);
+            settings.has_changes(cx).then(|| settings.can_save(cx))
+        };
+        let toast = match unsaved {
+            Some(can_save) => Some(
+                unsaved_bar(
+                    "settings-unsaved",
+                    if page == SettingsPage::Defaults {
+                        "You have unsaved changes"
+                    } else {
+                        "You have unsaved changes in Instance defaults"
+                    },
+                    can_save,
+                    cx.listener(|this, _, _, cx| {
+                        this.launcher_settings
+                            .update(cx, |settings, cx| settings.discard(cx))
+                    }),
+                    cx.listener(|this, _, _, cx| {
+                        this.launcher_settings.update(cx, |settings, cx| {
+                            settings.save(cx);
+                        })
+                    }),
+                )
+                .into_any_element(),
+            ),
+            None => toast,
         };
         let content: AnyElement = match page {
             SettingsPage::Defaults => self.launcher_settings.clone().into_any_element(),
@@ -154,7 +193,9 @@ impl LauncherShell {
         Dialog::new("launcher-settings", "Settings", modal.focus.clone())
             .frameless(width, height)
             .when(small, |dialog| dialog.edge_to_edge(top))
-            .on_close(move |_, cx| entity.update(cx, |this, cx| this.close_settings(cx)))
+            .on_close(move |window, cx| {
+                entity.update(cx, |this, cx| this.request_close_settings(Some(window), cx))
+            })
             .when(!narrow, |dialog| {
                 dialog.child(self.render_settings_sidebar(false, cx))
             })
@@ -222,11 +263,11 @@ impl LauncherShell {
                                     ),
                             )
                             .child(div().flex_1())
-                            .child(
-                                IconButton::new("close-settings", Icon::Xmark).on_click(
-                                    cx.listener(|this, _, _, cx| this.close_settings(cx)),
-                                ),
-                            ),
+                            .child(IconButton::new("close-settings", Icon::Xmark).on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.request_close_settings(Some(window), cx)
+                                }),
+                            )),
                     )
                     .child(
                         div()
@@ -239,7 +280,7 @@ impl LauncherShell {
                                     .size_full()
                                     .overflow_y_scroll()
                                     .map(|this| if small { this.px_6() } else { this.px_10() })
-                                    .pb_10()
+                                    .pb_24()
                                     .child(div().w_full().max_w(CONTENT_WIDTH).child(content)),
                             )
                             .children(toast),

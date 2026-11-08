@@ -10,6 +10,7 @@ mod settings_modal;
 mod shared_settings;
 mod sidebar;
 mod top_bar;
+mod unsaved;
 
 pub use launcher_settings::LauncherSettings;
 use settings_modal::SettingsModal;
@@ -153,6 +154,11 @@ enum Modal {
     DisableLauncherIdentity {
         focus: FocusHandle,
         usernames: Vec<String>,
+    },
+    /// Save or discard unsaved settings.
+    Unsaved {
+        focus: FocusHandle,
+        target: unsaved::UnsavedTarget,
     },
 }
 
@@ -647,6 +653,16 @@ impl LauncherShell {
             .settings
             .as_ref()
             .map(|(settings, _)| settings.read(cx).instance_id().to_string());
+        // Another instance was selected while this one's Settings tab has unsaved
+        // changes: ask first, and keep the tab until then.
+        if let Some((view, _)) = &self.settings
+            && current.as_deref() != selected.as_ref().map(|i| i.id.as_str())
+            && view.read(cx).has_changes(cx)
+        {
+            let target = unsaved::UnsavedTarget::Instance(view.clone());
+            self.ask_unsaved(target, None, cx);
+            return;
+        }
         match selected {
             None => self.settings = None,
             Some(instance) if current.as_deref() != Some(instance.id.as_str()) => {
@@ -1218,6 +1234,7 @@ impl LauncherShell {
             Modal::DisableLauncherIdentity { focus, usernames } => {
                 self.render_disable_launcher_identity(focus.clone(), usernames, cx)
             }
+            Modal::Unsaved { focus, target } => self.render_unsaved(focus.clone(), target, cx),
             Modal::SignIn { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Offline { dialog, .. } => dialog.clone().into_any_element(),
             Modal::RemoveAccount {
