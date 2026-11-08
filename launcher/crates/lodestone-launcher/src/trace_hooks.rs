@@ -72,25 +72,6 @@ fn keys(keystroke: &Keystroke) -> String {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn meta(level: log::Level, target: &str) -> bool {
-        forwarded(&log::Metadata::builder().level(level).target(target).build())
-    }
-
-    #[test]
-    fn only_own_debug_records_are_forwarded() {
-        assert!(meta(log::Level::Warn, "rustls::client"));
-        assert!(meta(log::Level::Info, "hyper"));
-        assert!(!meta(log::Level::Debug, "rustls::client::hs"));
-        assert!(!meta(log::Level::Trace, "zed_reqwest::connect"));
-        assert!(meta(log::Level::Debug, "lodestone_launcher::shell"));
-        assert!(meta(log::Level::Trace, "gpui::window"));
-    }
-}
-
 /// Installs the logger and the keystroke observer. Call once, at start.
 pub fn install(cx: &mut App) {
     if log::set_logger(&TraceLogger).is_ok() {
@@ -119,4 +100,23 @@ pub fn install(cx: &mut App) {
         }
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta(level: log::Level, target: &str) -> bool {
+        forwarded(&log::Metadata::builder().level(level).target(target).build())
+    }
+
+    #[test]
+    fn only_own_debug_records_are_forwarded() {
+        assert!(meta(log::Level::Warn, "rustls::client"));
+        assert!(meta(log::Level::Info, "hyper"));
+        assert!(!meta(log::Level::Debug, "rustls::client::hs"));
+        assert!(!meta(log::Level::Trace, "zed_reqwest::connect"));
+        assert!(meta(log::Level::Debug, "lodestone_launcher::shell"));
+        assert!(meta(log::Level::Trace, "gpui::window"));
+    }
 }
