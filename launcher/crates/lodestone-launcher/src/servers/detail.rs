@@ -12,6 +12,7 @@ use gpui::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, SharedString, Task,
     UniformListScrollHandle,
 };
+use launcher_core::wording;
 use launcher_core::{
     Secret,
     cores::{
@@ -183,7 +184,13 @@ impl ServerDetail {
         this.console_status = if access.console_read {
             StreamStatus::Live
         } else {
-            StreamStatus::Off("Reading the console wasn't allowed when this Mac signed in.".into())
+            StreamStatus::Off(
+                format!(
+                    "Reading the console wasn't allowed when this {} signed in.",
+                    wording::COMPUTER
+                )
+                .into(),
+            )
         };
         this.push_console(console.iter().enumerate().map(|(i, message)| ConsoleLine {
             snowflake: i as i64 + 1,
@@ -225,7 +232,7 @@ impl ServerDetail {
                             this.follow_stream(StreamKind::Console, cx);
                         } else {
                             this.console_status = StreamStatus::Off(
-                                "This Mac's key can't read the console. Sign in again and allow \"Read the console\", if your user may use it."
+                                format!("This {}'s key can't read the console. Sign in again and allow \"Read the console\", if your user may use it.", wording::COMPUTER)
                                     .into(),
                             );
                         }

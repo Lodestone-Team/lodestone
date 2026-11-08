@@ -36,6 +36,7 @@ use gpui::{
     Task,
 };
 use http_client::HttpClient;
+use launcher_core::wording;
 use launcher_core::{
     Secret,
     content::install::InstallProgress,
@@ -68,7 +69,12 @@ pub const POLL_INTERVAL: Duration = Duration::from_secs(5);
 pub const START_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// What trusting a core for mods means, shown wherever the user is asked.
-pub const TRUST_EXPLANATION: &str = "Mods from a Lodestone core run as programs on this Mac, with the same access to your files and accounts as you. Only trust a core whose owner you trust.";
+pub fn trust_explanation() -> String {
+    format!(
+        "Mods from a Lodestone core run as programs on this {}, with the same access to your files and accounts as you. Only trust a core whose owner you trust.",
+        wording::COMPUTER
+    )
+}
 
 /// Where to find a core's certificate fingerprint, to compare.
 pub const FINGERPRINT_HELP: &str = "Compare it with the fingerprint the core shows: in the dashboard under Settings → Core Settings → Information (\"Certificate fingerprint (SHA-256)\"), or in the core's log when it starts (\"TLS certificate SHA-256 fingerprint\").";
@@ -720,7 +726,7 @@ impl Servers {
                 if let Err(err) = store::write_key(&*store, &info.uuid, secret).await {
                     dialog.update(cx, |d, cx| {
                         d.fail(
-                            format!("Couldn't save the key in the Keychain: {err:#}"),
+                            format!("Couldn't save the key in the {}: {err:#}", wording::KEYCHAIN),
                             cx,
                         )
                     });

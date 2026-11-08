@@ -9,10 +9,11 @@ use launcher_core::cores::{
     CoreError, ServerInstance, ServerLoader, ServerState, client::display_address,
     models::ADDRESS_HIDDEN,
 };
+use launcher_core::wording;
 
 use super::{
     AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, FINGERPRINT_HELP, Servers,
-    TRUST_EXPLANATION, TrustPrompt, UpdatePrompt,
+    TrustPrompt, UpdatePrompt, trust_explanation,
 };
 use crate::{
     components::{
@@ -99,12 +100,13 @@ fn certificate_warning(
     let (changed, message, button) = match err {
         CoreError::CertificateChanged { .. } => (
             true,
-            "This core's HTTPS certificate changed since you trusted it, so Lodestone Launcher refuses to connect. The core makes a new certificate when its built-in one is about to expire or its address changes; it can also mean someone is intercepting the connection. Check the new fingerprint before you trust it.",
+            "This core's HTTPS certificate changed since you trusted it, so Lodestone Launcher refuses to connect. The core makes a new certificate when its built-in one is about to expire or its address changes; it can also mean someone is intercepting the connection. Check the new fingerprint before you trust it."
+                .to_string(),
             "Trust the new certificate…",
         ),
         _ => (
             false,
-            "This core's HTTPS certificate isn't trusted by this Mac. Lodestone cores make their own certificate, so this is expected: check its fingerprint, then trust it.",
+            format!("This core's HTTPS certificate isn't trusted by this {}. Lodestone cores make their own certificate, so this is expected: check its fingerprint, then trust it.", wording::COMPUTER),
             "Trust certificate…",
         ),
     };
@@ -775,7 +777,8 @@ fn certificate_dialog(servers: &Entity<Servers>, prompt: &CertPrompt) -> Dialog 
         )
     } else {
         format!(
-            "macOS doesn't trust the HTTPS certificate of {name} at {}. Lodestone cores make their own certificate, so this is expected the first time you connect.",
+            "{} doesn't trust the HTTPS certificate of {name} at {}. Lodestone cores make their own certificate, so this is expected the first time you connect.",
+            wording::OS,
             prompt.address
         )
     };
@@ -850,7 +853,7 @@ fn trust_dialog(servers: &Entity<Servers>, prompt: &TrustPrompt) -> Dialog {
             .flex_col()
             .gap_3()
             .child(paragraph(format!("{} at {}.", prompt.name, prompt.address)))
-            .child(paragraph(TRUST_EXPLANATION))
+            .child(paragraph(trust_explanation()))
             .child(
                 small(if prompt.after_add {
                     "Until you trust it, Lodestone Launcher shows you what a server's mods are before it installs them. You can change this later with \"Trusted for mods\" on the core's card."
@@ -970,7 +973,7 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
     };
     Dialog::new(
         "mod-advisory",
-        "This server's mods will run on your Mac",
+        format!("This server's mods will run on your {}", wording::COMPUTER),
         prompt.focus.clone(),
     )
     .width(px(600.))
@@ -1007,8 +1010,9 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
             )
             .child(
                 small(format!(
-                    "\"Trust {} and install\" also installs its mods without asking from now on. {TRUST_EXPLANATION}",
-                    prompt.core_name
+                    "\"Trust {} and install\" also installs its mods without asking from now on. {}",
+                    prompt.core_name,
+                    trust_explanation()
                 ))
                 .text_color(colors::GRAY_500),
             ),

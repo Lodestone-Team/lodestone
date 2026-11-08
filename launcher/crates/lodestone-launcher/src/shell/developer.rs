@@ -5,6 +5,7 @@
 use gpui::{
     AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*, px,
 };
+use launcher_core::wording;
 
 use super::{LauncherShell, Modal};
 use crate::{
@@ -16,32 +17,43 @@ use crate::{
 pub const BADGE: &str = "Launcher identity";
 
 /// The disclosure shown before the option is turned on, as (heading, paragraph).
-pub const DISCLOSURE: &[(&str, &str)] = &[
-    (
-        "What this does",
-        "Lodestone Launcher will tell Microsoft that it is Mojang's official Minecraft Launcher, using that launcher's public client ID, instead of Lodestone's own registered app. Microsoft and Mojang haven't approved this, Lodestone isn't affiliated with them, and it may be against Microsoft's terms for their apps.",
-    ),
-    (
-        "Risks",
-        "Microsoft can block this at any time. If it does, accounts signed in this way stop working. Use it only for personal testing until Lodestone's app is approved.",
-    ),
-    (
-        "Why it's here",
-        "Lodestone's own app is still waiting for Mojang's approval, so normal Microsoft sign-in can't finish yet.",
-    ),
-    (
-        "When you sign in",
-        "Add Microsoft account gives you a code. Enter it at microsoft.com/link and sign in to your Microsoft account there. Microsoft's pages may show Minecraft's name instead of Lodestone's. If the code doesn't work, you can sign in with a link instead: your browser opens login.live.com, and you paste back the address of the blank page it ends on.",
-    ),
-    (
-        "What the launcher gets",
-        "The same as a normal sign-in: tokens that let it play Minecraft as that account. The long-lived one is kept in your macOS Keychain and the rest only in memory. These accounts are marked \"Launcher identity\" in the account menu.",
-    ),
-    (
-        "How to undo it",
-        "Turn this setting off and sign those accounts out. Lodestone Launcher offers to sign them out when you turn it off.",
-    ),
-];
+pub fn disclosure() -> Vec<(&'static str, SharedString)> {
+    vec![
+        (
+            "What this does",
+            "Lodestone Launcher will tell Microsoft that it is Mojang's official Minecraft Launcher, using that launcher's public client ID, instead of Lodestone's own registered app. Microsoft and Mojang haven't approved this, Lodestone isn't affiliated with them, and it may be against Microsoft's terms for their apps."
+                .into(),
+        ),
+        (
+            "Risks",
+            "Microsoft can block this at any time. If it does, accounts signed in this way stop working. Use it only for personal testing until Lodestone's app is approved."
+                .into(),
+        ),
+        (
+            "Why it's here",
+            "Lodestone's own app is still waiting for Mojang's approval, so normal Microsoft sign-in can't finish yet."
+                .into(),
+        ),
+        (
+            "When you sign in",
+            "Add Microsoft account gives you a code. Enter it at microsoft.com/link and sign in to your Microsoft account there. Microsoft's pages may show Minecraft's name instead of Lodestone's. If the code doesn't work, you can sign in with a link instead: your browser opens login.live.com, and you paste back the address of the blank page it ends on."
+                .into(),
+        ),
+        (
+            "What the launcher gets",
+            format!(
+                "The same as a normal sign-in: tokens that let it play Minecraft as that account. The long-lived one is kept in your {} and the rest only in memory. These accounts are marked \"Launcher identity\" in the account menu.",
+                wording::KEYCHAIN_IN_FULL
+            )
+            .into(),
+        ),
+        (
+            "How to undo it",
+            "Turn this setting off and sign those accounts out. Lodestone Launcher offers to sign them out when you turn it off."
+                .into(),
+        ),
+    ]
+}
 
 fn paragraph(text: impl Into<SharedString>) -> impl IntoElement {
     div()
@@ -174,7 +186,7 @@ impl LauncherShell {
                 .max_h(px(340.))
                 .overflow_y_scroll()
                 .pr_2()
-                .children(DISCLOSURE.iter().map(|(heading, body)| {
+                .children(disclosure().into_iter().map(|(heading, body)| {
                     div()
                         .flex()
                         .flex_col()
@@ -184,9 +196,9 @@ impl LauncherShell {
                                 .text_size(theme::text_size(text::MEDIUM))
                                 .font_weight(weights::BOLD.into())
                                 .text_color(colors::GRAY_300)
-                                .child(*heading),
+                                .child(heading),
                         )
-                        .child(paragraph(*body))
+                        .child(paragraph(body))
                 })),
         )
         .footer(
@@ -232,7 +244,8 @@ impl LauncherShell {
                         "New Microsoft sign-ins will use Lodestone's own app again.",
                     ))
                     .child(paragraph(format!(
-                        "{accounts} Kept accounts go on working until Microsoft blocks this. Signing out removes them from Lodestone Launcher and deletes their saved sign-ins from your Keychain."
+                        "{accounts} Kept accounts go on working until Microsoft blocks this. Signing out removes them from Lodestone Launcher and deletes their saved sign-ins from your {}.",
+                        wording::KEYCHAIN
                     ))),
             )
             .footer(

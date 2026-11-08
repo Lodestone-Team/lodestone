@@ -6,6 +6,7 @@ use gpui::{
     Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div, prelude::*, px,
 };
 use launcher_core::settings::{DEFAULT_MIN_RAM_MB, InstanceDefaults, default_max_ram_mb};
+use launcher_core::wording;
 
 use crate::{
     components::{Button, ButtonVariant},
@@ -95,9 +96,10 @@ impl LauncherSettings {
                     .text_size(theme::text_size(text::SMALL))
                     .text_color(colors::GRAY_500)
                     .child(format!(
-                        "The default is {} MB to {} MB: half this Mac's memory, at most 4 GB.",
+                        "The default is {} MB to {} MB: half this {}'s memory, at most 4 GB.",
                         DEFAULT_MIN_RAM_MB,
-                        crate::instances::thousands(default_max_ram_mb(total).into())
+                        crate::instances::thousands(default_max_ram_mb(total).into()),
+                        wording::COMPUTER
                     )),
             )
             .child(fields::memory_inputs(&self.fields, &check))

@@ -6,6 +6,7 @@ use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     Render, SharedString, Window, div, prelude::*,
 };
+use launcher_core::wording;
 use launcher_core::{
     Secret,
     cores::{
@@ -155,7 +156,7 @@ impl HostDialog {
         }
         if username.is_empty() || password.is_empty() {
             return self.fail(
-                "Enter your username and password for this core. Creating a server needs more than this Mac's key may do.",
+                format!("Enter your username and password for this core. Creating a server needs more than this {}'s key may do.", wording::COMPUTER),
                 cx,
             );
         }

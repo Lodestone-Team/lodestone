@@ -17,6 +17,7 @@ use gpui::{
     Image, ImageFormat, IntoElement, ObjectFit, PathPromptOptions, Render, RenderImage,
     SharedString, Subscription, Task, Window, div, img, prelude::*, px,
 };
+use launcher_core::wording;
 use launcher_core::{
     content::InstanceDirs,
     game::download::{CancelToken, Progress},
@@ -399,8 +400,10 @@ impl WorldsView {
                 )?;
                 Ok(match restored.safety_backup {
                     Some(safety) => format!(
-                        "Restored {}. The world as it was is backed up as {}, and in the Trash.",
-                        restored.folder, safety.file_name
+                        "Restored {}. The world as it was is backed up as {}, and in {}.",
+                        restored.folder,
+                        safety.file_name,
+                        wording::TRASH
                     ),
                     None => format!("Restored {}.", restored.folder),
                 })
@@ -412,10 +415,10 @@ impl WorldsView {
     /// Moves the world to the Trash (after the window's confirmation).
     pub fn delete_world(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
         self.run(
-            format!("Moving {name} to the Trash"),
+            format!("Moving {name} to {}", wording::TRASH),
             move |dirs, _, _| {
                 worlds::delete(dirs, &folder)?;
-                Ok(format!("{name} is in the Trash."))
+                Ok(format!("{name} is in {}.", wording::TRASH))
             },
             cx,
         );
@@ -423,10 +426,10 @@ impl WorldsView {
 
     pub fn delete_backup(&mut self, backup: Backup, cx: &mut Context<Self>) {
         self.run(
-            "Moving the backup to the Trash",
+            format!("Moving the backup to {}", wording::TRASH),
             move |dirs, _, _| {
                 worlds::delete_backup(dirs, &backup.path)?;
-                Ok(format!("{} is in the Trash.", backup.file_name))
+                Ok(format!("{} is in {}.", backup.file_name, wording::TRASH))
             },
             cx,
         );
@@ -710,7 +713,7 @@ impl WorldsView {
             return;
         };
         match screenshots::delete(&dirs, &file_name) {
-            Ok(()) => self.set_message(format!("{file_name} is in the Trash."), false, cx),
+            Ok(()) => self.set_message(format!("{file_name} is in {}.", wording::TRASH), false, cx),
             Err(err) => self.set_message(err, true, cx),
         }
         self.large = None;
@@ -1182,7 +1185,7 @@ impl WorldsView {
                             }),
                     )
                     .child(
-                        Button::new(("reveal-backup", id), "Show in Finder")
+                        Button::new(("reveal-backup", id), wording::SHOW_IN_FILE_MANAGER)
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Slim)
                             .on_click({
@@ -1505,7 +1508,7 @@ impl WorldsView {
                         .items_center()
                         .gap_2()
                         .child(
-                            Button::new("shot-open", "Open in Preview")
+                            Button::new("shot-open", wording::OPEN_IMAGE)
                                 .variant(ButtonVariant::Secondary)
                                 .icon(Icon::ArrowUpRightFromSquare)
                                 .size(ButtonSize::Slim)
@@ -1515,7 +1518,7 @@ impl WorldsView {
                                 }),
                         )
                         .child(
-                            Button::new("shot-reveal", "Show in Finder")
+                            Button::new("shot-reveal", wording::SHOW_IN_FILE_MANAGER)
                                 .variant(ButtonVariant::Ghost)
                                 .size(ButtonSize::Slim)
                                 .on_click({
@@ -1541,7 +1544,7 @@ impl WorldsView {
                             Button::new(
                                 "shot-delete",
                                 if confirming {
-                                    "Move to Trash"
+                                    wording::MOVE_TO_TRASH
                                 } else {
                                     "Delete…"
                                 },

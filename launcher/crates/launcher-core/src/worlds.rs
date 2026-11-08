@@ -53,7 +53,7 @@ pub enum WorldError {
     NotFound(String),
     #[error("{0}")]
     Conflict(String),
-    #[error("couldn't move {path} to the Trash: {reason}")]
+    #[error("couldn't move {path} to {trash}: {reason}", trash = crate::wording::TRASH)]
     Trash { path: PathBuf, reason: String },
     #[error("cancelled")]
     Cancelled,
