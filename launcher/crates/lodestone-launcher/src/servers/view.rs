@@ -132,6 +132,17 @@ impl Servers {
             }
         }
 
+        if busy.is_none() {
+            let (c, s) = (core_uuid.clone(), server.clone());
+            actions.push(
+                Button::new(SharedString::from(format!("more-{row_id}")), "More…")
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_tools(&c, s.clone(), cx)))
+                    .into_any_element(),
+            );
+        }
+
         let status = match server.players_label() {
             Some(players) if running => format!("{} · {players}", server.state.label()),
             _ => server.state.label().to_string(),
@@ -424,6 +435,7 @@ impl Render for Servers {
                 )
             })
             .children(cards)
+            .child(self.render_lan(cx))
     }
 }
 
@@ -445,6 +457,9 @@ impl ServersOverlay {
 
 impl Render for ServersOverlay {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(dialog) = super::extras::overlay(&self.servers, cx) {
+            return dialog;
+        }
         let servers = self.servers.read(cx);
         if let Some(dialog) = servers.dialog() {
             return dialog.clone().into_any_element();

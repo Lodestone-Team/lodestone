@@ -7,8 +7,18 @@ use launcher_core::cores::{
     store::SavedCore,
 };
 
+use std::sync::Arc;
+
+use launcher_core::{
+    cores::resource_pack::ServerResourcePack,
+    game::download::{Progress, ProgressSnapshot},
+};
+
 use crate::{
-    servers::{Busy, CoreStatus, Servers},
+    servers::{
+        Busy, CoreStatus, Servers,
+        tools::{PackState, ToolBusy},
+    },
     shell::{LauncherShell, Page},
 };
 
@@ -18,7 +28,30 @@ pub const SCENES: &[&str] = &[
     "servers-add",
     "servers-update",
     "servers-signed-out",
+    "servers-tools",
+    "servers-world-progress",
+    "servers-world-done",
+    "servers-lan",
+    "servers-lan-empty",
+    "servers-lan-join",
+    "servers-host",
+    "servers-host-progress",
+    "servers-host-done",
 ];
+
+/// The 8b scenes, which show made-up instances to download into and host.
+pub fn has_instances(scene: &str) -> bool {
+    matches!(
+        scene,
+        "servers-tools"
+            | "servers-world-progress"
+            | "servers-world-done"
+            | "servers-lan-join"
+            | "servers-host"
+            | "servers-host-progress"
+            | "servers-host-done"
+    )
+}
 
 #[allow(clippy::too_many_arguments)]
 fn server(
@@ -223,7 +256,110 @@ fn saved_hidden() -> SavedCore {
     )
 }
 
+/// The id of the made-up instance called `name`.
+fn instance_id(
+    shell: &LauncherShell,
+    name: &str,
+    cx: &mut Context<LauncherShell>,
+) -> Option<String> {
+    shell
+        .servers()
+        .read(cx)
+        .instances()
+        .read(cx)
+        .list()
+        .iter()
+        .find(|i| i.name == name)
+        .map(|i| i.id.clone())
+}
+
+fn apply_extras(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) -> bool {
+    let servers = shell.servers().clone();
+    let survival = instance_id(shell, "Survival 1.20.1", cx).unwrap_or_default();
+    match scene {
+        "servers-tools" | "servers-world-progress" | "servers-world-done" => {
+            servers.update(cx, |servers, cx| {
+                servers.preview(
+                    vec![home(true)],
+                    vec![("home".into(), "smp".into(), survival.clone())],
+                );
+                let mut stopped = smp();
+                stopped.state = ServerState::Stopped;
+                stopped.player_count = None;
+                let pack = PackState::Pack(ServerResourcePack {
+                    url: "https://packs.example.com/smp/smp-textures-v3.zip".into(),
+                    sha1: "4f9a3c7e1b2d8a6f0c5e9b3d7a1f2e8c6b4d0a9e".into(),
+                    required: true,
+                    prompt: "The SMP's textures".into(),
+                });
+                let (busy, result) = match scene {
+                    "servers-world-progress" => {
+                        let progress = Arc::new(Progress::default());
+                        progress.set(ProgressSnapshot {
+                            files_total: 1,
+                            files_done: 0,
+                            bytes_total: 41_943_040,
+                            bytes_done: 12_582_912,
+                        });
+                        (Some(ToolBusy::World("Downloading".into(), progress)), None)
+                    }
+                    "servers-world-done" => (
+                        None,
+                        Some(("Imported as the world \"Survival SMP\" in Survival 1.20.1. Open it from Singleplayer; it's a copy, so changes don't go back to the server.", false)),
+                    ),
+                    _ => (None, None),
+                };
+                servers.preview_tools("home", stopped, pack, busy, result, cx);
+            });
+            shell.show(Page::Servers, cx);
+            true
+        }
+        "servers-lan" | "servers-lan-empty" | "servers-lan-join" => {
+            servers.update(cx, |servers, cx| {
+                servers.preview(vec![home(true)], Vec::new());
+                if scene == "servers-lan-empty" {
+                    servers.preview_lan(&[], true);
+                } else {
+                    servers.preview_lan(
+                        &[
+                            ("Steve - Survival Island", "192.168.1.31", 52144),
+                            ("Alex - Creative build", "192.168.1.47", 61021),
+                        ],
+                        false,
+                    );
+                }
+                if scene == "servers-lan-join" {
+                    let world = servers.preview_lan_world(0);
+                    if let Some(world) = world {
+                        servers.open_lan_join_preview(world, cx);
+                    }
+                }
+            });
+            shell.show(Page::Servers, cx);
+            true
+        }
+        "servers-host" | "servers-host-progress" | "servers-host-done" => {
+            servers.update(cx, |servers, cx| {
+                servers.preview(vec![home(true), friend()], Vec::new());
+                let (stage, done) = match scene {
+                    "servers-host-progress" => (Some("Uploading the modpack (3.2 MB)…"), None),
+                    "servers-host-done" => (None, Some("Survival 1.20.1 is on Peter's Lodestone Core, on port 25566. The core is setting it up now: it installs Fabric and downloads 24 mod file(s) from Modrinth.\n\nThe server is stopped. Start it from the Servers page or the dashboard when you're ready; this instance is ready to join it.")),
+                    _ => (None, None),
+                };
+                servers.preview_host(&survival, stage, done, cx);
+            });
+            shell.select_instance(&survival, cx);
+            shell.select_tab(crate::shell::InstanceTab::Settings, cx);
+            true
+        }
+        _ => false,
+    }
+}
+
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
+    if apply_extras(scene, shell, cx) {
+        return;
+    }
     let servers = shell.servers().clone();
     servers.update(cx, |servers, cx| apply_servers(scene, servers, cx));
     shell.show(Page::Servers, cx);

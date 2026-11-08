@@ -32,6 +32,9 @@ use crate::{
 /// Asks the shell to confirm deleting the instance.
 pub struct DeleteRequested(pub String);
 
+/// "Host on a Lodestone core…" was clicked for this instance.
+pub struct HostRequested(pub String);
+
 /// Asks the shell to confirm a loader change that leaves mods behind or puts worlds at
 /// risk.
 #[derive(Clone, Debug)]
@@ -88,6 +91,7 @@ pub struct InstanceSettings {
 }
 
 impl EventEmitter<DeleteRequested> for InstanceSettings {}
+impl EventEmitter<HostRequested> for InstanceSettings {}
 impl EventEmitter<LoaderChangePrompt> for InstanceSettings {}
 impl EventEmitter<UpdatePrompt> for InstanceSettings {}
 
@@ -986,6 +990,13 @@ impl Render for InstanceSettings {
                         Button::new("export-instance", "Export .mrpack…")
                             .variant(ButtonVariant::Secondary)
                             .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
+                    )
+                    .child(
+                        Button::new("host-instance", "Host on a Lodestone core…")
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.emit(HostRequested(this.instance_id.clone()))
+                            })),
                     )
                     .child(
                         Button::new("verify-files", "Verify game files")

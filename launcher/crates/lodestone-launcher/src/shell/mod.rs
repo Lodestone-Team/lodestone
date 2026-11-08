@@ -33,7 +33,7 @@ use crate::{
         import::{ImportDialog, ImportDismissed},
         modpacks::UpdatePrompt,
         new_instance::{NewInstanceDialog, NewInstanceDismissed},
-        settings::{DeleteRequested, InstanceSettings, LoaderChangePrompt},
+        settings::{DeleteRequested, HostRequested, InstanceSettings, LoaderChangePrompt},
         worlds::{WorldsEvent, WorldsView},
     },
     servers::{Servers, ServersEvent, view::ServersOverlay},
@@ -171,7 +171,7 @@ pub struct LauncherShell {
     /// Settings > Shared game settings.
     shared_settings: Entity<SharedSettings>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
-    settings: Option<(Entity<InstanceSettings>, [Subscription; 3])>,
+    settings: Option<(Entity<InstanceSettings>, [Subscription; 4])>,
     page: Page,
     tab: InstanceTab,
     modal: Option<Modal>,
@@ -247,6 +247,7 @@ impl LauncherShell {
         let servers_overlay = cx.new(|cx| ServersOverlay::new(servers.clone(), cx));
         observe.push(cx.subscribe(&servers, |this, _, event, cx| match event {
             ServersEvent::OpenInstance(id) => this.select_instance(id, cx),
+            ServersEvent::ShowServers => this.show(Page::Servers, cx),
         }));
         let shared_settings = {
             let instances = instances.clone();
@@ -625,6 +626,10 @@ impl LauncherShell {
                     }),
                     cx.subscribe(&settings, |this, _, prompt: &UpdatePrompt, cx| {
                         this.show_modpack_update(prompt.clone(), cx)
+                    }),
+                    cx.subscribe(&settings, |this, _, HostRequested(id), cx| {
+                        this.servers
+                            .update(cx, |servers, cx| servers.open_host(id, cx))
                     }),
                 ];
                 self.settings = Some((settings, subscriptions));

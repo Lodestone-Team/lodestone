@@ -4,13 +4,21 @@
 //!   client packs);
 //! - [`store`]: the cores the launcher knows (`servers.json`) and their device keys;
 //! - [`pack`]: a server's client mods in a launcher instance;
-//! - [`join`]: where to join a server.
+//! - [`join`]: where to join a server;
+//! - [`worlds`]: a server's world as a singleplayer copy;
+//! - [`hosting`]: "Host this modpack", a launcher instance as a new server;
+//! - [`resource_pack`]: a server's resource pack;
+//! - [`lan`]: worlds opened to LAN on this network.
 
 pub mod client;
+pub mod hosting;
 pub mod join;
+pub mod lan;
 pub mod models;
 pub mod pack;
+pub mod resource_pack;
 pub mod store;
+pub mod worlds;
 
 pub use client::{CoreClient, CoreError, PackFetch, parse_address};
 pub use models::{CoreInfo, ServerInstance, ServerList, ServerLoader, ServerState};

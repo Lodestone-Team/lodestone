@@ -6,6 +6,10 @@
 //! is visible.
 
 pub mod add_dialog;
+pub mod extras;
+pub mod host;
+pub mod lan;
+pub mod tools;
 pub mod view;
 
 use std::{
@@ -115,6 +119,8 @@ pub struct UpdatePrompt {
 pub enum ServersEvent {
     /// Show this launcher instance (it is starting).
     OpenInstance(String),
+    /// Show the Servers page.
+    ShowServers,
 }
 
 /// A row is keyed by core and server.
@@ -139,6 +145,8 @@ pub struct Servers {
     preview: bool,
     tasks: Vec<Task<()>>,
     _poller: Option<Task<()>>,
+    /// World downloads, resource packs, hosting and LAN worlds.
+    extras: extras::Extras,
 }
 
 impl EventEmitter<ServersEvent> for Servers {}
@@ -167,6 +175,7 @@ impl Servers {
             preview: false,
             tasks: Vec::new(),
             _poller: None,
+            extras: Default::default(),
         };
         this.load(cx);
         this
@@ -240,6 +249,7 @@ impl Servers {
             return;
         }
         self.visible = visible;
+        self.lan_visible(visible, cx);
         if !visible || self.preview {
             self._poller = None;
             return;

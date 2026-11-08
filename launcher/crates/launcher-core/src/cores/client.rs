@@ -159,10 +159,10 @@ pub enum PackFetch {
     NoMods(String),
 }
 
-struct RawResponse {
-    status: u16,
-    etag: Option<String>,
-    body: Vec<u8>,
+pub(super) struct RawResponse {
+    pub(super) status: u16,
+    pub(super) etag: Option<String>,
+    pub(super) body: Vec<u8>,
 }
 
 /// A core's API at one address.
@@ -182,7 +182,11 @@ impl CoreClient {
         &self.base
     }
 
-    fn url(&self, path: &str) -> String {
+    pub(super) fn http(&self) -> &Arc<dyn HttpClient> {
+        &self.http
+    }
+
+    pub(super) fn url(&self, path: &str) -> String {
         format!(
             "{}/api/v1/{}",
             self.base.as_str().trim_end_matches('/'),
@@ -197,6 +201,23 @@ impl CoreClient {
         path: &str,
         auth: Auth<'_>,
         body: Option<Vec<u8>>,
+        if_none_match: Option<&str>,
+        limit: u64,
+        timeout: Duration,
+    ) -> Result<RawResponse, CoreError> {
+        let body = body.map(|body| (body, "application/json".to_string()));
+        self.send_typed(method, path, auth, body, if_none_match, limit, timeout)
+            .await
+    }
+
+    /// Like `send`, with the body's content type.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn send_typed(
+        &self,
+        method: Method,
+        path: &str,
+        auth: Auth<'_>,
+        body: Option<(Vec<u8>, String)>,
         if_none_match: Option<&str>,
         limit: u64,
         timeout: Duration,
@@ -223,8 +244,8 @@ impl CoreClient {
             builder = builder.header("If-None-Match", etag);
         }
         let request = match body {
-            Some(body) => builder
-                .header("Content-Type", "application/json")
+            Some((body, content_type)) => builder
+                .header("Content-Type", content_type)
                 .body(AsyncBody::from(body)),
             None => builder.body(AsyncBody::empty()),
         }
@@ -256,7 +277,7 @@ impl CoreClient {
         Ok(RawResponse { status, etag, body })
     }
 
-    async fn json<T: serde::de::DeserializeOwned>(
+    pub(super) async fn json<T: serde::de::DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
@@ -413,14 +434,14 @@ impl CoreClient {
 }
 
 #[derive(Clone, Copy)]
-enum Auth<'a> {
+pub(super) enum Auth<'a> {
     None,
     Bearer(&'a Secret),
     Basic(&'a str, &'a Secret),
 }
 
 /// An instance UUID as one path segment.
-fn segment(uuid: &str) -> Result<&str, CoreError> {
+pub(super) fn segment(uuid: &str) -> Result<&str, CoreError> {
     if !uuid.is_empty()
         && uuid
             .chars()
@@ -445,7 +466,7 @@ fn message(response: &RawResponse) -> String {
         })
 }
 
-fn check(response: &RawResponse, auth: Auth<'_>) -> Result<(), CoreError> {
+pub(super) fn check(response: &RawResponse, auth: Auth<'_>) -> Result<(), CoreError> {
     let status = response.status;
     if (200..300).contains(&status) {
         return Ok(());
@@ -476,7 +497,7 @@ fn check(response: &RawResponse, auth: Auth<'_>) -> Result<(), CoreError> {
     })
 }
 
-fn transport_error(err: &anyhow::Error) -> CoreError {
+pub(super) fn transport_error(err: &anyhow::Error) -> CoreError {
     let text = format!("{err:#}");
     let lower = text.to_ascii_lowercase();
     if lower.contains("certificate") || lower.contains("unknownissuer") {
