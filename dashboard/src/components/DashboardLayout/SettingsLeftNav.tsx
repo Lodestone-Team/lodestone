@@ -44,10 +44,13 @@ function GroupLabel({
 export default function SettingsLeftNav({
   current,
   className,
+  onNavigate,
 }: {
   /** the page shown, e.g. "general" */
   current?: string;
   className?: string;
+  /** a page or a user was picked, e.g. to close the overlay the list is in */
+  onNavigate?: () => void;
 }) {
   const { setPathname } = useContext(BrowserLocationContext);
   const { userList, selectedUser, selectUser } = useContext(SettingsContext);
@@ -74,7 +77,10 @@ export default function SettingsLeftNav({
                   active: current === setting.path,
                   activeClass: ACTIVE_CLASS,
                 })}
-                onClick={() => setPathname(`/settings/${setting.path}`)}
+                onClick={() => {
+                  setPathname(`/settings/${setting.path}`);
+                  onNavigate?.();
+                }}
               >
                 {setting.title}
               </button>
@@ -127,7 +133,10 @@ export default function SettingsLeftNav({
                         }),
                         'cursor-pointer'
                       )}
-                      onClick={() => setPathname(`/settings/users`)}
+                      onClick={() => {
+                        setPathname(`/settings/users`);
+                        onNavigate?.();
+                      }}
                     >
                       <Avatar name={user.uid} />
                       <span className="truncate">{user.username}</span>
@@ -140,50 +149,5 @@ export default function SettingsLeftNav({
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * The settings pages across the top, instead of the sidebar, in a window too
- * narrow for it.
- */
-export function SettingsPageStrip({
-  current,
-  className,
-}: {
-  /** the page shown, e.g. "general" */
-  current?: string;
-  className?: string;
-}) {
-  const { setPathname } = useContext(BrowserLocationContext);
-
-  return (
-    <nav
-      aria-label="Settings"
-      className={clsx(
-        'flex-row items-center gap-1 overflow-x-auto px-3 py-2.5',
-        className
-      )}
-    >
-      {pageGroups.flatMap((group) =>
-        group.pages.map((setting) => (
-          <button
-            key={setting.path}
-            type="button"
-            aria-current={current === setting.path ? 'page' : undefined}
-            className={clsx(
-              settingsNavItemClass({
-                active: current === setting.path,
-                activeClass: ACTIVE_CLASS,
-              }),
-              'w-auto shrink-0'
-            )}
-            onClick={() => setPathname(`/settings/${setting.path}`)}
-          >
-            {setting.title}
-          </button>
-        ))
-      )}
-    </nav>
   );
 }
