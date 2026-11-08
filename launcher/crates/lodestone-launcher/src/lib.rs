@@ -6,6 +6,10 @@
 pub mod accounts;
 pub mod assets;
 pub mod components;
+/// The control socket for lodestone-launcher-cli. Unix only: Windows has no transport
+/// yet (a named pipe would be its equivalent).
+#[cfg(unix)]
+pub mod control;
 pub mod images;
 pub mod instances;
 pub mod markdown;

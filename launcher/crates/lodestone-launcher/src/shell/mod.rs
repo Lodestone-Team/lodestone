@@ -3,7 +3,7 @@
 //! selected instance with its tabs and a large Play button.
 
 mod account_box;
-mod developer;
+pub(crate) mod developer;
 mod launcher_settings;
 mod play;
 mod settings_modal;
@@ -336,6 +336,11 @@ impl LauncherShell {
 
     pub fn console(&self) -> &Entity<Console> {
         &self.console
+    }
+
+    /// For the control API (`crate::control`).
+    pub fn accounts(&self) -> &Entity<Accounts> {
+        &self.accounts
     }
 
     pub fn content(&self) -> &Entity<ContentView> {
