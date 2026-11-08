@@ -56,6 +56,8 @@ pub const SCENES: &[&str] = &[
     "content-shaders-missing",
     "content-shaders-vanilla",
     "loader-change",
+    "shared-settings",
+    "instance-shared-settings",
     "import",
     "import-progress",
 ];
@@ -67,6 +69,7 @@ fn has_instances(scene: &str) -> bool {
         "play-progress" | "playing" | "logs" | "instance-settings" | "crash" | "rosetta"
     ) || scene.starts_with("content-")
         || scene == "loader-change"
+        || shared::is_scene(scene)
         || scene.starts_with("import")
 }
 
@@ -191,6 +194,9 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 }
             }
         }
+        if shared::is_scene(scene) {
+            shared::fill(&data_dir, &store);
+        }
     }
     let accounts = accounts.clone();
     let scene = scene.to_string();
@@ -215,6 +221,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         );
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
+            "instance-shared-settings" => Some("Survival 1.20.1"),
             scene if scene.starts_with("content-") || scene == "loader-change" => {
                 Some("Survival 1.20.1")
             }
@@ -338,6 +345,9 @@ fn sample_log() -> Vec<LogLine> {
 
 mod content;
 mod import;
+mod shared;
+
+pub use shared::window_height;
 
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     match scene {
@@ -384,6 +394,21 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             });
             if let Some(prompt) = prompt {
                 shell.show_loader_change(prompt, cx);
+            }
+        }
+        "shared-settings" => {
+            shell.show(crate::shell::Page::Settings, cx);
+            shell.shared_settings().clone().update(cx, |shared, cx| {
+                shared.preview_expand(&[launcher_core::shared_options::Category::Video], cx)
+            });
+        }
+        "instance-shared-settings" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if let Some(settings) = shell.settings_view() {
+                let shared = settings.read(cx).shared_settings().clone();
+                shared.update(cx, |shared, cx| {
+                    shared.preview_expand(&[launcher_core::shared_options::Category::Video], cx)
+                });
             }
         }
         "import" | "import-progress" => import::apply(scene, shell, cx),

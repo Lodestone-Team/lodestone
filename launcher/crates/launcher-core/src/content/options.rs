@@ -132,6 +132,28 @@ impl OptionsFile {
             None => self.lines.push(line),
         }
     }
+
+    /// Sets `key`'s line, or adds it as the first line (where the game writes
+    /// `version`).
+    pub fn set_first(&mut self, key: &str, value: &str) {
+        let line = format!("{key}:{value}");
+        match self.line_index(key) {
+            Some(index) => self.lines[index] = line,
+            None => self.lines.insert(0, line),
+        }
+    }
+
+    /// The keys of the `key:value` lines, in file order.
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.lines
+            .iter()
+            .filter_map(|line| line.split_once(':').map(|(key, _)| key))
+    }
+
+    /// Whether the file has no lines.
+    pub fn is_empty(&self) -> bool {
+        self.lines.is_empty()
+    }
 }
 
 /// The id of the pack file or folder `name` in `options.txt`.

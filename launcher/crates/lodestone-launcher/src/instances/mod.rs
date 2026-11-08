@@ -8,6 +8,7 @@ pub mod import;
 pub mod loader_picker;
 pub mod new_instance;
 pub mod settings;
+pub mod shared_settings;
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -1147,6 +1148,7 @@ impl Instances {
     fn start(&mut self, id: &str, command: LaunchCommand, rosetta: bool, cx: &mut Context<Self>) {
         let game_dir = self.store.game_dir(id);
         let before = crash::crash_reports(&game_dir);
+        self.merge_shared_settings(id);
         let Some(run) = self.runs.get_mut(id) else {
             return;
         };
@@ -1267,6 +1269,7 @@ impl Instances {
                 }));
             }
         }
+        self.read_back_shared_settings(id);
         self.set_idle(id, cx);
         self.reload(cx);
     }

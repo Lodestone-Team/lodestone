@@ -6,10 +6,12 @@ mod account_box;
 mod developer;
 mod launcher_settings;
 mod play;
+mod shared_settings;
 mod sidebar;
 mod top_bar;
 
 pub use launcher_settings::LauncherSettings;
+pub use shared_settings::SharedSettings;
 pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
@@ -137,6 +139,8 @@ pub struct LauncherShell {
     content: Entity<ContentView>,
     /// The launcher's Settings page.
     launcher_settings: Entity<LauncherSettings>,
+    /// Settings > Shared game settings.
+    shared_settings: Entity<SharedSettings>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
     settings: Option<(Entity<InstanceSettings>, [Subscription; 2])>,
     page: Page,
@@ -189,12 +193,17 @@ impl LauncherShell {
             let instances = instances.clone();
             cx.new(|cx| LauncherSettings::new(instances, cx))
         };
+        let shared_settings = {
+            let instances = instances.clone();
+            cx.new(|cx| SharedSettings::new(instances, cx))
+        };
         let mut this = Self {
             accounts,
             instances,
             console,
             content,
             launcher_settings,
+            shared_settings,
             settings: None,
             page: Page::default(),
             tab: InstanceTab::default(),
@@ -243,6 +252,10 @@ impl LauncherShell {
             }
             Some(_) => {}
         }
+    }
+
+    pub fn shared_settings(&self) -> &Entity<SharedSettings> {
+        &self.shared_settings
     }
 
     pub fn settings_view(&self) -> Option<&Entity<InstanceSettings>> {
@@ -429,7 +442,7 @@ impl LauncherShell {
             .update(cx, |instances, cx| instances.select(id, cx));
     }
 
-    fn show(&mut self, page: Page, cx: &mut Context<Self>) {
+    pub fn show(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
         cx.notify();
     }
@@ -848,6 +861,7 @@ impl Render for LauncherShell {
                 .overflow_y_scroll()
                 .pb_8()
                 .child(self.launcher_settings.clone())
+                .child(self.shared_settings.clone())
                 .child(developer::render(self, cx))
                 .into_any_element(),
         };
