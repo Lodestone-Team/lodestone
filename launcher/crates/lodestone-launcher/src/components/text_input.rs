@@ -553,6 +553,12 @@ impl Render for TextInput {
                         .on_action(cx.listener(Self::cut))
                         .on_action(cx.listener(Self::copy))
                         .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+                        // A click anywhere else takes the focus away, as in a browser.
+                        .on_mouse_down_out(cx.listener(|this, _, window, cx| {
+                            if this.focus_handle.is_focused(window) {
+                                window.blur(cx);
+                            }
+                        }))
                         .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
                         .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
                         .on_mouse_move(cx.listener(Self::on_mouse_move))
