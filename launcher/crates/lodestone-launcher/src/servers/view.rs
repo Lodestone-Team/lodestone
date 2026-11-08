@@ -381,7 +381,7 @@ impl Servers {
                 .border_color(colors::FADE_700)
                 .text_color(colors::GRAY_500)
                 .child(small(if !signed_in && !list.listing_enabled {
-                    "The owner hasn't turned on \"List instances publicly\" in Core Settings, so there's nothing to show without signing in."
+                    "The owner hasn't turned on \"List servers publicly\" in Core Settings, so there's nothing to show without signing in."
                 } else if !signed_in {
                     "No servers are listed publicly. Sign in to see the ones you have access to."
                 } else {
