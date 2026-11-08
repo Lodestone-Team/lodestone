@@ -13,6 +13,7 @@ mod error;
 pub mod hash;
 pub mod jar;
 pub mod modrinth;
+pub mod mrpack;
 pub mod properties;
 pub mod util;
 pub mod versions;
