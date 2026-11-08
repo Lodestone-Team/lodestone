@@ -370,13 +370,15 @@ impl Servers {
 
     /// Reads `servers.json` and the keys.
     fn load(&mut self, cx: &mut Context<Self>) {
-        let file = match store::load(&self.file) {
+        let mut file = match store::load(&self.file) {
             Ok(file) => file,
             Err(err) => {
                 self.notice = Some(("Couldn't read your servers".into(), err.to_string().into()));
                 ServersFile::default()
             }
         };
+        // signing in used to add a second entry for a core added anonymously
+        let merged = store::dedupe(&mut file.cores, |c| c, None);
         self.cores = file
             .cores
             .into_iter()
@@ -385,6 +387,10 @@ impl Servers {
                 Some(CoreEntry::new(saved, url, None))
             })
             .collect();
+        if !merged.is_empty() {
+            self.merged(merged, cx);
+            self.save();
+        }
         let secrets = self.accounts.read(cx).secrets().clone();
         let signed_in: Vec<String> = self
             .cores
@@ -585,6 +591,51 @@ impl Servers {
         self.refresh(index, cx);
     }
 
+    /// Entries were merged into others for the same core (see [`store::dedupe`]): point
+    /// their instances at the entry that stays, and forget keys saved under ids no entry
+    /// has any more.
+    fn merged(&mut self, merged: Vec<store::Merged>, cx: &mut Context<Self>) {
+        if self.preview {
+            return;
+        }
+        let root = self.accounts.read(cx).data_dir().instances_dir();
+        for store::Merged { removed, into } in &merged {
+            if let Some(index) = self.core_index(into) {
+                let url = self.cores[index].saved.url.clone();
+                link::relink(&root, &removed.uuid, into, &url);
+            }
+        }
+        let gone: HashSet<String> = merged
+            .into_iter()
+            .map(|m| m.removed.uuid)
+            .filter(|uuid| self.core_index(uuid).is_none())
+            .collect();
+        for uuid in gone {
+            self.forget_key(uuid, cx);
+        }
+        self.reload_links(cx);
+    }
+
+    fn save_key(&mut self, uuid: String, key: Secret, cx: &mut Context<Self>) {
+        if self.preview {
+            return;
+        }
+        let secrets = self.accounts.read(cx).secrets().clone();
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let store = secrets.store(cx);
+            if let Err(err) = store::write_key(&*store, &uuid, &key).await {
+                this.update(cx, |this, cx| {
+                    this.notice = Some((
+                        "Couldn't save the key in the Keychain".into(),
+                        format!("{err:#}").into(),
+                    ));
+                    cx.notify();
+                })
+                .ok();
+            }
+        }));
+    }
+
     fn forget_key(&mut self, uuid: String, cx: &mut Context<Self>) {
         if self.preview {
             return;
@@ -734,7 +785,11 @@ impl Servers {
                 }
             }
             this.update(cx, |this, cx| {
-                let existing = this.core_index(&info.uuid);
+                // by id, else by address: a core makes a new id each time it starts, and
+                // signing in from its card must update that card, not add another
+                let saved_cores: Vec<SavedCore> =
+                    this.cores.iter().map(|c| c.saved.clone()).collect();
+                let existing = store::find_existing(&saved_cores, &info.uuid, &address);
                 // another core used to answer at this address
                 for core in &mut this.cores {
                     if display_address(&core.url) == address
@@ -751,6 +806,10 @@ impl Servers {
                     Some(index) => this.cores[index].saved.clone(),
                     None => SavedCore::default(),
                 };
+                // the entry's id before this, if it changes
+                let renamed = existing
+                    .map(|index| this.cores[index].saved.clone())
+                    .filter(|old| old.uuid != info.uuid);
                 let was_trusted = saved.is_trusted();
                 saved.uuid = info.uuid.clone();
                 saved.url = address.clone();
@@ -768,11 +827,12 @@ impl Servers {
                         "You trusted a new certificate for it. Trust it for mods again on its card if you're sure it is the same core.".into(),
                     ));
                 }
+                let kept_key = existing.and_then(|i| this.cores[i].key.clone());
+                let signed_in_now = key.is_some();
                 let entry = CoreEntry::new(
                     saved,
                     url,
-                    key.map(|(secret, _)| secret)
-                        .or_else(|| existing.and_then(|i| this.cores[i].key.clone())),
+                    key.map(|(secret, _)| secret).or(kept_key.clone()),
                 );
                 let trusted = entry.saved.is_trusted();
                 let name = entry.saved.name.clone();
@@ -787,6 +847,23 @@ impl Servers {
                         this.cores.len() - 1
                     }
                 };
+                // other entries for this core (from before duplicates were merged) go
+                let mut merged = store::dedupe(&mut this.cores, |c| &c.saved, Some(index));
+                if let Some(old) = renamed {
+                    // the key this device had is saved under the old id
+                    if !signed_in_now && let Some(key) = kept_key {
+                        this.save_key(uuid.clone(), key, cx);
+                    }
+                    merged.insert(
+                        0,
+                        store::Merged {
+                            removed: old,
+                            into: uuid.clone(),
+                        },
+                    );
+                }
+                this.merged(merged, cx);
+                let index = this.core_index(&uuid).unwrap_or(index);
                 this.save();
                 this.close_add_dialog(&dialog, cx);
                 if existing.is_none() && !trusted && !was_trusted {

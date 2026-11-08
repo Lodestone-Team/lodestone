@@ -75,9 +75,62 @@ pub fn linked_instances(instances_root: &Path) -> Vec<(String, ServerLink)> {
     linked
 }
 
+/// Points the links made for the core `from` at `to`, at `core_url`: the same core under
+/// the id it has now (a core makes a new id each time it starts), or the entry another
+/// was merged into. Returns the instances changed; one that can't be saved keeps its
+/// old link.
+pub fn relink(instances_root: &Path, from: &str, to: &str, core_url: &str) -> Vec<String> {
+    if from == to {
+        return Vec::new();
+    }
+    linked_instances(instances_root)
+        .into_iter()
+        .filter(|(_, link)| link.core_uuid == from)
+        .filter_map(|(id, mut link)| {
+            link.core_uuid = to.to_string();
+            link.core_url = core_url.to_string();
+            save_link(&instances_root.join(&id), &link).ok()?;
+            Some(id)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relink_moves_only_the_old_cores_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = |core: &str, server: &str| ServerLink {
+            core_uuid: core.into(),
+            core_url: "http://localhost:16662".into(),
+            server_uuid: server.into(),
+            server_name: "SMP".into(),
+            pack_etag: Some("\"e\"".into()),
+        };
+        for (id, core) in [("a", "old"), ("b", "other"), ("c", "old")] {
+            let instance = dir.path().join(id);
+            fs::create_dir_all(&instance).unwrap();
+            save_link(&instance, &link(core, id)).unwrap();
+        }
+        assert_eq!(
+            relink(dir.path(), "old", "new", "http://127.0.0.1:16662"),
+            ["a", "c"]
+        );
+        let a = load_link(&dir.path().join("a")).unwrap();
+        assert_eq!(a.core_uuid, "new");
+        assert_eq!(a.core_url, "http://127.0.0.1:16662");
+        // the rest of the link is kept
+        assert_eq!(a.server_uuid, "a");
+        assert_eq!(a.pack_etag.as_deref(), Some("\"e\""));
+        assert_eq!(
+            load_link(&dir.path().join("b")).unwrap(),
+            link("other", "b")
+        );
+        assert!(relink(dir.path(), "old", "new", "u").is_empty());
+        assert!(relink(dir.path(), "new", "new", "u").is_empty());
+    }
 
     #[test]
     fn links_are_found_and_round_trip() {
