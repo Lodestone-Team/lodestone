@@ -11,7 +11,7 @@ import ModrinthSearch, {
   ModrinthPick,
   SortSelect,
 } from 'components/Mods/ModrinthSearch';
-import { ModpackPreset } from 'data/InstanceContext';
+import { InstanceContext, ModpackPreset } from 'data/InstanceContext';
 import {
   createModpackInstance,
   inspectModpack,
@@ -20,7 +20,7 @@ import {
   useModrinthVersions,
 } from 'data/Mods';
 import { Form, Formik, FormikHelpers } from 'formik';
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { toast } from 'react-toastify';
 import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
 import { formatDate } from 'utils/mods';
@@ -220,6 +220,13 @@ const VersionPicker = ({
  * The core creates the instance in the background, with the usual
  * progression notifications.
  */
+/** The first port from 25565 that no existing instance uses. */
+const firstFreePort = (usedPorts: number[]) => {
+  let port = 25565;
+  while (usedPorts.includes(port)) port++;
+  return port;
+};
+
 export default function ModpackCreateForm({
   preset,
   onBack,
@@ -231,6 +238,7 @@ export default function ModpackCreateForm({
   onComplete: () => void;
 }) {
   const gaEventTracker = useAnalyticsEventTracker('Create Instance');
+  const { instanceList } = useContext(InstanceContext);
   const [step, setStep] = useState<Step>(preset ? 'version' : 'source');
   const [projectId, setProjectId] = useState<string | null>(
     preset?.projectId ?? null
@@ -340,7 +348,7 @@ export default function ModpackCreateForm({
   const initialValues: SettingsValues = {
     name: info?.name ?? '',
     description: info?.summary ?? '',
-    port: 25565,
+    port: firstFreePort(Object.values(instanceList).map((i) => i.port)),
     min_ram: 1024,
     max_ram: 4096,
     auto_start: false,
