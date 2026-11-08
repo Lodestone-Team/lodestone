@@ -1,0 +1,17 @@
+{
+  "name": "All the Mods",
+  "gameVersion": "1.20.1",
+  "installPath": "/Users/x/curseforge/minecraft/Instances/All the Mods",
+  "baseModLoader": {
+    "name": "forge-47.4.0",
+    "forgeVersion": "47.4.0",
+    "minecraftVersion": "1.20.1",
+    "type": 1
+  },
+  "isMemoryOverride": true,
+  "allocatedMemory": 10240,
+  "javaArgsOverride": "-XX:+UseG1GC",
+  "profileImagePath": null,
+  "installedAddons": [],
+  "playedCount": 3
+}

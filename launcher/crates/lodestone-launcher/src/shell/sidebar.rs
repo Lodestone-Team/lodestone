@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, Context, IntoElement, SharedString, Transformation, div, img, prelude::*, px,
-    radians,
+    AnyElement, Context, ExternalPaths, IntoElement, SharedString, Transformation, div, img,
+    prelude::*, px, radians,
 };
 use launcher_core::instances::{Instance, grouped};
 
@@ -40,9 +40,102 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .min_h_0()
                 .overflow_y_scroll()
                 .px_2()
+                .border_2()
+                .border_color(colors::TRANSPARENT)
+                // A dropped .mrpack becomes a new instance.
+                .drag_over::<ExternalPaths>(|style, _, _, _| {
+                    style
+                        .border_color(colors::BLUE_200.opacity(60))
+                        .bg(colors::BLUE.opacity(8))
+                })
+                .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                    let paths = paths.paths().to_vec();
+                    this.instances
+                        .update(cx, |instances, cx| instances.import_files(paths, cx));
+                }))
                 .child(instance_list(shell, cx)),
         )
         .child(footer(shell, cx))
+}
+
+/// A modpack being made into an instance: its name, what it is doing, and Cancel.
+fn import_row(
+    id: u64,
+    name: SharedString,
+    progress: &launcher_core::content::install::InstallProgress,
+    cx: &mut Context<LauncherShell>,
+) -> AnyElement {
+    let snapshot = progress.downloads.snapshot();
+    let fraction = (snapshot.bytes_total > 0)
+        .then(|| snapshot.bytes_done as f32 / snapshot.bytes_total as f32)
+        .or_else(|| {
+            (snapshot.files_total > 0)
+                .then(|| snapshot.files_done as f32 / snapshot.files_total as f32)
+        });
+    let label = progress.label();
+    div()
+        .id(("import", id as usize))
+        .flex()
+        .flex_col()
+        .gap_1()
+        .w_full()
+        .px_2()
+        .py_1p5()
+        .rounded(radius::MD)
+        .border_1()
+        .border_color(colors::BLUE_200.opacity(30))
+        .bg(colors::BLUE.opacity(8))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(crate::components::LoadingDots)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .font_weight(weights::BOLD.into())
+                        .text_color(colors::GRAY_300)
+                        .child(name),
+                )
+                .child(
+                    crate::components::IconButton::new(("cancel-import", id as usize), Icon::Xmark)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.instances
+                                .update(cx, |instances, cx| instances.cancel_import(id, cx))
+                        })),
+                ),
+        )
+        .child(
+            div()
+                .truncate()
+                .text_size(theme::text_size(text::SMALL))
+                .text_color(colors::GRAY_500)
+                .child(match fraction {
+                    Some(f) => format!("{:.0}% · {label}", (f * 100.0).clamp(0.0, 100.0)),
+                    None => label,
+                }),
+        )
+        .when_some(fraction, |this, fraction| {
+            this.child(
+                div()
+                    .h(px(3.))
+                    .w_full()
+                    .rounded_full()
+                    .bg(colors::GRAY_700)
+                    .child(
+                        div()
+                            .h_full()
+                            .rounded_full()
+                            .bg(colors::BLUE_200)
+                            .w(gpui::relative(fraction.clamp(0.0, 1.0))),
+                    ),
+            )
+        })
+        .into_any_element()
 }
 
 /// One instance: its icon, name, version and loader, and a dot while it runs.
@@ -192,7 +285,22 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
             rows.push(instance_row(shell, instance, cx));
         }
     }
-    let empty = list.is_empty();
+    let jobs: Vec<(
+        u64,
+        SharedString,
+        std::sync::Arc<launcher_core::content::install::InstallProgress>,
+    )> = shell
+        .instances
+        .read(cx)
+        .imports()
+        .iter()
+        .map(|job| (job.id, job.name.clone(), job.progress.clone()))
+        .collect();
+    let imports: Vec<AnyElement> = jobs
+        .into_iter()
+        .map(|(id, name, progress)| import_row(id, name, &progress, cx))
+        .collect();
+    let empty = list.is_empty() && imports.is_empty();
     div()
         .flex()
         .flex_col()
@@ -201,6 +309,7 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
         .px_1()
         .child(section_label("INSTANCES"))
         .children(rows)
+        .children(imports)
         .when(empty, |this| {
             this.child(
                 div()
@@ -227,7 +336,7 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
             )
         })
         .child(
-            div().w_full().pt_1().pb_8().child(
+            div().w_full().pt_1().child(
                 Button::new("new-instance", "New instance...")
                     .variant(ButtonVariant::Ghost)
                     .icon(Icon::SquarePlus)
@@ -236,6 +345,16 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
                     .on_click(
                         cx.listener(|this, _, window, cx| this.open_new_instance(window, cx)),
                     ),
+            ),
+        )
+        .child(
+            div().w_full().pb_8().child(
+                Button::new("import-instances", "Import instances...")
+                    .variant(ButtonVariant::Ghost)
+                    .icon(Icon::Download)
+                    .align(Align::Start)
+                    .full_width()
+                    .on_click(cx.listener(|this, _, window, cx| this.open_import(window, cx))),
             ),
         )
 }

@@ -17,7 +17,7 @@ use serde_json::json;
 use crate::instances::content::ContentView;
 
 /// A square icon in two shades of `rgb`, with a lighter block in the middle.
-fn icon(rgb: [u8; 3]) -> image::RgbaImage {
+pub(super) fn icon(rgb: [u8; 3]) -> image::RgbaImage {
     image::RgbaImage::from_fn(64, 64, |x, y| {
         let inner = (16..48).contains(&x) && (16..48).contains(&y);
         let shade = if inner {
@@ -32,7 +32,7 @@ fn icon(rgb: [u8; 3]) -> image::RgbaImage {
     })
 }
 
-fn png(rgb: [u8; 3]) -> Vec<u8> {
+pub(super) fn png(rgb: [u8; 3]) -> Vec<u8> {
     let mut bytes = Vec::new();
     image::DynamicImage::ImageRgba8(icon(rgb))
         .write_to(
@@ -60,7 +60,7 @@ fn write_zip(path: &Path, entries: &[(&str, Vec<u8>)]) {
     let _ = zip.finish();
 }
 
-fn fabric_mod(path: &Path, id: &str, name: &str, version: &str, color: Option<[u8; 3]>) {
+pub(super) fn fabric_mod(path: &Path, id: &str, name: &str, version: &str, color: Option<[u8; 3]>) {
     let mut json = json!({"schemaVersion": 1, "id": id, "name": name, "version": version});
     let mut entries = Vec::new();
     if let Some(color) = color {
@@ -108,7 +108,7 @@ fn source(project: &str, slug: &str, title: &str, version: &str, icon: bool) -> 
     }
 }
 
-fn icon_url(project: &str) -> String {
+pub(super) fn icon_url(project: &str) -> String {
     format!("https://cdn.modrinth.com/data/{project}/icon.png")
 }
 
@@ -348,7 +348,7 @@ pub fn fill(instance_dir: &Path, scene: &str) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn version(
+pub(super) fn version(
     id: &str,
     project: &str,
     number: &str,
@@ -518,7 +518,7 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             .expect("a valid response");
             view.preview_results(ContentKind::Mod, "", response.normalize(), cx);
         }
-        "content-project" => {
+        "content-project" | "content-description" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
             let versions = vec![
                 version(
@@ -572,19 +572,63 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                     1_300_000,
                 ),
             ];
-            view.preview_project(
-                ContentKind::Mod,
-                project(
-                    "AANobbMI",
-                    "sodium",
-                    "Sodium",
-                    "The fastest and most compatible rendering optimization mod for Minecraft. Now available for both NeoForge and Fabric!",
-                    98_400_000,
-                ),
-                versions,
-                cx,
+            let mut sodium = project(
+                "AANobbMI",
+                "sodium",
+                "Sodium",
+                "The fastest and most compatible rendering optimization mod for Minecraft. Now available for both NeoForge and Fabric!",
+                98_400_000,
             );
+            sodium.body = DESCRIPTION.into();
+            view.preview_project(ContentKind::Mod, sodium, versions, cx);
+            if scene == "content-description" {
+                view.preview_description_image(
+                    BANNER_URL,
+                    crate::images::render_image(super::worlds::landscape(900, 140, 1, 0.4)),
+                );
+                view.set_project_tab(
+                    ContentKind::Mod,
+                    crate::instances::content::ProjectTab::Description,
+                    cx,
+                );
+            }
         }
         _ => {}
     }
 }
+
+const BANNER_URL: &str = "https://cdn.modrinth.com/data/AANobbMI/images/banner.png";
+
+/// A made-up description with every block the renderer draws, and HTML that is shown
+/// as text.
+const DESCRIPTION: &str = r#"<div align="center">
+<img src="https://cdn.modrinth.com/data/AANobbMI/images/banner.png" alt="Sodium">
+</div>
+
+## A faster renderer
+
+Sodium replaces the game's chunk renderer with a **much faster** one, and fixes *many* graphical issues along the way. It works with `Fabric` and NeoForge.
+
+- Higher and steadier frame rates
+- Less stutter while chunks load
+  1. smaller memory use
+  2. faster chunk meshing
+- Works with [Iris](https://modrinth.com/mod/iris) for shaders
+
+> Sodium is not a magic button: very slow graphics drivers stay slow.
+
+### Settings
+
+| Option | Default |
+|---|---|
+| Chunk builder threads | Auto |
+| Use block face culling | On |
+
+```
+-Dsodium.checks.issue2561=false
+```
+
+---
+
+Report problems on [GitHub](https://github.com/CaffeineMC/sodium/issues). Links like [this one](javascript:alert(1)) are shown as plain text. <script>alert("never runs")</script>
+"#;

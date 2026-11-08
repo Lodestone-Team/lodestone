@@ -1,0 +1,19 @@
+{
+  "id": "1.21.1",
+  "type": "release",
+  "inheritsFrom": null,
+  "launcher": {
+    "name": "Vanilla Plus (Fabric)",
+    "pack": "Vanilla Plus",
+    "version": "1.0",
+    "loaderVersion": {
+      "version": "0.16.5",
+      "rawVersion": "0.16.5",
+      "recommended": false,
+      "type": "Fabric"
+    },
+    "maximumMemory": 8192,
+    "javaArguments": "-XX:+UseG1GC",
+    "vanillaInstance": false
+  }
+}

@@ -149,7 +149,7 @@ pub async fn refresh(
     Ok((files, provenance, lookup_error))
 }
 
-type Found = HashMap<
+pub(crate) type Found = HashMap<
     String,
     (
         RawVersion,
@@ -158,7 +158,7 @@ type Found = HashMap<
 >;
 
 /// Looks up SHA-1 hashes, with the projects of the versions found.
-async fn lookup(api: &Modrinth, hashes: &[String]) -> Result<Found, ContentError> {
+pub(crate) async fn lookup(api: &Modrinth, hashes: &[String]) -> Result<Found, ContentError> {
     let versions = api.versions_by_sha1(hashes).await?;
     let ids: Vec<String> = versions
         .values()
