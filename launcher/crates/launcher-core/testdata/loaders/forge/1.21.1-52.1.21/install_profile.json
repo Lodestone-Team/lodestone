@@ -1,0 +1,497 @@
+{
+ "_comment": [
+  "Please do not automate the download and installation of Forge.",
+  "Our efforts are supported by ads from the download page.",
+  "If you MUST automate this, please consider supporting the project through https://www.patreon.com/LexManos/"
+ ],
+ "hideExtract": true,
+ "spec": 1,
+ "profile": "forge",
+ "version": "1.21.1-forge-52.1.21",
+ "path": "net.minecraftforge:forge:1.21.1-52.1.21:shim",
+ "minecraft": "1.21.1",
+ "serverJarPath": "{LIBRARY_DIR}/net/minecraft/server/{MINECRAFT_VERSION}/server-{MINECRAFT_VERSION}-bundled.jar",
+ "data": {
+  "MOJMAPS": {
+   "client": "[net.minecraft:client:1.21.1:mappings@tsrg]",
+   "server": "[net.minecraft:server:1.21.1:mappings@tsrg]"
+  },
+  "MOJMAPS_SHA": {
+   "client": "'2a8064cf9359dd03125bc6f4aa99715dbbf50492'",
+   "server": "'897129e2f8fd491d95b8c40216d7565abb08a4c3'"
+  },
+  "MC_UNPACKED": {
+   "client": "[net.minecraft:client:1.21.1]",
+   "server": "[net.minecraft:server:1.21.1:unpacked]"
+  },
+  "MC_UNPACKED_SHA": {
+   "client": "'30c73b1c5da787909b2f73340419fdf13b9def88'",
+   "server": "'a8ae1f986e20cc91442b6b2b64d62bcd065618d7'"
+  },
+  "MC_OFF": {
+   "client": "[net.minecraft:client:1.21.1:official]",
+   "server": "[net.minecraft:server:1.21.1:official]"
+  },
+  "MC_OFF_SHA": {
+   "client": "'fd32ce6ddf1bc49a9c1a00f273cbcb2aa7ac9d18'",
+   "server": "'30b8201b59018b69989d857115b9be7dcbc62b7a'"
+  },
+  "BINPATCH": {
+   "client": "/data/client.lzma",
+   "server": "/data/server.lzma"
+  },
+  "PATCHED": {
+   "client": "[net.minecraftforge:forge:1.21.1-52.1.21:client]",
+   "server": "[net.minecraftforge:forge:1.21.1-52.1.21:server]"
+  },
+  "PATCHED_SHA": {
+   "client": "'28f7acaa0e9b1c2d2a7bf52c07ae16133bd3da4e'",
+   "server": "'c648d33333eeb4b7e3ffaa0707fd0630cb7c848f'"
+  }
+ },
+ "processors": [
+  {
+   "sides": [
+    "server"
+   ],
+   "jar": "net.minecraftforge:installertools:1.4.3",
+   "classpath": [
+    "net.sf.jopt-simple:jopt-simple:6.0-alpha-3",
+    "com.google.code.gson:gson:2.10.1",
+    "de.siegmar:fastcsv:2.2.2",
+    "net.minecraftforge:srgutils:0.5.10",
+    "org.ow2.asm:asm-commons:9.7",
+    "org.ow2.asm:asm-tree:9.7",
+    "org.ow2.asm:asm:9.7"
+   ],
+   "args": [
+    "--task",
+    "EXTRACT_FILES",
+    "--archive",
+    "{INSTALLER}",
+    "--from",
+    "data/README.txt",
+    "--to",
+    "{ROOT}/README.txt",
+    "--from",
+    "data/run.sh",
+    "--to",
+    "{ROOT}/run.sh",
+    "--exec",
+    "{ROOT}/run.sh",
+    "--from",
+    "data/run.bat",
+    "--to",
+    "{ROOT}/run.bat",
+    "--from",
+    "data/user_jvm_args.txt",
+    "--to",
+    "{ROOT}/user_jvm_args.txt",
+    "--optional",
+    "{ROOT}/user_jvm_args.txt",
+    "--from",
+    "data/unix_args.txt",
+    "--to",
+    "{ROOT}/libraries/net/minecraftforge/forge/1.21.1-52.1.21/unix_args.txt",
+    "--from",
+    "data/win_args.txt",
+    "--to",
+    "{ROOT}/libraries/net/minecraftforge/forge/1.21.1-52.1.21/win_args.txt"
+   ]
+  },
+  {
+   "sides": [
+    "server"
+   ],
+   "jar": "net.minecraftforge:installertools:1.4.3",
+   "classpath": [
+    "net.sf.jopt-simple:jopt-simple:6.0-alpha-3",
+    "com.google.code.gson:gson:2.10.1",
+    "de.siegmar:fastcsv:2.2.2",
+    "net.minecraftforge:srgutils:0.5.10",
+    "org.ow2.asm:asm-commons:9.7",
+    "org.ow2.asm:asm-tree:9.7",
+    "org.ow2.asm:asm:9.7"
+   ],
+   "args": [
+    "--task",
+    "BUNDLER_EXTRACT",
+    "--input",
+    "{MINECRAFT_JAR}",
+    "--output",
+    "{ROOT}/libraries/",
+    "--libraries"
+   ]
+  },
+  {
+   "sides": [
+    "server"
+   ],
+   "jar": "net.minecraftforge:installertools:1.4.3",
+   "classpath": [
+    "net.sf.jopt-simple:jopt-simple:6.0-alpha-3",
+    "com.google.code.gson:gson:2.10.1",
+    "de.siegmar:fastcsv:2.2.2",
+    "net.minecraftforge:srgutils:0.5.10",
+    "org.ow2.asm:asm-commons:9.7",
+    "org.ow2.asm:asm-tree:9.7",
+    "org.ow2.asm:asm:9.7"
+   ],
+   "args": [
+    "--task",
+    "BUNDLER_EXTRACT",
+    "--input",
+    "{MINECRAFT_JAR}",
+    "--output",
+    "{MC_UNPACKED}",
+    "--jar-only"
+   ],
+   "outputs": {
+    "{MC_UNPACKED}": "{MC_UNPACKED_SHA}"
+   }
+  },
+  {
+   "jar": "net.minecraftforge:installertools:1.4.3",
+   "classpath": [
+    "net.sf.jopt-simple:jopt-simple:6.0-alpha-3",
+    "com.google.code.gson:gson:2.10.1",
+    "de.siegmar:fastcsv:2.2.2",
+    "net.minecraftforge:srgutils:0.5.10",
+    "org.ow2.asm:asm-commons:9.7",
+    "org.ow2.asm:asm-tree:9.7",
+    "org.ow2.asm:asm:9.7"
+   ],
+   "args": [
+    "--task",
+    "DOWNLOAD_MOJMAPS",
+    "--sanitize",
+    "--version",
+    "1.21.1",
+    "--side",
+    "{SIDE}",
+    "--output",
+    "{MOJMAPS}"
+   ],
+   "outputs": {
+    "{MOJMAPS}": "{MOJMAPS_SHA}"
+   }
+  },
+  {
+   "sides": [
+    "server"
+   ],
+   "jar": "net.minecraftforge:ForgeAutoRenamingTool:1.0.6",
+   "classpath": [
+    "net.sf.jopt-simple:jopt-simple:6.0-alpha-3",
+    "org.ow2.asm:asm-commons:9.5",
+    "org.ow2.asm:asm-tree:9.5",
+    "org.ow2.asm:asm:9.5",
+    "net.minecraftforge:srgutils:0.5.1"
+   ],
+   "args": [
+    "--input",
+    "{MC_UNPACKED}",
+    "--output",
+    "{MC_OFF}",
+    "--names",
+    "{MOJMAPS}",
+    "--ann-fix",
+    "--ids-fix",
+    "--src-fix",
+    "--record-fix",
+    "--strip-sigs",
+    "--reverse"
+   ],
+   "outputs": {
+    "{MC_OFF}": "{MC_OFF_SHA}"
+   }
+  },
+  {
+   "sides": [
+    "client"
+   ],
+   "jar": "net.minecraftforge:ForgeAutoRenamingTool:1.0.6",
+   "classpath": [
+    "net.sf.jopt-simple:jopt-simple:6.0-alpha-3",
+    "org.ow2.asm:asm-commons:9.5",
+    "org.ow2.asm:asm-tree:9.5",
+    "org.ow2.asm:asm:9.5",
+    "net.minecraftforge:srgutils:0.5.1"
+   ],
+   "args": [
+    "--input",
+    "{MINECRAFT_JAR}",
+    "--output",
+    "{MC_OFF}",
+    "--names",
+    "{MOJMAPS}",
+    "--ann-fix",
+    "--ids-fix",
+    "--src-fix",
+    "--record-fix",
+    "--strip-sigs",
+    "--reverse"
+   ],
+   "outputs": {
+    "{MC_OFF}": "{MC_OFF_SHA}"
+   }
+  },
+  {
+   "jar": "net.minecraftforge:binarypatcher:1.2.0",
+   "classpath": [
+    "net.minecraftforge:srgutils:0.5.6",
+    "net.sf.jopt-simple:jopt-simple:6.0-alpha-3",
+    "com.github.jponge:lzma-java:1.3",
+    "com.nothome:javaxdelta:2.0.1",
+    "trove:trove:1.0.2"
+   ],
+   "args": [
+    "--clean",
+    "{MC_OFF}",
+    "--output",
+    "{PATCHED}",
+    "--apply",
+    "{BINPATCH}",
+    "--data",
+    "--unpatched"
+   ],
+   "outputs": {
+    "{PATCHED}": "{PATCHED_SHA}"
+   }
+  }
+ ],
+ "libraries": [
+  {
+   "name": "com.github.jponge:lzma-java:1.3",
+   "downloads": {
+    "artifact": {
+     "path": "com/github/jponge/lzma-java/1.3/lzma-java-1.3.jar",
+     "url": "https://maven.minecraftforge.net/com/github/jponge/lzma-java/1.3/lzma-java-1.3.jar",
+     "sha1": "a25db9d4d385ccda4825ae1b47a7a61d86e595af",
+     "size": 51041
+    }
+   }
+  },
+  {
+   "name": "com.google.code.gson:gson:2.10.1",
+   "downloads": {
+    "artifact": {
+     "path": "com/google/code/gson/gson/2.10.1/gson-2.10.1.jar",
+     "url": "https://libraries.minecraft.net/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar",
+     "sha1": "b3add478d4382b78ea20b1671390a858002feb6c",
+     "size": 283367
+    }
+   }
+  },
+  {
+   "name": "com.nothome:javaxdelta:2.0.1",
+   "downloads": {
+    "artifact": {
+     "path": "com/nothome/javaxdelta/2.0.1/javaxdelta-2.0.1.jar",
+     "url": "https://maven.minecraftforge.net/com/nothome/javaxdelta/2.0.1/javaxdelta-2.0.1.jar",
+     "sha1": "d4f5d077f1b15c6f67595015d69572303ad3f66d",
+     "size": 38995
+    }
+   }
+  },
+  {
+   "name": "de.oceanlabs.mcp:mcp_config:1.21.1-20240808.132146@zip",
+   "downloads": {
+    "artifact": {
+     "path": "de/oceanlabs/mcp/mcp_config/1.21.1-20240808.132146/mcp_config-1.21.1-20240808.132146.zip",
+     "url": "https://maven.minecraftforge.net/de/oceanlabs/mcp/mcp_config/1.21.1-20240808.132146/mcp_config-1.21.1-20240808.132146.zip",
+     "sha1": "3ac99c5c67b601dc19eaf15966594749dedab49c",
+     "size": 1888456
+    }
+   }
+  },
+  {
+   "name": "de.siegmar:fastcsv:2.2.2",
+   "downloads": {
+    "artifact": {
+     "path": "de/siegmar/fastcsv/2.2.2/fastcsv-2.2.2.jar",
+     "url": "https://maven.minecraftforge.net/de/siegmar/fastcsv/2.2.2/fastcsv-2.2.2.jar",
+     "sha1": "40562843510397296de200889d9ed5f3af155e52",
+     "size": 32060
+    }
+   }
+  },
+  {
+   "name": "net.minecraftforge:ForgeAutoRenamingTool:1.0.6",
+   "downloads": {
+    "artifact": {
+     "path": "net/minecraftforge/ForgeAutoRenamingTool/1.0.6/ForgeAutoRenamingTool-1.0.6.jar",
+     "url": "https://maven.minecraftforge.net/net/minecraftforge/ForgeAutoRenamingTool/1.0.6/ForgeAutoRenamingTool-1.0.6.jar",
+     "sha1": "f0cb8d14326a36d7b2b6654d53974844619c8bec",
+     "size": 95836
+    }
+   }
+  },
+  {
+   "name": "net.minecraftforge:binarypatcher:1.2.0",
+   "downloads": {
+    "artifact": {
+     "path": "net/minecraftforge/binarypatcher/1.2.0/binarypatcher-1.2.0.jar",
+     "url": "https://maven.minecraftforge.net/net/minecraftforge/binarypatcher/1.2.0/binarypatcher-1.2.0.jar",
+     "sha1": "e5fea8a667a3ebff4e94fb74467c99c02914e4bc",
+     "size": 27514
+    }
+   }
+  },
+  {
+   "name": "net.minecraftforge:forge:1.21.1-52.1.21:shim",
+   "downloads": {
+    "artifact": {
+     "path": "net/minecraftforge/forge/1.21.1-52.1.21/forge-1.21.1-52.1.21-shim.jar",
+     "url": "https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.21/forge-1.21.1-52.1.21-shim.jar",
+     "sha1": "d4ecc9da3f9f9e42939051221e2ae8a907701c01",
+     "size": 15587
+    }
+   }
+  },
+  {
+   "name": "net.minecraftforge:forge:1.21.1-52.1.21:universal",
+   "downloads": {
+    "artifact": {
+     "path": "net/minecraftforge/forge/1.21.1-52.1.21/forge-1.21.1-52.1.21-universal.jar",
+     "url": "https://maven.minecraftforge.net/net/minecraftforge/forge/1.21.1-52.1.21/forge-1.21.1-52.1.21-universal.jar",
+     "sha1": "83d3ac55b33ff399c40539a933dd6fda420bd3f8",
+     "size": 2979733
+    }
+   }
+  },
+  {
+   "name": "net.minecraftforge:installertools:1.4.3",
+   "downloads": {
+    "artifact": {
+     "path": "net/minecraftforge/installertools/1.4.3/installertools-1.4.3.jar",
+     "url": "https://maven.minecraftforge.net/net/minecraftforge/installertools/1.4.3/installertools-1.4.3.jar",
+     "sha1": "e37ea5710e86aee9df90cb60f918b5d35280428d",
+     "size": 93167
+    }
+   }
+  },
+  {
+   "name": "net.minecraftforge:srgutils:0.5.1",
+   "downloads": {
+    "artifact": {
+     "path": "net/minecraftforge/srgutils/0.5.1/srgutils-0.5.1.jar",
+     "url": "https://maven.minecraftforge.net/net/minecraftforge/srgutils/0.5.1/srgutils-0.5.1.jar",
+     "sha1": "2268068226f4fc241be0b4592758dc0fc8371837",
+     "size": 69815
+    }
+   }
+  },
+  {
+   "name": "net.minecraftforge:srgutils:0.5.10",
+   "downloads": {
+    "artifact": {
+     "path": "net/minecraftforge/srgutils/0.5.10/srgutils-0.5.10.jar",
+     "url": "https://maven.minecraftforge.net/net/minecraftforge/srgutils/0.5.10/srgutils-0.5.10.jar",
+     "sha1": "e17c35076be020c539ea4c83735f2b40f46a7848",
+     "size": 72377
+    }
+   }
+  },
+  {
+   "name": "net.minecraftforge:srgutils:0.5.6",
+   "downloads": {
+    "artifact": {
+     "path": "net/minecraftforge/srgutils/0.5.6/srgutils-0.5.6.jar",
+     "url": "https://maven.minecraftforge.net/net/minecraftforge/srgutils/0.5.6/srgutils-0.5.6.jar",
+     "sha1": "4844e46a377eebd8bb4da594e6b487126790b18e",
+     "size": 72082
+    }
+   }
+  },
+  {
+   "name": "net.sf.jopt-simple:jopt-simple:6.0-alpha-3",
+   "downloads": {
+    "artifact": {
+     "path": "net/sf/jopt-simple/jopt-simple/6.0-alpha-3/jopt-simple-6.0-alpha-3.jar",
+     "url": "https://maven.minecraftforge.net/net/sf/jopt-simple/jopt-simple/6.0-alpha-3/jopt-simple-6.0-alpha-3.jar",
+     "sha1": "02ab1a73e1e22d2b73469362a0908a98644b681d",
+     "size": 79368
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm-commons:9.5",
+   "downloads": {
+    "artifact": {
+     "path": "org/ow2/asm/asm-commons/9.5/asm-commons-9.5.jar",
+     "url": "https://maven.minecraftforge.net/org/ow2/asm/asm-commons/9.5/asm-commons-9.5.jar",
+     "sha1": "19ab5b5800a3910d30d3a3e64fdb00fd0cb42de0",
+     "size": 72209
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm-commons:9.7",
+   "downloads": {
+    "artifact": {
+     "path": "org/ow2/asm/asm-commons/9.7/asm-commons-9.7.jar",
+     "url": "https://maven.minecraftforge.net/org/ow2/asm/asm-commons/9.7/asm-commons-9.7.jar",
+     "sha1": "e86dda4696d3c185fcc95d8d311904e7ce38a53f",
+     "size": 73426
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm-tree:9.5",
+   "downloads": {
+    "artifact": {
+     "path": "org/ow2/asm/asm-tree/9.5/asm-tree-9.5.jar",
+     "url": "https://maven.minecraftforge.net/org/ow2/asm/asm-tree/9.5/asm-tree-9.5.jar",
+     "sha1": "fd33c8b6373abaa675be407082fdfda35021254a",
+     "size": 51944
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm-tree:9.7",
+   "downloads": {
+    "artifact": {
+     "path": "org/ow2/asm/asm-tree/9.7/asm-tree-9.7.jar",
+     "url": "https://maven.minecraftforge.net/org/ow2/asm/asm-tree/9.7/asm-tree-9.7.jar",
+     "sha1": "e446a17b175bfb733b87c5c2560ccb4e57d69f1a",
+     "size": 51934
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm:9.5",
+   "downloads": {
+    "artifact": {
+     "path": "org/ow2/asm/asm/9.5/asm-9.5.jar",
+     "url": "https://maven.minecraftforge.net/org/ow2/asm/asm/9.5/asm-9.5.jar",
+     "sha1": "dc6ea1875f4d64fbc85e1691c95b96a3d8569c90",
+     "size": 121863
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm:9.7",
+   "downloads": {
+    "artifact": {
+     "path": "org/ow2/asm/asm/9.7/asm-9.7.jar",
+     "url": "https://maven.minecraftforge.net/org/ow2/asm/asm/9.7/asm-9.7.jar",
+     "sha1": "073d7b3086e14beb604ced229c302feff6449723",
+     "size": 125428
+    }
+   }
+  },
+  {
+   "name": "trove:trove:1.0.2",
+   "downloads": {
+    "artifact": {
+     "path": "trove/trove/1.0.2/trove-1.0.2.jar",
+     "url": "https://maven.minecraftforge.net/trove/trove/1.0.2/trove-1.0.2.jar",
+     "sha1": "112b40581ab9a4d3de4636d49985a7f686d181c8",
+     "size": 361155
+    }
+   }
+  }
+ ],
+ "json": "/version.json"
+}

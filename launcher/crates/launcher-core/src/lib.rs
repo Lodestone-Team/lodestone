@@ -11,6 +11,7 @@
 
 pub mod accounts;
 pub mod auth;
+pub mod export;
 pub mod game;
 pub mod http;
 pub mod instances;

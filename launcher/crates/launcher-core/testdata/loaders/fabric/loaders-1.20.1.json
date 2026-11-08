@@ -1,0 +1,104 @@
+[
+ {
+  "loader": {
+   "separator": ".",
+   "build": 1,
+   "maven": "net.fabricmc:fabric-loader:0.20.1",
+   "version": "0.20.1",
+   "stable": true
+  },
+  "intermediary": {
+   "maven": "net.fabricmc:intermediary:1.20.1",
+   "version": "1.20.1",
+   "stable": true
+  },
+  "launcherMeta": {
+   "version": 2
+  }
+ },
+ {
+  "loader": {
+   "separator": ".",
+   "build": 0,
+   "maven": "net.fabricmc:fabric-loader:0.20.0",
+   "version": "0.20.0",
+   "stable": false
+  },
+  "intermediary": {
+   "maven": "net.fabricmc:intermediary:1.20.1",
+   "version": "1.20.1",
+   "stable": true
+  },
+  "launcherMeta": {
+   "version": 2
+  }
+ },
+ {
+  "loader": {
+   "separator": ".",
+   "build": 5,
+   "maven": "net.fabricmc:fabric-loader:0.19.5",
+   "version": "0.19.5",
+   "stable": false
+  },
+  "intermediary": {
+   "maven": "net.fabricmc:intermediary:1.20.1",
+   "version": "1.20.1",
+   "stable": true
+  },
+  "launcherMeta": {
+   "version": 2
+  }
+ },
+ {
+  "loader": {
+   "separator": ".",
+   "build": 4,
+   "maven": "net.fabricmc:fabric-loader:0.19.4",
+   "version": "0.19.4",
+   "stable": false
+  },
+  "intermediary": {
+   "maven": "net.fabricmc:intermediary:1.20.1",
+   "version": "1.20.1",
+   "stable": true
+  },
+  "launcherMeta": {
+   "version": 2
+  }
+ },
+ {
+  "loader": {
+   "separator": ".",
+   "build": 14,
+   "maven": "net.fabricmc:fabric-loader:0.16.14",
+   "version": "0.16.14",
+   "stable": false
+  },
+  "intermediary": {
+   "maven": "net.fabricmc:intermediary:1.20.1",
+   "version": "1.20.1",
+   "stable": true
+  },
+  "launcherMeta": {
+   "version": 2
+  }
+ },
+ {
+  "loader": {
+   "separator": ".",
+   "build": 13,
+   "maven": "net.fabricmc:fabric-loader:0.16.13",
+   "version": "0.16.13",
+   "stable": false
+  },
+  "intermediary": {
+   "maven": "net.fabricmc:intermediary:1.20.1",
+   "version": "1.20.1",
+   "stable": true
+  },
+  "launcherMeta": {
+   "version": 2
+  }
+ }
+]

@@ -19,8 +19,9 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         Some(instance) => (
             instance.name.clone().into(),
             format!(
-                "Minecraft {} · Vanilla · {}",
+                "Minecraft {} · {} · {}",
                 instance.game_version,
+                instance.loader_label(),
                 play_time(instance.play_time)
             )
             .into(),
@@ -112,14 +113,14 @@ fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl In
             instance.name.clone().into(),
             match instance.last_played {
                 Some(_) => format!(
-                    "Minecraft {}. Played for {}.",
-                    instance.game_version,
+                    "{}. Played for {}.",
+                    described(instance),
                     play_time(instance.play_time).to_lowercase()
                 )
                 .into(),
                 None => format!(
-                    "Minecraft {}. Press Play to download it and start the game.",
-                    instance.game_version
+                    "{}. Press Play to download it and start the game.",
+                    described(instance)
                 )
                 .into(),
             },
@@ -185,6 +186,18 @@ fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl In
                     )
                 }),
         )
+}
+
+/// "Minecraft 1.20.1", or "Minecraft 1.20.1 with Fabric 0.16.14".
+fn described(instance: &Instance) -> String {
+    match instance.loader.kind() {
+        None => format!("Minecraft {}", instance.game_version),
+        Some(_) => format!(
+            "Minecraft {} with {}",
+            instance.game_version,
+            instance.loader_label()
+        ),
+    }
 }
 
 fn placeholder(message: impl Into<SharedString>) -> impl IntoElement {
@@ -308,35 +321,8 @@ fn play_bar(
             "version-picker",
             "VERSION",
             instance.map_or("—".to_string(), |i| {
-                format!("{} · Vanilla", i.game_version)
+                format!("{} · {}", i.game_version, i.loader_label())
             }),
             instance.is_some(),
         ))
-}
-
-/// A placeholder for the launcher's settings page, which has nothing to configure
-/// yet. Each instance has its own settings tab.
-pub fn render_settings() -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .w_full()
-        .px_8()
-        .pt_10()
-        .child(
-            div()
-                .font_family(fonts::TITLE)
-                .text_size(theme::text_size(text::H1))
-                .line_height(theme::line_height(text::H1, leading::TIGHT))
-                .font_weight(weights::BOLD.into())
-                .child("Settings"),
-        )
-        .child(
-            div()
-                .text_color(colors::GRAY_FADED.opacity(30))
-                .font_weight(weights::BOLD.into())
-                .pt(px(2.))
-                .child("Memory, Java and window settings are in each instance's Settings tab."),
-        )
 }

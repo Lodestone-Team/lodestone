@@ -1,4 +1,8 @@
-use gpui::{Context, IntoElement, SharedString, div, img, prelude::*, px};
+use gpui::{
+    AnyElement, Context, IntoElement, SharedString, Transformation, div, img, prelude::*, px,
+    radians,
+};
+use launcher_core::instances::{Instance, grouped};
 
 use super::{LauncherShell, Page, account_box};
 use crate::{
@@ -41,80 +45,154 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .child(footer(shell, cx))
 }
 
-/// The instances, each a row with its icon, name and version.
-fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+/// One instance: its icon, name, version and loader, and a dot while it runs.
+fn instance_row(
+    shell: &LauncherShell,
+    instance: &Instance,
+    cx: &mut Context<LauncherShell>,
+) -> AnyElement {
     let instances = shell.instances.read(cx);
     let selected = instances.selected().map(|i| i.id.clone());
     let on_instance_page = shell.page == Page::Instance;
-    let rows: Vec<_> = instances
-        .list()
-        .iter()
-        .map(|instance| {
-            let id = instance.id.clone();
-            let active = instances.is_active(&id);
-            let running = instances.is_running(&id);
-            let is_selected = on_instance_page && selected.as_deref() == Some(id.as_str());
+    let id = instance.id.clone();
+    let active = instances.is_active(&id);
+    let running = instances.is_running(&id);
+    let is_selected = on_instance_page && selected.as_deref() == Some(id.as_str());
+    let icon = match instances.icon(&id) {
+        Some(image) => img(image),
+        None => img("images/placeholder-cube.png"),
+    };
+    let detail = match instance.loader.kind() {
+        None => instance.game_version.clone(),
+        Some(kind) => format!("{} · {}", instance.game_version, kind.label()),
+    };
+    div()
+        .id(SharedString::from(format!("instance-{id}")))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .w_full()
+        .px_2()
+        .py_1()
+        .rounded(radius::MD)
+        .border_1()
+        .border_color(colors::TRANSPARENT)
+        .cursor_pointer()
+        .hover(|style| style.bg(colors::GRAY_800))
+        .when(is_selected, |this| {
+            this.bg(colors::GRAY_800).border_color(colors::FADE_700)
+        })
+        .child(icon.flex_none().size(px(20.)).rounded(radius::DEFAULT))
+        .child(
             div()
-                .id(SharedString::from(format!("instance-{id}")))
                 .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .w_full()
-                .px_2()
-                .py_1()
-                .rounded(radius::MD)
-                .border_1()
-                .border_color(colors::TRANSPARENT)
-                .cursor_pointer()
-                .hover(|style| style.bg(colors::GRAY_800))
-                .when(is_selected, |this| {
-                    this.bg(colors::GRAY_800).border_color(colors::FADE_700)
-                })
+                .flex_col()
+                .flex_1()
+                .min_w_0()
                 .child(
-                    img("images/placeholder-cube.png")
-                        .flex_none()
-                        .size(px(20.))
-                        .rounded(radius::DEFAULT),
+                    div()
+                        .truncate()
+                        .font_weight(weights::BOLD.into())
+                        .text_color(colors::GRAY_300)
+                        .child(instance.name.clone()),
                 )
                 .child(
                     div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .child(
-                            div()
-                                .truncate()
-                                .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_300)
-                                .child(instance.name.clone()),
-                        )
-                        .child(
-                            div()
-                                .truncate()
-                                .text_size(theme::text_size(text::SMALL))
-                                .text_color(colors::GRAY_500)
-                                .child(instance.game_version.clone()),
-                        ),
-                )
-                .when(active, |this| {
-                    this.child(
-                        div()
-                            .flex_none()
-                            .size(px(8.))
-                            .rounded_full()
-                            .bg(if running {
-                                colors::GREEN_200
-                            } else {
-                                colors::YELLOW
-                            }),
-                    )
-                })
-                .on_click(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
+                        .truncate()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(colors::GRAY_500)
+                        .child(detail),
+                ),
+        )
+        .when(active, |this| {
+            this.child(
+                div()
+                    .flex_none()
+                    .size(px(8.))
+                    .rounded_full()
+                    .bg(if running {
+                        colors::GREEN_200
+                    } else {
+                        colors::YELLOW
+                    }),
+            )
         })
-        .collect();
-    let empty = rows.is_empty();
+        .on_click(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
+        .into_any_element()
+}
+
+/// A group's heading, which folds the group away.
+fn group_header(
+    name: &str,
+    count: usize,
+    collapsed: bool,
+    cx: &mut Context<LauncherShell>,
+) -> AnyElement {
+    let group = name.to_string();
+    let caret = Icon::CaretDown.render(px(10.), colors::GRAY_FADED.opacity(50));
+    let caret = if collapsed {
+        caret.with_transformation(Transformation::rotate(radians(
+            -std::f32::consts::FRAC_PI_2,
+        )))
+    } else {
+        caret
+    };
+    div()
+        .id(SharedString::from(format!("group-{name}")))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1p5()
+        .mt_2()
+        .px_1()
+        .py_0p5()
+        .rounded(radius::MD)
+        .cursor_pointer()
+        .hover(|style| style.bg(colors::GRAY_800))
+        .child(caret)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(theme::text_size(text::SMALL))
+                .font_weight(weights::BOLD.into())
+                .text_color(colors::GRAY_400)
+                .child(name.to_uppercase()),
+        )
+        .child(
+            div()
+                .text_size(theme::text_size(text::CAPTION))
+                .font_weight(weights::BOLD.into())
+                .text_color(colors::GRAY_FADED.opacity(30))
+                .child(count.to_string()),
+        )
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.instances
+                .update(cx, |instances, cx| instances.toggle_group(&group, cx))
+        }))
+        .into_any_element()
+}
+
+/// The instances: those without a group, then each group under a heading that
+/// folds it.
+fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let list: Vec<Instance> = shell.instances.read(cx).list().to_vec();
+    let mut rows: Vec<AnyElement> = Vec::new();
+    for (group, members) in grouped(&list) {
+        if let Some(name) = &group {
+            let collapsed = shell.instances.read(cx).is_group_collapsed(name);
+            rows.push(group_header(name, members.len(), collapsed, cx));
+            if collapsed {
+                continue;
+            }
+        }
+        for instance in members {
+            rows.push(instance_row(shell, instance, cx));
+        }
+    }
+    let empty = list.is_empty();
     div()
         .flex()
         .flex_col()

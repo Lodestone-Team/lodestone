@@ -134,6 +134,7 @@ fn time_warm_launches() {
         let start = Instant::now();
         let prepared = block_on(installer.prepare(
             "bench",
+            None,
             &machine,
             &java,
             &game_dir,
@@ -170,6 +171,7 @@ fn time_warm_launches() {
     let progress = InstallProgress::default();
     block_on(installer.prepare_with(
         "bench",
+        None,
         &machine,
         &java,
         &game_dir,

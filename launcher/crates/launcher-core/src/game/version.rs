@@ -16,6 +16,9 @@ pub struct VersionJson {
     #[serde(default, rename = "type")]
     pub kind: MojangVersionType,
     pub main_class: String,
+    /// The version this one adds to, for mod loader profiles.
+    #[serde(default)]
+    pub inherits_from: Option<String>,
     /// The arguments of 1.13 and later.
     #[serde(default)]
     pub arguments: Option<Arguments>,
@@ -87,11 +90,17 @@ pub struct Download {
 }
 
 /// A download with the path it goes to, relative to the libraries directory.
+///
+/// Mod loaders list some files with an empty `url`: they come out of the loader's
+/// installer, or its processors make them.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Artifact {
     pub path: Option<String>,
     pub sha1: String,
-    pub size: u64,
+    /// Mojang's files always have it; a few mod loader files do not.
+    #[serde(default)]
+    pub size: Option<u64>,
+    #[serde(default)]
     pub url: String,
 }
 
