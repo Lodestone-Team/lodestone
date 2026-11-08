@@ -34,7 +34,6 @@ use axum::{
 };
 
 use clap::Parser;
-use color_eyre::eyre::Context;
 use color_eyre::Report;
 use dashmap::DashMap;
 use error::Error;
@@ -73,7 +72,7 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
-use types::{DotLodestoneConfig, InstanceUuid};
+use types::InstanceUuid;
 use uuid::Uuid;
 
 /// `#[test]`s that export the TypeScript bindings of types from `lodestone_minecraft` into
@@ -1150,6 +1149,7 @@ mod restore_tests {
     use crate::global_settings::CodeExecutionSwitch;
     use crate::implementations::minecraft::{Flavour, RestoreConfig};
     use crate::traits::t_macro::TMacro;
+    use crate::types::DotLodestoneConfig;
 
     /// Every file under `dir` and its contents.
     fn snapshot_files(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -1168,17 +1168,112 @@ mod restore_tests {
         std::fs::write(path, serde_json::to_string_pretty(value).unwrap()).unwrap();
     }
 
+    /// Restoring a Minecraft instance looks up the Lodestone paths, which no other test
+    /// sets. The folder is never dropped, so the paths stay valid for the whole test run.
+    fn init_lodestone_paths() {
+        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        LODESTONE_DIR.get_or_init(|| {
+            let dir = tempfile::tempdir().unwrap();
+            try_init_paths(dir.path().to_owned()).unwrap();
+            dir
+        });
+    }
+
+    fn write_minecraft_instance(dir: &Path, name: &str, config: &DotLodestoneConfig) {
+        std::fs::create_dir_all(dir).unwrap();
+        write_json(dir.join(".lodestone_config"), config);
+        write_json(
+            dir.join(".lodestone_minecraft_config.json"),
+            &RestoreConfig {
+                name: name.to_string(),
+                version: "1.20.1".to_string(),
+                flavour: Flavour::Vanilla,
+                description: String::new(),
+                cmd_args: Vec::new(),
+                java_cmd: Some("java".to_string()),
+                port: 25565,
+                min_ram: 1024,
+                max_ram: 2048,
+                auto_start: false,
+                restart_on_crash: false,
+                backup_period: None,
+                jre_major_version: 17,
+                has_started: false,
+                modpack: None,
+            },
+        );
+        std::fs::write(
+            dir.join("server.properties"),
+            "server-port=25565
+",
+        )
+        .unwrap();
+    }
+
+    fn test_executor() -> (EventBroadcaster, MacroExecutor) {
+        let (tx, _rx) = EventBroadcaster::new(16);
+        let executor = MacroExecutor::new(
+            tx.clone(),
+            tokio::runtime::Handle::current(),
+            CodeExecutionSwitch::new(false),
+        );
+        (tx, executor)
+    }
+
+    /// Two instances share a UUID. The older one keeps it, the other gets a new one that
+    /// is saved with its other metadata untouched, and the next start changes nothing.
+    #[tokio::test]
+    async fn duplicate_uuids_are_regenerated_once() {
+        init_lodestone_paths();
+        let dir = tempfile::tempdir().unwrap();
+        let instances = dir.path().join("instances");
+        let uuid = InstanceUuid::default();
+        let mut older = serde_json::to_value(DotLodestoneConfig::new(
+            uuid.clone(),
+            GameType::MinecraftJava,
+        ))
+        .unwrap();
+        older["creation_time"] = 1_000.into();
+        let mut newer = older.clone();
+        newer["creation_time"] = 2_000.into();
+        let older: DotLodestoneConfig = serde_json::from_value(older).unwrap();
+        let newer: DotLodestoneConfig = serde_json::from_value(newer).unwrap();
+        // "a" is listed first, but is the newer one
+        write_minecraft_instance(&instances.join("a"), "newer", &newer);
+        write_minecraft_instance(&instances.join("b"), "older", &older);
+
+        let (tx, executor) = test_executor();
+        let restored = restore_instances(&instances, tx.clone(), executor.clone())
+            .await
+            .unwrap();
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored.get(&uuid).unwrap().name().await, "older");
+        let saved: DotLodestoneConfig =
+            serde_json::from_slice(&std::fs::read(instances.join("a/.lodestone_config")).unwrap())
+                .unwrap();
+        assert_ne!(saved.uuid(), &uuid);
+        assert_eq!(saved.creation_time(), 2_000);
+        assert_eq!(saved.game_type(), newer.game_type());
+        assert_eq!(restored.get(saved.uuid()).unwrap().name().await, "newer");
+
+        let after_first_start = snapshot_files(&instances);
+        let restored_again = restore_instances(&instances, tx, executor).await.unwrap();
+        assert_eq!(restored_again.len(), 2);
+        assert_eq!(restored_again.get(&uuid).unwrap().name().await, "older");
+        assert_eq!(
+            restored_again.get(saved.uuid()).unwrap().name().await,
+            "newer"
+        );
+        assert_eq!(snapshot_files(&instances), after_first_start);
+    }
+
     /// Instances written by a core built with `deno`: an atom instance, and a Minecraft
     /// instance with a macro and its stored config. A core without `deno` (or with code
     /// execution off) must start on them: it restores the Minecraft instance, skips the
     /// atom, and leaves every file as it was, so a core with `deno` brings them all back.
     #[tokio::test]
     async fn atoms_and_macros_on_disk_do_not_stop_startup() {
-        // restoring a Minecraft instance looks up the Lodestone paths, which no other test
-        // sets; never dropped, so the paths stay valid for the whole test run
-        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
-        let lodestone_dir = LODESTONE_DIR.get_or_init(|| tempfile::tempdir().unwrap());
-        try_init_paths(lodestone_dir.path().to_owned()).unwrap();
+        init_lodestone_paths();
 
         let dir = tempfile::tempdir().unwrap();
         let instances = dir.path().join("instances");
