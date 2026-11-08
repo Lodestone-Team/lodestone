@@ -19,13 +19,18 @@ runtime-shaders = ["gpui_platform/runtime_shaders"]
 screenshot = ["gpui_platform/test-support"]
 
 [dependencies]
+anyhow.workspace = true
+futures.workspace = true
 gpui.workspace = true
 gpui_platform = { workspace = true, features = ["font-kit"] }
+http_client.workspace = true
+image.workspace = true
+launcher-core.workspace = true
+url.workspace = true
 lodestone_minecraft.workspace = true
 
 [dev-dependencies]
-# The version in Zed's Cargo.lock.
-serde_json = "1.0.151"
+serde_json.workspace = true
 
 [[example]]
 name = "components"

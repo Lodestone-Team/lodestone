@@ -12,13 +12,19 @@ macro_rules! embed {
 
 /// Every embedded image and icon, by its path under `launcher/assets`.
 static FILES: &[(&str, &[u8])] = embed!(
+    "images/hero.svg",
     "images/logo.svg",
     "images/placeholder-cube.png",
+    "icons/arrow-up-right-from-square.svg",
     "icons/caret-down.svg",
     "icons/check.svg",
+    "icons/copy.svg",
     "icons/expand.svg",
     "icons/gear.svg",
+    "icons/plus.svg",
+    "icons/right-from-bracket.svg",
     "icons/square-plus.svg",
+    "icons/triangle-exclamation.svg",
     "icons/user.svg",
     "icons/xmark.svg",
 );
@@ -28,6 +34,16 @@ static FONTS: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/fonts.rs"))
 
 /// The asset source passed to `Application::with_assets`.
 pub struct Assets;
+
+impl Assets {
+    /// An embedded file's bytes, without going through GPUI.
+    pub fn embedded(path: &str) -> Option<&'static [u8]> {
+        FILES
+            .iter()
+            .find(|(name, _)| *name == path)
+            .map(|(_, bytes)| *bytes)
+    }
+}
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {

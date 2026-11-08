@@ -6,4 +6,5 @@ License (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
 Full Font Awesome Free license: https://fontawesome.com/license/free
 
 Each file holds the unmodified path data of one icon, wrapped in an <svg> element:
-caret-down, check, expand, gear, square-plus, user and xmark.
+arrow-up-right-from-square, caret-down, check, copy, expand, gear, plus,
+right-from-bracket, square-plus, triangle-exclamation, user and xmark.
