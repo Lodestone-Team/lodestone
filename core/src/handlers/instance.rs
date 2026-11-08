@@ -302,7 +302,7 @@ pub async fn create_generic_instance(
     State(state): State<AppState>,
     requester: AuthedUser,
     Json(setup_config): Json<GenericSetupConfig>,
-) -> Result<Json<()>, Error> {
+) -> Result<Json<InstanceUuid>, Error> {
     // an atom is code that runs on the core
     check_create_atom(&requester, &state.code_execution)?;
     let caused_by = requester.caused_by();
@@ -320,6 +320,7 @@ pub async fn create_generic_instance(
 
     let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), GameType::Generic);
     let event_broadcaster = state.event_broadcaster.clone();
+    let created_uuid = instance_uuid.clone();
     tokio::task::spawn(async move {
         let (progression_start_event, event_id) = Event::new_progression_event_start(
             format!("Setting up instance {}", setup_config.setup_value.name),
@@ -387,7 +388,7 @@ pub async fn create_generic_instance(
             .insert(instance_uuid.clone(), instance.into());
     });
 
-    Ok(Json(()))
+    Ok(Json(created_uuid))
 }
 
 pub async fn delete_instance(

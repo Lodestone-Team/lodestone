@@ -1057,7 +1057,7 @@ pub async fn unzip_instance_file(
     Path((uuid, base64_relative_path)): Path<(InstanceUuid, String)>,
     AuthBearer(token): AuthBearer,
     Json(unzip_option): Json<UnzipOption>,
-) -> Result<Json<()>, Error> {
+) -> Result<Json<ProgressionEventID>, Error> {
     let relative_path = decode_base64(&base64_relative_path)?;
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
@@ -1099,17 +1099,18 @@ pub async fn unzip_instance_file(
         state.code_execution.clone(),
     );
     let event_broadcaster = state.event_broadcaster.clone();
+    // created here, so the response can return the task's id
+    let (progression_event_start, event_id) = Event::new_progression_event_start(
+        format!("Unzipping {relative_path}"),
+        None,
+        None,
+        CausedBy::User {
+            user_id: requester.uid.clone(),
+            user_name: requester.username.clone(),
+        },
+    );
+    let task_id = event_id.clone();
     tokio::spawn(async move {
-        let (progression_event_start, event_id) = Event::new_progression_event_start(
-            format!("Unzipping {relative_path}"),
-            None,
-            None,
-            CausedBy::User {
-                user_id: requester.uid.clone(),
-                user_name: requester.username.clone(),
-            },
-        );
-
         event_broadcaster.send(progression_event_start);
 
         let result = unzip_file_checked_async(path_to_zip_file, unzip_option, check).await;
@@ -1138,7 +1139,7 @@ pub async fn unzip_instance_file(
         }
     });
 
-    Ok(Json(()))
+    Ok(Json(task_id))
 }
 
 #[derive(Deserialize, TS)]
@@ -1153,7 +1154,7 @@ async fn zip_instance_files(
     Path(uuid): Path<InstanceUuid>,
     AuthBearer(token): AuthBearer,
     Json(zip_request): Json<ZipRequest>,
-) -> Result<Json<()>, Error> {
+) -> Result<Json<ProgressionEventID>, Error> {
     let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
     requester.try_action(
         &UserAction::WriteInstanceFile(uuid.clone()),
@@ -1184,30 +1185,31 @@ async fn zip_instance_files(
     }
 
     let event_broadcaster = state.event_broadcaster.clone();
-
+    let aggregate_name = {
+        let combined_file_name = target_relative_paths
+            .iter()
+            .filter_map(|p| p.file_name())
+            .map(|n| n.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if combined_file_name.len() < 100 {
+            combined_file_name
+        } else {
+            format!("{} files", target_relative_paths.len())
+        }
+    };
+    // created here, so the response can return the task's id
+    let (progression_start_event, event_id) = Event::new_progression_event_start(
+        format!("Zipping {aggregate_name}"),
+        None,
+        None,
+        CausedBy::User {
+            user_id: requester.uid.clone(),
+            user_name: requester.username.clone(),
+        },
+    );
+    let task_id = event_id.clone();
     tokio::spawn(async move {
-        let aggregate_name = {
-            let combined_file_name = target_relative_paths
-                .iter()
-                .filter_map(|p| p.file_name())
-                .map(|n| n.to_string_lossy())
-                .collect::<Vec<_>>()
-                .join(", ");
-            if combined_file_name.len() < 100 {
-                combined_file_name
-            } else {
-                format!("{} files", target_relative_paths.len())
-            }
-        };
-        let (progression_start_event, event_id) = Event::new_progression_event_start(
-            format!("Zipping {aggregate_name}"),
-            None,
-            None,
-            CausedBy::User {
-                user_id: requester.uid.clone(),
-                user_name: requester.username.clone(),
-            },
-        );
         event_broadcaster.send(progression_start_event);
 
         if let Err(e) =
@@ -1237,7 +1239,7 @@ async fn zip_instance_files(
         }
     });
 
-    Ok(Json(()))
+    Ok(Json(task_id))
 }
 
 pub fn get_instance_fs_routes(state: AppState) -> Router {

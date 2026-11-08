@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Request, State},
+    extract::{Query, Request, State},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, put},
@@ -78,7 +78,7 @@ struct FetchManifestRet {
 async fn fetch_extension_manifest(
     State(state): State<AppState>,
     _requester: AuthedUser,
-    Json(body): Json<ExtensionRequestBody>,
+    Query(body): Query<ExtensionRequestBody>,
 ) -> Response {
     if let Err(e) = require_code_execution(&state) {
         return e.into_response();
