@@ -125,6 +125,7 @@ pub static SNOWFLAKE_GENERATOR: LazyLock<std::sync::Mutex<snowflake::SnowflakeId
         ))
     });
 
+#[cfg(feature = "deno")]
 use crate::generic::GenericInstance;
 use crate::minecraft::MinecraftInstance;
 use crate::AppState;
@@ -140,5 +141,7 @@ use crate::AppState;
 #[derive(Clone)]
 pub enum GameInstance {
     MinecraftInstance,
+    /// An atom; only with the `deno` feature, see [`crate::capabilities`].
+    #[cfg(feature = "deno")]
     GenericInstance,
 }

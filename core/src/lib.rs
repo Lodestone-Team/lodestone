@@ -41,7 +41,9 @@ use error::Error;
 use events::{CausedBy, Event};
 use futures::Future;
 use global_settings::GlobalSettings;
-use implementations::{generic, minecraft};
+#[cfg(feature = "deno")]
+use implementations::generic;
+use implementations::minecraft;
 use macro_executor::MacroExecutor;
 use playitgg::utils::{is_valid_secret_key, parse_secret_key};
 use port_manager::PortManager;
@@ -92,11 +94,15 @@ macro_rules! export_shared_bindings {
 pub(crate) use export_shared_bindings;
 
 pub mod auth;
+pub mod capabilities;
 mod command_console;
 pub mod db;
+#[cfg(feature = "deno")]
 mod deno_ops;
 mod docker_bridge;
 pub mod error;
+// its event filters are used by macros, which need the `deno` feature
+#[cfg_attr(not(feature = "deno"), allow(dead_code))]
 mod event_broadcaster;
 mod events;
 mod extension;
@@ -439,6 +445,16 @@ async fn restore_instances(
                 debug!("Restored Minecraft Java instance successfully");
                 (dot_lodestone_config.uuid().to_owned(), instance.into())
             }
+            // Left on disk untouched, so a core built with Deno restores it again.
+            #[cfg(not(feature = "deno"))]
+            GameType::Generic => {
+                warn!(
+                    "Not restoring atom instance {}: this Lodestone Core was built without scripting support (the `deno` feature). Its files are kept, and a core built with the feature restores it",
+                    path.display()
+                );
+                continue;
+            }
+            #[cfg(feature = "deno")]
             GameType::Generic => {
                 // Restoring an atom runs its code, so with code execution off the instance
                 // is left on disk and comes back once code execution is on and the core
@@ -577,6 +593,9 @@ fn output_sys_info() {
     info!("System info:");
     info!("  OS: {}", std::env::consts::OS);
     info!("  Arch: {}", std::env::consts::ARCH);
+    if !cfg!(feature = "deno") {
+        info!("  Built without scripting support (the `deno` feature): macros, instance scripts, extensions and atom instances are not available");
+    }
     // CPU and RAM info
     let sys = crate::util::cpu_and_memory_system();
     let cpu_name = sys
@@ -1150,4 +1169,128 @@ pub async fn run(
         guard,
         shutdown_tx,
     ))
+}
+
+#[cfg(test)]
+mod restore_tests {
+    use std::{collections::BTreeMap, path::Path};
+
+    use super::*;
+    use crate::global_settings::CodeExecutionSwitch;
+    use crate::implementations::minecraft::{Flavour, RestoreConfig};
+    use crate::traits::t_macro::TMacro;
+
+    /// Every file under `dir` and its contents.
+    fn snapshot_files(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+        walkdir::WalkDir::new(dir)
+            .into_iter()
+            .map(|entry| entry.unwrap())
+            .filter(|entry| entry.file_type().is_file())
+            .map(|entry| {
+                let path = entry.path().strip_prefix(dir).unwrap().to_owned();
+                (path, std::fs::read(entry.path()).unwrap())
+            })
+            .collect()
+    }
+
+    fn write_json(path: PathBuf, value: &impl serde::Serialize) {
+        std::fs::write(path, serde_json::to_string_pretty(value).unwrap()).unwrap();
+    }
+
+    /// Instances written by a core built with `deno`: an atom instance, and a Minecraft
+    /// instance with a macro and its stored config. A core without `deno` (or with code
+    /// execution off) must start on them: it restores the Minecraft instance, skips the
+    /// atom, and leaves every file as it was, so a core with `deno` brings them all back.
+    #[tokio::test]
+    async fn atoms_and_macros_on_disk_do_not_stop_startup() {
+        // restoring a Minecraft instance looks up the Lodestone paths, which no other test
+        // sets; never dropped, so the paths stay valid for the whole test run
+        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let lodestone_dir = LODESTONE_DIR.get_or_init(|| tempfile::tempdir().unwrap());
+        try_init_paths(lodestone_dir.path().to_owned()).unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let instances = dir.path().join("instances");
+
+        let atom = instances.join("my atom");
+        std::fs::create_dir_all(&atom).unwrap();
+        let atom_uuid = InstanceUuid::default();
+        write_json(
+            atom.join(".lodestone_config"),
+            &DotLodestoneConfig::new(atom_uuid.clone(), GameType::Generic),
+        );
+        std::fs::write(atom.join("run.ts"), "import * as a from \"./main.ts\";\n").unwrap();
+
+        let server = instances.join("my server");
+        std::fs::create_dir_all(server.join("macros").join("greet")).unwrap();
+        let server_uuid = InstanceUuid::default();
+        write_json(
+            server.join(".lodestone_config"),
+            &DotLodestoneConfig::new(server_uuid.clone(), GameType::MinecraftJava),
+        );
+        write_json(
+            server.join(".lodestone_minecraft_config.json"),
+            &RestoreConfig {
+                name: "my server".to_string(),
+                version: "1.20.1".to_string(),
+                flavour: Flavour::Vanilla,
+                description: String::new(),
+                cmd_args: Vec::new(),
+                java_cmd: Some("java".to_string()),
+                port: 25565,
+                min_ram: 1024,
+                max_ram: 2048,
+                auto_start: false,
+                restart_on_crash: false,
+                backup_period: None,
+                jre_major_version: 17,
+                has_started: false,
+                modpack: None,
+            },
+        );
+        std::fs::write(server.join("server.properties"), "server-port=25565\n").unwrap();
+        std::fs::write(
+            server.join("macros").join("greet").join("index.ts"),
+            "class LodestoneConfig { greeting: string = \"hi\"; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            server
+                .join("macros")
+                .join("greet")
+                .join("greet_config.json"),
+            r#"{"greeting":{"value":{"type":"String","value":"hello"}}}"#,
+        )
+        .unwrap();
+        let before = snapshot_files(&instances);
+
+        let (tx, _rx) = EventBroadcaster::new(16);
+        // off, so a core with `deno` skips the atom too instead of running it
+        let executor = MacroExecutor::new(
+            tx.clone(),
+            tokio::runtime::Handle::current(),
+            CodeExecutionSwitch::new(false),
+        );
+        let restored = restore_instances(&instances, tx, executor).await.unwrap();
+
+        assert_eq!(restored.len(), 1);
+        let server_instance = restored.get(&server_uuid).unwrap().value().clone();
+        assert_eq!(server_instance.name().await, "my server");
+        assert!(!restored.contains_key(&atom_uuid));
+        // the macro is still listed; running it is refused
+        let macros = server_instance.get_macro_list().await.unwrap();
+        assert_eq!(macros.len(), 1);
+        assert_eq!(macros[0].name, "greet");
+        let refused = server_instance
+            .run_macro("greet", Vec::new(), None, CausedBy::System)
+            .await
+            .unwrap_err();
+        if cfg!(feature = "deno") {
+            assert!(matches!(refused.kind, ErrorKind::PermissionDenied));
+        } else {
+            assert!(matches!(refused.kind, ErrorKind::UnsupportedOperation));
+        }
+
+        assert_eq!(snapshot_files(&instances), before);
+    }
 }

@@ -162,6 +162,8 @@ pub fn require_code_write(state: &AppState, user: &User) -> Result<(), Error> {
 
 /// The rule for creating an atom instance (`POST /instance/create_generic`), which runs
 /// TypeScript from a URL as a macro: only the owner, and only while code execution is on.
+// only `POST /instance/create_generic` uses it, which needs the `deno` feature
+#[cfg_attr(not(feature = "deno"), allow(dead_code))]
 pub fn check_create_atom(user: &User, code_execution: &CodeExecutionSwitch) -> Result<(), Error> {
     user.owner_only("create atom instances")?;
     code_execution.check()
@@ -180,7 +182,11 @@ pub fn check_watch_docker_container(user: &User, safe_mode: bool) -> Result<(), 
 /// Whether `instance` is an atom (generic) instance, which runs as a macro. Docker
 /// instances (`DOCKER-` UUIDs) are never in `AppState::instances`, so they are never atoms.
 pub fn is_atom(instance: &GameInstance) -> bool {
-    matches!(instance, GameInstance::GenericInstance(_))
+    match instance {
+        #[cfg(feature = "deno")]
+        GameInstance::GenericInstance(_) => true,
+        _ => false,
+    }
 }
 
 /// Atom (generic) instances run code, so changing or running one is owner only.

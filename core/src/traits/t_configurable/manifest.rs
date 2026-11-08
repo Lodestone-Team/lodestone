@@ -599,6 +599,8 @@ pub struct ConfigurableManifest {
     setting_sections: IndexMap<String, SectionManifest>,
 }
 
+// some methods are only called by macros, which need the `deno` feature
+#[cfg_attr(not(feature = "deno"), allow(dead_code))]
 impl ConfigurableManifest {
     pub fn new(
         auto_start: bool,

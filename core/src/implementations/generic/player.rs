@@ -1,32 +1,14 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
+pub use crate::traits::t_player::GenericPlayer;
 use crate::{
     error::Error,
-    traits::t_player::{Player, TPlayer, TPlayerManagement},
+    traits::t_player::{Player, TPlayerManagement},
 };
 
 use super::{bridge::procedure_call::ProcedureCallInner, GenericInstance};
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, TS, Clone, Hash)]
-#[ts(export)]
-pub struct GenericPlayer {
-    pub id: String,
-    pub name: String,
-}
-
-impl TPlayer for GenericPlayer {
-    fn get_id(&self) -> String {
-        self.id.clone()
-    }
-
-    fn get_name(&self) -> String {
-        self.name.clone()
-    }
-}
 
 #[async_trait]
 impl TPlayerManagement for GenericInstance {

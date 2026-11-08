@@ -517,53 +517,58 @@ mod tests {
         assert_eq!(me["permissions"]["can_view_instance"], json!([INSTANCE]));
         assert_eq!(me["permissions"]["can_create_instance"], false);
 
-        // macros (a handler that calls try_auth_or_err itself)
-        let macros = format!("/instance/{INSTANCE}/macro/list");
-        let (status, body) = core.call(Method::GET, &macros, &narrow, None).await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(message(&body), "Only the owner can use macros");
-        // the owner's full key gets past the owner check (and finds no such atom instance)
-        let (status, _) = core.call(Method::GET, &macros, &full, None).await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
+        // macros, extensions and atoms; without the `deno` feature their routes answer 501
+        // before any permission check, see `capabilities`
+        #[cfg(feature = "deno")]
+        {
+            // macros (a handler that calls try_auth_or_err itself)
+            let macros = format!("/instance/{INSTANCE}/macro/list");
+            let (status, body) = core.call(Method::GET, &macros, &narrow, None).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(message(&body), "Only the owner can use macros");
+            // the owner's full key gets past the owner check (and finds no such atom instance)
+            let (status, _) = core.call(Method::GET, &macros, &full, None).await;
+            assert_eq!(status, StatusCode::NOT_FOUND);
 
-        // extensions (owner-only middleware)
-        let (status, body) = core
-            .call(Method::GET, "/extension/gitstatus", &narrow, None)
-            .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(message(&body), "Only the owner can manage extensions");
-        let (status, _) = core
-            .call(Method::GET, "/extension/gitstatus", &full, None)
-            .await;
-        assert_eq!(status, StatusCode::OK);
+            // extensions (owner-only middleware)
+            let (status, body) = core
+                .call(Method::GET, "/extension/gitstatus", &narrow, None)
+                .await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(message(&body), "Only the owner can manage extensions");
+            let (status, _) = core
+                .call(Method::GET, "/extension/gitstatus", &full, None)
+                .await;
+            assert_eq!(status, StatusCode::OK);
 
-        // atom instances; code execution is off in these tests, which only the owner
-        // gets far enough to be told
-        let atom = json!({
-            "url": "http://127.0.0.1:9/atom.ts",
-            "setup_value": {
-                "name": "x", "description": null, "auto_start": false,
-                "restart_on_crash": false, "setting_sections": {}
-            }
-        });
-        let (status, body) = core
-            .call(
-                Method::POST,
-                "/instance/create_generic",
-                &narrow,
-                Some(atom.clone()),
-            )
-            .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(message(&body), "Only the owner can create atom instances");
-        let (status, body) = core
-            .call(Method::POST, "/instance/create_generic", &full, Some(atom))
-            .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        assert_eq!(
-            message(&body),
-            crate::global_settings::CODE_EXECUTION_DISABLED_MESSAGE
-        );
+            // atom instances; code execution is off in these tests, which only the owner
+            // gets far enough to be told
+            let atom = json!({
+                "url": "http://127.0.0.1:9/atom.ts",
+                "setup_value": {
+                    "name": "x", "description": null, "auto_start": false,
+                    "restart_on_crash": false, "setting_sections": {}
+                }
+            });
+            let (status, body) = core
+                .call(
+                    Method::POST,
+                    "/instance/create_generic",
+                    &narrow,
+                    Some(atom.clone()),
+                )
+                .await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(message(&body), "Only the owner can create atom instances");
+            let (status, body) = core
+                .call(Method::POST, "/instance/create_generic", &full, Some(atom))
+                .await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_eq!(
+                message(&body),
+                crate::global_settings::CODE_EXECUTION_DISABLED_MESSAGE
+            );
+        }
 
         // managing users
         let (status, _) = core.call(Method::GET, "/user/list", &narrow, None).await;

@@ -13,6 +13,7 @@ use crate::error::Error;
 use crate::error::ErrorKind;
 use crate::implementations::minecraft::Flavour;
 use crate::traits::GameInstance;
+#[cfg(feature = "deno")]
 use crate::traits::GenericInstance;
 use crate::traits::MinecraftInstance;
 
@@ -93,6 +94,8 @@ pub trait TConfigurable {
     // setters
     async fn set_name(&self, name: String) -> Result<(), Error>;
     async fn set_description(&self, description: String) -> Result<(), Error>;
+    // only macros set the port, and they need the `deno` feature
+    #[cfg_attr(not(feature = "deno"), allow(dead_code))]
     async fn set_port(&self, _port: u32) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,

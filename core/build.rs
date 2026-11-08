@@ -3,9 +3,14 @@
 //! Without a snapshot, deno_runtime reads its own JavaScript sources from the cargo
 //! registry path at runtime, which does not exist on machines running a shipped binary.
 //! The snapshot is built for the host architecture, so core must not be cross-compiled.
+//!
+//! Only with the `deno` feature: without it there is no deno runtime to snapshot, and the
+//! deno build dependencies are not compiled at all.
 
+#[cfg(feature = "deno")]
 use std::{collections::HashSet, fmt::Write as _, path::PathBuf};
 
+#[cfg(feature = "deno")]
 use deno_runtime::{
     ops::bootstrap::SnapshotOptions,
     snapshot::{create_runtime_snapshot, LazyExtensionFileKind},
@@ -13,7 +18,12 @@ use deno_runtime::{
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    #[cfg(feature = "deno")]
+    build_snapshot();
+}
 
+#[cfg(feature = "deno")]
+fn build_snapshot() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo"));
     let output = create_runtime_snapshot(
         out_dir.join("RUNTIME_SNAPSHOT.bin"),
