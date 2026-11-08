@@ -509,7 +509,7 @@ export default function ModrinthProjectView({
       {isModpack ? (
         onCreateFromModpack ? (
           <Button
-            label="Create an instance from this modpack"
+            label="Create a server from this modpack"
             intention="primary"
             size="large"
             className="self-start"
@@ -517,8 +517,7 @@ export default function ModrinthProjectView({
           />
         ) : (
           <div className="text-medium text-white/50">
-            This is a modpack. You don&apos;t have permission to create
-            instances.
+            This is a modpack. You don&apos;t have permission to create servers.
           </div>
         )
       ) : installable ? (

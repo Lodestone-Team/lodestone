@@ -72,7 +72,7 @@ export const CoreSettings = () => {
   const { macros: macrosAvailable, isPending: capabilitiesPending } =
     useCoreCapabilities();
   const codeExecutionCovers = macrosAvailable
-    ? 'macros, atom instances, extensions, instance scripts and custom Java commands'
+    ? 'macros, atom servers, extensions, server scripts and custom Java commands'
     : 'custom Java commands';
   // use a promise to track if safemode is successfully disabled
 
@@ -194,7 +194,7 @@ export const CoreSettings = () => {
           )}
           {codeExecutionLocked && (
             <span className="block italic">
-              Locked by the server administrator
+              Locked by this core&apos;s administrator
               (LODESTONE_DISABLE_CODE_EXECUTION or --disable-code-execution).
             </span>
           )}
@@ -270,14 +270,14 @@ export const CoreSettings = () => {
     typeof globalSettings?.list_instances_publicly === 'boolean';
   const listInstancesPubliclyField = (
     <ToggleBox
-      label={'List instances publicly'}
+      label={'List servers publicly'}
       value={globalSettings?.list_instances_publicly === true}
       isLoading={isLoading}
       error={errorString}
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
       description={
-        'Let anyone who can reach this core see the instances you make public below, without signing in, and only what you choose for each. Turning this off hides them all at once. Lodestone Launcher uses this to join them.'
+        'Let anyone who can reach this core see the servers you make public below, without signing in, and only what you choose for each. Turning this off hides them all at once. Lodestone Launcher uses this to join them.'
       }
       onChange={async (value) => {
         await axiosPutSingleValue(
@@ -409,7 +409,7 @@ export const CoreSettings = () => {
       type={'danger'}
     >
       {macrosAvailable
-        ? 'Running macros and atom instances will be stopped. Macros, atom instances, extensions, instance scripts and custom Java commands'
+        ? 'Running macros and atom servers will be stopped. Macros, atom servers, extensions, server scripts and custom Java commands'
         : 'Custom Java commands'}{' '}
       will not run on this core until you turn code execution back on. Nothing
       is started again automatically.
@@ -525,7 +525,7 @@ export const CoreSettings = () => {
             <div className="flex w-full flex-col gap-4 @4xl:flex-row">
               <div className="w-[28rem]">
                 <h2 className="text-h2 font-bold tracking-medium">
-                  Public instances
+                  Public servers
                 </h2>
                 <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
                   What anyone can see without signing in. Only you can change
@@ -544,7 +544,7 @@ export const CoreSettings = () => {
             <div className="w-[28rem]">
               <h2 className="text-h2 font-bold tracking-medium">Danger Zone</h2>
               <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-                These settings can cause irreversible damage to your server!
+                These settings can cause irreversible damage to your core!
               </h3>
             </div>
             <div className="mb-10 w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">

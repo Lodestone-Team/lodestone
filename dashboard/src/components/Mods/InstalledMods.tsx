@@ -320,7 +320,7 @@ export default function InstalledMods({
         {toDelete && (
           <>
             {installedModName(toDelete)} ({toDelete.file_name}) will be deleted
-            from the instance. This can&apos;t be undone.
+            from the server. This can&apos;t be undone.
           </>
         )}
       </ConfirmDialog>

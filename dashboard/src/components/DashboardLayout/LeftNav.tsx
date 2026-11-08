@@ -70,7 +70,7 @@ export default function LeftNav({ className }: { className?: string }) {
                 {...preloadCreateInstanceProps}
               >
                 <Button
-                  label={canCreateInstance ? "New instance..." : "No permission"}
+                  label={canCreateInstance ? "New server..." : "No permission"}
                   className={clsx(
                     'w-full text-medium font-medium tracking-normal',
                     showCreateInstance

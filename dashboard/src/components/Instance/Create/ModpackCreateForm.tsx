@@ -37,7 +37,7 @@ type Step = 'source' | 'version' | 'settings';
 const STEPS: Array<[Step, string]> = [
   ['source', 'Select Modpack'],
   ['version', 'Select Version'],
-  ['settings', 'Instance Settings'],
+  ['settings', 'Server Settings'],
 ];
 
 const VERSIONS_PAGE_SIZE = 20;
@@ -418,7 +418,7 @@ export default function ModpackCreateForm({
       });
     } catch (error) {
       // keep the dialog open so the input isn't lost
-      toast.error('Error creating instance: ' + errorToString(error));
+      toast.error('Error creating server: ' + errorToString(error));
       actions.setSubmitting(false);
       setSubmitting(false);
       return;
@@ -553,7 +553,7 @@ export default function ModpackCreateForm({
                   <div className="text-medium text-white/50">
                     Select a version to see what it contains. Lodestone
                     downloads its modpack file to read it; nothing is installed
-                    until you click Create Instance.
+                    until you click Create Server.
                   </div>
                 )}
               </div>
@@ -570,7 +570,7 @@ export default function ModpackCreateForm({
               >
                 <Form id={SETTINGS_FORM_ID}>
                   <StepTitle
-                    title="Instance settings"
+                    title="Server settings"
                     description="Configure your server."
                   />
                   {info && (
@@ -584,13 +584,13 @@ export default function ModpackCreateForm({
                       name="name"
                       label="Name"
                       type="text"
-                      description="The name of the instance"
+                      description="The name of the server"
                     />
                     <FormInputField
                       name="description"
                       label="Description"
                       type="text"
-                      description="The description of the instance"
+                      description="The description of the server"
                       optional
                     />
                     <FormInputField
@@ -619,13 +619,13 @@ export default function ModpackCreateForm({
                       name="auto_start"
                       label="Auto Start"
                       options={['false', 'true']}
-                      description="The instance will start automatically when the application starts"
+                      description="The server will start automatically when the application starts"
                     />
                     <FormRadioField
                       name="restart_on_crash"
                       label="Restart on Crash"
                       options={['false', 'true']}
-                      description="The instance will restart automatically if it crashes"
+                      description="The server will restart automatically if it crashes"
                     />
                   </div>
                 </Form>
@@ -643,7 +643,7 @@ export default function ModpackCreateForm({
               key="create"
               type="submit"
               form={SETTINGS_FORM_ID}
-              label="Create Instance"
+              label="Create Server"
               intention="primary"
               loading={submitting}
               disabled={!canContinue}

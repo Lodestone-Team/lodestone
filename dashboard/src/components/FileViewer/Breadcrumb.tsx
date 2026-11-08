@@ -15,7 +15,7 @@ export default function Breadcrumb({
 }) {
   const { selectedInstance: instance } = useContext(InstanceContext);
 
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
 
   return (
     <div className="flex min-w-0 grow select-none flex-row flex-nowrap items-start gap-1 truncate whitespace-nowrap text-medium font-medium">

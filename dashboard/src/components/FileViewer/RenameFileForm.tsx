@@ -25,7 +25,7 @@ export default function CreateFileForm({
   // instance path (a top-level file's own path has no separator in it)
   const { directorySeparator } = useFileViewer();
 
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
 
   return (
     <Formik

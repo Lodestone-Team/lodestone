@@ -29,7 +29,7 @@ type Story = StoryObj<typeof NotificationCard>;
 export const Default: Story = {
   args: {
     level: 'Info',
-    title: 'Dream joined "Test Instance"',
+    title: 'Dream joined "Test Server"',
     progress_percent: undefined,
     timestamp: 1620000000000,
   },
@@ -38,7 +38,7 @@ export const Default: Story = {
 export const Warning: Story = {
   args: {
     level: 'Warning',
-    title: 'Instance "Test Instance" started',
+    title: 'Server "Test Server" started',
     progress_percent: undefined,
     timestamp: 1620000000000,
   },
@@ -47,7 +47,7 @@ export const Warning: Story = {
 export const Error: Story = {
   args: {
     level: 'Error',
-    title: 'Instance "Test Instance" crashed',
+    title: 'Server "Test Server" crashed',
     progress_percent: undefined,
     timestamp: 1620000000000,
   },
@@ -69,7 +69,7 @@ export const ProgressSuccess: Story = {
     level: 'Info',
     state: 'done',
     title: 'Setting up Minecraft Server Manhunt',
-    message: 'Instance Creation Success',
+    message: 'Server Creation Success',
     progress_percent: 1,
     timestamp: 1620000000000,
   },
@@ -80,7 +80,7 @@ export const ProgressError: Story = {
     level: 'Error',
     state: 'error',
     title: 'Setting up Minecraft Server Manhunt',
-    message: 'Instance Creation Failed',
+    message: 'Server Creation Failed',
     progress_percent: 0.5,
     timestamp: 1620000000000,
   },

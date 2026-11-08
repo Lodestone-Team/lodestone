@@ -102,10 +102,10 @@ export function PublicScopeRow({
   const description = !canEdit
     ? OWNER_ONLY_PUBLIC_MESSAGE
     : !switchOn && !scope.listed
-      ? 'Turn on "List instances publicly" first.'
+      ? 'Turn on "List servers publicly" first.'
       : scope.listed
         ? shownText(scope) +
-          (switchOn ? '' : ' Hidden while "List instances publicly" is off.')
+          (switchOn ? '' : ' Hidden while "List servers publicly" is off.')
         : 'Not shown without signing in.';
 
   return (
@@ -162,7 +162,7 @@ export function PublicInstanceRows({ switchOn }: { switchOn: boolean }) {
   if (overview.instances.length === 0)
     return (
       <div className="bg-gray-800 px-4 py-3 text-medium font-medium tracking-medium text-white/50">
-        No Minecraft Java Edition instances yet.
+        No Minecraft Java Edition servers yet.
       </div>
     );
   return (

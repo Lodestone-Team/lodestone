@@ -131,7 +131,7 @@ const historyListKey = (uuid: string | undefined) => [
 
 export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
 const Macros = () => {
-  useDocumentTitle('Instance Macros - Lodestone');
+  useDocumentTitle('Server Macros - Lodestone');
   const { selectedInstance } = useContext(InstanceContext);
   const uuid = selectedInstance?.uuid;
   const queryClient = useQueryClient();
@@ -226,7 +226,7 @@ const Macros = () => {
   const openMacroModal = async (row: TableRow) => {
     if (!canRun) return;
     if (!uuid) {
-      toast.error('Error opening macro config: No instance selected');
+      toast.error('Error opening macro config: No server selected');
       return;
     }
     try {
@@ -277,7 +277,7 @@ const Macros = () => {
               disabled: !canRun,
               onClick: async (row: TableRow) => {
                 if (!uuid) {
-                  toast.error('Error running macro: No instance selected');
+                  toast.error('Error running macro: No server selected');
                   return;
                 }
                 const result = await createTask(
@@ -341,7 +341,7 @@ const Macros = () => {
               disabled: false,
               onClick: async (row: TableRow) => {
                 if (!uuid) {
-                  toast.error('Error killing task: No instance selected');
+                  toast.error('Error killing task: No server selected');
                   return;
                 }
                 // killTask returns an error string instead of throwing
@@ -468,7 +468,7 @@ const Macros = () => {
           />
         </ConfirmDialog>
       )}
-      <div className="mt-[0rem] mb-4">All macros for your instance</div>
+      <div className="mt-[0rem] mb-4">All macros for your server</div>
       <div className="flex flex-row justify-start border-b border-gray-400">
         {pages.map((page) => (
           <button

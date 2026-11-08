@@ -150,7 +150,7 @@ const playersNeed = (mod: InstalledMod) =>
     mod.modrinth?.client_side === 'required');
 
 export const NO_WRITE_PERMISSION =
-  "You don't have permission to change this instance's files";
+  "You don't have permission to change this server's files";
 
 const versionTypeColor: Record<ModrinthVersionType, LabelColor> = {
   release: 'green',

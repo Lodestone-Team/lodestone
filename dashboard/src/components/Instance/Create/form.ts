@@ -14,7 +14,7 @@ export const basicSettingsPageObject: SectionManifest = {
     name: {
       setting_id: 'name',
       name: 'Name',
-      description: 'The name of the instance',
+      description: 'The name of the server',
       value: {
         type: 'String',
         value: '',
@@ -34,7 +34,7 @@ export const basicSettingsPageObject: SectionManifest = {
     description: {
       setting_id: 'description',
       name: 'Description',
-      description: 'The description of the instance',
+      description: 'The description of the server',
       value: {
         type: 'String',
         value: '',
@@ -63,7 +63,7 @@ export const autoSettingPageObject: SectionManifest = {
       setting_id: 'auto_start',
       name: 'Auto Start',
       description:
-        'The instance will start automatically when the application starts',
+        'The server will start automatically when the application starts',
       value: {
         type: 'Boolean',
         value: false,
@@ -82,7 +82,7 @@ export const autoSettingPageObject: SectionManifest = {
     restart_on_crash: {
       setting_id: 'restart_on_crash',
       name: 'Restart on Crash',
-      description: 'The instance will restart automatically if it crashes',
+      description: 'The server will restart automatically if it crashes',
       value: {
         type: 'Boolean',
         value: false,

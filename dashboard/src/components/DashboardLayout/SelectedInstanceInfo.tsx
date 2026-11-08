@@ -86,7 +86,7 @@ export const SelectedInstanceInfo = ({
               <FontAwesomeIcon icon={faExpand} />
             </div>
             <div className="mt-2 text-medium font-bold">
-              Any selected instance will appear here
+              Any selected server will appear here
             </div>
           </div>
         </div>

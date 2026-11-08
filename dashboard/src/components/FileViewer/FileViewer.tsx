@@ -73,9 +73,9 @@ import { SkeletonCode, SkeletonGroup } from 'components/Atoms/Skeleton';
 let lastInstanceUuid: string | undefined;
 
 export default function FileViewer() {
-  useDocumentTitle('Instance File Viewer - Lodestone');
+  useDocumentTitle('Server File Viewer - Lodestone');
   const { selectedInstance: instance } = useContext(InstanceContext);
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
   const canRead = useUserAuthorized('can_read_instance_file', instance?.uuid);
   const canWrite = useUserAuthorized('can_write_instance_file', instance?.uuid);
   const queryClient = useQueryClient();
