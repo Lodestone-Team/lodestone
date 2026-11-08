@@ -434,6 +434,8 @@ pub fn section_list(
 #[derive(Default)]
 pub struct Toast {
     message: Option<(SharedString, bool)>,
+    /// A link after the message, such as Undo, and what it does.
+    action: Option<(SharedString, ToastAction)>,
     /// Counts the messages shown, so each one animates in.
     serial: u64,
     /// The message is animating out.
@@ -447,6 +449,9 @@ const TOAST_LEAVE: Duration = Duration::from_millis(150);
 /// How far it rises as it comes in (and drops as it goes).
 const TOAST_RISE: f32 = 10.;
 
+/// What a toast's link does.
+pub type ToastAction = Rc<dyn Fn(&mut Window, &mut App)>;
+
 impl Toast {
     /// Shows `message` for a few seconds. `get` finds this toast in the view.
     pub fn show<V: 'static>(
@@ -456,6 +461,19 @@ impl Toast {
         get: fn(&mut V) -> &mut Toast,
         cx: &mut Context<V>,
     ) {
+        self.show_with(message, error, None, get, cx);
+    }
+
+    /// Shows `message` with a link after it, such as Redo after Undo.
+    pub fn show_with<V: 'static>(
+        &mut self,
+        message: impl Into<SharedString>,
+        error: bool,
+        action: Option<(SharedString, ToastAction)>,
+        get: fn(&mut V) -> &mut Toast,
+        cx: &mut Context<V>,
+    ) {
+        self.action = action;
         self.message = Some((message.into(), error));
         self.serial += 1;
         self.leaving = false;
@@ -485,6 +503,7 @@ impl Toast {
     /// motion).
     pub fn render(&self) -> Option<impl IntoElement + use<>> {
         let (message, error) = self.message.clone()?;
+        let action = self.action.clone();
         let rise = if super::dialog::prefers_reduced_motion() {
             0.
         } else {
@@ -498,6 +517,7 @@ impl Toast {
         };
         let pill = div()
             .relative()
+            .occlude()
             .flex()
             .flex_row()
             .items_center()
@@ -524,6 +544,13 @@ impl Toast {
                 Icon::Check.render(px(12.), colors::GREEN_300)
             })
             .child(div().text_color(colors::GRAY_300).child(message))
+            .when_some(action, |pill, (label, action)| {
+                pill.child(
+                    link("toast-action", label)
+                        .ml_1()
+                        .on_click(move |_, window, cx| action(window, cx)),
+                )
+            })
             .with_animation(
                 ElementId::from(("toast", (self.serial * 2 + leaving as u64) as usize)),
                 animation,

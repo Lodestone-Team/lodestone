@@ -227,37 +227,66 @@ impl InstanceSharedSettings {
         self.reload(cx);
     }
 
+    /// The files this section changes, as they are now, for Undo: the shared
+    /// settings, the instance's sharing state and its `options.txt`.
+    fn undo_files(&self, cx: &Context<Self>) -> crate::undo::Files {
+        let dir = self.dir(cx);
+        let data = self.instances.read(cx).data_dir().clone();
+        crate::undo::Files::read(&[
+            shared_options::profile_path(&data),
+            shared_options::instance_path(&dir),
+            dir.join("minecraft").join("options.txt"),
+        ])
+    }
+
+    fn record_undo(&mut self, before: crate::undo::Files, cx: &mut Context<Self>) {
+        let id = self.instance_id.clone();
+        self.instances.update(cx, |instances, cx| {
+            instances.record_shared(before, Some(id), cx)
+        });
+    }
+
     fn set_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let before = self.undo_files(cx);
         let dir = self.dir(cx);
         let result = shared_options::update_instance(&dir, |s| s.enabled = enabled);
         self.message = None;
+        self.record_undo(before, cx);
         self.after(result, cx);
     }
 
     fn make_preferred(&mut self, cx: &mut Context<Self>) {
+        let before = self.undo_files(cx);
         let dir = self.dir(cx);
         let data = self.instances.read(cx).data_dir().clone();
         let result = shared_options::set_preferred(&data, Some(&self.instance_id), Some(&dir));
         self.message = Some((M::MadePreferred.into(), false));
+        self.record_undo(before, cx);
         self.after(result, cx);
     }
 
     fn set_overrides(&mut self, keys: Vec<String>, overridden: bool, cx: &mut Context<Self>) {
+        let before = self.undo_files(cx);
         let dir = self.dir(cx);
         let result =
             shared_options::set_overrides(&dir, keys.iter().map(String::as_str), overridden);
+        self.record_undo(before, cx);
         self.after(result, cx);
     }
 
     fn keep_changes(&mut self, cx: &mut Context<Self>) {
+        let before = self.undo_files(cx);
         let dir = self.dir(cx);
         let result = shared_options::keep_changes_as_overrides(&dir);
+        self.record_undo(before, cx);
         self.after(result, cx);
     }
 
     fn dismiss_changes(&mut self, cx: &mut Context<Self>) {
+        let before = self.undo_files(cx);
         let dir = self.dir(cx);
         let result = shared_options::dismiss_changes(&dir);
+        self.record_undo(before, cx);
         self.after(result, cx);
     }
 
@@ -270,11 +299,13 @@ impl InstanceSharedSettings {
 
     /// Saves this instance's value, picked with a switch, choice or slider.
     fn set_now(&mut self, key: &str, text: &str, cx: &mut Context<Self>) {
+        let before = self.undo_files(cx);
         let dir = self.dir(cx);
         let jar = self.instances.read(cx).client_jar(&self.game_version);
         let result =
             shared_options::set_instance_value(&dir, &self.game_version, Some(&jar), key, text);
         self.message = None;
+        self.record_undo(before, cx);
         self.after(result, cx);
     }
 
@@ -283,6 +314,7 @@ impl InstanceSharedSettings {
             return;
         };
         let text = input.read(cx).text().to_string();
+        let before = self.undo_files(cx);
         let dir = self.dir(cx);
         let jar = self.instances.read(cx).client_jar(&self.game_version);
         let result =
@@ -291,6 +323,7 @@ impl InstanceSharedSettings {
             self.editing = Some((key, input));
         }
         self.message = None;
+        self.record_undo(before, cx);
         self.after(result, cx);
     }
 

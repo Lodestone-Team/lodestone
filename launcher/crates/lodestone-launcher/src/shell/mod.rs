@@ -21,8 +21,8 @@ pub use shared_settings::SharedSettings;
 pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, EntityId, FocusHandle, Focusable as _, IntoElement,
-    Render, SharedString, Subscription, Task, Window, div, prelude::*,
+    AnyElement, App, ClipboardItem, Context, Entity, EntityId, FocusHandle, Focusable as _,
+    IntoElement, Render, SharedString, Subscription, Task, Window, div, prelude::*,
 };
 use launcher_core::{
     game::crash::Cause,
@@ -35,7 +35,7 @@ use crate::{
         offline_dialog::{OfflineDialog, OfflineDialogDismissed},
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
-    components::{Button, ButtonVariant, Dialog, DialogSlot, Icon, focus},
+    components::{Button, ButtonVariant, Dialog, DialogSlot, Icon, focus, settings::Toast},
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::{
         CrashInfo, Instances, InstancesEvent,
@@ -227,6 +227,8 @@ pub struct LauncherShell {
     /// still reach the window's handlers.
     root_focus: FocusHandle,
     _focus_lost: Option<Subscription>,
+    /// Says what Undo or Redo changed, with the way back.
+    undo_toast: Toast,
     _observe: Vec<Subscription>,
     /// Draws the window again every minute, so "5 minutes ago" stays true.
     _clock: Task<()>,
@@ -352,6 +354,7 @@ impl LauncherShell {
             top_bar_drag_pending: false,
             root_focus: cx.focus_handle(),
             _focus_lost: None,
+            undo_toast: Toast::default(),
             _observe: observe,
             _clock: cx.spawn(async move |this, cx| {
                 loop {
@@ -1504,6 +1507,46 @@ fn render_crash(
 }
 
 impl LauncherShell {
+    /// Undo (`undo` true) or Redo of a setting, with a toast that says what changed
+    /// and offers the way back.
+    fn undo_step(&mut self, undo: bool, cx: &mut Context<Self>) {
+        let outcome = if undo {
+            crate::undo::undo(cx)
+        } else {
+            crate::undo::redo(cx)
+        };
+        let (message, error, back): (String, bool, Option<bool>) = match outcome {
+            crate::undo::Outcome::Undid(change) => {
+                (tr!(M::Undid, change = change), false, Some(false))
+            }
+            crate::undo::Outcome::Redid(change) => {
+                (tr!(M::Redid, change = change), false, Some(true))
+            }
+            crate::undo::Outcome::Refused(reason) => (reason, true, None),
+            crate::undo::Outcome::Nothing => return,
+        };
+        let action = back.map(|undo_again| {
+            let label: SharedString = t(if undo_again { M::Undo } else { M::Redo }).into();
+            let action: crate::components::settings::ToastAction =
+                std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                    if undo_again {
+                        window.dispatch_action(Box::new(crate::Undo), cx);
+                    } else {
+                        window.dispatch_action(Box::new(crate::Redo), cx);
+                    }
+                });
+            (label, action)
+        });
+        self.undo_toast.show_with(
+            message,
+            error,
+            action,
+            |this: &mut Self| &mut this.undo_toast,
+            cx,
+        );
+        cx.refresh_windows();
+    }
+
     /// One zoom level up or down, as Ctrl/⌘ + and − do.
     pub(crate) fn zoom_by(&mut self, up: bool, cx: &mut Context<Self>) {
         let zoom = theme::zoom::step(theme::zoom::get(), up);
@@ -1551,6 +1594,8 @@ impl Render for LauncherShell {
             .on_action(|_: &focus::FocusPrev, window, cx| focus::step(false, window, cx))
             .on_action(cx.listener(|this, _: &crate::ZoomIn, _, cx| this.zoom_by(true, cx)))
             .on_action(cx.listener(|this, _: &crate::ZoomOut, _, cx| this.zoom_by(false, cx)))
+            .on_action(cx.listener(|this, _: &crate::Undo, _, cx| this.undo_step(true, cx)))
+            .on_action(cx.listener(|this, _: &crate::Redo, _, cx| this.undo_step(false, cx)))
             .on_action(cx.listener(|this, _: &crate::ResetZoom, _, cx| {
                 this.instances
                     .update(cx, |instances, cx| instances.set_zoom(1.0, cx))
@@ -1579,6 +1624,7 @@ impl Render for LauncherShell {
             .children(settings)
             .children(modal)
             .child(self.servers_overlay.clone())
+            .children(self.undo_toast.render())
     }
 }
 

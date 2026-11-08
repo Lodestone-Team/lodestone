@@ -86,6 +86,22 @@ impl LoaderPicker {
         cx.notify();
     }
 
+    /// Shows `choice` as Undo puts it back: `touched` when it differs from what the
+    /// instance has saved, so saving keeps it.
+    pub fn restore_choice(
+        &mut self,
+        choice: Option<LoaderChoice>,
+        touched: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.kind = choice.as_ref().map(|c| c.kind);
+        self.selected = choice.map(|c| c.version);
+        self.open = false;
+        self.touched = touched;
+        self.load(cx);
+        cx.notify();
+    }
+
     /// Follows a change of Minecraft version: the loader stays, its version is
     /// picked again.
     pub fn set_game_version(&mut self, game_version: Option<String>, cx: &mut Context<Self>) {
