@@ -12,6 +12,7 @@ import { axiosPutSingleValue } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
 import ApiKeysSection from 'components/Settings/ApiKeys/ApiKeysSection';
+import { OwnMinecraftLinks } from 'components/Settings/MinecraftLinks';
 import AppearanceSetting from 'components/Settings/AppearanceSetting';
 import ToggleBox from 'components/Atoms/Config/ToggleBox';
 import { useColoredConsole } from 'utils/hooks';
@@ -122,6 +123,8 @@ const ProfilePage = () => {
         </div>
 
         <ApiKeysSection enabled={userState === 'logged-in' && !!user} />
+
+        <OwnMinecraftLinks enabled={userState === 'logged-in' && !!user} />
       </div>
     </div>
   );

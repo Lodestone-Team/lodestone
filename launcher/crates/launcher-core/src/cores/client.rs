@@ -210,6 +210,12 @@ impl CoreClient {
         }
     }
 
+    /// The certificate the user trusted for this core, if any: the live streams use it
+    /// too (see [`super::live`]).
+    pub fn pin(&self) -> Option<&super::tls::CertificatePin> {
+        self.pinned.as_ref()?.pin()
+    }
+
     /// Also accepts the certificate `pinned` was made for (see [`super::tls`]).
     pub fn with_pinned(mut self, pinned: Arc<PinnedHttp>) -> Self {
         self.pinned = Some(pinned);
@@ -424,6 +430,26 @@ impl CoreClient {
         key_name: &str,
         expires_at: Option<i64>,
     ) -> Result<(Secret, KeyInfo), CoreError> {
+        self.sign_in_with_scope(
+            username,
+            password,
+            key_name,
+            expires_at,
+            super::live::LauncherScope::default(),
+        )
+        .await
+    }
+
+    /// [`CoreClient::sign_in`], with the console access chosen at sign-in. The key's
+    /// `info.scope` says what the core granted: an older core ignores the opt-ins.
+    pub async fn sign_in_with_scope(
+        &self,
+        username: &str,
+        password: &Secret,
+        key_name: &str,
+        expires_at: Option<i64>,
+        scope: super::live::LauncherScope,
+    ) -> Result<(Secret, KeyInfo), CoreError> {
         let login: LoginReply = self
             .json(
                 Method::POST,
@@ -436,7 +462,7 @@ impl CoreClient {
         let body = serde_json::json!({
             "name": key_name,
             "expires_at": expires_at,
-            "scope": { "type": "launcher" },
+            "scope": scope.to_json(),
         });
         let created: CreatedKeyReply = self
             .json(
@@ -452,6 +478,17 @@ impl CoreClient {
                 err => err,
             })?;
         Ok((Secret::new(created.key), created.info))
+    }
+
+    /// A JSON request with this device's key, for the routes in [`super::live`].
+    pub(crate) async fn json_with_key<T: serde::de::DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        key: &Secret,
+        body: Option<Vec<u8>>,
+    ) -> Result<T, CoreError> {
+        self.json(method, path, Auth::Bearer(key), body).await
     }
 
     async fn put(&self, key: &Secret, path: &str) -> Result<(), CoreError> {
@@ -530,7 +567,7 @@ enum Auth<'a> {
 }
 
 /// An instance UUID as one path segment.
-fn segment(uuid: &str) -> Result<&str, CoreError> {
+pub(crate) fn segment(uuid: &str) -> Result<&str, CoreError> {
     if !uuid.is_empty()
         && uuid
             .chars()

@@ -22,6 +22,8 @@ import { ConsoleLine } from './ConsoleLine';
 import { ParsedConsoleLine, parseConsoleLine } from 'utils/consoleFormat';
 import { useColoredConsole } from 'utils/hooks';
 import { useResolvedTheme } from 'utils/theme';
+import { useLinkedPlayers } from 'data/MinecraftLinks';
+import { linkedPlayerInLine } from 'utils/linkedPlayers';
 
 const autoScrollThreshold = 10;
 // rendering is the slow part, so only the newest lines are put in the DOM
@@ -55,6 +57,7 @@ export default function GameConsole() {
   const [regex, setRegex] = useState(true);
   const [coloredConsole] = useColoredConsole();
   const theme = useResolvedTheme();
+  const linked = useLinkedPlayers();
   const { commandHistory, appendCommandHistory } = useContext(
     CommandHistoryContext
   );
@@ -264,6 +267,9 @@ export default function GameConsole() {
                 line={parsed(line)}
                 colored={coloredConsole}
                 theme={theme}
+                linkedUser={
+                  linkedPlayerInLine(parsed(line).plain, linked)?.user
+                }
               />
             ))}
           </ol>

@@ -30,6 +30,7 @@ import {
   UnsafePermissions,
 } from 'components/Settings/permissionDescriptions';
 import UserApiKeys from 'components/Settings/ApiKeys/UserApiKeys';
+import { UserMinecraftLinks } from 'components/Settings/MinecraftLinks';
 import { useDocumentTitle } from 'usehooks-ts';
 import { NO_SCRIPTING_MESSAGE, useCoreCapabilities } from 'data/SystemInfo';
 
@@ -346,6 +347,14 @@ export const UserSettings = () => {
               <div className="mb-10 pt-12">
                 <UserApiKeys user={selectedUser} />
               </div>
+              {canManageUsers && (
+                <div className="mb-10">
+                  <UserMinecraftLinks
+                    uid={selectedUser.uid}
+                    username={selectedUser.username}
+                  />
+                </div>
+              )}
             </>
           )}
         </div>

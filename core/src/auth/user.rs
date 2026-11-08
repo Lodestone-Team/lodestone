@@ -11,8 +11,8 @@ use crate::{
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{
-        CausedBy, Event, EventInner, ProgressionEndValue, ProgressionEvent, ProgressionEventInner,
-        ProgressionStartValue, UserEvent, UserEventInner,
+        CausedBy, Event, EventInner, InstanceEventInner, ProgressionEndValue, ProgressionEvent,
+        ProgressionEventInner, ProgressionStartValue, UserEvent, UserEventInner,
     },
     types::{InstanceUuid, Snowflake},
 };
@@ -62,6 +62,21 @@ pub struct User {
     /// See [`api_key::launcher_user`]. Never saved.
     #[serde(skip)]
     pub key_all_instances: bool,
+    /// Set per request for a launcher API key: which halves of console access the key
+    /// opted in to. `None` (sessions and other keys) means the console permission applies
+    /// in full, reading and writing. Never saved.
+    #[serde(skip)]
+    pub key_console: Option<KeyConsole>,
+}
+
+/// The console access a launcher API key opted in to, on top of (never beyond) its
+/// user's `can_access_instance_console`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KeyConsole {
+    /// Reading the console's output.
+    pub read: bool,
+    /// Sending commands and chat to the console.
+    pub write: bool,
 }
 
 impl User {
@@ -82,6 +97,7 @@ impl User {
             secret: UserSecret::default(),
             auth_source: AuthSource::Session,
             key_all_instances: false,
+            key_console: None,
         }
     }
 
@@ -207,12 +223,17 @@ impl User {
                     || self.permissions.can_stop_instance.contains(instance_id)
             }
             UserAction::AccessConsole(instance_id) => {
-                self.is_admin
-                    || self
-                        .permissions
-                        .can_access_instance_console
-                        .contains(instance_id)
+                self.key_console.is_none_or(|console| console.write)
+                    && self.has_console_permission(instance_id)
             }
+            UserAction::ReadConsole(instance_id) => match self.key_console {
+                // a launcher key: only with the read opt-in, and only where its user may
+                // use the console
+                Some(console) => console.read && self.has_console_permission(instance_id),
+                // otherwise the core's long-standing rule: whoever can view an instance
+                // can read its console
+                None => self.can_perform_action(&UserAction::ViewInstance(instance_id.clone())),
+            },
             UserAction::AccessSetting(instance_id) => {
                 self.is_admin
                     || self
@@ -259,6 +280,18 @@ impl User {
         }
     }
 
+    /// Whether the user's console permission covers `instance_id`, before a launcher
+    /// key's opt-ins: admins have it everywhere, and a launcher key of the owner or an
+    /// admin (`key_all_instances`) too.
+    fn has_console_permission(&self, instance_id: &InstanceUuid) -> bool {
+        self.is_admin
+            || self.key_all_instances
+            || self
+                .permissions
+                .can_access_instance_console
+                .contains(instance_id)
+    }
+
     /// Checks that the user may perform `action`.
     ///
     /// Safe mode only restricts users other than the owner: while it is on, nobody but the
@@ -297,6 +330,9 @@ impl User {
                     }
                     UserAction::AccessConsole(_) => {
                         eyre!("You don't have permission to access this instance's console")
+                    }
+                    UserAction::ReadConsole(_) => {
+                        eyre!("You don't have permission to read this instance's console")
                     }
                     UserAction::AccessSetting(_) => {
                         eyre!("You don't have permission to access this instance's setting")
@@ -347,6 +383,10 @@ impl User {
     /// the `ClientEvent`s read back from the event database.
     pub fn can_view_event_parts(&self, event_inner: &EventInner, caused_by: &CausedBy) -> bool {
         match event_inner {
+            // what the console shows, and what was typed into it, see ReadConsole
+            EventInner::InstanceEvent(event) if is_console_content(&event.instance_event_inner) => {
+                self.can_perform_action(&UserAction::ReadConsole(event.instance_uuid.clone()))
+            }
             EventInner::InstanceEvent(event) => {
                 self.can_perform_action(&UserAction::ViewInstance(event.instance_uuid.clone()))
             }
@@ -423,12 +463,29 @@ impl User {
     }
 }
 
+/// Whether an instance event carries console content: output, chat, system messages and
+/// the commands sent.
+fn is_console_content(inner: &InstanceEventInner) -> bool {
+    matches!(
+        inner,
+        InstanceEventInner::InstanceOutput { .. }
+            | InstanceEventInner::PlayerMessage { .. }
+            | InstanceEventInner::SystemMessage { .. }
+            | InstanceEventInner::InstanceInput { .. }
+    )
+}
+
 pub enum UserAction {
     // instance specific actions:
     ViewInstance(InstanceUuid),
     StartInstance(InstanceUuid),
     StopInstance(InstanceUuid),
+    /// Sending commands to the console. A launcher key also needs its write opt-in.
     AccessConsole(InstanceUuid),
+    /// Reading the console (output, chat and the commands sent). For sessions and full or
+    /// custom keys this is [`UserAction::ViewInstance`]; a launcher key needs its read
+    /// opt-in and `can_access_instance_console`.
+    ReadConsole(InstanceUuid),
     AccessSetting(InstanceUuid),
     ReadResource(InstanceUuid),
     WriteResource(InstanceUuid),
@@ -456,6 +513,7 @@ impl UserAction {
             UserAction::StartInstance(_) => true,
             UserAction::StopInstance(_) => true,
             UserAction::AccessConsole(_) => true,
+            UserAction::ReadConsole(_) => true,
             UserAction::AccessSetting(_) => true,
             UserAction::ReadResource(_) => true,
             UserAction::WriteResource(_) => false,

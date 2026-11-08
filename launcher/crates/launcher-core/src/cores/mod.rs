@@ -8,11 +8,14 @@
 //! - [`trust`]: the advisory before installing code from a core that isn't trusted;
 //! - [`link`] and [`sync`]: an instance made for a server, and its mods kept in step
 //!   with the server's client pack through the modpack import and update;
-//! - [`join`]: where to join a server.
+//! - [`join`]: where to join a server;
+//! - [`live`]: a server's live state, players and console, and linking Minecraft
+//!   accounts.
 
 pub mod client;
 pub mod join;
 pub mod link;
+pub mod live;
 pub mod models;
 pub mod store;
 pub mod sync;

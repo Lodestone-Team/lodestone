@@ -111,6 +111,7 @@ mod handlers;
 pub mod implementations;
 pub mod macro_executor;
 mod migration;
+mod minecraft_links;
 mod modpack;
 mod modrinth;
 mod mods;
@@ -213,6 +214,14 @@ pub(crate) mod test_util {
                 )
                 .await,
             ),
+            // never Minecraft's real services: tests that link accounts use a mock
+            minecraft_links: Arc::new(
+                crate::minecraft_links::MinecraftLinks::load(
+                    dir.join("minecraft_links.json"),
+                    "http://127.0.0.1:9/minecraft/profile",
+                )
+                .await,
+            ),
             global_settings: Arc::new(Mutex::new(global_settings)),
             macro_executor: crate::macro_executor::MacroExecutor::new(
                 tx.clone(),
@@ -276,6 +285,8 @@ pub struct AppState {
     mods: Arc<mods::ModsState>,
     /// The instances listed for Lodestone Launcher, and the caches of the public routes.
     public_listing: Arc<public_listing::PublicListing>,
+    /// Lodestone users' Minecraft accounts.
+    minecraft_links: Arc<minecraft_links::MinecraftLinks>,
 }
 
 impl AppState {
@@ -336,6 +347,12 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_instance_mods_routes(shared_state.clone()))
         .merge(get_modpack_routes(shared_state.clone()))
         .merge(handlers::public_instances::get_public_instance_routes(
+            shared_state.clone(),
+        ))
+        .merge(handlers::launcher_live::get_launcher_live_routes(
+            shared_state.clone(),
+        ))
+        .merge(handlers::minecraft_links::get_minecraft_link_routes(
             shared_state.clone(),
         ))
         .layer(cors)
@@ -895,6 +912,13 @@ pub async fn run(
             public_listing::PublicListing::load(
                 path_to_stores().join("public_listing.json"),
                 path_to_tmp().join("client-packs"),
+            )
+            .await,
+        ),
+        minecraft_links: Arc::new(
+            minecraft_links::MinecraftLinks::load(
+                path_to_stores().join("minecraft_links.json"),
+                minecraft_links::MINECRAFT_PROFILE_URL,
             )
             .await,
         ),

@@ -93,8 +93,11 @@ pub async fn delete_user(
         .users_manager
         .write()
         .await
-        .delete_user(uid, requester.caused_by())
+        .delete_user(uid.clone(), requester.caused_by())
         .await?;
+    if let Err(e) = state.minecraft_links.remove_user(&uid).await {
+        tracing::error!("Failed to remove a deleted user's Minecraft links: {e}");
+    }
     Ok(Json(json!("ok")))
 }
 

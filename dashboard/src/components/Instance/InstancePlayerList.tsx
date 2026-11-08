@@ -8,10 +8,13 @@ import {
   faUserCircle,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { useLinkedPlayers } from 'data/MinecraftLinks';
+import { linkedUserOf } from 'utils/linkedPlayers';
 
 export default function InstancePlayerList() {
   const { selectedInstance: instance } = useContext(InstanceContext);
   const uuid = instance?.uuid;
+  const linked = useLinkedPlayers();
 
   // Ascending order is referring to alphabetical order
   // Note: Arrow will point DOWN when sorting in ascending order, as seen on the figma
@@ -77,6 +80,10 @@ export default function InstancePlayerList() {
             // Only Minecraft players have a uuid (GenericPlayer has an id)
             const playerUuid =
               player.type === 'MinecraftPlayer' ? player.uuid : undefined;
+            const linkedUser = linkedUserOf(linked, {
+              name: player.name,
+              uuid: playerUuid,
+            });
             return (
               <PlayerListItem key={playerUuid}>
                 <img
@@ -87,6 +94,14 @@ export default function InstancePlayerList() {
                   style={{ imageRendering: 'pixelated', userSelect: 'none' }}
                 />
                 <div className="mx-1 text-medium">{player.name}</div>
+                {linkedUser && (
+                  <div
+                    className="mx-1 text-small font-medium text-white/50"
+                    title="The Lodestone user who linked this Minecraft account"
+                  >
+                    {linkedUser}
+                  </div>
+                )}
               </PlayerListItem>
             );
           })}
