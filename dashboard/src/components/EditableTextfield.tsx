@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { BeatLoader } from 'react-spinners';
 import { catchAsyncToString } from 'utils/util';
 import AutoGrowInput from './Atoms/AutoGrowInput';
+import { settleSave } from './editableTextfieldState';
 
 export type TextfieldType = 'heading' | 'description';
 
@@ -53,11 +54,16 @@ export default function EditableTextfield({
     setEditText(trimmed);
     setIsLoading(true);
     const error = await catchAsyncToString(onSubmitProp(trimmed));
-    console.log(error);
-    setError(error);
+    const next = settleSave(
+      { displayText, editText: trimmed, isEditing, error: '' },
+      trimmed,
+      error
+    );
+    setDisplayText(next.displayText);
+    setEditText(next.editText);
+    setIsEditing(next.isEditing);
+    setError(next.error);
     setIsLoading(false);
-    if (!error) setDisplayText(trimmed);
-    setIsEditing(false);
   };
 
   const onCancel = () => {
