@@ -10,11 +10,16 @@
 //! - [`log4j`] and [`crash`]: the game's output and what went wrong.
 
 pub mod assets;
+pub mod crash;
 pub mod download;
+pub mod install;
+pub mod launch;
 pub mod libraries;
+pub mod log4j;
 pub mod mojang;
 pub mod natives;
 pub mod platform;
+pub mod process;
 pub mod rules;
 pub mod runtime;
 pub mod version;

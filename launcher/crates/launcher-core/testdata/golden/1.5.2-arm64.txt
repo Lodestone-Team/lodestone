@@ -1,0 +1,16 @@
+/data/runtimes/jre-legacy/mac-os/jre.bundle/Contents/Home/bin/java
+-Xdock:name=Minecraft
+-Djava.library.path=/data/instances/test/natives
+-Dminecraft.launcher.brand=lodestone-launcher
+-Dminecraft.launcher.version=0.1.0
+-cp
+/data/libraries/net/minecraft/launchwrapper/1.5/launchwrapper-1.5.jar:/data/libraries/net/sf/jopt-simple/jopt-simple/4.5/jopt-simple-4.5.jar:/data/libraries/org/ow2/asm/asm-all/4.1/asm-all-4.1.jar:/data/libraries/net/java/jinput/jinput/2.0.5/jinput-2.0.5.jar:/data/libraries/net/java/jutils/jutils/1.0.0/jutils-1.0.0.jar:/data/libraries/org/lwjgl/lwjgl/lwjgl/2.9.0/lwjgl-2.9.0.jar:/data/libraries/org/lwjgl/lwjgl/lwjgl_util/2.9.0/lwjgl_util-2.9.0.jar:/data/versions/1.5.2/1.5.2.jar
+-Xms512M
+-Xmx2048M
+net.minecraft.launchwrapper.Launch
+Lodestoner
+token:<redacted>:8667ba71b85a4004af54457a9734eed7
+--gameDir
+/data/instances/test/minecraft
+--assetsDir
+/data/instances/test/minecraft/resources

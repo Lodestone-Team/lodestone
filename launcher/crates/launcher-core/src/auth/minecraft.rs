@@ -184,6 +184,23 @@ pub async fn login(
     })
 }
 
+/// The Xbox user id (`xuid`) in a Minecraft access token, which is a JWT. The game
+/// gets it as `--xuid`. The token's signature is not checked: it came from Mojang
+/// over TLS, and the value is only passed back to the game.
+pub fn xuid_from_token(token: &Secret) -> Option<String> {
+    use base64::Engine as _;
+    let payload = token.expose().split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload.trim_end_matches('='))
+        .ok()?;
+    let claims: Value = serde_json::from_slice(&bytes).ok()?;
+    let xuid = claims.get("xuid")?;
+    xuid.as_str()
+        .map(str::to_string)
+        .or_else(|| xuid.as_u64().map(|n| n.to_string()))
+        .filter(|xuid| !xuid.is_empty() && xuid.bytes().all(|b| b.is_ascii_digit()))
+}
+
 fn is_invalid_app_registration(response: &Response) -> bool {
     response.json::<Value>().ok().is_some_and(|body| {
         ["errorMessage", "error", "message"].iter().any(|key| {
@@ -279,4 +296,37 @@ pub async fn profile(
         name: body.name,
         skin_url,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use base64::Engine as _;
+
+    use super::*;
+
+    #[test]
+    fn reads_the_xuid_from_the_token() {
+        let encode = |json: &str| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json);
+        let token = format!(
+            "{}.{}.signature",
+            encode(r#"{"alg":"HS256"}"#),
+            encode(r#"{"xuid":"2535412345678901","pfd":[]}"#)
+        );
+        assert_eq!(
+            xuid_from_token(&Secret::new(token)).as_deref(),
+            Some("2535412345678901")
+        );
+        let numeric = format!("h.{}.s", encode(r#"{"xuid":2535412345678901}"#));
+        assert_eq!(
+            xuid_from_token(&Secret::new(numeric)).as_deref(),
+            Some("2535412345678901")
+        );
+        for bad in [
+            "not-a-jwt",
+            "a.!!!.c",
+            &format!("a.{}.c", encode(r#"{"xuid":"x; rm"}"#)),
+        ] {
+            assert_eq!(xuid_from_token(&Secret::new(bad)), None, "{bad}");
+        }
+    }
 }
