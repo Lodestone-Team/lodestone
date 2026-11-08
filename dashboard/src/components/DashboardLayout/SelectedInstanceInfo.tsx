@@ -12,6 +12,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import { useCodeExecution } from 'data/CodeExecution';
+import { isUserAuthorized, useUserInfo } from 'data/UserInfo';
+import { getModSupport, modTabTitle } from 'utils/mods';
 
 export const SelectedInstanceInfo = ({
   className = '',
@@ -28,6 +30,14 @@ export const SelectedInstanceInfo = ({
   const { data: globalSettings } = useGlobalSettings();
   // macros are owner only
   const { canManage } = useCodeExecution();
+  // the Mods tab: only for instances that support mods or plugins
+  const modSupport = selectedInstance
+    ? getModSupport(selectedInstance.game_type)
+    : null;
+  const { data: user } = useUserInfo();
+  const canReadFiles =
+    !!selectedInstance &&
+    isUserAuthorized(user, 'can_read_instance_file', selectedInstance.uuid);
 
   const uuid = selectedInstance?.uuid;
   if (!selectedInstance || !uuid) {
@@ -65,6 +75,7 @@ export const SelectedInstanceInfo = ({
         tabs.map((tab) => (
           (tab.title !== 'Playitgg' || globalSettings?.playit_enabled) &&
           (tab.path !== 'macros' || canManage) &&
+          (tab.path !== 'mods' || (modSupport && canReadFiles)) &&
           <RadioGroup.Option
             key={tab.path}
             value={`/dashboard/${tab.path}`}
@@ -92,7 +103,11 @@ export const SelectedInstanceInfo = ({
               >
                 {tab.icon}
               </div>
-              <div className="text-gray-300">{tab.title}</div>
+              <div className="text-gray-300">
+                {tab.path === 'mods' && modSupport
+                  ? modTabTitle(modSupport.kind)
+                  : tab.title}
+              </div>
             </button>
           </RadioGroup.Option>
         ))}
