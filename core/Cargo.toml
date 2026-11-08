@@ -70,6 +70,7 @@ serde-aux = { version = "4.7.0", default-features = false }
 serde_json = { version = "1.0.154", features = ["preserve_order", "float_roundtrip"] }
 sha1 = "0.10.7"
 sha2 = "0.10.9"
+socket2 = "0.6.5"
 # constant-time comparison of API key hashes
 subtle = "2.6.1"
 # Pinned to a launchbadge/sqlx main commit: the latest release (0.9.0) caps libsqlite3-sys <0.38,
