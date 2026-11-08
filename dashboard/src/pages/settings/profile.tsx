@@ -11,6 +11,7 @@ import { axiosPutSingleValue } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
 import ApiKeysSection from 'components/Settings/ApiKeys/ApiKeysSection';
+import AppearanceSetting from 'components/Settings/AppearanceSetting';
 import { toast } from 'react-toastify';
 
 const ProfilePage = () => {
@@ -99,6 +100,14 @@ const ProfilePage = () => {
             onSubmit={rename}
             disabled={userState !== 'logged-in' || !user}
           />
+        </div>
+
+        <div className="mt-8 text-h3 font-extrabold text-gray-300">
+          Appearance
+        </div>
+        {/* saved in this browser, not on the core */}
+        <div className="mt-4 w-full min-w-0 overflow-clip rounded-lg border border-gray-faded/30">
+          <AppearanceSetting />
         </div>
 
         <div className="mt-8 text-h3 font-extrabold text-gray-300">

@@ -25,6 +25,15 @@ export const useTauri = (): tauri | undefined => tauri; // Export a hook that re
 export const isTauriMacOS: boolean =
   globalTauriExists && /Mac/i.test(window.navigator.userAgent);
 
+// Sets the desktop window's light or dark appearance (on macOS the title bar buttons drawn
+// over the page), or null to follow the OS again. Needs core:window:allow-set-theme.
+export const setTauriWindowTheme = (theme: 'light' | 'dark' | null) => {
+  tauri?.window
+    ?.getCurrentWindow()
+    .setTheme(theme)
+    .catch((e: unknown) => console.warn('Failed to set the window theme', e));
+};
+
 // True for local development: the Next dev server, or a debug build of the desktop app.
 export const useIsDevBuild = (): boolean => {
   const [tauriDebugBuild, setTauriDebugBuild] = useState(false);
