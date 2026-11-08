@@ -129,6 +129,8 @@ pub struct FakeModrinth {
     pub downloaded: Mutex<Vec<String>>,
     /// `client_side` of projects; `optional` when not set.
     client_sides: Mutex<HashMap<String, String>>,
+    /// Icons of projects; none when not set.
+    icons: Mutex<HashMap<String, String>>,
 }
 
 fn not_found() -> Error {
@@ -158,8 +160,16 @@ impl FakeModrinth {
             .insert(project.into(), client_side.into());
     }
 
+    pub fn set_icon_url(&self, project: &str, url: &str) {
+        self.icons
+            .lock()
+            .unwrap()
+            .insert(project.into(), url.into());
+    }
+
     fn project_for(&self, id: &str) -> ModrinthProject {
         let mut project = Self::fake_project(id);
+        project.icon_url = self.icons.lock().unwrap().get(id).cloned();
         if let Some(side) = self.client_sides.lock().unwrap().get(id) {
             project.client_side = side.clone();
         }

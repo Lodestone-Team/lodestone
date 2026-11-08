@@ -26,6 +26,7 @@ impl From<RestoreConfigV042> for RestoreConfig {
             jre_major_version: config.jre_major_version,
             has_started: config.has_started,
             java_cmd: None,
+            modpack: None,
         }
     }
 }
