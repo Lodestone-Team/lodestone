@@ -72,6 +72,18 @@ impl Progress {
         }
     }
 
+    /// Sets every counter, for previews of the progress.
+    pub fn set(&self, snapshot: ProgressSnapshot) {
+        self.files_total
+            .store(snapshot.files_total, Ordering::Relaxed);
+        self.files_done
+            .store(snapshot.files_done, Ordering::Relaxed);
+        self.bytes_total
+            .store(snapshot.bytes_total, Ordering::Relaxed);
+        self.bytes_done
+            .store(snapshot.bytes_done, Ordering::Relaxed);
+    }
+
     fn reset(&self, files: u64, bytes: u64) {
         self.files_total.store(files, Ordering::Relaxed);
         self.files_done.store(0, Ordering::Relaxed);

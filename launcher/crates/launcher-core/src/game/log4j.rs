@@ -343,6 +343,20 @@ fn unescape(text: &str) -> String {
     out
 }
 
+/// A log timestamp (milliseconds since the Unix epoch) as local `HH:MM:SS`.
+pub fn format_time(timestamp_ms: u64) -> String {
+    let seconds = (timestamp_ms / 1000) as libc::time_t;
+    // SAFETY: `localtime_r` writes only into `tm`, which outlives the call, and
+    // `seconds` is a valid `time_t`.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let converted = unsafe { !libc::localtime_r(&seconds, &mut tm).is_null() };
+    if !converted {
+        let day = timestamp_ms / 1000 % 86_400;
+        return format!("{:02}:{:02}:{:02}", day / 3600, day / 60 % 60, day % 60);
+    }
+    format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
+}
+
 /// Replaces each secret in a line with `<redacted>`. Old versions print the session
 /// token, so every line from the game passes through this before it is shown.
 #[derive(Clone, Debug, Default)]
@@ -497,6 +511,18 @@ mod tests {
         assert_eq!(
             line.to_text(),
             "[Render thread/ERROR] Crash\njava.lang.Error\n\tat x"
+        );
+    }
+
+    #[test]
+    fn formats_times() {
+        let time = format_time(1_700_000_000_000);
+        assert_eq!(time.len(), 8);
+        assert_eq!(time.matches(':').count(), 2);
+        assert!(
+            time.chars()
+                .filter(|c| *c != ':')
+                .all(|c| c.is_ascii_digit())
         );
     }
 
