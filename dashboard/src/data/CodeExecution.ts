@@ -67,10 +67,10 @@ export const useCanControlInstance = (
 };
 
 // Settings that choose the program an instance runs and its arguments.
-export const COMMAND_LINE_SETTINGS = ['java_cmd', 'cmd_args'];
+export const COMMAND_LINE_SETTINGS = ['java_cmd', 'cmd_args', 'custom_cmd'];
 
 /**
- * Why the current user can't change `java_cmd` / `cmd_args`, or null if they
+ * Why the current user can't change `java_cmd` / `cmd_args` / `custom_cmd`, or null if they
  * can. The core allows the owner, or, with safe mode off, a user allowed to
  * write global files (handlers/instance_config.rs), and nobody while code
  * execution is disabled.
