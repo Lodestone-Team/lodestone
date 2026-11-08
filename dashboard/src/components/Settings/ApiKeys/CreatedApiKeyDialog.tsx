@@ -66,7 +66,7 @@ export default function CreatedApiKeyDialog({
     >
       {/* Clicking outside or pressing Escape doesn't close it: the key would
           be lost. Only the Done button does. */}
-      <Dialog onClose={() => undefined} className="relative z-10">
+      <Dialog onClose={() => undefined} className="relative z-60">
         <ModalBackdrop />
         <div className="fixed inset-0 overflow-y-auto">
           <div className="flex min-h-full items-center justify-center p-4">

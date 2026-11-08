@@ -9,6 +9,12 @@ import {
 import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { ApiError, errorToString } from 'utils/util';
+import {
+  SettingsCard,
+  SettingsEmptyRow,
+  SettingsRow,
+  SettingsSection,
+} from './SettingsBlocks';
 
 type Link = { minecraft_uuid: string; minecraft_name: string; uid: string };
 
@@ -34,9 +40,9 @@ function LinkList({
   const [toRemove, setToRemove] = useState<Link | null>(null);
   if (error) {
     return (
-      <div className="text-medium font-medium tracking-medium text-white/50 italic">
-        {linkErrorMessage(error)}
-      </div>
+      <SettingsCard>
+        <SettingsEmptyRow>{linkErrorMessage(error)}</SettingsEmptyRow>
+      </SettingsCard>
     );
   }
   if (!links) return null;
@@ -70,35 +76,27 @@ function LinkList({
           </>
         )}
       </ConfirmDialog>
-      {links.length === 0 ? (
-        <div className="text-medium font-medium tracking-medium text-white/50 italic">
-          {emptyText}
-        </div>
-      ) : (
-        <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-          {links.map((link) => (
-            <div
+      <SettingsCard>
+        {links.length === 0 ? (
+          <SettingsEmptyRow>{emptyText}</SettingsEmptyRow>
+        ) : (
+          links.map((link) => (
+            <SettingsRow
               key={link.minecraft_uuid}
-              className="flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3"
+              label={
+                <span className="block truncate">{link.minecraft_name}</span>
+              }
+              hint={<span className="font-mono">{link.minecraft_uuid}</span>}
             >
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate text-h3 leading-tight font-bold text-gray-300">
-                  {link.minecraft_name}
-                </span>
-                <span className="font-mono text-small text-white/50">
-                  {link.minecraft_uuid}
-                </span>
-              </div>
               <Button
                 label="Remove"
                 intention="danger"
-                className="shrink-0"
                 onClick={() => setToRemove(link)}
               />
-            </div>
-          ))}
-        </div>
-      )}
+            </SettingsRow>
+          ))
+        )}
+      </SettingsCard>
     </>
   );
 }
@@ -107,23 +105,17 @@ function LinkList({
 export function OwnMinecraftLinks({ enabled }: { enabled: boolean }) {
   const { data, error } = useOwnMinecraftLinks(enabled);
   return (
-    <>
-      <div className="mt-8 text-h3 font-extrabold text-gray-300">
-        Minecraft accounts
-      </div>
-      <p className="text-medium font-medium tracking-medium text-white/50">
-        Accounts you linked from Lodestone Launcher, which checks with Microsoft
-        that they are yours. The dashboard shows your name next to them.
-      </p>
-      <div className="mt-4">
-        <LinkList
-          links={data}
-          error={error}
-          anyUser={false}
-          emptyText="No Minecraft account is linked. Sign in to this core in Lodestone Launcher to link one."
-        />
-      </div>
-    </>
+    <SettingsSection
+      title="Minecraft accounts"
+      lead="Accounts you linked from Lodestone Launcher, which checks with Microsoft that they are yours. The dashboard shows your name next to them."
+    >
+      <LinkList
+        links={data}
+        error={error}
+        anyUser={false}
+        emptyText="No Minecraft account is linked. Sign in to this core in Lodestone Launcher to link one."
+      />
+    </SettingsSection>
   );
 }
 
@@ -137,21 +129,16 @@ export function UserMinecraftLinks({
 }) {
   const { data, error } = useAllMinecraftLinks();
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <div className="text-h2 leading-tight font-bold tracking-tight text-gray-300">
-          Minecraft Accounts
-        </div>
-        <div className="text-h3 font-medium tracking-medium text-white/50">
-          The Minecraft accounts {username} linked from Lodestone Launcher.
-        </div>
-      </div>
+    <SettingsSection
+      title="Minecraft accounts"
+      lead={`The Minecraft accounts ${username} linked from Lodestone Launcher.`}
+    >
       <LinkList
         links={data?.filter((link) => link.uid === uid)}
         error={error}
         anyUser
         emptyText={`${username} has no linked Minecraft accounts.`}
       />
-    </div>
+    </SettingsSection>
   );
 }

@@ -1,7 +1,8 @@
 //! ATLauncher (ATLauncher/ATLauncher).
 //!
 //! The data folder is the app's working directory, `ATLauncher.app/Contents/Java` on
-//! macOS (`build.gradle` sets `user.dir`; `FileSystem.java`), with
+//! macOS (`build.gradle` sets `user.dir`; `FileSystem.java`) and by default
+//! `%APPDATA%\ATLauncher` on Windows (`packaging/windows-setup/installer.iss`), with
 //! `instances/<folder>/instance.json` read by Gson into `data/Instance.java`: `id` is the
 //! Minecraft version; `launcher` (`data/InstanceLauncher.java`) has `name`,
 //! `loaderVersion` (`data/minecraft/loaders/LoaderVersion.java`: `type` Fabric, Forge,
