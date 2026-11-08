@@ -39,6 +39,7 @@ import {
   isCodeExecutionDisabledError,
   useCodeExecution,
 } from 'data/CodeExecution';
+import { NO_SCRIPTING_MESSAGE, useCoreCapabilities } from 'data/SystemInfo';
 
 const MacroModalContents = ({
   initialMacroData,
@@ -137,6 +138,11 @@ const Macros = () => {
   // macros are owner only; running or configuring them also needs code
   // execution to be enabled (listing, killing and history still work)
   const { canManage, canRun } = useCodeExecution();
+  // a core built without Deno has no macros at all; the lists wait until we know
+  const { macros: macrosAvailable, isPending: capabilitiesPending } =
+    useCoreCapabilities();
+  const listsEnabled =
+    !!uuid && canManage && macrosAvailable && !capabilitiesPending;
 
   // macro settings state; the modal is open while macroRow is set
   const [macroData, setMacroData] = useState<GetConfigResponse>();
@@ -149,19 +155,19 @@ const Macros = () => {
   const macrosQuery = useQuery({
     queryKey: macroListKey(uuid),
     queryFn: () => getMacros(uuid as string),
-    enabled: !!uuid && canManage,
+    enabled: listsEnabled,
     staleTime: 0,
   });
   const tasksQuery = useQuery({
     queryKey: taskListKey(uuid),
     queryFn: () => getTasks(uuid as string),
-    enabled: !!uuid && canManage,
+    enabled: listsEnabled,
     staleTime: 0,
   });
   const historyQuery = useQuery({
     queryKey: historyListKey(uuid),
     queryFn: () => getInstanceHistory(uuid as string),
-    enabled: !!uuid && canManage,
+    enabled: listsEnabled,
     staleTime: 0,
   });
 
@@ -382,6 +388,14 @@ const Macros = () => {
   }, [macros, tasks, history, uuid, queryClient, canRun]);
 
   const pages: MacrosPage[] = ['All Macros', 'Running Tasks', 'History'];
+
+  if (!macrosAvailable) {
+    return (
+      <div className="relative">
+        <div className="mb-4 text-white/50">{NO_SCRIPTING_MESSAGE}</div>
+      </div>
+    );
+  }
 
   if (!canManage) {
     return (

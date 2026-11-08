@@ -6,6 +6,7 @@ import axios, { AxiosError } from 'axios';
 import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { TlsInfo } from 'bindings/TlsInfo';
+import { CoreCapabilities } from 'bindings/CoreCapabilities';
 
 // The /system routes require login; axios sends the token by default
 // (set in pages/index.tsx).
@@ -64,6 +65,8 @@ export interface CoreInfo {
   up_since: number;
   /** The core's HTTPS certificate. Missing on cores without HTTPS support. */
   tls?: TlsInfo;
+  /** The core's optional features. Missing on older cores, which have them all. */
+  capabilities?: Partial<CoreCapabilities>;
 }
 
 /**
@@ -88,6 +91,28 @@ export const useCoreInfo = (refetchInterval: number | false = false) => {
     queryFn: () => axios.get<CoreInfo>(`/info`).then((res) => res.data),
     refetchInterval,
   });
+};
+
+/** Shown instead of the macro features on a core built without Deno. */
+export const NO_SCRIPTING_MESSAGE =
+  "This core was built without scripting support (Deno), so macros aren't available.";
+
+/**
+ * The optional features of the core, from /info. A feature the core doesn't
+ * report (an older core) counts as available. While /info loads, `isPending`
+ * is true: wait before showing anything that may turn out to be unavailable.
+ *
+ * - `macros`: macros, tasks, instance scripts and extensions.
+ * - `genericInstances`: atom instances. Docker instances don't need it.
+ */
+export const useCoreCapabilities = () => {
+  const { data, isPending } = useCoreInfo();
+  const capabilities = data?.capabilities;
+  return {
+    isPending,
+    macros: capabilities?.macros ?? true,
+    genericInstances: capabilities?.generic_instances ?? true,
+  };
 };
 
 /**

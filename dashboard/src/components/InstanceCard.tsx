@@ -28,6 +28,7 @@ import {
   useCodeExecution,
 } from 'data/CodeExecution';
 import { LodestoneContext } from 'data/LodestoneContext';
+import { useCoreCapabilities } from 'data/SystemInfo';
 import Tooltip from 'rc-tooltip';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Menu, Transition } from '@headlessui/react';
@@ -95,8 +96,15 @@ export default function InstanceCard({
   // execution is disabled
   const { canManage, enabled: codeExecutionEnabled } = useCodeExecution();
   const isAtom = isAtomInstance({ uuid, game_type });
-  const atomBlockedReason =
-    isAtom && !canManage ? OWNER_ONLY_ATOM_MESSAGE : null;
+  // a core built without Deno can't run atoms (it doesn't restore them either)
+  const { genericInstances } = useCoreCapabilities();
+  const atomBlockedReason = !isAtom
+    ? null
+    : !genericInstances
+      ? "This core was built without scripting support (Deno), so atom instances aren't available."
+      : !canManage
+        ? OWNER_ONLY_ATOM_MESSAGE
+        : null;
   const atomStartBlocked = isAtom && !codeExecutionEnabled;
   let disabled = !canViewInstance || atomBlockedReason !== null;
   switch (stateToApiEndpointMap[state]) {

@@ -113,10 +113,14 @@ async fn install_extension(
 }
 
 pub fn get_extension_routes(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/extension/gitstatus", get(is_git_installed))
         .route("/extension/fetchmanifest", get(fetch_extension_manifest))
         .route("/extension/install", put(install_extension))
-        .route_layer(middleware::from_fn_with_state(state.clone(), require_owner))
-        .with_state(state)
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_owner));
+    // extensions are macros and atoms, so they are no use without Deno
+    #[cfg(not(feature = "deno"))]
+    let router =
+        crate::capabilities::unavailable_routes(router, crate::capabilities::Capability::Macros);
+    router.with_state(state)
 }

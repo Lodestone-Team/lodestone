@@ -4,6 +4,8 @@ pub mod core_info;
 pub mod events;
 pub mod extension;
 pub mod gateway;
+#[cfg(feature = "deno")]
+pub mod generic_instance;
 pub mod global_fs;
 pub mod global_settings;
 pub mod instance;

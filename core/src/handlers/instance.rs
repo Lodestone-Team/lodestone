@@ -7,8 +7,7 @@ use axum::{extract::Path, Json};
 
 use color_eyre::eyre::{eyre, Context};
 use futures::future::BoxFuture;
-use serde::Deserialize;
-use tracing::{error, info};
+use tracing::error;
 
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
@@ -16,11 +15,10 @@ use crate::events::{
     CausedBy, Event, ProgressionEndValue, ProgressionEventID, ProgressionStartValue,
 };
 
-use crate::implementations::generic;
 use crate::traits::t_configurable::GameType;
 
 use crate::implementations::minecraft::{MinecraftInstance, SetupConfig};
-use crate::prelude::{path_to_instances, GameInstance};
+use crate::prelude::path_to_instances;
 use crate::traits::t_configurable::manifest::SetupValue;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
 use crate::types::{DotLodestoneConfig, InstanceUuid};
@@ -28,8 +26,7 @@ use crate::{implementations::minecraft, traits::t_server::State as InstanceState
 
 use super::instance_setup_configs::HandlerGameType;
 use super::util::{
-    all_instances, check_create_atom, get_instance, require_code_execution, require_owner_if_atom,
-    AuthedUser,
+    all_instances, get_instance, require_code_execution, require_owner_if_atom, AuthedUser,
 };
 
 /// The longest instance name, in characters, that is used in the folder name.
@@ -61,7 +58,11 @@ pub fn sanitize_instance_dir_name(name: &str) -> String {
 }
 
 /// The folder for a new instance: `<instances_dir>/<sanitized name>-<first 8 uuid chars>`.
-fn instance_setup_path(instances_dir: &FsPath, name: &str, uuid: &InstanceUuid) -> PathBuf {
+pub(super) fn instance_setup_path(
+    instances_dir: &FsPath,
+    name: &str,
+    uuid: &InstanceUuid,
+) -> PathBuf {
     let uuid = uuid.no_prefix();
     let short_uuid = uuid.get(0..8).unwrap_or(&uuid);
     instances_dir.join(format!(
@@ -72,7 +73,7 @@ fn instance_setup_path(instances_dir: &FsPath, name: &str, uuid: &InstanceUuid) 
 }
 
 /// Removes the folder of an instance whose creation failed, logging any error.
-async fn remove_failed_instance_dir(setup_path: PathBuf) {
+pub(super) async fn remove_failed_instance_dir(setup_path: PathBuf) {
     if let Err(e) = crate::util::fs::remove_dir_all(&setup_path).await {
         error!(
             "Failed to remove directory {} after instance creation failed: {}",
@@ -292,105 +293,6 @@ pub(super) async fn spawn_minecraft_instance_creation(
     Ok(instance_uuid)
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct GenericSetupConfig {
-    url: String,
-    setup_value: SetupValue,
-}
-
-pub async fn create_generic_instance(
-    State(state): State<AppState>,
-    requester: AuthedUser,
-    Json(setup_config): Json<GenericSetupConfig>,
-) -> Result<Json<InstanceUuid>, Error> {
-    // an atom is code that runs on the core
-    check_create_atom(&requester, &state.code_execution)?;
-    let caused_by = requester.caused_by();
-    let instance_uuid = InstanceUuid::default();
-
-    let setup_path = instance_setup_path(
-        path_to_instances(),
-        &setup_config.setup_value.name,
-        &instance_uuid,
-    );
-
-    tokio::fs::create_dir_all(&setup_path)
-        .await
-        .context("Failed to create instance directory")?;
-
-    let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), GameType::Generic);
-    let event_broadcaster = state.event_broadcaster.clone();
-    let created_uuid = instance_uuid.clone();
-    tokio::task::spawn(async move {
-        let (progression_start_event, event_id) = Event::new_progression_event_start(
-            format!("Setting up instance {}", setup_config.setup_value.name),
-            Some(100.0),
-            Some(ProgressionStartValue::InstanceCreation {
-                instance_uuid: instance_uuid.clone(),
-            }),
-            caused_by,
-        );
-        event_broadcaster.send(progression_start_event);
-        let instance = match generic::GenericInstance::new(
-            setup_config.url.into(),
-            setup_path.clone(),
-            dot_lodestone_config.clone(),
-            setup_config.setup_value,
-            &event_id,
-            state.event_broadcaster.clone(),
-            state.macro_executor.clone(),
-        )
-        .await
-        {
-            Ok(v) => {
-                info!("Atom created successfully");
-                event_broadcaster.send(Event::new_progression_event_end(
-                    event_id,
-                    true,
-                    Some("Instance created successfully"),
-                    Some(ProgressionEndValue::InstanceCreation(
-                        v.get_instance_info().await,
-                    )),
-                ));
-                v
-            }
-            Err(e) => {
-                error!("Atom creation failed: {:?}", e);
-                event_broadcaster.send(Event::new_progression_event_end(
-                    event_id,
-                    false,
-                    Some(&format!("Instance creation failed: {e}")),
-                    None,
-                ));
-                remove_failed_instance_dir(setup_path).await;
-                return;
-            }
-        };
-
-        // write dot lodestone config
-        let written = match serde_json::to_string_pretty(&dot_lodestone_config) {
-            Ok(config) => tokio::fs::write(setup_path.join(".lodestone_config"), config)
-                .await
-                .context("Failed to write .lodestone_config file"),
-            Err(e) => Err(e).context("Failed to serialize .lodestone_config"),
-        };
-        if let Err(e) = written {
-            // without the config file the instance would be lost on the next start
-            error!(
-                "Failed to save instance {}: {:#}. The instance was not added",
-                instance_uuid, e
-            );
-            return;
-        }
-
-        state
-            .instances
-            .insert(instance_uuid.clone(), instance.into());
-    });
-
-    Ok(Json(created_uuid))
-}
-
 pub async fn delete_instance(
     State(state): State<AppState>,
     Path(uuid): Path<InstanceUuid>,
@@ -441,7 +343,8 @@ pub async fn delete_instance(
                 .deallocate(instance.port().await);
             let instance_path = instance.path().await;
             // if instance is generic
-            if let GameInstance::GenericInstance(i) = instance {
+            #[cfg(feature = "deno")]
+            if let crate::prelude::GameInstance::GenericInstance(i) = instance {
                 i.destruct().await;
             };
             let res = crate::util::fs::remove_dir_all(instance_path).await;
@@ -476,16 +379,25 @@ pub async fn delete_instance(
 }
 
 pub fn get_instance_routes(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/instance/list", get(get_instance_list))
         .route(
             "/instance/create/{game_type}",
             post(create_minecraft_instance),
         )
-        .route("/instance/create_generic", post(create_generic_instance))
         .route("/instance/{uuid}", delete(delete_instance))
-        .route("/instance/{uuid}/info", get(get_instance_info))
-        .with_state(state)
+        .route("/instance/{uuid}/info", get(get_instance_info));
+    #[cfg(feature = "deno")]
+    let router = router.route(
+        "/instance/create_generic",
+        post(super::generic_instance::create_generic_instance),
+    );
+    #[cfg(not(feature = "deno"))]
+    let router = router.route(
+        "/instance/create_generic",
+        post(|| async { crate::capabilities::Capability::GenericInstances.unavailable() }),
+    );
+    router.with_state(state)
 }
 
 #[cfg(test)]

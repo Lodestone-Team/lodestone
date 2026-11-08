@@ -28,13 +28,14 @@ clap = { version = "4.6.7", features = ["derive"] }
 color-eyre = "0.6.5"
 dashmap = "6.2.1"
 # The deno crates are pinned exactly: they must move together, and the op compat shim
-# (src/deno_ops/compat.js) depends on deno_runtime's bootstrap internals.
-deno_ast = { version = "=0.53.3", features = ["transpiling"] }
-deno_core = "=0.413.0"
-deno_error = "=0.7.1"
-deno_resolver = "=0.91.0"
-deno_runtime = "=0.268.0"
-sys_traits = { version = "=0.1.29", features = ["real"] }
+# (src/deno_ops/compat.js) depends on deno_runtime's bootstrap internals. They are only
+# built with the `deno` feature, see [features].
+deno_ast = { version = "=0.53.3", features = ["transpiling"], optional = true }
+deno_core = { version = "=0.413.0", optional = true }
+deno_error = { version = "=0.7.1", optional = true }
+deno_resolver = { version = "=0.91.0", optional = true }
+deno_runtime = { version = "=0.268.0", optional = true }
+sys_traits = { version = "=0.1.29", features = ["real"], optional = true }
 enum-kinds = "0.5.1"
 enum_dispatch = "0.3.13"
 fancy-regex = "0.19.2"
@@ -64,7 +65,9 @@ sanitize-filename = "0.6.0"
 semver = { version = "1.0.28", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde-aux = { version = "4.7.0", default-features = false }
-serde_json = "1.0.154"
+# Deno turns these on for the whole build. Turned on here too, so JSON objects keep their
+# key order (stored events, settings) and floats parse the same with or without `deno`.
+serde_json = { version = "1.0.154", features = ["preserve_order", "float_roundtrip"] }
 sha1 = "0.10.7"
 sha2 = "0.10.9"
 # constant-time comparison of API key hashes
@@ -110,11 +113,24 @@ rcgen = { version = "=0.14.10", default-features = false, features = ["aws_lc_rs
 tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect"] }
 
 [build-dependencies]
-# Used by build.rs to create the deno runtime startup snapshot.
-deno_core = "=0.413.0"
-deno_runtime = { version = "=0.268.0", features = ["snapshot"] }
+# Used by build.rs to create the deno runtime startup snapshot (`deno` feature only).
+deno_core = { version = "=0.413.0", optional = true }
+deno_runtime = { version = "=0.268.0", features = ["snapshot"], optional = true }
 
 [features]
+default = ["deno"]
+# The Deno (V8) runtime and everything that runs on it: macros and tasks, instance scripts
+# (prelaunch), atom (generic TypeScript) instances and extensions. Without it the core
+# builds much faster and smaller; those features answer 501 and `/info` reports them as
+# unavailable in `capabilities`. See README.md.
+deno = [
+    "dep:deno_ast",
+    "dep:deno_core",
+    "dep:deno_error",
+    "dep:deno_resolver",
+    "dep:deno_runtime",
+    "dep:sys_traits",
+]
 # No-op, kept so existing `--features vendored-openssl` builds keep working: nothing links
 # OpenSSL any more (all TLS goes through rustls).
 vendored-openssl = []

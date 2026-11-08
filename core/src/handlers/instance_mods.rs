@@ -50,7 +50,8 @@ async fn mod_folder(
 async fn fabric_loader_version(instance: &GameInstance) -> Option<String> {
     match instance {
         GameInstance::MinecraftInstance(i) => i.fabric_loader_version().await,
-        _ => None,
+        #[cfg(feature = "deno")]
+        GameInstance::GenericInstance(_) => None,
     }
 }
 

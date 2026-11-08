@@ -15,6 +15,7 @@ import { useCodeExecution } from 'data/CodeExecution';
 import { isUserAuthorized, useUserInfo } from 'data/UserInfo';
 import { getModSupport, modTabTitle } from 'utils/mods';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
+import { useCoreCapabilities } from 'data/SystemInfo';
 
 export const SelectedInstanceInfo = ({
   className = '',
@@ -31,6 +32,8 @@ export const SelectedInstanceInfo = ({
   const { data: globalSettings } = useGlobalSettings();
   // macros are owner only
   const { canManage } = useCodeExecution();
+  // and the core must have them; wait until it says so
+  const { macros, isPending: capabilitiesPending } = useCoreCapabilities();
   // the Mods tab: only for instances that support mods or plugins
   const modSupport = selectedInstance
     ? getModSupport(selectedInstance.game_type)
@@ -43,7 +46,8 @@ export const SelectedInstanceInfo = ({
   const visibleTabs = tabs.filter(
     (tab) =>
       (tab.title !== 'Playitgg' || globalSettings?.playit_enabled) &&
-      (tab.path !== 'macros' || canManage) &&
+      (tab.path !== 'macros' ||
+        (canManage && macros && !capabilitiesPending)) &&
       (tab.path !== 'mods' || (modSupport && canReadFiles))
   );
 

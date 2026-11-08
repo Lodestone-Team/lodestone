@@ -74,6 +74,7 @@ impl InstanceInfo {
         }
     }
 }
+#[cfg(feature = "deno")]
 use crate::generic::GenericInstance;
 use crate::minecraft::MinecraftInstance;
 use crate::modpack::ModpackOrigin;

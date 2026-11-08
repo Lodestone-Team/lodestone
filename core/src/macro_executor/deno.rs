@@ -32,8 +32,6 @@ use deno_runtime::{
     worker::{MainWorker, WorkerServiceOptions},
     BootstrapOptions, FeatureChecker,
 };
-use futures_util::Future;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sys_traits::impls::RealSys;
 use tokio::{
@@ -41,8 +39,8 @@ use tokio::{
     task::LocalSet,
 };
 use tracing::{debug, error, log::warn};
-use ts_rs::TS;
 
+use super::{MacroPID, SpawnResult};
 use crate::{
     deno_ops::{
         events::register_all_event_ops, instance_control::register_instance_control_ops,
@@ -57,8 +55,6 @@ use crate::{
 };
 
 use color_eyre::eyre::eyre;
-
-use std::pin::Pin;
 
 use crate::traits::t_configurable::manifest::{
     ConfigurableValue, ConfigurableValueType, SettingManifest,
@@ -93,35 +89,6 @@ impl WorkerOptionGenerator for DefaultWorkerOptionGenerator {
 
 pub struct TypescriptModuleLoader {
     http: reqwest::Client,
-}
-
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash, TS)]
-#[serde(transparent)]
-#[ts(export)]
-pub struct MacroPID(pub usize); // todo remove pub
-
-impl From<MacroPID> for usize {
-    fn from(uid: MacroPID) -> Self {
-        uid.0
-    }
-}
-
-impl From<&MacroPID> for usize {
-    fn from(uid: &MacroPID) -> Self {
-        uid.0
-    }
-}
-
-impl AsRef<usize> for MacroPID {
-    fn as_ref(&self) -> &usize {
-        &self.0
-    }
-}
-
-impl Display for MacroPID {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MacroPID({})", self.0)
-    }
 }
 
 /// Longest a remote module download may take, so a stalled host cannot hang a macro start.
@@ -495,12 +462,6 @@ pub struct MacroExecutor {
     /// Every macro, atom and instance script starts here, so this is where the code
     /// execution kill switch is enforced for all of them.
     code_execution: CodeExecutionSwitch,
-}
-
-pub struct SpawnResult {
-    pub macro_pid: MacroPID,
-    pub detach_future: Pin<Box<dyn Future<Output = ()> + Send>>,
-    pub exit_future: Pin<Box<dyn Future<Output = Result<ExitStatus, Error>> + Send>>,
 }
 
 /// Records a macro's exit exactly once: forgets its handle, stores its exit status and
@@ -1268,9 +1229,10 @@ mod tests {
 
     use super::WorkerOptionGenerator;
 
+    use super::super::SpawnResult;
+    use super::parse_config_manifest;
     use crate::event_broadcaster::EventBroadcaster;
     use crate::events::CausedBy;
-    use crate::macro_executor::{parse_config_manifest, SpawnResult};
     use crate::traits::t_configurable::manifest::ConfigurableValue;
     use crate::traits::t_macro::ExitStatus;
 

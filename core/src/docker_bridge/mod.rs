@@ -212,6 +212,11 @@ impl DockerBridge {
         }
     }
 
+    /// Whether a Docker daemon was reachable at startup.
+    pub fn is_available(&self) -> bool {
+        self.docker.is_some()
+    }
+
     fn docker(&self) -> Result<&Docker, Error> {
         Ok(self.docker.as_ref().context("Docker is not available")?)
     }

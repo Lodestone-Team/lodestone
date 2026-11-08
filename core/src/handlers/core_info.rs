@@ -1,6 +1,6 @@
 use std::{env, sync::OnceLock};
 
-use crate::{prelude::VERSION, tls::TlsInfo, AppState};
+use crate::{capabilities::CoreCapabilities, prelude::VERSION, tls::TlsInfo, AppState};
 use axum::{routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use sysinfo::{Disks, System};
@@ -20,6 +20,8 @@ pub struct CoreInfo {
     core_name: String,
     up_since: i64,
     tls: TlsInfo,
+    /// The optional features this core has. Missing on older cores, which have them all.
+    capabilities: CoreCapabilities,
 }
 
 /// Hardware details that do not change while the core runs.
@@ -74,6 +76,7 @@ pub async fn get_core_info(
         uuid: state.uuid.clone(),
         up_since: state.up_since,
         tls: (*state.tls_info).clone(),
+        capabilities: CoreCapabilities::new(state.docker_bridge.is_available()),
     })
 }
 

@@ -225,7 +225,7 @@ pub async fn store_config_to_local(
 }
 
 pub fn get_instance_macro_routes(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/instance/{uuid}/macro/run/{macro_name}", put(run_macro))
         .route("/instance/{uuid}/macro/kill/{pid}", put(kill_macro))
         .route("/instance/{uuid}/macro/list", get(get_instance_macro_list))
@@ -241,6 +241,9 @@ pub fn get_instance_macro_routes(state: AppState) -> Router {
         .route(
             "/instance/{uuid}/history/list",
             get(get_instance_history_list),
-        )
-        .with_state(state)
+        );
+    #[cfg(not(feature = "deno"))]
+    let router =
+        crate::capabilities::unavailable_routes(router, crate::capabilities::Capability::Macros);
+    router.with_state(state)
 }
