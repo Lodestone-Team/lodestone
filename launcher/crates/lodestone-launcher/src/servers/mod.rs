@@ -1,9 +1,19 @@
 //! The Servers page: Lodestone cores and their servers, with "Create matching
-//! instance", Play (join), Start, "Start and join" and Stop.
+//! instance", Play (join), Start, "Start and join" and Stop; and the same Play for an
+//! instance linked to a server, from the instance page.
 //!
 //! The cores are kept in `servers.json` (see `launcher_core::cores::store`), each
 //! device key in the Keychain. The lists are polled every few seconds while the page
 //! is visible.
+//!
+//! Two kinds of trust are asked for:
+//!
+//! - a core's HTTPS certificate that macOS doesn't trust is shown with its fingerprint
+//!   and pinned once the user trusts it ([`CertPrompt`], `cores::tls`);
+//! - before mods or other code is installed from a core the user doesn't trust for mods,
+//!   an advisory lists what will be installed ([`AdvisoryPrompt`], `cores::trust`).
+//!   The user is asked whether they trust a core right after adding it, and can change it
+//!   on the core's card.
 
 pub mod add_dialog;
 pub mod view;
@@ -15,28 +25,47 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui::{App, AppContext as _, Context, Entity, EventEmitter, SharedString, Subscription, Task};
+use gpui::{
+    App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, SharedString, Subscription,
+    Task,
+};
 use http_client::HttpClient;
 use launcher_core::{
     Secret,
+    content::install::InstallProgress,
     cores::{
         self, CoreClient, CoreError, PackFetch, ServerInstance, ServerList, ServerState,
         client::display_address,
         join::join_target,
-        pack::{self, ClientPack, PackChanges, ServerLink},
+        link::{self, ServerLink},
         store::{self, SavedCore, ServersFile},
+        sync::{self, PackChanges},
+        tls::{CertificatePin, PinnedHttp},
+        trust::{self, Advisory, PullKind, PulledFile},
     },
-    game::download::{CancelToken, Progress},
+    game::{download::CancelToken, loaders::LoaderChoice},
+    instances::Loader,
+    modpack::{
+        self, ModpackError, PackInfo,
+        import::{self, ImportOptions},
+        update::{self, UpdatePlan},
+    },
 };
 use url::Url;
 
 use crate::{accounts::Accounts, instances::Instances};
-use add_dialog::{AddServerDialog, AddServerEvent};
+use add_dialog::{AddRequest, AddServerDialog, AddServerEvent};
 
 /// How often the lists are fetched while the page is visible.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// How long "Start and join" waits for the server.
 pub const START_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+/// What trusting a core for mods means, shown wherever the user is asked.
+pub const TRUST_EXPLANATION: &str = "Mods from a Lodestone core run as programs on this Mac, with the same access to your files and accounts as you. Only trust a core whose owner you trust.";
+
+/// Where to find a core's certificate fingerprint, to compare.
+pub const FINGERPRINT_HELP: &str = "Compare it with the fingerprint the core shows: in the dashboard under Settings → Core Settings → Information (\"Certificate fingerprint (SHA-256)\"), or in the core's log when it starts (\"TLS certificate SHA-256 fingerprint\").";
 
 /// A core's list, as last fetched.
 #[derive(Clone, Debug)]
@@ -53,9 +82,23 @@ pub struct CoreEntry {
     key: Option<Secret>,
     pub status: CoreStatus,
     refreshing: bool,
+    /// The client that accepts the pinned certificate.
+    pinned: Option<Arc<PinnedHttp>>,
 }
 
 impl CoreEntry {
+    fn new(saved: SavedCore, url: Url, key: Option<Secret>) -> Self {
+        let pinned = pinned_http(saved.certificate.as_ref());
+        Self {
+            saved,
+            url,
+            key,
+            status: CoreStatus::Loading,
+            refreshing: false,
+            pinned,
+        }
+    }
+
     pub fn signed_in(&self) -> bool {
         self.key.is_some()
     }
@@ -68,36 +111,94 @@ impl CoreEntry {
     }
 }
 
-/// What a server row is doing.
+fn pinned_http(pin: Option<&CertificatePin>) -> Option<Arc<PinnedHttp>> {
+    PinnedHttp::new(Some(pin?.clone())).ok().map(Arc::new)
+}
+
+/// What a server row (or a linked instance's Play) is doing.
 #[derive(Clone, Debug)]
 pub enum Busy {
-    Creating(Arc<Progress>),
+    /// Downloading the server's pack.
+    Fetching,
+    Creating(Arc<InstallProgress>),
     CheckingMods,
-    UpdatingMods(Arc<Progress>),
+    UpdatingMods(Arc<InstallProgress>),
     Starting,
     Stopping,
 }
 
 impl Busy {
     pub fn label(&self) -> String {
-        let files = |progress: &Progress, verb: &str| {
-            let snapshot = progress.snapshot();
+        let files = |progress: &InstallProgress, verb: &str| {
+            let snapshot = progress.downloads.snapshot();
             if snapshot.files_total == 0 {
                 format!("{verb}…")
             } else {
                 format!(
-                    "{verb} mods {}/{}…",
+                    "{verb} {}/{} files…",
                     snapshot.files_done, snapshot.files_total
                 )
             }
         };
         match self {
+            Busy::Fetching => "Getting the server's mods…".into(),
             Busy::Creating(progress) => files(progress, "Creating instance, downloading"),
             Busy::CheckingMods => "Checking the server's mods…".into(),
-            Busy::UpdatingMods(progress) => files(progress, "Updating"),
+            Busy::UpdatingMods(progress) => files(progress, "Updating mods,"),
             Busy::Starting => "Starting the server…".into(),
             Busy::Stopping => "Stopping…".into(),
         }
+    }
+}
+
+/// A server's pack that was downloaded and read, before the instance is made.
+pub struct PendingCreate {
+    core: String,
+    server: ServerInstance,
+    pack_path: PathBuf,
+    pack: Arc<PackInfo>,
+    etag: Option<String>,
+    loader: Option<LoaderChoice>,
+}
+
+/// An update that brings an instance's mods in step with its server's pack.
+pub struct PendingSync {
+    core: String,
+    server: ServerInstance,
+    instance_id: String,
+    pack_path: PathBuf,
+    plan: Arc<UpdatePlan>,
+    etag: Option<String>,
+}
+
+/// An install from a core that waits for the user.
+pub enum PendingPull {
+    Create(PendingCreate),
+    Sync(PendingSync),
+}
+
+impl PendingPull {
+    fn core(&self) -> &str {
+        match self {
+            PendingPull::Create(p) => &p.core,
+            PendingPull::Sync(p) => &p.core,
+        }
+    }
+
+    fn row(&self) -> RowKey {
+        match self {
+            PendingPull::Create(p) => (p.core.clone(), p.server.uuid.clone()),
+            PendingPull::Sync(p) => (p.core.clone(), p.server.uuid.clone()),
+        }
+    }
+
+    /// Removes the downloaded pack.
+    fn discard(&self) {
+        let path = match self {
+            PendingPull::Create(p) => &p.pack_path,
+            PendingPull::Sync(p) => &p.pack_path,
+        };
+        let _ = std::fs::remove_file(path);
     }
 }
 
@@ -107,18 +208,82 @@ pub struct UpdatePrompt {
     pub server: ServerInstance,
     pub instance_id: String,
     pub changes: PackChanges,
-    pack: ClientPack,
-    etag: Option<String>,
-    pub focus: gpui::FocusHandle,
+    pending: Option<PendingSync>,
+    pub focus: FocusHandle,
+}
+
+/// "This server's mods will run on your Mac": before installing code from a core that
+/// isn't trusted for mods.
+pub struct AdvisoryPrompt {
+    pub core_name: String,
+    pub server_name: String,
+    pub advisory: Advisory,
+    /// An update of an existing instance, rather than a new one.
+    pub update: bool,
+    pending: Option<PendingPull>,
+    pub focus: FocusHandle,
+}
+
+/// What the user answers to the advisory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdvisoryAnswer {
+    InstallOnce,
+    TrustAndInstall,
+    Cancel,
+}
+
+/// A certificate macOS doesn't trust, shown with its fingerprint.
+pub struct CertPrompt {
+    pub address: String,
+    pub host: String,
+    /// The core's name: the saved one, or what the core says over the connection that
+    /// isn't trusted yet.
+    pub name: Option<String>,
+    pub presented: String,
+    /// The fingerprint trusted until now, when the certificate changed.
+    pub previous: Option<String>,
+    target: CertTarget,
+    pub focus: FocusHandle,
+}
+
+enum CertTarget {
+    /// "Add server" continues once the certificate is trusted.
+    Add(AddRequest, Entity<AddServerDialog>),
+    /// A core on the page.
+    Core(String),
+}
+
+/// "Do you trust <core>?": after adding a core, or turning "Trusted for mods" on.
+pub struct TrustPrompt {
+    pub core: String,
+    pub name: String,
+    pub address: String,
+    /// Asked right after adding the core.
+    pub after_add: bool,
+    pub focus: FocusHandle,
 }
 
 pub enum ServersEvent {
     /// Show this launcher instance (it is starting).
     OpenInstance(String),
+    /// Something failed while the page isn't shown (Play from the instance page).
+    Failed {
+        title: SharedString,
+        message: SharedString,
+    },
 }
 
 /// A row is keyed by core and server.
 type RowKey = (String, String);
+
+/// An instance linked to a server, for the instance page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstanceLink {
+    pub server_name: String,
+    pub core_name: String,
+    /// The core is still in the launcher.
+    pub core_known: bool,
+}
 
 pub struct Servers {
     accounts: Entity<Accounts>,
@@ -128,11 +293,16 @@ pub struct Servers {
     pub cores: Vec<CoreEntry>,
     /// Launcher instances made for a server.
     links: HashMap<RowKey, String>,
+    /// The same links by instance.
+    instance_links: HashMap<String, ServerLink>,
     pub busy: HashMap<RowKey, Busy>,
     /// A message at the top of the page.
     pub notice: Option<(SharedString, SharedString)>,
     dialog: Option<(Entity<AddServerDialog>, Subscription)>,
     pub prompt: Option<UpdatePrompt>,
+    pub advisory: Option<AdvisoryPrompt>,
+    pub cert_prompt: Option<CertPrompt>,
+    pub trust_prompt: Option<TrustPrompt>,
     visible: bool,
     last_poll: Option<Instant>,
     /// No network, no Keychain: the offscreen screenshots.
@@ -158,10 +328,14 @@ impl Servers {
             file: store::servers_file(&data_root),
             cores: Vec::new(),
             links: HashMap::new(),
+            instance_links: HashMap::new(),
             busy: HashMap::new(),
             notice: None,
             dialog: None,
             prompt: None,
+            advisory: None,
+            cert_prompt: None,
+            trust_prompt: None,
             visible: false,
             last_poll: None,
             preview: false,
@@ -169,6 +343,7 @@ impl Servers {
             _poller: None,
         };
         this.load(cx);
+        this.reload_links(cx);
         this
     }
 
@@ -186,13 +361,7 @@ impl Servers {
             .into_iter()
             .filter_map(|saved| {
                 let url = cores::parse_address(&saved.url).ok()?;
-                Some(CoreEntry {
-                    saved,
-                    url,
-                    key: None,
-                    status: CoreStatus::Loading,
-                    refreshing: false,
-                })
+                Some(CoreEntry::new(saved, url, None))
             })
             .collect();
         let secrets = self.accounts.read(cx).secrets().clone();
@@ -219,13 +388,18 @@ impl Servers {
                         core.key = Some(key);
                     }
                 }
-                this.refresh_all(cx);
+                if this.visible {
+                    this.refresh_all(cx);
+                }
             })
             .ok();
         }));
     }
 
     fn save(&mut self) {
+        if self.preview {
+            return;
+        }
         let file = ServersFile {
             cores: self.cores.iter().map(|c| c.saved.clone()).collect(),
         };
@@ -280,6 +454,9 @@ impl Servers {
 
     /// Finds the launcher instances made for a server.
     fn reload_links(&mut self, cx: &mut Context<Self>) {
+        if self.preview {
+            return;
+        }
         let root = self.accounts.read(cx).data_dir().instances_dir();
         let existing: HashSet<String> = self
             .instances
@@ -288,45 +465,52 @@ impl Servers {
             .iter()
             .map(|i| i.id.clone())
             .collect();
-        self.links = pack::linked_instances(&root)
+        let linked: Vec<(String, ServerLink)> = link::linked_instances(&root)
             .into_iter()
             .filter(|(id, _)| existing.contains(id))
-            .map(|(id, link)| ((link.core_uuid, link.server_uuid), id))
             .collect();
+        self.links = linked
+            .iter()
+            .map(|(id, link)| {
+                (
+                    (link.core_uuid.clone(), link.server_uuid.clone()),
+                    id.clone(),
+                )
+            })
+            .collect();
+        self.instance_links = linked.into_iter().collect();
     }
 
-    fn client(&self, url: &Url) -> CoreClient {
-        CoreClient::new(self.http.clone(), url.clone())
+    fn client(&self, core: &CoreEntry) -> CoreClient {
+        let client = CoreClient::new(self.http.clone(), core.url.clone());
+        match &core.pinned {
+            Some(pinned) => client.with_pinned(pinned.clone()),
+            None => client,
+        }
     }
 
     fn refresh(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some(core) = self.cores.get_mut(index) else {
+        let Some(core) = self.cores.get(index) else {
             return;
         };
         if core.refreshing {
             return;
         }
-        core.refreshing = true;
-        let client = CoreClient::new(self.http.clone(), core.url.clone());
+        let client = self.client(core);
         let key = core.key.clone();
         let uuid = core.saved.uuid.clone();
+        self.cores[index].refreshing = true;
         let fetch = cx.background_spawn(async move { fetch_list(&client, key.as_ref()).await });
         self.tasks.retain(|t| !t.is_ready());
         self.tasks.push(cx.spawn(async move |this, cx| {
             let result = fetch.await;
             this.update(cx, |this, cx| {
-                let Some(index) = this.cores.iter().position(|c| c.saved.uuid == uuid) else {
+                let Some(index) = this.core_index(&uuid) else {
                     return;
                 };
                 this.cores[index].refreshing = false;
                 match result {
-                    Ok(list) => {
-                        if this.cores[index].saved.name != list.core_name {
-                            this.cores[index].saved.name = list.core_name.clone();
-                            this.save();
-                        }
-                        this.cores[index].status = CoreStatus::Online(list);
-                    }
+                    Ok(list) => this.listed(index, list),
                     Err(CoreError::SignedOut) => this.signed_out(index, cx),
                     Err(err) => this.cores[index].status = CoreStatus::Failed(err),
                 }
@@ -334,6 +518,31 @@ impl Servers {
             })
             .ok();
         }));
+    }
+
+    /// A list arrived: keep the name, and end trust when another core answers.
+    fn listed(&mut self, index: usize, list: ServerList) {
+        let core = &mut self.cores[index];
+        let mut changed = false;
+        if core.saved.name != list.core_name {
+            core.saved.name = list.core_name.clone();
+            changed = true;
+        }
+        if !list.core_uuid.is_empty() && core.saved.check_identity(&list.core_uuid) {
+            changed = true;
+            self.notice = Some((
+                format!("{} is no longer trusted for mods", core.saved.name).into(),
+                format!(
+                    "Another core answers at {} now (its id changed). Trust it again on its card only if you trust its owner.",
+                    display_address(&core.url)
+                )
+                .into(),
+            ));
+        }
+        self.cores[index].status = CoreStatus::Online(list);
+        if changed {
+            self.save();
+        }
     }
 
     /// The key stopped working: forget it, say so, and show the public list.
@@ -380,16 +589,19 @@ impl Servers {
                 this.dialog = None;
                 cx.notify();
             }
-            AddServerEvent::Submit(request) => this.add_core(request.clone(), dialog, cx),
+            AddServerEvent::Submit(request) => this.add_core(request.clone(), dialog, None, cx),
         });
         self.dialog = Some((dialog, subscription));
         cx.notify();
     }
 
+    /// Adds (or signs in to) the core at `request.address`. `accepted` is a certificate
+    /// the user just trusted for it.
     fn add_core(
         &mut self,
-        request: add_dialog::AddRequest,
+        request: AddRequest,
         dialog: Entity<AddServerDialog>,
+        accepted: Option<CertificatePin>,
         cx: &mut Context<Self>,
     ) {
         let url = match cores::parse_address(&request.address) {
@@ -399,31 +611,77 @@ impl Servers {
                 return;
             }
         };
-        let client = self.client(&url);
+        let address = display_address(&url);
+        let pin = accepted.clone().or_else(|| {
+            self.cores
+                .iter()
+                .find(|c| display_address(&c.url) == address)
+                .and_then(|c| c.saved.certificate.clone())
+        });
+        let pinned = pinned_http(pin.as_ref());
+        let client = match &pinned {
+            Some(pinned) => {
+                CoreClient::new(self.http.clone(), url.clone()).with_pinned(pinned.clone())
+            }
+            None => CoreClient::new(self.http.clone(), url.clone()),
+        };
+        let http = self.http.clone();
         let secrets = self.accounts.read(cx).secrets().clone();
         let device = store::device_key_name(&store::host_name());
         self.tasks.push(cx.spawn(async move |this, cx| {
             let credentials = request.username.clone().zip(request.password.clone());
             let expires_at = request.expires_at;
+            let probe_url = url.clone();
             let result = cx
                 .background_spawn(async move {
-                    let info = client.info().await?;
+                    let info = match client.info().await {
+                        Ok(info) => info,
+                        Err(err) => return Err(certificate_outcome(err, &http, probe_url).await),
+                    };
                     // an old core has no list: fail now rather than after adding it
-                    client.public_servers().await?;
+                    client.public_servers().await.map_err(AddFailure::Core)?;
                     let key = match credentials {
                         Some((username, password)) => Some(
                             client
                                 .sign_in(&username, &password, &device, expires_at)
-                                .await?,
+                                .await
+                                .map_err(AddFailure::Core)?,
                         ),
                         None => None,
                     };
-                    Ok::<_, CoreError>((info, key))
+                    Ok::<_, AddFailure>((info, key))
                 })
                 .await;
             let (info, key) = match result {
                 Ok(done) => done,
-                Err(err) => {
+                Err(AddFailure::Certificate {
+                    host,
+                    presented,
+                    previous,
+                    name,
+                }) => {
+                    this.update(cx, |this, cx| {
+                        dialog.update(cx, |d, cx| {
+                            d.fail(
+                                "Check the core's certificate to continue.".into(),
+                                cx,
+                            )
+                        });
+                        this.cert_prompt = Some(CertPrompt {
+                            address: address.clone(),
+                            host,
+                            name,
+                            presented,
+                            previous,
+                            target: CertTarget::Add(request, dialog.clone()),
+                            focus: cx.focus_handle(),
+                        });
+                        cx.notify();
+                    })
+                    .ok();
+                    return;
+                }
+                Err(AddFailure::Core(err)) => {
                     dialog.update(cx, |d, cx| d.fail(err.to_string(), cx));
                     return;
                 }
@@ -441,22 +699,50 @@ impl Servers {
                 }
             }
             this.update(cx, |this, cx| {
-                let saved = SavedCore {
-                    uuid: info.uuid.clone(),
-                    url: display_address(&url),
-                    name: info.core_name.clone(),
-                    username: key.as_ref().and(request.username.clone()),
-                    key_id: key.as_ref().map(|(_, info)| info.id.clone()),
-                    key_expires_at: key.as_ref().and_then(|(_, info)| info.expires_at),
+                let existing = this.core_index(&info.uuid);
+                // another core used to answer at this address
+                for core in &mut this.cores {
+                    if display_address(&core.url) == address
+                        && core.saved.uuid != info.uuid
+                        && core.saved.check_identity(&info.uuid)
+                    {
+                        this.notice = Some((
+                            format!("{} is no longer trusted for mods", core.saved.name).into(),
+                            format!("Another core answers at {address} now.").into(),
+                        ));
+                    }
+                }
+                let mut saved = match existing {
+                    Some(index) => this.cores[index].saved.clone(),
+                    None => SavedCore::default(),
                 };
-                let entry = CoreEntry {
+                let was_trusted = saved.is_trusted();
+                saved.uuid = info.uuid.clone();
+                saved.url = address.clone();
+                saved.name = info.core_name.clone();
+                if key.is_some() {
+                    saved.username = request.username.clone();
+                    saved.key_id = key.as_ref().map(|(_, info)| info.id.clone());
+                    saved.key_expires_at = key.as_ref().and_then(|(_, info)| info.expires_at);
+                }
+                if let Some(pin) = pin.clone()
+                    && saved.pin_certificate(pin)
+                {
+                    this.notice = Some((
+                        format!("{} is no longer trusted for mods", saved.name).into(),
+                        "You trusted a new certificate for it. Trust it for mods again on its card if you're sure it is the same core.".into(),
+                    ));
+                }
+                let entry = CoreEntry::new(
                     saved,
                     url,
-                    key: key.map(|(secret, _)| secret),
-                    status: CoreStatus::Loading,
-                    refreshing: false,
-                };
-                let index = match this.cores.iter().position(|c| c.saved.uuid == info.uuid) {
+                    key.map(|(secret, _)| secret)
+                        .or_else(|| existing.and_then(|i| this.cores[i].key.clone())),
+                );
+                let trusted = entry.saved.is_trusted();
+                let name = entry.saved.name.clone();
+                let uuid = entry.saved.uuid.clone();
+                let index = match existing {
                     Some(index) => {
                         this.cores[index] = entry;
                         index
@@ -468,11 +754,123 @@ impl Servers {
                 };
                 this.save();
                 this.dialog = None;
+                if existing.is_none() && !trusted && !was_trusted {
+                    this.trust_prompt = Some(TrustPrompt {
+                        core: uuid,
+                        name,
+                        address: address.clone(),
+                        after_add: true,
+                        focus: cx.focus_handle(),
+                    });
+                }
                 this.refresh(index, cx);
                 cx.notify();
             })
             .ok();
         }));
+    }
+
+    /// "Trust certificate…" on a core whose certificate macOS doesn't trust, or "Trust
+    /// the new certificate…" after it changed.
+    pub fn review_certificate(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(core) = self.cores.get(index) else {
+            return;
+        };
+        let (host, presented, previous) = match &core.status {
+            CoreStatus::Failed(CoreError::Untrusted {
+                host,
+                fingerprint: Some(fingerprint),
+            }) => (host.clone(), fingerprint.clone(), None),
+            CoreStatus::Failed(CoreError::CertificateChanged {
+                host,
+                pinned,
+                presented,
+            }) => (host.clone(), presented.clone(), Some(pinned.clone())),
+            _ => return,
+        };
+        self.cert_prompt = Some(CertPrompt {
+            address: display_address(&core.url),
+            host,
+            name: Some(core.saved.name.clone()),
+            presented,
+            previous,
+            target: CertTarget::Core(core.saved.uuid.clone()),
+            focus: cx.focus_handle(),
+        });
+        cx.notify();
+    }
+
+    /// The answer to the certificate prompt.
+    pub fn answer_certificate(&mut self, trust: bool, cx: &mut Context<Self>) {
+        let Some(prompt) = self.cert_prompt.take() else {
+            return;
+        };
+        let pin = CertificatePin::new(&prompt.host, &prompt.presented);
+        match prompt.target {
+            CertTarget::Add(request, dialog) => {
+                if trust {
+                    dialog.update(cx, |d, cx| d.set_busy(cx));
+                    self.add_core(request, dialog, Some(pin), cx);
+                } else {
+                    dialog.update(cx, |d, cx| {
+                        d.fail(
+                            "The certificate wasn't trusted, so your sign-in wasn't sent to the core.".into(),
+                            cx,
+                        )
+                    });
+                }
+            }
+            CertTarget::Core(uuid) if trust => {
+                let Some(index) = self.core_index(&uuid) else {
+                    return;
+                };
+                let core = &mut self.cores[index];
+                if core.saved.pin_certificate(pin) {
+                    self.notice = Some((
+                        format!("{} is no longer trusted for mods", core.saved.name).into(),
+                        "Its certificate changed. Trust it for mods again on its card if you're sure it is the same core.".into(),
+                    ));
+                }
+                core.pinned = pinned_http(core.saved.certificate.as_ref());
+                core.status = CoreStatus::Loading;
+                self.save();
+                self.refresh(index, cx);
+            }
+            CertTarget::Core(_) => {}
+        }
+        cx.notify();
+    }
+
+    /// "Trusted for mods" on a core's card: turning it on asks first.
+    pub fn set_trusted(&mut self, index: usize, trusted: bool, cx: &mut Context<Self>) {
+        let Some(core) = self.cores.get_mut(index) else {
+            return;
+        };
+        if trusted {
+            self.trust_prompt = Some(TrustPrompt {
+                core: core.saved.uuid.clone(),
+                name: core.saved.name.clone(),
+                address: display_address(&core.url),
+                after_add: false,
+                focus: cx.focus_handle(),
+            });
+        } else {
+            core.saved.set_trusted(false);
+            self.save();
+        }
+        cx.notify();
+    }
+
+    /// The answer to "Do you trust <core>?".
+    pub fn answer_trust(&mut self, trust: bool, cx: &mut Context<Self>) {
+        let Some(prompt) = self.trust_prompt.take() else {
+            return;
+        };
+        if trust && let Some(index) = self.core_index(&prompt.core) {
+            self.cores[index].saved.set_trusted(true);
+            self.save();
+        }
+        cx.notify();
     }
 
     /// Forgets the core's key on this device. The key stays valid on the core until it
@@ -525,26 +923,85 @@ impl Servers {
         message: impl Into<SharedString>,
         cx: &mut Context<Self>,
     ) {
-        self.notice = Some((title.into(), message.into()));
+        let (title, message) = (title.into(), message.into());
+        if !self.visible {
+            cx.emit(ServersEvent::Failed {
+                title: title.clone(),
+                message: message.clone(),
+            });
+        }
+        self.notice = Some((title, message));
         cx.notify();
+    }
+
+    /// A failure of a request to a core: the key stopped working, or something else.
+    fn fail_core(
+        &mut self,
+        core: &str,
+        title: &str,
+        err: impl Into<PullError>,
+        cx: &mut Context<Self>,
+    ) {
+        match err.into() {
+            PullError::Core(CoreError::SignedOut) => {
+                if let Some(index) = self.core_index(core) {
+                    self.signed_out(index, cx);
+                }
+            }
+            PullError::Cancelled => {}
+            err => self.fail(title.to_string(), err.to_string(), cx),
+        }
     }
 
     pub fn linked_instance(&self, core: &str, server: &str) -> Option<&String> {
         self.links.get(&(core.to_string(), server.to_string()))
     }
 
+    /// The server an instance is linked to, for the instance page.
+    pub fn instance_link(&self, instance_id: &str) -> Option<InstanceLink> {
+        let link = self.instance_links.get(instance_id)?;
+        let core = self.cores.iter().find(|c| c.saved.uuid == link.core_uuid);
+        Some(InstanceLink {
+            server_name: link.server_name.clone(),
+            core_name: core.map_or_else(|| link.core_url.clone(), |c| c.saved.name.clone()),
+            core_known: core.is_some(),
+        })
+    }
+
+    /// What the instance's server row is doing, for the instance page.
+    pub fn instance_busy(&self, instance_id: &str) -> Option<&Busy> {
+        let link = self.instance_links.get(instance_id)?;
+        self.busy
+            .get(&(link.core_uuid.clone(), link.server_uuid.clone()))
+    }
+
     fn core_index(&self, uuid: &str) -> Option<usize> {
         self.cores.iter().position(|c| c.saved.uuid == uuid)
     }
 
-    /// The key to fetch a pack with: this device's key when signed in (any server it
-    /// can view), else none (the public route, listed servers only).
-    fn key_for(&self, core: &CoreEntry) -> Option<Secret> {
-        core.key.clone()
+    /// Redraws while `row` is busy, for its progress.
+    fn tick_while_busy(&mut self, row: RowKey, cx: &mut Context<Self>) {
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+                let busy = this
+                    .update(cx, |this, cx| {
+                        cx.notify();
+                        this.busy.contains_key(&row)
+                    })
+                    .unwrap_or(false);
+                if !busy {
+                    break;
+                }
+            }
+        }));
     }
 
     /// "Create matching instance": a launcher instance with the server's Minecraft
-    /// version and loader, with the server's client mods.
+    /// version and loader. A server with a client pack gets it through the modpack
+    /// import, after the advisory when the core isn't trusted for mods.
     pub fn create_instance(
         &mut self,
         core_uuid: &str,
@@ -554,140 +1011,268 @@ impl Servers {
         let Some(index) = self.core_index(core_uuid) else {
             return;
         };
-        let loader = match cores::matching_loader(&server) {
+        if !server.has_pack() {
+            return self.create_plain(core_uuid, &server, cx);
+        }
+        let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
+        self.busy.insert(row.clone(), Busy::Fetching);
+        let core = &self.cores[index];
+        let client = self.client(core);
+        let key = core.key.clone();
+        let dir = self.instances.read(cx).store().root().to_path_buf();
+        let fetch_server = server.clone();
+        let work = cx.background_spawn(async move {
+            let (bytes, etag) = match client
+                .client_pack(key.as_ref(), &fetch_server, None)
+                .await?
+            {
+                PackFetch::Pack { bytes, etag } => (bytes, etag),
+                PackFetch::NoMods(_) | PackFetch::NotModified => return Ok(None),
+            };
+            let pack_path = sync::write_pack(&dir, &bytes)?;
+            let read = modpack::read_pack(&pack_path)
+                .map_err(PullError::from)
+                .and_then(|pack| {
+                    let loader =
+                        sync::loader_for(Some(&pack), &fetch_server).map_err(PullError::Other)?;
+                    Ok((pack, loader))
+                });
+            match read {
+                Ok((pack, loader)) => Ok(Some((pack_path, pack, etag, loader))),
+                Err(err) => {
+                    let _ = std::fs::remove_file(&pack_path);
+                    Err(err)
+                }
+            }
+        });
+        let core_uuid = core_uuid.to_string();
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.busy.remove(&row);
+                match result {
+                    Ok(None) => this.create_plain(&core_uuid, &server, cx),
+                    Ok(Some((pack_path, pack, etag, loader))) => {
+                        let pending = PendingPull::Create(PendingCreate {
+                            core: core_uuid.clone(),
+                            server,
+                            pack_path,
+                            pack: Arc::new(pack),
+                            etag,
+                            loader,
+                        });
+                        this.gate(pending, PullKind::ClientPack, cx);
+                    }
+                    Err(err) => this.fail_core(&core_uuid, "Couldn't create the instance", err, cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// A matching instance without the server's pack (it needs no client mods).
+    fn create_plain(&mut self, core_uuid: &str, server: &ServerInstance, cx: &mut Context<Self>) {
+        let loader = match sync::loader_for(None, server) {
             Ok(loader) => loader,
             Err(message) => return self.fail("Couldn't create the instance", message, cx),
-        };
-        let core = &self.cores[index];
-        let link = ServerLink {
-            core_uuid: core.saved.uuid.clone(),
-            core_url: display_address(&core.url),
-            server_uuid: server.uuid.clone(),
-            server_name: server.name.clone(),
-            pack_etag: None,
-            files: Vec::new(),
         };
         let created = self.instances.update(cx, |instances, cx| {
             instances.create(&server.name, &server.game_version, loader.as_ref(), cx)
         });
-        let instance = match created {
-            Ok(instance) => instance,
-            Err(message) => return self.fail("Couldn't create the instance", message, cx),
-        };
-        let instance_dir = self.instances.read(cx).content_dirs(&instance.id).instance;
-        if let Err(err) = pack::save_link(&instance_dir, &link) {
-            return self.fail("Couldn't create the instance", err.to_string(), cx);
-        }
-        let key: RowKey = (link.core_uuid.clone(), link.server_uuid.clone());
-        self.links.insert(key.clone(), instance.id.clone());
-        if !server.has_pack() {
-            if server.mods_hidden() {
-                self.notice = Some((
-                    format!("Created {} without the server's mods", server.name).into(),
-                    "The owner hasn't shared this server's client mods, so the instance has only its Minecraft version and loader. Add any mods it needs yourself.".into(),
-                ));
-            }
-            cx.notify();
-            return;
-        }
-        let progress = Arc::new(Progress::default());
-        self.busy
-            .insert(key.clone(), Busy::Creating(progress.clone()));
-        self.update_mods(index, server, instance.id, None, progress, false, cx);
-    }
-
-    /// Downloads the server's pack (unless given) into the instance, then plays if
-    /// `then_play`.
-    #[allow(clippy::too_many_arguments)]
-    fn update_mods(
-        &mut self,
-        index: usize,
-        server: ServerInstance,
-        instance_id: String,
-        fetched: Option<(ClientPack, Option<String>)>,
-        progress: Arc<Progress>,
-        then_play: bool,
-        cx: &mut Context<Self>,
-    ) {
-        let core = &self.cores[index];
-        let client = self.client(&core.url);
-        let key = self.key_for(core);
-        let core_uuid = core.saved.uuid.clone();
-        let row: RowKey = (core_uuid.clone(), server.uuid.clone());
-        let instances = self.instances.read(cx);
-        let Some(modrinth) = instances.modrinth() else {
-            self.busy.remove(&row);
-            return self.fail("Couldn't download the mods", "The launcher is offline.", cx);
-        };
-        let downloader = instances.content_downloader();
-        let game_dir = instances.game_dir(&instance_id);
-        let instance_dir = instances.content_dirs(&instance_id).instance;
-        let tick = cx.spawn({
-            let row = row.clone();
-            async move |this, cx| {
-                loop {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(250))
-                        .await;
-                    let busy = this
-                        .update(cx, |this, cx| {
-                            cx.notify();
-                            this.busy.contains_key(&row)
-                        })
-                        .unwrap_or(false);
-                    if !busy {
-                        break;
-                    }
+        match created {
+            Ok(instance) => {
+                self.link_instance(core_uuid, server, &instance.id, None, cx);
+                if server.mods_hidden() {
+                    self.notice = Some((
+                        format!("Created {} without the server's mods", server.name).into(),
+                        "The owner hasn't shared this server's client mods, so the instance has only its Minecraft version and loader. Add any mods it needs yourself.".into(),
+                    ));
                 }
             }
-        });
-        self.tasks.push(tick);
-        let server_for_task = server.clone();
+            Err(message) => self.fail("Couldn't create the instance", message, cx),
+        }
+    }
+
+    /// Records that `instance_id` was made for `server`.
+    fn link_instance(
+        &mut self,
+        core_uuid: &str,
+        server: &ServerInstance,
+        instance_id: &str,
+        etag: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(index) = self.core_index(core_uuid) else {
+            return;
+        };
+        let link = ServerLink {
+            core_uuid: core_uuid.to_string(),
+            core_url: display_address(&self.cores[index].url),
+            server_uuid: server.uuid.clone(),
+            server_name: server.name.clone(),
+            pack_etag: etag,
+        };
+        let instance_dir = self.instances.read(cx).content_dirs(instance_id).instance;
+        if let Err(err) = link::save_link(&instance_dir, &link) {
+            return self.fail(
+                "Couldn't link the instance to the server",
+                err.to_string(),
+                cx,
+            );
+        }
+        self.links.insert(
+            (link.core_uuid.clone(), link.server_uuid.clone()),
+            instance_id.to_string(),
+        );
+        self.instance_links.insert(instance_id.to_string(), link);
+        cx.notify();
+    }
+
+    /// Installs `pending` from its core, after the advisory unless the user trusts the
+    /// core for mods.
+    fn gate(&mut self, pending: PendingPull, kind: PullKind, cx: &mut Context<Self>) {
+        let Some(index) = self.core_index(pending.core()) else {
+            pending.discard();
+            return;
+        };
+        if !trust::needs_advisory(&self.cores[index].saved, kind) {
+            return self.install(pending, cx);
+        }
+        let files: Vec<PulledFile> = match &pending {
+            PendingPull::Create(p) => sync::pack_pulls(&p.pack),
+            PendingPull::Sync(p) => sync::plan_pulls(&p.plan),
+        };
+        let core_name = self.cores[index].saved.name.clone();
+        let server_name = match &pending {
+            PendingPull::Create(p) => p.server.name.clone(),
+            PendingPull::Sync(p) => p.server.name.clone(),
+        };
+        let row = pending.row();
+        self.busy.insert(row.clone(), Busy::CheckingMods);
+        let api = self.instances.read(cx).modrinth();
+        let work =
+            cx.background_spawn(async move { trust::advisory(api.as_deref(), &files).await });
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let advisory = work.await;
+            this.update(cx, |this, cx| {
+                this.busy.remove(&row);
+                let update = matches!(pending, PendingPull::Sync(_));
+                this.advisory = Some(AdvisoryPrompt {
+                    core_name,
+                    server_name,
+                    advisory,
+                    update,
+                    pending: Some(pending),
+                    focus: cx.focus_handle(),
+                });
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// The answer to the advisory.
+    pub fn answer_advisory(&mut self, answer: AdvisoryAnswer, cx: &mut Context<Self>) {
+        let Some(mut prompt) = self.advisory.take() else {
+            return;
+        };
+        let Some(pending) = prompt.pending.take() else {
+            cx.notify();
+            return;
+        };
+        match answer {
+            AdvisoryAnswer::Cancel => pending.discard(),
+            AdvisoryAnswer::InstallOnce => self.install(pending, cx),
+            AdvisoryAnswer::TrustAndInstall => {
+                if let Some(index) = self.core_index(pending.core()) {
+                    self.cores[index].saved.set_trusted(true);
+                    self.save();
+                }
+                self.install(pending, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn install(&mut self, pending: PendingPull, cx: &mut Context<Self>) {
+        match pending {
+            PendingPull::Create(pending) => self.import_pack(pending, cx),
+            PendingPull::Sync(pending) => self.apply_sync(pending, cx),
+        }
+    }
+
+    /// Makes the instance from the server's pack, through the modpack import.
+    fn import_pack(&mut self, pending: PendingCreate, cx: &mut Context<Self>) {
+        let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
+        let instances = self.instances.read(cx);
+        let store = instances.store();
+        let api = instances.modrinth();
+        let downloader = instances.content_downloader();
+        let progress = Arc::new(InstallProgress::default());
+        self.busy
+            .insert(row.clone(), Busy::Creating(progress.clone()));
+        self.tick_while_busy(row.clone(), cx);
+        let name = pending.server.name.clone();
+        let pack = pending.pack.clone();
+        let pack_path = pending.pack_path.clone();
+        let loader = pending.loader.clone();
         let work = cx.background_spawn(async move {
-            let (pack, etag) = match fetched {
-                Some(fetched) => fetched,
-                None => match client
-                    .client_pack(key.as_ref(), &server_for_task, None)
-                    .await?
-                {
-                    PackFetch::Pack { bytes, etag } => {
-                        (pack::read_pack(&bytes).map_err(|e| e.to_string())?, etag)
-                    }
-                    // nothing to install
-                    PackFetch::NoMods(_) | PackFetch::NotModified => return Ok(None),
-                },
-            };
-            let previous = pack::load_link(&instance_dir);
-            let files = pack::apply(
-                &pack,
-                &game_dir,
-                previous.as_ref(),
-                &modrinth,
+            let result = import::import(
+                &store,
+                api.as_deref(),
                 &downloader,
+                &pack_path,
+                &pack,
+                ImportOptions {
+                    name,
+                    loader,
+                    record: sync::record(&pack),
+                    icon: None,
+                },
                 &progress,
                 &CancelToken::new(),
             )
-            .await
-            .map_err(|e| e.to_string())?;
-            let mut link = previous.unwrap_or_default();
-            link.pack_etag = etag;
-            link.files = files;
-            pack::save_link(&instance_dir, &link).map_err(|e| e.to_string())?;
-            Ok::<_, UpdateError>(Some(link.files.len()))
+            .await;
+            let _ = std::fs::remove_file(&pack_path);
+            result
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
                 match result {
-                    Ok(_) if then_play => this.join(&core_uuid, &server, &instance_id, cx),
-                    Ok(_) => {}
-                    Err(UpdateError::Core(CoreError::SignedOut)) => {
-                        if let Some(index) = this.core_index(&core_uuid) {
-                            this.signed_out(index, cx);
-                        }
+                    Ok(instance) => {
+                        this.instances.update(cx, |instances, cx| {
+                            instances.reload(cx);
+                            instances.select(&instance.id, cx);
+                        });
+                        this.link_instance(
+                            &pending.core,
+                            &pending.server,
+                            &instance.id,
+                            pending.etag.clone(),
+                            cx,
+                        );
+                        let skipped = match pending.pack.skipped.len() {
+                            0 => String::new(),
+                            n => format!(" {n} file(s) of the pack were left out."),
+                        };
+                        this.notice = Some((
+                            format!("{} is ready", instance.name).into(),
+                            format!(
+                                "Minecraft {} with {}, and the server's mods and configs.{skipped} Press Play to join.",
+                                instance.game_version,
+                                instance.loader_label()
+                            )
+                            .into(),
+                        ));
                     }
-                    Err(err) => this.fail("Couldn't get the server's mods", err.to_string(), cx),
+                    Err(err) => {
+                        this.fail_core(&pending.core, "Couldn't create the instance", err, cx)
+                    }
                 }
                 cx.notify();
             })
@@ -712,45 +1297,58 @@ impl Servers {
             return self.join(core_uuid, &server, &instance_id, cx);
         }
         let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
+        if self.busy.contains_key(&row) {
+            return;
+        }
         self.busy.insert(row.clone(), Busy::CheckingMods);
         let core = &self.cores[index];
-        let client = self.client(&core.url);
-        let key = self.key_for(core);
-        let instances = self.instances.read(cx);
-        let instance_dir = instances.content_dirs(&instance_id).instance;
-        let mods_dir = instances.game_dir(&instance_id).join("mods");
+        let client = self.client(core);
+        let key = core.key.clone();
+        let dirs = self.instances.read(cx).content_dirs(&instance_id);
         let check_server = server.clone();
         let check = cx.background_spawn(async move {
-            let link = pack::load_link(&instance_dir).unwrap_or_default();
-            let fetched = client
+            let link = link::load_link(&dirs.instance).unwrap_or_default();
+            let mut fetched = client
                 .client_pack(key.as_ref(), &check_server, link.pack_etag.as_deref())
                 .await?;
-            let on_disk = pack::changed_on_disk(&link, &mods_dir);
-            Ok::<_, UpdateError>(match fetched {
-                PackFetch::NotModified if on_disk.is_empty() => Check::InStep,
-                PackFetch::NoMods(_) => Check::InStep,
-                PackFetch::NotModified => Check::Refetch,
-                PackFetch::Pack { bytes, etag } => {
-                    let pack = pack::read_pack(&bytes).map_err(|e| e.to_string())?;
-                    let changes = pack::changes(Some(&link), &pack);
-                    if changes.is_empty() && on_disk.is_empty() {
-                        // same mods in a rebuilt pack: remember its ETag
-                        let mut link = link;
-                        link.pack_etag = etag;
-                        let _ = pack::save_link(&instance_dir, &link);
-                        Check::InStep
-                    } else {
-                        let mut changes = changes;
-                        for name in on_disk {
-                            if !changes.updated.contains(&name) && !changes.removed.contains(&name)
-                            {
-                                changes.updated.push(name);
-                            }
-                        }
-                        Check::Changed(Box::new((pack, etag, changes)))
-                    }
+            if matches!(fetched, PackFetch::NotModified) {
+                if sync::mods_on_disk(&dirs) {
+                    return Ok(Check::InStep);
                 }
-            })
+                // files changed on disk: get the whole pack to compare
+                fetched = client
+                    .client_pack(key.as_ref(), &check_server, None)
+                    .await?;
+            }
+            let (bytes, etag) = match fetched {
+                PackFetch::Pack { bytes, etag } => (bytes, etag),
+                PackFetch::NoMods(_) | PackFetch::NotModified => return Ok(Check::InStep),
+            };
+            let pack_path = sync::write_pack(&dirs.instance, &bytes)?;
+            let planned = modpack::read_pack(&pack_path)
+                .map_err(PullError::from)
+                .and_then(|pack| {
+                    let loader =
+                        sync::loader_for(Some(&pack), &check_server).map_err(PullError::Other)?;
+                    Ok(sync::plan(&dirs, &pack, loader))
+                });
+            let plan = match planned {
+                Ok(plan) => plan,
+                Err(err) => {
+                    let _ = std::fs::remove_file(&pack_path);
+                    return Err(err);
+                }
+            };
+            if !plan.changes_files() {
+                // the same mods in a rebuilt pack: remember it
+                let _ = std::fs::remove_file(&pack_path);
+                let _ = plan.record.save(&dirs.instance);
+                let mut link = link;
+                link.pack_etag = etag;
+                let _ = link::save_link(&dirs.instance, &link);
+                return Ok(Check::InStep);
+            }
+            Ok(Check::Changed(Box::new((pack_path, plan, etag))))
         });
         let core_uuid = core_uuid.to_string();
         self.tasks.push(cx.spawn(async move |this, cx| {
@@ -759,33 +1357,105 @@ impl Servers {
                 this.busy.remove(&row);
                 match result {
                     Ok(Check::InStep) => this.join(&core_uuid, &server, &instance_id, cx),
-                    Ok(Check::Refetch) => {
-                        // files changed on disk: get the whole pack to compare
-                        if let Some(index) = this.core_index(&core_uuid) {
-                            let progress = Arc::new(Progress::default());
-                            this.busy
-                                .insert(row.clone(), Busy::UpdatingMods(progress.clone()));
-                            this.update_mods(index, server, instance_id, None, progress, true, cx);
-                        }
-                    }
                     Ok(Check::Changed(boxed)) => {
-                        let (pack, etag, changes) = *boxed;
+                        let (pack_path, plan, etag) = *boxed;
+                        let changes = PackChanges::from_plan(&plan);
                         this.prompt = Some(UpdatePrompt {
                             core: core_uuid.clone(),
-                            server,
-                            instance_id,
+                            server: server.clone(),
+                            instance_id: instance_id.clone(),
                             changes,
-                            pack,
-                            etag,
+                            pending: Some(PendingSync {
+                                core: core_uuid.clone(),
+                                server,
+                                instance_id,
+                                pack_path,
+                                plan: Arc::new(plan),
+                                etag,
+                            }),
                             focus: cx.focus_handle(),
                         });
                     }
-                    Err(UpdateError::Core(CoreError::SignedOut)) => {
-                        if let Some(index) = this.core_index(&core_uuid) {
-                            this.signed_out(index, cx);
-                        }
+                    Err(err) => {
+                        this.fail_core(&core_uuid, "Couldn't check the server's mods", err, cx)
                     }
-                    Err(err) => this.fail("Couldn't check the server's mods", err.to_string(), cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// Play from the instance page, for an instance linked to a server: finds the server
+    /// on its core, then plays as the Servers page does (starting it first when it is
+    /// stopped and this device may start it).
+    pub fn play_instance(&mut self, instance_id: &str, cx: &mut Context<Self>) {
+        let Some(link) = self.instance_links.get(instance_id).cloned() else {
+            return;
+        };
+        let Some(index) = self.core_index(&link.core_uuid) else {
+            return self.fail(
+                format!("Couldn't join {}", link.server_name),
+                format!(
+                    "The core this instance was made for ({}) isn't in Lodestone Launcher any more. Add it on the Servers page, or press Play without joining.",
+                    link.core_url
+                ),
+                cx,
+            );
+        };
+        let row: RowKey = (link.core_uuid.clone(), link.server_uuid.clone());
+        if self.busy.contains_key(&row) {
+            return;
+        }
+        self.busy.insert(row.clone(), Busy::CheckingMods);
+        let core = &self.cores[index];
+        let client = self.client(core);
+        let key = core.key.clone();
+        let work = cx.background_spawn(async move { fetch_list(&client, key.as_ref()).await });
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.busy.remove(&row);
+                let Some(index) = this.core_index(&link.core_uuid) else {
+                    return;
+                };
+                let list = match result {
+                    Ok(list) => list,
+                    Err(err) => {
+                        this.cores[index].status = CoreStatus::Failed(err.clone());
+                        return this.fail_core(
+                            &link.core_uuid,
+                            &format!("Couldn't join {}", link.server_name),
+                            err,
+                            cx,
+                        );
+                    }
+                };
+                let server = list
+                    .instances
+                    .iter()
+                    .find(|s| s.uuid == link.server_uuid)
+                    .cloned();
+                let signed_in = this.cores[index].signed_in();
+                this.listed(index, list);
+                let Some(server) = server else {
+                    return this.fail(
+                        format!("Couldn't join {}", link.server_name),
+                        "The core doesn't show this server to you any more: it was deleted, or it isn't listed publicly and you aren't signed in.",
+                        cx,
+                    );
+                };
+                match server.state {
+                    ServerState::Stopped | ServerState::Error if signed_in => {
+                        this.start(&link.core_uuid, server, true, cx)
+                    }
+                    ServerState::Stopped | ServerState::Error => this.fail(
+                        format!("{} isn't running", server.name),
+                        "Ask its owner to start it, or sign in to the core on the Servers page to start it yourself.",
+                        cx,
+                    ),
+                    _ => this.play(&link.core_uuid, server, cx),
                 }
                 cx.notify();
             })
@@ -796,33 +1466,104 @@ impl Servers {
 
     /// The answer to the update prompt: update first, or play as it is.
     pub fn answer_prompt(&mut self, update: bool, cx: &mut Context<Self>) {
-        let Some(prompt) = self.prompt.take() else {
+        let Some(mut prompt) = self.prompt.take() else {
+            return;
+        };
+        let Some(pending) = prompt.pending.take() else {
+            cx.notify();
             return;
         };
         if !update {
+            let _ = std::fs::remove_file(&pending.pack_path);
             return self.join(&prompt.core, &prompt.server, &prompt.instance_id, cx);
         }
-        let Some(index) = self.core_index(&prompt.core) else {
-            return;
-        };
-        let progress = Arc::new(Progress::default());
-        self.busy.insert(
-            (prompt.core.clone(), prompt.server.uuid.clone()),
-            Busy::UpdatingMods(progress.clone()),
-        );
-        self.update_mods(
-            index,
-            prompt.server,
-            prompt.instance_id,
-            Some((prompt.pack, prompt.etag)),
-            progress,
-            true,
-            cx,
-        );
+        self.gate(PendingPull::Sync(pending), PullKind::ModSync, cx);
     }
 
     pub fn cancel_prompt(&mut self, cx: &mut Context<Self>) {
-        self.prompt = None;
+        if let Some(pending) = self.prompt.take().and_then(|p| p.pending) {
+            let _ = std::fs::remove_file(&pending.pack_path);
+        }
+        cx.notify();
+    }
+
+    /// Brings the instance's mods in step through the modpack update, then joins.
+    fn apply_sync(&mut self, pending: PendingSync, cx: &mut Context<Self>) {
+        let row: RowKey = (pending.core.clone(), pending.server.uuid.clone());
+        if self.instances.read(cx).is_active(&pending.instance_id) {
+            let _ = std::fs::remove_file(&pending.pack_path);
+            return self.fail("Couldn't update the mods", "Stop the game first.", cx);
+        }
+        let instances = self.instances.read(cx);
+        let api = instances.modrinth();
+        let downloader = instances.content_downloader();
+        let dirs = instances.content_dirs(&pending.instance_id);
+        let progress = Arc::new(InstallProgress::default());
+        self.busy
+            .insert(row.clone(), Busy::UpdatingMods(progress.clone()));
+        self.tick_while_busy(row.clone(), cx);
+        let plan = pending.plan.clone();
+        let pack_path = pending.pack_path.clone();
+        let etag = pending.etag.clone();
+        let work = cx.background_spawn(async move {
+            let result = update::apply(
+                api.as_deref(),
+                &downloader,
+                &dirs,
+                &plan,
+                &pack_path,
+                false,
+                &progress,
+                &CancelToken::new(),
+            )
+            .await;
+            let _ = std::fs::remove_file(&pack_path);
+            result?;
+            let mut link = link::load_link(&dirs.instance).unwrap_or_default();
+            link.pack_etag = etag;
+            link::save_link(&dirs.instance, &link).map_err(|e| PullError::Other(e.to_string()))?;
+            Ok::<_, PullError>(())
+        });
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.busy.remove(&row);
+                match result {
+                    Ok(()) => {
+                        // the loader and Minecraft version follow the server's pack
+                        let plan = &pending.plan;
+                        let saved = this.instances.update(cx, |instances, cx| {
+                            let mut instance = instances
+                                .store()
+                                .get(&pending.instance_id)
+                                .map_err(|e| e.to_string())?;
+                            instance.game_version = plan.game_version.clone();
+                            instance.loader =
+                                Loader::from_kind(plan.loader.as_ref().map(|l| l.kind));
+                            instance.loader_version =
+                                plan.loader.as_ref().map(|l| l.version.clone());
+                            instances.save(&instance, cx)
+                        });
+                        match saved {
+                            Ok(()) => this.join(
+                                &pending.core,
+                                &pending.server,
+                                &pending.instance_id,
+                                cx,
+                            ),
+                            Err(err) => this.fail(
+                                "Couldn't update the instance",
+                                format!("The mods were updated, but the instance couldn't be saved: {err}"),
+                                cx,
+                            ),
+                        }
+                    }
+                    Err(err) => this.fail_core(&pending.core, "Couldn't update the mods", err, cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
         cx.notify();
     }
 
@@ -839,7 +1580,7 @@ impl Servers {
         };
         let Some(target) = join_target(&core.url, server) else {
             return self.fail(
-                "Couldn't join the server",
+                format!("Couldn't join {}", server.name),
                 if server.address_shown() {
                     "The server's address or port isn't one Minecraft can join."
                 } else {
@@ -871,7 +1612,7 @@ impl Servers {
         };
         let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
         self.busy.insert(row.clone(), Busy::Starting);
-        let client = self.client(&self.cores[index].url);
+        let client = self.client(&self.cores[index]);
         let uuid = server.uuid.clone();
         let executor = cx.background_executor().clone();
         let work = cx.background_spawn(async move {
@@ -921,14 +1662,10 @@ impl Servers {
                             this.play(&core_uuid, running, cx);
                         }
                     }
-                    Err(CoreError::SignedOut) => {
-                        if let Some(index) = this.core_index(&core_uuid) {
-                            this.signed_out(index, cx);
-                        }
-                    }
-                    Err(err) => this.fail(
-                        format!("Couldn't start {}", server.name),
-                        err.to_string(),
+                    Err(err) => this.fail_core(
+                        &core_uuid,
+                        &format!("Couldn't start {}", server.name),
+                        err,
                         cx,
                     ),
                 }
@@ -951,7 +1688,7 @@ impl Servers {
         };
         let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
         self.busy.insert(row.clone(), Busy::Stopping);
-        let client = self.client(&self.cores[index].url);
+        let client = self.client(&self.cores[index]);
         let uuid = server.uuid.clone();
         let work = cx.background_spawn(async move { client.stop(&key, &uuid).await });
         let core_uuid = core_uuid.to_string();
@@ -959,18 +1696,13 @@ impl Servers {
             let result = work.await;
             this.update(cx, |this, cx| {
                 this.busy.remove(&row);
-                match result {
-                    Ok(()) => {}
-                    Err(CoreError::SignedOut) => {
-                        if let Some(index) = this.core_index(&core_uuid) {
-                            this.signed_out(index, cx);
-                        }
-                    }
-                    Err(err) => this.fail(
-                        format!("Couldn't stop {}", server.name),
-                        err.to_string(),
+                if let Err(err) = result {
+                    this.fail_core(
+                        &core_uuid,
+                        &format!("Couldn't stop {}", server.name),
+                        err,
                         cx,
-                    ),
+                    );
                 }
                 if let Some(index) = this.core_index(&core_uuid) {
                     this.refresh(index, cx);
@@ -993,13 +1725,32 @@ impl Servers {
         self.cores = cores
             .into_iter()
             .filter_map(|(saved, status, signed_in)| {
-                Some(CoreEntry {
-                    url: cores::parse_address(&saved.url).ok()?,
-                    saved,
-                    key: signed_in.then(|| Secret::new("preview")),
-                    status,
-                    refreshing: false,
-                })
+                let url = cores::parse_address(&saved.url).ok()?;
+                let mut entry =
+                    CoreEntry::new(saved, url, signed_in.then(|| Secret::new("preview")));
+                entry.status = status;
+                Some(entry)
+            })
+            .collect();
+        self.instance_links = links
+            .iter()
+            .filter_map(|(core, server, instance)| {
+                let entry = self.cores.iter().find(|c| &c.saved.uuid == core)?;
+                let name = entry
+                    .servers()
+                    .iter()
+                    .find(|s| &s.uuid == server)
+                    .map_or_else(|| server.clone(), |s| s.name.clone());
+                Some((
+                    instance.clone(),
+                    ServerLink {
+                        core_uuid: core.clone(),
+                        core_url: display_address(&entry.url),
+                        server_uuid: server.clone(),
+                        server_name: name,
+                        pack_etag: None,
+                    },
+                ))
             })
             .collect();
         self.links = links
@@ -1029,14 +1780,58 @@ impl Servers {
             server,
             instance_id: instance_id.into(),
             changes,
-            pack: ClientPack {
-                name: String::new(),
-                game_version: None,
-                fabric_loader: None,
-                mods: Vec::new(),
-                skipped: Vec::new(),
-            },
-            etag: None,
+            pending: None,
+            focus: cx.focus_handle(),
+        });
+    }
+
+    pub fn preview_advisory(
+        &mut self,
+        core_name: &str,
+        server_name: &str,
+        advisory: Advisory,
+        cx: &mut Context<Self>,
+    ) {
+        self.advisory = Some(AdvisoryPrompt {
+            core_name: core_name.into(),
+            server_name: server_name.into(),
+            advisory,
+            update: false,
+            pending: None,
+            focus: cx.focus_handle(),
+        });
+    }
+
+    pub fn preview_certificate(
+        &mut self,
+        index: usize,
+        presented: &str,
+        previous: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(core) = self.cores.get(index) else {
+            return;
+        };
+        self.cert_prompt = Some(CertPrompt {
+            address: display_address(&core.url),
+            host: core.url.host_str().unwrap_or_default().to_string(),
+            name: Some(core.saved.name.clone()),
+            presented: presented.into(),
+            previous: previous.map(str::to_string),
+            target: CertTarget::Core(core.saved.uuid.clone()),
+            focus: cx.focus_handle(),
+        });
+    }
+
+    pub fn preview_trust(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(core) = self.cores.get(index) else {
+            return;
+        };
+        self.trust_prompt = Some(TrustPrompt {
+            core: core.saved.uuid.clone(),
+            name: core.saved.name.clone(),
+            address: display_address(&core.url),
+            after_add: true,
             focus: cx.focus_handle(),
         });
     }
@@ -1048,35 +1843,84 @@ impl Servers {
 
 enum Check {
     InStep,
-    /// The ETag matched, but files changed on disk.
-    Refetch,
-    Changed(Box<(ClientPack, Option<String>, PackChanges)>),
+    /// The pack on disk, the plan, and the pack's ETag.
+    Changed(Box<(PathBuf, UpdatePlan, Option<String>)>),
 }
 
-/// Why getting a server's mods failed.
-#[derive(Debug)]
-enum UpdateError {
+/// Why adding a core stopped.
+enum AddFailure {
+    /// The certificate needs the user's decision.
+    Certificate {
+        host: String,
+        presented: String,
+        previous: Option<String>,
+        name: Option<String>,
+    },
     Core(CoreError),
+}
+
+/// A certificate error while adding a core becomes the certificate prompt, with the name
+/// the core gives itself, read through a connection that accepts only the presented
+/// certificate (no credentials are sent on it).
+async fn certificate_outcome(err: CoreError, http: &Arc<dyn HttpClient>, url: Url) -> AddFailure {
+    let (host, presented, previous) = match err {
+        CoreError::Untrusted {
+            host,
+            fingerprint: Some(fingerprint),
+        } => (host, fingerprint, None),
+        CoreError::CertificateChanged {
+            host,
+            pinned,
+            presented,
+        } => (host, presented, Some(pinned)),
+        err => return AddFailure::Core(err),
+    };
+    let name = match pinned_http(Some(&CertificatePin::new(&host, &presented))) {
+        Some(pinned) => CoreClient::new(http.clone(), url)
+            .with_pinned(pinned)
+            .info()
+            .await
+            .ok()
+            .map(|info| info.core_name),
+        None => None,
+    };
+    AddFailure::Certificate {
+        host,
+        presented,
+        previous,
+        name,
+    }
+}
+
+/// Why getting or installing a server's mods failed.
+#[derive(Debug)]
+pub enum PullError {
+    Core(CoreError),
+    Cancelled,
     Other(String),
 }
 
-impl From<CoreError> for UpdateError {
+impl From<CoreError> for PullError {
     fn from(err: CoreError) -> Self {
-        UpdateError::Core(err)
+        PullError::Core(err)
     }
 }
 
-impl From<String> for UpdateError {
-    fn from(err: String) -> Self {
-        UpdateError::Other(err)
+impl From<ModpackError> for PullError {
+    fn from(err: ModpackError) -> Self {
+        match err {
+            ModpackError::Cancelled => PullError::Cancelled,
+            err => PullError::Other(err.to_string()),
+        }
     }
 }
 
-impl std::fmt::Display for UpdateError {
+impl std::fmt::Display for PullError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UpdateError::Core(err) => err.fmt(f),
-            UpdateError::Other(err) => f.write_str(err),
+            PullError::Core(err) => err.fmt(f),
+            PullError::Cancelled => f.write_str("Cancelled"),
+            PullError::Other(err) => f.write_str(err),
         }
     }
 }

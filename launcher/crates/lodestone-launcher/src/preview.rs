@@ -69,6 +69,7 @@ pub const SCENES: &[&str] = &[
     "instance-shared-settings",
     "import",
     "import-progress",
+    "instance-linked",
 ];
 
 /// Scenes of the Worlds tab.
@@ -88,6 +89,7 @@ fn has_instances(scene: &str) -> bool {
         || scene == "loader-change"
         || shared::is_scene(scene)
         || scene.starts_with("import")
+        || scene == "instance-linked"
 }
 
 pub fn requested_scene() -> Option<String> {
@@ -247,7 +249,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         );
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
-            "instance-shared-settings" => Some("Survival 1.20.1"),
+            "instance-shared-settings" | "instance-linked" => Some("Survival 1.20.1"),
             scene
                 if scene.starts_with("content-")
                     || scene.starts_with("modpack-")
@@ -455,6 +457,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "import" | "import-progress" => import::apply(scene, shell, cx),
+        "instance-linked" => servers::apply_linked_instance(shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),

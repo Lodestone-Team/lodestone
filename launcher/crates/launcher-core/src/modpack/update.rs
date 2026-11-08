@@ -101,6 +101,16 @@ impl UpdatePlan {
     pub fn download_size(&self) -> u64 {
         self.downloads.iter().map(|(d, _)| d.size).sum()
     }
+
+    /// The files the update downloads, with the path on disk each goes to.
+    pub fn downloads(&self) -> impl Iterator<Item = (&PackDownload, &str)> {
+        self.downloads.iter().map(|(d, p)| (d, p.as_str()))
+    }
+
+    /// The override files the update writes, with their path on disk.
+    pub fn override_writes(&self) -> impl Iterator<Item = (&OverrideFile, &str)> {
+        self.overrides.iter().map(|(o, p)| (o, p.as_str()))
+    }
 }
 
 /// The file at `relative` (or, for a mod, its `.disabled` name): its path on disk and
@@ -124,6 +134,25 @@ pub fn plan(
     record: ModpackRecord,
     loader: Option<LoaderChoice>,
 ) -> UpdatePlan {
+    plan_with(dirs, current, pack, record, loader, &[])
+}
+
+/// Like [`plan`], but the pack's files under the folders `authoritative` (such as
+/// `mods/`, for a server's pack, whose mods must match the server's) replace the user's
+/// changed copies instead of keeping them. Dropped files the user changed still stay.
+pub fn plan_with(
+    dirs: &InstanceDirs,
+    current: &ModpackRecord,
+    pack: &PackInfo,
+    record: ModpackRecord,
+    loader: Option<LoaderChoice>,
+    authoritative: &[&str],
+) -> UpdatePlan {
+    let replaces = |path: &str| {
+        authoritative
+            .iter()
+            .any(|dir| path.starts_with(&format!("{}/", dir.trim_end_matches('/'))))
+    };
     let game = &dirs.game;
     let mut plan = UpdatePlan {
         game_version: pack.game_version.clone(),
@@ -180,6 +209,10 @@ pub fn plan(
                 plan.updated.push((actual.clone(), actual.clone()));
                 plan.downloads.push(((*download).clone(), actual));
             }
+            (Some(_), Some((actual, _))) if replaces(path) => {
+                plan.updated.push((actual.clone(), actual.clone()));
+                plan.downloads.push(((*download).clone(), actual));
+            }
             (Some(_), Some((actual, _))) => plan.kept_changed.push(actual),
             (None, Some((actual, _))) => {
                 plan.replaced_own.push(actual.clone());
@@ -219,6 +252,10 @@ pub fn plan(
             }
             (_, Some((_, sha1))) if sha1 == file.sha1 => {}
             (Some(old), Some((actual, sha1))) if sha1 == old.sha1 => {
+                plan.overrides_written.push(actual.clone());
+                plan.overrides.push(((*file).clone(), actual));
+            }
+            (_, Some((actual, _))) if replaces(path) => {
                 plan.overrides_written.push(actual.clone());
                 plan.overrides.push(((*file).clone(), actual));
             }
