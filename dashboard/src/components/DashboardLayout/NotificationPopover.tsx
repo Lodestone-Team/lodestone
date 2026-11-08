@@ -23,8 +23,8 @@ const IconWithBadge = forwardRef((
   ref: React.Ref<HTMLDivElement>) => {
 
   return (
-    <div ref={ref}>
-      <FontAwesomeIcon icon={icon} className={className} onClick={onClick} />
+    <div ref={ref} onClick={onClick} className={className}>
+      <FontAwesomeIcon icon={icon} />
       <div className="absolute top-[3px] right-[0px] h-2 w-2 rounded-full bg-red" />
     </div>
   )
