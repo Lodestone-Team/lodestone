@@ -674,8 +674,9 @@ impl MacroExecutor {
                         Ok(runtime) => runtime,
                         Err(_) => {
                             error!("Failed to create macro runtime");
-                            let _ = started_tx.send(Err("Failed to create macro runtime".into()));
+                            // record first, so spawn's error means the macro is gone
                             recorder.error("Failed to create macro runtime");
+                            let _ = started_tx.send(Err("Failed to create macro runtime".into()));
                             return;
                         }
                     };
@@ -720,15 +721,17 @@ impl MacroExecutor {
                             };
                             if let Err(reason) = start() {
                                 error!("Macro {pid} did not start: {reason}");
-                                let _ = started_tx.send(Err(reason.clone()));
+                                // record first, so that when spawn returns the error, the
+                                // macro has left the process table and its status is known
                                 recorder.record(if handle.is_killed() {
                                     ExitStatus::Killed { time: now() }
                                 } else {
                                     ExitStatus::Error {
                                         time: now(),
-                                        error_msg: reason,
+                                        error_msg: reason.clone(),
                                     }
                                 });
+                                let _ = started_tx.send(Err(reason));
                                 return;
                             }
 
@@ -2020,29 +2023,34 @@ mod tests {
         let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap();
         let path = temp_dir.path().join("main.ts");
         std::fs::write(&path, "1 + 1;").unwrap();
-        let result = executor
-            .spawn(
-                path,
-                Vec::new(),
-                CausedBy::Unknown,
-                Box::new(BasicMainWorkerGenerator),
-                Some("let config = { name: 'it's broken' };".to_string()),
-                None,
-                None,
-            )
-            .await;
-        let err = match result {
-            Ok(_) => panic!("spawn succeeded"),
-            Err(e) => format!("{:#}", e.source),
-        };
-        assert!(err.contains("config"), "{err}");
-        // it failed with the reason, not after the start timeout
-        assert!(!err.contains("did not start within"), "{err}");
-        assert!(executor.macro_process_table.is_empty());
-        assert!(matches!(
-            executor.get_macro_status(super::MacroPID(0)).await,
-            Some(ExitStatus::Error { .. })
-        ));
+        // several times, since the macro thread used to report the failure before it had
+        // cleaned up, and this test saw the macro still in the process table now and then
+        for pid in 0..5 {
+            let result = executor
+                .spawn(
+                    path.clone(),
+                    Vec::new(),
+                    CausedBy::Unknown,
+                    Box::new(BasicMainWorkerGenerator),
+                    Some("let config = { name: 'it's broken' };".to_string()),
+                    None,
+                    None,
+                )
+                .await;
+            let err = match result {
+                Ok(_) => panic!("spawn succeeded"),
+                Err(e) => format!("{:#}", e.source),
+            };
+            assert!(err.contains("config"), "{err}");
+            // it failed with the reason, not after the start timeout
+            assert!(!err.contains("did not start within"), "{err}");
+            // when spawn returns, the macro is gone and its status is known
+            assert!(executor.macro_process_table.is_empty());
+            assert!(matches!(
+                executor.get_macro_status(super::MacroPID(pid)).await,
+                Some(ExitStatus::Error { .. })
+            ));
+        }
     }
 
     /// Restricted permissions passed to `spawn` are enforced.
