@@ -264,41 +264,50 @@ impl Instance {
     }
 }
 
-/// Parses environment variables typed one per line as `NAME=value`. Blank lines and
-/// lines starting with `#` are skipped.
+/// Parses environment variables typed as `NAME=value`, separated by spaces or new
+/// lines; a value with spaces is quoted (`NAME="a b"`). Words starting with `#` begin
+/// a comment that runs to the end of the line.
 pub fn parse_env(text: &str) -> Result<BTreeMap<String, String>, String> {
     let mut env = BTreeMap::new();
-    for (number, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
+    for line in text.lines() {
+        let line = match line.trim_start().find('#') {
+            Some(0) => continue,
+            _ => line,
+        };
+        for word in split_args(line) {
+            let (name, value) = word
+                .split_once('=')
+                .ok_or_else(|| format!("{word:?}: write variables as NAME=value."))?;
+            let valid = name
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if !valid {
+                return Err(format!(
+                    "{name:?} is not a valid variable name (letters, digits and _)."
+                ));
+            }
+            env.insert(name.to_string(), value.to_string());
         }
-        let (name, value) = line
-            .split_once('=')
-            .ok_or_else(|| format!("Line {}: write it as NAME=value.", number + 1))?;
-        let name = name.trim();
-        let valid = name
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-        if !valid {
-            return Err(format!(
-                "Line {}: {name:?} is not a valid variable name (letters, digits and _).",
-                number + 1
-            ));
-        }
-        env.insert(name.to_string(), value.trim().to_string());
     }
     Ok(env)
 }
 
-/// Environment variables as [`parse_env`] reads them.
+/// Environment variables as [`parse_env`] reads them, on one line.
 pub fn format_env(env: &BTreeMap<String, String>) -> String {
     env.iter()
-        .map(|(name, value)| format!("{name}={value}"))
+        .map(|(name, value)| {
+            if value.is_empty()
+                || value.contains(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+            {
+                format!("{name}=\"{}\"", value.replace('"', "'"))
+            } else {
+                format!("{name}={value}")
+            }
+        })
         .collect::<Vec<_>>()
-        .join("\n")
+        .join(" ")
 }
 
 /// The instances by sidebar group: those without a group first, then each group in
@@ -998,6 +1007,14 @@ mod tests {
         let icon = store.icon_path(&updated).unwrap();
         let decoded = image::open(&icon).unwrap();
         assert_eq!((decoded.width(), decoded.height()), (ICON_SIZE, ICON_SIZE));
+        // JPEG photos work too.
+        let photo = dir.path().join("photo.jpg");
+        image::RgbImage::from_pixel(64, 96, image::Rgb([200, 10, 10]))
+            .save(&photo)
+            .unwrap();
+        store.set_icon(&instance.id, &photo).unwrap();
+        let decoded = image::open(&icon).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (ICON_SIZE, ICON_SIZE));
         let not_image = dir.path().join("notes.png");
         fs::write(&not_image, b"not an image").unwrap();
         assert!(matches!(
@@ -1039,15 +1056,24 @@ mod tests {
 
     #[test]
     fn environment_variables() {
-        let env =
-            parse_env("# comment\nFOO=bar\n\n  MESA_GL_VERSION_OVERRIDE = 4.5 \nEMPTY=\n").unwrap();
+        let env = parse_env(
+            "# comment\nFOO=bar MESA_GL_VERSION_OVERRIDE=4.5\n\n  SPACED=\"a b\" EMPTY=\n",
+        )
+        .unwrap();
         assert_eq!(env["FOO"], "bar");
         assert_eq!(env["MESA_GL_VERSION_OVERRIDE"], "4.5");
+        assert_eq!(env["SPACED"], "a b");
         assert_eq!(env["EMPTY"], "");
+        assert_eq!(env.len(), 4);
         assert_eq!(parse_env(&format_env(&env)).unwrap(), env);
-        assert!(parse_env("NOEQUALS").unwrap_err().contains("Line 1"));
-        assert!(parse_env("OK=1\n1BAD=x").unwrap_err().contains("Line 2"));
-        assert!(parse_env("A B=x").is_err());
+        assert_eq!(
+            format_env(&env),
+            "EMPTY=\"\" FOO=bar MESA_GL_VERSION_OVERRIDE=4.5 SPACED=\"a b\""
+        );
+        assert!(parse_env("NOEQUALS").unwrap_err().contains("NAME=value"));
+        assert!(parse_env("OK=1 1BAD=x").is_err());
+        assert!(parse_env("A-B=x").is_err());
+        assert!(parse_env("").unwrap().is_empty());
     }
 
     /// The instance follows the global settings until it overrides them.

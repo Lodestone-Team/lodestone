@@ -30,7 +30,7 @@ base64 = "0.22"
 dirs = "6.0"
 futures = "0.3.34"
 md-5 = "0.10"
-image = { version = "0.25.1", default-features = false, features = ["png"] }
+image = { version = "0.25.1", default-features = false, features = ["png", "jpeg"] }
 libc = "0.2"
 # Zed's requirement and features.
 regex = { version = "1.5", default-features = false, features = ["std", "perf"] }
