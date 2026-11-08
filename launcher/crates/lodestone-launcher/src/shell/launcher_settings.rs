@@ -17,7 +17,7 @@ use crate::{
     i18n::{CommonMsg, FormatMsg, ShellMsg as M, format, t, tr},
     instances::{
         Instances,
-        fields::{self, Fields, Values},
+        fields::{Fields, Values},
     },
     theme::{self, colors, leading, text},
 };
@@ -165,11 +165,8 @@ impl Render for LauncherSettings {
         let megabytes = |mb: u64| tr!(FormatMsg::Megabytes, size = format::number(mb));
         let memory_hint = tr!(
             M::MemoryDefaultHint,
-            total = fields::total_memory_label(total).unwrap_or_default(),
             min = megabytes(DEFAULT_MIN_RAM_MB.into()),
             max = megabytes(default_max_ram_mb(total).into()),
-            computer = t(CommonMsg::ThisComputer),
-            limit = format::memory_mb(4096),
         );
         let window_error = self.fields.window(cx).err();
         let env_error = self.fields.env(cx).err();
@@ -180,7 +177,7 @@ impl Render for LauncherSettings {
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
             .child(card([
                 SettingRow::new(t(M::Memory))
-                    .hint(memory_hint.trim().to_string())
+                    .hint(memory_hint)
                     .child(sized(&self.fields.min_ram, 84.))
                     .child("–")
                     .child(sized(&self.fields.max_ram, 84.))
@@ -197,7 +194,6 @@ impl Render for LauncherSettings {
                     )
                     .into_any_element(),
                 SettingRow::new(t(M::Window))
-                    .hint(t(M::WindowHint))
                     .child(sized(&self.fields.width, 72.))
                     .child("×")
                     .child(sized(&self.fields.height, 72.))
@@ -218,15 +214,12 @@ impl Render for LauncherSettings {
                     .note_opt(window_error.map(|e| (e.into(), colors::RED_200)))
                     .into_any_element(),
                 SettingRow::new(t(M::JvmArguments))
-                    .hint(t(M::JvmArgumentsHint))
                     .child(sized(&self.fields.jvm_args, 280.))
                     .into_any_element(),
                 SettingRow::new(t(M::GameArguments))
-                    .hint(t(M::GameArgumentsHint))
                     .child(sized(&self.fields.game_args, 280.))
                     .into_any_element(),
                 SettingRow::new(t(M::EnvironmentVariables))
-                    .hint(t(M::EnvironmentVariablesHint))
                     .child(sized(&self.fields.env, 280.))
                     .note_opt(env_error.map(|e| (e.into(), colors::RED_200)))
                     .into_any_element(),

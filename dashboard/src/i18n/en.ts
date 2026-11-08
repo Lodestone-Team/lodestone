@@ -441,8 +441,6 @@ export const en = {
 
   // Profile → Appearance → Language
   'settings.language.label': 'Language',
-  'settings.language.hint':
-    'The language of the dashboard. Names, logs and messages from servers and the core stay as they are.',
   /** {language} is the browser's language, in that language, e.g. "Français" */
   'settings.language.auto': 'Browser default ({language})',
 
@@ -465,37 +463,29 @@ export const en = {
   /** the browser tab title, before " - Lodestone" */
   'settings.core.documentTitle': 'Lodestone Core Settings',
   'settings.core.title': 'General',
-  'settings.core.description': 'These settings are for the core itself.',
   'settings.core.section.core': 'Core',
   'settings.core.section.public': 'Public servers',
-  'settings.core.section.publicLead':
-    'What anyone can see without signing in. Only you can change this.',
+  'settings.core.section.publicLead': 'Visible without signing in.',
   'settings.core.section.info': 'Information',
-  'settings.core.section.infoLead':
-    'This is information about your core and dashboard.',
   'settings.core.section.danger': 'Danger zone',
-  'settings.core.section.dangerLead':
-    'These settings can cause irreversible damage to your core.',
+  'settings.core.section.dangerLead': 'Change these with care.',
   'settings.core.name.label': 'Core name',
-  'settings.core.name.hint':
-    'A nickname for this core. This is what you and others will see when you connect to this core',
   'settings.core.name.empty': 'Name cannot be empty',
   'settings.core.name.tooLong': 'Name cannot be longer than {max} characters',
   'settings.core.domain.label': 'Public domain or IP',
-  'settings.core.domain.hint': 'The domain or public IP address of this core',
   'settings.core.domain.tooLong':
     'Domain cannot be longer than {max} characters',
   'settings.core.domain.tooltip':
     'This is your public IP if you are port-forwarded. If not, leave this as is.',
   'settings.core.playit.label': 'Enable Playit integration',
   'settings.core.playit.hint':
-    'Enable Playit integration allowing users to open their servers for public facing access without port forwarding',
+    'Open servers to the internet without port forwarding.',
   'settings.core.listPublicly.label': 'List servers publicly',
   'settings.core.listPublicly.hint':
-    'Let anyone who can reach this core see the servers you make public below, without signing in, and only what you choose for each. Turning this off hides them all at once. Lodestone Launcher uses this to join them.',
+    'Anyone who can reach this core sees the servers you make public below.',
   'settings.core.safeMode.label': 'Safe mode',
   'settings.core.safeMode.hint':
-    'Attempts to prevent non-owner users from accessing administrative permissions on your machine',
+    'Keeps admin access to this machine for the owner only.',
   'settings.core.safeMode.offTitle': 'Turn off safe mode?',
   'settings.core.safeMode.offBody':
     'Are you sure you want to turn off safe mode? This will allow you to give users other than yourself the ability to run potentially dangerous commands. Make sure you trust all the users you give these permissions to.',
@@ -503,10 +493,9 @@ export const en = {
   'settings.core.turnOff': 'Turn off',
   'settings.core.codeExecution.label': 'Code execution',
   'settings.core.codeExecution.hint':
-    'Allow macros, atom servers, extensions, server scripts and custom Java commands to run on this core.',
+    'Macros, atom servers, extensions, server scripts and custom Java commands.',
   /** the same hint on a core without scripting (Deno) */
-  'settings.core.codeExecution.hintJavaOnly':
-    'Allow custom Java commands to run on this core.',
+  'settings.core.codeExecution.hintJavaOnly': 'Custom Java commands.',
   'settings.core.codeExecution.locked':
     'Locked by this core’s administrator (LODESTONE_DISABLE_CODE_EXECUTION or --disable-code-execution).',
   'settings.core.codeExecution.offTitle': 'Turn off code execution?',
@@ -517,7 +506,7 @@ export const en = {
     'Custom Java commands will not run on this core until you turn code execution back on. Nothing is started again automatically.',
   'settings.core.lanHttp.label': 'Allow LAN access over plain HTTP',
   'settings.core.lanHttp.hint':
-    'Let other devices connect with http:// instead of https://. Passwords and session tokens then cross your network unencrypted. This machine can always use http://.',
+    'Not encrypted. Others on your network can read passwords.',
   'settings.core.lanHttp.confirmTitle': 'Allow plain HTTP from other devices?',
   'settings.core.lanHttp.confirmBody':
     'Devices on your network will be able to connect over plain HTTP. Passwords and session tokens sent that way cross the network unencrypted, so anyone else on the network can read them and take over accounts on this core. Only allow this if a device cannot use https://.',
@@ -529,8 +518,7 @@ export const en = {
     'Other devices can connect to this core over plain HTTP, so passwords and session tokens can cross your network unencrypted. Connect with https:// and ask the owner to turn off plain HTTP access.',
   'settings.core.openPort.label': 'Open port',
   /** {upnp} is a link with the text "UPnP" */
-  'settings.core.openPort.hint':
-    'Attempt to port forward on your router using {upnp}. This will allow people on the internet to connect to your server.',
+  'settings.core.openPort.hint': 'Port forward on your router with {upnp}.',
   'settings.core.openPort.noPermission': 'No permission',
   'settings.core.openPort.button': 'Open port',
   'settings.core.openPort.portLabel': 'Port to open',
@@ -557,17 +545,13 @@ export const en = {
   /** the browser tab title, before " - Lodestone" */
   'settings.users.documentTitle': 'User Settings',
   'settings.users.title': 'Users',
-  'settings.users.description':
-    'The accounts on this core and what each one can do.',
+  'settings.users.description': 'Accounts on this core and what each can do.',
   'settings.users.allUsers': 'All users',
   'settings.users.allMembers': 'All members',
   'settings.users.allMembersCount': 'All members ({count})',
-  'settings.users.allMembersLead':
-    'A list of all users. Click a user to manage them.',
   'settings.users.createUser': 'Create new user',
   'settings.users.createTitle': 'Create a new user account',
-  'settings.users.createLead':
-    'This user will start with no permissions. You can grant them permissions later.',
+  'settings.users.createLead': 'Starts with no permissions.',
   'settings.users.loadingUsers': 'Loading users',
   'settings.users.loadingUser': 'Loading the user',
   'settings.users.loadingServers': 'Loading servers',
@@ -575,10 +559,10 @@ export const en = {
   'settings.users.permissionsLead': 'What {username} can do on this core.',
   'settings.users.unsafePermissions': 'Unsafe permissions',
   'settings.users.unsafePermissionsLead':
-    'Turn off safe mode in core settings to grant these permissions to non-owner users.',
+    'Turn off safe mode to grant these to non-owners.',
   'settings.users.ownerOnly': 'Macros, extensions and atom servers',
   'settings.users.ownerOnlyHint':
-    'Only the owner can use macros, install extensions, and create or control atom servers. These can’t be granted to other users. Docker servers use the normal server permissions.',
+    'Owner only. Docker servers use the normal permissions.',
 
   // Permissions: the title, and what it allows a user or an API key
   'settings.permission.can_create_instance.title': 'Create Servers',
@@ -659,7 +643,6 @@ export const en = {
   /** the browser tab title, before " - Lodestone" */
   'settings.profile.documentTitle': 'User Profile',
   'settings.profile.title': 'Profile',
-  'settings.profile.description': 'Profile preferences for {username}',
   /** the username shown when not logged in */
   'settings.profile.guest': 'Guest',
   'settings.profile.notLoggedIn':
@@ -672,8 +655,6 @@ export const en = {
   'settings.profile.appearance': 'Appearance',
   'settings.profile.appearanceLead': 'Saved in this browser, not on the core.',
   'settings.profile.coloredConsole': 'Colored console',
-  'settings.profile.coloredConsoleHint':
-    'Shows the colors and styles servers print in the server console',
 
   // Password and new user forms
   'settings.form.username': 'Username',
@@ -689,8 +670,7 @@ export const en = {
 
   // Linked Minecraft accounts (profile page and user settings)
   'settings.minecraft.title': 'Minecraft accounts',
-  'settings.minecraft.ownLead':
-    'Accounts you linked from Lodestone Launcher, which checks with Microsoft that they are yours. The dashboard shows your name next to them.',
+  'settings.minecraft.ownLead': 'Linked from Lodestone Launcher.',
   'settings.minecraft.ownEmpty':
     'No Minecraft account is linked. Sign in to this core in Lodestone Launcher to link one.',
   'settings.minecraft.userLead':
@@ -708,10 +688,10 @@ export const en = {
   // API keys (profile page and user settings)
   'settings.apiKeys.title': 'API keys',
   'settings.apiKeys.ownLead':
-    'Keys let the CLI, scripts and agents use Lodestone as you, without your password. Revoking a key doesn’t sign you out anywhere else.',
+    'Let the CLI, scripts and agents act as you without your password.',
   'settings.apiKeys.ownEmpty': 'You have no API keys.',
   'settings.apiKeys.userLead':
-    'The keys {username} created. Revoke a key to cut off what uses it at once. Only {username} can create keys for themselves.',
+    'Keys {username} created. Revoking one cuts off what uses it.',
   'settings.apiKeys.userEmpty': '{username} has no API keys.',
   /** a button and the title of its dialog */
   'settings.apiKeys.create': 'Create API key',
@@ -754,7 +734,7 @@ export const en = {
     'API keys can only be managed when you sign in with your password, not with an API key.',
   // Create API key dialog
   'settings.apiKeys.createLead':
-    'The CLI, scripts and agents can sign in with an API key instead of your password. Give each key a name, a short expiry and only the access it needs.',
+    'Give each key a short expiry and only the access it needs.',
   'settings.apiKeys.name': 'Name',
   'settings.apiKeys.nameRequired': 'Name is required',
   'settings.apiKeys.nameTooLong': 'Name must be at most {max} characters',
@@ -780,7 +760,7 @@ export const en = {
     'Safe mode is on, so the core refuses these to keys with custom access until safe mode is turned off in core settings.',
   'settings.apiKeys.ownerOnly': 'Macros, Extensions and Atom Servers',
   'settings.apiKeys.ownerOnlyHint':
-    'Keys with custom access can’t use macros, install extensions, or create or control atom servers, even if they belong to the owner. A key with full access can, if you can.',
+    'Only full-access keys can use macros, extensions and atom servers.',
   // The new key dialog, shown once
   'settings.apiKeys.newTitle': 'API key "{name}" created',
   'settings.apiKeys.newCopyNow':

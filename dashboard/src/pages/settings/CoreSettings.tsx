@@ -104,7 +104,6 @@ export const CoreSettings = () => {
       error={errorString}
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
-      description={t('settings.core.name.hint')}
       validate={async (name) => {
         // don't be empty
         if (name === '') throw new Error(t('settings.core.name.empty'));
@@ -137,10 +136,6 @@ export const CoreSettings = () => {
       error={errorString}
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
-      description={
-        //TODO: more info needed once we add more functionality
-        t('settings.core.domain.hint')
-      }
       placeholder={`${core?.address}`}
       validate={async (domain) => {
         // can be empty
@@ -497,10 +492,7 @@ export const CoreSettings = () => {
       {codeExecutionDialog}
       {allowLanHttpDialog}
       {openPortModal}
-      <SettingsPage
-        title={t('settings.core.title')}
-        description={t('settings.core.description')}
-      >
+      <SettingsPage title={t('settings.core.title')}>
         {allowLanHttp && (
           <WarningAlert>
             <p>
@@ -532,10 +524,7 @@ export const CoreSettings = () => {
             </SettingsCard>
           </SettingsSection>
         )}
-        <SettingsSection
-          title={t('settings.core.section.info')}
-          lead={t('settings.core.section.infoLead')}
-        >
+        <SettingsSection title={t('settings.core.section.info')}>
           <SettingsCard>
             <InfoRow label={t('settings.core.info.coreVersion')}>
               {coreInfo?.version}

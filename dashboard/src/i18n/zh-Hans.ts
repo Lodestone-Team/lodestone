@@ -332,8 +332,6 @@ export const zhHans: Messages = {
   // ===== Settings: core settings, users, profile, API keys =====
 
   'settings.language.label': '语言',
-  'settings.language.hint':
-    '控制面板的显示语言。来自服务器和核心的名称、日志和消息将保持原样。',
   'settings.language.auto': '跟随浏览器（{language}）',
 
   'settings.theme.label': '主题',
@@ -350,43 +348,34 @@ export const zhHans: Messages = {
 
   'settings.core.documentTitle': 'Lodestone Core 设置',
   'settings.core.title': '常规',
-  'settings.core.description': '这些设置作用于核心本身。',
   'settings.core.section.core': '核心',
   'settings.core.section.public': '公开服务器',
-  'settings.core.section.publicLead':
-    '任何人无需登录即可看到的内容。只有你可以更改。',
+  'settings.core.section.publicLead': '无需登录即可查看。',
   'settings.core.section.info': '信息',
-  'settings.core.section.infoLead': '关于你的核心和控制面板的信息。',
   'settings.core.section.danger': '危险区域',
-  'settings.core.section.dangerLead':
-    '这些设置可能会对你的核心造成不可逆的损害。',
+  'settings.core.section.dangerLead': '请谨慎更改。',
   'settings.core.name.label': '核心名称',
-  'settings.core.name.hint':
-    '此核心的昵称。你和其他人连接到此核心时会看到这个名称',
   'settings.core.name.empty': '名称不能为空',
   'settings.core.name.tooLong': '名称不能超过 {max} 个字符',
   'settings.core.domain.label': '公网域名或 IP',
-  'settings.core.domain.hint': '此核心的域名或公网 IP 地址',
   'settings.core.domain.tooLong': '域名不能超过 {max} 个字符',
   'settings.core.domain.tooltip':
     '如果你已设置端口转发，这里填写你的公网 IP。否则请保持不变。',
   'settings.core.playit.label': '启用 Playit 集成',
-  'settings.core.playit.hint':
-    '启用 Playit 集成，让用户无需端口转发即可将服务器开放给公网访问',
+  'settings.core.playit.hint': '无需端口转发即可将服务器开放到互联网。',
   'settings.core.listPublicly.label': '公开列出服务器',
   'settings.core.listPublicly.hint':
-    '让任何能访问此核心的人无需登录即可看到你在下方设为公开的服务器，且只显示你为每个服务器选择的内容。关闭此项会立即隐藏所有服务器。Lodestone Launcher 通过它加入这些服务器。',
+    '任何能访问此核心的人都能看到你在下方设为公开的服务器。',
   'settings.core.safeMode.label': '安全模式',
-  'settings.core.safeMode.hint': '尽量防止非所有者用户获得你计算机上的管理权限',
+  'settings.core.safeMode.hint': '仅所有者可获得此计算机的管理权限。',
   'settings.core.safeMode.offTitle': '关闭安全模式？',
   'settings.core.safeMode.offBody':
     '确定要关闭安全模式吗？这样你就可以让自己以外的用户运行可能有危险的命令。请确保你信任所有获得这些权限的用户。',
   'settings.core.turnOff': '关闭',
   'settings.core.codeExecution.label': '代码执行',
   'settings.core.codeExecution.hint':
-    '允许宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令在此核心上运行。',
-  'settings.core.codeExecution.hintJavaOnly':
-    '允许自定义 Java 命令在此核心上运行。',
+    '宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令。',
+  'settings.core.codeExecution.hintJavaOnly': '自定义 Java 命令。',
   'settings.core.codeExecution.locked':
     '已被此核心的管理员锁定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。',
   'settings.core.codeExecution.offTitle': '关闭代码执行？',
@@ -395,8 +384,7 @@ export const zhHans: Messages = {
   'settings.core.codeExecution.offBodyJavaOnly':
     '在你重新开启代码执行之前，自定义 Java 命令不会在此核心上运行。任何内容都不会自动重新启动。',
   'settings.core.lanHttp.label': '允许通过明文 HTTP 进行局域网访问',
-  'settings.core.lanHttp.hint':
-    '让其他设备使用 http:// 而不是 https:// 连接。密码和会话令牌将以未加密的方式经过你的网络。本机始终可以使用 http://。',
+  'settings.core.lanHttp.hint': '未加密。你网络中的其他人可以读取密码。',
   'settings.core.lanHttp.confirmTitle': '允许其他设备使用明文 HTTP？',
   'settings.core.lanHttp.confirmBody':
     '你网络中的设备将能够通过明文 HTTP 连接。以这种方式发送的密码和会话令牌会以未加密的方式经过网络，网络中的其他任何人都可以读取它们并接管此核心上的账户。仅在某台设备无法使用 https:// 时才允许此项。',
@@ -406,8 +394,7 @@ export const zhHans: Messages = {
   'settings.core.lanHttp.warningOther':
     '其他设备可以通过明文 HTTP 连接到此核心，因此密码和会话令牌可能以未加密的方式经过你的网络。请使用 https:// 连接，并请所有者关闭明文 HTTP 访问。',
   'settings.core.openPort.label': '开放端口',
-  'settings.core.openPort.hint':
-    '尝试使用 {upnp} 在你的路由器上设置端口转发。这样互联网上的人就可以连接到你的服务器。',
+  'settings.core.openPort.hint': '使用 {upnp} 在路由器上设置端口转发。',
   'settings.core.openPort.noPermission': '没有权限',
   'settings.core.openPort.button': '开放端口',
   'settings.core.openPort.portLabel': '要开放的端口',
@@ -431,25 +418,22 @@ export const zhHans: Messages = {
 
   'settings.users.documentTitle': '用户设置',
   'settings.users.title': '用户',
-  'settings.users.description': '此核心上的账户以及每个账户可以执行的操作。',
+  'settings.users.description': '此核心上的账户及其权限。',
   'settings.users.allUsers': '所有用户',
   'settings.users.allMembers': '所有成员',
   'settings.users.allMembersCount': '所有成员（{count}）',
-  'settings.users.allMembersLead': '所有用户的列表。点击用户即可管理。',
   'settings.users.createUser': '创建新用户',
   'settings.users.createTitle': '创建新用户账户',
-  'settings.users.createLead': '此用户初始没有任何权限。你可以稍后授予权限。',
+  'settings.users.createLead': '新用户初始没有任何权限。',
   'settings.users.loadingUsers': '正在加载用户',
   'settings.users.loadingUser': '正在加载该用户',
   'settings.users.loadingServers': '正在加载服务器',
   'settings.users.permissions': '权限',
   'settings.users.permissionsLead': '{username} 在此核心上可以执行的操作。',
   'settings.users.unsafePermissions': '不安全权限',
-  'settings.users.unsafePermissionsLead':
-    '在核心设置中关闭安全模式后，才能将这些权限授予非所有者用户。',
+  'settings.users.unsafePermissionsLead': '关闭安全模式后才能授予非所有者。',
   'settings.users.ownerOnly': '宏、扩展和 Atom 服务器',
-  'settings.users.ownerOnlyHint':
-    '只有所有者可以使用宏、安装扩展以及创建或控制 Atom 服务器。这些权限无法授予其他用户。Docker 服务器使用普通的服务器权限。',
+  'settings.users.ownerOnlyHint': '仅限所有者。Docker 服务器使用普通权限。',
 
   'settings.permission.can_create_instance.title': '创建服务器',
   'settings.permission.can_create_instance.user': '该用户可以创建新服务器。',
@@ -514,7 +498,6 @@ export const zhHans: Messages = {
 
   'settings.profile.documentTitle': '用户个人资料',
   'settings.profile.title': '个人资料',
-  'settings.profile.description': '{username} 的个人资料偏好设置',
   'settings.profile.guest': '访客',
   'settings.profile.notLoggedIn': '你尚未登录！请登录后访问此页面。',
   'settings.profile.account': '账户',
@@ -524,8 +507,6 @@ export const zhHans: Messages = {
   'settings.profile.appearance': '外观',
   'settings.profile.appearanceLead': '保存在此浏览器中，而不是核心上。',
   'settings.profile.coloredConsole': '彩色控制台',
-  'settings.profile.coloredConsoleHint':
-    '在服务器控制台中显示服务器输出的颜色和样式',
 
   'settings.form.username': '用户名',
   'settings.form.password': '密码',
@@ -539,8 +520,7 @@ export const zhHans: Messages = {
   'settings.form.createUser': '创建用户',
 
   'settings.minecraft.title': 'Minecraft 账户',
-  'settings.minecraft.ownLead':
-    '你从 Lodestone Launcher 关联的账户，Lodestone Launcher 会通过 Microsoft 确认这些账户属于你。控制面板会在它们旁边显示你的名字。',
+  'settings.minecraft.ownLead': '从 Lodestone Launcher 关联。',
   'settings.minecraft.ownEmpty':
     '尚未关联 Minecraft 账户。在 Lodestone Launcher 中登录此核心即可关联。',
   'settings.minecraft.userLead':
@@ -554,10 +534,10 @@ export const zhHans: Messages = {
 
   'settings.apiKeys.title': 'API 密钥',
   'settings.apiKeys.ownLead':
-    '密钥让 CLI、脚本和智能体无需你的密码即可以你的身份使用 Lodestone。吊销密钥不会让你在其他地方退出登录。',
+    '让 CLI、脚本和智能体无需密码即可以你的身份操作。',
   'settings.apiKeys.ownEmpty': '你还没有 API 密钥。',
   'settings.apiKeys.userLead':
-    '{username} 创建的密钥。吊销密钥可立即切断使用它的程序的访问。只有 {username} 可以为自己创建密钥。',
+    '{username} 创建的密钥。吊销后，使用它的程序会立即失去访问权限。',
   'settings.apiKeys.userEmpty': '{username} 没有 API 密钥。',
   'settings.apiKeys.create': '创建 API 密钥',
   'settings.apiKeys.created': '已创建 API 密钥“{name}”',
@@ -587,7 +567,7 @@ export const zhHans: Messages = {
   'settings.apiKeys.passwordSessionOnly':
     '只有使用密码登录时才能管理 API 密钥，使用 API 密钥登录时不行。',
   'settings.apiKeys.createLead':
-    'CLI、脚本和智能体可以使用 API 密钥代替你的密码登录。为每个密钥起个名字，设置较短的有效期，并只授予它所需的访问权限。',
+    '为每个密钥设置较短的有效期，并只授予所需的访问权限。',
   'settings.apiKeys.name': '名称',
   'settings.apiKeys.nameRequired': '请输入名称',
   'settings.apiKeys.nameTooLong': '名称最多 {max} 个字符',
@@ -612,7 +592,7 @@ export const zhHans: Messages = {
     '安全模式已开启，因此在核心设置中关闭安全模式之前，核心会拒绝为自定义访问的密钥授予这些权限。',
   'settings.apiKeys.ownerOnly': '宏、扩展和 Atom 服务器',
   'settings.apiKeys.ownerOnlyHint':
-    '自定义访问的密钥不能使用宏、安装扩展，也不能创建或控制 Atom 服务器，即使它们属于所有者。完全访问的密钥可以，前提是你本人可以。',
+    '只有完全访问的密钥才能使用宏、扩展和 Atom 服务器。',
   'settings.apiKeys.newTitle': '已创建 API 密钥“{name}”',
   'settings.apiKeys.newCopyNow': '请立即复制此密钥。之后将无法再次查看。',
   'settings.apiKeys.newUseWithCli': '在 Lodestone CLI 中使用：',

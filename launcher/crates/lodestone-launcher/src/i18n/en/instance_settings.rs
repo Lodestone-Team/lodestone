@@ -39,14 +39,9 @@ crate::i18n::messages! {
         Group = "Group",
         /// The group field's placeholder.
         NoGroup = "No group",
-        /// {group} is an automatic group: "Fabric (modded)", "Vanilla".
-        GroupHintAuto = "Instances in the same group are listed together. Without one it's listed under {group}.",
-        GroupHint = "Instances in the same group are listed together.",
         NameMissing = "Give the instance a name.",
         Icon = "Icon",
-        IconHint = "Shown in the sidebar and around the launcher.",
         PlayBackground = "Play background",
-        PlayBackgroundHint = "Shown behind the name on the Play tab. The launcher darkens it under the text as much as the image needs.",
         /// The button of the file dialog that picks an icon.
         UseAsIcon = "Use as icon",
         /// The button of the file dialog that picks a background.
@@ -83,7 +78,6 @@ crate::i18n::messages! {
         /// No mod loader: the game as Mojang ships it.
         Vanilla = "Vanilla",
         ModLoader = "Mod loader",
-        ModLoaderHint = "A change installs the next time you press Play.",
         LoaderVersion = "Loader version",
         /// {loader} is Fabric, Quilt, Forge or NeoForge.
         ChooseLoaderVersion = "Choose a {loader} version.",
@@ -107,7 +101,7 @@ crate::i18n::messages! {
         FromMrpack = "From a .mrpack file that isn't on Modrinth, so it can't be updated here.",
         ViewOnModrinth = "View on Modrinth",
         Updates = "Updates",
-        UpdatesHint = "An update replaces the pack's own files and keeps your mods, configs and worlds. You see what changes first.",
+        UpdatesHint = "Keeps your mods, configs and worlds.",
         DownloadingNewVersion = "Downloading the new version…",
         CheckingModrinth = "Checking Modrinth…",
         /// {version} is the pack's version, "1.4.2".
@@ -121,17 +115,17 @@ crate::i18n::messages! {
 
         // Linked server.
         /// {core} is a Lodestone Core's name.
-        LinkedServerHint = "On {core}. Play joins it and keeps the mods in step.",
+        LinkedServerHint = "On {core}. Play joins it and syncs its mods.",
         LinkedServerCoreRemoved = "On {core}, which was removed from the Servers page. Add the core again there to join the server.",
         CoreRemoved = "Core removed",
         Unlink = "Unlink",
         Unlinked = "Unlinked",
-        UnlinkNote = "Unlinking keeps the instance and its mods. Play won't join the server or update its mods.",
+        UnlinkNote = "Play won't join the server anymore. The mods stay.",
 
         // Java & memory, Launch options.
         /// Sets a value for this instance instead of the launcher's.
         ChangeSetting = "Change",
-        JavaMemoryLead = "Values marked Default come from the launcher's Settings. Change one to set it for this instance only.",
+        JavaMemoryLead = "Defaults come from the launcher's settings.",
         Memory = "Memory",
         Checking = "Checking…",
         /// {major} is "21", {version} is "21.0.5".
@@ -140,8 +134,6 @@ crate::i18n::messages! {
         /// The Java Mojang provides for the game, "Mojang's Java 21".
         MojangJavaVersion = "Mojang's Java {major}",
         MojangJava = "Mojang's Java",
-        JavaOverrideHint = "A java binary to use instead of the one Mojang provides.",
-        JavaHint = "Mojang provides the right Java for each Minecraft version.",
         /// The button of the file dialog that picks a java binary.
         UseThisJava = "Use this Java",
         /// Checks the chosen java binary.
@@ -152,39 +144,35 @@ crate::i18n::messages! {
         NoArguments = "None",
         /// No environment variables.
         NoVariables = "None",
-        ArgumentsHint = "Separated by spaces; quote values with spaces.",
         Window = "Window",
         Fullscreen = "Fullscreen",
-        WindowHint = "Leave the size empty for the game's default.",
         EnvironmentVariables = "Environment variables",
-        EnvHint = "NAME=value, separated by spaces.",
 
         // Maintenance.
         VerifyGameFiles = "Verify game files",
-        VerifyHint = "Checks every file and downloads any that are missing or damaged.",
+        VerifyHint = "Redownloads missing or damaged files.",
         Verify = "Verify",
         VerifyStarted = "Checking every file. The progress is on the Play button.",
         Export = "Export",
-        ExportHint = "A .mrpack file that other launchers can import.",
+        ExportHint = "As a .mrpack file.",
         ExportButton = "Export…",
         Exporting = "Exporting…",
         Duplicate = "Duplicate",
-        DuplicateHint = "A copy with its own folder, mods and worlds.",
         HostOnCore = "Host on a Lodestone core",
-        HostHint = "Makes a server on one of your cores with this instance's mods.",
+        HostHint = "Creates a server with this instance's mods.",
         HostButton = "Host…",
         DeleteInstance = "Delete instance",
-        DeleteHint = "Its folder, with its worlds and mods. You confirm first.",
+        DeleteHint = "Including its worlds and mods.",
         DeleteButton = "Delete…",
 
         // Shared game settings.
-        SharedLead = "Mouse, key bindings, video, sound and more from options.txt, kept the same in every instance.",
+        SharedLead = "The same game options in every instance.",
         UseSharedSettings = "Use shared settings",
-        SharingOff = "Off: this instance keeps its own options.txt, and nothing is read back from it.",
-        SharingPreferred = "This is the preferred instance: settings you change in-game here update every instance.",
+        SharingOff = "This instance keeps its own options.",
+        SharingPreferred = "In-game changes here update every instance.",
         /// {name} is the preferred instance's name.
-        SharingFrom = "Settings changed in-game in {name} reach this instance at its next launch.",
-        SharingNoPreferred = "No instance is preferred, so shared values change only in the launcher's Settings.",
+        SharingFrom = "Gets in-game changes from {name}.",
+        SharingNoPreferred = "Shared values change only in Settings.",
         /// A tag on the preferred instance.
         Preferred = "Preferred",
         MakePreferred = "Make preferred",
@@ -214,10 +202,10 @@ crate::i18n::messages! {
         CategorySound = "Sound",
         CategoryAccessibility = "Accessibility & chat",
         CategoryLanguage = "Language",
-        CategoryControlsDescription = "Mouse sensitivity, invert, raw input, key bindings, toggle crouch and sprint",
-        CategoryVideoDescription = "FOV, render and simulation distance, GUI scale, brightness, fullscreen, VSync, max FPS, particles, graphics",
-        CategorySoundDescription = "Every volume slider, subtitles, directional audio",
-        CategoryAccessibilityDescription = "Narrator, text background, chat size and opacity, effects",
+        CategoryControlsDescription = "Mouse, key bindings",
+        CategoryVideoDescription = "FOV, render distance, GUI scale, graphics",
+        CategorySoundDescription = "Volume, subtitles",
+        CategoryAccessibilityDescription = "Narrator, chat, text background",
         CategoryLanguageDescription = "Game language and font",
 
         // New instance.

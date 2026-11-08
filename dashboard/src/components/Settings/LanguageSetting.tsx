@@ -30,7 +30,6 @@ export default function LanguageSetting() {
   return (
     <SelectBox
       label={t('settings.language.label')}
-      description={t('settings.language.hint')}
       value={preference}
       options={preferences}
       optionLabel={label}

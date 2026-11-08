@@ -42,7 +42,9 @@ use crate::{
             value,
         },
     },
-    i18n::{CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, format, t, tr, trn},
+    i18n::{
+        CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, Text, format, t, tr, trn,
+    },
     servers::Servers,
     theme::{self, colors, leading, radius, text, weights},
 };
@@ -1461,14 +1463,15 @@ impl Render for InstanceSettings {
 
         // General.
         let name_empty = self.text(&self.name, cx).is_empty();
-        let group_hint: SharedString = match instance.as_ref() {
-            Some(instance) if self.instances.read(cx).auto_groups() => tr!(
-                M::GroupHintAuto,
-                group = auto_group_name(launcher_core::instances::AutoGroup::of(instance))
-            )
-            .into(),
-            _ => t(M::GroupHint).into(),
+        // Without a group of its own, the instance is listed under its automatic group.
+        let group_placeholder: Text = match instance.as_ref() {
+            Some(instance) if self.instances.read(cx).auto_groups() => {
+                auto_group_name(launcher_core::instances::AutoGroup::of(instance)).into()
+            }
+            _ => M::NoGroup.into(),
         };
+        self.group
+            .update(cx, |input, cx| input.set_placeholder(group_placeholder, cx));
         let general = card([
             SettingRow::new(t(M::Name))
                 .child(sized(&self.name, 260.))
@@ -1477,11 +1480,9 @@ impl Render for InstanceSettings {
                 })
                 .into_any_element(),
             SettingRow::new(t(M::Group))
-                .hint(group_hint)
                 .child(sized(&self.group, 260.))
                 .into_any_element(),
             SettingRow::new(t(M::Icon))
-                .hint(t(M::IconHint))
                 .child(
                     div()
                         .flex()
@@ -1528,7 +1529,6 @@ impl Render for InstanceSettings {
                 )
                 .into_any_element(),
             SettingRow::new(t(M::PlayBackground))
-                .hint(t(M::PlayBackgroundHint))
                 .child(match (&background, has_background) {
                     (Some(image), _) => img(image.clone())
                         .w(px(72.))
@@ -1656,11 +1656,6 @@ impl Render for InstanceSettings {
         };
         let java = self
             .default_row(Setting::Java, "Java", mojang_java, div(), cx)
-            .hint(t(if overrides.java {
-                M::JavaOverrideHint
-            } else {
-                M::JavaHint
-            }))
             .when(overrides.java, |row| {
                 row.below(
                     div()
@@ -1700,24 +1695,20 @@ impl Render for InstanceSettings {
             .env
             .then(|| self.fields.env(cx))
             .and_then(Result::err);
-        let jvm = self
-            .default_row(
-                Setting::JvmArgs,
-                t(M::JvmArguments),
-                or_none(&defaults.jvm_args),
-                sized(&self.fields.jvm_args, 280.),
-                cx,
-            )
-            .when(overrides.jvm_args, |row| row.hint(t(M::ArgumentsHint)));
-        let game_args = self
-            .default_row(
-                Setting::GameArgs,
-                t(M::GameArguments),
-                or_none(&defaults.game_args),
-                sized(&self.fields.game_args, 280.),
-                cx,
-            )
-            .when(overrides.game_args, |row| row.hint(t(M::ArgumentsHint)));
+        let jvm = self.default_row(
+            Setting::JvmArgs,
+            t(M::JvmArguments),
+            or_none(&defaults.jvm_args),
+            sized(&self.fields.jvm_args, 280.),
+            cx,
+        );
+        let game_args = self.default_row(
+            Setting::GameArgs,
+            t(M::GameArguments),
+            or_none(&defaults.game_args),
+            sized(&self.fields.game_args, 280.),
+            cx,
+        );
         let window = self
             .default_row(
                 Setting::Window,
@@ -1745,7 +1736,6 @@ impl Render for InstanceSettings {
                     )),
                 cx,
             )
-            .when(overrides.window, |row| row.hint(t(M::WindowHint)))
             .note_opt(window_check.map(|e| (e.into(), colors::RED_200)));
         let env_text = if defaults.env.is_empty() {
             t(M::NoVariables).to_string()
@@ -1760,7 +1750,6 @@ impl Render for InstanceSettings {
                 sized(&self.fields.env, 280.),
                 cx,
             )
-            .when(overrides.env, |row| row.hint(t(M::EnvHint)))
             .note_opt(env_check.map(|e| (e.into(), colors::RED_200)));
         sections.push((
             t(M::LaunchOptions).into(),
@@ -1807,7 +1796,6 @@ impl Render for InstanceSettings {
                 )
                 .into_any_element(),
             SettingRow::new(t(M::Duplicate))
-                .hint(t(M::DuplicateHint))
                 .child(
                     Button::new("duplicate-instance", t(M::Duplicate))
                         .variant(ButtonVariant::Secondary)

@@ -32,17 +32,9 @@ pub fn text(message: M) -> &'static str {
         M::Name => "Nom",
         M::Group => "Groupe",
         M::NoGroup => "Aucun groupe",
-        M::GroupHintAuto => {
-            "Les instances d’un même groupe sont listées ensemble. Sans groupe, celle-ci est listée sous {group}."
-        }
-        M::GroupHint => "Les instances d’un même groupe sont listées ensemble.",
         M::NameMissing => "Donnez un nom à l’instance.",
         M::Icon => "Icône",
-        M::IconHint => "Affichée dans la barre latérale et ailleurs dans le launcher.",
         M::PlayBackground => "Fond de l’onglet Jouer",
-        M::PlayBackgroundHint => {
-            "Affiché derrière le nom dans l’onglet Jouer. Le launcher l’assombrit sous le texte autant que l’image le demande."
-        }
         M::UseAsIcon => "Utiliser comme icône",
         M::UseAsBackground => "Utiliser comme fond",
         M::SavedSeePlayTab => "Enregistré. Voyez le résultat dans l’onglet Jouer.",
@@ -74,9 +66,6 @@ pub fn text(message: M) -> &'static str {
 
         M::Vanilla => "Vanilla",
         M::ModLoader => "Chargeur de mods",
-        M::ModLoaderHint => {
-            "Un changement s’installe la prochaine fois que vous cliquez sur Jouer."
-        }
         M::LoaderVersion => "Version du chargeur",
         M::ChooseLoaderVersion => "Choisissez une version de {loader}.",
         M::ChooseVersion => "Choisir une version",
@@ -101,9 +90,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::ViewOnModrinth => "Voir sur Modrinth",
         M::Updates => "Mises à jour",
-        M::UpdatesHint => {
-            "Une mise à jour remplace les fichiers du modpack et garde vos mods, configurations et mondes. Vous voyez d’abord ce qui change."
-        }
+        M::UpdatesHint => "Conserve vos mods, configurations et mondes.",
         M::DownloadingNewVersion => "Téléchargement de la nouvelle version…",
         M::CheckingModrinth => "Vérification sur Modrinth…",
         M::UpdateTo => "Mettre à jour vers {version}…",
@@ -113,21 +100,17 @@ pub fn text(message: M) -> &'static str {
         M::StopGameFirst => "Arrêtez d’abord le jeu, ou attendez la fin de la mise à jour.",
         M::CouldntPrepareUpdate => "Impossible de préparer la mise à jour\u{a0}: {error}",
 
-        M::LinkedServerHint => "Sur {core}. Jouer le rejoint et garde les mods à jour.",
+        M::LinkedServerHint => "Sur {core}. Jouer le rejoint et synchronise ses mods.",
         M::LinkedServerCoreRemoved => {
             "Sur {core}, qui a été retiré de la page Serveurs. Ajoutez de nouveau ce core sur cette page pour rejoindre le serveur."
         }
         M::CoreRemoved => "Core retiré",
         M::Unlink => "Délier",
         M::Unlinked => "Lien supprimé",
-        M::UnlinkNote => {
-            "Délier garde l’instance et ses mods. Jouer ne rejoindra plus le serveur et ne mettra plus ses mods à jour."
-        }
+        M::UnlinkNote => "Jouer ne rejoindra plus le serveur. Les mods restent.",
 
         M::ChangeSetting => "Modifier",
-        M::JavaMemoryLead => {
-            "Les valeurs marquées Par défaut viennent des Paramètres du launcher. Modifiez-en une pour la définir pour cette instance seulement."
-        }
+        M::JavaMemoryLead => "Les valeurs par défaut viennent des paramètres du launcher.",
         M::Memory => "Mémoire",
         M::Checking => "Vérification…",
         M::JavaFound => "Java {major} (version {version})",
@@ -136,64 +119,42 @@ pub fn text(message: M) -> &'static str {
         }
         M::MojangJavaVersion => "Java {major} de Mojang",
         M::MojangJava => "Java de Mojang",
-        M::JavaOverrideHint => {
-            "Un exécutable java à utiliser à la place de celui fourni par Mojang."
-        }
-        M::JavaHint => "Mojang fournit le bon Java pour chaque version de Minecraft.",
         M::UseThisJava => "Utiliser ce Java",
         M::Check => "Vérifier",
         M::JvmArguments => "Arguments JVM",
         M::GameArguments => "Arguments du jeu",
         M::NoArguments => "Aucun",
         M::NoVariables => "Aucune",
-        M::ArgumentsHint => {
-            "Séparés par des espaces\u{202F}; mettez entre guillemets les valeurs avec des espaces."
-        }
         M::Window => "Fenêtre",
         M::Fullscreen => "Plein écran",
-        M::WindowHint => "Laissez la taille vide pour garder celle du jeu par défaut.",
         M::EnvironmentVariables => "Variables d’environnement",
-        M::EnvHint => "NOM=valeur, séparées par des espaces.",
 
         M::VerifyGameFiles => "Vérifier les fichiers du jeu",
-        M::VerifyHint => {
-            "Vérifie chaque fichier et télécharge ceux qui manquent ou sont endommagés."
-        }
+        M::VerifyHint => "Retélécharge les fichiers manquants ou endommagés.",
         M::Verify => "Vérifier",
         M::VerifyStarted => {
             "Vérification de chaque fichier. La progression s’affiche sur le bouton Jouer."
         }
         M::Export => "Exporter",
-        M::ExportHint => "Un fichier .mrpack que d’autres launchers peuvent importer.",
+        M::ExportHint => "En fichier .mrpack.",
         M::ExportButton => "Exporter…",
         M::Exporting => "Exportation…",
         M::Duplicate => "Dupliquer",
-        M::DuplicateHint => "Une copie avec son propre dossier, ses mods et ses mondes.",
         M::HostOnCore => "Héberger sur un Lodestone Core",
-        M::HostHint => "Crée un serveur sur l’un de vos cores avec les mods de cette instance.",
+        M::HostHint => "Crée un serveur avec les mods de cette instance.",
         M::HostButton => "Héberger…",
         M::DeleteInstance => "Supprimer l’instance",
-        M::DeleteHint => {
-            "Son dossier, avec ses mondes et ses mods. Une confirmation vous est demandée."
-        }
+        M::DeleteHint => "Y compris ses mondes et ses mods.",
         M::DeleteButton => "Supprimer…",
 
-        M::SharedLead => {
-            "Souris, touches, vidéo, son et plus encore depuis options.txt, identiques dans chaque instance."
-        }
+        M::SharedLead => "Les mêmes options de jeu dans toutes les instances.",
         M::UseSharedSettings => "Utiliser les paramètres partagés",
-        M::SharingOff => {
-            "Désactivé\u{a0}: cette instance garde son propre options.txt, et rien n’en est relu."
-        }
+        M::SharingOff => "Cette instance garde ses propres options.",
         M::SharingPreferred => {
-            "C’est l’instance préférée\u{a0}: les paramètres que vous changez en jeu ici s’appliquent à chaque instance."
+            "Les changements faits en jeu ici s’appliquent à toutes les instances."
         }
-        M::SharingFrom => {
-            "Les paramètres changés en jeu dans {name} arrivent dans cette instance à son prochain lancement."
-        }
-        M::SharingNoPreferred => {
-            "Aucune instance n’est préférée\u{a0}: les valeurs partagées ne changent que dans les Paramètres du launcher."
-        }
+        M::SharingFrom => "Reçoit les changements faits en jeu dans {name}.",
+        M::SharingNoPreferred => "Les valeurs partagées ne changent que dans les Paramètres.",
         M::Preferred => "Préférée",
         M::MakePreferred => "Rendre préférée",
         M::MadePreferred => {
@@ -221,18 +182,12 @@ pub fn text(message: M) -> &'static str {
         M::CategorySound => "Son",
         M::CategoryAccessibility => "Accessibilité et chat",
         M::CategoryLanguage => "Langue",
-        M::CategoryControlsDescription => {
-            "Sensibilité et inversion de la souris, entrée brute, touches, accroupissement et sprint en bascule"
-        }
+        M::CategoryControlsDescription => "Souris, touches",
         M::CategoryVideoDescription => {
-            "Champ de vision, distances d’affichage et de simulation, taille de l’interface, luminosité, plein écran, VSync, FPS max, particules, graphismes"
+            "Champ de vision, distance d’affichage, taille de l’interface, graphismes"
         }
-        M::CategorySoundDescription => {
-            "Tous les curseurs de volume, sous-titres, audio directionnel"
-        }
-        M::CategoryAccessibilityDescription => {
-            "Narrateur, fond du texte, taille et opacité du chat, effets"
-        }
+        M::CategorySoundDescription => "Volume, sous-titres",
+        M::CategoryAccessibilityDescription => "Narrateur, chat, fond du texte",
         M::CategoryLanguageDescription => "Langue et police du jeu",
 
         M::NewInstance => "Nouvelle instance",
