@@ -1,10 +1,42 @@
-//! Optional features of the core that depend on the cargo features it was built with; see
-//! the `deno` feature in `Cargo.toml`. The routes of a capability the build lacks answer
+//! What this core can do, reported to clients in `/info` as `capabilities`.
+//!
+//! Most capabilities depend on the cargo features the core was built with; see the
+//! `deno` feature in `Cargo.toml`. The routes of a capability the build lacks answer
 //! 501 Not Implemented with [`Capability::unavailable`].
 
 use color_eyre::eyre::eyre;
+use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::error::{Error, ErrorKind};
+
+/// The optional features of a core. A client talking to an older core, which sends no
+/// `capabilities`, should treat every capability as available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CoreCapabilities {
+    /// Macros, tasks, instance scripts (prelaunch) and extensions, which run on the Deno
+    /// runtime. False when the core was built without the `deno` feature. Whether code
+    /// may run right now is the separate code execution setting.
+    pub macros: bool,
+    /// Atom (generic TypeScript) instances, which also run on Deno. False when the core
+    /// was built without the `deno` feature. Docker instances do not need it.
+    pub generic_instances: bool,
+    /// Whether a Docker daemon was reachable when the core started, so Docker containers
+    /// can be managed as instances.
+    pub docker: bool,
+}
+
+impl CoreCapabilities {
+    /// The capabilities the build has, with `docker` from the running core.
+    pub fn new(docker: bool) -> Self {
+        CoreCapabilities {
+            macros: Capability::Macros.is_built(),
+            generic_instances: Capability::GenericInstances.is_built(),
+            docker,
+        }
+    }
+}
 
 /// A capability that is compiled in or out with a cargo feature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,7 +46,7 @@ pub enum Capability {
 }
 
 impl Capability {
-    /// Its name in error messages.
+    /// Its field in [`CoreCapabilities`].
     pub fn name(self) -> &'static str {
         match self {
             Capability::Macros => "macros",
@@ -26,6 +58,13 @@ impl Capability {
         match self {
             Capability::Macros => "Macros, tasks, instance scripts and extensions are",
             Capability::GenericInstances => "Atom (generic) instances are",
+        }
+    }
+
+    /// Whether this build includes it.
+    pub fn is_built(self) -> bool {
+        match self {
+            Capability::Macros | Capability::GenericInstances => cfg!(feature = "deno"),
         }
     }
 
@@ -61,6 +100,37 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capabilities_follow_the_deno_feature() {
+        let capabilities = CoreCapabilities::new(false);
+        assert_eq!(capabilities.macros, cfg!(feature = "deno"));
+        assert_eq!(capabilities.generic_instances, cfg!(feature = "deno"));
+        assert!(!capabilities.docker);
+        assert!(CoreCapabilities::new(true).docker);
+    }
+
+    #[tokio::test]
+    async fn info_reports_the_capabilities() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_util::test_app_state(dir.path(), Default::default()).await;
+        let base = crate::test_util::serve_api(state).await;
+        let info: serde_json::Value = reqwest::get(format!("{base}/info"))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            info["capabilities"],
+            serde_json::json!({
+                "macros": cfg!(feature = "deno"),
+                "generic_instances": cfg!(feature = "deno"),
+                // the test state has no Docker daemon
+                "docker": false,
+            })
+        );
+    }
 
     /// Every route of a capability the build lacks answers 501 with the capability's name,
     /// before authentication, instead of a 404.
