@@ -35,13 +35,17 @@ use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, LoadingDots, TextInput, Toggle,
         settings::{
-            CONTENT_WIDTH, SectionNav, SettingRow, Toast, card, link, muted_link, popover,
-            popover_panel, section, section_list, tag, value,
+            CONTENT_WIDTH, SectionNav, SettingRow, Toast, card, left_overlay, link, muted_link,
+            popover, popover_panel, section, section_list, section_menu_button, tag, value,
         },
     },
     servers::Servers,
     theme::{self, colors, leading, radius, text, weights},
 };
+
+/// Below this window width the list of sections opens from a button instead of
+/// standing beside the settings.
+const NARROW_BELOW: gpui::Pixels = px(1040.);
 
 /// How many screenshots the background picker offers.
 const SHOTS_OFFERED: usize = 24;
@@ -163,6 +167,8 @@ pub struct InstanceSettings {
     /// A loader change is waiting for the shell's dialog.
     prompting: bool,
     nav: SectionNav,
+    /// The list of sections is open over the settings, in a narrow window.
+    nav_open: bool,
     toast: Toast,
     _save: Option<Task<()>>,
     _modpack_task: Option<Task<()>>,
@@ -293,6 +299,7 @@ impl InstanceSettings {
             _shots_task: None,
             prompting: false,
             nav: SectionNav::default(),
+            nav_open: false,
             toast: Toast::default(),
             _save: None,
             _modpack_task: None,
@@ -840,6 +847,11 @@ impl InstanceSettings {
             .into_any_element()
     }
 
+    /// Opens the list of sections in a narrow window, for the offscreen screenshots.
+    pub fn preview_nav_open(&mut self) {
+        self.nav_open = true;
+    }
+
     /// Opens the background picker, for the offscreen screenshots.
     pub fn preview_background_picker(&mut self, cx: &mut Context<Self>) {
         self.background_picker = false;
@@ -1358,7 +1370,8 @@ fn or_none(text_: &str) -> String {
 }
 
 impl Render for InstanceSettings {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let viewport_width = window.viewport_size().width;
         let (defaults, total, busy, background, required_java) = {
             let instances = self.instances.read(cx);
             (
@@ -1771,45 +1784,77 @@ impl Render for InstanceSettings {
 
         let titles: Vec<SharedString> = sections.iter().map(|(title, _)| title.clone()).collect();
         let active = self.nav.active(titles.len());
-        let entity = cx.entity();
-        div()
-            .relative()
-            .flex()
-            .flex_row()
-            .gap_8()
-            .size_full()
-            .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
-            .child(section_list(
+        // Too narrow for the list beside the settings (the window less the sidebar
+        // and the page's padding): it opens over them from a button instead.
+        let narrow = viewport_width < NARROW_BELOW;
+        if !narrow {
+            self.nav_open = false;
+        }
+        let list = {
+            let entity = cx.entity();
+            section_list(
                 "instance-settings-nav",
                 &titles,
                 active,
                 move |index, _, cx| {
                     entity.update(cx, |this, cx| {
                         this.nav.pick(index);
+                        this.nav_open = false;
                         cx.notify();
                     })
                 },
-            ))
-            .child(
-                div()
-                    .id("instance-settings")
-                    .flex()
-                    .flex_col()
-                    .gap_8()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .pb_16()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.nav.scroll)
-                    .on_scroll(cx.listener(|this, _, _, _| this.nav.scrolled()))
-                    .children(
-                        sections
-                            .into_iter()
-                            .map(|(_, element)| div().w_full().max_w(CONTENT_WIDTH).child(element)),
-                    ),
             )
-            .children(self.toast.render())
+        };
+        let content = div()
+            .id("instance-settings")
+            .flex()
+            .flex_col()
+            .gap_8()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .h_full()
+            .pb_16()
+            .overflow_y_scroll()
+            .track_scroll(&self.nav.scroll)
+            .on_scroll(cx.listener(|this, _, _, _| this.nav.scrolled()))
+            .children(
+                sections
+                    .into_iter()
+                    .map(|(_, element)| div().w_full().max_w(CONTENT_WIDTH).child(element)),
+            );
+        let root = div()
+            .relative()
+            .flex()
+            .size_full()
+            .line_height(theme::line_height(text::MEDIUM, leading::NORMAL));
+        let root = if narrow {
+            let title = titles.get(active).cloned().unwrap_or_default();
+            root.flex_col()
+                .gap_3()
+                .child(div().flex().flex_row().child(
+                    section_menu_button("instance-settings-menu", title).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.nav_open = !this.nav_open;
+                            cx.notify();
+                        },
+                    )),
+                ))
+                .child(content)
+                .when(self.nav_open, |this| {
+                    this.child(left_overlay(
+                        "instance-settings-overlay",
+                        list,
+                        cx.listener(|this, _, _, cx| {
+                            this.nav_open = false;
+                            cx.notify();
+                        }),
+                    ))
+                })
+        } else {
+            root.flex_row().gap_8().child(list).child(content)
+        };
+        root.children(self.toast.render())
     }
 }
 

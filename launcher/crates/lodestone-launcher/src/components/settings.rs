@@ -6,8 +6,9 @@
 use std::{rc::Rc, time::Duration};
 
 use gpui::{
-    Anchor, AnyElement, App, Context, Div, ElementId, IntoElement, Pixels, RenderOnce,
-    ScrollHandle, SharedString, Stateful, Task, Window, anchored, deferred, div, prelude::*, px,
+    Anchor, AnimationExt, AnyElement, App, Context, Div, ElementId, IntoElement, Pixels,
+    RenderOnce, ScrollHandle, SharedString, Stateful, Task, Window, anchored, deferred, div,
+    prelude::*, px,
 };
 
 use crate::{
@@ -163,16 +164,20 @@ impl RenderOnce for SettingRow {
                 div()
                     .flex()
                     .flex_row()
+                    .flex_wrap()
                     .items_center()
-                    .gap_4()
+                    .gap_x_4()
+                    .gap_y_2()
                     .min_h(px(32.))
                     .children(self.leading)
                     .child(
+                        // The name keeps a readable width; in a narrow window the
+                        // controls wrap under it instead.
                         div()
                             .flex()
                             .flex_col()
                             .flex_1()
-                            .min_w_0()
+                            .min_w(px(160.))
                             .child(
                                 div()
                                     .font_weight(weights::BOLD.into())
@@ -197,6 +202,7 @@ impl RenderOnce for SettingRow {
                             .flex()
                             .flex_row()
                             .flex_none()
+                            .ml_auto()
                             .items_center()
                             .justify_end()
                             .gap_2()
@@ -398,8 +404,18 @@ pub fn section_list(
 #[derive(Default)]
 pub struct Toast {
     message: Option<(SharedString, bool)>,
+    /// Counts the messages shown, so each one animates in.
+    serial: u64,
+    /// The message is animating out.
+    leaving: bool,
     _hide: Option<Task<()>>,
 }
+
+/// How long the toast takes to come in and to go.
+const TOAST_ENTER: Duration = Duration::from_millis(200);
+const TOAST_LEAVE: Duration = Duration::from_millis(150);
+/// How far it rises as it comes in (and drops as it goes).
+const TOAST_RISE: f32 = 10.;
 
 impl Toast {
     /// Shows `message` for a few seconds. `get` finds this toast in the view.
@@ -411,11 +427,22 @@ impl Toast {
         cx: &mut Context<V>,
     ) {
         self.message = Some((message.into(), error));
+        self.serial += 1;
+        self.leaving = false;
         let shown = Duration::from_millis(if error { 6000 } else { 2500 });
         self._hide = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(shown).await;
+            let still = this.update(cx, |view, cx| {
+                get(view).leaving = true;
+                cx.notify();
+            });
+            if still.is_err() {
+                return;
+            }
+            cx.background_executor().timer(TOAST_LEAVE).await;
             this.update(cx, |view, cx| {
                 get(view).message = None;
+                get(view).leaving = false;
                 cx.notify();
             })
             .ok();
@@ -423,9 +450,59 @@ impl Toast {
         cx.notify();
     }
 
-    /// Drawn at the bottom of the page, centred. The page must be `relative`.
+    /// Drawn at the bottom of the page, centred. The page must be `relative`. It fades
+    /// in as it rises into place, and fades out as it drops (only fades, with reduced
+    /// motion).
     pub fn render(&self) -> Option<impl IntoElement + use<>> {
         let (message, error) = self.message.clone()?;
+        let rise = if super::dialog::prefers_reduced_motion() {
+            0.
+        } else {
+            TOAST_RISE
+        };
+        let leaving = self.leaving;
+        let animation = if leaving {
+            gpui::Animation::new(TOAST_LEAVE).with_easing(|t| t * t)
+        } else {
+            gpui::Animation::new(TOAST_ENTER).with_easing(|t| 1. - (1. - t).powi(3))
+        };
+        let pill = div()
+            .relative()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .max_w(px(560.))
+            .px_3()
+            .py_1p5()
+            .rounded(radius::LG)
+            .border_1()
+            .border_color(colors::FADE_700)
+            .bg(colors::GRAY_750)
+            .shadow(vec![gpui::BoxShadow {
+                color: shadow::COLOR.into(),
+                offset: gpui::point(px(0.), px(4.)),
+                blur_radius: px(12.),
+                spread_radius: px(0.),
+                inset: false,
+            }])
+            .text_size(theme::text_size(text::SMALL))
+            .font_weight(weights::BOLD.into())
+            .child(if error {
+                Icon::TriangleExclamation.render(px(12.), colors::RED_200)
+            } else {
+                Icon::Check.render(px(12.), colors::GREEN_300)
+            })
+            .child(div().text_color(colors::GRAY_300).child(message))
+            .with_animation(
+                ElementId::from(("toast", (self.serial * 2 + leaving as u64) as usize)),
+                animation,
+                move |pill, delta| {
+                    // in: 0 → 1 rises from below; out: 1 → 0 drops back
+                    let shown = if leaving { 1. - delta } else { delta };
+                    pill.opacity(shown).top(px(rise * (1. - shown)))
+                },
+            );
         Some(
             div()
                 .absolute()
@@ -435,35 +512,76 @@ impl Toast {
                 .flex()
                 .flex_row()
                 .justify_center()
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .max_w(px(560.))
-                        .px_3()
-                        .py_1p5()
-                        .rounded(radius::LG)
-                        .border_1()
-                        .border_color(colors::FADE_700)
-                        .bg(colors::GRAY_750)
-                        .shadow(vec![gpui::BoxShadow {
-                            color: shadow::COLOR.into(),
-                            offset: gpui::point(px(0.), px(4.)),
-                            blur_radius: px(12.),
-                            spread_radius: px(0.),
-                            inset: false,
-                        }])
-                        .text_size(theme::text_size(text::SMALL))
-                        .font_weight(weights::BOLD.into())
-                        .child(if error {
-                            Icon::TriangleExclamation.render(px(12.), colors::RED_200)
-                        } else {
-                            Icon::Check.render(px(12.), colors::GREEN_300)
-                        })
-                        .child(div().text_color(colors::GRAY_300).child(message)),
-                ),
+                .child(pill),
         )
     }
+}
+
+/// The button that opens the list of sections in a window too narrow for it: the
+/// current section's name after a menu icon.
+pub fn section_menu_button(
+    id: impl Into<ElementId>,
+    title: impl Into<SharedString>,
+) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex()
+        .flex_row()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .h(px(32.))
+        .px_2p5()
+        .rounded(radius::LG)
+        .cursor_pointer()
+        .font_weight(weights::BOLD.into())
+        .text_color(colors::GRAY_300)
+        .hover(|style| style.bg(colors::GRAY_800))
+        .child(Icon::Bars.render(px(13.), colors::GRAY_500))
+        .child(title.into())
+}
+
+/// A panel over the left of an area, with the rest dimmed; a click on the dimmed
+/// part calls `on_close`. Place it as the last child of a `relative` element.
+pub fn left_overlay(
+    id: &'static str,
+    panel: impl IntoElement,
+    on_close: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .absolute()
+        .inset_0()
+        .occlude()
+        .child(
+            div()
+                .id((id, 0usize))
+                .absolute()
+                .inset_0()
+                .bg(colors::GRAY_900.opacity(60))
+                .on_click(on_close),
+        )
+        .child(
+            div()
+                .id((id, 1usize))
+                .occlude()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left_0()
+                .w(px(232.))
+                .p_3()
+                .overflow_y_scroll()
+                .bg(colors::GRAY_875)
+                .border_r_1()
+                .border_color(colors::FADE_700)
+                .shadow(vec![gpui::BoxShadow {
+                    color: shadow::COLOR.into(),
+                    offset: gpui::point(px(4.), px(0.)),
+                    blur_radius: px(16.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }])
+                .child(panel),
+        )
 }

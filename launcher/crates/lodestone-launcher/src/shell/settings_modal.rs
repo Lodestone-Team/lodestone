@@ -10,7 +10,7 @@ use crate::{
     accounts::SessionState,
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton,
-        settings::{CONTENT_WIDTH, SettingRow, card, link, muted_link, tag},
+        settings::{CONTENT_WIDTH, SettingRow, card, left_overlay, link, muted_link, tag},
     },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
@@ -94,6 +94,11 @@ impl LauncherShell {
         cx.notify();
     }
 
+    /// Opens the pages over the page in a narrow window, for the offscreen screenshots.
+    pub fn preview_settings_nav_open(&mut self) {
+        self.settings_nav_open = true;
+    }
+
     pub fn close_settings(&mut self, cx: &mut Context<Self>) {
         self.settings_modal.close(cx);
     }
@@ -113,6 +118,18 @@ impl LauncherShell {
         // A window too small for the dialog to float gets it edge to edge, under the
         // top bar.
         let small = viewport.width < px(760.) || viewport.height < px(560.);
+        // Too narrow for the sidebar: the pages open over the page from a button.
+        let narrow = viewport.width < px(760.);
+        let nav_overlay = (narrow && self.settings_nav_open).then(|| {
+            left_overlay(
+                "settings-overlay",
+                self.render_settings_sidebar(true, cx),
+                cx.listener(|this, _, _, cx| {
+                    this.settings_nav_open = false;
+                    cx.notify();
+                }),
+            )
+        });
         let (width, height) = if small {
             (viewport.width, viewport.height - top)
         } else {
@@ -138,9 +155,12 @@ impl LauncherShell {
             .frameless(width, height)
             .when(small, |dialog| dialog.edge_to_edge(top))
             .on_close(move |_, cx| entity.update(cx, |this, cx| this.close_settings(cx)))
-            .child(self.render_settings_sidebar(small, cx))
+            .when(!narrow, |dialog| {
+                dialog.child(self.render_settings_sidebar(false, cx))
+            })
             .child(
                 div()
+                    .relative()
                     .flex()
                     .flex_col()
                     .flex_1()
@@ -162,6 +182,14 @@ impl LauncherShell {
                                 }
                             })
                             .pb_5()
+                            .when(narrow, |this| {
+                                this.child(IconButton::new("settings-menu", Icon::Bars).on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        this.settings_nav_open = !this.settings_nav_open;
+                                        cx.notify();
+                                    }),
+                                ))
+                            })
                             .child(
                                 div()
                                     .flex()
@@ -215,7 +243,8 @@ impl LauncherShell {
                                     .child(div().w_full().max_w(CONTENT_WIDTH).child(content)),
                             )
                             .children(toast),
-                    ),
+                    )
+                    .children(nav_overlay),
             )
             .into_any_element()
     }
@@ -223,7 +252,7 @@ impl LauncherShell {
     /// The account in use, the pages and the version.
     fn render_settings_sidebar(
         &self,
-        narrow: bool,
+        in_overlay: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let accounts = self.accounts.read(cx);
@@ -238,12 +267,18 @@ impl LauncherShell {
             .flex_col()
             .flex_none()
             .gap_0p5()
-            .w(if narrow { px(196.) } else { px(232.) })
-            .h_full()
-            .p_3()
-            .bg(colors::GRAY_875)
-            .border_r_1()
-            .border_color(colors::FADE_700)
+            .map(|this| {
+                if in_overlay {
+                    this.w_full()
+                } else {
+                    this.w(px(232.))
+                        .h_full()
+                        .p_3()
+                        .bg(colors::GRAY_875)
+                        .border_r_1()
+                        .border_color(colors::FADE_700)
+                }
+            })
             .child(
                 div()
                     .flex()
@@ -270,6 +305,7 @@ impl LauncherShell {
                                 muted_link("manage-accounts", "Manage accounts").on_click(
                                     cx.listener(|this, _, _, cx| {
                                         this.settings_page = SettingsPage::Accounts;
+                                        this.settings_nav_open = false;
                                         cx.notify();
                                     }),
                                 ),
@@ -321,6 +357,7 @@ impl LauncherShell {
                         .child(page.title())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.settings_page = page;
+                            this.settings_nav_open = false;
                             cx.notify();
                         })),
                 );
