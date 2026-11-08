@@ -80,6 +80,8 @@ pub struct InstanceSettings {
     java_check: JavaCheck,
     /// The pack the instance was made from, if any.
     modpack: Option<ModpackRecord>,
+    /// The server the instance was made for: its pack is the server's client pack.
+    server: Option<String>,
     /// The pack's versions on Modrinth, after "Check for updates".
     modpack_versions: Load<Vec<RawVersion>>,
     /// Downloading and planning an update.
@@ -137,6 +139,10 @@ impl InstanceSettings {
             cx.new(|cx| LoaderPicker::new(instances, Some(game), choice, 150., cx))
         };
         let modpack = instances.read(cx).modpack(&instance.id);
+        let server = launcher_core::cores::link::load_link(
+            &instances.read(cx).content_dirs(&instance.id).instance,
+        )
+        .map(|link| link.server_name);
         let observe = vec![
             cx.observe(&fields.min_ram, |_, _, cx| cx.notify()),
             cx.observe(&fields.max_ram, |_, _, cx| cx.notify()),
@@ -174,6 +180,7 @@ impl InstanceSettings {
             message: None,
             java_check: JavaCheck::None,
             modpack,
+            server,
             modpack_versions: Load::NotLoaded,
             preparing_update: false,
             _modpack_task: None,
@@ -537,10 +544,14 @@ impl InstanceSettings {
             .modpack_versions
             .ready()
             .and_then(|versions| update_candidate(versions, &record));
-        let origin = if record.on_modrinth() {
-            "From Modrinth"
-        } else {
-            "From a .mrpack file that isn't on Modrinth, so it can't be updated here"
+        let origin = match &self.server {
+            _ if record.on_modrinth() => "From Modrinth".to_string(),
+            Some(server) => format!(
+                "From the mods of {server}: Play and join keeps them in step with the server"
+            ),
+            None => {
+                "From a .mrpack file that isn't on Modrinth, so it can't be updated here".into()
+            }
         };
         let version = if record.version_number.is_empty() {
             String::new()

@@ -5,10 +5,10 @@ use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render, SharedString,
     Window, div, prelude::*,
 };
-use launcher_core::Secret;
+use launcher_core::{Secret, cores::live::LauncherScope};
 
 use crate::{
-    components::{Button, ButtonVariant, Dialog, TextInput},
+    components::{Button, ButtonVariant, Dialog, TextInput, Toggle},
     theme::{self, colors, leading, radius, text, weights},
 };
 
@@ -49,6 +49,8 @@ pub struct AddRequest {
     pub username: Option<String>,
     pub password: Option<Secret>,
     pub expires_at: Option<i64>,
+    /// The console access asked for; the core still limits it to the user's own.
+    pub console: LauncherScope,
 }
 
 pub enum AddServerEvent {
@@ -61,6 +63,7 @@ pub struct AddServerDialog {
     username: Entity<TextInput>,
     password: Entity<TextInput>,
     expiry: KeyExpiry,
+    console: LauncherScope,
     /// Signing in to a core that is already added.
     signing_in: bool,
     busy: bool,
@@ -106,6 +109,7 @@ impl AddServerDialog {
                     .with_masked()
             }),
             expiry: KeyExpiry::default(),
+            console: LauncherScope::default(),
             signing_in,
             busy: false,
             error: None,
@@ -132,6 +136,13 @@ impl AddServerDialog {
     pub fn fail(&mut self, error: String, cx: &mut Context<Self>) {
         self.busy = false;
         self.error = Some(error.into());
+        cx.notify();
+    }
+
+    /// Waiting again, after the certificate prompt was answered.
+    pub fn set_busy(&mut self, cx: &mut Context<Self>) {
+        self.busy = true;
+        self.error = None;
         cx.notify();
     }
 
@@ -165,8 +176,73 @@ impl AddServerDialog {
             username: signing_in.then_some(username),
             password: signing_in.then(|| Secret::new(password)),
             expires_at: self.expiry.expires_at(now()),
+            console: self.console,
         }));
         cx.notify();
+    }
+}
+
+impl AddServerDialog {
+    /// Turns the console opt-ins on, for the offscreen screenshots.
+    pub fn preview_console(&mut self, console: LauncherScope) {
+        self.console = console;
+    }
+
+    /// The console opt-ins: off unless chosen, and never more than the user may do.
+    fn console_choices(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let row = |title: &'static str, toggle: Toggle| {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(
+                    div()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(colors::GRAY_400)
+                        .child(title),
+                )
+                .child(toggle)
+        };
+        let read = cx.entity();
+        let write = cx.entity();
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(label("Console access (optional)"))
+            .child(row(
+                "Read the console",
+                Toggle::new("console-read", self.console.console_read).on_change(
+                    move |value, _, cx| {
+                        let value = *value;
+                        read.update(cx, |this, cx| {
+                            this.console.console_read = value;
+                            cx.notify();
+                        })
+                    },
+                ),
+            ))
+            .child(row(
+                "Send chat and commands",
+                Toggle::new("console-write", self.console.console_write).on_change(
+                    move |value, _, cx| {
+                        let value = *value;
+                        write.update(cx, |this, cx| {
+                            this.console.console_write = value;
+                            cx.notify();
+                        })
+                    },
+                ),
+            ))
+            .child(
+                div()
+                    .text_size(theme::text_size(text::SMALL))
+                    .line_height(theme::line_height(text::SMALL, leading::NORMAL))
+                    .text_color(colors::GRAY_500)
+                    .child("Only where your user may use the console. Commands can do anything an operator can, so allow them only on a Mac you trust."),
+            )
     }
 }
 
@@ -258,6 +334,7 @@ impl Render for AddServerDialog {
                             )
                             .child(pills),
                     )
+                    .child(self.console_choices(cx))
                     .when(expiry == KeyExpiry::Never, |this| {
                         this.child(
                             div()

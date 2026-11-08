@@ -69,6 +69,7 @@ pub const SCENES: &[&str] = &[
     "instance-shared-settings",
     "import",
     "import-progress",
+    "instance-linked",
 ];
 
 /// Scenes of the Worlds tab.
@@ -89,16 +90,21 @@ fn has_instances(scene: &str) -> bool {
         || shared::is_scene(scene)
         || scene.starts_with("import")
         || servers::has_instances(scene)
+        || scene == "instance-linked"
 }
 
 pub fn requested_scene() -> Option<String> {
     let mut args = std::env::args().skip_while(|arg| arg != "--scene");
     args.next()?;
     let scene = args.next()?;
-    if !SCENES.contains(&scene.as_str()) && !servers::SCENES.contains(&scene.as_str()) {
+    if !SCENES.contains(&scene.as_str())
+        && !servers::SCENES.contains(&scene.as_str())
+        && !server_detail::is_scene(&scene)
+    {
         eprintln!(
-            "unknown scene {scene:?}; expected one of {SCENES:?} or {:?}",
-            servers::SCENES
+            "unknown scene {scene:?}; expected one of {SCENES:?}, {:?} or {:?}",
+            servers::SCENES,
+            server_detail::SCENES
         );
         std::process::exit(2);
     }
@@ -248,7 +254,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         );
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
-            "instance-shared-settings" => Some("Survival 1.20.1"),
+            "instance-shared-settings" | "instance-linked" => Some("Survival 1.20.1"),
             scene
                 if scene.starts_with("content-")
                     || scene.starts_with("modpack-")
@@ -379,6 +385,7 @@ fn sample_log() -> Vec<LogLine> {
 mod content;
 mod import;
 mod modpacks;
+mod server_detail;
 mod servers;
 mod shared;
 mod worlds;
@@ -456,6 +463,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "import" | "import-progress" => import::apply(scene, shell, cx),
+        "instance-linked" => servers::apply_linked_instance(shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),
@@ -475,6 +483,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         }
         "offline" => shell.open_offline(Some("Alex_Dev"), None, cx),
         scene if scene.starts_with("servers") => servers::apply(scene, shell, cx),
+        scene if server_detail::is_scene(scene) => server_detail::apply(scene, shell, cx),
         "remove" => {
             let id = microsoft_account().id;
             shell.confirm_remove(&id, None, cx);

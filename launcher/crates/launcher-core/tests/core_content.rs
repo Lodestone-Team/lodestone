@@ -562,41 +562,12 @@ fn the_hosted_instance_is_linked_with_its_server_mods() {
     let bytes = hosting::read_pack_file(&out).unwrap();
     assert!(bytes.starts_with(b"PK"));
 
-    let link = hosting::host_link(
-        "core-1",
-        "http://127.0.0.1:16662",
-        "new-server",
-        "My Pack",
-        &plan,
-    );
+    let link = hosting::host_link("core-1", "http://127.0.0.1:16662", "new-server", "My Pack");
     assert_eq!(link.server_uuid, "new-server");
     assert_eq!(link.pack_etag, None);
-    let names: Vec<(&str, &str)> = link
-        .files
-        .iter()
-        .map(|f| (f.name.as_str(), f.sha1.as_str()))
-        .collect();
-    assert_eq!(names, [("uploaded.jar", sha1_hex(b"jar bytes").as_str())]);
-
-    // a client-only mod from Modrinth isn't one of the server's
-    let mut with_index = plan.clone();
-    with_index.index.files = serde_json::from_value(json!([
-        {"path": "mods/sodium.jar", "hashes": {"sha1": "AA", "sha512": "b"}, "env": {"client": "required", "server": "unsupported"}, "downloads": [], "fileSize": 1},
-        {"path": "mods/lithium.jar", "hashes": {"sha1": "CC", "sha512": "d"}, "env": {"client": "required", "server": "required"}, "downloads": [], "fileSize": 1},
-        {"path": "resourcepacks/p.zip", "hashes": {"sha1": "EE", "sha512": "f"}, "env": {"client": "required", "server": "required"}, "downloads": [], "fileSize": 1}
-    ]))
-    .unwrap();
-    let names: Vec<String> = hosting::linked_files(&with_index)
-        .into_iter()
-        .map(|f| format!("{}={}", f.name, f.sha1))
-        .collect();
-    assert_eq!(
-        names,
-        [
-            "lithium.jar=cc".to_string(),
-            format!("uploaded.jar={}", sha1_hex(b"jar bytes")),
-        ]
-    );
+    let dir = store.dir(&instance.id);
+    launcher_core::cores::link::save_link(&dir, &link).unwrap();
+    assert_eq!(launcher_core::cores::link::load_link(&dir), Some(link));
 }
 
 fn resource_pack_zip(marker: &[u8]) -> Vec<u8> {

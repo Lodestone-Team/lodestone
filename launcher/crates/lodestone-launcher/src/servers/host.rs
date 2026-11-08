@@ -12,7 +12,7 @@ use launcher_core::{
         CoreError,
         client::display_address,
         hosting::{self, HostSettings},
-        pack,
+        link,
     },
     export,
 };
@@ -382,11 +382,11 @@ impl Servers {
         let game_dir = store.game_dir(&instance_id);
         let instance_dir = store.dir(&instance_id);
         let core = &self.cores[index];
-        let client = self.client(&core.url);
+        let client = self.client(core);
         let core_name = core.saved.name.clone();
         let core_url = display_address(&core.url);
         let core_uuid = core.saved.uuid.clone();
-        let previous = pack::load_link(&instance_dir);
+        let previous = link::load_link(&instance_dir);
         let refresh_core = core_uuid.clone();
         let (stage_tx, mut stage_rx) = futures::channel::mpsc::unbounded::<String>();
         let work = cx.background_spawn(async move {
@@ -426,8 +426,9 @@ impl Servers {
                 .create_server(&session, &upload_id, &settings)
                 .await?;
             drop(session);
-            let link = hosting::host_link(&core_uuid, &core_url, &uuid, &request.name, &plan);
-            pack::save_link(&instance_dir, &link).map_err(|e| HostError::Other(e.to_string()))?;
+            let server_link = hosting::host_link(&core_uuid, &core_url, &uuid, &request.name);
+            link::save_link(&instance_dir, &server_link)
+                .map_err(|e| HostError::Other(e.to_string()))?;
             Ok::<_, HostError>((request.name, port, uploaded.server_file_count))
         });
         let stages = {

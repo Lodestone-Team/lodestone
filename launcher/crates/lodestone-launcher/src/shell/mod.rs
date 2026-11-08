@@ -248,7 +248,17 @@ impl LauncherShell {
         observe.push(cx.subscribe(&servers, |this, _, event, cx| match event {
             ServersEvent::OpenInstance(id) => this.select_instance(id, cx),
             ServersEvent::ShowServers => this.show(Page::Servers, cx),
+            ServersEvent::Failed { title, message } => {
+                this.modal = Some(Modal::LaunchFailed {
+                    title: title.clone(),
+                    message: message.clone(),
+                    focus: cx.focus_handle(),
+                });
+                cx.notify();
+            }
         }));
+        // the instance page shows the server an instance is linked to, and its progress
+        observe.push(cx.observe(&servers, |_, _, cx| cx.notify()));
         let shared_settings = {
             let instances = instances.clone();
             cx.new(|cx| SharedSettings::new(instances, cx))

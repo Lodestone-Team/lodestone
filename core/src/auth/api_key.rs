@@ -27,7 +27,7 @@ use crate::{
 
 use super::{
     permission::UserPermission,
-    user::{AuthSource, User, UserAction},
+    user::{AuthSource, KeyConsole, User, UserAction},
     user_id::UserId,
 };
 
@@ -58,10 +58,28 @@ pub enum ApiKeyScope {
     /// Only these permissions, and only while the user still has them. Never owner or
     /// admin.
     Custom { permissions: Box<UserPermission> },
-    /// The fixed scope of a Lodestone Launcher device: viewing, starting and stopping the
+    /// The scope of a Lodestone Launcher device: viewing, starting and stopping the
     /// instances its user can view, start and stop, see [`launcher_user`]. Never owner or
-    /// admin, and nothing else.
-    Launcher,
+    /// admin, and nothing else, except what the user opted in to when signing in:
+    ///
+    /// - `console_read`: reading the console of the instances whose console the user can
+    ///   access;
+    /// - `console_write`: sending commands (and chat) to those consoles.
+    ///
+    /// Each is left out of the JSON while false, so keys made before these existed, and
+    /// keys without either, are `{ "type": "launcher" }` as before.
+    Launcher {
+        #[serde(default, skip_serializing_if = "is_false")]
+        #[ts(optional, as = "Option<bool>")]
+        console_read: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        #[ts(optional, as = "Option<bool>")]
+        console_write: bool,
+    },
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// A stored key. Holds the hash of the secret, so it is never sent to clients or logged:
@@ -253,7 +271,7 @@ pub fn validate_name(name: &str) -> Result<String, Error> {
 /// Every instance a custom scope names.
 pub fn scope_instances(scope: &ApiKeyScope) -> Vec<&InstanceUuid> {
     match scope {
-        ApiKeyScope::Full | ApiKeyScope::Launcher => Vec::new(),
+        ApiKeyScope::Full | ApiKeyScope::Launcher { .. } => Vec::new(),
         ApiKeyScope::Custom { permissions: p } => p
             .can_view_instance
             .iter()
@@ -315,11 +333,13 @@ pub fn effective_permissions(user: &User, key: &UserPermission) -> UserPermissio
 }
 
 /// What a launcher key's user (the stored `user`) may do through the key: view, start
-/// and stop the instances `user` can view, start and stop right now, and nothing else.
+/// and stop the instances `user` can view, start and stop right now. With `console`
+/// opted in, also read and/or write the consoles `user` can access right now. Nothing
+/// else.
 ///
 /// The owner and admins can do that on every instance, including ones created after the
 /// key, so for them it is [`User::key_all_instances`] rather than a list.
-pub fn launcher_user(user: &User) -> User {
+pub fn launcher_user(user: &User, console: KeyConsole) -> User {
     let mut effective = user.clone();
     let all_instances = user.is_owner || user.is_admin;
     let mut permissions = UserPermission::new();
@@ -327,11 +347,16 @@ pub fn launcher_user(user: &User) -> User {
         permissions.can_view_instance = user.permissions.can_view_instance.clone();
         permissions.can_start_instance = user.permissions.can_start_instance.clone();
         permissions.can_stop_instance = user.permissions.can_stop_instance.clone();
+        if console.read || console.write {
+            permissions.can_access_instance_console =
+                user.permissions.can_access_instance_console.clone();
+        }
     }
     effective.permissions = permissions;
     effective.is_owner = false;
     effective.is_admin = false;
     effective.key_all_instances = all_instances;
+    effective.key_console = Some(console);
     effective
 }
 
@@ -351,7 +376,16 @@ pub fn effective_user(record: &ApiKeyRecord, user: &User) -> User {
             effective.is_admin = false;
             effective
         }
-        ApiKeyScope::Launcher => launcher_user(user),
+        ApiKeyScope::Launcher {
+            console_read,
+            console_write,
+        } => launcher_user(
+            user,
+            KeyConsole {
+                read: *console_read,
+                write: *console_write,
+            },
+        ),
     };
     effective.auth_source = AuthSource::ApiKey {
         id: record.id.clone(),

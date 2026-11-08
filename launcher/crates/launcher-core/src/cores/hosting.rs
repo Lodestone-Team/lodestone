@@ -9,9 +9,13 @@
 //! 4. The pack goes to `POST /modpack/upload`, then `POST /instance/create_modpack`
 //!    makes the server, with `auto_start: false`. The server is never started here:
 //!    its owner accepts the Minecraft EULA by creating it, and starts it themselves.
-//! 5. The launcher instance is linked to the new server ([`ServerLink`]).
+//! 5. The launcher instance is linked to the new server ([`ServerLink`]). Its mods are
+//!    already the pack's, so the first Play only compares them with the server's
+//!    client pack.
 
 use std::{fs, path::Path};
+
+use super::link::ServerLink;
 
 use http_client::Method;
 use serde::{Deserialize, Serialize};
@@ -20,14 +24,8 @@ use super::{
     CoreClient, CoreError,
     client::{Auth, MAX_JSON_BYTES, check, segment},
     models::LoginReply,
-    pack::{LinkedFile, ServerLink},
 };
-use crate::{
-    Secret,
-    export::ExportPlan,
-    game::{download::sha1_hex, loaders::LoaderKind},
-    instances::Instance,
-};
+use crate::{Secret, game::loaders::LoaderKind, instances::Instance};
 
 /// The core's own limit for an uploaded pack.
 pub const MAX_UPLOAD_BYTES: u64 = lodestone_minecraft::mrpack::MAX_PACK_FILE_BYTES;
@@ -202,50 +200,12 @@ impl CoreClient {
     }
 }
 
-/// The mods the server gets from the pack, as the link records them: the instance's
-/// jars in `mods/` that the pack lists or carries, except client-only ones. When the
-/// instance later plays on the server, its client pack (a part of these) is then in
-/// step without downloading anything again.
-pub fn linked_files(plan: &ExportPlan) -> Vec<LinkedFile> {
-    let mut files: Vec<LinkedFile> = plan
-        .index
-        .files
-        .iter()
-        .filter(|f| f.env.server != "unsupported")
-        .filter_map(|f| {
-            let name = f.path.strip_prefix("mods/")?;
-            (!name.contains('/')).then(|| LinkedFile {
-                name: name.to_string(),
-                sha1: f.hashes.sha1.to_ascii_lowercase(),
-            })
-        })
-        .collect();
-    for (zip_path, disk) in &plan.overrides {
-        let Some(name) = zip_path.strip_prefix("overrides/mods/") else {
-            continue;
-        };
-        if name.contains('/') || !name.to_ascii_lowercase().ends_with(".jar") {
-            continue;
-        }
-        if let Ok(bytes) = fs::read(disk) {
-            files.push(LinkedFile {
-                name: name.to_string(),
-                sha1: sha1_hex(&bytes),
-            });
-        }
-    }
-    files.sort_by(|a, b| a.name.cmp(&b.name));
-    files.dedup_by(|a, b| a.name == b.name);
-    files
-}
-
 /// The link from the hosted instance to its new server.
 pub fn host_link(
     core_uuid: &str,
     core_url: &str,
     server_uuid: &str,
     server_name: &str,
-    plan: &ExportPlan,
 ) -> ServerLink {
     ServerLink {
         core_uuid: core_uuid.to_string(),
@@ -253,7 +213,6 @@ pub fn host_link(
         server_uuid: server_uuid.to_string(),
         server_name: server_name.to_string(),
         pack_etag: None,
-        files: linked_files(plan),
     }
 }
 

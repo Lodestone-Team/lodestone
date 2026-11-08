@@ -365,7 +365,7 @@ impl Servers {
         let core = &self.cores[index];
         let username = core.saved.username.clone();
         let key = core.key.clone();
-        let client = self.client(&core.url);
+        let client = self.client(core);
         let uuid = server.uuid.clone();
         let tools =
             cx.new(|cx| ServerTools::new(core_uuid.to_string(), server, targets, username, cx));
@@ -429,6 +429,20 @@ impl Servers {
                 self.create_instance(core_uuid, server.clone(), cx);
                 match self.linked_instance(core_uuid, &server.uuid).cloned() {
                     Some(id) if Some(&id) != before.as_ref() => id,
+                    // a server with client mods: the instance is made once its pack is
+                    // downloaded (and, for a core that isn't trusted, the advisory is
+                    // answered), so the download waits for it
+                    _ if server.has_pack() && self.notice.is_none() => {
+                        // the dialog closes so any prompt about the mods can show
+                        self.extras.tools = None;
+                        self.notice = Some((
+                            "Creating the matching instance".into(),
+                            "It is made once the server's mods are downloaded. Then open More… on the server again, pick it, and download again."
+                                .into(),
+                        ));
+                        cx.notify();
+                        return Err(String::new());
+                    }
                     _ => {
                         return Err(self
                             .notice
@@ -481,7 +495,7 @@ impl Servers {
         let Some(index) = self.core_index(&core_uuid) else {
             return;
         };
-        let client = self.client(&self.cores[index].url);
+        let client = self.client(&self.cores[index]);
         let instance_id = match self.tool_target(&core_uuid, &server, &target, cx) {
             Ok(id) => id,
             Err(message) => {

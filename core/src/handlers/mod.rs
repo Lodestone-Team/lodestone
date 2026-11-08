@@ -16,6 +16,8 @@ pub mod instance_mods;
 pub mod instance_players;
 pub mod instance_server;
 pub mod instance_setup_configs;
+pub mod launcher_live;
+pub mod minecraft_links;
 pub mod modpack;
 pub mod modrinth;
 pub mod monitor;

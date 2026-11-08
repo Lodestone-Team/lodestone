@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     CoreClient, CoreError,
-    client::{Auth, MAX_JSON_BYTES, RawResponse, check, segment, transport_error},
+    client::{Auth, MAX_JSON_BYTES, RawResponse, check, segment},
 };
 use crate::{
     Secret, USER_AGENT,
@@ -201,19 +201,20 @@ impl CoreClient {
         if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric()) {
             return Err(CoreError::Invalid("the download key isn't valid".into()));
         }
-        let request = Request::builder()
-            .method(Method::GET)
-            .uri(self.url(&format!("file/{key}")))
-            .header("User-Agent", USER_AGENT)
-            .follow_redirects(RedirectPolicy::NoFollow)
-            .timeout(DOWNLOAD_TIMEOUT)
-            .body(AsyncBody::empty())
-            .map_err(|err| CoreError::InvalidAddress(err.to_string()))?;
+        let url = self.url(&format!("file/{key}"));
+        // through the core's pinned certificate, like every other request
         let response = self
-            .http()
-            .send(request)
-            .await
-            .map_err(|err| transport_error(&err))?;
+            .send_checked(|| {
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(url.as_str())
+                    .header("User-Agent", USER_AGENT)
+                    .follow_redirects(RedirectPolicy::NoFollow)
+                    .timeout(DOWNLOAD_TIMEOUT)
+                    .body(AsyncBody::empty())
+                    .map_err(|err| CoreError::InvalidAddress(err.to_string()))
+            })
+            .await?;
         let status = response.status().as_u16();
         let total = response
             .headers()

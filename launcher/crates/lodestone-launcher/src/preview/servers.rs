@@ -3,8 +3,11 @@
 
 use gpui::Context;
 use launcher_core::cores::{
-    CoreError, ServerInstance, ServerList, ServerLoader, ServerState, pack::PackChanges,
+    CoreError, ServerInstance, ServerList, ServerLoader, ServerState,
     store::SavedCore,
+    sync::PackChanges,
+    tls::{CertificatePin, format_fingerprint},
+    trust::{Advisory, ModrinthMatch},
 };
 
 use std::sync::Arc;
@@ -37,7 +40,16 @@ pub const SCENES: &[&str] = &[
     "servers-host",
     "servers-host-progress",
     "servers-host-done",
+    "servers-certificate",
+    "servers-certificate-changed",
+    "servers-certificate-new",
+    "servers-trust",
+    "servers-advisory",
 ];
+
+/// Made-up fingerprints.
+const FINGERPRINT: &str = "3F9A0C11D2E84B7756A1C0FFEE42B19D8E7A6C5B4D3E2F1A0B9C8D7E6F5A4B3C";
+const NEW_FINGERPRINT: &str = "A1B2C3D4E5F60718293A4B5C6D7E8F90112233445566778899AABBCCDDEEFF00";
 
 /// The 8b scenes, which show made-up instances to download into and host.
 pub fn has_instances(scene: &str) -> bool {
@@ -88,7 +100,18 @@ fn saved(uuid: &str, url: &str, name: &str, username: Option<&str>) -> SavedCore
         username: username.map(str::to_string),
         key_id: username.map(|_| "k3y1d0000000".to_string()),
         key_expires_at: None,
+        ..SavedCore::default()
     }
+}
+
+/// Alex's core over HTTPS with its own certificate, pinned.
+fn pinned(mut core: SavedCore) -> SavedCore {
+    let host = url::Url::parse(&core.url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_default();
+    core.pin_certificate(CertificatePin::new(&host, FINGERPRINT));
+    core
 }
 
 fn smp() -> ServerInstance {
@@ -105,6 +128,13 @@ fn smp() -> ServerInstance {
 }
 
 fn home(signed_in: bool) -> (SavedCore, CoreStatus, bool) {
+    let mut core = saved(
+        "home",
+        "http://localhost:16662",
+        "Peter's Lodestone Core",
+        signed_in.then_some("peter"),
+    );
+    core.set_trusted(true);
     let instances = vec![
         smp(),
         server(
@@ -129,12 +159,7 @@ fn home(signed_in: bool) -> (SavedCore, CoreStatus, bool) {
         ),
     ];
     (
-        saved(
-            "home",
-            "http://localhost:16662",
-            "Peter's Lodestone Core",
-            signed_in.then_some("peter"),
-        ),
+        core,
         CoreStatus::Online(ServerList {
             core_name: "Peter's Lodestone Core".into(),
             core_uuid: "home".into(),
@@ -145,14 +170,18 @@ fn home(signed_in: bool) -> (SavedCore, CoreStatus, bool) {
     )
 }
 
+fn friend_core() -> SavedCore {
+    pinned(saved(
+        "friend",
+        "https://192.168.1.42:16662",
+        "Alex's server box",
+        None,
+    ))
+}
+
 fn friend() -> (SavedCore, CoreStatus, bool) {
     (
-        saved(
-            "friend",
-            "https://192.168.1.42:16662",
-            "Alex's server box",
-            None,
-        ),
+        friend_core(),
         CoreStatus::Online(ServerList {
             core_name: "Alex's server box".into(),
             core_uuid: "friend".into(),
@@ -205,9 +234,10 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                     smp(),
                     "survival-smp",
                     PackChanges {
-                        added: vec!["create-fabric-0.5.1.jar".into()],
-                        updated: vec!["sodium-fabric-0.5.13.jar".into()],
-                        removed: vec!["old-minimap-1.2.jar".into()],
+                        added: vec!["mods/create-fabric-0.5.1.jar".into()],
+                        updated: vec!["mods/sodium-fabric-0.5.13.jar".into()],
+                        removed: vec!["mods/old-minimap-1.2.jar".into()],
+                        other: vec!["config/create-common.toml".into()],
                     },
                     cx,
                 );
@@ -243,8 +273,104 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 &CoreError::SignedOut.to_string(),
             );
         }
+        "servers-certificate" => {
+            servers.preview(
+                vec![
+                    home(true),
+                    (
+                        saved(
+                            "friend",
+                            "https://192.168.1.42:16662",
+                            "Alex's server box",
+                            None,
+                        ),
+                        CoreStatus::Failed(CoreError::Untrusted {
+                            host: "192.168.1.42".into(),
+                            fingerprint: Some(format_fingerprint(FINGERPRINT)),
+                        }),
+                        false,
+                    ),
+                ],
+                Vec::new(),
+            );
+            servers.preview_certificate(1, &format_fingerprint(FINGERPRINT), None, cx);
+        }
+        "servers-certificate-changed" | "servers-certificate-new" => {
+            servers.preview(
+                vec![
+                    home(true),
+                    (
+                        friend_core(),
+                        CoreStatus::Failed(CoreError::CertificateChanged {
+                            host: "192.168.1.42".into(),
+                            pinned: format_fingerprint(FINGERPRINT),
+                            presented: format_fingerprint(NEW_FINGERPRINT),
+                        }),
+                        false,
+                    ),
+                ],
+                Vec::new(),
+            );
+            if scene == "servers-certificate-new" {
+                servers.preview_certificate(
+                    1,
+                    &format_fingerprint(NEW_FINGERPRINT),
+                    Some(&format_fingerprint(FINGERPRINT)),
+                    cx,
+                );
+            }
+        }
+        "servers-trust" => {
+            servers.preview(vec![home(true), friend()], Vec::new());
+            servers.preview_trust(1, cx);
+        }
+        "servers-advisory" => {
+            servers.preview(vec![home(true), friend()], Vec::new());
+            let found = |path: &str, project: &str, version: &str| ModrinthMatch {
+                path: path.into(),
+                project: project.into(),
+                version: version.into(),
+            };
+            servers.preview_advisory(
+                "Alex's server box",
+                "Skyblock",
+                Advisory {
+                    on_modrinth: vec![
+                        found("mods/fabric-api-0.92.2.jar", "Fabric API", "0.92.2+1.20.1"),
+                        found("mods/sodium-fabric-0.5.13.jar", "Sodium", "mc1.20.1-0.5.13"),
+                        found(
+                            "mods/lithium-fabric-0.11.2.jar",
+                            "Lithium",
+                            "mc1.20.1-0.11.2",
+                        ),
+                    ],
+                    uploaded: vec![
+                        "mods/skyblock-islands-1.4.jar".into(),
+                        "mods/alex-utils-dev.jar".into(),
+                    ],
+                    configs: 14,
+                    scripts: 2,
+                    other: 1,
+                    unchecked: false,
+                },
+                cx,
+            );
+        }
         _ => servers.preview(Vec::new(), Vec::new()),
     }
+}
+
+/// The instance page of an instance made for a server: the link under its name, and
+/// "Play and join".
+pub fn apply_linked_instance(shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
+    let Some(id) = shell.instances().read(cx).selected().map(|i| i.id.clone()) else {
+        return;
+    };
+    let servers = shell.servers().clone();
+    servers.update(cx, |servers, _| {
+        servers.preview(vec![home(true)], vec![("home".into(), "smp".into(), id)])
+    });
+    shell.show(crate::shell::Page::Instance, cx);
 }
 
 fn saved_hidden() -> SavedCore {

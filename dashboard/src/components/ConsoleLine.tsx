@@ -97,10 +97,13 @@ export const ConsoleLine = memo(function ConsoleLine({
   line,
   colored,
   theme,
+  linkedUser,
 }: {
   line: ParsedConsoleLine;
   colored: boolean;
   theme: ConsoleTheme;
+  /** The Lodestone user of the linked player the line is about */
+  linkedUser?: string;
 }) {
   return (
     <li
@@ -122,6 +125,14 @@ export const ConsoleLine = memo(function ConsoleLine({
               </span>
             )
           )}
+      {linkedUser && (
+        <span
+          className="ml-2 rounded bg-gray-800 px-1 text-white/50 select-none"
+          title="The Lodestone user who linked this Minecraft account"
+        >
+          {linkedUser}
+        </span>
+      )}
     </li>
   );
 });

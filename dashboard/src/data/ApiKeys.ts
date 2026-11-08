@@ -178,8 +178,17 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
  */
 export const apiKeyScopeSummary = (scope: ApiKeyScope) => {
   if (scope.type === 'full') return 'Full access';
-  if (scope.type === 'launcher')
-    return 'Launcher: view, start and stop instances';
+  if (scope.type === 'launcher') {
+    const console =
+      scope.console_read && scope.console_write
+        ? ', read and use the console'
+        : scope.console_read
+          ? ', read the console'
+          : scope.console_write
+            ? ', send console commands'
+            : '';
+    return `Launcher: view, start and stop instances${console}`;
+  }
   const { permissions, instances } = countPermissions(scope.permissions);
   return `Custom: ${plural(instances, 'instance')}, ${plural(
     permissions,
