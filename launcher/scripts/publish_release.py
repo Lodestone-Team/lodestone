@@ -201,7 +201,8 @@ def summary(manifest: dict, build: int) -> list[str]:
 # Building
 
 
-def build_binary(build: int, commit: str, key: str, into: Path) -> Path:
+def build_binary(build: int, commit: str, key: str, into: Path) -> tuple[Path, Path]:
+    """Builds the launcher; returns cargo's executable and its copy, named for upload."""
     env = dict(os.environ, LODESTONE_LAUNCHER_BUILD=str(build), LODESTONE_LAUNCHER_COMMIT=commit)
     run(["cargo", "build", "--release", "--locked", "-p", "lodestone-launcher"],
         cwd=LAUNCHER, env=env, quiet=False)
@@ -213,7 +214,7 @@ def build_binary(build: int, commit: str, key: str, into: Path) -> Path:
         raise Failure(f"the build finished but {exe} is missing")
     target = into / asset_name(build, key)
     shutil.copyfile(exe, target)
-    return target
+    return exe, target
 
 
 def describe(path: Path, build: int, commit: str) -> dict:
@@ -385,7 +386,7 @@ def main(argv: list[str]) -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         step(f"Building the launcher for {key} (release)")
-        binary = build_binary(build, commit, key, Path(tmp))
+        built, binary = build_binary(build, commit, key, Path(tmp))
         entry = describe(binary, build, commit)
         now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -394,6 +395,9 @@ def main(argv: list[str]) -> int:
             step("Dry run: nothing uploaded. latest.json would be:")
             print(json.dumps(manifest, indent=2))
             print(f"    The binary is {binary.name}, {entry['size']} bytes.")
+            step("Test this build on this machine before publishing it:")
+            print(f"    {built}")
+            print("    Publishing from this checkout without changes rebuilds the same file.")
             return 0
 
         target.ensure_release(commit)

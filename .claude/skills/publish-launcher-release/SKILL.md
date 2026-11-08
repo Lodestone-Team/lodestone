@@ -32,6 +32,8 @@ for this platform.
 
 ## Steps
 
+In short: confirm, dry run, test the binary here, publish, report.
+
 1. **Confirm the details with the developer before uploading anything:**
    - **Which commit.** Releases are built from `main`, normally its tip after a
      pull.
@@ -57,16 +59,36 @@ for this platform.
    ```
 
    On Windows use `python`. This builds and prints the `latest.json` it would
-   upload, and uploads nothing. Show the developer the platform, build number
-   and commit. The release build takes a few minutes the first time, so run it
-   in the background.
-5. **Publish once they confirm:**
+   upload, and uploads nothing. It ends with the path of the binary it built.
+   The release build takes a few minutes the first time, so run it in the
+   background.
+5. **Test that binary on this machine.** This is required: a release reaches
+   every user on this platform, and this machine is the only place it gets
+   checked before then. Run the exact file the dry run printed, with the
+   developer's normal data, and check:
+   - The window opens; instances, accounts and Settings load.
+   - **Settings › General › Updates** shows the dry run's build and commit
+     ("Build N · abc1234"), and no update error.
+   - An instance launches to the title screen and quits cleanly. Prefer one the
+     developer uses. Never print the game's command line; it holds their access
+     token.
+   - Whatever this release changes, if the developer said what's new.
+
+   Use screenshots or computer use if you have them. If you can't see or drive
+   the app, ask the developer to try the binary and tell you how it went.
+   Don't publish a build that fails, or one nobody could check; report what
+   failed instead.
+6. **Publish once the build works and the developer confirms.** Show them the
+   platform, build number, commit and test results, then:
 
    ```bash
    python3 launcher/scripts/publish_release.py
    ```
 
-6. **Report** the release URL the script prints, plus its per-platform summary.
+   Run it from the same checkout with nothing changed since the dry run. The
+   build is then a no-op, and the uploaded file is the one you tested. If
+   anything changed, dry-run and test again.
+7. **Report** the release URL the script prints, plus its per-platform summary.
    Point out any platform it marks as older.
 
 ## When it refuses
