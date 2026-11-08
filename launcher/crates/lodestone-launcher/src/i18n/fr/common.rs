@@ -49,7 +49,7 @@ pub fn text(message: M) -> &'static str {
             if cfg!(target_os = "macos") {
                 "Afficher dans le Finder"
             } else if cfg!(windows) {
-                "Afficher dans l'Explorateur de fichiers"
+                "Afficher dans l’Explorateur de fichiers"
             } else {
                 "Afficher dans le dossier"
             }
@@ -85,7 +85,7 @@ pub fn text(message: M) -> &'static str {
             if cfg!(target_os = "macos") {
                 "trousseau"
             } else if cfg!(windows) {
-                "Gestionnaire d'identification"
+                "Gestionnaire d’identification"
             } else {
                 "trousseau de clés"
             }
@@ -94,7 +94,7 @@ pub fn text(message: M) -> &'static str {
             if cfg!(target_os = "macos") {
                 "trousseau macOS"
             } else if cfg!(windows) {
-                "Gestionnaire d'identification Windows"
+                "Gestionnaire d’identification Windows"
             } else {
                 "trousseau de clés du système"
             }

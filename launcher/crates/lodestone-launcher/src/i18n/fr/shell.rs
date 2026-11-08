@@ -5,7 +5,7 @@ pub fn text(message: M) -> &'static str {
         M::QuitApp => "Quitter {app}",
         M::Language => "Langue",
         M::LanguageHint => {
-            "La langue d'affichage de Lodestone Launcher. Système utilise la première de vos langues préférées qui est disponible, sinon l'anglais."
+            "La langue d’affichage de Lodestone Launcher. Système utilise la première de vos langues préférées qui est disponible, sinon l’anglais."
         }
         M::LanguageSystem => "Système",
         M::LanguageSystemIs => "Système ({language})",

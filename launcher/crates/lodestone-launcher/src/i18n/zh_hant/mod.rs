@@ -25,8 +25,17 @@
 //! | key binding | 按鍵 |
 //! | player / operator / whitelist | 玩家 / 管理員 / 白名單 |
 //! | folder / file | 資料夾 / 檔案 |
+//! | username / password | 使用者名稱 / 密碼 |
+//! | user / owner / permission | 使用者 / 擁有者 / 權限 |
+//! | API key / token | API 金鑰 / 權杖 |
+//! | start / stop / restart / kill | 啟動 / 停止 / 重新啟動 / 強制停止 |
+//! | running / stopped | 執行中 / 已停止 |
+//! | port / address / connection | 連接埠 / 位址 / 連線 |
+//! | enable / disable | 啟用 / 停用 |
 //! | the Trash | 垃圾桶（Windows：資源回收筒） |
 //! | Keychain | 鑰匙圈 |
+//!
+//! The words match the Lodestone dashboard's (`dashboard/src/i18n/zh-Hant.ts`); call people「你」.
 //!
 //! Style: full-width punctuation (，。：；？！（）「」), a space between Chinese and
 //! Latin letters or digits ("4 GB 記憶體", "Fabric 實例"), no plural forms. Product
