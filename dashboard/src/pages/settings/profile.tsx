@@ -50,7 +50,7 @@ const ProfilePage = () => {
 
   return (
     // used to possibly center the content
-    <div className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container">
+    <div className="@container relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center">
       <Transition
         appear
         show={showChangePassword}
