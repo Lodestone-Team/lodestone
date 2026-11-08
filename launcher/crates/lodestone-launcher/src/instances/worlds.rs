@@ -89,7 +89,9 @@ pub struct WorldsView {
     /// The world being renamed, with its name field.
     renaming: Option<(String, Entity<TextInput>)>,
     pub job: Option<Job>,
-    pub message: Option<(SharedString, bool)>,
+    /// The last result, whether it is an error, and the section it is about. It is
+    /// only shown in that section.
+    pub message: Option<(SharedString, bool, Section)>,
     pub screenshots: Load<Vec<Screenshot>>,
     thumbs: HashMap<PathBuf, (Option<SystemTime>, Thumb)>,
     /// The screenshot shown large, by index, and its image.
@@ -216,13 +218,14 @@ impl WorldsView {
         true
     }
 
+    /// Shows `message` in the section that is open.
     pub fn set_message(
         &mut self,
         message: impl Into<SharedString>,
         error: bool,
         cx: &mut Context<Self>,
     ) {
-        self.message = Some((message.into(), error));
+        self.message = Some((message.into(), error, self.section));
         cx.notify();
     }
 
@@ -315,11 +318,13 @@ impl WorldsView {
                     if this.instance_id.as_deref() != Some(id.as_str()) {
                         return;
                     }
-                    match result {
-                        Ok(message) => this.set_message(message, false, cx),
-                        Err(WorldError::Cancelled) => this.set_message("Cancelled.", false, cx),
-                        Err(err) => this.set_message(err.to_string(), true, cx),
-                    }
+                    // The jobs are all about worlds, whichever section is open now.
+                    this.message = Some(match result {
+                        Ok(message) => (message.into(), false, Section::Worlds),
+                        Err(WorldError::Cancelled) => ("Cancelled.".into(), false, Section::Worlds),
+                        Err(err) => (err.to_string().into(), true, Section::Worlds),
+                    });
+                    cx.notify();
                     this.reload(cx);
                 })
                 .ok();
@@ -860,11 +865,15 @@ impl WorldsView {
         )
     }
 
-    fn render_message(&self) -> Option<impl IntoElement> {
-        let (message, error) = self.message.clone()?;
+    fn render_message(&self) -> Option<gpui::Div> {
+        let (message, error, section) = self.message.clone()?;
+        if section != self.section {
+            return None;
+        }
         Some(
             small(message)
                 .px_1()
+                .whitespace_normal()
                 .font_weight(weights::BOLD.into())
                 .text_color(if error {
                     colors::RED_200
@@ -1535,8 +1544,11 @@ impl WorldsView {
                                     })
                                 }),
                         )
-                        .child(div().flex_1())
-                        .when_some(self.render_message(), |this, message| this.child(message))
+                        .child(
+                            div().flex_1().min_w_0().children(
+                                self.render_message().map(|message| message.text_right()),
+                            ),
+                        )
                         .child(
                             Button::new(
                                 "shot-delete",
