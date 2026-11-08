@@ -42,7 +42,8 @@ pub enum CoreError {
     /// macOS doesn't trust the certificate, and no pin accepts it. `fingerprint` is the
     /// presented certificate's, when it could be read.
     #[error(
-        "The HTTPS certificate of {host} isn't trusted by this Mac. Check its fingerprint, then trust it to connect."
+        "The HTTPS certificate of {host} isn't trusted by this {computer}. Check its fingerprint, then trust it to connect.",
+        computer = crate::wording::COMPUTER
     )]
     Untrusted {
         host: String,

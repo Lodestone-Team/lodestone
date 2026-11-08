@@ -1,12 +1,13 @@
 use gpui::{
-    AnyElement, Context, ExternalPaths, IntoElement, SharedString, Transformation, div, prelude::*,
-    px, radians,
+    AnyElement, Context, ExternalPaths, IntoElement, Render, SharedString, Transformation, Window,
+    div, prelude::*, px, radians,
 };
-use launcher_core::instances::{Instance, grouped};
+use launcher_core::instances::{Instance, last_played};
 
 use super::{LauncherShell, Page, account_box};
 use crate::{
     components::{Align, Button, ButtonVariant, Icon},
+    instances::{Ago, play_time},
     theme::{self, colors, layout, leading, radius, text, weights},
 };
 
@@ -138,10 +139,49 @@ fn import_row(
         .into_any_element()
 }
 
-/// One instance: its icon, name, version and loader, and a dot while it runs.
+/// Where an instance row is listed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RowPlace {
+    /// In its group (or loose): the detail line is the version and loader.
+    List,
+    /// Under "Last played": the detail line is when.
+    LastPlayed,
+}
+
+/// A small label shown while the pointer rests on a row.
+struct TextTooltip(SharedString);
+
+impl Render for TextTooltip {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .rounded(radius::MD)
+            .border_1()
+            .border_color(colors::FADE_700)
+            .bg(colors::GRAY_850)
+            .text_size(theme::text_size(text::SMALL))
+            .font_weight(weights::MEDIUM.into())
+            .text_color(colors::GRAY_300)
+            .child(self.0.clone())
+    }
+}
+
+/// "Played 2 hours ago · 2 h 5 min in total", for an instance that has been played.
+fn played_summary(instance: &Instance) -> Option<String> {
+    let when = Ago::since(instance.last_played?).played();
+    Some(match instance.play_time {
+        0 => when,
+        seconds => format!("{when} · {} in total", play_time(seconds)),
+    })
+}
+
+/// One instance: its icon, name, version and loader (or when it was played), and a
+/// dot while it runs. When it was played shows on hover.
 fn instance_row(
     shell: &LauncherShell,
     instance: &Instance,
+    place: RowPlace,
     cx: &mut Context<LauncherShell>,
 ) -> AnyElement {
     let instances = shell.instances.read(cx);
@@ -152,12 +192,20 @@ fn instance_row(
     let running = instances.is_running(&id);
     let is_selected = on_instance_page && selected.as_deref() == Some(id.as_str());
     let icon = crate::instances::appearance::instance_icon(instances, instance, px(26.));
-    let detail = match instance.loader.kind() {
-        None => instance.game_version.clone(),
-        Some(kind) => format!("{} · {}", instance.game_version, kind.label()),
+    let detail = match (place, instance.last_played) {
+        (RowPlace::LastPlayed, Some(when)) => Ago::since(when).label(),
+        _ => match instance.loader.kind() {
+            None => instance.game_version.clone(),
+            Some(kind) => format!("{} · {}", instance.game_version, kind.label()),
+        },
+    };
+    let tooltip: Option<SharedString> = played_summary(instance).map(Into::into);
+    let element_id = match place {
+        RowPlace::List => format!("instance-{id}"),
+        RowPlace::LastPlayed => format!("last-played-{id}"),
     };
     div()
-        .id(SharedString::from(format!("instance-{id}")))
+        .id(SharedString::from(element_id))
         .flex()
         .flex_row()
         .items_center()
@@ -207,6 +255,9 @@ fn instance_row(
                         colors::YELLOW
                     }),
             )
+        })
+        .when_some(tooltip, |this, tooltip| {
+            this.tooltip(move |_, cx| cx.new(|_| TextTooltip(tooltip.clone())).into())
         })
         .on_click(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
         .into_any_element()
@@ -265,13 +316,24 @@ fn group_header(
         .into_any_element()
 }
 
-/// The instances: those without a group, then each group under a heading that
-/// folds it.
+/// The instance played last, under "Last played"; then the instances: those
+/// without a group, then each group under a heading that folds it. Instances
+/// without a group of their own are in automatic groups when that setting is on.
 fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let list: Vec<Instance> = shell.instances.read(cx).list().to_vec();
+    let last = last_played(&list).cloned();
+    let groups: Vec<(Option<String>, Vec<Instance>)> = shell
+        .instances
+        .read(cx)
+        .grouped()
+        .into_iter()
+        .map(|(name, members)| (name, members.into_iter().cloned().collect()))
+        .collect();
+    let last_played_row =
+        last.map(|instance| instance_row(shell, &instance, RowPlace::LastPlayed, cx));
     let mut rows: Vec<AnyElement> = Vec::new();
-    for (group, members) in grouped(&list) {
-        if let Some(name) = &group {
+    for (group, members) in &groups {
+        if let Some(name) = group {
             let collapsed = shell.instances.read(cx).is_group_collapsed(name);
             rows.push(group_header(name, members.len(), collapsed, cx));
             if collapsed {
@@ -279,7 +341,7 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
             }
         }
         for instance in members {
-            rows.push(instance_row(shell, instance, cx));
+            rows.push(instance_row(shell, instance, RowPlace::List, cx));
         }
     }
     let jobs: Vec<(
@@ -304,6 +366,11 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
         .gap_y_1()
         .mx_1()
         .px_1()
+        .when_some(last_played_row, |this, row| {
+            this.child(section_label("LAST PLAYED"))
+                .child(row)
+                .child(div().h_2())
+        })
         .child(section_label("INSTANCES"))
         .children(rows)
         .children(imports)

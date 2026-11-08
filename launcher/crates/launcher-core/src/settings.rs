@@ -22,7 +22,7 @@ use crate::{
 /// Fields are added with serde defaults, so an older file loads unchanged. Keys
 /// this build does not know are kept, so a file edited by a newer build at the same
 /// version survives a round trip.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     /// Developer options, off by default. Left out of the file while untouched.
     #[serde(default, skip_serializing_if = "is_default")]
@@ -34,8 +34,33 @@ pub struct Settings {
     /// Sidebar groups that are folded away.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub collapsed_groups: BTreeSet<String>,
+    /// "Group instances automatically": the sidebar lists instances without a group
+    /// of their own by loader, or under Imported. On by default; left out of the file
+    /// while on.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub auto_groups: bool,
     #[serde(flatten)]
     pub other: Map<String, Value>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            developer: DeveloperSettings::default(),
+            instance_defaults: InstanceDefaults::default(),
+            collapsed_groups: BTreeSet::new(),
+            auto_groups: true,
+            other: Map::new(),
+        }
+    }
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 /// Settings > Developer.
@@ -270,6 +295,25 @@ mod tests {
                 "collapsed_groups": ["Modded"],
             })
         );
+    }
+
+    #[test]
+    fn automatic_groups_are_on_unless_turned_off() {
+        assert!(Settings::default().auto_groups);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"version": 1}"#).unwrap();
+        assert!(
+            load(&path).unwrap().auto_groups,
+            "a file without it has it on"
+        );
+        update(&path, |s| s.auto_groups = false).unwrap();
+        assert!(!load(&path).unwrap().auto_groups);
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(raw, json!({"version": 1, "auto_groups": false}));
+        update(&path, |s| s.auto_groups = true).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(raw, json!({"version": 1}), "left out while on");
     }
 
     #[test]

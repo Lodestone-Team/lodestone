@@ -118,9 +118,14 @@ pub struct Instance {
     /// launcher's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
-    /// The sidebar group the instance is in.
+    /// The sidebar group the instance is in. Without one the sidebar puts it in an
+    /// automatic group ([`AutoGroup`]) when that setting is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// The launcher the instance was imported from, by name ("Prism Launcher"), when
+    /// it was imported from another launcher.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_from: Option<String>,
     pub game_version: String,
     #[serde(default)]
     pub loader: Loader,
@@ -160,6 +165,7 @@ impl Default for Instance {
             icon: None,
             background: None,
             group: None,
+            imported_from: None,
             game_version: String::new(),
             loader: Loader::None,
             loader_version: None,
@@ -326,30 +332,129 @@ pub fn format_env(env: &BTreeMap<String, String>) -> String {
         .join(" ")
 }
 
-/// The instances by sidebar group: those without a group first, then each group in
-/// name order (ignoring case), each keeping the list's order.
-pub fn grouped(instances: &[Instance]) -> Vec<(Option<String>, Vec<&Instance>)> {
+/// The groups the sidebar puts instances without a group of their own in, in the
+/// order they are listed (after the groups the user named).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AutoGroup {
+    Fabric,
+    Forge,
+    NeoForge,
+    Quilt,
+    Vanilla,
+    /// Imported from another launcher, whatever its loader.
+    Imported,
+}
+
+impl AutoGroup {
+    pub const ALL: [AutoGroup; 6] = [
+        AutoGroup::Fabric,
+        AutoGroup::Forge,
+        AutoGroup::NeoForge,
+        AutoGroup::Quilt,
+        AutoGroup::Vanilla,
+        AutoGroup::Imported,
+    ];
+
+    /// The instance's automatic group: Imported for one imported from another
+    /// launcher, else its loader's.
+    pub fn of(instance: &Instance) -> Self {
+        if instance.imported_from.is_some() {
+            return AutoGroup::Imported;
+        }
+        match instance.loader {
+            Loader::None => AutoGroup::Vanilla,
+            Loader::Fabric => AutoGroup::Fabric,
+            Loader::Forge => AutoGroup::Forge,
+            Loader::NeoForge => AutoGroup::NeoForge,
+            Loader::Quilt => AutoGroup::Quilt,
+        }
+    }
+
+    /// The group's name, which is also its heading.
+    pub fn name(self) -> &'static str {
+        match self {
+            AutoGroup::Fabric => "Fabric (modded)",
+            AutoGroup::Forge => "Forge (modded)",
+            AutoGroup::NeoForge => "NeoForge (modded)",
+            AutoGroup::Quilt => "Quilt (modded)",
+            AutoGroup::Vanilla => "Vanilla",
+            AutoGroup::Imported => "Imported",
+        }
+    }
+}
+
+/// The instances by sidebar group, each group keeping the list's order: those
+/// without a group first (none when `automatic`), then the groups the user named in
+/// name order (ignoring case), then, when `automatic`, the [`AutoGroup`]s in their
+/// order for the instances without a group of their own.
+///
+/// A group the user named like an automatic group ("vanilla") is that group: the
+/// instances it would get join it.
+pub fn grouped(instances: &[Instance], automatic: bool) -> Vec<(Option<String>, Vec<&Instance>)> {
     let mut groups: Vec<(Option<String>, Vec<&Instance>)> = Vec::new();
-    let ungrouped: Vec<&Instance> = instances
-        .iter()
-        .filter(|i| group_name(i).is_none())
-        .collect();
-    if !ungrouped.is_empty() {
-        groups.push((None, ungrouped));
+    if !automatic {
+        let ungrouped: Vec<&Instance> = instances
+            .iter()
+            .filter(|i| group_name(i).is_none())
+            .collect();
+        if !ungrouped.is_empty() {
+            groups.push((None, ungrouped));
+        }
     }
     let mut names: Vec<&str> = instances.iter().filter_map(group_name).collect();
     names.sort_by_key(|name| name.to_lowercase());
     names.dedup();
-    for name in names {
+    let named = |name: &str| names.iter().copied().find(|n| n.eq_ignore_ascii_case(name));
+    for name in &names {
         groups.push((
             Some(name.to_string()),
             instances
                 .iter()
-                .filter(|i| group_name(i) == Some(name))
+                .filter(|i| match group_name(i) {
+                    Some(group) => group == *name,
+                    None => automatic && named(AutoGroup::of(i).name()) == Some(*name),
+                })
                 .collect(),
         ));
     }
+    if automatic {
+        for auto in AutoGroup::ALL {
+            if named(auto.name()).is_some() {
+                continue;
+            }
+            let members: Vec<&Instance> = instances
+                .iter()
+                .filter(|i| group_name(i).is_none() && AutoGroup::of(i) == auto)
+                .collect();
+            if !members.is_empty() {
+                groups.push((Some(auto.name().to_string()), members));
+            }
+        }
+    }
     groups
+}
+
+/// The group the sidebar lists the instance in: its own, or its automatic one when
+/// `automatic`.
+pub fn group_of(instance: &Instance, automatic: bool) -> Option<String> {
+    match group_name(instance) {
+        Some(name) => Some(name.to_string()),
+        None => automatic.then(|| AutoGroup::of(instance).name().to_string()),
+    }
+}
+
+/// The instance played most recently, if any has been played.
+pub fn last_played(instances: &[Instance]) -> Option<&Instance> {
+    instances
+        .iter()
+        .filter(|i| i.last_played.is_some())
+        .reduce(|best, i| {
+            if i.last_played > best.last_played {
+                i
+            } else {
+                best
+            }
+        })
 }
 
 fn group_name(instance: &Instance) -> Option<&str> {
@@ -374,7 +479,7 @@ pub enum InstanceError {
         #[source]
         source: io::Error,
     },
-    #[error("couldn't move {path} to the Trash: {reason}")]
+    #[error("couldn't move {path} to {trash}: {reason}", trash = crate::wording::TRASH)]
     Trash { path: PathBuf, reason: String },
     #[error("couldn't use {path} as the icon: {reason}")]
     Icon { path: PathBuf, reason: String },
@@ -664,6 +769,15 @@ impl InstanceStore {
     pub fn rename(&self, id: &str, name: &str) -> Result<Instance, InstanceError> {
         let mut instance = self.get(id)?;
         instance.name = clean_name(name)?;
+        self.save(&instance)?;
+        Ok(instance)
+    }
+
+    /// Records that a game started at `started`, so it counts as played even if it
+    /// crashes or the launcher quits before it exits.
+    pub fn record_start(&self, id: &str, started: u64) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        instance.last_played = Some(started);
         self.save(&instance)?;
         Ok(instance)
     }
@@ -1305,7 +1419,7 @@ mod tests {
             instance("d", Some("survival")),
             instance("e", Some("  ")),
         ];
-        let groups: Vec<(Option<String>, Vec<&str>)> = grouped(&list)
+        let groups: Vec<(Option<String>, Vec<&str>)> = grouped(&list, false)
             .into_iter()
             .map(|(name, items)| (name, items.iter().map(|i| i.id.as_str()).collect()))
             .collect();
@@ -1317,6 +1431,149 @@ mod tests {
                 (Some("survival".into()), vec!["a", "d"]),
             ]
         );
+    }
+
+    fn ids(groups: Vec<(Option<String>, Vec<&Instance>)>) -> Vec<(Option<String>, Vec<&str>)> {
+        groups
+            .into_iter()
+            .map(|(name, items)| (name, items.iter().map(|i| i.id.as_str()).collect()))
+            .collect()
+    }
+
+    fn auto_instance(id: &str, loader: Loader, group: Option<&str>, imported: bool) -> Instance {
+        Instance {
+            id: id.into(),
+            loader,
+            group: group.map(str::to_string),
+            imported_from: imported.then(|| "Prism Launcher".to_string()),
+            ..Instance::default()
+        }
+    }
+
+    #[test]
+    fn automatic_groups_follow_the_loader_or_the_import() {
+        let list = [
+            auto_instance("vanilla", Loader::None, None, false),
+            auto_instance("fabric", Loader::Fabric, None, false),
+            auto_instance("forge", Loader::Forge, None, false),
+            auto_instance("neo", Loader::NeoForge, None, false),
+            auto_instance("quilt", Loader::Quilt, None, false),
+            auto_instance("prism", Loader::Fabric, None, true),
+            auto_instance("named", Loader::Fabric, Some("Survival"), true),
+        ];
+        assert_eq!(AutoGroup::of(&list[0]), AutoGroup::Vanilla);
+        assert_eq!(AutoGroup::of(&list[5]), AutoGroup::Imported);
+        // A group of its own wins over the automatic one.
+        assert_eq!(group_of(&list[6], true).as_deref(), Some("Survival"));
+        assert_eq!(group_of(&list[1], true).as_deref(), Some("Fabric (modded)"));
+        assert_eq!(group_of(&list[1], false), None);
+        assert_eq!(
+            ids(grouped(&list, true)),
+            [
+                (Some("Survival".into()), vec!["named"]),
+                (Some("Fabric (modded)".into()), vec!["fabric"]),
+                (Some("Forge (modded)".into()), vec!["forge"]),
+                (Some("NeoForge (modded)".into()), vec!["neo"]),
+                (Some("Quilt (modded)".into()), vec!["quilt"]),
+                (Some("Vanilla".into()), vec!["vanilla"]),
+                (Some("Imported".into()), vec!["prism"]),
+            ]
+        );
+        // Off, the instances without a group are listed loose, as before.
+        assert_eq!(
+            ids(grouped(&list, false)),
+            [
+                (
+                    None,
+                    vec!["vanilla", "fabric", "forge", "neo", "quilt", "prism"]
+                ),
+                (Some("Survival".into()), vec!["named"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn automatic_groups_are_ordered_and_skip_empty_ones() {
+        let list = [
+            auto_instance("old-import", Loader::None, None, true),
+            auto_instance("v", Loader::None, None, false),
+            auto_instance("b", Loader::Forge, Some("beta"), false),
+            auto_instance("a", Loader::Forge, Some("Alpha"), false),
+            auto_instance("q", Loader::Quilt, None, false),
+        ];
+        assert_eq!(
+            ids(grouped(&list, true)),
+            [
+                (Some("Alpha".into()), vec!["a"]),
+                (Some("beta".into()), vec!["b"]),
+                (Some("Quilt (modded)".into()), vec!["q"]),
+                (Some("Vanilla".into()), vec!["v"]),
+                (Some("Imported".into()), vec!["old-import"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_named_group_called_like_an_automatic_one_takes_its_instances() {
+        let list = [
+            auto_instance("mine", Loader::Forge, Some("vanilla"), false),
+            auto_instance("plain", Loader::None, None, false),
+            auto_instance("fabric", Loader::Fabric, None, false),
+        ];
+        assert_eq!(
+            ids(grouped(&list, true)),
+            [
+                (Some("vanilla".into()), vec!["mine", "plain"]),
+                (Some("Fabric (modded)".into()), vec!["fabric"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_last_played_instance() {
+        let played = |id: &str, at: Option<u64>| Instance {
+            id: id.into(),
+            last_played: at,
+            ..Instance::default()
+        };
+        assert!(last_played(&[played("a", None)]).is_none());
+        let list = [
+            played("a", Some(5)),
+            played("b", None),
+            played("c", Some(9)),
+        ];
+        assert_eq!(last_played(&list).map(|i| i.id.as_str()), Some("c"));
+    }
+
+    #[test]
+    fn imported_from_is_kept_and_optional() {
+        let old: Instance = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "A", "game_version": "1.21.4", "created": 1
+        }))
+        .unwrap();
+        assert_eq!(old.imported_from, None);
+        let value = serde_json::to_value(&old).unwrap();
+        assert!(value.get("imported_from").is_none(), "left out when unset");
+        let imported = Instance {
+            imported_from: Some("Prism Launcher".into()),
+            ..old
+        };
+        let back: Instance =
+            serde_json::from_value(serde_json::to_value(&imported).unwrap()).unwrap();
+        assert_eq!(back.imported_from.as_deref(), Some("Prism Launcher"));
+    }
+
+    #[test]
+    fn records_the_start_before_the_play_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path());
+        let instance = store.create("Started", "1.21.4", None).unwrap();
+        let started = store.record_start(&instance.id, 1_700_000_000).unwrap();
+        assert_eq!(started.last_played, Some(1_700_000_000));
+        assert_eq!(started.play_time, 0);
+        let finished = store.record_play(&instance.id, 1_700_000_000, 60).unwrap();
+        assert_eq!(finished.last_played, Some(1_700_000_000));
+        assert_eq!(finished.play_time, 60);
     }
 
     #[test]

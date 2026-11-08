@@ -7,6 +7,7 @@ use gpui::{
     Window, div, prelude::*, px, uniform_list,
 };
 use launcher_core::cores::{ServerLoader, ServerState};
+use launcher_core::wording;
 use lodestone_minecraft::console_format::{
     BADGE_PALETTE, BOLD, ConsoleColor, ConsoleLevel, ConsoleSegment, ConsoleTheme, DIM, INVERSE,
     ITALIC, ParsedConsoleLine, RGB_BASE, STRIKE, UNDERLINE, luminance, readable_color, xterm256,
@@ -343,7 +344,8 @@ impl ServerDetail {
                 .child(
                     small(match &self.console_status {
                         StreamStatus::Off(reason) => reason.clone(),
-                        _ => "This Mac's key can't read the console.".into(),
+                        _ => format!("This {}'s key can't read the console.", wording::COMPUTER)
+                            .into(),
                     })
                     .text_center()
                     .text_color(colors::GRAY_500),
@@ -425,9 +427,9 @@ impl ServerDetail {
                 .into_any_element()
         } else {
             small(if access.is_some() {
-                "This Mac's key can't send chat or commands. Sign in again and allow \"Send chat and commands\", if your user may use the console."
+                format!("This {}'s key can't send chat or commands. Sign in again and allow \"Send chat and commands\", if your user may use the console.", wording::COMPUTER)
             } else {
-                ""
+                String::new()
             })
             .text_color(colors::GRAY_550)
             .into_any_element()

@@ -21,9 +21,39 @@ pub const INCOMPATIBLE_KEY: &str = "incompatibleResourcePacks";
 /// `options.txt`, as lines.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OptionsFile {
-    lines: Vec<String>,
+    lines: Vec<Line>,
     newline: &'static str,
     trailing_newline: bool,
+}
+
+/// A line of `options.txt`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Line {
+    /// The text; for a line that isn't UTF-8, with U+FFFD for the bytes that aren't.
+    text: String,
+    /// The bytes of a line that isn't UTF-8 (one an old game wrote in the system's code
+    /// page, or a mod), written back as they were unless the line is replaced.
+    raw: Option<Vec<u8>>,
+}
+
+impl Line {
+    fn new(text: String) -> Self {
+        Self { text, raw: None }
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+        match std::str::from_utf8(bytes) {
+            Ok(text) => Self::new(text.to_string()),
+            Err(_) => Self {
+                text: String::from_utf8_lossy(bytes).into_owned(),
+                raw: Some(bytes.to_vec()),
+            },
+        }
+    }
+
+    fn bytes(&self) -> &[u8] {
+        self.raw.as_deref().unwrap_or(self.text.as_bytes())
+    }
 }
 
 impl Default for OptionsFile {
@@ -60,13 +90,29 @@ pub fn format_list(entries: &[String]) -> String {
 
 impl OptionsFile {
     pub fn parse(text: &str) -> Self {
-        let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
-        let trailing_newline = text.is_empty() || text.ends_with('\n');
-        let lines = text
-            .lines()
-            .map(str::to_string)
-            .filter(|_| !text.is_empty())
-            .collect();
+        Self::parse_bytes(text.as_bytes())
+    }
+
+    /// Parses a file that may not be UTF-8: its lines that aren't keep their bytes.
+    pub fn parse_bytes(bytes: &[u8]) -> Self {
+        let newline = if bytes.windows(2).any(|pair| pair == b"\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let trailing_newline = bytes.is_empty() || bytes.ends_with(b"\n");
+        let lines = if bytes.is_empty() {
+            Vec::new()
+        } else {
+            let body = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+            let mut lines: Vec<&[u8]> = body.split(|&b| b == b'\n').collect();
+            // As `str::lines`: the `\r` of each `\r\n` isn't part of the line.
+            let ended = lines.len() - usize::from(!trailing_newline);
+            for line in &mut lines[..ended] {
+                *line = line.strip_suffix(b"\r").unwrap_or(line);
+            }
+            lines.into_iter().map(Line::from_bytes).collect()
+        };
         Self {
             lines,
             newline,
@@ -77,7 +123,7 @@ impl OptionsFile {
     /// Reads `path`; a missing file is an empty one.
     pub fn read(path: &Path) -> Result<Self, OptionsError> {
         match fs::read(path) {
-            Ok(bytes) => Ok(Self::parse(&String::from_utf8_lossy(&bytes))),
+            Ok(bytes) => Ok(Self::parse_bytes(&bytes)),
             Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
             Err(source) => Err(OptionsError::Io {
                 path: path.display().to_string(),
@@ -86,17 +132,24 @@ impl OptionsFile {
         }
     }
 
-    pub fn to_text(&self) -> String {
-        let mut text = self.lines.join(self.newline);
-        if self.trailing_newline && !self.lines.is_empty() {
-            text.push_str(self.newline);
+    /// The file's contents. Lines that weren't UTF-8 are written as they were read.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for (i, line) in self.lines.iter().enumerate() {
+            if i > 0 {
+                bytes.extend_from_slice(self.newline.as_bytes());
+            }
+            bytes.extend_from_slice(line.bytes());
         }
-        text
+        if self.trailing_newline && !self.lines.is_empty() {
+            bytes.extend_from_slice(self.newline.as_bytes());
+        }
+        bytes
     }
 
     /// Writes the file atomically.
     pub fn write(&self, path: &Path) -> Result<(), OptionsError> {
-        storage::write_atomic(path, self.to_text().as_bytes()).map_err(|source| OptionsError::Io {
+        storage::write_atomic(path, &self.to_bytes()).map_err(|source| OptionsError::Io {
             path: path.display().to_string(),
             source,
         })
@@ -105,13 +158,16 @@ impl OptionsFile {
     fn line_index(&self, key: &str) -> Option<usize> {
         self.lines
             .iter()
-            .position(|line| line.split_once(':').is_some_and(|(k, _)| k == key))
+            .position(|line| line.text.split_once(':').is_some_and(|(k, _)| k == key))
     }
 
     /// The raw value of `key`.
     pub fn get(&self, key: &str) -> Option<&str> {
         let index = self.line_index(key)?;
-        self.lines[index].split_once(':').map(|(_, value)| value)
+        self.lines[index]
+            .text
+            .split_once(':')
+            .map(|(_, value)| value)
     }
 
     /// The list under `key`: `Ok(None)` when the line is missing.
@@ -126,7 +182,7 @@ impl OptionsFile {
 
     /// Sets `key`'s line, or adds it at the end.
     pub fn set(&mut self, key: &str, value: &str) {
-        let line = format!("{key}:{value}");
+        let line = Line::new(format!("{key}:{value}"));
         match self.line_index(key) {
             Some(index) => self.lines[index] = line,
             None => self.lines.push(line),
@@ -136,7 +192,7 @@ impl OptionsFile {
     /// Sets `key`'s line, or adds it as the first line (where the game writes
     /// `version`).
     pub fn set_first(&mut self, key: &str, value: &str) {
-        let line = format!("{key}:{value}");
+        let line = Line::new(format!("{key}:{value}"));
         match self.line_index(key) {
             Some(index) => self.lines[index] = line,
             None => self.lines.insert(0, line),
@@ -147,7 +203,7 @@ impl OptionsFile {
     pub fn keys(&self) -> impl Iterator<Item = &str> {
         self.lines
             .iter()
-            .filter_map(|line| line.split_once(':').map(|(key, _)| key))
+            .filter_map(|line| line.text.split_once(':').map(|(key, _)| key))
     }
 
     /// Whether the file has no lines.
@@ -563,6 +619,53 @@ mod tests {
         .unwrap();
         assert_eq!(packs.enabled, ["A.zip", "B.zip"]);
         assert_eq!(packs.enabled_files("1.8.9"), ["B.zip", "A.zip"]);
+    }
+
+    #[test]
+    fn lines_split_as_str_lines_does() {
+        for text in [
+            "",
+            "\n",
+            "a",
+            "a\r",
+            "a\r\nb",
+            "a\n\nb\n",
+            "a\r\n\r\n",
+            "a\rb\n",
+        ] {
+            let file = OptionsFile::parse(text);
+            let lines: Vec<&str> = file.lines.iter().map(|line| line.text.as_str()).collect();
+            assert_eq!(lines, text.lines().collect::<Vec<_>>(), "{text:?}");
+        }
+        for text in ["", "a\n", "a\r\nb\r\n", "a\nb", "a\n\nb\n"] {
+            assert_eq!(OptionsFile::parse(text).to_bytes(), text.as_bytes());
+        }
+    }
+
+    #[test]
+    fn lines_that_arent_utf8_are_kept_byte_for_byte() {
+        // `lastServer` and a pack name in Windows-1252, as an old game writes them on
+        // Windows.
+        let bytes = b"version:1343\r\nlastServer:caf\xe9.example.net\r\nresourcePacks:[\"Pack \xe9t\xe9.zip\"]\r\nfov:0.0\r\n";
+        let mut file = OptionsFile::parse_bytes(bytes);
+        assert_eq!(file.get("lastServer"), Some("caf\u{fffd}.example.net"));
+        assert_eq!(file.to_bytes(), bytes);
+        file.set("fov", "0.5");
+        let mut expected = bytes.to_vec();
+        expected.truncate(expected.len() - b"0.0\r\n".len());
+        expected.extend_from_slice(b"0.5\r\n");
+        assert_eq!(file.to_bytes(), expected);
+
+        // Through the file on disk: changing another line keeps them.
+        let dir = game_dir(None);
+        let path = dir.path().join(FILE);
+        fs::write(&path, bytes).unwrap();
+        let mut file = OptionsFile::read(&path).unwrap();
+        file.set_first("version", "1631");
+        file.write(&path).unwrap();
+        let written = fs::read(&path).unwrap();
+        assert!(written.starts_with(b"version:1631\r\nlastServer:caf\xe9.example.net\r\n"));
+        assert!(written.ends_with(b"resourcePacks:[\"Pack \xe9t\xe9.zip\"]\r\nfov:0.0\r\n"));
     }
 
     #[test]

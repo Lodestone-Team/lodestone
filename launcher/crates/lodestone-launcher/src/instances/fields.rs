@@ -3,6 +3,7 @@
 //! instance's Settings tab edits its overrides of them.
 
 use gpui::{App, AppContext as _, Context, Entity, IntoElement, SharedString, div, prelude::*};
+use launcher_core::wording;
 use launcher_core::{
     instances::{Resolution, WindowSettings, format_env, parse_env},
     settings::max_ram_is_high,
@@ -56,7 +57,11 @@ pub fn check_memory(min: &str, max: &str, total_bytes: Option<u64>) -> MemoryChe
         };
     }
     let warning = max_ram_is_high(max, total_bytes).then(|| {
-        "That is more than three quarters of this Mac's memory, which leaves too little for macOS and your other apps.".to_string()
+        format!(
+            "That is more than three quarters of this {}'s memory, which leaves too little for {} and your other apps.",
+            wording::COMPUTER,
+            wording::OS
+        )
     });
     MemoryCheck {
         values: Some((min, max)),
@@ -69,7 +74,8 @@ pub fn check_memory(min: &str, max: &str, total_bytes: Option<u64>) -> MemoryChe
 pub fn total_memory_label(total_bytes: Option<u64>) -> Option<SharedString> {
     total_bytes.map(|bytes| {
         format!(
-            "This Mac has {} GB of memory.",
+            "This {} has {} GB of memory.",
+            wording::COMPUTER,
             thousands(bytes / (1024 * 1024 * 1024))
         )
         .into()
@@ -258,7 +264,7 @@ mod tests {
         assert_eq!(memory_label((512, 4096)), "512 MB – 4,096 MB");
         assert_eq!(
             total_memory_label(total).unwrap(),
-            "This Mac has 16 GB of memory."
+            format!("This {} has 16 GB of memory.", wording::COMPUTER)
         );
     }
 }

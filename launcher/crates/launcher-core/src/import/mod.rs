@@ -398,6 +398,7 @@ pub async fn import(
         created: crate::instances::now(),
         memory: found.memory,
         jvm_args: found.jvm_args.clone(),
+        imported_from: Some(found.source.label().to_string()),
         ..Instance::default()
     };
     if let Some(icon) = &found.icon {

@@ -1451,6 +1451,14 @@ impl Render for InstanceSettings {
 
         // General.
         let name_empty = self.text(&self.name, cx).is_empty();
+        let group_hint: SharedString = match instance.as_ref() {
+            Some(instance) if self.instances.read(cx).auto_groups() => format!(
+                "Instances in the same group are listed together. Without one it's listed under {}.",
+                launcher_core::instances::AutoGroup::of(instance).name()
+            )
+            .into(),
+            _ => "Instances in the same group are listed together.".into(),
+        };
         let general =
             card([
                 SettingRow::new("Name")
@@ -1460,7 +1468,7 @@ impl Render for InstanceSettings {
                     })
                     .into_any_element(),
                 SettingRow::new("Group")
-                    .hint("Instances in the same group are listed together.")
+                    .hint(group_hint)
                     .child(sized(&self.group, 260.))
                     .into_any_element(),
                 SettingRow::new("Icon")
