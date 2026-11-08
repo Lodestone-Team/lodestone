@@ -210,7 +210,7 @@ export const UserSettings = () => {
               {typeof currentSettings === 'object' && !instanceList && (
                 // the instance checkboxes, while the instances load
                 <SkeletonGroup
-                  label="Loading instances"
+                  label="Loading servers"
                   className="grid grid-cols-2 gap-4 rounded-lg border border-gray-faded/30 bg-gray-800 px-6 py-4"
                 >
                   {Array.from({ length: 4 }, (_, i) => (
@@ -327,15 +327,15 @@ export const UserSettings = () => {
                 )}
                 <div className="-mt-6 mb-10">
                   <div className="text-h3 leading-tight font-bold tracking-medium text-white/50">
-                    Macros, Extensions and Atom Instances
+                    Macros, Extensions and Atom Servers
                   </div>
                   <div className="text-medium font-medium tracking-medium text-white/50 italic">
                     {macrosAvailable ? (
                       <>
                         Only the owner can use macros, install extensions, and
-                        create or control atom instances. These can&apos;t be
-                        granted to other users. Docker instances use the normal
-                        instance permissions.
+                        create or control atom servers. These can&apos;t be
+                        granted to other users. Docker servers use the normal
+                        server permissions.
                       </>
                     ) : (
                       NO_SCRIPTING_MESSAGE

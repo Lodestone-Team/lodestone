@@ -91,7 +91,7 @@ export default function InstanceCreateForm({
         page: { setting_sections: { section_1: basicSettingsPageObject } },
       },
       {
-        name: 'Instance Settings',
+        name: 'Server Settings',
         description: 'Configure your server.',
         page: setupManifest,
       },
@@ -136,7 +136,7 @@ export default function InstanceCreateForm({
   const sections = [
     'Select Game',
     'Basic Settings',
-    'Instance Settings',
+    'Server Settings',
     'Auto Settings',
   ];
   const formReady = activeStep === sections.length - 1;
@@ -181,7 +181,7 @@ export default function InstanceCreateForm({
       await createInstance(parsedValues);
     } catch (e) {
       // keep the dialog open so the user's input isn't lost
-      toast.error('Error creating instance: ' + errorToString(e));
+      toast.error('Error creating server: ' + errorToString(e));
       actions.setSubmitting(false);
       return;
     }
@@ -318,7 +318,7 @@ export default function InstanceCreateForm({
                 )}
                 <Button
                   type="submit"
-                  label={formReady ? 'Create Instance' : 'Next'}
+                  label={formReady ? 'Create Server' : 'Next'}
                   loading={isSubmitting}
                   disabled={gameType === 'Generic' && !urlValid}
                 />

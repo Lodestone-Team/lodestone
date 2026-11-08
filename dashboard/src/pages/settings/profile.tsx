@@ -107,7 +107,7 @@ const ProfilePage = () => {
             label="Colored console"
             value={coloredConsole}
             onChange={async (value) => setColoredConsole(value)}
-            description="Shows the colors and styles servers print in the instance console"
+            description="Shows the colors and styles servers print in the server console"
           />
         </div>
 

@@ -232,7 +232,7 @@ impl GenericInstance {
         })?;
         let atom_module = atom_module_url(source)?;
         tokio::fs::create_dir_all(&path).await.context(format!(
-            "Failed to create directory for instance at {}",
+            "Failed to create directory for server at {}",
             path.display()
         ))?;
         let path_to_config = path.join(".lodestone_config");

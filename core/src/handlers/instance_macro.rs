@@ -38,7 +38,7 @@ fn get_instance(state: &AppState, uuid: &InstanceUuid) -> Result<GameInstance, E
         .map(|entry| entry.value().clone())
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
+            source: eyre!("Server not found"),
         })
 }
 

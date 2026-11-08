@@ -10,7 +10,7 @@ export const isCodeExecutionDisabledError = (message: string) =>
   message.includes(CODE_EXECUTION_DISABLED_MESSAGE);
 
 export const OWNER_ONLY_ATOM_MESSAGE =
-  'Only the owner can control atom instances';
+  'Only the owner can control atom servers';
 
 /**
  * The core's code execution kill switch and whether the current user may use

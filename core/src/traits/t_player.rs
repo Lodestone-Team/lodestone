@@ -59,26 +59,26 @@ pub trait TPlayerManagement {
     async fn get_player_count(&self) -> Result<u32, Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("Getting player count is unsupported for this instance"),
+            source: eyre!("Getting player count is unsupported for this server"),
         })
     }
     async fn get_max_player_count(&self) -> Result<u32, Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("Getting max player count is unsupported for this instance"),
+            source: eyre!("Getting max player count is unsupported for this server"),
         })
     }
     async fn get_player_list(&self) -> Result<HashSet<Player>, Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("Getting player list is unsupported for this instance"),
+            source: eyre!("Getting player list is unsupported for this server"),
         })
     }
 
     async fn set_max_player_count(&self, _max_player_count: u32) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("Setting max player count is unsupported for this instance"),
+            source: eyre!("Setting max player count is unsupported for this server"),
         })
     }
 }

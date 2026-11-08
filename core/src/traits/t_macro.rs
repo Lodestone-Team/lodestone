@@ -81,13 +81,13 @@ pub trait TMacro {
     ) -> Result<TaskEntry, Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support running macro"),
+            source: eyre!("This server does not support running macro"),
         })
     }
     async fn kill_macro(&self, _pid: MacroPID) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support killing macro"),
+            source: eyre!("This server does not support killing macro"),
         })
     }
     async fn get_macro_config(
@@ -96,7 +96,7 @@ pub trait TMacro {
     ) -> Result<IndexMap<String, SettingManifest>, Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support running macro"),
+            source: eyre!("This server does not support running macro"),
         })
     }
     async fn store_macro_config_to_local(
@@ -106,7 +106,7 @@ pub trait TMacro {
     ) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support running macro"),
+            source: eyre!("This server does not support running macro"),
         })
     }
     async fn validate_local_config(
@@ -116,7 +116,7 @@ pub trait TMacro {
     ) -> Result<IndexMap<String, SettingLocalCache>, Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support running macro"),
+            source: eyre!("This server does not support running macro"),
         })
     }
 }

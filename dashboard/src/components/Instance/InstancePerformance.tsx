@@ -18,7 +18,7 @@ const graphColors = {
 
 export default function InstancePerformance() {
   const { selectedInstance: instance } = useContext(InstanceContext);
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
   const {
     buffer: performanceBuffer,
     counter,
@@ -37,7 +37,7 @@ export default function InstancePerformance() {
   return (
     <div>
       <h2 className="text-h2 font-extrabold tracking-medium">
-        Instance Monitors
+        Server Monitors
       </h2>
       <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
         Instance’s usage of your Lodestone Core

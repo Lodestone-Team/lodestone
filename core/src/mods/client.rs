@@ -319,7 +319,7 @@ pub async fn build_client_pack(
     let loader_version = loader_version
         .ok_or_else(|| Error {
             kind: ErrorKind::Internal,
-            source: eyre!("The Fabric loader version of this instance is unknown"),
+            source: eyre!("The Fabric loader version of this server is unknown"),
         })?
         .to_string();
     let files = matched_files(api, folder).await?;

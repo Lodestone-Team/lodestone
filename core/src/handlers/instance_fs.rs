@@ -195,7 +195,7 @@ async fn list_instance_files(
     }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -243,7 +243,7 @@ async fn read_instance_file(
     }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -290,7 +290,7 @@ async fn write_instance_file(
     }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -334,7 +334,7 @@ async fn make_instance_directory(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -377,7 +377,7 @@ async fn copy_instance_files(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -563,7 +563,7 @@ async fn move_instance_file(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -649,7 +649,7 @@ async fn remove_instance_file(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -694,7 +694,7 @@ async fn remove_instance_dir(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -702,7 +702,7 @@ async fn remove_instance_dir(
     if path == root {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
-            source: eyre!("Cannot delete instance root"),
+            source: eyre!("Cannot delete the server's root folder"),
         });
     }
     // the folder itself, or anything in it, is protected
@@ -736,7 +736,7 @@ async fn new_instance_file(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -773,7 +773,7 @@ async fn get_instance_file_url(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -847,7 +847,7 @@ async fn upload_instance_file(
     let caused_by = requester.caused_by();
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -1028,7 +1028,7 @@ pub async fn unzip_instance_file(
     let can_write_protected = can_write_protected(&requester);
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);
@@ -1120,7 +1120,7 @@ async fn zip_instance_files(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     let root = instance.path().await;
     drop(instance);

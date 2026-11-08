@@ -43,8 +43,8 @@ const SelectGenericGameCard = ({
       ? 'Fetching...'
       : urlValid
       ? 'Loaded!'
-      : 'Load Instance'
-    : 'Load Instance';
+      : 'Load Server'
+    : 'Load Server';
 
   const [urlErrorText, setUrlErrorText] = useState('');
   const disableLoadButton = useMemo(() => {

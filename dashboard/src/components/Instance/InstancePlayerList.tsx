@@ -45,7 +45,7 @@ export default function InstancePlayerList() {
         <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
           <div className="flex min-w-0 flex-row items-center gap-4">
             <h1 className="dashboard-instance-heading truncate whitespace-pre">
-              Instance not found
+              Server not found
             </h1>
           </div>
         </div>

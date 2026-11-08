@@ -165,12 +165,12 @@ fn real_folder_inside(root: &Path, dir: &Path) -> Result<Option<PathBuf>, Error>
     }
     let root = root
         .canonicalize()
-        .context("Failed to resolve the instance folder")?;
+        .context("Failed to resolve the server folder")?;
     let resolved = dir
         .canonicalize()
         .context("Failed to resolve the world folder")?;
     if !resolved.starts_with(&root) || resolved == root {
-        return Err(bad_request("The world folder is outside the instance"));
+        return Err(bad_request("The world folder is outside the server folder"));
     }
     Ok(Some(resolved))
 }

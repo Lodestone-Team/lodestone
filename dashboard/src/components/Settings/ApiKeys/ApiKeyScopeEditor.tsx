@@ -72,7 +72,7 @@ export default function ApiKeyScopeEditor({
             {Array.isArray(current) &&
               (instanceUuids.length === 0 ? (
                 <div className="text-medium font-medium tracking-medium text-white/50 italic">
-                  There are no instances you can see.
+                  There are no servers you can see.
                 </div>
               ) : (
                 <MultiSelectGrid
@@ -110,7 +110,7 @@ export default function ApiKeyScopeEditor({
       {!user.is_owner && (
         <div className="text-medium font-medium tracking-medium text-white/50">
           A key can only have permissions you have yourself. The permissions and
-          instances you don&apos;t have are grayed out.
+          servers you don&apos;t have are grayed out.
         </div>
       )}
       {permissionList(NormalPermissions)}
@@ -128,13 +128,13 @@ export default function ApiKeyScopeEditor({
       {permissionList(UnsafePermissions)}
       <div>
         <div className="text-h3 leading-tight font-bold tracking-medium text-white/50">
-          Macros, Extensions and Atom Instances
+          Macros, Extensions and Atom Servers
         </div>
         <div className="text-medium font-medium tracking-medium text-white/50 italic">
           {macrosAvailable ? (
             <>
               Keys with custom access can&apos;t use macros, install extensions,
-              or create or control atom instances, even if they belong to the
+              or create or control atom servers, even if they belong to the
               owner. A key with full access can, if you can.
             </>
           ) : (

@@ -18,7 +18,7 @@ const Demo = ({ theme }: { theme: 'dark' | 'light' }) => {
       <Button label="Confirm dialog" onClick={() => setConfirmOpen(true)} />
       <Button label="Plain modal" onClick={() => setPlainOpen(true)} />
       <ConfirmDialog
-        title="Delete instance?"
+        title="Delete server?"
         type="danger"
         isOpen={confirmOpen}
         onClose={() => setConfirmOpen(false)}

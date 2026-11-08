@@ -155,10 +155,12 @@ pub async fn hash_url(
                 .headers()
                 .get(reqwest::header::LOCATION)
                 .and_then(|l| l.to_str().ok())
-                .ok_or_else(|| external("The server sent a redirect without a location"))?;
+                .ok_or_else(|| {
+                    external("The resource pack URL sent a redirect without a location")
+                })?;
             url = url
                 .join(location)
-                .map_err(|_| external("The server sent an invalid redirect"))?;
+                .map_err(|_| external("The resource pack URL sent an invalid redirect"))?;
             continue;
         }
         if !status.is_success() {

@@ -518,10 +518,7 @@ async fn does_not_write_through_links_in_the_instance() {
     let err = install_pack_contents(&fake, &parsed, &p.path, instance.path(), false, &|_, _| {})
         .await
         .unwrap_err();
-    assert!(err
-        .source
-        .to_string()
-        .contains("leaves the instance folder"));
+    assert!(err.source.to_string().contains("leaves the server folder"));
     assert!(!outside.path().join("x.txt").exists());
 }
 
