@@ -17,27 +17,35 @@ const FirstTime = () => {
   // null until the desktop app has said whether its core is set up
   const [tauriIsSetup, setTauriIsSetup] = useState<boolean | null>(null);
   // Cores known when the page opens: it only redirects (below), so don't
-  // flash it first. Read once: the desktop app adds its core further down.
+  // flash it first.
   const [redirecting] = useState(() => coreList.length > 0);
 
   useEffectOnce(() => {
+    // Replaces this page in the history: with a core already known, going
+    // back from the next page would otherwise land here and redirect again.
     if (coreList.length > 0) {
-      setPathname('/login/core/select');
+      setPathname('/login/core/select', true);
       return;
     }
     if (!tauri) return;
+    // The local core is only added to the list when it is chosen below, so a
+    // user who connects to another core doesn't end up with it selected.
     tauri.core
       .invoke<string | null>('is_setup')
       .then((is_setup) => {
-        addCore(DEFAULT_LOCAL_CORE);
-        setCore(DEFAULT_LOCAL_CORE);
         setTauriIsSetup(is_setup === 'true');
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         console.error('Tauri call failed is_setup', err);
         setTauriIsSetup(false);
       });
   });
+
+  const chooseLocalCore = (path: string) => {
+    addCore(DEFAULT_LOCAL_CORE);
+    setCore(DEFAULT_LOCAL_CORE);
+    setPathname(path);
+  };
 
   if (redirecting) return null;
 
@@ -104,7 +112,7 @@ const FirstTime = () => {
             <Button
               label="Connect to existing Core"
               onClick={() => setPathname('/login/core/new')}
-              intention="primary"
+              intention="info"
               size="large"
               className="whitespace-nowrap"
             />
@@ -119,22 +127,25 @@ const FirstTime = () => {
             className="invisible whitespace-nowrap"
             disabled
           />
-        ) : tauriIsSetup ? (
-          <Button
-            label="Continue"
-            onClick={() => setPathname('/')}
-            intention="primary"
-            size="large"
-            className="whitespace-nowrap"
-          />
         ) : (
-          <Button
-            label="Setup Lodestone Core"
-            onClick={() => setPathname('/login/core/first_setup')}
-            intention="primary"
-            size="large"
-            className="whitespace-nowrap"
-          />
+          <>
+            <Button
+              label={tauriIsSetup ? 'Continue' : 'Setup Lodestone Core'}
+              onClick={() =>
+                chooseLocalCore(tauriIsSetup ? '/' : '/login/core/first_setup')
+              }
+              intention="primary"
+              size="large"
+              className="whitespace-nowrap"
+            />
+            <Button
+              label="Connect to existing Core"
+              onClick={() => setPathname('/login/core/new')}
+              intention="info"
+              size="large"
+              className="whitespace-nowrap"
+            />
+          </>
         )}
       </div>
     </div>

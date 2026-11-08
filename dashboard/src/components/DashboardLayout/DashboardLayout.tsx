@@ -20,6 +20,7 @@ import { major, minor, patch, valid, eq } from 'semver';
 import { toast } from 'react-toastify';
 import { useLocalStorage } from 'usehooks-ts';
 import { DASHBOARD_VERSION } from 'utils/version';
+import { tauri } from 'utils/tauriUtil';
 
 export default function DashboardLayout() {
   const { data: userInfo } = useUserInfo();
@@ -112,7 +113,9 @@ export default function DashboardLayout() {
 
   useEffect(() => {
     if (localCoreInfo?.is_setup === false) {
-      if (!showSetupPrompt) setShowLocalSetupPrompt(true);
+      // the desktop app offers its local core when connecting to a core, so
+      // don't interrupt someone who chose another core to use
+      if (!showSetupPrompt && !tauri) setShowLocalSetupPrompt(true);
     } else if (localCoreInfo?.is_setup === true) {
       addCore(DEFAULT_LOCAL_CORE);
     }
