@@ -209,6 +209,14 @@ pub fn text(message: M) -> &'static str {
         M::CategorySoundHint => "所有音量滑桿、字幕、方向性音訊",
         M::CategoryAccessibilityHint => "朗讀程式、文字背景、聊天大小和不透明度、效果",
         M::CategoryLanguageHint => "遊戲語言和字型",
+        M::NarratorSection => "朗讀程式",
+        M::KeepNarratorOff => "保持關閉朗讀程式",
+        M::KeepNarratorOffHint => {
+            "適用於每個實例，包括新實例：朗讀程式保持關閉，並略過 Minecraft 首次啟動時會朗讀自身的輔助使用畫面。"
+        }
+        M::NarratorNotShared => "「{category}」未共用，因此每個實例保留自己的朗讀程式設定。",
+        M::NarratorKeptOff => "朗讀程式在每個實例中都保持關閉，包括新實例。",
+        M::NarratorPerInstance => "每個實例重新使用自己的朗讀程式設定。",
 
         M::SigningIn => "正在登入…",
         M::OfflineCouldntConnect => "離線 – 無法連線",

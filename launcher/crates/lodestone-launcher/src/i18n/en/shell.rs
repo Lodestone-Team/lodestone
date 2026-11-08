@@ -227,6 +227,14 @@ crate::i18n::messages! {
         CategorySoundHint = "Every volume slider, subtitles, directional audio",
         CategoryAccessibilityHint = "Narrator, text background, chat size and opacity, effects",
         CategoryLanguageHint = "Game language and font",
+        /// Shared game settings > Narrator.
+        NarratorSection = "Narrator",
+        KeepNarratorOff = "Keep the narrator off",
+        KeepNarratorOffHint = "In every instance, new ones included: the narrator stays off, and Minecraft's first-start accessibility screen, which reads itself aloud, is skipped.",
+        /// {category} is "Accessibility & chat".
+        NarratorNotShared = "{category} isn't shared, so each instance keeps its own narrator setting.",
+        NarratorKeptOff = "The narrator stays off in every instance, new ones included.",
+        NarratorPerInstance = "Each instance keeps its own narrator setting again.",
 
         // The account box and its menu.
         SigningIn = "Signing in…",

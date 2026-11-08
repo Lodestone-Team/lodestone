@@ -30,6 +30,9 @@ launcher-core.workspace = true
 url.workspace = true
 lodestone_minecraft.workspace = true
 serde_json.workspace = true
+# The control socket for lodestone-launcher-cli (`src/control`).
+launcher-control.workspace = true
+serde.workspace = true
 # Writes the sample mods and packs of the offscreen screenshots.
 zip = { workspace = true, optional = true }
 

@@ -23,6 +23,9 @@ pub mod host;
 pub mod lan;
 pub mod tools;
 pub mod view;
+// What the control API (`crate::control`) does with cores and servers.
+#[cfg(unix)]
+pub(crate) mod control;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -156,6 +159,10 @@ pub fn core_error(err: &CoreError) -> String {
         CoreError::Invalid(detail) => tr!(M::CoreInvalidReply, detail = detail),
     }
 }
+
+/// Where to find a core's certificate fingerprint, in English, for the control API's
+/// answers (the interface shows `ServersMsg::FingerprintHelp` in its language).
+pub const FINGERPRINT_HELP: &str = M::FingerprintHelp.english();
 
 /// A message at the top of the page: its title and text, made each time it is shown so
 /// it follows the language.

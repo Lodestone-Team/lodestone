@@ -13,6 +13,9 @@ pub mod new_instance;
 pub mod settings;
 pub mod shared_settings;
 pub mod worlds;
+// Read access for the control API (`crate::control`).
+#[cfg(unix)]
+pub(crate) mod control;
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -68,6 +71,8 @@ pub struct GameLog {
     recent: VecDeque<LogLine>,
     /// Bumped on every change, so views know to scroll.
     pub revision: u64,
+    /// Rows pushed since the start, never reset: where a reader of new rows is.
+    pushed: u64,
 }
 
 impl GameLog {
@@ -99,6 +104,7 @@ impl GameLog {
                 text: SharedString::from(text.replace('\t', "    ")),
                 stream: line.stream,
             });
+            self.pushed += 1;
             first = false;
         }
         while self.rows.len() > MAX_LOG_ROWS {
@@ -286,6 +292,9 @@ pub struct Instances {
     modpack_updates: HashMap<String, modpacks::UpdateJob>,
     /// Redraws while imports and updates run.
     import_ticker: Option<Task<()>>,
+    /// Counts changes to the shared game settings made in the launcher's Settings, so
+    /// an instance's Settings tab shows the new values.
+    shared_revision: u64,
 }
 
 impl EventEmitter<InstancesEvent> for Instances {}
@@ -352,6 +361,7 @@ impl Instances {
             loader_tasks: HashMap::new(),
             exports: Vec::new(),
             preview_state: None,
+            shared_revision: 0,
             modrinth: Some(modrinth),
             content_downloader,
             loader_switch: None,
@@ -595,6 +605,16 @@ impl Instances {
 
     pub fn select(&mut self, id: &str, cx: &mut Context<Self>) {
         self.selected = Some(id.to_string());
+        cx.notify();
+    }
+
+    pub fn shared_revision(&self) -> u64 {
+        self.shared_revision
+    }
+
+    /// The shared game settings changed in the launcher's Settings.
+    pub fn shared_settings_changed(&mut self, cx: &mut Context<Self>) {
+        self.shared_revision += 1;
         cx.notify();
     }
 

@@ -257,6 +257,20 @@ pub fn text(message: M) -> &'static str {
             "Narrateur, fond du texte, taille et opacité du chat, effets"
         }
         M::CategoryLanguageHint => "Langue et police du jeu",
+        M::NarratorSection => "Narrateur",
+        M::KeepNarratorOff => "Laisser le narrateur désactivé",
+        M::KeepNarratorOffHint => {
+            "Dans toutes les instances, y compris les nouvelles\u{a0}: le narrateur reste désactivé, et l’écran d’accessibilité du premier lancement de Minecraft, qui se lit à voix haute, est ignoré."
+        }
+        M::NarratorNotShared => {
+            "« {category} » n’est pas partagé\u{a0}: chaque instance garde son propre réglage du narrateur."
+        }
+        M::NarratorKeptOff => {
+            "Le narrateur reste désactivé dans toutes les instances, y compris les nouvelles."
+        }
+        M::NarratorPerInstance => {
+            "Chaque instance garde à nouveau son propre réglage du narrateur."
+        }
 
         M::SigningIn => "Connexion…",
         M::OfflineCouldntConnect => "Hors ligne – connexion impossible",

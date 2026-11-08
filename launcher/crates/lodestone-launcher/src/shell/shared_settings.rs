@@ -18,7 +18,7 @@ use crate::{
         },
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, t, tr, trn},
-    instances::Instances,
+    instances::{Instances, shared_settings::value_control},
     theme::{self, colors, text, weights},
 };
 
@@ -125,6 +125,8 @@ impl SharedSettings {
         match result {
             Ok(profile) => {
                 self.profile = profile;
+                self.instances
+                    .update(cx, |instances, cx| instances.shared_settings_changed(cx));
                 if let Some(message) = ok {
                     self.say(message, false, cx);
                 }
@@ -201,6 +203,24 @@ impl SharedSettings {
         self.done(result, None, cx);
     }
 
+    fn set_narrator_off(&mut self, off: bool, cx: &mut Context<Self>) {
+        let data = self.instances.read(cx).data_dir().clone();
+        let result = shared_options::set_narrator_off(&data, off);
+        let message = if off {
+            t(M::NarratorKeptOff)
+        } else {
+            t(M::NarratorPerInstance)
+        };
+        self.done(result, Some(message.into()), cx);
+    }
+
+    /// Saves a value picked with a switch, choice or slider straight away.
+    fn set_now(&mut self, key: &str, text: &str, cx: &mut Context<Self>) {
+        let data = self.instances.read(cx).data_dir().clone();
+        let result = shared_options::set_value(&data, key, text);
+        self.done(result, None, cx);
+    }
+
     fn picker_list(&self, picker: Picker, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let instances = self.instances.read(cx);
         let mut list = popover_panel(match picker {
@@ -260,6 +280,19 @@ impl SharedSettings {
             .map(|v| row.show(v))
             .unwrap_or_default();
         let line = SettingRow::new(row.label.clone()).indent();
+        if editing.is_none()
+            && let Some(control) = value_control(
+                ("shared-value", index),
+                row,
+                row.shared.as_deref(),
+                cx.listener({
+                    let key = key.clone();
+                    move |this, text: &String, _, cx| this.set_now(&key, text, cx)
+                }),
+            )
+        {
+            return line.child(control).into_any_element();
+        }
         match editing {
             Some(input) => line
                 .child(div().w(px(200.)).child(input))
@@ -467,6 +500,26 @@ impl Render for SharedSettings {
                 .into_any_element(),
         );
 
+        let accessibility_shared = self.profile.shares(Category::Accessibility);
+        let narrator = SettingRow::new(t(M::KeepNarratorOff))
+            .hint(t(M::KeepNarratorOffHint))
+            .note_opt((!accessibility_shared).then(|| {
+                (
+                    SharedString::from(tr!(
+                        M::NarratorNotShared,
+                        category = t(M::CategoryAccessibility)
+                    )),
+                    colors::YELLOW,
+                )
+            }))
+            .child(
+                Toggle::new("narrator-off", shared_options::narrator_off(&self.profile))
+                    .disabled(!accessibility_shared)
+                    .on_change(
+                        cx.listener(|this, off: &bool, _, cx| this.set_narrator_off(*off, cx)),
+                    ),
+            );
+
         div()
             .id("shared-game-settings")
             .flex()
@@ -478,6 +531,7 @@ impl Render for SharedSettings {
                 copy.into_any_element(),
                 reset.into_any_element(),
             ])))
+            .child(section(t(M::NarratorSection), None).child(card([narrator.into_any_element()])))
             .child(
                 section(t(M::WhatsShared), Some(t(M::WhatsSharedLead).into()))
                     .child(card(categories)),

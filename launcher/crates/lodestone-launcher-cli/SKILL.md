@@ -1,0 +1,342 @@
+---
+name: lodestone-launcher
+description: Control a running Lodestone Launcher (the Minecraft launcher) with the `lodestone-launcher-cli` command line tool. Use it to list, create and configure Minecraft instances, install and update mods, resource packs, shaders and modpacks from Modrinth, launch and stop the game and read its log, back up and restore worlds, manage accounts and game settings, import instances from other launchers, and join, start, stop or host servers on Lodestone cores.
+---
+
+# Lodestone Launcher CLI
+
+`lodestone-launcher-cli` talks to the **running** Lodestone Launcher app over a local
+socket. Every command does what the launcher's window does, through the same code, so
+the window shows each change at once. It can't do anything while the launcher is closed:
+ask the user to open it.
+
+Use it when the user wants something done in their Minecraft launcher: "make a Fabric
+1.21.1 instance with Sodium", "update my mods", "back up my world", "join our server",
+"why did Minecraft crash?". For a Lodestone *Core* (the server side, with its dashboard),
+use `lodestone_cli` instead.
+
+## Setup
+
+The launcher serves the socket while it runs; nothing to configure. The CLI finds it:
+
+1. `--socket <path>`, or `LODESTONE_LAUNCHER_SOCKET`;
+2. else `<data dir>/control.sock`, where the data directory is
+   `LODESTONE_LAUNCHER_DATA_DIR` (as for the launcher) or, on macOS,
+   `~/Library/Application Support/Lodestone Launcher/`;
+3. a data directory deeper than ~100 characters uses
+   `/tmp/lodestone-launcher-<uid>/<hash>.sock` instead (Unix socket paths are short).
+
+Check it with `lodestone-launcher-cli ping`. Exit code 3 (`not_running`) means the
+launcher isn't open, or it uses another data directory: a development launcher started
+with `LODESTONE_LAUNCHER_DATA_DIR=...` needs the same variable for the CLI.
+
+The socket is Unix-only (macOS, Linux). On Windows every command fails with exit code 3,
+`unsupported_platform`.
+
+## Output and errors
+
+- **Output is JSON when stdout isn't a terminal** (so, for you, always). `--json` forces
+  it, `--human` prints text. A command prints **one JSON document on stdout**.
+- **Long commands** (marked *long* below) wait for their job and print progress to
+  **stderr**, one `{"progress": {...}}` object per line, then the result on stdout. With
+  `--no-wait` they print `{"job": {"id": 7, "state": "running", ...}}` at once; follow it
+  with `jobs wait 7`. `--timeout SECS` stops waiting (exit 8); the job goes on.
+- **Streams** (`play logs --follow`, `events`) print one JSON object per line on stdout.
+- **Errors** go to stderr as one line:
+  `{"error": {"code": "not_found", "message": "…", "data": {…}}}`. Match on `code`,
+  show the user `message`. `data` holds details: the plan of a modpack update, the
+  advisory of a core's mods, a certificate's fingerprint, ambiguous `matches`.
+- `lodestone-launcher-cli schema` prints every command with its arguments, method,
+  whether it is long-running or needs `--yes`, and examples, as JSON (no launcher needed).
+- Instances, accounts, worlds, cores and servers are named by id or by name (any case).
+  An ambiguous name fails with `ambiguous` and lists `data.matches`: use the id.
+
+| Exit | Codes | Meaning |
+|---|---|---|
+| 0 | | Success |
+| 1 | `failed`, `internal` | The operation ran and failed; read `message` |
+| 2 | `usage`, `invalid_params`, `method_not_found` | Wrong command line |
+| 3 | `not_running`, `unsupported_platform` | Launcher not running / not reachable |
+| 4 | `not_found`, `ambiguous` | No such thing, or the name matches several |
+| 5 | `confirmation_required` | Destructive: ask the user, then add `--yes` |
+| 6 | `untrusted_core`, `untrusted_certificate`, `mods_changed`, `eula_required` | Needs the user's decision |
+| 7 | `busy`, `conflict` | The game or another job runs; or it conflicts |
+| 8 | `timeout` | Stopped waiting; the job goes on (`jobs wait`) |
+| 9 | `unavailable`, `not_signed_in`, `permission_denied`, `protocol_version` | Not available, sign in first, refused |
+| 10 | `cancelled` | Cancelled |
+
+## Safety rules
+
+- **Destructive commands need `--yes`, and you need the user's OK first.** Without it they
+  fail with exit 5 and change nothing; the message says what would happen. These are:
+  `instances delete`, `worlds delete`, `worlds delete-backup`, `worlds restore --replace`,
+  `content remove`, `accounts remove`, `cores remove`, `cores trust`, `shared clear`,
+  `play clear-logs`, applying `modpacks update`, a `content switch-loader` that leaves mods
+  behind, and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
+  Deleting moves to the Trash. Never add `--yes` on your own.
+- **Trust in a core is the user's decision.** Mods from a Lodestone core run as programs
+  with the user's access. When a core isn't trusted for mods, installing its server's
+  mods fails with `untrusted_core` and `data.advisory` (the mods, uploaded jars, scripts).
+  Show the advisory to the user. Only if they agree, rerun with `--accept-advisory`
+  (this once) or run `cores trust <core> --yes` (from now on).
+- **Certificates:** a core whose HTTPS certificate isn't trusted fails with
+  `untrusted_certificate` and `data.fingerprint`. Ask the user to compare it with the
+  fingerprint the core shows (dashboard: Settings, Core Settings; or the core's log).
+  **Never confirm a fingerprint yourself.** Then pass the one they confirmed with
+  `--fingerprint`.
+- **EULA:** launching Minecraft and hosting a server accept Mojang's EULA
+  (https://aka.ms/MinecraftEULA). Ask before the first `play launch`, and `servers host`
+  needs `--accept-eula`, which only the user can give.
+- **No secrets.** The CLI never prints Microsoft tokens, core keys or passwords, and
+  never takes a password as an argument: core passwords come on stdin
+  (`--password-stdin`) or in `LODESTONE_CORE_PASSWORD`. Don't echo, log or store them.
+  Never ask for the user's Microsoft password: `accounts sign-in` gives a code for the
+  user to enter on Microsoft's site.
+- **Only your own launcher.** The CLI refuses a socket served by another user
+  (`permission_denied`) and sends nothing to it. Don't work around this with `--socket`.
+- **Don't fight `busy`.** While a game runs, its instance's content, worlds and loader
+  can't change. Ask the user before `play stop`: it ends their game.
+
+## Commands
+
+Instances:
+
+```sh
+lodestone-launcher-cli instances list                     # with effective_group (auto groups)
+lodestone-launcher-cli instances show Survival
+lodestone-launcher-cli instances versions --limit 10      # Minecraft releases
+lodestone-launcher-cli instances loader-versions fabric 1.21.1
+lodestone-launcher-cli instances create --version 1.21.1 --loader fabric --name Survival --group Friends
+lodestone-launcher-cli instances rename Survival "Survival 2"
+lodestone-launcher-cli instances group Survival Friends    # or --none
+lodestone-launcher-cli instances icon Survival --library grass   # --image FILE, --emoji ⛏ --tile 3A6EA5, --clear
+lodestone-launcher-cli instances background Survival --image ./castle.jpg
+lodestone-launcher-cli instances duplicate Survival
+lodestone-launcher-cli instances select Survival          # shows it in the window
+lodestone-launcher-cli instances export Survival ./survival.mrpack          # long
+lodestone-launcher-cli instances verify Survival                            # long; downloads missing game files
+lodestone-launcher-cli instances delete Survival --yes
+```
+
+`instances list` gives `instances` (each with `effective_group`: its own group, or with
+automatic groups on, "Fabric (modded)", "Vanilla", "Imported" …), `groups` in sidebar
+order, `auto_groups` and `last_played`.
+
+Play:
+
+```sh
+lodestone-launcher-cli play launch Survival              # long: until the game runs
+lodestone-launcher-cli play launch Survival --join mc.example.com:25565
+lodestone-launcher-cli play status
+lodestone-launcher-cli play logs Survival --lines 200
+lodestone-launcher-cli play logs Survival --follow --until "Sound engine started" --timeout 300
+lodestone-launcher-cli play logs Survival --follow --until-exit
+lodestone-launcher-cli play stop Survival
+```
+
+`play launch` needs an account (`accounts list`). An instance linked to a server joins
+it, like the Play button (see `servers join`); `--no-join` plays without joining. A crash
+shows up as a `notice` event of kind `crashed` with the crash summary, and in the log.
+
+Content (mods, resource packs, shader packs; Modrinth):
+
+```sh
+lodestone-launcher-cli content list Survival                       # --kind mod|resourcepack|shader
+lodestone-launcher-cli content search sodium --instance Survival   # only what fits; --all for everything
+lodestone-launcher-cli content versions sodium --instance Survival --limit 5
+lodestone-launcher-cli content install Survival fabric-api          # long; with required mods
+lodestone-launcher-cli content install Survival https://modrinth.com/mod/lithium
+lodestone-launcher-cli content install Survival complementary-reimagined --kind shader   # adds Iris if needed
+lodestone-launcher-cli content add Survival ./my-mod.jar
+lodestone-launcher-cli content disable Survival sodium
+lodestone-launcher-cli content enable Survival sodium
+lodestone-launcher-cli content updates Survival
+lodestone-launcher-cli content update Survival --all                # long
+lodestone-launcher-cli content remove Survival sodium --yes
+lodestone-launcher-cli content switch-loader Vanilla121             # vanilla → Fabric (or Forge before 1.14)
+lodestone-launcher-cli content switch-loader Survival quilt --disable-mismatched
+```
+
+Items are named by file name, slug, title or mod id. `install` picks the newest version
+that fits the instance's Minecraft version and loader; `--version` picks one, `--force`
+installs one that doesn't fit.
+
+Modpacks:
+
+```sh
+lodestone-launcher-cli modpacks search "fabulously optimized"
+lodestone-launcher-cli modpacks install fabulously-optimized --name FO     # long; makes an instance
+lodestone-launcher-cli modpacks install --file ./pack.mrpack
+lodestone-launcher-cli modpacks check FO
+lodestone-launcher-cli modpacks update FO           # exit 5 with data.plan: show it to the user
+lodestone-launcher-cli modpacks update FO --yes     # long; backs up worlds first (--no-backup-worlds)
+```
+
+Worlds:
+
+```sh
+lodestone-launcher-cli worlds list Survival
+lodestone-launcher-cli worlds backup Survival "New World"                   # long
+lodestone-launcher-cli worlds backups Survival "New World"
+lodestone-launcher-cli worlds restore Survival "New World"                  # a copy beside it
+lodestone-launcher-cli worlds restore Survival "New World" --backup 2026-11-08_14-30-00.zip --replace --yes
+lodestone-launcher-cli worlds delete Survival "Old World" --yes
+printf '%s\n' "$PASSWORD" | lodestone-launcher-cli worlds download Survival --server Smp --username alice --password-stdin
+```
+
+Settings:
+
+```sh
+lodestone-launcher-cli settings instance get Survival
+lodestone-launcher-cli settings instance set Survival --max-memory 6G --resolution 1920x1080
+lodestone-launcher-cli settings instance reset Survival --key memory      # follow the default again
+lodestone-launcher-cli settings defaults get
+lodestone-launcher-cli settings defaults set --max-memory 4G --jvm-args "-XX:+UseG1GC"
+lodestone-launcher-cli settings general set --auto-groups false
+lodestone-launcher-cli settings developer get
+lodestone-launcher-cli shared get                                 # shared game settings
+lodestone-launcher-cli shared set guiScale 3
+lodestone-launcher-cli shared category video --off
+lodestone-launcher-cli shared sync-from Survival                  # or --none
+lodestone-launcher-cli shared copy-from Survival
+lodestone-launcher-cli shared instance set Survival --override guiScale --value guiScale=2
+```
+
+Settings keys: `memory`, `java`, `jvm_args`, `game_args`, `window`, `env`. Memory is
+typed as in the window (`4096`, `4G`); the environment as `NAME=value NAME2="a b"`.
+
+Accounts:
+
+```sh
+lodestone-launcher-cli accounts list            # never tokens
+lodestone-launcher-cli accounts switch Steve
+lodestone-launcher-cli accounts sign-in         # long; prints a code and URL for the USER
+lodestone-launcher-cli accounts add-offline Tester   # development builds or LODESTONE_LAUNCHER_OFFLINE=1
+lodestone-launcher-cli accounts remove Steve --yes
+```
+
+`accounts sign-in` first prints a progress line with `user_code`, `verification_uri` and
+`message`: give these to the user, who signs in on Microsoft's page. It then waits (up to
+the code's expiry) and prints the new account. `--no-wait` returns the code and a `job`.
+
+Import from other launchers (Minecraft Launcher, Prism, MultiMC, Modrinth App,
+ATLauncher, CurseForge, GDLauncher):
+
+```sh
+lodestone-launcher-cli import detect            # each instance has a "key"
+lodestone-launcher-cli import run prism:Fabulous --without-worlds     # long
+```
+
+Cores and servers:
+
+```sh
+lodestone-launcher-cli cores list
+printf '%s\n' "$PASSWORD" | lodestone-launcher-cli cores add 192.168.1.20 --username alice --password-stdin
+lodestone-launcher-cli cores trust "Home core" --yes        # only when the user decides
+lodestone-launcher-cli cores trust-certificate "Home core" --fingerprint AB:CD:…
+lodestone-launcher-cli cores sign-out "Home core"
+lodestone-launcher-cli servers list
+lodestone-launcher-cli servers start Smp                     # needs this device signed in
+lodestone-launcher-cli servers stop Smp
+lodestone-launcher-cli servers create-instance Smp           # long; matching version, loader, mods
+lodestone-launcher-cli servers join Smp                      # long; starts it first if stopped
+lodestone-launcher-cli servers link Survival Smp
+lodestone-launcher-cli servers unlink Survival
+lodestone-launcher-cli servers resource-pack Smp --instance Survival
+printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core "Home core" --username alice --password-stdin --accept-eula
+lodestone-launcher-cli prompts list                          # questions the window is asking
+lodestone-launcher-cli prompts answer update play
+```
+
+Jobs and events:
+
+```sh
+lodestone-launcher-cli status                    # instances, games, jobs, accounts, cores
+lodestone-launcher-cli jobs list --running
+lodestone-launcher-cli jobs wait 7 --timeout 900
+lodestone-launcher-cli jobs cancel 7
+lodestone-launcher-cli events --topics state,notices,jobs --timeout 60
+```
+
+## JSON shapes
+
+An instance (`instances list`, `instances show`, `instances create`):
+
+```json
+{"id": "survival", "name": "Survival", "game_version": "1.21.1", "loader": "fabric",
+ "loader_version": "0.16.14", "loader_label": "Fabric 0.16.14", "group": "Friends",
+ "effective_group": "Friends", "state": "idle", "selected": true, "last_played": 1794143678,
+ "play_time": 3600, "memory": {"min": 512, "max": 6144}, "server": null, "modpack": null,
+ "dir": "/Users/me/Library/Application Support/Lodestone Launcher/instances/survival"}
+```
+
+`state` is `idle`, `preparing` (installing or verifying) or `running`.
+
+A job (`--no-wait`, `jobs get`, progress lines):
+
+```json
+{"id": 3, "kind": "content", "label": "Installing sodium in Survival",
+ "instance": {"id": "survival", "name": "Survival"}, "state": "running",
+ "stage": null, "progress": {"label": "Downloading", "files_done": 1, "files_total": 3,
+ "bytes_done": 524288, "bytes_total": 1574609, "fraction": 0.333},
+ "started": 1794143683, "finished": null, "result": null, "error": null}
+```
+
+Job `state`: `running`, `succeeded`, `failed`, `cancelled`. A waited command prints the
+job's `result` with `"job": <id>` added, for example `content install`:
+`{"installed": [{"title": "Sodium", "file": "sodium-fabric-0.6.0.jar"}], "removed": [], "skipped": [], "job": 3}`.
+
+A log row (`play logs`, `--follow`, `log` events):
+`{"instance": "survival", "level": "INFO", "time": "14:02:11", "thread": "Render thread", "stream": "stdout", "text": "Sound engine started"}`.
+
+Events (`events`): `{"event": "state", "data": {"instance": "survival", "state": "running", "previous": "preparing"}}`;
+`event` is `log`, `state`, `progress`, `job`, `job_progress`, `notice` (`kind`:
+`crashed`, `launch_failed`, `notice`, `server_failed`, …) or `lagged`.
+
+## Workflows
+
+Create a Fabric instance, add mods, launch (ask about the EULA first):
+
+```sh
+lodestone-launcher-cli instances create --version 1.21.1 --loader fabric --name Survival
+lodestone-launcher-cli content install Survival fabric-api
+lodestone-launcher-cli content install Survival sodium
+lodestone-launcher-cli content install Survival https://modrinth.com/mod/lithium
+lodestone-launcher-cli accounts list            # an active account? else ask the user to sign in
+lodestone-launcher-cli play launch Survival     # waits until the game runs
+lodestone-launcher-cli play logs Survival --follow --until "Sound engine started" --timeout 600
+```
+
+If `play launch` fails, read `message`, then `play logs Survival --lines 100`. A crash
+after launch is a `crashed` notice: `events --topics notices --timeout 600`.
+
+Join a server on a Lodestone core:
+
+```sh
+lodestone-launcher-cli servers list                         # find it; is an instance linked?
+lodestone-launcher-cli servers create-instance Smp          # if not; may fail with untrusted_core
+# untrusted_core: show data.advisory to the user; if they agree:
+lodestone-launcher-cli servers create-instance Smp --accept-advisory
+lodestone-launcher-cli servers join Smp                     # may fail with mods_changed
+# mods_changed: ask the user, then --update-mods or --skip-update
+lodestone-launcher-cli servers join Smp --update-mods
+```
+
+A plain address works too: `play launch Survival --join mc.example.com:25565`.
+
+Back up a world (quit the game first; ask the user before stopping it):
+
+```sh
+lodestone-launcher-cli play status Survival                 # must be idle
+lodestone-launcher-cli worlds list Survival
+lodestone-launcher-cli worlds backup Survival "New World"
+lodestone-launcher-cli worlds backups Survival "New World"  # the zip's path is in "path"
+```
+
+Update everything:
+
+```sh
+lodestone-launcher-cli content updates Survival
+lodestone-launcher-cli content update Survival --all
+lodestone-launcher-cli modpacks check FO && lodestone-launcher-cli modpacks update FO   # shows the plan (exit 5)
+```

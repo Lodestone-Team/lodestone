@@ -14,13 +14,16 @@ use gpui::{
 use launcher_core::{
     game::log4j::Level,
     paths::DataDir,
-    shared_options::{self, Category, ExitOutcome, InstanceSharing, Profile, Row},
+    shared_options::{
+        self, Category, ExitOutcome, InstanceSharing, Profile, Row,
+        format::{Control, slider_text},
+    },
 };
 
 use super::Instances;
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, TextInput, Toggle,
+        Button, ButtonSize, ButtonVariant, Slider, TextInput, Toggle, segmented,
         settings::{SettingRow, card, link, muted_link, section, tag, value},
     },
     i18n::{
@@ -142,6 +145,8 @@ pub struct InstanceSharedSettings {
     message: Option<(Text, bool)>,
     /// Whether the game was running at the last look, to reload when it stops.
     active: bool,
+    /// [`Instances::shared_revision`] at the last load.
+    shared_revision: u64,
     _observe: Subscription,
 }
 
@@ -153,13 +158,17 @@ impl InstanceSharedSettings {
         cx: &mut Context<Self>,
     ) -> Self {
         let observe = cx.observe(&instances, |this: &mut Self, instances, cx| {
-            let active = instances.read(cx).is_active(&this.instance_id);
-            if active != this.active {
+            let instances = instances.read(cx);
+            let active = instances.is_active(&this.instance_id);
+            let revision = instances.shared_revision();
+            if active != this.active || revision != this.shared_revision {
                 this.active = active;
+                this.shared_revision = revision;
                 this.reload(cx);
             }
         });
         let active = instances.read(cx).is_active(&instance_id);
+        let shared_revision = instances.read(cx).shared_revision();
         let mut this = Self {
             instances,
             instance_id,
@@ -169,6 +178,7 @@ impl InstanceSharedSettings {
             editing: None,
             message: None,
             active,
+            shared_revision,
             _observe: observe,
         };
         this.reload(cx);
@@ -255,6 +265,16 @@ impl InstanceSharedSettings {
         let input = super::fields::input_with(cx, text, M::Value);
         self.editing = Some((row.key.clone(), input));
         cx.notify();
+    }
+
+    /// Saves this instance's value, picked with a switch, choice or slider.
+    fn set_now(&mut self, key: &str, text: &str, cx: &mut Context<Self>) {
+        let dir = self.dir(cx);
+        let jar = self.instances.read(cx).client_jar(&self.game_version);
+        let result =
+            shared_options::set_instance_value(&dir, &self.game_version, Some(&jar), key, text);
+        self.message = None;
+        self.after(result, cx);
     }
 
     fn save_edit(&mut self, cx: &mut Context<Self>) {
@@ -365,49 +385,69 @@ impl InstanceSharedSettings {
             .map_or_else(|| t(M::NotInOptions).to_string(), |v| row.show(v));
         let edit_row = row.clone();
         let line = SettingRow::new(row.label.clone()).indent();
-        let line = match (row.overridden, editing) {
-            (true, Some(input)) => line
-                .child(div().w(px(180.)).child(input))
-                .child(
-                    Button::new(("shared-save", id), t(CommonMsg::Save))
-                        .variant(ButtonVariant::Primary)
-                        .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
-                )
-                .child(
-                    muted_link(("shared-cancel", id), t(CommonMsg::Cancel)).on_click(cx.listener(
-                        |this, _, _, cx| {
-                            this.editing = None;
-                            cx.notify();
-                        },
-                    )),
-                ),
-            (true, None) => line
-                .child(value(local_text, false))
-                .child(tag(t(M::ThisInstance), colors::BLUE_200))
-                .when(!busy, |line| {
-                    line.child(
-                        link(("shared-edit", id), t(CommonMsg::Edit))
-                            .on_click(cx.listener(move |this, _, _, cx| this.edit(&edit_row, cx))),
+        let line =
+            match (row.overridden, editing) {
+                (true, Some(input)) => line
+                    .child(div().w(px(180.)).child(input))
+                    .child(
+                        Button::new(("shared-save", id), t(CommonMsg::Save))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Slim)
+                            .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
                     )
                     .child(
-                        muted_link(("shared-use", id), tr!(M::UseShared, value = shared_text))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.set_overrides(vec![key.clone()], false, cx)
-                            })),
-                    )
-                }),
-            (false, _) => line
-                .child(value(shared_text, true))
-                .child(tag(t(M::Shared), colors::GRAY_500))
-                .when(!busy, |line| {
-                    line.child(
-                        link(("shared-override", id), t(M::Override)).on_click(cx.listener(
-                            move |this, _, _, cx| this.set_overrides(vec![key.clone()], true, cx),
-                        )),
-                    )
-                }),
-        };
+                        muted_link(("shared-cancel", id), t(CommonMsg::Cancel)).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.editing = None;
+                                cx.notify();
+                            }),
+                        ),
+                    ),
+                (true, None) => {
+                    let control = (!busy)
+                        .then(|| {
+                            let key = row.key.clone();
+                            value_control(
+                                ("shared-local", id),
+                                row,
+                                row.local.as_deref(),
+                                cx.listener(move |this, text: &String, _, cx| {
+                                    this.set_now(&key, text, cx)
+                                }),
+                            )
+                        })
+                        .flatten();
+                    let typed = control.is_none();
+                    line.map(|line| match control {
+                        Some(control) => line.child(control),
+                        None => line.child(value(local_text, false)),
+                    })
+                    .child(tag(t(M::ThisInstance), colors::BLUE_200))
+                    .when(!busy, |line| {
+                        line.when(typed, |line| {
+                            line.child(link(("shared-edit", id), t(CommonMsg::Edit)).on_click(
+                                cx.listener(move |this, _, _, cx| this.edit(&edit_row, cx)),
+                            ))
+                        })
+                        .child(
+                            muted_link(("shared-use", id), tr!(M::UseShared, value = shared_text))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.set_overrides(vec![key.clone()], false, cx)
+                                })),
+                        )
+                    })
+                }
+                (false, _) => line
+                    .child(value(shared_text, true))
+                    .child(tag(t(M::Shared), colors::GRAY_500))
+                    .when(!busy, |line| {
+                        line.child(link(("shared-override", id), t(M::Override)).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.set_overrides(vec![key.clone()], true, cx)
+                            }),
+                        ))
+                    }),
+            };
         line.into_any_element()
     }
 }
@@ -586,4 +626,51 @@ impl Render for InstanceSharedSettings {
                 ))
             })
     }
+}
+
+/// A switch, choice or slider for `row`'s `value`; `None` for a typed setting. Each
+/// calls `on_set` with the new canonical value.
+pub(crate) fn value_control(
+    id: (&'static str, usize),
+    row: &Row,
+    value: Option<&str>,
+    on_set: impl Fn(&String, &mut Window, &mut gpui::App) + 'static,
+) -> Option<AnyElement> {
+    let (name, index) = id;
+    let on_set = std::rc::Rc::new(on_set);
+    Some(match row.control() {
+        Control::Toggle => {
+            let on = value == Some("true");
+            Toggle::new((name, index), on)
+                .on_change(move |on: &bool, window, cx| {
+                    on_set(&if *on { "true" } else { "false" }.to_string(), window, cx)
+                })
+                .into_any_element()
+        }
+        Control::Choice(choices) => {
+            let selected = value.map(|v| v.trim().to_string());
+            segmented(
+                format!("{name}-{index}"),
+                choices
+                    .iter()
+                    .map(|(value, label)| (value.to_string(), SharedString::from(*label)))
+                    .collect(),
+                selected.as_ref(),
+                false,
+                move |value: String, window, cx| on_set(&value, window, cx),
+            )
+            .into_any_element()
+        }
+        Control::Slider { min, max, step } => {
+            let current = value
+                .and_then(|v| v.trim().parse::<f64>().ok())
+                .unwrap_or(min);
+            let shown = row.clone();
+            Slider::new((name, index), current, min, max, step)
+                .format(move |n| shown.show(&slider_text(min, max, step, n)).into())
+                .on_change(move |n, window, cx| on_set(&slider_text(min, max, step, n), window, cx))
+                .into_any_element()
+        }
+        Control::Text => return None,
+    })
 }

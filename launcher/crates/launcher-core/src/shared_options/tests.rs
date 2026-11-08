@@ -845,3 +845,52 @@ fn write_jar(path: &Path, world_version: u32) {
     write!(zip, "{{\"id\": \"x\", \"world_version\": {world_version}}}").unwrap();
     zip.finish().unwrap();
 }
+
+#[test]
+fn keeping_the_narrator_off_reaches_a_new_instance() {
+    let world = World::new();
+    assert!(!narrator_off(&world.profile()));
+    let profile = set_narrator_off(&world.data, true).unwrap();
+    assert!(narrator_off(&profile));
+
+    // A brand-new instance: no options.txt yet, so its first start would open the
+    // accessibility screen and read it aloud.
+    let a = world.instance("a", None);
+    let jar = world.data.root().join("1.21.11.jar");
+    write_jar(&jar, 4671);
+    let outcome = before_launch(&world.data, "a", &a, "1.21.11", Some(&jar)).unwrap();
+    assert!(outcome.created);
+    let text = options_of(&a);
+    assert_eq!(value(&text, "narrator"), Some("0"));
+    assert_eq!(value(&text, "onboardAccessibility"), Some("false"));
+
+    // An existing instance that had the narrator on gets it turned off.
+    let b = world.instance(
+        "b",
+        Some(&fixture("1.21.11").replace("narrator:0", "narrator:1")),
+    );
+    world.launch("b", "1.21.11");
+    assert_eq!(value(&options_of(&b), "narrator"), Some("0"));
+
+    // Turning it off again stops sharing both values.
+    let profile = set_narrator_off(&world.data, false).unwrap();
+    assert!(!narrator_off(&profile));
+    assert!(!profile.values.contains_key("narrator"));
+    assert!(!profile.values.contains_key("onboardAccessibility"));
+}
+
+#[test]
+fn keeping_the_narrator_off_does_nothing_where_accessibility_isnt_shared() {
+    let world = World::new();
+    set_narrator_off(&world.data, true).unwrap();
+    update_profile(&world.data, |profile| {
+        profile.disabled.insert(Category::Accessibility);
+    })
+    .unwrap();
+    let a = world.instance(
+        "a",
+        Some(&fixture("1.21.11").replace("narrator:0", "narrator:1")),
+    );
+    world.launch("a", "1.21.11");
+    assert_eq!(value(&options_of(&a), "narrator"), Some("1"));
+}

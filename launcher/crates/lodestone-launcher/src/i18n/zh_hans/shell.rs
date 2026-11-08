@@ -207,6 +207,14 @@ pub fn text(message: M) -> &'static str {
         M::CategorySoundHint => "所有音量滑块、字幕、定向音频",
         M::CategoryAccessibilityHint => "旁白、文本背景、聊天大小和不透明度、效果",
         M::CategoryLanguageHint => "游戏语言和字体",
+        M::NarratorSection => "旁白",
+        M::KeepNarratorOff => "始终关闭旁白",
+        M::KeepNarratorOffHint => {
+            "适用于每个实例，包括新实例：旁白保持关闭，并跳过 Minecraft 首次启动时会朗读自身的辅助功能界面。"
+        }
+        M::NarratorNotShared => "“{category}”未共享，因此每个实例保留自己的旁白设置。",
+        M::NarratorKeptOff => "旁白在每个实例中都保持关闭，包括新实例。",
+        M::NarratorPerInstance => "每个实例重新使用自己的旁白设置。",
 
         M::SigningIn => "正在登录…",
         M::OfflineCouldntConnect => "离线 – 无法连接",
