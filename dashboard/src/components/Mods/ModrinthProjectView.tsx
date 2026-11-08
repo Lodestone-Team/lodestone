@@ -39,6 +39,7 @@ import {
 } from 'utils/mods';
 import { errorToString } from 'utils/util';
 import {
+  ClientSideLabel,
   DisabledTooltip,
   InstallResultMessage,
   ModIcon,
@@ -443,6 +444,9 @@ export default function ModrinthProjectView({
               <FontAwesomeIcon icon={faServer} />
               server: {project.server_side}
             </span>
+            {installable && target.kind === 'mod' && (
+              <ClientSideLabel clientSide={project.client_side} />
+            )}
             {project.categories.map((category) => (
               <Label key={category} size="small" color="gray">
                 {category}

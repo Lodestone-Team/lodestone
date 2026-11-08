@@ -1,12 +1,14 @@
 import { faUpload } from '@fortawesome/free-solid-svg-icons';
 import { ModpackInfo } from 'bindings/ModpackInfo';
 import { ModpackSource } from 'bindings/ModpackSource';
+import { ModrinthSearchHit } from 'bindings/ModrinthSearchHit';
 import { ModrinthSearchIndex } from 'bindings/ModrinthSearchIndex';
 import { ModrinthVersion } from 'bindings/ModrinthVersion';
 import Button from 'components/Atoms/Button';
 import Checkbox from 'components/Atoms/Checkbox';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import { ModIcon, pickFiles, VersionTypeLabel } from 'components/Mods/common';
+import { ApiError } from 'utils/util';
 import ModrinthSearch, {
   ModrinthPick,
   SortSelect,
@@ -20,10 +22,10 @@ import {
   useModrinthVersions,
 } from 'data/Mods';
 import { Form, Formik, FormikHelpers } from 'formik';
-import { useContext, useState } from 'react';
+import { useContext, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
-import { formatDate } from 'utils/mods';
+import { formatDate, primaryFile } from 'utils/mods';
 import { cn, errorToString, formatBytes } from 'utils/util';
 import * as yup from 'yup';
 import FormInputField from './SetupFormFields/FormInputField';
@@ -127,7 +129,9 @@ const ModpackSummary = ({ info }: { info: ModpackInfo }) => (
       ))}
     </div>
     {info.summary && (
-      <div className="text-medium text-white/50">{info.summary}</div>
+      <div className="line-clamp-2 text-medium text-white/50">
+        {info.summary}
+      </div>
     )}
     {info.unsupported_reason && (
       <WarningAlert>
@@ -137,31 +141,45 @@ const ModpackSummary = ({ info }: { info: ModpackInfo }) => (
   </div>
 );
 
+/** A version row's shape while the versions load, so nothing jumps. */
+const VersionRowSkeleton = () => (
+  <div className="flex min-h-14 animate-pulse flex-row items-center gap-3 bg-gray-800 px-4 py-2">
+    <div className="flex grow flex-col gap-2">
+      <div className="h-3.5 w-1/4 rounded-sm bg-gray-700" />
+      <div className="h-3 w-1/2 rounded-sm bg-gray-700" />
+    </div>
+    <div className="h-6 w-14 rounded-sm bg-gray-700" />
+  </div>
+);
+
 const VersionPicker = ({
-  projectId,
+  versions,
+  error,
   selectedId,
   inspectingId,
   onSelect,
 }: {
-  projectId: string;
+  versions: ModrinthVersion[] | undefined;
+  error: ApiError | null;
   selectedId: string | null;
   inspectingId: string | null;
   onSelect: (version: ModrinthVersion) => void;
 }) => {
   const [shown, setShown] = useState(VERSIONS_PAGE_SIZE);
-  const {
-    data: versions,
-    error,
-    isPending,
-  } = useModrinthVersions(projectId, {});
   if (error)
     return (
       <div className="text-medium text-red-200">
         Failed to load versions: {errorToString(error)}
       </div>
     );
-  if (isPending || !versions)
-    return <div className="text-medium text-white/50">Loading versions...</div>;
+  if (!versions)
+    return (
+      <div className={sectionClass} aria-busy="true">
+        {Array.from({ length: 6 }, (_, i) => (
+          <VersionRowSkeleton key={i} />
+        ))}
+      </div>
+    );
   if (versions.length === 0)
     return (
       <div className="text-medium text-white/50">
@@ -171,37 +189,41 @@ const VersionPicker = ({
   return (
     <div className="flex flex-col gap-2">
       <div className={sectionClass}>
-        {versions.slice(0, shown).map((version) => (
-          <div
-            key={version.id}
-            className={cn(
-              'flex flex-row items-center gap-3 bg-gray-800 px-4 py-2',
-              version.id === selectedId && 'bg-gray-700'
-            )}
-          >
-            <div className="flex min-w-0 grow flex-col">
-              <div className="flex min-w-0 flex-row items-center gap-2">
-                <span className="truncate text-medium font-bold text-gray-300">
-                  {version.version_number}
-                </span>
-                <VersionTypeLabel type={version.version_type} />
+        {versions.slice(0, shown).map((version) => {
+          const file = primaryFile(version);
+          return (
+            <div
+              key={version.id}
+              className={cn(
+                'flex min-h-14 flex-row items-center gap-3 bg-gray-800 px-4 py-2',
+                version.id === selectedId && 'bg-gray-700'
+              )}
+            >
+              <div className="flex min-w-0 grow flex-col">
+                <div className="flex min-w-0 flex-row items-center gap-2">
+                  <span className="truncate text-medium font-bold text-gray-300">
+                    {version.version_number}
+                  </span>
+                  <VersionTypeLabel type={version.version_type} />
+                </div>
+                <div className="truncate text-small text-white/50">
+                  {version.game_versions.join(', ')} ·{' '}
+                  {version.loaders.join(', ')} ·{' '}
+                  {formatDate(version.date_published)}
+                  {file && ` · ${formatBytes(file.size)}`}
+                </div>
               </div>
-              <div className="truncate text-small text-white/50">
-                {version.game_versions.join(', ')} ·{' '}
-                {version.loaders.join(', ')} ·{' '}
-                {formatDate(version.date_published)}
-              </div>
+              <Button
+                label={version.id === selectedId ? 'Selected' : 'Select'}
+                size="slim"
+                intention={version.id === selectedId ? 'primary' : 'info'}
+                loading={inspectingId === version.id}
+                disabled={inspectingId !== null && inspectingId !== version.id}
+                onClick={() => onSelect(version)}
+              />
             </div>
-            <Button
-              label={version.id === selectedId ? 'Selected' : 'Select'}
-              size="slim"
-              intention={version.id === selectedId ? 'primary' : 'info'}
-              loading={inspectingId === version.id}
-              disabled={inspectingId !== null && inspectingId !== version.id}
-              onClick={() => onSelect(version)}
-            />
-          </div>
-        ))}
+          );
+        })}
       </div>
       {versions.length > shown && (
         <Button
@@ -215,11 +237,37 @@ const VersionPicker = ({
 };
 
 /**
- * Creating an instance from a Modrinth modpack (.mrpack): pick a pack
- * (search, link or upload), pick a version, then the instance settings.
- * The core creates the instance in the background, with the usual
- * progression notifications.
+ * The modpack's icon, title and summary. Shown from the search result that
+ * was clicked until the project loads, and as a placeholder of the same size
+ * when neither is there yet (a pasted link, or a preset).
  */
+const ProjectHeader = ({
+  title,
+  description,
+  iconUrl,
+}: {
+  title: string | undefined;
+  description: string | undefined;
+  iconUrl: string | null | undefined;
+}) => (
+  <div className="flex h-10 flex-row items-center gap-3">
+    <ModIcon url={iconUrl} />
+    {title === undefined ? (
+      <div className="flex grow animate-pulse flex-col gap-2">
+        <div className="h-4 w-1/3 rounded-sm bg-gray-700" />
+        <div className="h-3 w-2/3 rounded-sm bg-gray-700" />
+      </div>
+    ) : (
+      <div className="flex min-w-0 flex-col">
+        <span className="truncate text-h3 font-bold text-gray-300">
+          {title}
+        </span>
+        <span className="truncate text-small text-white/50">{description}</span>
+      </div>
+    )}
+  </div>
+);
+
 /** The first port from 25565 that no existing instance uses. */
 const firstFreePort = (usedPorts: number[]) => {
   let port = 25565;
@@ -227,6 +275,12 @@ const firstFreePort = (usedPorts: number[]) => {
   return port;
 };
 
+/**
+ * Creating an instance from a Modrinth modpack (.mrpack): pick a pack
+ * (search, link or upload), pick a version, then the instance settings.
+ * The core creates the instance in the background, with the usual
+ * progression notifications.
+ */
 export default function ModpackCreateForm({
   preset,
   onBack,
@@ -250,19 +304,45 @@ export default function ModpackCreateForm({
   const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // the search result the pack was picked from, shown until the project loads
+  const [pickedHit, setPickedHit] = useState<ModrinthSearchHit | null>(null);
   const { data: project } = useModrinthProject(projectId);
+  const versionsQuery = useModrinthVersions(projectId, {});
 
+  // The search step stays mounted, so Back finds its text, page and results
+  // as they were; its scroll position is restored by hand.
+  const sourceScroll = useRef<HTMLDivElement>(null);
+  const savedScrollTop = useRef(0);
+  const leaveSource = (next: Step) => {
+    savedScrollTop.current = sourceScroll.current?.scrollTop ?? 0;
+    setStep(next);
+  };
+  useLayoutEffect(() => {
+    if (step === 'source' && sourceScroll.current)
+      sourceScroll.current.scrollTop = savedScrollTop.current;
+  }, [step]);
+
+  // Only the latest inspect counts: an older one finishing late (after Back,
+  // or another pick) must not overwrite the current choice.
+  const inspectRequest = useRef(0);
   const inspect = async (versionId: string) => {
+    const request = ++inspectRequest.current;
     setInspectingId(versionId);
     try {
       const result = await inspectModpack(versionId);
+      if (request !== inspectRequest.current) return;
       setInfo(result);
       setSource({ type: 'modrinth', version_id: versionId });
     } catch (error) {
+      if (request !== inspectRequest.current) return;
       toast.error(`Failed to read the modpack: ${errorToString(error)}`);
     } finally {
-      setInspectingId(null);
+      if (request === inspectRequest.current) setInspectingId(null);
     }
+  };
+  const cancelInspect = () => {
+    inspectRequest.current++;
+    setInspectingId(null);
   };
 
   useEffectOnce(() => {
@@ -275,9 +355,10 @@ export default function ModpackCreateForm({
       return;
     }
     setProjectId(picked.projectId);
+    setPickedHit(picked.hit ?? null);
     setInfo(null);
     setSource(null);
-    setStep('version');
+    leaveSource('version');
     if (picked.versionId) void inspect(picked.versionId);
   };
 
@@ -293,9 +374,10 @@ export default function ModpackCreateForm({
       const result = await uploadModpack(file);
       if (!result.upload_id) throw new Error('The core returned no upload id');
       setProjectId(null);
+      setPickedHit(null);
       setInfo(result);
       setSource({ type: 'upload', upload_id: result.upload_id });
-      setStep('version');
+      leaveSource('version');
     } catch (error) {
       toast.error(`Failed to upload the modpack: ${errorToString(error)}`);
     } finally {
@@ -306,6 +388,7 @@ export default function ModpackCreateForm({
   const back = () => {
     if (step === 'settings') setStep('version');
     else if (step === 'version' && !preset) {
+      cancelInspect();
       setStep('source');
       setInfo(null);
       setSource(null);
@@ -344,6 +427,11 @@ export default function ModpackCreateForm({
 
   const canContinue = !!info && !!source && !info.unsupported_reason;
   const busy = inspectingId !== null || uploading;
+  const inspectingFile = (() => {
+    const version = versionsQuery.data?.find((v) => v.id === inspectingId);
+    return version ? primaryFile(version) : null;
+  })();
+  const scrollAreaClass = 'flex min-h-0 grow flex-col overflow-y-auto p-2';
 
   const initialValues: SettingsValues = {
     name: info?.name ?? '',
@@ -356,7 +444,9 @@ export default function ModpackCreateForm({
   };
 
   return (
-    <div className="flex max-h-175 min-h-140 w-203 rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg">
+    // A fixed height: the dialog is centered, so a height that followed the
+    // content would move the whole dialog on every step and loading state.
+    <div className="flex h-175 max-h-[calc(100vh-2rem)] w-203 rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg">
       <div className="w-45 shrink-0 border-r border-gray-700 pt-8">
         <div className="px-4 py-2 text-left font-sans text-medium leading-5 font-medium tracking-medium text-white/50">
           Select Game
@@ -374,9 +464,13 @@ export default function ModpackCreateForm({
         ))}
       </div>
       <div className="flex w-158 min-w-0 flex-col p-8">
-        <div className="flex min-h-0 grow flex-col overflow-y-auto p-2 text-left">
-          {step === 'source' && (
-            <>
+        <div className="flex min-h-0 grow flex-col text-left">
+          {/* not needed when a preset skips it (Back then leaves the flow) */}
+          {!preset && (
+            <div
+              ref={sourceScroll}
+              className={cn(scrollAreaClass, step !== 'source' && 'hidden')}
+            >
               <StepTitle
                 title="Select a modpack"
                 description="Search Modrinth, paste a Modrinth link, or upload a .mrpack file. Only Fabric modpacks are supported."
@@ -406,10 +500,10 @@ export default function ModpackCreateForm({
                   </div>
                 }
               />
-            </>
+            </div>
           )}
           {step === 'version' && (
-            <>
+            <div key="version" className="flex min-h-0 grow flex-col p-2">
               <StepTitle
                 title="Select a version"
                 description={
@@ -418,109 +512,121 @@ export default function ModpackCreateForm({
                     : 'Pick the modpack version to install.'
                 }
               />
-              <div className="flex flex-col gap-4">
-                {projectId && (
-                  <div className="flex flex-row items-center gap-3">
-                    <ModIcon url={project?.icon_url} />
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate text-h3 font-bold text-gray-300">
-                        {project?.title ?? 'Loading...'}
-                      </span>
-                      <span className="truncate text-small text-white/50">
-                        {project?.description}
-                      </span>
-                    </div>
-                  </div>
-                )}
-                {inspectingId !== null && (
-                  <div className="text-medium text-white/50">
-                    Downloading and reading the modpack...
-                  </div>
-                )}
-                {info && <ModpackSummary info={info} />}
-                {projectId && (
+              {projectId && (
+                <ProjectHeader
+                  title={project?.title ?? pickedHit?.title}
+                  description={project?.description ?? pickedHit?.description}
+                  iconUrl={project?.icon_url ?? pickedHit?.icon_url}
+                />
+              )}
+              {projectId && (
+                <div className="mt-4 min-h-0 grow overflow-y-auto">
                   <VersionPicker
-                    projectId={projectId}
+                    versions={versionsQuery.data}
+                    error={versionsQuery.error}
                     selectedId={
                       source?.type === 'modrinth' ? source.version_id : null
                     }
                     inspectingId={inspectingId}
                     onSelect={(version) => void inspect(version.id)}
                   />
-                )}
-              </div>
-            </>
-          )}
-          {step === 'settings' && (
-            <Formik
-              initialValues={initialValues}
-              validationSchema={settingsSchema}
-              onSubmit={submit}
-              validateOnBlur={false}
-              validateOnChange={false}
-            >
-              <Form id={SETTINGS_FORM_ID}>
-                <StepTitle
-                  title="Instance settings"
-                  description="Configure your server."
-                />
-                {info && (
-                  <div className="mb-4 text-medium text-white/50">
-                    {info.name} · Minecraft {info.game_version} · Fabric{' '}
-                    {info.loader_version}
+                </div>
+              )}
+              {/* fixed below the list, with room for the summary, so picking
+                  a version doesn't push the list around */}
+              <div className="mt-4 flex min-h-38 shrink-0 flex-col justify-center">
+                {inspectingId !== null ? (
+                  <div className="text-medium text-white/50">
+                    Downloading the modpack file
+                    {inspectingFile
+                      ? ` (${formatBytes(inspectingFile.size)})`
+                      : ''}{' '}
+                    to read it...
+                  </div>
+                ) : info ? (
+                  <ModpackSummary info={info} />
+                ) : (
+                  <div className="text-medium text-white/50">
+                    Select a version to see what it contains. Lodestone
+                    downloads its modpack file to read it; nothing is installed
+                    until you click Create Instance.
                   </div>
                 )}
-                <div className={sectionClass}>
-                  <FormInputField
-                    name="name"
-                    label="Name"
-                    type="text"
-                    description="The name of the instance"
+              </div>
+            </div>
+          )}
+          {step === 'settings' && (
+            <div key="settings" className={scrollAreaClass}>
+              <Formik
+                initialValues={initialValues}
+                validationSchema={settingsSchema}
+                onSubmit={submit}
+                validateOnBlur={false}
+                validateOnChange={false}
+              >
+                <Form id={SETTINGS_FORM_ID}>
+                  <StepTitle
+                    title="Instance settings"
+                    description="Configure your server."
                   />
-                  <FormInputField
-                    name="description"
-                    label="Description"
-                    type="text"
-                    description="The description of the instance"
-                    optional
-                  />
-                  <FormInputField
-                    name="port"
-                    label="Port"
-                    type="number"
-                    description="The port to run the server on"
-                  />
-                </div>
-                <div className={cn(sectionClass, 'mt-6')}>
-                  <FormInputField
-                    name="min_ram"
-                    label="Minimum RAM"
-                    type="number"
-                    description="The minimum amount of RAM to allocate to the server, in MB"
-                  />
-                  <FormInputField
-                    name="max_ram"
-                    label="Maximum RAM"
-                    type="number"
-                    description="The maximum amount of RAM to allocate to the server, in MB"
-                  />
-                </div>
-                <div className={cn(sectionClass, 'mt-6')}>
-                  <FormRadioField
-                    name="auto_start"
-                    label="Auto Start"
-                    options={['false', 'true']}
-                    description="The instance will start automatically when the application starts"
-                  />
-                  <FormRadioField
-                    name="restart_on_crash"
-                    label="Restart on Crash"
-                    options={['false', 'true']}
-                    description="The instance will restart automatically if it crashes"
-                  />
-                </div>
-              </Form>
-            </Formik>
+                  {info && (
+                    <div className="mb-4 text-medium text-white/50">
+                      {info.name} · Minecraft {info.game_version} · Fabric{' '}
+                      {info.loader_version}
+                    </div>
+                  )}
+                  <div className={sectionClass}>
+                    <FormInputField
+                      name="name"
+                      label="Name"
+                      type="text"
+                      description="The name of the instance"
+                    />
+                    <FormInputField
+                      name="description"
+                      label="Description"
+                      type="text"
+                      description="The description of the instance"
+                      optional
+                    />
+                    <FormInputField
+                      name="port"
+                      label="Port"
+                      type="number"
+                      description="The port to run the server on"
+                    />
+                  </div>
+                  <div className={cn(sectionClass, 'mt-6')}>
+                    <FormInputField
+                      name="min_ram"
+                      label="Minimum RAM"
+                      type="number"
+                      description="The minimum amount of RAM to allocate to the server, in MB"
+                    />
+                    <FormInputField
+                      name="max_ram"
+                      label="Maximum RAM"
+                      type="number"
+                      description="The maximum amount of RAM to allocate to the server, in MB"
+                    />
+                  </div>
+                  <div className={cn(sectionClass, 'mt-6')}>
+                    <FormRadioField
+                      name="auto_start"
+                      label="Auto Start"
+                      options={['false', 'true']}
+                      description="The instance will start automatically when the application starts"
+                    />
+                    <FormRadioField
+                      name="restart_on_crash"
+                      label="Restart on Crash"
+                      options={['false', 'true']}
+                      description="The instance will restart automatically if it crashes"
+                    />
+                  </div>
+                </Form>
+              </Formik>
+            </div>
           )}
         </div>
         <div className="flex flex-row justify-between pt-6">
