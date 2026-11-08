@@ -1,10 +1,16 @@
 use crate::{
-    error::Error, events::EventQuery, output_types::ClientEvent, prelude::LODESTONE_EPOCH_MIL,
+    error::Error,
+    events::EventQuery,
+    output_types::ClientEvent,
+    prelude::LODESTONE_EPOCH_MIL,
+    types::{InstanceUuid, Snowflake},
 };
 
 use color_eyre::eyre::Context;
+use serde::Serialize;
 use sqlx::{sqlite::SqlitePool, QueryBuilder, Row, Sqlite};
 use tracing::error;
+use ts_rs::TS;
 
 /// Most rows a search reads from the database. The newest matching rows are kept.
 pub const MAX_SEARCH_ROWS: i64 = 10_000;
@@ -78,6 +84,59 @@ pub async fn search_events(
         .into_iter()
         .filter(|client_event| event_query.filter(client_event))
         .collect())
+}
+
+/// One page of an instance's stored console lines.
+#[derive(Debug, Serialize, TS)]
+#[ts(export)]
+pub struct ConsoleHistoryPage {
+    /// Oldest first.
+    pub events: Vec<ClientEvent>,
+    /// Whether there are older lines than the first of `events`.
+    pub has_more: bool,
+}
+
+/// Reads up to `limit` of the newest console lines of `instance` that are older than the
+/// snowflake `before` (or the newest ones, without it). The instance and the cursor are
+/// applied in SQL before `LIMIT`, so a page only has fewer than `limit` lines at the start
+/// of the stored history, whatever other instances logged in between. The snowflake is
+/// unique and grows with time, which makes `before` a stable cursor: lines written later
+/// never shift the pages.
+pub async fn console_history(
+    pool: &SqlitePool,
+    instance: &InstanceUuid,
+    before: Option<Snowflake>,
+    limit: u32,
+) -> Result<ConsoleHistoryPage, Error> {
+    let mut builder: QueryBuilder<Sqlite> =
+        QueryBuilder::new("SELECT event_value FROM ClientEvents WHERE instance_id = ");
+    builder.push_bind(instance.to_string());
+    builder.push(
+        " AND json_extract(event_value, '$.event_inner.instance_event_inner.type') IN \
+         ('InstanceOutput', 'PlayerMessage', 'SystemMessage')",
+    );
+    if let Some(before) = before {
+        builder.push(" AND snowflake < ");
+        builder.push_bind(before);
+    }
+    builder.push(" ORDER BY snowflake DESC LIMIT ");
+    // one more than asked for tells whether there are older lines
+    builder.push_bind(i64::from(limit) + 1);
+    let rows = builder
+        .build()
+        .fetch_all(pool)
+        .await
+        .context("Failed to fetch console history")?;
+    let has_more = rows.len() > limit as usize;
+    let mut events = Vec::with_capacity(rows.len().min(limit as usize));
+    for row in rows.iter().take(limit as usize).rev() {
+        let event_value: String = row.try_get("event_value").context("Bad event row")?;
+        match serde_json::from_str(&event_value) {
+            Ok(event) => events.push(event),
+            Err(_) => error!("Failed to parse client event: {}", event_value),
+        }
+    }
+    Ok(ConsoleHistoryPage { events, has_more })
 }
 
 #[cfg(test)]

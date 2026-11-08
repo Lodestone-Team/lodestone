@@ -14,9 +14,9 @@ use crate::{
     db::write::write_event_to_db_task,
     global_settings::GlobalSettingsData,
     handlers::{
-        api_keys::get_api_key_routes, checks::get_checks_routes, core_info::get_core_info_routes,
-        events::get_events_routes, gateway::get_gateway_routes, global_fs::get_global_fs_routes,
-        global_settings::get_global_settings_routes, instance::*,
+        api_keys::get_api_key_routes, checks::get_checks_routes, console::get_console_routes,
+        core_info::get_core_info_routes, events::get_events_routes, gateway::get_gateway_routes,
+        global_fs::get_global_fs_routes, global_settings::get_global_settings_routes, instance::*,
         instance_config::get_instance_config_routes, instance_fs::get_instance_fs_routes,
         instance_macro::get_instance_macro_routes, instance_mods::get_instance_mods_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
@@ -303,6 +303,7 @@ fn api_router(shared_state: AppState) -> Router {
 
     Router::new()
         .merge(get_events_routes(shared_state.clone()))
+        .merge(get_console_routes(shared_state.clone()))
         .merge(get_instance_setup_config_routes(shared_state.clone()))
         .merge(get_instance_server_routes(shared_state.clone()))
         .merge(get_instance_config_routes(shared_state.clone()))
