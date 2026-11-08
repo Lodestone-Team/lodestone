@@ -24,3 +24,11 @@ pub enum Error {
         source: serde_json::Error,
     },
 }
+
+impl Error {
+    #[cfg(feature = "zip")]
+    pub(crate) fn io(context: impl Into<String>) -> impl FnOnce(std::io::Error) -> Self {
+        let context = context.into();
+        move |source| Error::Io { context, source }
+    }
+}
