@@ -8,7 +8,7 @@
 
 mod files;
 
-use std::{fs, io::Write as _, path::Path};
+use std::{fs, io::Write as _, path::Path, time::Duration};
 
 use files::{Entry, FileServer};
 use futures::{StreamExt as _, executor::block_on};
@@ -16,7 +16,7 @@ use launcher_core::{
     Secret,
     game::{
         crash::{self, Outcome},
-        download::{CancelToken, Downloader, recording_sleep, sha1_hex},
+        download::{CancelToken, Downloader, Verify, recording_sleep, sha1_hex},
         install::{InstallError, InstallProgress, Installer, JavaChoice, Stage},
         launch::{self, GameSettings, LaunchAccount},
         log4j::{Level, Redactor},
@@ -601,4 +601,126 @@ fn stop_kills_the_game() {
     // Killed by a signal: no exit code, and not a crash.
     assert_eq!(*code, None);
     assert_eq!(crash::outcome(*code, true, None), Outcome::Exited);
+}
+
+/// Installs `test-1.0` with `verify` and returns (trusted, hashed, downloaded) for
+/// the recorded files: the client, libraries, logging config and assets.
+fn install_counts(fixture: &Fixture, verify: Verify) -> (u64, u64, u64) {
+    let progress = InstallProgress::default();
+    block_on(fixture.installer(yes).prepare_with(
+        "test-1.0",
+        &apple_silicon(),
+        &JavaChoice::Mojang,
+        &fixture.data.path().join("game"),
+        verify,
+        &progress,
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    progress.stats.counts()
+}
+
+/// The library jar of the fixture, which is in the version's install record.
+fn library(fixture: &Fixture) -> std::path::PathBuf {
+    fixture
+        .data_dir()
+        .libraries_dir()
+        .join("com/example/lib/1.0/lib-1.0.jar")
+}
+
+/// Sets a file's modification time.
+fn set_mtime(path: &Path, time: std::time::SystemTime) {
+    fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(time)
+        .unwrap();
+}
+
+#[test]
+fn a_warm_launch_hashes_nothing_the_records_vouch_for() {
+    let fixture = fixture();
+    // 4 version files (client, library, natives jar, logging config) and 2 assets.
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (0, 0, 6));
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (6, 0, 0));
+    let data = fixture.data_dir();
+    assert!(
+        data.versions_dir()
+            .join("test-1.0/test-1.0.install.json")
+            .is_file()
+    );
+    assert!(
+        data.assets_dir()
+            .join("indexes/legacy.install.json")
+            .is_file()
+    );
+    // Files the records do not know are hashed once and then recorded.
+    fs::remove_file(data.versions_dir().join("test-1.0/test-1.0.install.json")).unwrap();
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (2, 4, 0));
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (6, 0, 0));
+}
+
+#[test]
+fn a_changed_size_or_time_is_hashed_again() {
+    let fixture = fixture();
+    install_counts(&fixture, Verify::Recorded);
+    let jar = library(&fixture);
+
+    // Touched but unchanged: hashed, found good, not downloaded.
+    set_mtime(&jar, std::time::SystemTime::now() + Duration::from_secs(60));
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (5, 1, 0));
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (6, 0, 0));
+
+    // A different size: hashed, found bad, downloaded again.
+    let mut file = fs::File::options().append(true).open(&jar).unwrap();
+    file.write_all(b"!").unwrap();
+    drop(file);
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (5, 1, 1));
+    assert_eq!(fs::read(&jar).unwrap(), b"library jar");
+}
+
+#[test]
+fn verify_game_files_catches_corruption_the_record_cannot_see() {
+    let fixture = fixture();
+    install_counts(&fixture, Verify::Recorded);
+    let jar = library(&fixture);
+    // Corrupt the jar without changing its size or modification time.
+    let mtime = fs::metadata(&jar).unwrap().modified().unwrap();
+    fs::write(&jar, b"LIBRARY JAR").unwrap();
+    set_mtime(&jar, mtime);
+    // A launch trusts the record, as designed...
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (6, 0, 0));
+    assert_eq!(fs::read(&jar).unwrap(), b"LIBRARY JAR");
+    // ...and "Verify game files" hashes everything and repairs it.
+    assert_eq!(install_counts(&fixture, Verify::Full), (0, 6, 1));
+    assert_eq!(fs::read(&jar).unwrap(), b"library jar");
+    // The rewritten records vouch for the repaired file.
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (6, 0, 0));
+}
+
+#[test]
+fn a_new_version_file_invalidates_its_record() {
+    let fixture = fixture();
+    install_counts(&fixture, Verify::Recorded);
+    // Mojang republishes the version file (here, with a trailing newline): its SHA-1
+    // in the manifest changes, so the old record no longer applies.
+    let version_path = "/piston-meta.mojang.com/v1/packages/abc/test-1.0.json";
+    let manifest_path = "/piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+    let mut version = fixture.server.state().entries[version_path].body.clone();
+    version.push(b'\n');
+    let mut manifest: Value =
+        serde_json::from_slice(&fixture.server.state().entries[manifest_path].body).unwrap();
+    manifest["versions"][0]["sha1"] = json!(sha1_hex(&version));
+    fixture.server.serve(
+        "https://piston-meta.mojang.com/v1/packages/abc/test-1.0.json",
+        Entry::ok(version),
+    );
+    fixture.server.serve(
+        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+        Entry::ok(manifest.to_string()),
+    );
+    // The 4 version files are hashed again; the assets' record still holds.
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (2, 4, 0));
+    assert_eq!(install_counts(&fixture, Verify::Recorded), (6, 0, 0));
 }

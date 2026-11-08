@@ -65,7 +65,7 @@ windows-capture = { git = "https://github.com/zed-industries/windows-capture.git
 # Optimise the dependencies that do heavy work at runtime even in debug builds. The
 # list follows Zed's own `[profile.dev.package]` (resvg, taffy, serde_json and the
 # proc-macro crates), plus usvg and tiny-skia: unoptimised, they take about four
-# seconds to rasterize the Play tab's artwork.
+# seconds to rasterize the Play tab's artwork. sha1 is at the end.
 [profile.dev.package]
 gpui_macros = { opt-level = 3 }
 derive_refineable = { opt-level = 3 }
@@ -78,3 +78,8 @@ usvg = { opt-level = 3 }
 tiny-skia = { opt-level = 3 }
 tiny-skia-path = { opt-level = 3 }
 serde_json = { opt-level = 3 }
+# Hashing game files ("Verify game files", and files the install records don't vouch
+# for) is about ten times slower unoptimised.
+sha1 = { opt-level = 3 }
+digest = { opt-level = 3 }
+block-buffer = { opt-level = 3 }

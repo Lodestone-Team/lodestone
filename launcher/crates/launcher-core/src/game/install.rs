@@ -22,12 +22,16 @@ use lodestone_minecraft::versions::mojang::{MojangVersion, MojangVersionManifest
 
 use super::{
     assets::{self, AssetIndex, LegacyLayout},
-    download::{CancelToken, DownloadError, DownloadItem, Downloader, Progress, ProgressSnapshot},
+    download::{
+        CancelToken, DownloadError, DownloadItem, Downloader, Progress, ProgressSnapshot, RunStats,
+        Verify,
+    },
     launch::LaunchPaths,
     libraries::{self, Selection},
     mojang::{MojangUrls, UrlError},
     natives,
     platform::{self, Arch, Platform},
+    record::{self as install_record, InstallRecord},
     rules::Features,
     runtime::{self, RuntimeIndex, RuntimeManifest},
     version::VersionJson,
@@ -64,6 +68,9 @@ impl Stage {
 pub struct InstallProgress {
     stage: Mutex<Stage>,
     pub downloads: Progress,
+    /// Files trusted from install records, hashed and downloaded, over the whole
+    /// install.
+    pub stats: RunStats,
 }
 
 impl InstallProgress {
@@ -264,13 +271,40 @@ impl Installer {
             .map_err(|err| InstallError::Invalid(format!("the details of {id} are invalid: {err}")))
     }
 
-    /// Installs `id` and returns what launching it needs.
+    /// Installs `id` and returns what launching it needs. Files the install records
+    /// vouch for are not hashed again.
     pub async fn prepare(
         &self,
         id: &str,
         machine: &Platform,
         java: &JavaChoice,
         game_dir: &Path,
+        progress: &InstallProgress,
+        cancel: &CancelToken,
+    ) -> Result<Prepared, InstallError> {
+        self.prepare_with(
+            id,
+            machine,
+            java,
+            game_dir,
+            Verify::Recorded,
+            progress,
+            cancel,
+        )
+        .await
+    }
+
+    /// Like [`Installer::prepare`]; with [`Verify::Full`] ("Verify game files") the
+    /// install records and the runtime's marker are ignored, every file is hashed,
+    /// broken ones are downloaded again, and the records are rewritten.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn prepare_with(
+        &self,
+        id: &str,
+        machine: &Platform,
+        java: &JavaChoice,
+        game_dir: &Path,
+        verify: Verify,
         progress: &InstallProgress,
         cancel: &CancelToken,
     ) -> Result<Prepared, InstallError> {
@@ -283,7 +317,7 @@ impl Installer {
             JavaChoice::Override(path) => (path.clone(), machine.with_arch(java_arch)),
             JavaChoice::Mojang => {
                 progress.set_stage(Stage::Java);
-                self.install_runtime(&version, machine, java_arch, progress, cancel)
+                self.install_runtime(&version, machine, java_arch, verify, progress, cancel)
                     .await?
             }
         };
@@ -344,14 +378,15 @@ impl Installer {
             }
             None => None,
         };
-        self.downloader
-            .run(items, &progress.downloads, cancel)
+        let record_path =
+            install_record::version_record_path(&self.data.versions_dir(), &version.id);
+        self.run_recorded(items, &record_path, &version.sha1, verify, progress, cancel)
             .await?;
 
         // The assets.
         progress.set_stage(Stage::Assets);
         let assets_layout = self
-            .install_assets(&version, game_dir, progress, cancel)
+            .install_assets(&version, game_dir, verify, progress, cancel)
             .await?;
 
         Ok(Prepared {
@@ -366,11 +401,47 @@ impl Installer {
         })
     }
 
+    /// Runs the downloads with the install record at `record_path`, keyed by `key`,
+    /// and saves the record afterwards, also after an error, so the files checked
+    /// so far need not be hashed again.
+    async fn run_recorded(
+        &self,
+        items: Vec<DownloadItem>,
+        record_path: &Path,
+        key: &str,
+        verify: Verify,
+        progress: &InstallProgress,
+        cancel: &CancelToken,
+    ) -> Result<(), InstallError> {
+        let mut record = InstallRecord::load(record_path, key);
+        let result = self
+            .downloader
+            .run_recorded(
+                items,
+                self.data.root(),
+                &mut record,
+                verify,
+                &progress.downloads,
+                cancel,
+                &progress.stats,
+            )
+            .await;
+        if let Err(err) = record.save(record_path) {
+            // Only the next launch's speed depends on it.
+            eprintln!(
+                "lodestone-launcher: saving {}: {err}",
+                record_path.display()
+            );
+        }
+        Ok(result?)
+    }
+
     async fn install_runtime(
         &self,
         version: &VersionJson,
         machine: &Platform,
         java_arch: Arch,
+        verify: Verify,
         progress: &InstallProgress,
         cancel: &CancelToken,
     ) -> Result<(PathBuf, Platform), InstallError> {
@@ -392,7 +463,10 @@ impl Installer {
         let root = runtime::install_dir(&self.data.runtimes_dir(), &choice)?;
         let java = runtime::java_binary(&root, machine.os);
         let manifest_sha1 = &choice.entry.manifest.sha1;
-        if runtime::is_installed(&root, manifest_sha1) && java.is_file() {
+        if verify == Verify::Recorded
+            && runtime::is_installed(&root, manifest_sha1)
+            && java.is_file()
+        {
             return Ok((java, java_platform));
         }
 
@@ -435,6 +509,7 @@ impl Installer {
         &self,
         version: &VersionJson,
         game_dir: &Path,
+        verify: Verify,
         progress: &InstallProgress,
         cancel: &CancelToken,
     ) -> Result<Option<LegacyLayout>, InstallError> {
@@ -473,9 +548,16 @@ impl Installer {
                 executable: false,
             });
         }
-        self.downloader
-            .run(items, &progress.downloads, cancel)
-            .await?;
+        let record_path = install_record::assets_record_path(&assets_dir, &index_ref.id);
+        self.run_recorded(
+            items,
+            &record_path,
+            &index_ref.sha1,
+            verify,
+            progress,
+            cancel,
+        )
+        .await?;
 
         let layout = index.legacy_layout();
         if let Some(layout) = layout {

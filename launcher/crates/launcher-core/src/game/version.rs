@@ -34,6 +34,9 @@ pub struct VersionJson {
     pub java_version: Option<JavaVersion>,
     #[serde(default)]
     pub logging: Option<Logging>,
+    /// The SHA-1 of the file this was parsed from. Install records are keyed by it.
+    #[serde(skip)]
+    pub sha1: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -166,7 +169,9 @@ pub const DEFAULT_RUNTIME: &str = "jre-legacy";
 
 impl VersionJson {
     pub fn parse(bytes: &[u8]) -> serde_json::Result<Self> {
-        serde_json::from_slice(bytes)
+        let mut version: Self = serde_json::from_slice(bytes)?;
+        version.sha1 = super::download::sha1_hex(bytes);
+        Ok(version)
     }
 
     /// The Java runtime component, such as `java-runtime-gamma`.

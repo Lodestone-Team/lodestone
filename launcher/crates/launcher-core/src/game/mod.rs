@@ -20,6 +20,7 @@ pub mod mojang;
 pub mod natives;
 pub mod platform;
 pub mod process;
+pub mod record;
 pub mod rules;
 pub mod runtime;
 pub mod version;

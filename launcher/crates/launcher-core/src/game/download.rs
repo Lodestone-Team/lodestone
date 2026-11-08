@@ -21,6 +21,7 @@ use futures::{AsyncReadExt as _, TryStreamExt as _, future::BoxFuture};
 use http_client::{AsyncBody, HttpClient, HttpRequestExt as _, Method, RedirectPolicy, Request};
 use sha1::{Digest as _, Sha1};
 
+use super::record::{self, InstallRecord};
 use crate::USER_AGENT;
 
 /// The number of files downloaded at once.
@@ -192,24 +193,126 @@ impl Downloader {
         self
     }
 
-    /// Downloads `items`, resetting `progress` to their totals. Stops at the first
-    /// file that fails after its retries, or when `cancel` is set.
+    /// Downloads `items`, resetting `progress` to their totals. Every file already
+    /// present is hashed (in parallel) and kept if it matches. Stops at the first file
+    /// that fails after its retries, or when `cancel` is set.
     pub async fn run(
         &self,
         items: Vec<DownloadItem>,
         progress: &Progress,
         cancel: &CancelToken,
     ) -> Result<(), DownloadError> {
+        let mut record = InstallRecord::default();
+        self.run_recorded(
+            items,
+            Path::new("/"),
+            &mut record,
+            Verify::Full,
+            progress,
+            cancel,
+            &RunStats::default(),
+        )
+        .await
+    }
+
+    /// Like [`Downloader::run`], with an install record of the files under `root`.
+    ///
+    /// With [`Verify::Recorded`], a file whose size and modification time match its
+    /// record is trusted without being read; the others are hashed. With
+    /// [`Verify::Full`], every file present is hashed. Either way `record` is
+    /// rebuilt to hold exactly the files that were trusted, verified or downloaded,
+    /// also when an error stops the run part way, so the caller can save it.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_recorded(
+        &self,
+        items: Vec<DownloadItem>,
+        root: &Path,
+        record: &mut InstallRecord,
+        verify: Verify,
+        progress: &Progress,
+        cancel: &CancelToken,
+        stats: &RunStats,
+    ) -> Result<(), DownloadError> {
         let items = dedupe(items);
         progress.reset(
             items.len() as u64,
             items.iter().filter_map(|item| item.size).sum(),
         );
-        futures::stream::iter(items.iter().map(Ok))
-            .try_for_each_concurrent(self.concurrency, |item| async move {
-                self.fetch(item, progress, cancel).await
+        let keys: Vec<Option<String>> = items
+            .iter()
+            .map(|item| record::relative_key(root, &item.dest))
+            .collect();
+
+        // Check what is already there, in parallel: a stat for each file, and a hash
+        // for those the record does not vouch for.
+        let previous = std::mem::replace(record, InstallRecord::new(record.key.clone()));
+        let checks = parallel_map(&items, |index, item| {
+            if cancel.is_cancelled() {
+                return Check::Missing;
+            }
+            let now = record::stat(&item.dest);
+            if verify == Verify::Recorded
+                && let Some(key) = &keys[index]
+                && previous.trusts(key, &item.sha1, now)
+            {
+                stats.trusted.fetch_add(1, Ordering::Relaxed);
+                return Check::Good(now.expect("trusted files exist"));
+            }
+            let Some(now) = now else {
+                return Check::Missing;
+            };
+            stats.hashed.fetch_add(1, Ordering::Relaxed);
+            if file_matches(&item.dest, &item.sha1) {
+                Check::Good(now)
+            } else {
+                Check::Missing
+            }
+        });
+        if cancel.is_cancelled() {
+            return Err(DownloadError::Cancelled);
+        }
+
+        let mut missing = Vec::new();
+        for ((item, key), check) in items.iter().zip(&keys).zip(checks) {
+            match check {
+                Check::Good(stat) => {
+                    set_executable(item).map_err(|source| DownloadError::Io {
+                        path: item.dest.clone(),
+                        source,
+                    })?;
+                    if let Some(key) = key {
+                        record.insert(key.clone(), &item.sha1, stat);
+                    }
+                    progress.add_bytes(item.size.unwrap_or(0));
+                    progress.file_done();
+                }
+                Check::Missing => missing.push((item, key)),
+            }
+        }
+
+        // Download the rest.
+        let downloaded = Mutex::new(Vec::new());
+        let result = futures::stream::iter(missing.into_iter().map(Ok))
+            .try_for_each_concurrent(self.concurrency, |(item, key)| {
+                let downloaded = &downloaded;
+                async move {
+                    self.download(item, progress, cancel).await?;
+                    stats.downloaded.fetch_add(1, Ordering::Relaxed);
+                    if let (Some(key), Some(stat)) = (key, record::stat(&item.dest)) {
+                        downloaded.lock().unwrap_or_else(|p| p.into_inner()).push((
+                            key.clone(),
+                            item.sha1.clone(),
+                            stat,
+                        ));
+                    }
+                    Ok(())
+                }
             })
-            .await
+            .await;
+        for (key, sha1, stat) in downloaded.into_inner().unwrap_or_else(|p| p.into_inner()) {
+            record.insert(key, &sha1, stat);
+        }
+        result
     }
 
     /// Downloads one file, unless it is already there with the right hash.
@@ -231,6 +334,16 @@ impl Downloader {
             progress.file_done();
             return Ok(());
         }
+        self.download(item, progress, cancel).await
+    }
+
+    /// Downloads one file, with retries, whatever is there now.
+    async fn download(
+        &self,
+        item: &DownloadItem,
+        progress: &Progress,
+        cancel: &CancelToken,
+    ) -> Result<(), DownloadError> {
         let mut last_error = String::new();
         for attempt in 0..self.attempts {
             if attempt > 0 {
@@ -375,6 +488,80 @@ impl Attempt {
     fn failed(reason: String, retry: bool) -> Self {
         Attempt::Failed(AttemptError { reason, retry })
     }
+}
+
+/// How much to trust files that are already there.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Verify {
+    /// Trust files whose size and modification time match the install record.
+    #[default]
+    Recorded,
+    /// Hash every file ("Verify game files").
+    Full,
+}
+
+/// What a run did with each file, for tracing and tests.
+#[derive(Debug, Default)]
+pub struct RunStats {
+    /// Trusted from the install record without being read.
+    pub trusted: AtomicU64,
+    /// Read and hashed.
+    pub hashed: AtomicU64,
+    /// Downloaded.
+    pub downloaded: AtomicU64,
+}
+
+impl RunStats {
+    /// (trusted, hashed, downloaded).
+    pub fn counts(&self) -> (u64, u64, u64) {
+        (
+            self.trusted.load(Ordering::Relaxed),
+            self.hashed.load(Ordering::Relaxed),
+            self.downloaded.load(Ordering::Relaxed),
+        )
+    }
+}
+
+enum Check {
+    /// There with the right contents, as of this stat.
+    Good(record::Stat),
+    /// Missing, or with the wrong contents.
+    Missing,
+}
+
+/// Maps `items` on a few threads. Stats and hashes are blocking calls; thousands of
+/// asset objects go much faster spread over the cores.
+fn parallel_map<T: Sync, R: Send>(items: &[T], f: impl Fn(usize, &T) -> R + Sync) -> Vec<R> {
+    let threads = std::thread::available_parallelism()
+        .map_or(4, |n| n.get())
+        .clamp(1, 8);
+    if items.len() < 64 || threads == 1 {
+        return items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| f(i, item))
+            .collect();
+    }
+    let chunk = items.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .chunks(chunk)
+            .enumerate()
+            .map(|(n, part)| {
+                let f = &f;
+                scope.spawn(move || {
+                    part.iter()
+                        .enumerate()
+                        .map(|(i, item)| f(n * chunk + i, item))
+                        .collect::<Vec<R>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().expect("a check thread panicked"))
+            .collect()
+    })
 }
 
 /// Removes a temporary file unless it was renamed into place.
