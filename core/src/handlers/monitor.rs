@@ -10,7 +10,7 @@ use serde::Deserialize;
 use tracing::{debug, error};
 
 use crate::{
-    auth::user::UserAction,
+    auth::user::{User, UserAction},
     error::Error,
     prelude::GameInstance,
     traits::{t_server::MonitorReport, t_server::TServer},
@@ -44,7 +44,7 @@ pub async fn monitor(
         .get(&uuid)
         .map(|buffer| buffer.iter().cloned().collect())
         .unwrap_or_default();
-    Ok(ws.on_upgrade(move |stream| monitor_ws(stream, history, instance)))
+    Ok(ws.on_upgrade(move |stream| monitor_ws(stream, history, instance, state, requester, uuid)))
 }
 
 async fn send_report(
@@ -65,7 +65,24 @@ async fn send_report(
     true
 }
 
-async fn monitor_ws(stream: WebSocket, history: Vec<MonitorReport>, instance: GameInstance) {
+/// Whether `user` (as the stream authenticated) may still view the instance: the user still
+/// exists and has the permission, and an API key is still valid and allows it.
+async fn still_allowed(state: &AppState, user: &User, uuid: &InstanceUuid) -> bool {
+    let Some(user) = state.users_manager.read().await.refresh_user(user) else {
+        return false;
+    };
+    user.try_action(&UserAction::ViewInstance(uuid.clone()), state.safe_mode())
+        .is_ok()
+}
+
+async fn monitor_ws(
+    stream: WebSocket,
+    history: Vec<MonitorReport>,
+    instance: GameInstance,
+    state: AppState,
+    user: User,
+    uuid: InstanceUuid,
+) {
     let (mut tx, mut rx) = stream.split();
     for report in &history {
         if !send_report(&mut tx, report).await {
@@ -76,6 +93,10 @@ async fn monitor_ws(stream: WebSocket, history: Vec<MonitorReport>, instance: Ga
     loop {
         tokio::select! {
             _ = interval.tick() => {
+                if !still_allowed(&state, &user, &uuid).await {
+                    debug!("Closing a monitor stream whose user may no longer view the instance");
+                    break;
+                }
                 let report = instance.monitor().await;
                 if !send_report(&mut tx, &report).await {
                     break;
@@ -95,4 +116,98 @@ pub fn get_monitor_routes(state: AppState) -> Router {
     Router::new()
         .route("/monitor/{uuid}", get(monitor))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        auth::{api_key::ApiKeyScope, permission::UserPermission},
+        events::CausedBy,
+        global_settings::GlobalSettingsData,
+    };
+
+    #[tokio::test]
+    async fn monitor_streams_stop_when_the_key_or_permission_goes() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_util::test_app_state(
+            dir.path(),
+            GlobalSettingsData {
+                safe_mode: false,
+                code_execution_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await;
+        let uuid = InstanceUuid::from("DOCKER-monitored".to_string());
+        let member = User::new(
+            "member".to_string(),
+            "pw",
+            false,
+            false,
+            UserPermission {
+                can_view_instance: [uuid.clone()].into(),
+                ..Default::default()
+            },
+        );
+        let mut users = state.users_manager.write().await;
+        users
+            .add_user(member.clone(), CausedBy::System)
+            .await
+            .unwrap();
+        let key = users
+            .create_api_key(
+                &member.uid,
+                "ci".to_string(),
+                None,
+                ApiKeyScope::Full,
+                CausedBy::System,
+            )
+            .await
+            .unwrap();
+        let key_user = users.try_auth(&key.key).unwrap();
+        drop(users);
+        assert!(still_allowed(&state, &key_user, &uuid).await);
+        assert!(still_allowed(&state, &member, &uuid).await);
+
+        // the permission goes: both the session and the key stream stop
+        state
+            .users_manager
+            .write()
+            .await
+            .modify_permissions(
+                &member.uid,
+                |p| p.can_view_instance.clear(),
+                CausedBy::System,
+            )
+            .await
+            .unwrap();
+        assert!(!still_allowed(&state, &key_user, &uuid).await);
+        assert!(!still_allowed(&state, &member, &uuid).await);
+
+        // the permission is back, then the key is revoked: only the key stream stops
+        state
+            .users_manager
+            .write()
+            .await
+            .modify_permissions(
+                &member.uid,
+                |p| {
+                    p.can_view_instance.insert(uuid.clone());
+                },
+                CausedBy::System,
+            )
+            .await
+            .unwrap();
+        assert!(still_allowed(&state, &key_user, &uuid).await);
+        state
+            .users_manager
+            .write()
+            .await
+            .revoke_api_key(&member.uid, &key.info.id, CausedBy::System)
+            .await
+            .unwrap();
+        assert!(!still_allowed(&state, &key_user, &uuid).await);
+        assert!(still_allowed(&state, &member, &uuid).await);
+    }
 }

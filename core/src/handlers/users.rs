@@ -103,6 +103,7 @@ pub async fn logout(
     Path(uid): Path<UserId>,
     requester: AuthedUser,
 ) -> Result<Json<()>, Error> {
+    requester.require_session()?;
     require_self_or_manage_user(&requester, &uid, "logout other users")?;
     state
         .users_manager
@@ -124,9 +125,10 @@ pub async fn update_permissions(
         .await?;
     let caused_by = requester.caused_by();
     let mut users_manager = state.users_manager.write().await;
-    // re-read both users under the write lock, so the checks use their current permissions
+    // re-read both users under the write lock, so the checks use their current permissions;
+    // for an API key, the requester keeps only the key's powers
     let requester = users_manager
-        .get_user(&requester.uid)
+        .refresh_user(&requester)
         .ok_or_else(|| Error {
             kind: ErrorKind::Unauthorized,
             source: eyre!("Unauthorized"),
@@ -194,6 +196,7 @@ pub async fn change_password(
     requester: AuthedUser,
     Json(config): Json<ChangePasswordConfig>,
 ) -> Result<Json<()>, Error> {
+    requester.require_session()?;
     require_self_or_manage_user(&requester, &config.uid, "change other users password")?;
     let old_password = if requester.uid != config.uid {
         None

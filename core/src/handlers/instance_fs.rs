@@ -19,10 +19,7 @@ use walkdir::WalkDir;
 use crate::{
     auth::user::{User, UserAction},
     error::{Error, ErrorKind},
-    events::{
-        new_fs_event, CausedBy, Event, FSOperation, FSTarget, ProgressionEndValue,
-        ProgressionEventID,
-    },
+    events::{new_fs_event, Event, FSOperation, FSTarget, ProgressionEndValue, ProgressionEventID},
     prelude::path_to_tmp,
     traits::t_configurable::TConfigurable,
     types::InstanceUuid,
@@ -217,10 +214,7 @@ async fn list_instance_files(
             Some(r)
         })
         .collect();
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Read,
         FSTarget::Directory(path),
@@ -256,10 +250,7 @@ async fn read_instance_file(
     let path = scoped_join_win_safe(root, relative_path)?;
 
     let ret = crate::util::fs::read_to_string_capped(&path, MAX_READ_BYTES).await?;
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Read,
         FSTarget::File(path),
@@ -321,10 +312,7 @@ async fn write_instance_file(
         .context("Failed to write to file")?;
     file.flush().await.context("Failed to write to file")?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Write,
         FSTarget::File(path),
@@ -357,10 +345,7 @@ async fn make_instance_directory(
     // create the file if it doesn't exist
     crate::util::fs::create_dir_all(&path).await?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Create,
         FSTarget::Directory(path),
@@ -457,10 +442,7 @@ async fn copy_instance_files(
     }
 
     let event_broadcaster = state.event_broadcaster.clone();
-    let caused_by = CausedBy::User {
-        user_id: requester.uid.clone(),
-        user_name: requester.username.clone(),
-    };
+    let caused_by = requester.caused_by();
 
     tokio::task::spawn_blocking(move || {
         let mut first = true;
@@ -641,10 +623,7 @@ async fn move_instance_file(
             relative_path_dest.display()
         ))?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
 
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Move {
@@ -693,10 +672,7 @@ async fn remove_instance_file(
         .await
         .context(format!("Failed to remove {relative_path}"))?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Delete,
         FSTarget::File(path),
@@ -738,10 +714,7 @@ async fn remove_instance_dir(
         .await
         .context("Failed to remove directory")?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Delete,
         FSTarget::Directory(path),
@@ -778,10 +751,7 @@ async fn new_instance_file(
 
     crate::util::fs::create(&path).await?;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Create,
         FSTarget::File(path),
@@ -821,10 +791,7 @@ async fn get_instance_file_url(
             format!("Zipping {} for download", relative_path),
             None,
             None,
-            CausedBy::User {
-                user_id: requester.uid.clone(),
-                user_name: requester.username.clone(),
-            },
+            requester.caused_by(),
         );
         state.event_broadcaster.send(start_event);
         match zip_folder_for_download(path.clone()).await {
@@ -849,15 +816,12 @@ async fn get_instance_file_url(
         &state,
         downloadable_path,
         temp_dir,
-        requester.uid.clone(),
+        requester.clone(),
         DownloadScope::InstanceFile(uuid),
     )
     .await;
 
-    let caused_by = CausedBy::User {
-        user_id: requester.uid,
-        user_name: requester.username,
-    };
+    let caused_by = requester.caused_by();
     state.event_broadcaster.send(new_fs_event(
         FSOperation::Download,
         FSTarget::File(path),
@@ -880,10 +844,7 @@ async fn upload_instance_file(
         state.safe_mode(),
     )?;
     let can_write_protected = can_write_protected(&requester);
-    let caused_by = CausedBy::User {
-        user_id: requester.uid.clone(),
-        user_name: requester.username.clone(),
-    };
+    let caused_by = requester.caused_by();
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
         source: eyre!("Instance not found"),
@@ -1104,10 +1065,7 @@ pub async fn unzip_instance_file(
         format!("Unzipping {relative_path}"),
         None,
         None,
-        CausedBy::User {
-            user_id: requester.uid.clone(),
-            user_name: requester.username.clone(),
-        },
+        requester.caused_by(),
     );
     let task_id = event_id.clone();
     tokio::spawn(async move {
@@ -1203,10 +1161,7 @@ async fn zip_instance_files(
         format!("Zipping {aggregate_name}"),
         None,
         None,
-        CausedBy::User {
-            user_id: requester.uid.clone(),
-            user_name: requester.username.clone(),
-        },
+        requester.caused_by(),
     );
     let task_id = event_id.clone();
     tokio::spawn(async move {

@@ -196,6 +196,22 @@ impl DockerBridge {
         Ok(bridge)
     }
 
+    /// A bridge that never talks to a Docker daemon, with the watch list in
+    /// `db_file_path`. For tests.
+    #[cfg(test)]
+    pub async fn without_docker(
+        event_broadcaster: EventBroadcaster,
+        db_file_path: PathBuf,
+    ) -> Self {
+        let watch_list = Arc::new(RwLock::new(load_watch_list(&db_file_path).await));
+        Self {
+            docker: None,
+            db_file_path,
+            event_broadcaster,
+            watch_list,
+        }
+    }
+
     fn docker(&self) -> Result<&Docker, Error> {
         Ok(self.docker.as_ref().context("Docker is not available")?)
     }

@@ -14,8 +14,8 @@ use crate::{
     db::write::write_event_to_db_task,
     global_settings::GlobalSettingsData,
     handlers::{
-        checks::get_checks_routes, core_info::get_core_info_routes, events::get_events_routes,
-        gateway::get_gateway_routes, global_fs::get_global_fs_routes,
+        api_keys::get_api_key_routes, checks::get_checks_routes, core_info::get_core_info_routes,
+        events::get_events_routes, gateway::get_gateway_routes, global_fs::get_global_fs_routes,
         global_settings::get_global_settings_routes, instance::*,
         instance_config::get_instance_config_routes, instance_fs::get_instance_fs_routes,
         instance_macro::get_instance_macro_routes, instance_mods::get_instance_mods_routes,
@@ -128,6 +128,87 @@ pub(crate) mod test_util {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     }
+
+    /// An [`AppState`](crate::AppState) whose files all live in `dir`, with no instances,
+    /// no Docker daemon, a fake Modrinth and an in-memory database. Nothing in it touches
+    /// the network or the global Lodestone paths. `settings` are the global settings to
+    /// start with.
+    pub(crate) async fn test_app_state(
+        dir: &std::path::Path,
+        settings: crate::global_settings::GlobalSettingsData,
+    ) -> crate::AppState {
+        use std::sync::Arc;
+        use tokio::sync::{Mutex, RwLock};
+
+        let (tx, _rx) = crate::event_broadcaster::EventBroadcaster::new(512);
+        let mut users_manager = crate::auth::user::UsersManager::new(
+            tx.clone(),
+            Default::default(),
+            dir.join("users.json"),
+        );
+        users_manager.load_users().await.unwrap();
+        let global_settings = crate::global_settings::GlobalSettings::new(
+            dir.join("global_settings.json"),
+            tx.clone(),
+            settings,
+        );
+        let code_execution = global_settings.code_execution_switch();
+        crate::AppState {
+            instances: Arc::new(dashmap::DashMap::new()),
+            users_manager: Arc::new(RwLock::new(users_manager)),
+            events_buffer: Arc::new(Mutex::new(ringbuffer::AllocRingBuffer::new(512))),
+            console_out_buffer: Default::default(),
+            monitor_buffer: Default::default(),
+            event_broadcaster: tx.clone(),
+            uuid: uuid::Uuid::new_v4().to_string(),
+            up_since: chrono::Utc::now().timestamp(),
+            port_manager: Arc::new(Mutex::new(crate::port_manager::PortManager::new(
+                Default::default(),
+            ))),
+            first_time_setup_key: Default::default(),
+            playitgg_key: Default::default(),
+            system: Arc::new(Mutex::new(sysinfo::System::new())),
+            download_urls: Default::default(),
+            playit_keep_running: Default::default(),
+            playit_signup: Default::default(),
+            safe_mode: global_settings.safe_mode_flag(),
+            code_execution: code_execution.clone(),
+            login_limiter: Default::default(),
+            tls_info: Arc::new(crate::tls::TlsInfo {
+                mode: crate::tls::TlsMode::None,
+                fingerprint_sha256: None,
+            }),
+            mods: Arc::new(crate::mods::ModsState::new(
+                Arc::new(crate::modrinth::fake::FakeModrinth::default()),
+                crate::modpack::store::PackStore::new(dir.join("modpacks")),
+            )),
+            global_settings: Arc::new(Mutex::new(global_settings)),
+            macro_executor: crate::macro_executor::MacroExecutor::new(
+                tx.clone(),
+                tokio::runtime::Handle::current(),
+                code_execution,
+            ),
+            sqlite_pool: sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap(),
+            docker_bridge: crate::docker_bridge::DockerBridge::without_docker(
+                tx,
+                dir.join("docker_bridge.json"),
+            )
+            .await,
+        }
+    }
+
+    /// Serves every `/api/v1` route of `state` on a free loopback port and returns the
+    /// base URL, such as `http://127.0.0.1:1234/api/v1`. The server stops with the test's
+    /// runtime.
+    pub(crate) async fn serve_api(state: crate::AppState) -> String {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = axum::Router::new().nest("/api/v1", crate::api_router(state));
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        format!("http://{addr}/api/v1")
+    }
 }
 
 #[derive(Clone)]
@@ -175,6 +256,70 @@ impl AppState {
     /// custom Java commands) is allowed. Takes no lock.
     pub fn code_execution_enabled(&self) -> bool {
         self.code_execution.is_enabled()
+    }
+}
+
+/// Every `/api/v1` route.
+fn api_router(shared_state: AppState) -> Router {
+    let cors = CorsLayer::new()
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PATCH,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
+        // sent with a 429 from the login route; a dashboard on another origin
+        // can only read it if it is exposed
+        .expose_headers([header::RETRY_AFTER])
+        .allow_origin(Any);
+
+    let trace = TraceLayer::new_for_http();
+
+    Router::new()
+        .merge(get_events_routes(shared_state.clone()))
+        .merge(get_instance_setup_config_routes(shared_state.clone()))
+        .merge(get_instance_server_routes(shared_state.clone()))
+        .merge(get_instance_config_routes(shared_state.clone()))
+        .merge(get_instance_players_routes(shared_state.clone()))
+        .merge(get_instance_routes(shared_state.clone()))
+        .merge(get_system_routes(shared_state.clone()))
+        .merge(get_checks_routes(shared_state.clone()))
+        .merge(get_user_routes(shared_state.clone()))
+        .merge(get_api_key_routes(shared_state.clone()))
+        .merge(get_core_info_routes(shared_state.clone()))
+        .merge(get_setup_route(shared_state.clone()))
+        .merge(get_monitor_routes(shared_state.clone()))
+        .merge(get_instance_macro_routes(shared_state.clone()))
+        .merge(get_instance_fs_routes(shared_state.clone()))
+        .merge(get_global_fs_routes(shared_state.clone()))
+        .merge(get_global_settings_routes(shared_state.clone()))
+        .merge(get_gateway_routes(shared_state.clone()))
+        .merge(get_extension_routes(shared_state.clone()))
+        .merge(get_playitgg_routes(shared_state.clone()))
+        .merge(get_modrinth_routes(shared_state.clone()))
+        .merge(get_instance_mods_routes(shared_state.clone()))
+        .merge(get_modpack_routes(shared_state.clone()))
+        .layer(cors)
+        .layer(trace)
+}
+
+/// How often the API keys' last-used times are saved, at most.
+const API_KEY_FLUSH_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Saves the API keys' last-used times once a minute, if any changed.
+async fn flush_api_keys_periodically(users_manager: Arc<RwLock<UsersManager>>) {
+    let mut interval = tokio::time::interval(API_KEY_FLUSH_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // the first tick completes at once
+    interval.tick().await;
+    loop {
+        interval.tick().await;
+        if let Err(e) = users_manager.read().await.flush_api_keys().await {
+            error!("Failed to save API key last-used times: {e}");
+        }
     }
 }
 
@@ -734,6 +879,10 @@ pub async fn run(
         });
     }
 
+    tokio::spawn(flush_api_keys_periodically(
+        shared_state.users_manager.clone(),
+    ));
+
     command_console::init(shared_state.clone());
     init_app_state(shared_state.clone());
     // mod changes made while an instance runs need a restart; this notices the restart
@@ -861,48 +1010,7 @@ pub async fn run(
         {
             let shared_state = shared_state.clone();
             async move {
-                let cors = CorsLayer::new()
-                    .allow_methods([
-                        Method::GET,
-                        Method::POST,
-                        Method::PATCH,
-                        Method::PUT,
-                        Method::DELETE,
-                        Method::OPTIONS,
-                    ])
-                    .allow_headers([header::ORIGIN, header::CONTENT_TYPE, header::AUTHORIZATION]) // Note I can't find X-Auth-Token but it was in the original rocket version, hope it's fine
-                    // sent with a 429 from the login route; a dashboard on another origin
-                    // can only read it if it is exposed
-                    .expose_headers([header::RETRY_AFTER])
-                    .allow_origin(Any);
-
-                let trace = TraceLayer::new_for_http();
-
-                let api_routes = Router::new()
-                    .merge(get_events_routes(shared_state.clone()))
-                    .merge(get_instance_setup_config_routes(shared_state.clone()))
-                    .merge(get_instance_server_routes(shared_state.clone()))
-                    .merge(get_instance_config_routes(shared_state.clone()))
-                    .merge(get_instance_players_routes(shared_state.clone()))
-                    .merge(get_instance_routes(shared_state.clone()))
-                    .merge(get_system_routes(shared_state.clone()))
-                    .merge(get_checks_routes(shared_state.clone()))
-                    .merge(get_user_routes(shared_state.clone()))
-                    .merge(get_core_info_routes(shared_state.clone()))
-                    .merge(get_setup_route(shared_state.clone()))
-                    .merge(get_monitor_routes(shared_state.clone()))
-                    .merge(get_instance_macro_routes(shared_state.clone()))
-                    .merge(get_instance_fs_routes(shared_state.clone()))
-                    .merge(get_global_fs_routes(shared_state.clone()))
-                    .merge(get_global_settings_routes(shared_state.clone()))
-                    .merge(get_gateway_routes(shared_state.clone()))
-                    .merge(get_extension_routes(shared_state.clone()))
-                    .merge(get_playitgg_routes(shared_state.clone()))
-                    .merge(get_modrinth_routes(shared_state.clone()))
-                    .merge(get_instance_mods_routes(shared_state.clone()))
-                    .merge(get_modpack_routes(shared_state.clone()))
-                    .layer(cors)
-                    .layer(trace);
+                let api_routes = api_router(shared_state.clone());
                 let app = Router::new()
                     // a page to open in a browser to trust the core's certificate
                     .route("/", axum::routing::get(tls::root_page))
@@ -956,6 +1064,15 @@ pub async fn run(
                 }
                 info!("Shutting down web server");
                 axum_server_handle.shutdown();
+                if let Err(e) = shared_state
+                    .users_manager
+                    .read()
+                    .await
+                    .flush_api_keys()
+                    .await
+                {
+                    error!("Failed to save API key last-used times: {e}");
+                }
                 info!("Signalling all instances to stop");
                 // cleanup
                 let mut handles = vec![];
