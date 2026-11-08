@@ -297,12 +297,14 @@ pub fn select_button(id: impl Into<ElementId>, label: impl IntoElement) -> State
         .child(Icon::CaretDown.render(px(10.), colors::GRAY_500))
 }
 
-/// A list drawn over the page under the control it is placed after, aligned to its
-/// right edge.
+/// A list drawn over the page under the control it is placed after. Place it in a
+/// column with `items_end` after the control: the anchored element takes the
+/// panel's width in that column, so its left edge is where the panel starts, and
+/// the panel lines up with the control's right edge.
 pub fn popover(panel: impl IntoElement) -> impl IntoElement {
     deferred(
         anchored()
-            .anchor(Anchor::TopRight)
+            .anchor(Anchor::TopLeft)
             .snap_to_window_with_margin(px(8.))
             .child(div().mt_1().child(panel)),
     )
