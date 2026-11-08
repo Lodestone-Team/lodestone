@@ -68,6 +68,11 @@ use self::vanilla::get_vanilla_minecraft_versions;
 #[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
 #[ts(export)]
 pub struct FabricLoaderVersion(String);
+impl FabricLoaderVersion {
+    pub fn new(version: String) -> Self {
+        Self(version)
+    }
+}
 #[derive(Debug, Clone, TS, Serialize, Deserialize, PartialEq)]
 #[ts(export)]
 pub struct FabricInstallerVersion(String);
@@ -239,7 +244,7 @@ pub(super) fn validate_instance_name(name: &str) -> Result<(), Error> {
 
 /// Checks a name for a new instance folder: also rejects path separators and characters
 /// that Windows does not allow in file names.
-fn validate_new_instance_name(name: &str) -> Result<(), Error> {
+pub(crate) fn validate_new_instance_name(name: &str) -> Result<(), Error> {
     validate_instance_name(name)?;
     const FORBIDDEN: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
     if name.chars().any(|c| FORBIDDEN.contains(&c)) {

@@ -6,17 +6,20 @@ use axum::Router;
 use axum::{extract::Path, Json};
 
 use color_eyre::eyre::{eyre, Context};
+use futures::future::BoxFuture;
 use serde::Deserialize;
 use tracing::{error, info};
 
 use crate::auth::user::UserAction;
 use crate::error::{Error, ErrorKind};
-use crate::events::{CausedBy, Event, ProgressionEndValue, ProgressionStartValue};
+use crate::events::{
+    CausedBy, Event, ProgressionEndValue, ProgressionEventID, ProgressionStartValue,
+};
 
 use crate::implementations::generic;
 use crate::traits::t_configurable::GameType;
 
-use crate::implementations::minecraft::MinecraftInstance;
+use crate::implementations::minecraft::{MinecraftInstance, SetupConfig};
 use crate::prelude::{path_to_instances, GameInstance};
 use crate::traits::t_configurable::manifest::SetupValue;
 use crate::traits::{t_configurable::TConfigurable, t_server::TServer, InstanceInfo, TInstance};
@@ -101,7 +104,7 @@ pub async fn get_instance_list(
         }),
     );
 
-    list_of_configs.sort_by(|a, b| a.creation_time.cmp(&b.creation_time));
+    list_of_configs.sort_by_key(|a| a.creation_time);
 
     Ok(Json(list_of_configs))
 }
@@ -128,10 +131,6 @@ pub async fn create_minecraft_instance(
     requester
         .require(&state, UserAction::CreateInstance)
         .await?;
-    let caused_by = requester.caused_by();
-    let requester_uid = requester.uid.clone();
-
-    let instance_uuid = InstanceUuid::default();
 
     let flavour = game_type.try_into()?;
 
@@ -147,13 +146,44 @@ pub async fn create_minecraft_instance(
         require_code_execution(&state)?;
     }
 
+    let title = format!("Setting up Minecraft server {}", setup_config.name);
+    let uuid =
+        spawn_minecraft_instance_creation(state, &requester, setup_config, title, 10.0, None)
+            .await?;
+    Ok(Json(uuid))
+}
+
+/// A step that runs after a new Minecraft instance is set up and before it is added, such
+/// as installing a modpack. It gets the instance folder and the creation's progression
+/// event, and returns an extra message for the end of the creation.
+pub(super) type PostSetupStep = Box<
+    dyn FnOnce(PathBuf, ProgressionEventID) -> BoxFuture<'static, Result<Option<String>, Error>>
+        + Send,
+>;
+
+/// Creates the folder of a new Minecraft instance and sets it up in the background, with
+/// progression events, like `POST /instance/create/{game_type}`. On failure the folder is
+/// removed. Returns the new instance's UUID right away.
+pub(super) async fn spawn_minecraft_instance_creation(
+    state: AppState,
+    requester: &AuthedUser,
+    setup_config: SetupConfig,
+    title: String,
+    total_progress: f64,
+    post_setup: Option<PostSetupStep>,
+) -> Result<InstanceUuid, Error> {
+    let caused_by = requester.caused_by();
+    let requester_uid = requester.uid.clone();
+    let instance_uuid = InstanceUuid::default();
+
     let setup_path = instance_setup_path(path_to_instances(), &setup_config.name, &instance_uuid);
 
     tokio::fs::create_dir_all(&setup_path)
         .await
         .context("Failed to create instance directory")?;
 
-    let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), game_type.into());
+    let dot_lodestone_config =
+        DotLodestoneConfig::new(instance_uuid.clone(), GameType::MinecraftJava);
 
     // write dot lodestone config
 
@@ -167,33 +197,53 @@ pub async fn create_minecraft_instance(
 
     tokio::task::spawn({
         let uuid = instance_uuid.clone();
-        let instance_name = setup_config.name.clone();
         let event_broadcaster = state.event_broadcaster.clone();
         async move {
             let (progression_start_event, event_id) = Event::new_progression_event_start(
-                format!("Setting up Minecraft server {instance_name}"),
-                Some(10.0),
+                title,
+                Some(total_progress),
                 Some(ProgressionStartValue::InstanceCreation {
                     instance_uuid: uuid.clone(),
                 }),
                 caused_by,
             );
             event_broadcaster.send(progression_start_event);
-            let minecraft_instance = match minecraft::MinecraftInstance::new(
-                setup_config.clone(),
-                dot_lodestone_config,
-                setup_path.clone(),
-                &event_id,
-                state.event_broadcaster.clone(),
-                state.macro_executor.clone(),
-            )
-            .await
-            {
-                Ok(v) => {
+            let created = async {
+                let instance = minecraft::MinecraftInstance::new(
+                    setup_config.clone(),
+                    dot_lodestone_config.clone(),
+                    setup_path.clone(),
+                    &event_id,
+                    state.event_broadcaster.clone(),
+                    state.macro_executor.clone(),
+                )
+                .await?;
+                let Some(post_setup) = post_setup else {
+                    return Ok((instance, None));
+                };
+                let message = post_setup(setup_path.clone(), event_id.clone()).await?;
+                // read the instance again: the step may have changed its files
+                drop(instance);
+                let instance = minecraft::MinecraftInstance::restore(
+                    setup_path.clone(),
+                    dot_lodestone_config,
+                    state.event_broadcaster.clone(),
+                    state.macro_executor.clone(),
+                )
+                .await?;
+                Ok::<_, Error>((instance, message))
+            }
+            .await;
+            let minecraft_instance = match created {
+                Ok((v, message)) => {
+                    let message = match message {
+                        Some(extra) => format!("Instance created successfully. {extra}"),
+                        None => "Instance created successfully".to_string(),
+                    };
                     event_broadcaster.send(Event::new_progression_event_end(
                         event_id,
                         true,
-                        Some("Instance created successfully"),
+                        Some(&message),
                         Some(ProgressionEndValue::InstanceCreation(
                             v.get_instance_info().await,
                         )),
@@ -239,7 +289,7 @@ pub async fn create_minecraft_instance(
                 .insert(uuid.clone(), minecraft_instance.into());
         }
     });
-    Ok(Json(instance_uuid))
+    Ok(instance_uuid)
 }
 
 #[derive(Debug, Clone, Deserialize)]

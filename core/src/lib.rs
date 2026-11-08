@@ -18,11 +18,11 @@ use crate::{
         gateway::get_gateway_routes, global_fs::get_global_fs_routes,
         global_settings::get_global_settings_routes, instance::*,
         instance_config::get_instance_config_routes, instance_fs::get_instance_fs_routes,
-        instance_macro::get_instance_macro_routes, instance_players::get_instance_players_routes,
-        instance_server::get_instance_server_routes,
-        instance_setup_configs::get_instance_setup_config_routes, monitor::get_monitor_routes,
-        playitgg::get_playitgg_routes, setup::get_setup_route, system::get_system_routes,
-        users::get_user_routes,
+        instance_macro::get_instance_macro_routes, instance_mods::get_instance_mods_routes,
+        instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
+        instance_setup_configs::get_instance_setup_config_routes, modpack::get_modpack_routes,
+        modrinth::get_modrinth_routes, monitor::get_monitor_routes, playitgg::get_playitgg_routes,
+        setup::get_setup_route, system::get_system_routes, users::get_user_routes,
     },
     util::{port_in_use, rand_alphanumeric},
 };
@@ -88,6 +88,9 @@ mod handlers;
 pub mod implementations;
 pub mod macro_executor;
 mod migration;
+mod modpack;
+mod modrinth;
+mod mods;
 mod output_types;
 mod persist;
 pub mod playitgg;
@@ -139,6 +142,8 @@ pub struct AppState {
     login_limiter: Arc<auth::login_limiter::LoginRateLimiter>,
     /// The web server's certificate, reported by `/info`. Fixed at startup.
     tls_info: Arc<tls::TlsInfo>,
+    /// The Modrinth client, stored modpacks and mod change tracking.
+    mods: Arc<mods::ModsState>,
 }
 
 impl AppState {
@@ -670,6 +675,10 @@ pub async fn run(
         code_execution,
         login_limiter: Arc::new(auth::login_limiter::LoginRateLimiter::default()),
         tls_info: Arc::new(tls_setup.info.clone()),
+        mods: Arc::new(mods::ModsState::new(
+            Arc::new(modrinth::ModrinthClient::new()),
+            modpack::store::PackStore::new(path_to_tmp().join("modpacks")),
+        )),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(
@@ -709,6 +718,8 @@ pub async fn run(
 
     command_console::init(shared_state.clone());
     init_app_state(shared_state.clone());
+    // mod changes made while an instance runs need a restart; this notices the restart
+    tokio::spawn(shared_state.mods.restart.clone().watch(tx.subscribe()));
 
     for (_, instance) in snapshot_instances(&shared_state.instances) {
         if instance.auto_start().await {
@@ -869,6 +880,9 @@ pub async fn run(
                     .merge(get_gateway_routes(shared_state.clone()))
                     .merge(get_extension_routes(shared_state.clone()))
                     .merge(get_playitgg_routes(shared_state.clone()))
+                    .merge(get_modrinth_routes(shared_state.clone()))
+                    .merge(get_instance_mods_routes(shared_state.clone()))
+                    .merge(get_modpack_routes(shared_state.clone()))
                     .layer(cors)
                     .layer(trace);
                 let app = Router::new()
