@@ -301,9 +301,11 @@ class Folder:
         self.path = path
 
     def check(self) -> None:
-        self.path.mkdir(parents=True, exist_ok=True)
+        pass
 
     def names(self) -> list[str]:
+        if not self.path.is_dir():
+            return []
         return sorted(p.name for p in self.path.iterdir() if p.is_file())
 
     def manifest(self) -> dict | None:
@@ -314,6 +316,7 @@ class Folder:
         pass
 
     def upload(self, path: Path) -> None:
+        self.path.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, self.path / path.name)
 
     def delete(self, name: str) -> None:
@@ -346,16 +349,22 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--allow-unmerged", action="store_true",
                         help="publish a commit that isn't on main on GitHub")
     parser.add_argument("--repo", default=REPO, help=argparse.SUPPRESS)
+    # A different release to rehearse a real upload in; launchers never read it.
     parser.add_argument("--tag", default=TAG, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
-    if args.build is not None and args.output is None and not args.dry_run:
-        raise Failure("--build is for local tests; use it with --output or --dry-run")
+    test_tag = args.tag != TAG
+    if args.build is not None and args.output is None and not args.dry_run and not test_tag:
+        raise Failure(
+            "--build is for tests; use it with --output, --dry-run, or a test --tag"
+        )
 
     target = Folder(args.output.resolve()) if args.output else GitHub(args.repo, args.tag)
     local = args.output is not None
 
     step("Checking the checkout")
+    if local:
+        print("    Local test: not checking for a clean checkout on main.")
     check_checkout(allow_dirty=args.allow_dirty or local, allow_unmerged=args.allow_unmerged or local)
     target.check()
     key = platform_key()
