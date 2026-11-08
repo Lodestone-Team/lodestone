@@ -17,6 +17,7 @@ import { useEffectOnce } from 'utils/hooks';
 import { tauri } from 'utils/tauriUtil';
 import { JwtToken } from 'bindings/JwtToken';
 import { isLocalCore } from 'utils/util';
+import Logo from 'components/Atoms/Logo';
 
 const UserSelectExisting = () => {
   useDocumentTitle('Select user - Lodestone');
@@ -50,7 +51,7 @@ const UserSelectExisting = () => {
   return (
     <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 transition-dimensions @container">
       <div className="flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-8" />
+        <Logo alt="logo" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Sign in
         </h1>

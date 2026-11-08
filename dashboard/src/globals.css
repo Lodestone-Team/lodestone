@@ -63,9 +63,11 @@
   --scrollbar-thumb: hsla(0, 0%, 50%, 0.7);
 }
 
-/* Soft off-white page, white cards and inputs, near-black text. The accents are
-   the same, except the light shades used for text, which are darkened to stay
-   readable on white. */
+/* Light theme: a soft off-white page (875), near-white side panels and dialogs
+   (850), white bars, cards and buttons (800), light gray insets for inputs, the
+   console and code (900), and darker grays for hover and selection (700, 600).
+   Text is near-black. The accents are the same, except the light shades used for
+   text, which are darkened to stay readable on white. */
 [data-theme='light'] {
   color-scheme: light;
 
@@ -74,12 +76,12 @@
   --gray-500: #6B707A;
   --gray-550: #B4B8C0;
   --gray-600: #DCDFE5;
-  --gray-700: #E8EAEE;
-  --gray-750: #F1F2F5;
+  --gray-700: #E9EBEF;
+  --gray-750: #F4F5F8;
   --gray-800: #FFFFFF;
-  --gray-850: #F7F8FA;
-  --gray-875: #EEF0F3;
-  --gray-900: #FFFFFF;
+  --gray-850: #FAFBFC;
+  --gray-875: #ECEEF2;
+  --gray-900: #F3F4F7;
   --gray-faded: #5F636B;
   --fade-700: rgb(24 28 36 / 0.1);
   --ink: #0A0B0E;

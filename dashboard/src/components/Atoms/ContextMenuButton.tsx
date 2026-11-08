@@ -25,7 +25,7 @@ const ContextMenuButton = forwardRef(
       <button
         className={myTwMerge(
           'gap-1.5 rounded py-1 px-2 text-medium text-justify',
-          'text-white disabled:text-white/30',
+          'text-white disabled:text-white/30 enabled:hover:text-on-accent enabled:ui-active:text-on-accent',
           'font-medium ',
           'bg-blue enabled:hover:bg-blue-400 enabled:active:bg-blue-500 enabled:ui-active:bg-blue-400',
           'group flex',

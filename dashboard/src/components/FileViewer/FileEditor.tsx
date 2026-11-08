@@ -7,6 +7,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { saveInstanceFile } from 'utils/apis';
 import * as toml from 'utils/monaco-languages/toml';
+import { useResolvedTheme } from 'utils/theme';
 
 type Monaco = typeof monaco;
 
@@ -46,6 +47,7 @@ export function FileEditor({
   const monaco = useMonaco();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const { selectedInstance: instance } = useContext(InstanceContext);
+  const theme = useResolvedTheme();
 
   function handleEditorDidMount(
     editor: monaco.editor.IStandaloneCodeEditor,
@@ -95,6 +97,16 @@ export function FileEditor({
           'editor.lineHighlightBackground': '#2c2e33',
         },
       });
+      // gray-850 and a light line highlight of the light theme
+      monaco.editor.defineTheme('lodestone-light', {
+        base: 'vs',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': '#FAFBFC',
+          'editor.lineHighlightBackground': '#EFF1F4',
+        },
+      });
       // monaco 0.55 moved languages.typescript to the top level typescript namespace
       monaco.typescript.typescriptDefaults.setCompilerOptions({
         target: monaco.typescript.ScriptTarget.ES2016,
@@ -125,7 +137,7 @@ export function FileEditor({
       }}
       value={fileContent}
       defaultValue={originalFileContent}
-      theme="lodestone-dark"
+      theme={theme === 'light' ? 'lodestone-light' : 'lodestone-dark'}
       path={monacoPath}
       className="bg-gray-800"
       options={{

@@ -3,6 +3,7 @@ import { useContext } from 'react';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 
 import TopBanner from 'components/Atoms/TopBanner';
+import Logo from 'components/Atoms/Logo';
 import clsx from 'clsx';
 import { isTauriMacOS, useIsDevBuild } from 'utils/tauriUtil';
 import { NotificationPopover } from './NotificationPopover';
@@ -53,8 +54,7 @@ export default function TopNav() {
       >
         <div className="h-full" data-tauri-drag-region={dragRegion} />
         <div className="relative">
-          <img
-            src="/logo.svg"
+          <Logo
             alt="Lodestone"
             className="w-28 hover:cursor-pointer"
             onClick={() => {
@@ -67,7 +67,7 @@ export default function TopNav() {
             // Positioned outside the flow so the logo stays centred.
             <span
               title="Local development build"
-              className="absolute top-1/2 left-full ml-2 -translate-y-1/2 rounded-sm bg-yellow-300 px-1.5 py-px text-small font-bold tracking-wide text-gray-900"
+              className="absolute top-1/2 left-full ml-2 -translate-y-1/2 rounded-sm bg-yellow-300 px-1.5 py-px text-small font-bold tracking-wide text-on-accent-dark"
             >
               DEV
             </span>

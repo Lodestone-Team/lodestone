@@ -48,7 +48,7 @@ export default function LeftNav({ className }: { className?: string }) {
           leaveTo="opacity-0"
         >
           <Dialog onClose={closeCreateInstance} className="z-10">
-            <div className="fixed inset-0 bg-gray-900/60" />
+            <div className="fixed inset-0 bg-scrim" />
             <div className="fixed inset-0">
               <div className="overflow-y-overlay flex min-h-full items-center justify-center p-4 text-center">
                 <Dialog.Panel>

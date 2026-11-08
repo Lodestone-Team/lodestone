@@ -8,6 +8,7 @@ import { tauri } from 'utils/tauriUtil';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import { DASHBOARD_VERSION } from 'utils/version';
 import { DEFAULT_LOCAL_CORE } from 'utils/util';
+import Logo from 'components/Atoms/Logo';
 
 const FirstTime = () => {
   useDocumentTitle('Welcome to Lodestone');
@@ -37,7 +38,7 @@ const FirstTime = () => {
     <div className="flex w-[680px] max-w-full flex-col items-stretch justify-center gap-16 transition-dimensions @container">
       <div className="flex flex-col items-start gap-4">
         <div className="flex w-full flex-row items-center gap-4">
-          <img src="/logo.svg" alt="logo" className="h-8" />
+          <Logo alt="logo" className="h-8" />
           {/* HACK HACK HACK HACK */}
           <a // solution to get tauri to open links in the browser
             href="https://github.com/Lodestone-Team/lodestone/wiki"

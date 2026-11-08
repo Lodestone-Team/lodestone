@@ -419,7 +419,7 @@ export default function FileViewer() {
           }}
         >
           <div {...dropZoneHandlers(setDroppingDialog)}>
-            <div className="fixed inset-0 bg-[#000]/80" />
+            <div className="fixed inset-0 bg-scrim-strong" />
             <div className="fixed inset-0 overflow-y-auto">
               <div className="pointer-events-none flex min-h-full items-center justify-center p-4 text-center text-white/50">
                 <Dialog.Panel className="pointer-events-none  flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800/50 pb-8 pt-12">

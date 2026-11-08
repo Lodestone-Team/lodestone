@@ -50,7 +50,7 @@ export default function ConfirmDialog({
         }}
         onClose={onClose}
       >
-        <div className="fixed inset-0 bg-gray-900/60" />
+        <div className="fixed inset-0 bg-scrim" />
         <div className="fixed inset-0 overflow-y-auto drop-shadow-lg">
           <div className="flex min-h-full items-center justify-center">
             <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-6 rounded-2xl border border-gray-faded/30 bg-gray-850 p-12">

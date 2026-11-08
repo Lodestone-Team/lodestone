@@ -14,7 +14,7 @@ const TopBanner = ({
   return (
     <div
       className={cn(
-        ' flex h-8 w-full items-center justify-center border-b border-gray-faded/30 text-medium font-medium text-gray-900',
+        ' flex h-8 w-full items-center justify-center border-b border-gray-faded/30 text-medium font-medium text-on-accent-dark',
         {
           'bg-gray-800': intention === 'info',
           'bg-yellow-300': intention === 'warning',

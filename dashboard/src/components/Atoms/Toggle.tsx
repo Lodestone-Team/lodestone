@@ -29,7 +29,7 @@ export const Toggle = ({
           'translate-x-6': value,
           'translate-x-1': !value,
           'bg-gray-faded/40': disabled,
-          'bg-white': !disabled,
+          'bg-on-accent': !disabled,
         })}
       />
     </Switch>

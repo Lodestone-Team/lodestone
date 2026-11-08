@@ -10,8 +10,8 @@ export default function CircularProgress({
     <CircularProgressbar
       value={progress_percent * 100}
       styles={buildStyles({
-        pathColor: '#59B2F3',
-        trailColor: 'rgba(209, 209, 218, 0.1)',
+        pathColor: 'var(--blue-200)',
+        trailColor: 'var(--fade-700)',
       })}
       strokeWidth={15}
     />
