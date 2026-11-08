@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, Context, ExternalPaths, IntoElement, SharedString, Transformation, div, img,
-    prelude::*, px, radians,
+    AnyElement, Context, ExternalPaths, IntoElement, SharedString, Transformation, div, prelude::*,
+    px, radians,
 };
 use launcher_core::instances::{Instance, grouped};
 
@@ -151,10 +151,7 @@ fn instance_row(
     let active = instances.is_active(&id);
     let running = instances.is_running(&id);
     let is_selected = on_instance_page && selected.as_deref() == Some(id.as_str());
-    let icon = match instances.icon(&id) {
-        Some(image) => img(image),
-        None => img("images/placeholder-cube.png"),
-    };
+    let icon = crate::instances::appearance::instance_icon(instances, instance, px(26.));
     let detail = match instance.loader.kind() {
         None => instance.game_version.clone(),
         Some(kind) => format!("{} · {}", instance.game_version, kind.label()),
@@ -176,7 +173,7 @@ fn instance_row(
         .when(is_selected, |this| {
             this.bg(colors::GRAY_800).border_color(colors::FADE_700)
         })
-        .child(icon.flex_none().size(px(20.)).rounded(radius::DEFAULT))
+        .child(icon)
         .child(
             div()
                 .flex()

@@ -8,11 +8,11 @@
 //! a moment and the value is valid. A value that isn't valid says why under its row
 //! and isn't saved.
 
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{
-    AnyElement, App, Context, Entity, EventEmitter, IntoElement, PathPromptOptions, Render,
-    SharedString, Subscription, Task, Window, div, img, prelude::*, px,
+    AnyElement, App, Context, Entity, EventEmitter, IntoElement, ObjectFit, PathPromptOptions,
+    Render, RenderImage, SharedString, Subscription, Task, Window, div, img, prelude::*, px,
 };
 use launcher_core::{
     content::loader_change::{self, LoaderChangeCheck},
@@ -24,6 +24,7 @@ use lodestone_minecraft::modrinth::{ModrinthVersionType, RawVersion};
 
 use super::{
     Instances,
+    appearance::{self, IconChoice},
     content::Load,
     fields::{self, Fields, Values},
     loader_picker::LoaderPicker,
@@ -34,13 +35,16 @@ use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, LoadingDots, TextInput, Toggle,
         settings::{
-            CONTENT_WIDTH, SectionNav, SettingRow, Toast, card, link, muted_link, section,
-            section_list, tag, value,
+            CONTENT_WIDTH, SectionNav, SettingRow, Toast, card, link, muted_link, popover,
+            popover_panel, section, section_list, tag, value,
         },
     },
     servers::Servers,
     theme::{self, colors, leading, radius, text, weights},
 };
+
+/// How many screenshots the background picker offers.
+const SHOTS_OFFERED: usize = 24;
 
 /// How long typing has to stop before the change is saved.
 const SAVE_AFTER: Duration = Duration::from_millis(600);
@@ -80,6 +84,13 @@ struct Overrides {
     game_args: bool,
     window: bool,
     env: bool,
+}
+
+/// The tabs of the icon picker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IconTab {
+    Library,
+    Emoji,
 }
 
 /// A setting the instance can take from the launcher or set itself.
@@ -141,6 +152,14 @@ pub struct InstanceSettings {
     preparing_update: bool,
     /// "Unlink" was clicked and waits for the second click.
     confirm_unlink: bool,
+    /// The icon picker, when it is open, and its tab.
+    icon_picker: Option<IconTab>,
+    /// The tile colour emoji icons are put on.
+    emoji_tile: u32,
+    /// The background picker is open, with the screenshots it offers.
+    background_picker: bool,
+    shots: Load<Vec<(PathBuf, Arc<RenderImage>)>>,
+    _shots_task: Option<Task<()>>,
     /// A loader change is waiting for the shell's dialog.
     prompting: bool,
     nav: SectionNav,
@@ -267,6 +286,11 @@ impl InstanceSettings {
             modpack_versions: Load::NotLoaded,
             preparing_update: false,
             confirm_unlink: false,
+            icon_picker: None,
+            emoji_tile: appearance::TILE_COLORS[1],
+            background_picker: false,
+            shots: Load::NotLoaded,
+            _shots_task: None,
             prompting: false,
             nav: SectionNav::default(),
             toast: Toast::default(),
@@ -610,6 +634,393 @@ impl InstanceSettings {
         }));
     }
 
+    /// Uses a library icon or an emoji, or the default for `None`.
+    fn pick_icon(&mut self, icon: Option<String>, cx: &mut Context<Self>) {
+        self.icon_picker = None;
+        let id = self.instance_id.clone();
+        let result = self.instances.update(cx, |instances, cx| {
+            instances.set_icon_name(&id, icon.as_deref(), cx)
+        });
+        match result {
+            Ok(()) => self.set_message("Saved", false, cx),
+            Err(err) => self.set_message(err, true, cx),
+        }
+    }
+
+    fn choose_background(&mut self, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Use as background".into()),
+        });
+        let id = self.instance_id.clone();
+        self._prompt = Some(cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = picked.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                let result = this
+                    .instances
+                    .update(cx, |instances, cx| instances.set_background(&id, &path, cx));
+                match result {
+                    Ok(()) => this.set_message("Saved. See it on the Play tab.", false, cx),
+                    Err(err) => this.set_message(err, true, cx),
+                }
+            })
+            .ok();
+        }));
+    }
+
+    /// Opens or closes the background picker; opening it finds the screenshots taken in
+    /// this instance and then the others, newest first.
+    fn toggle_background_picker(&mut self, cx: &mut Context<Self>) {
+        self.background_picker = !self.background_picker;
+        if !self.background_picker {
+            cx.notify();
+            return;
+        }
+        let instances = self.instances.read(cx);
+        let mut dirs = vec![instances.content_dirs(&self.instance_id)];
+        dirs.extend(
+            instances
+                .list()
+                .iter()
+                .filter(|i| i.id != self.instance_id)
+                .map(|i| instances.content_dirs(&i.id)),
+        );
+        if !matches!(self.shots, Load::Ready(_)) {
+            self.shots = Load::Loading;
+        }
+        let work = cx.background_spawn(async move {
+            let (mut own, mut others) = (Vec::new(), Vec::new());
+            for (index, dirs) in dirs.iter().enumerate() {
+                let list = launcher_core::screenshots::list(dirs);
+                if index == 0 {
+                    own = list;
+                } else {
+                    others.extend(list);
+                }
+            }
+            others.sort_by_key(|shot| std::cmp::Reverse(shot.modified));
+            own.into_iter()
+                .chain(others)
+                .take(SHOTS_OFFERED)
+                .filter_map(|shot| {
+                    let thumb = launcher_core::screenshots::thumbnail(&shot.path, 240).ok()?;
+                    Some((shot.path, crate::images::render_image(thumb)))
+                })
+                .collect::<Vec<_>>()
+        });
+        self._shots_task = Some(cx.spawn(async move |this, cx| {
+            let shots = work.await;
+            this.update(cx, |this, cx| {
+                this.shots = Load::Ready(shots);
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    fn use_background(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.background_picker = false;
+        let id = self.instance_id.clone();
+        let result = self
+            .instances
+            .update(cx, |instances, cx| instances.set_background(&id, &path, cx));
+        match result {
+            Ok(()) => self.set_message("Saved. See it on the Play tab.", false, cx),
+            Err(err) => self.set_message(err, true, cx),
+        }
+    }
+
+    /// The background picker: screenshots, a file, or the default.
+    fn background_picker_panel(&self, has_background: bool, cx: &mut Context<Self>) -> AnyElement {
+        let body: AnyElement = match &self.shots {
+            Load::Ready(shots) if !shots.is_empty() => {
+                div()
+                    .id("background-shots")
+                    .flex()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_2()
+                    .max_h(px(300.))
+                    .overflow_y_scroll()
+                    .children(shots.iter().enumerate().map(|(index, (path, thumb))| {
+                        let path = path.clone();
+                        div()
+                            .id(("background-shot", index))
+                            .w(px(112.))
+                            .h(px(63.))
+                            .rounded(radius::MD)
+                            .overflow_hidden()
+                            .border_1()
+                            .border_color(colors::TRANSPARENT)
+                            .cursor_pointer()
+                            .hover(|style| style.border_color(colors::BLUE_200))
+                            .child(img(thumb.clone()).size_full().object_fit(ObjectFit::Cover))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.use_background(path.clone(), cx)
+                            }))
+                    }))
+                    .into_any_element()
+            }
+            Load::Ready(_) | Load::Failed(_) => div()
+                .text_size(theme::text_size(text::SMALL))
+                .text_color(colors::GRAY_500)
+                .child("No screenshots yet. Press F2 in the game to take one, or choose a file.")
+                .into_any_element(),
+            Load::NotLoaded | Load::Loading => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_size(theme::text_size(text::SMALL))
+                .text_color(colors::GRAY_500)
+                .child(LoadingDots)
+                .child("Finding your screenshots")
+                .into_any_element(),
+        };
+        popover_panel("background-picker")
+            .w(px(380.))
+            .p_3()
+            .gap_3()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.background_picker = false;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .font_weight(weights::BOLD.into())
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(colors::GRAY_400)
+                    .child("Your screenshots"),
+            )
+            .child(body)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_4()
+                    .pt_2()
+                    .border_t_1()
+                    .border_color(colors::FADE_700)
+                    .child(
+                        link("background-file", "Choose a file…").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.background_picker = false;
+                                this.choose_background(cx);
+                            },
+                        )),
+                    )
+                    .child(div().flex_1())
+                    .when(has_background, |this| {
+                        this.child(
+                            muted_link("background-default", "Use the default").on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.background_picker = false;
+                                    let id = this.instance_id.clone();
+                                    let result = this.instances.update(cx, |instances, cx| {
+                                        instances.clear_background(&id, cx)
+                                    });
+                                    match result {
+                                        Ok(()) => this.set_message("Saved", false, cx),
+                                        Err(err) => this.set_message(err, true, cx),
+                                    }
+                                }),
+                            ),
+                        )
+                    }),
+            )
+            .into_any_element()
+    }
+
+    /// Opens the background picker, for the offscreen screenshots.
+    pub fn preview_background_picker(&mut self, cx: &mut Context<Self>) {
+        self.background_picker = false;
+        self.toggle_background_picker(cx);
+    }
+
+    /// Opens the icon picker on `tab`, for the offscreen screenshots.
+    pub fn preview_icon_picker(&mut self, emoji: bool) {
+        self.icon_picker = Some(if emoji {
+            IconTab::Emoji
+        } else {
+            IconTab::Library
+        });
+    }
+
+    /// The icon picker: the launcher's icons or emoji on a tile, uploading an image,
+    /// and going back to the default.
+    fn icon_picker_panel(
+        &self,
+        tab: IconTab,
+        current: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let current = IconChoice::parse(current);
+        let tab_button = |id: &'static str, label: &'static str, this_tab: IconTab| {
+            let selected = tab == this_tab;
+            div()
+                .id(id)
+                .px_2p5()
+                .py_1()
+                .rounded(radius::MD)
+                .cursor_pointer()
+                .font_weight(weights::BOLD.into())
+                .text_size(theme::text_size(text::SMALL))
+                .map(|this| {
+                    if selected {
+                        this.bg(colors::GRAY_700).text_color(colors::GRAY_300)
+                    } else {
+                        this.text_color(colors::GRAY_400)
+                            .hover(|style| style.text_color(colors::GRAY_300))
+                    }
+                })
+                .child(label)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.icon_picker = Some(this_tab);
+                    cx.notify();
+                }))
+        };
+        let tile = |id: (&'static str, usize), selected: bool| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(44.))
+                .rounded(radius::LG)
+                .border_1()
+                .cursor_pointer()
+                .map(|this| {
+                    if selected {
+                        this.border_color(colors::BLUE_200).bg(colors::GRAY_750)
+                    } else {
+                        this.border_color(colors::TRANSPARENT)
+                            .hover(|style| style.bg(colors::GRAY_700))
+                    }
+                })
+        };
+        let grid = div().flex().flex_row().flex_wrap().gap_1();
+        let body = match tab {
+            IconTab::Library => grid
+                .children(
+                    appearance::LIBRARY
+                        .iter()
+                        .enumerate()
+                        .map(|(index, (name, _))| {
+                            let selected = current == IconChoice::Library(name.to_string())
+                                || (*name == appearance::DEFAULT_ICON
+                                    && current == IconChoice::Default);
+                            let value = IconChoice::library(name);
+                            tile(("icon-library", index), selected)
+                                .child(img(appearance::library_image(name)).size(px(36.)))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.pick_icon(Some(value.clone()), cx)
+                                }))
+                        }),
+                )
+                .into_any_element(),
+            IconTab::Emoji => div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    div().flex().flex_row().items_center().gap_2().children(
+                        appearance::TILE_COLORS
+                            .iter()
+                            .enumerate()
+                            .map(|(index, color)| {
+                                let color = *color;
+                                let selected = color == self.emoji_tile;
+                                div()
+                                    .id(("icon-tile-color", index))
+                                    .size(px(20.))
+                                    .rounded_full()
+                                    .cursor_pointer()
+                                    .bg(theme::Color::rgb(color))
+                                    .border_2()
+                                    .border_color(if selected {
+                                        colors::GRAY_300
+                                    } else {
+                                        colors::TRANSPARENT
+                                    })
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.emoji_tile = color;
+                                        cx.notify();
+                                    }))
+                            }),
+                    ),
+                )
+                .child(
+                    grid.children(appearance::EMOJI.iter().enumerate().map(|(index, emoji)| {
+                        let selected =
+                            matches!(&current, IconChoice::Emoji { emoji: e, .. } if e == emoji);
+                        let tile_color = self.emoji_tile;
+                        let value = IconChoice::emoji(tile_color, emoji);
+                        tile(("icon-emoji", index), selected)
+                            .child(appearance::emoji_tile(emoji, tile_color, px(36.)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.pick_icon(Some(value.clone()), cx)
+                            }))
+                    })),
+                )
+                .into_any_element(),
+        };
+        popover_panel("icon-picker")
+            .w(px(392.))
+            .p_3()
+            .gap_3()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.icon_picker = None;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
+                    .child(tab_button(
+                        "icon-tab-library",
+                        "Blocks & items",
+                        IconTab::Library,
+                    ))
+                    .child(tab_button("icon-tab-emoji", "Emoji", IconTab::Emoji)),
+            )
+            .child(body)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_4()
+                    .pt_2()
+                    .border_t_1()
+                    .border_color(colors::FADE_700)
+                    .child(
+                        link("icon-upload", "Upload an image…").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.icon_picker = None;
+                                this.choose_icon(cx);
+                            },
+                        )),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        muted_link("icon-default", "Use the default")
+                            .on_click(cx.listener(|this, _, _, cx| this.pick_icon(None, cx))),
+                    ),
+            )
+            .into_any_element()
+    }
+
     fn export(&mut self, cx: &mut Context<Self>) {
         let name = self
             .instance(cx)
@@ -948,18 +1359,23 @@ fn or_none(text_: &str) -> String {
 
 impl Render for InstanceSettings {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (defaults, total, busy, icon, required_java) = {
+        let (defaults, total, busy, background, required_java) = {
             let instances = self.instances.read(cx);
             (
                 instances.defaults().clone(),
                 instances.total_memory(),
                 instances.is_active(&self.instance_id),
-                instances.icon(&self.instance_id),
+                instances
+                    .background(&self.instance_id)
+                    .map(|b| b.image.clone()),
                 instances.required_java(&self.game_version),
             )
         };
+        let instance = self.instance(cx);
+        let has_background = instance.as_ref().is_some_and(|i| {
+            i.background.as_deref() == Some(launcher_core::instances::CUSTOM_BACKGROUND)
+        });
         let overrides = self.overrides;
-        let has_icon = icon.is_some();
         let mut sections: Vec<(SharedString, AnyElement)> = Vec::new();
 
         if let Some(modpack) = self.modpack_section(busy, cx) {
@@ -981,34 +1397,81 @@ impl Render for InstanceSettings {
                     .child(sized(&self.group, 260.))
                     .into_any_element(),
                 SettingRow::new("Icon")
-                    .child(match icon {
-                        Some(image) => img(image)
-                            .size(px(32.))
-                            .rounded(radius::LG)
-                            .into_any_element(),
-                        None => img("images/placeholder-cube.png")
-                            .size(px(32.))
-                            .rounded(radius::LG)
-                            .into_any_element(),
-                    })
-                    .when(has_icon, |row| {
-                        row.child(muted_link("clear-icon", "Use the default").on_click(
-                            cx.listener(|this, _, _, cx| {
-                                let id = this.instance_id.clone();
-                                let result = this
-                                    .instances
-                                    .update(cx, |instances, cx| instances.clear_icon(&id, cx));
-                                if let Err(err) = result {
-                                    this.set_message(err, true, cx);
-                                }
+                    .hint("Shown in the sidebar and around the launcher.")
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_end()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_3()
+                                    .children(instance.as_ref().map(|instance| {
+                                        appearance::instance_icon(
+                                            self.instances.read(cx),
+                                            instance,
+                                            px(36.),
+                                        )
+                                    }))
+                                    .child(
+                                        Button::new("choose-icon", "Change…")
+                                            .variant(ButtonVariant::Secondary)
+                                            .size(ButtonSize::Slim)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.icon_picker = match this.icon_picker {
+                                                    Some(_) => None,
+                                                    None => Some(IconTab::Library),
+                                                };
+                                                cx.notify();
+                                            })),
+                                    ),
+                            )
+                            .when_some(self.icon_picker, |this, tab| {
+                                let current = instance.as_ref().and_then(|i| i.icon.clone());
+                                this.child(popover(self.icon_picker_panel(
+                                    tab,
+                                    current.as_deref(),
+                                    cx,
+                                )))
                             }),
-                        ))
+                    )
+                    .into_any_element(),
+                SettingRow::new("Play background")
+                    .hint("Shown behind the name on the Play tab. The launcher darkens it under the text as much as the image needs.")
+                    .child(match (&background, has_background) {
+                        (Some(image), _) => img(image.clone())
+                            .w(px(72.))
+                            .h(px(40.))
+                            .rounded(radius::MD)
+                            .object_fit(ObjectFit::Cover)
+                            .into_any_element(),
+                        (None, true) => LoadingDots.into_any_element(),
+                        (None, false) => img(crate::images::hero(cx))
+                            .w(px(72.))
+                            .h(px(40.))
+                            .rounded(radius::MD)
+                            .object_fit(ObjectFit::Cover)
+                            .into_any_element(),
                     })
                     .child(
-                        Button::new("choose-icon", "Choose…")
-                            .variant(ButtonVariant::Secondary)
-                            .size(ButtonSize::Slim)
-                            .on_click(cx.listener(|this, _, _, cx| this.choose_icon(cx))),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_end()
+                            .child(
+                                Button::new("choose-background", "Change…")
+                                    .variant(ButtonVariant::Secondary)
+                                    .size(ButtonSize::Slim)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.toggle_background_picker(cx)
+                                    })),
+                            )
+                            .when(self.background_picker, |this| {
+                                this.child(popover(self.background_picker_panel(has_background, cx)))
+                            }),
                     )
                     .into_any_element(),
             ]);

@@ -109,8 +109,18 @@ impl LauncherShell {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let viewport = window.viewport_size();
-        let width = (viewport.width - px(96.)).min(px(1080.)).max(px(640.));
-        let height = (viewport.height - px(96.)).max(px(420.));
+        let top = px(super::top_bar::TOP_BAR_HEIGHT + 1.0);
+        // A window too small for the dialog to float gets it edge to edge, under the
+        // top bar.
+        let small = viewport.width < px(760.) || viewport.height < px(560.);
+        let (width, height) = if small {
+            (viewport.width, viewport.height - top)
+        } else {
+            (
+                (viewport.width - px(96.)).min(px(1080.)),
+                viewport.height - px(96.),
+            )
+        };
         let page = self.settings_page;
         let entity = cx.entity();
         let toast = match page {
@@ -126,8 +136,9 @@ impl LauncherShell {
         };
         Dialog::new("launcher-settings", "Settings", modal.focus.clone())
             .frameless(width, height)
+            .when(small, |dialog| dialog.edge_to_edge(top))
             .on_close(move |_, cx| entity.update(cx, |this, cx| this.close_settings(cx)))
-            .child(self.render_settings_sidebar(cx))
+            .child(self.render_settings_sidebar(small, cx))
             .child(
                 div()
                     .flex()
@@ -143,8 +154,13 @@ impl LauncherShell {
                             .flex_row()
                             .items_start()
                             .gap_4()
-                            .px_10()
-                            .pt_8()
+                            .map(|this| {
+                                if small {
+                                    this.px_6().pt_5()
+                                } else {
+                                    this.px_10().pt_8()
+                                }
+                            })
                             .pb_5()
                             .child(
                                 div()
@@ -194,7 +210,7 @@ impl LauncherShell {
                                     .id(("settings-page", page as usize))
                                     .size_full()
                                     .overflow_y_scroll()
-                                    .px_10()
+                                    .map(|this| if small { this.px_6() } else { this.px_10() })
                                     .pb_10()
                                     .child(div().w_full().max_w(CONTENT_WIDTH).child(content)),
                             )
@@ -205,7 +221,11 @@ impl LauncherShell {
     }
 
     /// The account in use, the pages and the version.
-    fn render_settings_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn render_settings_sidebar(
+        &self,
+        narrow: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let accounts = self.accounts.read(cx);
         let active = accounts.active().cloned();
         let avatar = account_box::avatar(accounts, active.as_ref(), px(36.));
@@ -218,7 +238,7 @@ impl LauncherShell {
             .flex_col()
             .flex_none()
             .gap_0p5()
-            .w(px(232.))
+            .w(if narrow { px(196.) } else { px(232.) })
             .h_full()
             .p_3()
             .bg(colors::GRAY_875)
