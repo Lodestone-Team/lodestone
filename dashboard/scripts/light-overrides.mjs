@@ -37,14 +37,35 @@ const rules = [
   [/^text$/, /^gray-300$/, textLevel],
   [/^text$/, /^(blue|green|red|yellow)-faded$/, () => 'ink-faint'],
   // lines
-  [/^(border|border-[trblxy])$/, /^gray-faded$/, (o) => o >= 50 ? 'line-strong' : o >= 30 ? 'line' : 'line-subtle'],
+  [
+    /^(border|border-[trblxy])$/,
+    /^gray-faded$/,
+    (o) => (o >= 50 ? 'line-strong' : o >= 30 ? 'line' : 'line-subtle'),
+  ],
   [/^outline$/, /^gray-faded$/, () => 'line-strong'],
   [/^divide(-[xy])?$/, /^gray-faded$/, () => 'line-subtle'],
   [/^(border|outline)$/, /^fade-700$/, () => 'line-subtle'],
-  [/^(border|outline)$/, /^white$/, (o) => (o >= 50 ? 'line-hover' : 'line-strong')],
+  [
+    /^(border|outline)$/,
+    /^white$/,
+    (o) => (o >= 50 ? 'line-hover' : 'line-strong'),
+  ],
   // fills
-  [/^bg$/, /^gray-faded$/, (o) => (o >= 40 ? 'fill-neutral-strong' : 'fill-neutral')],
-  [/^bg$/, /^(green|red|yellow|blue)-faded$/, (o, c) => o <= 25 ? `pill-${c.split('-')[0]}` : c === 'blue-faded' && o <= 30 ? 'fill-selected' : null],
+  [
+    /^bg$/,
+    /^gray-faded$/,
+    (o) => (o >= 40 ? 'fill-neutral-strong' : 'fill-neutral'),
+  ],
+  [
+    /^bg$/,
+    /^(green|red|yellow|blue)-faded$/,
+    (o, c) =>
+      o <= 25
+        ? `pill-${c.split('-')[0]}`
+        : c === 'blue-faded' && o <= 30
+          ? 'fill-selected'
+          : null,
+  ],
   // focus rings
   [/^ring$/, /^blue-faded$/, (o) => (o >= 50 ? 'focus' : null)],
   [/^ring$/, /^red-faded$/, (o) => (o >= 30 ? 'focus-danger' : null)],
@@ -107,7 +128,9 @@ ${entries
 if (process.argv.includes('--check')) {
   const current = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : '';
   if (current !== css) {
-    console.error('src/light-overrides.css is out of date: run node scripts/light-overrides.mjs');
+    console.error(
+      'src/light-overrides.css is out of date: run node scripts/light-overrides.mjs'
+    );
     process.exit(1);
   }
 } else {
