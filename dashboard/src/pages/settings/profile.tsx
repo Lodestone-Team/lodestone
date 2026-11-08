@@ -68,7 +68,7 @@ const ProfilePage = () => {
       <Transition appear show={showChangePassword} as={Fragment}>
         <Dialog
           onClose={() => setShowChangePassword(false)}
-          className="relative z-10"
+          className="relative z-60"
         >
           <ModalBackdrop />
           <div className="fixed inset-0 overflow-y-auto">
