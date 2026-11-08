@@ -391,6 +391,67 @@ fn rename_and_delete() {
 }
 
 #[test]
+fn renaming_keeps_the_backups_with_their_world() {
+    let (_temp, dirs) = instance();
+    make_world(&dirs, "World", LEVEL_DAT);
+    let (progress, cancel) = progress();
+    worlds::backup(&dirs, "World", &progress, &cancel).unwrap();
+    let level_name = |folder: &str| {
+        let bytes = fs::read(worlds::saves_dir(&dirs).join(folder).join("level.dat")).unwrap();
+        level::summarize(&bytes).unwrap().name
+    };
+
+    // Backups of a deleted world called Base are still there: the renamed world gets a
+    // folder whose backups folder is free, and takes its own backups along.
+    let stale = worlds::backups_dir(&dirs).join("Base");
+    fs::create_dir_all(&stale).unwrap();
+    fs::write(stale.join("old.zip"), b"not ours").unwrap();
+    assert_eq!(worlds::rename(&dirs, "World", "Base").unwrap(), "Base (2)");
+    assert_eq!(worlds::backups(&dirs, "Base (2)").len(), 1);
+    assert!(!worlds::backups_dir(&dirs).join("World").exists());
+    assert_eq!(
+        fs::read_dir(&stale).unwrap().count(),
+        1,
+        "the old backups are left alone"
+    );
+
+    // When the backups can't be moved (Windows refuses while a backup is open), the
+    // world is moved back and the error shown.
+    let backups = worlds::backups_dir(&dirs).join("Base (2)");
+    let err = worlds::rename_with(&dirs, "Base (2)", "Elsewhere", |from, to| {
+        if from == backups {
+            Err(std::io::Error::other("the folder is in use"))
+        } else {
+            fs::rename(from, to)
+        }
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("left as it was"), "{err}");
+    assert!(err.to_string().contains("the folder is in use"), "{err}");
+    assert!(!worlds::saves_dir(&dirs).join("Elsewhere").exists());
+    assert_eq!(level_name("Base (2)").as_deref(), Some("Base"));
+    assert_eq!(worlds::backups(&dirs, "Base (2)").len(), 1);
+
+    // If even moving the world back fails, the error says where everything is.
+    let world = worlds::saves_dir(&dirs).join("Elsewhere");
+    let err = worlds::rename_with(&dirs, "Base (2)", "Elsewhere", |from, to| {
+        if from == backups || from == world {
+            Err(std::io::Error::other("the folder is in use"))
+        } else {
+            fs::rename(from, to)
+        }
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("couldn't put it back"), "{err}");
+    assert!(
+        err.to_string().contains(&world.display().to_string()),
+        "{err}"
+    );
+    assert!(world.is_dir());
+    assert_eq!(worlds::backups(&dirs, "Base (2)").len(), 1);
+}
+
+#[test]
 fn world_zips_export_import_and_checks() {
     let (temp, dirs) = instance();
     make_world(&dirs, "World", LEVEL_DAT);
