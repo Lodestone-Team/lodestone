@@ -538,11 +538,17 @@ impl Render for InstanceSharedSettings {
             SettingRow::new(t(M::UseSharedSettings))
                 .hint(source)
                 .when(enabled && is_preferred, |row| {
-                    row.child(tag(t(M::Preferred), colors::GREEN_300))
+                    row.child(
+                        div()
+                            .id("preferred-tag")
+                            .tooltip(crate::components::text_tooltip(t(M::PreferredExplained)))
+                            .child(tag(t(M::Preferred), colors::GREEN_300)),
+                    )
                 })
                 .when(enabled && !is_preferred, |row| {
                     row.child(
                         link("make-preferred", t(M::MakePreferred))
+                            .tooltip(crate::components::text_tooltip(t(M::PreferredExplained)))
                             .on_click(cx.listener(|this, _, _, cx| this.make_preferred(cx))),
                     )
                 })
