@@ -469,7 +469,7 @@ impl InstanceStore {
         game_version: &str,
         loader: Option<&LoaderChoice>,
     ) -> Result<Instance, InstanceError> {
-        let name = clean_name(name)?;
+        let name = self.unique_name(&clean_name(name)?);
         let id = self.unused_id(&name);
         let instance = Instance {
             id: id.clone(),
@@ -496,7 +496,7 @@ impl InstanceStore {
         if name.chars().count() > MAX_NAME_CHARS {
             name = name.chars().take(MAX_NAME_CHARS).collect();
         }
-        let name = clean_name(&name)?;
+        let name = self.unique_name(&clean_name(&name)?);
         let new_id = self.unused_id(&name);
         let staging = self.root.join(format!(".{new_id}.copying"));
         let _ = fs::remove_dir_all(&staging);
@@ -543,7 +543,7 @@ impl InstanceStore {
         staging: &Path,
         mut instance: Instance,
     ) -> Result<Instance, InstanceError> {
-        instance.name = clean_name(&instance.name)?;
+        instance.name = self.unique_name(&clean_name(&instance.name)?);
         instance.id = self.unused_id(&instance.name);
         storage::save(&staging.join("instance.json"), &instance)?;
         let dir = self.dir(&instance.id);
@@ -639,6 +639,30 @@ impl InstanceStore {
             return Err(InstanceError::NotFound(id.to_string()));
         }
         remove(&dir).map_err(|reason| InstanceError::Trash { path: dir, reason })
+    }
+
+    /// `name`, or `name (2)`, `name (3)`, … when another instance already has that
+    /// name (ignoring case), so a new instance can always be told apart from the others
+    /// in the sidebar and in pickers. Renaming an instance yourself is not changed.
+    fn unique_name(&self, name: &str) -> String {
+        let taken: Vec<String> = self
+            .list()
+            .0
+            .into_iter()
+            .map(|instance| instance.name.to_lowercase())
+            .collect();
+        (1..)
+            .map(|n| {
+                if n == 1 {
+                    return name.to_string();
+                }
+                let suffix = format!(" ({n})");
+                let room = MAX_NAME_CHARS.saturating_sub(suffix.chars().count());
+                let base: String = name.chars().take(room).collect();
+                format!("{}{suffix}", base.trim_end())
+            })
+            .find(|candidate| !taken.contains(&candidate.to_lowercase()))
+            .expect("an unused name")
     }
 
     /// A folder name from `name`: lowercase letters, digits and dashes, with a
@@ -768,6 +792,43 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
+
+    #[test]
+    fn new_instances_get_a_name_no_other_instance_has() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().join("instances"));
+        let first = store.create("Survival", "1.20.1", None).unwrap();
+        let second = store.create("Survival", "1.20.1", None).unwrap();
+        let third = store.create("survival", "1.20.1", None).unwrap();
+        assert_eq!(first.name, "Survival");
+        assert_eq!(second.name, "Survival (2)");
+        // names are compared without case
+        assert_eq!(third.name, "survival (3)");
+        // a copy of a copy stays unique too
+        let copy = store.duplicate(&first.id).unwrap();
+        let copy_again = store.duplicate(&first.id).unwrap();
+        assert_eq!(copy.name, "Survival (copy)");
+        assert_eq!(copy_again.name, "Survival (copy) (2)");
+        // a long name keeps within the limit
+        let long = "x".repeat(MAX_NAME_CHARS);
+        store.create(&long, "1.20.1", None).unwrap();
+        let long_again = store.create(&long, "1.20.1", None).unwrap();
+        assert!(long_again.name.ends_with(" (2)"));
+        assert_eq!(long_again.name.chars().count(), MAX_NAME_CHARS);
+        // and staged instances (imports, modpacks, matching instances) as well
+        let staging = store.new_staging().unwrap();
+        let staged = store
+            .commit_staged(
+                &staging,
+                Instance {
+                    name: "Survival".into(),
+                    game_version: "1.20.1".into(),
+                    ..Instance::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(staged.name, "Survival (4)");
+    }
 
     fn fabric() -> LoaderChoice {
         LoaderChoice {
