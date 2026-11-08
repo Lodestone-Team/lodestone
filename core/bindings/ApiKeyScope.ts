@@ -4,4 +4,4 @@ import type { UserPermission } from "./UserPermission";
 /**
  * What a key may do.
  */
-export type ApiKeyScope = { "type": "full" } | { "type": "custom", permissions: UserPermission, };
+export type ApiKeyScope = { "type": "full" } | { "type": "custom", permissions: UserPermission, } | { "type": "launcher" };

@@ -57,6 +57,11 @@ pub struct User {
     /// Set per request by [`UsersManager::try_auth`]; never saved.
     #[serde(skip)]
     pub auth_source: AuthSource,
+    /// Set per request for a launcher API key of the owner or an admin: it may view, start
+    /// and stop every instance (and nothing else, since `is_owner` and `is_admin` are off).
+    /// See [`api_key::launcher_user`]. Never saved.
+    #[serde(skip)]
+    pub key_all_instances: bool,
 }
 
 impl User {
@@ -76,6 +81,7 @@ impl User {
             permissions,
             secret: UserSecret::default(),
             auth_source: AuthSource::Session,
+            key_all_instances: false,
         }
     }
 
@@ -186,13 +192,19 @@ impl User {
         }
         match action {
             UserAction::ViewInstance(instance_id) => {
-                self.is_admin || self.permissions.can_view_instance.contains(instance_id)
+                self.is_admin
+                    || self.key_all_instances
+                    || self.permissions.can_view_instance.contains(instance_id)
             }
             UserAction::StartInstance(instance_id) => {
-                self.is_admin || self.permissions.can_start_instance.contains(instance_id)
+                self.is_admin
+                    || self.key_all_instances
+                    || self.permissions.can_start_instance.contains(instance_id)
             }
             UserAction::StopInstance(instance_id) => {
-                self.is_admin || self.permissions.can_stop_instance.contains(instance_id)
+                self.is_admin
+                    || self.key_all_instances
+                    || self.permissions.can_stop_instance.contains(instance_id)
             }
             UserAction::AccessConsole(instance_id) => {
                 self.is_admin
