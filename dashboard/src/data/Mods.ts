@@ -13,6 +13,7 @@ import { ModrinthSearchIndex } from 'bindings/ModrinthSearchIndex';
 import { ModrinthSearchResponse } from 'bindings/ModrinthSearchResponse';
 import { ModrinthUrlTarget } from 'bindings/ModrinthUrlTarget';
 import { ModrinthVersion } from 'bindings/ModrinthVersion';
+import { fileDownloadUrl } from 'utils/apis';
 import { ApiError, axiosWrapper } from 'utils/util';
 
 /*
@@ -229,6 +230,30 @@ export const deleteMod = (uuid: string, fileName: string) =>
     method: 'delete',
     url: modFileUrl(uuid, fileName),
   });
+
+/**
+ * The request that builds an instance's client modpack and returns a
+ * download key for it, like `/instance/{uuid}/fs/{path}/url` does for files.
+ * The route is not final (CLIENT_MODS_SPEC 1.3); it is only named here.
+ */
+const clientPackKeyRequest = (uuid: string) => ({
+  method: 'get',
+  url: `/instance/${uuid}/mods/client_pack`,
+});
+
+/**
+ * Downloads the client modpack (.mrpack) of a Fabric instance, through the
+ * same download links the Files tab uses.
+ * @throws ApiError
+ */
+export const downloadClientPack = async (uuid: string) => {
+  // building the pack hashes every jar, which can take a while
+  const key = await axiosWrapper<string>({
+    ...clientPackKeyRequest(uuid),
+    timeout: NO_TIMEOUT,
+  });
+  window.open(fileDownloadUrl(key), '_blank');
+};
 
 /* Modpacks */
 

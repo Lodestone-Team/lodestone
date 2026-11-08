@@ -5,6 +5,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { ModrinthProjectType } from 'bindings/ModrinthProjectType';
+import { ModrinthSearchHit } from 'bindings/ModrinthSearchHit';
 import { ModrinthSearchIndex } from 'bindings/ModrinthSearchIndex';
 import { ModrinthUrlTarget } from 'bindings/ModrinthUrlTarget';
 import IconButton from 'components/Atoms/IconButton';
@@ -14,7 +15,7 @@ import {
   useModrinthSearch,
 } from 'data/Mods';
 import { ReactNode, useEffect, useRef, useState } from 'react';
-import { useDebounceValue } from 'usehooks-ts';
+import { useDebounceCallback, useDebounceValue } from 'usehooks-ts';
 import { looksLikeModrinthLink } from 'utils/mods';
 import { cn, DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import { ModrinthHitCard } from './common';
@@ -29,6 +30,8 @@ export type ModrinthPick = {
   projectType: string;
   /** known when picked from a search result */
   author?: string;
+  /** the search result it was picked from, to show before the project loads */
+  hit?: ModrinthSearchHit;
 };
 
 const SORT_OPTIONS: Array<[ModrinthSearchIndex, string]> = [
@@ -67,10 +70,24 @@ export const SortSelect = ({
   </label>
 );
 
+/** A result card's shape while the results load, so nothing jumps. */
+export const HitCardSkeleton = () => (
+  <div className="flex h-21 w-full animate-pulse flex-row items-start gap-3 rounded-lg border border-gray-faded/30 bg-gray-800 p-3">
+    <div className="size-12 shrink-0 rounded-md bg-gray-700" />
+    <div className="flex grow flex-col gap-2 pt-1">
+      <div className="h-4 w-1/3 rounded-sm bg-gray-700" />
+      <div className="h-3 w-3/4 rounded-sm bg-gray-700" />
+    </div>
+  </div>
+);
+
 /**
  * A Modrinth search box with paginated results. Text that looks like a
  * Modrinth link (contains `modrinth.com/`) is resolved through the core
  * instead, and the linked project is picked as soon as it resolves.
+ *
+ * While a link resolves, the results of the last search stay where they are
+ * with a status line above them, so the list doesn't collapse and come back.
  */
 export default function ModrinthSearch({
   projectType,
@@ -81,6 +98,7 @@ export default function ModrinthSearch({
   placeholder,
   toolbar,
   installedProjectIds,
+  showClientSide = false,
   onPick,
 }: {
   projectType: ModrinthProjectType;
@@ -92,30 +110,62 @@ export default function ModrinthSearch({
   /** filters and sort controls, shown under the search box */
   toolbar?: ReactNode;
   installedProjectIds?: Set<string>;
+  /** for mods: show on each result whether players need it too */
+  showClientSide?: boolean;
   onPick: (pick: ModrinthPick) => void;
 }) {
+  const initialIsLink = looksLikeModrinthLink(initialText.trim());
   const [text, setText] = useState(initialText);
-  const [debounced] = useDebounceValue(text.trim(), DEBOUNCE_MS);
-  const isLink = looksLikeModrinthLink(debounced);
+  // The last text that was not a link: what the results are for.
+  const [searchText, setSearchText] = useState(
+    initialIsLink ? '' : initialText
+  );
+  const [debouncedSearch] = useDebounceValue(searchText.trim(), DEBOUNCE_MS);
+  // The link to resolve. A pasted link is resolved at once, a typed one after
+  // the usual pause (so half a link isn't sent).
+  const [link, setLink] = useState(initialIsLink ? initialText.trim() : '');
+  const setLinkLater = useDebounceCallback(setLink, DEBOUNCE_MS);
+  const pasted = useRef(false);
 
-  const resolve = useModrinthResolve(isLink ? debounced : null);
+  const onChange = (value: string) => {
+    setText(value);
+    const trimmed = value.trim();
+    if (looksLikeModrinthLink(trimmed)) {
+      if (pasted.current) {
+        setLinkLater.cancel();
+        setLink(trimmed);
+      } else {
+        setLinkLater(trimmed);
+      }
+    } else {
+      setLinkLater.cancel();
+      setLink('');
+      setSearchText(value);
+    }
+    pasted.current = false;
+  };
+  const isLink = looksLikeModrinthLink(text.trim());
+  // false while a typed link waits for the pause
+  const linkReady = isLink && link === text.trim();
+
+  const resolve = useModrinthResolve(linkReady ? link : null);
   // pick a resolved link once, so going back to the results doesn't reopen it
   const pickedLink = useRef<string | null>(null);
   const onPickRef = useRef(onPick);
   useEffect(() => {
     onPickRef.current = onPick;
   });
-  const resolved: ModrinthUrlTarget | undefined = isLink
+  const resolved: ModrinthUrlTarget | undefined = linkReady
     ? resolve.data
     : undefined;
   useEffect(() => {
-    if (!resolved || pickedLink.current === debounced) return;
-    pickedLink.current = debounced;
+    if (!resolved || pickedLink.current === link) return;
+    pickedLink.current = link;
     onPickRef.current(pickFromTarget(resolved));
-  }, [resolved, debounced]);
+  }, [resolved, link]);
 
   const params: Omit<ModrinthSearchParams, 'offset'> = {
-    query: debounced || undefined,
+    query: debouncedSearch || undefined,
     project_type: projectType,
     game_version: gameVersion,
     loader,
@@ -129,13 +179,26 @@ export default function ModrinthSearch({
   const setPage = (newPage: number) =>
     setPageState({ key: paramsKey, page: newPage });
 
-  const search = useModrinthSearch(
-    { ...params, offset: page * PAGE_SIZE },
-    !isLink
-  );
+  const search = useModrinthSearch({ ...params, offset: page * PAGE_SIZE });
   const totalPages = search.data
     ? Math.max(1, Math.ceil(search.data.total_hits / PAGE_SIZE))
     : 1;
+
+  const linkStatus = !isLink ? null : linkReady && resolve.error ? (
+    <div className="text-medium text-red-200">
+      Couldn&apos;t open the link: {errorToString(resolve.error)}
+    </div>
+  ) : resolved ? (
+    <button
+      type="button"
+      className="self-start text-medium text-blue-200 hover:underline"
+      onClick={() => onPick(pickFromTarget(resolved))}
+    >
+      Open {resolved.slug}
+    </button>
+  ) : null;
+  // shown inside the search box, so the results below don't move
+  const opening = isLink && !resolved && !(linkReady && resolve.error);
 
   return (
     <div className="flex flex-col gap-3">
@@ -145,41 +208,39 @@ export default function ModrinthSearch({
           className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-white/30"
         />
         <input
-          className={cn(INPUT_CLASSES, 'w-full pl-9')}
+          className={cn(INPUT_CLASSES, 'w-full pl-9', isLink && 'pr-36')}
           type="text"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onPaste={() => {
+            pasted.current = true;
+          }}
+          onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           autoComplete={DISABLE_AUTOFILL}
           aria-label="Search Modrinth"
         />
+        {opening && (
+          <span
+            className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-small text-white/50"
+            role="status"
+          >
+            Opening the link...
+          </span>
+        )}
       </div>
       {toolbar}
+      {linkStatus}
 
-      {isLink ? (
-        resolve.error ? (
-          <div className="text-medium text-red-200">
-            Couldn&apos;t open the link: {errorToString(resolve.error)}
-          </div>
-        ) : resolve.isPending ? (
-          <div className="text-medium text-white/50">Opening the link...</div>
-        ) : (
-          resolved && (
-            <button
-              type="button"
-              className="self-start text-medium text-blue-200 hover:underline"
-              onClick={() => onPick(pickFromTarget(resolved))}
-            >
-              Open {resolved.slug}
-            </button>
-          )
-        )
-      ) : search.error ? (
+      {search.error ? (
         <div className="text-medium text-red-200">
           Search failed: {errorToString(search.error)}
         </div>
       ) : !search.data ? (
-        <div className="text-medium text-white/50">Searching...</div>
+        <div className="flex flex-col gap-2" aria-busy="true">
+          {Array.from({ length: 5 }, (_, i) => (
+            <HitCardSkeleton key={i} />
+          ))}
+        </div>
       ) : search.data.hits.length === 0 ? (
         <div className="text-medium text-white/50">No results.</div>
       ) : (
@@ -190,12 +251,14 @@ export default function ModrinthSearch({
                 key={hit.project_id}
                 hit={hit}
                 installed={installedProjectIds?.has(hit.project_id)}
+                showClientSide={showClientSide}
                 onClick={() =>
                   onPick({
                     projectId: hit.project_id,
                     versionId: null,
                     projectType: hit.project_type,
                     author: hit.author,
+                    hit,
                   })
                 }
               />

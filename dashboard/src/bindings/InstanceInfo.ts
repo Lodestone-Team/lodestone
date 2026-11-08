@@ -2,6 +2,7 @@
 import type { Game } from './Game';
 import type { InstanceState } from './InstanceState';
 import type { InstanceUuid } from './InstanceUuid';
+import type { ModpackOrigin } from './ModpackOrigin';
 import type { Player } from './Player';
 
 export type InstanceInfo = {
@@ -19,4 +20,14 @@ export type InstanceInfo = {
   player_count: number | null;
   max_player_count: number | null;
   player_list: Array<Player> | null;
+  // Hand-written until the core generates them (CLIENT_MODS_SPEC 3.1).
+  /** The modpack's icon (a cdn.modrinth.com URL), else null. */
+  icon_url: string | null;
+  /** The Modrinth modpack the instance was created from, if any. */
+  modpack: ModpackOrigin | null;
+  /** The Fabric loader version, Forge build or Paper build, when known. */
+  loader_version: string | null;
+  /** Minecraft instances, in MB. */
+  min_ram: number | null;
+  max_ram: number | null;
 };

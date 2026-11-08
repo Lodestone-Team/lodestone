@@ -53,6 +53,7 @@ const Browse = ({
           initialText={initialLink}
           placeholder={`Search ${noun}s on Modrinth, or paste a Modrinth link`}
           installedProjectIds={installedProjectIds}
+          showClientSide={target.kind === 'mod'}
           onPick={setPicked}
           toolbar={
             <div className="flex flex-row flex-wrap items-center justify-between gap-3">

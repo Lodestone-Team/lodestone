@@ -59,18 +59,95 @@ export const DisabledTooltip = ({
   children: ReactNode;
 }) => {
   if (!show) return <>{children}</>;
-  return (
-    <Tooltip
-      overlay={<span>{message}</span>}
-      placement="top"
-      showArrow={false}
-      trigger={['hover']}
-      mouseEnterDelay={0}
-    >
-      <span className="inline-flex">{children}</span>
-    </Tooltip>
-  );
+  return <WithTooltip message={message}>{children}</WithTooltip>;
 };
+
+/** Shows `message` in a tooltip when the children are hovered. */
+export const WithTooltip = ({
+  message,
+  children,
+}: {
+  message: string;
+  children: ReactNode;
+}) => (
+  <Tooltip
+    overlay={<span>{message}</span>}
+    placement="top"
+    showArrow={false}
+    trigger={['hover']}
+    mouseEnterDelay={0}
+  >
+    <span className="inline-flex">{children}</span>
+  </Tooltip>
+);
+
+/**
+ * Whether players need a Modrinth project too, from its `client_side`:
+ * "Players need this too" when required, a quiet "Server only" when the
+ * client doesn't support it, and nothing otherwise.
+ */
+export const ClientSideLabel = ({ clientSide }: { clientSide: string }) => {
+  if (clientSide === 'required')
+    return (
+      <Label size="small" color="blue" className="shrink-0">
+        Players need this too
+      </Label>
+    );
+  if (clientSide === 'unsupported')
+    return (
+      <span className="shrink-0 text-small text-white/30">Server only</span>
+    );
+  return null;
+};
+
+/**
+ * Whether players need an installed mod to join (CLIENT_MODS_SPEC 2.1).
+ * Optional mods show nothing; unknown ones a quiet note.
+ */
+export const ClientRequirementLabel = ({ mod }: { mod: InstalledMod }) => {
+  switch (mod.client_requirement) {
+    case 'required': {
+      const label = (
+        <Label size="small" color="blue" className="shrink-0">
+          Players need this
+        </Label>
+      );
+      return mod.required_by.length > 0 ? (
+        <WithTooltip message={`Needed by ${mod.required_by.join(', ')}`}>
+          {label}
+        </WithTooltip>
+      ) : (
+        label
+      );
+    }
+    case 'unsupported':
+      return (
+        <span className="shrink-0 text-small text-white/30">Server only</span>
+      );
+    case 'unknown':
+      return (
+        <WithTooltip
+          message={
+            mod.modrinth
+              ? "Modrinth doesn't say whether players need it; check the mod's page"
+              : "Not on Modrinth; check the mod's page"
+          }
+        >
+          <span className="shrink-0 cursor-default text-small text-white/30">
+            Unknown
+          </span>
+        </WithTooltip>
+      );
+    default:
+      return null;
+  }
+};
+
+/** Whether players need this freshly installed mod. Plugins never. */
+const playersNeed = (mod: InstalledMod) =>
+  mod.client_requirement === 'required' ||
+  (mod.client_requirement !== 'unsupported' &&
+    mod.modrinth?.client_side === 'required');
 
 export const NO_WRITE_PERMISSION =
   "You don't have permission to change this instance's files";
@@ -130,6 +207,13 @@ export const InstallResultMessage = ({
           .join(', ')}
       </div>
     )}
+    {result.installed.some(playersNeed) && (
+      <div>
+        Players will need{' '}
+        {result.installed.filter(playersNeed).map(installedModName).join(', ')}{' '}
+        too
+      </div>
+    )}
   </div>
 );
 
@@ -137,10 +221,13 @@ export const InstallResultMessage = ({
 export const ModrinthHitCard = ({
   hit,
   installed = false,
+  showClientSide = false,
   onClick,
 }: {
   hit: ModrinthSearchHit;
   installed?: boolean;
+  /** for mods: show whether players need the project too */
+  showClientSide?: boolean;
   onClick: () => void;
 }) => (
   <button
@@ -166,6 +253,7 @@ export const ModrinthHitCard = ({
             Installed
           </Label>
         )}
+        {showClientSide && <ClientSideLabel clientSide={hit.client_side} />}
       </div>
       <div className="line-clamp-2 text-medium text-white/50">
         {hit.description}

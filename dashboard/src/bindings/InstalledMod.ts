@@ -6,4 +6,12 @@ export type InstalledMod = {
 /**
  * The current name on disk, including `.disabled`.
  */
-file_name: string, enabled: boolean, size: number, sha512: string, metadata: ModFileMetadata | null, modrinth: ModrinthMatch | null, };
+file_name: string, enabled: boolean, size: number, sha512: string, metadata: ModFileMetadata | null, modrinth: ModrinthMatch | null, 
+/**
+ * Whether players need this mod to join. Hand-written until the core generates it (CLIENT_MODS_SPEC 1.1).
+ */
+client_requirement: "required" | "optional" | "unsupported" | "unknown", 
+/**
+ * Display names of the installed mods that make this one required.
+ */
+required_by: Array<string>, };

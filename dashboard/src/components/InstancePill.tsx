@@ -14,6 +14,7 @@ interface InstancePillProps extends InstanceInfo {
 export default function InstancePill({
   name,
   game_type,
+  icon_url,
   state,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   port,
@@ -33,7 +34,11 @@ export default function InstancePill({
       )}
       onClick={cardOnClick}
     >
-      <GameIcon game_type={game_type} className="h-4 w-4" />
+      <GameIcon
+        game_type={game_type}
+        icon_url={icon_url}
+        className="h-4 w-4"
+      />
       <p className="grow truncate text-left">{name}</p>
       <FontAwesomeIcon
         icon={faCircle}
