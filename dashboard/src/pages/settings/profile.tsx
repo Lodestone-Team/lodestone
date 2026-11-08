@@ -10,6 +10,7 @@ import Spinner from 'components/DashboardLayout/Spinner';
 import { axiosPutSingleValue } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
+import ApiKeysSection from 'components/Settings/ApiKeys/ApiKeysSection';
 import { toast } from 'react-toastify';
 
 const ProfilePage = () => {
@@ -50,7 +51,7 @@ const ProfilePage = () => {
 
   return (
     // used to possibly center the content
-    <div className="relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center @container">
+    <div className="@container relative mx-auto flex h-full w-full max-w-2xl flex-row justify-center">
       <Transition
         appear
         show={showChangePassword}
@@ -110,6 +111,8 @@ const ProfilePage = () => {
             onClick={() => setShowChangePassword(true)}
           />
         </div>
+
+        <ApiKeysSection enabled={userState === 'logged-in' && !!user} />
       </div>
     </div>
   );
