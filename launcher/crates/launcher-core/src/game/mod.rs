@@ -15,6 +15,7 @@ pub mod download;
 pub mod install;
 pub mod launch;
 pub mod libraries;
+pub mod loaders;
 pub mod log4j;
 pub mod mojang;
 pub mod natives;

@@ -167,6 +167,7 @@ fn custom_settings_and_an_offline_account() {
         game_args: vec!["--server".into(), "localhost".into()],
         resolution: Some((1280, 720)),
         fullscreen: true,
+        env: vec![("MESA_DEBUG".into(), "1".into())],
     };
     let (_, text) = command(&version("1.20.1"), Arch::Arm64, &offline, &settings);
     check_golden("1.20.1-arm64-offline-custom", &text);

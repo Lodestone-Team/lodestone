@@ -1,9 +1,11 @@
-//! Mojang's download hosts, and the one place URLs from version files are checked.
+//! Mojang's and the mod loaders' download hosts, and the one place URLs from version
+//! files are checked.
 //!
 //! Every URL the installer fetches comes from a Mojang file (the version manifest, a
-//! version's details, an asset index, the Java runtime manifest). [`MojangUrls::resolve`]
-//! only lets through HTTPS URLs on Mojang's own hosts, upgrading Mojang's old `http://`
-//! links. Tests use [`MojangUrls::mirror`], which serves each host from a path on a
+//! version's details, an asset index, the Java runtime manifest) or a mod loader's
+//! (Fabric's and Quilt's meta, Forge's and NeoForge's installers). [`MojangUrls::resolve`]
+//! only lets through HTTPS URLs on those hosts ([`HOSTS`] and [`LOADER_HOSTS`]),
+//! upgrading old `http://` links. Tests use [`MojangUrls::mirror`], which serves each host from a path on a
 //! loopback mock server, so the recorded files can be used with their real URLs.
 
 use url::Url;
@@ -23,11 +25,22 @@ pub const HOSTS: &[&str] = &[
     "resources.download.minecraft.net",
 ];
 
+/// The mod loaders' metadata and Maven hosts.
+pub const LOADER_HOSTS: &[&str] = &[
+    "meta.fabricmc.net",
+    "maven.fabricmc.net",
+    "meta.quiltmc.org",
+    "maven.quiltmc.org",
+    "files.minecraftforge.net",
+    "maven.minecraftforge.net",
+    "maven.neoforged.net",
+];
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum UrlError {
     #[error("{0} is not a valid URL")]
     Invalid(String),
-    #[error("{0} is not on one of Mojang's download servers")]
+    #[error("{0} is not on one of Mojang's or the mod loaders' download servers")]
     NotMojang(String),
 }
 
@@ -66,12 +79,13 @@ impl MojangUrls {
             .expect("a built-in Mojang URL")
     }
 
-    /// The URL to download `url` from, if it is one of Mojang's.
+    /// The URL to download `url` from, if it is on one of Mojang's or the mod
+    /// loaders' hosts.
     pub fn resolve(&self, url: &str) -> Result<String, UrlError> {
         let parsed = Url::parse(url).map_err(|_| UrlError::Invalid(url.to_string()))?;
         let host = parsed
             .host_str()
-            .filter(|host| HOSTS.contains(host))
+            .filter(|host| HOSTS.contains(host) || LOADER_HOSTS.contains(host))
             .ok_or_else(|| UrlError::NotMojang(url.to_string()))?;
         if !matches!(parsed.scheme(), "https" | "http")
             || parsed.port().is_some()
@@ -112,8 +126,14 @@ mod tests {
                 .unwrap(),
             "https://launcher.mojang.com/v1/objects/abc/client-1.7.xml"
         );
+        assert_eq!(
+            urls.resolve("https://maven.fabricmc.net/net/fabricmc/intermediary/1.20.1/intermediary-1.20.1.jar")
+                .unwrap(),
+            "https://maven.fabricmc.net/net/fabricmc/intermediary/1.20.1/intermediary-1.20.1.jar"
+        );
         for bad in [
             "https://evil.example/client.jar",
+            "https://maven.fabricmc.net.evil.example/x.jar",
             "https://piston-data.mojang.com.evil.example/x",
             "https://piston-data.mojang.com:8443/x",
             "https://user@piston-data.mojang.com/x",

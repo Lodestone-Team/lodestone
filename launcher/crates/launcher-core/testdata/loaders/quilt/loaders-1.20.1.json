@@ -1,0 +1,114 @@
+[
+ {
+  "loader": {
+   "maven": "org.quiltmc:quilt-loader:0.20.0-beta.9",
+   "version": "0.20.0-beta.9",
+   "build": 9,
+   "separator": ".",
+   "file_size": 1550096,
+   "hashes": {
+    "sha1": "5f092442b79a6511f6b25c8d175ae76393444db7",
+    "sha256": "a475689ac9a5b9718c045972bb0f41381ce22315a87273a99f30ec1fa3aacb8a",
+    "sha512": "6f2e2c0f47afeee5812bf979b19372a9384661e896a0278f2183a5494ea0db962dff7afc401738c469d37f2e506261fb971e0831ddf12efa219e4f875d0b9e45"
+   }
+  },
+  "hashed": {
+   "maven": "org.quiltmc:hashed:1.20.1",
+   "version": "1.20.1",
+   "file_size": 798778,
+   "hashes": {
+    "sha1": "2348b0ec7955c354ecb49f700b8a7b3f78e65a75",
+    "sha256": "d2ab4201725967733660c28af7a296c9a4bf86b3a62ac2a9cebedd26bd06bf16",
+    "sha512": "2c79736e627c3511b7e7351e8d32f3e53f9b535eada63b9c7c268538307c07d4f4841d9979dd9fd5bdc05718a059b0e555bd3479dcab84012095f5650d37dae6"
+   }
+  },
+  "intermediary": {
+   "maven": "net.fabricmc:intermediary:1.20.1",
+   "version": "1.20.1"
+  }
+ },
+ {
+  "loader": {
+   "maven": "org.quiltmc:quilt-loader:0.20.0-beta.7",
+   "version": "0.20.0-beta.7",
+   "build": 7,
+   "separator": ".",
+   "file_size": 1550094,
+   "hashes": {
+    "sha1": "a430a615c5e9c8560491df4e570acd0fa54d1a1c",
+    "sha256": "c9a83fa20e8f21682a7ec3ee2ac34368b76b6795c5953e342fc64ebcbfc24dff",
+    "sha512": "0bd3ce1c97820da234626fcb5a469fcc7ff85644499fbe76070e25dbd922e84bedb9d7b1ed993b3bbdb854ef195239ffb20d5a654f1af332c369ca5e208c3cf1"
+   }
+  },
+  "hashed": {
+   "maven": "org.quiltmc:hashed:1.20.1",
+   "version": "1.20.1",
+   "file_size": 798778,
+   "hashes": {
+    "sha1": "2348b0ec7955c354ecb49f700b8a7b3f78e65a75",
+    "sha256": "d2ab4201725967733660c28af7a296c9a4bf86b3a62ac2a9cebedd26bd06bf16",
+    "sha512": "2c79736e627c3511b7e7351e8d32f3e53f9b535eada63b9c7c268538307c07d4f4841d9979dd9fd5bdc05718a059b0e555bd3479dcab84012095f5650d37dae6"
+   }
+  },
+  "intermediary": {
+   "maven": "net.fabricmc:intermediary:1.20.1",
+   "version": "1.20.1"
+  }
+ },
+ {
+  "loader": {
+   "maven": "org.quiltmc:quilt-loader:0.20.0-beta.8",
+   "version": "0.20.0-beta.8",
+   "build": 8,
+   "separator": ".",
+   "file_size": 1550095,
+   "hashes": {
+    "sha1": "228f45e47804ec6e840e4f5f5d3f4a89a780ed04",
+    "sha256": "f56aa2d5fff90eda859c477cf9ca3f6abeb70b85bcaf0025f463551790ca8ca3",
+    "sha512": "dae2c53f6ea124007bcd3531c4b26e1b30750fef3b853cfc1c05f7ee9b1fb0c1f8598a04ef647f8985b4d1e1cada1d175431971337deacacd5224faf416b248e"
+   }
+  },
+  "hashed": {
+   "maven": "org.quiltmc:hashed:1.20.1",
+   "version": "1.20.1",
+   "file_size": 798778,
+   "hashes": {
+    "sha1": "2348b0ec7955c354ecb49f700b8a7b3f78e65a75",
+    "sha256": "d2ab4201725967733660c28af7a296c9a4bf86b3a62ac2a9cebedd26bd06bf16",
+    "sha512": "2c79736e627c3511b7e7351e8d32f3e53f9b535eada63b9c7c268538307c07d4f4841d9979dd9fd5bdc05718a059b0e555bd3479dcab84012095f5650d37dae6"
+   }
+  },
+  "intermediary": {
+   "maven": "net.fabricmc:intermediary:1.20.1",
+   "version": "1.20.1"
+  }
+ },
+ {
+  "loader": {
+   "maven": "org.quiltmc:quilt-loader:0.29.2",
+   "version": "0.29.2",
+   "build": 2,
+   "separator": ".",
+   "file_size": 3055017,
+   "hashes": {
+    "sha1": "517e5a696ba6ff779e09821b1799c989779b4219",
+    "sha256": "6411442d4b195dea50c983b2921464688f9e020f936949557d73c872dc7e2cd9",
+    "sha512": "db2ca43f4a374f52257b403d187824b3e59423f3180e5cd0d7582a2ed98d73decd1b1f5f0e9a45f907ccb40bbde80264e993b05519bce43358625a9e11691b59"
+   }
+  },
+  "hashed": {
+   "maven": "org.quiltmc:hashed:1.20.1",
+   "version": "1.20.1",
+   "file_size": 798778,
+   "hashes": {
+    "sha1": "2348b0ec7955c354ecb49f700b8a7b3f78e65a75",
+    "sha256": "d2ab4201725967733660c28af7a296c9a4bf86b3a62ac2a9cebedd26bd06bf16",
+    "sha512": "2c79736e627c3511b7e7351e8d32f3e53f9b535eada63b9c7c268538307c07d4f4841d9979dd9fd5bdc05718a059b0e555bd3479dcab84012095f5650d37dae6"
+   }
+  },
+  "intermediary": {
+   "maven": "net.fabricmc:intermediary:1.20.1",
+   "version": "1.20.1"
+  }
+ }
+]

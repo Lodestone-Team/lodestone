@@ -1,5 +1,6 @@
-//! "New instance": a name and a Minecraft version from Mojang's version list, with
-//! a releases / snapshots / old versions filter and search.
+//! "New instance": a name, a Minecraft version from Mojang's version list (with a
+//! releases / snapshots / old versions filter and search), and a mod loader with its
+//! version.
 
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render, SharedString,
@@ -7,7 +8,7 @@ use gpui::{
 };
 use lodestone_minecraft::versions::mojang::{MojangVersion, MojangVersionType};
 
-use super::{Instances, Versions};
+use super::{Instances, Versions, loader_picker::LoaderPicker};
 use crate::{
     components::{Button, ButtonVariant, Dialog, LoadingDots, TextInput, Toggle},
     theme::{self, colors, leading, radius, text, weights},
@@ -63,6 +64,7 @@ pub struct NewInstanceDialog {
     search: Entity<TextInput>,
     filter: VersionFilter,
     selected: Option<String>,
+    loader: Entity<LoaderPicker>,
     error: Option<SharedString>,
     scroll: UniformListScrollHandle,
     _observe: Vec<Subscription>,
@@ -89,12 +91,17 @@ impl NewInstanceDialog {
             cx.observe(&search, |_, _, cx| cx.notify()),
             cx.observe(&name, |_, _, cx| cx.notify()),
         ];
+        let loader = {
+            let instances = instances.clone();
+            cx.new(|cx| LoaderPicker::new(instances, None, None, 220., cx))
+        };
         let mut this = Self {
             instances,
             name,
             search,
             filter: VersionFilter::default(),
             selected: None,
+            loader,
             error: None,
             scroll: UniformListScrollHandle::new(),
             _observe: observe,
@@ -122,7 +129,19 @@ impl NewInstanceDialog {
                 .iter()
                 .find(|v| v.kind == MojangVersionType::Release)
                 .map(|v| v.id.clone());
+            self.sync_loader(cx);
         }
+    }
+
+    fn sync_loader(&mut self, cx: &mut Context<Self>) {
+        let version = self.selected.clone();
+        self.loader
+            .update(cx, |picker, cx| picker.set_game_version(version, cx));
+    }
+
+    /// The loader picker, for the offscreen screenshots.
+    pub fn loader_picker(&self) -> &Entity<LoaderPicker> {
+        &self.loader
     }
 
     fn set_filter(&mut self, filter: VersionFilter, cx: &mut Context<Self>) {
@@ -136,16 +155,26 @@ impl NewInstanceDialog {
             cx.notify();
             return;
         };
+        let loader = match self.loader.read(cx).choice() {
+            Ok(loader) => loader,
+            Err(err) => {
+                self.error = Some(err.into());
+                cx.notify();
+                return;
+            }
+        };
         let typed = self.name.read(cx).text().trim().to_string();
         let name = if typed.is_empty() {
-            version.clone()
+            match &loader {
+                Some(loader) => format!("{version} {}", loader.kind.label()),
+                None => version.clone(),
+            }
         } else {
             typed
         };
-        match self
-            .instances
-            .update(cx, |instances, cx| instances.create(&name, &version, cx))
-        {
+        match self.instances.update(cx, |instances, cx| {
+            instances.create(&name, &version, loader.as_ref(), cx)
+        }) {
             Ok(_) => cx.emit(NewInstanceDismissed),
             Err(err) => {
                 self.error = Some(err.into());
@@ -207,6 +236,7 @@ impl NewInstanceDialog {
                                         move |this, _, _, cx| {
                                             this.selected = Some(id.clone());
                                             this.error = None;
+                                            this.sync_loader(cx);
                                             cx.notify();
                                         },
                                     ))
@@ -337,10 +367,18 @@ impl Render for NewInstanceDialog {
         let selected: SharedString = self
             .selected
             .clone()
-            .map(|id| format!("Minecraft {id}"))
+            .map(|id| match self.loader.read(cx).choice() {
+                Ok(Some(loader)) => format!(
+                    "Minecraft {id} with {} {}",
+                    loader.kind.label(),
+                    loader.version
+                ),
+                _ => format!("Minecraft {id}"),
+            })
             .unwrap_or_else(|| "No version selected".into())
             .into();
         Dialog::new("new-instance", "New instance", self.name.focus_handle(cx))
+            .width(px(820.))
             .on_close({
                 let entity = entity.clone();
                 move |_, cx| entity.update(cx, |_, cx| cx.emit(NewInstanceDismissed))
@@ -353,33 +391,57 @@ impl Render for NewInstanceDialog {
                     .text_size(theme::text_size(text::MEDIUM))
                     .child(label("NAME"))
                     .child(self.name.clone())
-                    .child(div().pt_1().child(label("MINECRAFT VERSION")))
-                    .child(self.search.clone())
                     .child(
                         div()
                             .flex()
                             .flex_row()
-                            .gap_4()
-                            .child(filter_toggle(
-                                "filter-releases",
-                                "Releases",
-                                filter.releases,
-                                toggle(|f| &mut f.releases),
-                            ))
-                            .child(filter_toggle(
-                                "filter-snapshots",
-                                "Snapshots",
-                                filter.snapshots,
-                                toggle(|f| &mut f.snapshots),
-                            ))
-                            .child(filter_toggle(
-                                "filter-old",
-                                "Old versions",
-                                filter.old,
-                                toggle(|f| &mut f.old),
-                            )),
+                            .gap_6()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_3()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(div().pt_1().child(label("MINECRAFT VERSION")))
+                                    .child(self.search.clone())
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .gap_4()
+                                            .child(filter_toggle(
+                                                "filter-releases",
+                                                "Releases",
+                                                filter.releases,
+                                                toggle(|f| &mut f.releases),
+                                            ))
+                                            .child(filter_toggle(
+                                                "filter-snapshots",
+                                                "Snapshots",
+                                                filter.snapshots,
+                                                toggle(|f| &mut f.snapshots),
+                                            ))
+                                            .child(filter_toggle(
+                                                "filter-old",
+                                                "Old versions",
+                                                filter.old,
+                                                toggle(|f| &mut f.old),
+                                            )),
+                                    )
+                                    .child(self.version_list(cx)),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_3()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(div().pt_1().child(label("MOD LOADER")))
+                                    .child(self.loader.clone()),
+                            ),
                     )
-                    .child(self.version_list(cx))
                     .child(
                         div()
                             .text_size(theme::text_size(text::SMALL))
