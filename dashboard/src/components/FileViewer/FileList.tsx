@@ -1,23 +1,21 @@
-import { faClipboardQuestion } from '@fortawesome/free-solid-svg-icons';
+import {
+  faCaretDown,
+  faCaretUp,
+  faClipboardQuestion,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { ClientFile } from 'bindings/ClientFile';
 import clsx from 'clsx';
 import Checkbox from 'components/Atoms/Checkbox';
 import { formatBytes, formatTimeAgo } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
-import React, {
-  RefObject,
-  useLayoutEffect,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useOnClickOutside } from 'usehooks-ts';
 import { useFileViewer } from './FileViewerContext';
 import { SkeletonGroup, SkeletonRows } from 'components/Atoms/Skeleton';
 import { useT } from 'i18n';
 import { asset } from 'utils/basePath';
+import { FileSort, FileSortKey, nextSort, sortFiles } from './sortFiles';
 
 // a map from file extension to icon
 const iconMap: { [key: string]: string } = {
@@ -65,6 +63,16 @@ const iconMap: { [key: string]: string } = {
   mcfunction: '/icons/minecraft.svg',
 };
 
+const sortHeaders: { key: FileSortKey; label: string; layout: string }[] = [
+  { key: 'name', label: 'Name', layout: 'pl-[4.75rem] grow' },
+  {
+    key: 'date_modified',
+    label: 'Date modified',
+    layout: 'min-w-[8ch] justify-end pr-8',
+  },
+  { key: 'size', label: 'Size', layout: 'min-w-[8ch] justify-end pr-4' },
+];
+
 export default function FileList({
   fileList,
   loading,
@@ -99,11 +107,7 @@ export default function FileList({
 
   const boundingDivRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const [sortUpdate, setSortUpdate] = useState(false);
-  const [sortKey, setSortKey] = useState<{ key: string; direction: number }>({
-    key: '',
-    direction: -1, // 1 for asc, -1 for desc
-  });
+  const [sort, setSort] = useState<FileSort | null>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
   // where the menu was opened, relative to boundingDivRef
   const [contextMenuPointer, setContextMenuPointer] = useState({ x: 0, y: 0 });
@@ -114,35 +118,11 @@ export default function FileList({
     setShowContextMenu(false)
   );
 
-  useEffect(() => {
-    if (sortKey.key == '') return;
-    fileList?.sort((a, b) => {
-      const { direction, key } = sortKey;
-
-      // group directories together
-      if (a.file_type === 'Directory' && b.file_type !== 'Directory')
-        return -1 * direction;
-      if (a.file_type !== 'Directory' && b.file_type === 'Directory')
-        return 1 * direction;
-
-      const compare = (
-        val1: string | number | null,
-        val2: string | number | null
-      ) => {
-        if (!val1) return -1;
-        if (!val2) return 1;
-        return val1 < val2 ? -1 : 1;
-      };
-
-      let result = 0;
-      if (key === 'name') result = compare(a.name, b.name);
-      else if (key === 'date_modified')
-        result = compare(a.modification_time, b.modification_time);
-      else if (key === 'size') result = compare(a.size, b.size);
-      return direction === 1 ? result : -result;
-    });
-    setSortUpdate(!sortUpdate);
-  }, [sortKey, fileList]);
+  // a sorted copy: fileList belongs to the query cache and is not ours to reorder
+  const sortedFiles = useMemo(
+    () => (fileList ? sortFiles(fileList, sort) : undefined),
+    [fileList, sort]
+  );
 
   function fileToIcon(file: ClientFile) {
     if (file.file_type === 'Directory') {
@@ -298,37 +278,38 @@ export default function FileList({
             </p>
           </div>
         )}
-        <div className="text-medium flex w-full flex-row font-medium text-gray-400">
-          <p
-            className="py-2 pl-11 hover:cursor-pointer"
-            onClick={() =>
-              setSortKey({ key: 'name', direction: sortKey.direction * -1 })
-            }
-          >
-            Name
-          </p>
-          <div className="grow"></div>
-          <p
-            className="min-w-[8ch] py-2 pr-8 text-right hover:cursor-pointer"
-            onClick={() =>
-              setSortKey({
-                key: 'date_modified',
-                direction: sortKey.direction * -1,
-              })
-            }
-          >
-            Date modified
-          </p>
-          <p
-            className="min-w-[8ch] py-2 pr-4 text-right hover:cursor-pointer"
-            onClick={() =>
-              setSortKey({ key: 'size', direction: sortKey.direction * -1 })
-            }
-          >
-            Size
-          </p>
-        </div>
-        {fileList?.map((file: ClientFile) => {
+        {fileList && fileList.length > 0 && (
+          <div className="flex w-full flex-row text-medium font-medium text-gray-400">
+            {sortHeaders.map(({ key, label, layout }) => {
+              const active = sort?.key === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={clsx(
+                    'flex items-center gap-1 py-2 hover:cursor-pointer hover:text-gray-300',
+                    active && 'text-gray-300',
+                    layout
+                  )}
+                  title={
+                    active
+                      ? `Sorted by ${label.toLowerCase()}, ${sort.direction === 'asc' ? 'ascending' : 'descending'}`
+                      : `Sort by ${label.toLowerCase()}`
+                  }
+                  onClick={() => setSort(nextSort(sort, key))}
+                >
+                  {label}
+                  {active && (
+                    <FontAwesomeIcon
+                      icon={sort.direction === 'asc' ? faCaretUp : faCaretDown}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {sortedFiles?.map((file: ClientFile) => {
           // compare paths: the objects are replaced on every refetch
           const isOpened = openedFile?.path === file.path;
           const isTicked = fileTicked(file);
