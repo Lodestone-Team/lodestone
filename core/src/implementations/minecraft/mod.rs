@@ -6,7 +6,7 @@ pub mod r#macro;
 mod paper;
 pub mod player;
 mod players_manager;
-pub mod properties;
+pub use lodestone_minecraft::properties;
 pub mod server;
 pub mod server_properties;
 pub mod util;
