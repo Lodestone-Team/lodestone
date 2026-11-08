@@ -37,6 +37,29 @@ actions!(
 
 pub(super) fn init(cx: &mut App) {
     let context = Some("TextInput");
+    let secondary = [
+        ("secondary-a", Box::new(SelectAll) as Box<dyn gpui::Action>),
+        ("secondary-v", Box::new(Paste)),
+        ("secondary-c", Box::new(Copy)),
+        ("secondary-x", Box::new(Cut)),
+    ]
+    .into_iter()
+    .map(|(key, action)| {
+        KeyBinding::load(
+            key,
+            action,
+            Some(
+                gpui::KeyBindingContextPredicate::parse("TextInput")
+                    .unwrap()
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("valid text editing shortcut")
+    })
+    .collect::<Vec<_>>();
     cx.bind_keys([
         KeyBinding::new("backspace", Backspace, context),
         KeyBinding::new("delete", Delete, context),
@@ -48,11 +71,8 @@ pub(super) fn init(cx: &mut App) {
         KeyBinding::new("end", End, context),
         KeyBinding::new("cmd-left", Home, context),
         KeyBinding::new("cmd-right", End, context),
-        KeyBinding::new("cmd-a", SelectAll, context),
-        KeyBinding::new("cmd-v", Paste, context),
-        KeyBinding::new("cmd-c", Copy, context),
-        KeyBinding::new("cmd-x", Cut, context),
     ]);
+    cx.bind_keys(secondary);
 }
 
 /// A single-line text field, styled like the dashboard's `InputField`.
@@ -768,6 +788,24 @@ impl Element for TextElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secondary_shortcuts_follow_the_platform() {
+        use gpui::{Keystroke, OperatingSystem};
+
+        for key in ["a", "v", "c", "x"] {
+            for (os, modifier) in [
+                (OperatingSystem::Mac, "cmd"),
+                (OperatingSystem::Windows, "ctrl"),
+                (OperatingSystem::Linux, "ctrl"),
+            ] {
+                assert_eq!(
+                    Keystroke::parse_with_os(&format!("secondary-{key}"), os).unwrap(),
+                    Keystroke::parse_with_os(&format!("{modifier}-{key}"), os).unwrap(),
+                );
+            }
+        }
+    }
 
     #[test]
     fn boundaries_step_over_whole_chars() {
