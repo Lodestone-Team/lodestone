@@ -21,6 +21,11 @@ screenshot = ["gpui_platform/test-support"]
 [dependencies]
 gpui.workspace = true
 gpui_platform = { workspace = true, features = ["font-kit"] }
+lodestone_minecraft.workspace = true
+
+[dev-dependencies]
+# The version in Zed's Cargo.lock.
+serde_json = "1.0.151"
 
 [[example]]
 name = "components"
