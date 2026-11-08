@@ -27,6 +27,46 @@ pub fn default_client() -> anyhow::Result<Arc<dyn HttpClient>> {
     ))
 }
 
+/// The client for game downloads: like [`default_client`], but with no deadline for
+/// the whole request, since a Java runtime file can be over 100 MB. Instead, a read
+/// that waits longer than [`DOWNLOAD_IDLE_TIMEOUT`] fails, and the download engine
+/// retries it.
+pub fn download_client() -> anyhow::Result<Arc<dyn HttpClient>> {
+    Ok(Arc::new(
+        reqwest_client::ReqwestClient::proxy_user_agent_and_read_timeout(
+            None,
+            USER_AGENT,
+            Some(DOWNLOAD_IDLE_TIMEOUT),
+        )?,
+    ))
+}
+
+/// How long a download may go without receiving data.
+pub const DOWNLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Polls `future` inside the HTTP client's Tokio runtime. Reading the body of a
+/// [`download_client`] response starts Tokio timers (the idle timeout), which need
+/// that runtime's context; GPUI's executor and `block_on` don't provide one.
+pub fn in_http_runtime<'a, T: 'a>(
+    future: impl std::future::Future<Output = T> + Send + 'a,
+) -> impl std::future::Future<Output = T> + Send + 'a {
+    InHttpRuntime(Box::pin(future))
+}
+
+struct InHttpRuntime<'a, T>(futures::future::BoxFuture<'a, T>);
+
+impl<T> std::future::Future for InHttpRuntime<'_, T> {
+    type Output = T;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<T> {
+        let _runtime = reqwest_client::runtime().enter();
+        self.0.as_mut().poll(cx)
+    }
+}
+
 /// A response with its body read into memory.
 #[derive(Debug)]
 pub struct Response {

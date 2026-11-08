@@ -1,20 +1,35 @@
-//! The main area: the selected instance's header and tabs, the Play tab's hero
-//! banner, and the bottom bar with the large Play button.
-//!
-//! Instances and launching come in Milestone 3, so for now there is no selected
-//! instance and the Play button is disabled.
+//! The main area: the selected instance's header and tabs, the tab's content, and
+//! the bottom bar with the large Play button.
 
 use gpui::{Context, IntoElement, ObjectFit, SharedString, div, img, prelude::*, px};
+use launcher_core::instances::Instance;
 
 use super::{InstanceTab, LauncherShell};
 use crate::{
-    components::{Align, Button, ButtonVariant, Icon, PlayButton, Tabs},
+    components::{Align, Button, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs},
+    instances::{PlayState, play_time},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let tab = shell.tab;
     let selected = InstanceTab::ALL.iter().position(|t| *t == tab).unwrap_or(0);
+    let instance = shell.instances.read(cx).selected().cloned();
+    let (title, subtitle): (SharedString, SharedString) = match &instance {
+        Some(instance) => (
+            instance.name.clone().into(),
+            format!(
+                "Minecraft {} · Vanilla · {}",
+                instance.game_version,
+                play_time(instance.play_time)
+            )
+            .into(),
+        ),
+        None => (
+            "No instance selected".into(),
+            "Create an instance to choose a Minecraft version and loader.".into(),
+        ),
+    };
     div()
         .flex()
         .flex_col()
@@ -39,15 +54,13 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                                 .line_height(theme::line_height(text::H1, leading::TIGHT))
                                 .font_weight(weights::BOLD.into())
                                 .text_color(colors::GRAY_300)
-                                .child("No instance selected"),
+                                .child(title),
                         )
                         .child(
                             div()
                                 .text_color(colors::GRAY_500)
                                 .font_weight(weights::BOLD.into())
-                                .child(
-                                    "Create an instance to choose a Minecraft version and loader.",
-                                ),
+                                .child(subtitle),
                         ),
                 )
                 .child(
@@ -69,17 +82,53 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .min_h_0()
                 .px_8()
                 .py_5()
-                .child(match tab {
-                    InstanceTab::Play => hero(cx).into_any_element(),
-                    other => placeholder(other).into_any_element(),
+                .child(match (tab, &instance) {
+                    (InstanceTab::Play, _) => hero(instance.as_ref(), cx).into_any_element(),
+                    (InstanceTab::Settings, Some(_)) => match shell.settings_view() {
+                        Some(settings) => settings.clone().into_any_element(),
+                        None => placeholder("Settings appear here once you have an instance.")
+                            .into_any_element(),
+                    },
+                    (InstanceTab::Logs, Some(_)) => shell.console.clone().into_any_element(),
+                    (InstanceTab::Mods | InstanceTab::Worlds, Some(_)) => placeholder(
+                        "Mods and worlds come in the next milestone of Lodestone Launcher.",
+                    )
+                    .into_any_element(),
+                    (other, None) => placeholder(format!(
+                        "{} appear here once you have an instance.",
+                        other.label()
+                    ))
+                    .into_any_element(),
                 }),
         )
-        .child(play_bar())
+        .child(play_bar(shell, instance.as_ref(), cx))
 }
 
-/// The banner: the instance's art when it has some (Milestone 3), otherwise our
-/// own artwork in the dashboard's colours.
-fn hero(cx: &mut Context<LauncherShell>) -> impl IntoElement {
+/// The banner: our own artwork in the dashboard's colours, with the instance's name,
+/// or an invitation to create one.
+fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let (title, body): (SharedString, SharedString) = match instance {
+        Some(instance) => (
+            instance.name.clone().into(),
+            match instance.last_played {
+                Some(_) => format!(
+                    "Minecraft {}. Played for {}.",
+                    instance.game_version,
+                    play_time(instance.play_time).to_lowercase()
+                )
+                .into(),
+                None => format!(
+                    "Minecraft {}. Press Play to download it and start the game.",
+                    instance.game_version
+                )
+                .into(),
+            },
+        ),
+        None => (
+            "Create your first instance".into(),
+            "An instance is a Minecraft version with its own mods, worlds and settings.".into(),
+        ),
+    };
     div()
         .relative()
         .flex()
@@ -113,30 +162,32 @@ fn hero(cx: &mut Context<LauncherShell>) -> impl IntoElement {
                         .line_height(theme::line_height(text::XLARGE_2, leading::TIGHT))
                         .font_weight(weights::BOLD.into())
                         .text_color(colors::WHITE)
-                        .child("Create your first instance"),
+                        .child(title),
                 )
                 .child(
                     div()
                         .text_size(theme::text_size(text::H3))
                         .line_height(theme::line_height(text::H3, leading::NORMAL))
                         .text_color(colors::GRAY_400)
-                        .child("An instance is a Minecraft version with its own mods, worlds and settings."),
+                        .child(body),
                 )
-                .child(
-                    div().flex().mt_2().child(
-                        Button::new("hero-new-instance", "New instance...")
-                            .variant(ButtonVariant::Primary)
-                            .icon(Icon::SquarePlus)
-                            .align(Align::Start)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_new_instance(window, cx)
-                            })),
-                    ),
-                ),
+                .when(instance.is_none(), |this| {
+                    this.child(
+                        div().flex().mt_2().child(
+                            Button::new("hero-new-instance", "New instance...")
+                                .variant(ButtonVariant::Primary)
+                                .icon(Icon::SquarePlus)
+                                .align(Align::Start)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.open_new_instance(window, cx)
+                                })),
+                        ),
+                    )
+                }),
         )
 }
 
-fn placeholder(tab: InstanceTab) -> impl IntoElement {
+fn placeholder(message: impl Into<SharedString>) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
@@ -149,17 +200,15 @@ fn placeholder(tab: InstanceTab) -> impl IntoElement {
         .border_color(colors::GRAY_FADED.opacity(10))
         .text_color(colors::GRAY_FADED.opacity(30))
         .font_weight(weights::BOLD.into())
-        .child(format!(
-            "{} appear here once you have an instance.",
-            tab.label()
-        ))
+        .child(message.into())
 }
 
-/// A picker in the bottom bar: a caption over a value, with a caret.
+/// A picker in the bottom bar: a caption over a value.
 fn picker(
     id: &'static str,
     caption: &'static str,
     value: impl Into<SharedString>,
+    enabled: bool,
 ) -> impl IntoElement {
     div()
         .id(id)
@@ -174,7 +223,7 @@ fn picker(
         .border_1()
         .border_color(colors::FADE_700)
         .bg(colors::GRAY_800)
-        .opacity(0.6)
+        .when(!enabled, |this| this.opacity(0.6))
         .child(
             div()
                 .flex()
@@ -192,15 +241,34 @@ fn picker(
                     div()
                         .truncate()
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_400)
+                        .text_color(colors::GRAY_300)
                         .child(value.into()),
                 ),
         )
-        .child(Icon::CaretDown.render(px(12.), colors::GRAY_FADED.opacity(50)))
 }
 
-/// The bar under the tabs: the instance picker, Play, and the version picker.
-fn play_bar() -> impl IntoElement {
+/// The bar under the tabs: the instance, Play, and the version.
+fn play_bar(
+    shell: &LauncherShell,
+    instance: Option<&Instance>,
+    cx: &mut Context<LauncherShell>,
+) -> impl IntoElement {
+    let state = match shell.instances.read(cx).play_state() {
+        PlayState::NoInstance => PlayButtonState::Disabled,
+        PlayState::Ready => PlayButtonState::Ready,
+        PlayState::Playing => PlayButtonState::Playing,
+        PlayState::Preparing {
+            label,
+            detail,
+            fraction,
+        } => PlayButtonState::Preparing {
+            label,
+            detail,
+            fraction,
+        },
+    };
+    let id = instance.map(|i| i.id.clone());
+    let stop_id = id.clone();
     div()
         .flex()
         .flex_row()
@@ -214,12 +282,40 @@ fn play_bar() -> impl IntoElement {
         .border_t_1()
         .border_color(colors::FADE_700)
         .bg(colors::GRAY_850)
-        .child(picker("instance-picker", "INSTANCE", "No instances"))
-        .child(PlayButton::new("play").disabled(true))
-        .child(picker("version-picker", "VERSION", "—"))
+        .child(picker(
+            "instance-picker",
+            "INSTANCE",
+            instance.map_or("No instances".to_string(), |i| i.name.clone()),
+            instance.is_some(),
+        ))
+        .child(
+            PlayButton::new("play")
+                .state(state)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(id) = &id {
+                        this.instances
+                            .update(cx, |instances, cx| instances.play(id, cx));
+                    }
+                }))
+                .on_stop(cx.listener(move |this, _, _, cx| {
+                    if let Some(id) = &stop_id {
+                        this.instances
+                            .update(cx, |instances, cx| instances.stop(id, cx));
+                    }
+                })),
+        )
+        .child(picker(
+            "version-picker",
+            "VERSION",
+            instance.map_or("—".to_string(), |i| {
+                format!("{} · Vanilla", i.game_version)
+            }),
+            instance.is_some(),
+        ))
 }
 
-/// A placeholder for the settings page, which has nothing to configure yet.
+/// A placeholder for the launcher's settings page, which has nothing to configure
+/// yet. Each instance has its own settings tab.
 pub fn render_settings() -> impl IntoElement {
     div()
         .flex()
@@ -241,6 +337,6 @@ pub fn render_settings() -> impl IntoElement {
                 .text_color(colors::GRAY_FADED.opacity(30))
                 .font_weight(weights::BOLD.into())
                 .pt(px(2.))
-                .child("There is nothing to configure yet."),
+                .child("Memory, Java and window settings are in each instance's Settings tab."),
         )
 }

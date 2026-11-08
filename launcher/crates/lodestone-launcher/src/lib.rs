@@ -7,6 +7,7 @@ pub mod accounts;
 pub mod assets;
 pub mod components;
 pub mod images;
+pub mod instances;
 #[cfg(feature = "screenshot")]
 pub mod preview;
 pub mod shell;

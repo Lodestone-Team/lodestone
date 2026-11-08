@@ -1,4 +1,5 @@
-//! Lodestone Launcher's accounts, Microsoft sign-in and data storage.
+//! Lodestone Launcher's accounts, Microsoft sign-in, instances, data storage, and
+//! the installing and launching of Minecraft.
 //!
 //! This crate has no GPUI dependency so it can be unit-tested on its own. The app
 //! crate supplies the platform pieces: the keychain-backed [`SecretStore`], the
@@ -10,7 +11,9 @@
 
 pub mod accounts;
 pub mod auth;
+pub mod game;
 pub mod http;
+pub mod instances;
 pub mod offline;
 pub mod paths;
 pub mod secret;

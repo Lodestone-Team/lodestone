@@ -19,6 +19,7 @@ fn main() {
             #[cfg(feature = "screenshot")]
             if let Some(scene) = lodestone_launcher::preview::requested_scene() {
                 let accounts = lodestone_launcher::preview::accounts(&scene, cx);
+                let instances = lodestone_launcher::preview::instances(&scene, &accounts, cx);
                 cx.spawn(async move |cx| {
                     let decoded = decoding.await;
                     cx.update(|cx| {
@@ -26,7 +27,7 @@ fn main() {
                         lodestone_launcher::open_window(
                             options,
                             move |cx| {
-                                let mut shell = LauncherShell::new(accounts, cx);
+                                let mut shell = LauncherShell::new(accounts, instances, cx);
                                 lodestone_launcher::preview::apply(&scene, &mut shell, cx);
                                 shell
                             },
@@ -39,6 +40,7 @@ fn main() {
             }
 
             let accounts = accounts::create(cx);
+            let instances = lodestone_launcher::instances::create(&accounts, cx);
             cx.spawn(async move |cx| {
                 let decoded = decoding.await;
                 trace.mark("bundled images decoded");
@@ -46,7 +48,7 @@ fn main() {
                     images::install(decoded, cx);
                     let window = lodestone_launcher::open_window(
                         options,
-                        move |cx| LauncherShell::new(accounts, cx),
+                        move |cx| LauncherShell::new(accounts, instances, cx),
                         cx,
                     );
                     trace.mark("window opened");

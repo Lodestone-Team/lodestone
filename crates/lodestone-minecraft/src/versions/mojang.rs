@@ -8,17 +8,67 @@ use crate::Error;
 pub const VERSION_MANIFEST_URL: &str =
     "https://launchermeta.mojang.com/mc/game/version_manifest.json";
 
+/// The same list with each version's SHA-1, which the official launcher uses. Lodestone
+/// Launcher reads this one so it can check each version's details.
+pub const VERSION_MANIFEST_V2_URL: &str =
+    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+
+/// What kind of version an entry is, from its `type`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MojangVersionType {
+    #[default]
+    Release,
+    Snapshot,
+    OldBeta,
+    OldAlpha,
+    /// A type this crate does not know yet.
+    #[serde(other)]
+    Other,
+}
+
+impl MojangVersionType {
+    /// The `${version_type}` the game is started with.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MojangVersionType::Release => "release",
+            MojangVersionType::Snapshot => "snapshot",
+            MojangVersionType::OldBeta => "old_beta",
+            MojangVersionType::OldAlpha => "old_alpha",
+            MojangVersionType::Other => "other",
+        }
+    }
+}
+
 /// An entry of the version manifest.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MojangVersion {
     pub id: String,
     /// Where the details of the version are.
     pub url: String,
+    #[serde(default, rename = "type")]
+    pub kind: MojangVersionType,
+    /// When the version was released, as an RFC 3339 timestamp.
+    #[serde(default, rename = "releaseTime")]
+    pub release_time: Option<String>,
+    /// The SHA-1 of the details at `url`. Only the v2 manifest has it.
+    #[serde(default)]
+    pub sha1: Option<String>,
 }
 
-/// The version manifest at [`VERSION_MANIFEST_URL`]. The versions are newest first.
+/// The newest release and snapshot.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MojangLatest {
+    pub release: String,
+    pub snapshot: String,
+}
+
+/// The version manifest at [`VERSION_MANIFEST_URL`] or [`VERSION_MANIFEST_V2_URL`]. The
+/// versions are newest first.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MojangVersionManifest {
+    #[serde(default)]
+    pub latest: Option<MojangLatest>,
     pub versions: Vec<MojangVersion>,
 }
 
@@ -44,6 +94,10 @@ pub struct MojangDownload {
 pub struct MojangJavaVersion {
     #[serde(rename = "majorVersion")]
     pub major_version: u64,
+    /// The Java runtime Mojang ships for this version, such as `java-runtime-gamma` or
+    /// `jre-legacy`.
+    #[serde(default)]
+    pub component: Option<String>,
 }
 
 /// The ids of the versions, in manifest order (newest first).
@@ -152,6 +206,35 @@ mod tests {
         // no javaVersion at all means Java 8
         let info: MojangVersionInfo = fixture(r#"{ "downloads": null }"#);
         assert_eq!(jre_major_version(&info), 8);
+    }
+
+    #[test]
+    fn reads_types_and_the_latest_versions() {
+        let manifest: MojangVersionManifest =
+            fixture(include_str!("../../testdata/mojang_version_manifest.json"));
+        let latest = manifest.latest.unwrap();
+        assert_eq!(latest.release, "26.3");
+        assert_eq!(latest.snapshot, "26.4-snapshot-7");
+        let kinds: Vec<_> = manifest.versions.iter().map(|v| v.kind).collect();
+        assert_eq!(kinds[0], MojangVersionType::Snapshot);
+        assert_eq!(kinds[1], MojangVersionType::Release);
+        assert_eq!(kinds.last(), Some(&MojangVersionType::OldAlpha));
+        assert_eq!(
+            manifest.versions[0].release_time.as_deref(),
+            Some("2026-11-03T13:08:56+00:00")
+        );
+        // The v1 manifest has no hashes; unknown types still parse.
+        assert_eq!(manifest.versions[0].sha1, None);
+        let entry: MojangVersion =
+            fixture(r#"{"id": "x", "url": "u", "type": "pending", "sha1": "abc"}"#);
+        assert_eq!(entry.kind, MojangVersionType::Other);
+        assert_eq!(entry.sha1.as_deref(), Some("abc"));
+        let info: MojangVersionInfo =
+            fixture(r#"{"javaVersion": {"component": "jre-legacy", "majorVersion": 8}}"#);
+        assert_eq!(
+            info.java_version.unwrap().component.as_deref(),
+            Some("jre-legacy")
+        );
     }
 
     #[test]

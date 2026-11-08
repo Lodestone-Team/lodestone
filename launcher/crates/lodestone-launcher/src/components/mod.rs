@@ -15,7 +15,7 @@ pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDo
 pub use dialog::Dialog;
 pub use icon::Icon;
 pub use list_row::ListRow;
-pub use play_button::PlayButton;
+pub use play_button::{PlayButton, PlayButtonState};
 pub use tabs::Tabs;
 pub use text_input::TextInput;
 pub use toggle::Toggle;
