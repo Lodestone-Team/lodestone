@@ -10,6 +10,7 @@ use gpui::{
 use lodestone_minecraft::versions::mojang::{MojangVersion, MojangVersionType};
 
 use super::{Instances, Versions, loader_picker::LoaderPicker, modpack_browser::ModpackBrowser};
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonVariant, Dialog, LoadingDots, TextInput, Toggle},
     theme::{self, colors, leading, radius, text, weights},
@@ -81,6 +82,8 @@ pub struct NewInstanceDialog {
     loader: Entity<LoaderPicker>,
     error: Option<SharedString>,
     scroll: UniformListScrollHandle,
+    /// The dialog's own focus, which the name field is inside.
+    focus: FocusHandle,
     _observe: Vec<Subscription>,
 }
 
@@ -127,6 +130,7 @@ impl NewInstanceDialog {
             loader,
             error: None,
             scroll: UniformListScrollHandle::new(),
+            focus: cx.focus_handle(),
             _observe: observe,
         };
         this.pick_default(cx);
@@ -362,6 +366,7 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
         .into();
     div()
         .id(("version", index))
+        .keyboard_focus()
         .flex()
         .flex_row()
         .items_center()
@@ -487,7 +492,7 @@ impl Render for NewInstanceDialog {
             Mode::Modpack => self.modpacks.clone().into_any_element(),
             Mode::Version => self.version_body(&entity, filter, cx).into_any_element(),
         };
-        Dialog::new("new-instance", "New instance", self.name.focus_handle(cx))
+        Dialog::new("new-instance", "New instance", self.focus.clone())
             .width(px(860.))
             .on_close({
                 let entity = entity.clone();

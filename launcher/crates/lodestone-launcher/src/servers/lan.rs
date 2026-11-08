@@ -25,6 +25,7 @@ use launcher_core::{
 };
 
 use super::{Servers, ServersEvent, extras::note};
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Dialog, Icon, LoadingDots},
     theme::{self, colors, fonts, radius, text, weights},
@@ -187,10 +188,14 @@ impl Servers {
                 .border_t_1()
                 .border_color(colors::FADE_700)
                 .when(!quiet, |this| this.child(LoadingDots))
-                .child(note(if quiet {
-                    "No LAN worlds found. In Minecraft, open a world and choose Open to LAN. If macOS asked whether Lodestone Launcher may find devices on your local network, allow it in System Settings → Privacy & Security → Local Network, then reopen this page."
-                } else {
+                .child(note(if !quiet {
                     "Looking for worlds opened to LAN…"
+                } else if cfg!(target_os = "macos") {
+                    "No LAN worlds found. In Minecraft, open a world and choose Open to LAN. If macOS asked whether Lodestone Launcher may find devices on your local network, allow it in System Settings → Privacy & Security → Local Network, then reopen this page."
+                } else if cfg!(windows) {
+                    "No LAN worlds found. In Minecraft, open a world and choose Open to LAN. If Windows asked whether to let Lodestone Launcher through its firewall, allow it on private networks, then reopen this page."
+                } else {
+                    "No LAN worlds found. In Minecraft, open a world and choose Open to LAN, then reopen this page."
                 }))
                 .into_any_element()
         } else {
@@ -363,6 +368,7 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
                 let pick = id.clone();
                 div()
                     .id(SharedString::from(format!("lan-pick-{id}")))
+                    .keyboard_focus()
                     .flex()
                     .flex_row()
                     .items_center()

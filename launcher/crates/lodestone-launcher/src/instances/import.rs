@@ -22,6 +22,7 @@ use launcher_core::{
 };
 
 use super::Instances;
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonVariant, Dialog, Icon, IconButton, LoadingDots, Toggle},
     theme::{self, colors, leading, radius, text, weights},
@@ -452,6 +453,7 @@ impl ImportDialog {
         let id = SharedString::from(format!("import-{key}"));
         div()
             .id(id)
+            .keyboard_focus()
             .flex()
             .flex_row()
             .items_center()
@@ -526,7 +528,7 @@ impl ImportDialog {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .truncate()
+                            .whitespace_normal()
                             .text_size(theme::text_size(text::CAPTION))
                             .text_color(colors::GRAY_FADED.opacity(40))
                             .child(launcher.root.display().to_string()),
@@ -550,7 +552,7 @@ impl ImportDialog {
                 rows.push(
                     div()
                         .px_2()
-                        .truncate()
+                        .whitespace_normal()
                         .text_size(theme::text_size(text::SMALL))
                         .text_color(colors::RED_200)
                         .child(if launcher.problems.len() > 1 {
@@ -578,13 +580,16 @@ impl ImportDialog {
             div()
                 .flex()
                 .items_center()
-                .justify_center()
                 .h(px(120.))
                 .px_8()
-                .text_center()
-                .whitespace_normal()
-                .text_color(colors::GRAY_500)
-                .child("No other launchers were found in their usual places. Choose a launcher's folder, or an instance's, to import from it.")
+                .child(
+                    div()
+                        .w_full()
+                        .text_center()
+                        .whitespace_normal()
+                        .text_color(colors::GRAY_500)
+                        .child("No other launchers were found in their usual places. Choose a launcher's folder, or an instance's, to import from it."),
+                )
                 .into_any_element()
         } else {
             div()
@@ -684,8 +689,12 @@ impl ImportDialog {
                                         div()
                                             .flex_1()
                                             .min_w_0()
-                                            .truncate()
+                                            .whitespace_normal()
                                             .text_size(theme::text_size(text::SMALL))
+                                            .line_height(theme::line_height(
+                                                text::SMALL,
+                                                leading::NORMAL,
+                                            ))
                                             .text_color(color)
                                             .child(status),
                                     ),

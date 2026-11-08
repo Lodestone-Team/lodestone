@@ -2,7 +2,7 @@
 
 use std::{
     io::{self, BufRead as _, BufReader, Read},
-    process::{Child, ExitStatus, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -17,6 +17,25 @@ use super::{
     launch::LaunchCommand,
     log4j::{LogLine, LogParser, Redactor, Stream},
 };
+
+/// Keeps a console program, such as a `java.exe` picked as the Java override, from
+/// opening a console window of its own on Windows. The launcher's release build has
+/// no console for it to share, and its output is piped either way.
+pub(crate) trait NoConsoleWindow {
+    fn no_console_window(&mut self) -> &mut Self;
+}
+
+impl NoConsoleWindow for Command {
+    fn no_console_window(&mut self) -> &mut Self {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            self.creation_flags(CREATE_NO_WINDOW);
+        }
+        self
+    }
+}
 
 /// What a running game reports.
 #[derive(Debug)]

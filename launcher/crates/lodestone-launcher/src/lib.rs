@@ -122,6 +122,30 @@ mod screenshot {
             cx.background_executor()
                 .timer(Duration::from_millis(1500))
                 .await;
+            // Keys the scene presses, to show keyboard focus.
+            let keys = crate::preview::requested_scene()
+                .map(|scene| crate::preview::keystrokes(&scene))
+                .unwrap_or_default();
+            for key in keys {
+                window
+                    .update(cx, |_, window, cx| {
+                        if let Ok(keystroke) = gpui::Keystroke::parse(key) {
+                            window.dispatch_keystroke(keystroke.clone(), cx);
+                            // Draw, so the newly focused control takes the key going up:
+                            // GPUI clicks a focused control when Enter or Space goes up.
+                            window.draw(cx).clear(cx);
+                            window.dispatch_event(
+                                gpui::PlatformInput::KeyUp(gpui::KeyUpEvent { keystroke }),
+                                cx,
+                            );
+                            window.draw(cx).clear(cx);
+                        }
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(150))
+                    .await;
+            }
             let result = window.update(cx, |_, window, _| {
                 window.refresh();
                 window.render_to_image()

@@ -9,7 +9,10 @@ const OPTIONS_1_21_11: &str = include_str!("../../../launcher-core/testdata/opti
 const OPTIONS_1_8_9: &str = include_str!("../../../launcher-core/testdata/options/1.8.9.txt");
 
 pub fn is_scene(scene: &str) -> bool {
-    matches!(scene, "shared-settings" | "instance-shared-settings")
+    matches!(
+        scene,
+        "shared-settings" | "instance-shared-settings" | "focus-popover" | "focus-escape"
+    )
 }
 
 /// Writes the files after the made-up instances exist.

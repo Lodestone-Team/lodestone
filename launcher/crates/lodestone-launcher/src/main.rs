@@ -1,3 +1,8 @@
+// Release builds on Windows are GUI apps, so starting the launcher doesn't open an
+// empty console window next to it. Debug builds keep the console for their output;
+// without one, writes to stderr are dropped rather than failing.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use lodestone_launcher::{
     APP_NAME, accounts, assets::Assets, images, images::StartupTrace, shell::LauncherShell,
 };

@@ -11,6 +11,7 @@ use gpui::{
 use launcher_core::game::loaders::{LoaderChoice, LoaderKind, LoaderVersion};
 
 use super::{Instances, LoaderVersions};
+use crate::components::{ArrowGroup, KeyboardFocus};
 use crate::{
     components::{
         LoadingDots,
@@ -177,6 +178,7 @@ impl LoaderPicker {
         let selected = self.kind == kind;
         div()
             .id(("loader", index))
+            .keyboard_focus()
             .px_3()
             .py_1()
             .rounded(radius::MD)
@@ -205,6 +207,7 @@ fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::S
     let tag = version_tag(version);
     div()
         .id(("loader-version", index))
+        .keyboard_focus()
         .flex()
         .flex_row()
         .items_center()
@@ -245,7 +248,7 @@ impl LoaderPicker {
     fn segmented(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let options =
             std::iter::once(("Vanilla", None)).chain(LoaderKind::ALL.map(|k| (k.label(), Some(k))));
-        div()
+        ArrowGroup::new("loader-segments")
             .flex()
             .flex_row()
             .p(px(2.))
@@ -258,6 +261,7 @@ impl LoaderPicker {
                 let selected = self.kind == kind;
                 div()
                     .id(("loader-segment", index))
+                    .keyboard_focus()
                     .px_2p5()
                     .py_1()
                     .rounded(radius::MD)
@@ -349,7 +353,12 @@ impl LoaderPicker {
                 )),
             )
             .when(self.open, |this| {
+                let close = cx.listener(|this, _: &(), _, cx| {
+                    this.open = false;
+                    cx.notify();
+                });
                 this.child(popover(
+                    "loader-version-popover",
                     popover_panel("loader-version-list")
                         .w(px(280.))
                         .h(px(panel_height))
@@ -383,6 +392,7 @@ impl LoaderPicker {
                             .track_scroll(&self.scroll)
                             .size_full(),
                         ),
+                    move |window, cx| close(&(), window, cx),
                 ))
             })
             .into_any_element()

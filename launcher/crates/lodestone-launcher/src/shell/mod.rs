@@ -22,6 +22,7 @@ use gpui::{
     AnyElement, ClipboardItem, Context, Entity, EntityId, FocusHandle, Focusable as _, IntoElement,
     Render, SharedString, Subscription, Task, Window, div, prelude::*, px,
 };
+use launcher_core::wording;
 
 use crate::{
     accounts::{
@@ -29,7 +30,7 @@ use crate::{
         offline_dialog::{OfflineDialog, OfflineDialogDismissed},
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
-    components::{Button, ButtonVariant, Dialog, DialogSlot, Icon},
+    components::{Button, ButtonVariant, Dialog, DialogSlot, Icon, focus},
     instances::{
         CrashInfo, Instances, InstancesEvent,
         console::Console,
@@ -192,6 +193,10 @@ pub struct LauncherShell {
     account_menu_open: bool,
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
     top_bar_drag_pending: bool,
+    /// Tracked by the outermost element; focus goes here when it is lost, so keys
+    /// still reach the window's handlers.
+    root_focus: FocusHandle,
+    _focus_lost: Option<Subscription>,
     _observe: Vec<Subscription>,
     /// Draws the window again every minute, so "5 minutes ago" stays true.
     _clock: Task<()>,
@@ -307,6 +312,8 @@ impl LauncherShell {
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
             top_bar_drag_pending: false,
+            root_focus: cx.focus_handle(),
+            _focus_lost: None,
             _observe: observe,
             _clock: cx.spawn(async move |this, cx| {
                 loop {
@@ -600,10 +607,10 @@ impl LauncherShell {
                 Dialog::new("delete-world", format!("Delete {name}?"), focus.clone())
                     .on_close(close)
                     .child(div().text_color(colors::GRAY_400).whitespace_normal().child(
-                        "The world's folder moves to the Trash, so you can put it back from there. Its backups stay.",
+                        format!("The world's folder moves to {}, so you can put it back from there. Its backups stay.", wording::TRASH),
                     ))
                     .footer(
-                        Button::new("confirm-delete-world", "Move to Trash")
+                        Button::new("confirm-delete-world", wording::MOVE_TO_TRASH)
                             .variant(ButtonVariant::Danger)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let (folder, name) = (folder.clone(), name.clone());
@@ -633,8 +640,9 @@ impl LauncherShell {
                 Dialog::new("replace-world", format!("Replace {name} with this backup?"), focus.clone())
                     .on_close(close)
                     .child(div().text_color(colors::GRAY_400).whitespace_normal().child(format!(
-                        "{name} goes back to how it was {}. Everything since is lost from the world, but it is backed up first and the current folder goes to the Trash.",
-                        when.to_lowercase()
+                        "{name} goes back to how it was {}. Everything since is lost from the world, but it is backed up first and the current folder goes to {}.",
+                        when.to_lowercase(),
+                        wording::TRASH
                     )))
                     .footer(
                         Button::new("confirm-replace-world", "Back up and replace")
@@ -1196,13 +1204,13 @@ impl LauncherShell {
                             .flex_col()
                             .gap_2()
                             .text_color(colors::GRAY_400)
-                            .child("The instance's folder, with its worlds, mods and settings, moves to the Trash. You can put it back from there.")
+                            .child(format!("The instance's folder, with its worlds, mods and settings, moves to {}. You can put it back from there.", wording::TRASH))
                             .when_some(error.clone(), |this, error| {
                                 this.child(div().text_color(colors::RED_200).child(error))
                             }),
                     )
                     .footer(
-                        Button::new("confirm-delete-instance", "Move to Trash")
+                        Button::new("confirm-delete-instance", wording::MOVE_TO_TRASH)
                             .variant(ButtonVariant::Danger)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let result = this
@@ -1260,7 +1268,7 @@ impl LauncherShell {
                     .child(
                         div()
                             .text_color(colors::GRAY_400)
-                            .child("Lodestone Launcher forgets this account and deletes its saved sign-in from your keychain. You can add it again later."),
+                            .child(format!("Lodestone Launcher forgets this account and deletes its saved sign-in from your {}. You can add it again later.", wording::KEYCHAIN)),
                     )
                     .footer(
                         Button::new("confirm-remove", "Remove account")
@@ -1372,6 +1380,9 @@ fn render_crash(
 
 impl Render for LauncherShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self._focus_lost.is_none() {
+            self._focus_lost = Some(focus::install(&self.root_focus, window, cx));
+        }
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
             Page::Servers => self.servers.clone().into_any_element(),
@@ -1385,6 +1396,9 @@ impl Render for LauncherShell {
 
         div()
             .id("launcher-shell")
+            .track_focus(&self.root_focus)
+            .on_action(|_: &focus::FocusNext, window, cx| focus::step(true, window, cx))
+            .on_action(|_: &focus::FocusPrev, window, cx| focus::step(false, window, cx))
             .relative()
             .flex()
             .flex_col()

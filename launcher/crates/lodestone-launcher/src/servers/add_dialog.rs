@@ -5,8 +5,10 @@ use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render, SharedString,
     Window, div, prelude::*,
 };
+use launcher_core::wording;
 use launcher_core::{Secret, cores::live::LauncherScope};
 
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonVariant, Dialog, TextInput, Toggle},
     theme::{self, colors, leading, radius, text, weights},
@@ -241,7 +243,7 @@ impl AddServerDialog {
                     .text_size(theme::text_size(text::SMALL))
                     .line_height(theme::line_height(text::SMALL, leading::NORMAL))
                     .text_color(colors::GRAY_500)
-                    .child("Only where your user may use the console. Commands can do anything an operator can, so allow them only on a Mac you trust."),
+                    .child(format!("Only where your user may use the console. Commands can do anything an operator can, so allow them only on a {} you trust.", wording::COMPUTER)),
             )
     }
 }
@@ -263,8 +265,7 @@ impl Render for AddServerDialog {
             "Add server"
         };
         let expiry = self.expiry;
-        let pills = div()
-            .id("key-expiry")
+        let pills = crate::components::ArrowGroup::new("key-expiry")
             .flex()
             .flex_row()
             .gap_1()
@@ -277,6 +278,7 @@ impl Render for AddServerDialog {
                 let selected = choice == expiry;
                 div()
                     .id(choice.label())
+                    .keyboard_focus()
                     .px_3()
                     .py_1()
                     .rounded(radius::MD)
@@ -309,9 +311,9 @@ impl Render for AddServerDialog {
                             .text_size(theme::text_size(text::MEDIUM))
                             .text_color(colors::GRAY_400)
                             .child(if self.signing_in {
-                                "Sign in to start and stop servers and see the ones that aren't listed publicly. Lodestone Launcher makes its own key for this Mac; your password isn't kept."
+                                format!("Sign in to start and stop servers and see the ones that aren't listed publicly. Lodestone Launcher makes its own key for this {}; your password isn't kept.", wording::COMPUTER)
                             } else {
-                                "The address of a Lodestone core. Without signing in you see the servers its owner lists publicly."
+                                "The address of a Lodestone core. Without signing in you see the servers its owner lists publicly.".to_string()
                             }),
                     )
                     .child(label("Address"))
@@ -330,7 +332,7 @@ impl Render for AddServerDialog {
                                 div()
                                     .text_size(theme::text_size(text::SMALL))
                                     .text_color(colors::GRAY_500)
-                                    .child("This Mac's key expires after"),
+                                    .child(format!("This {}'s key expires after", wording::COMPUTER)),
                             )
                             .child(pills),
                     )

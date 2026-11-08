@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use super::{
     platform::{Arch, Os, Platform},
+    process::NoConsoleWindow as _,
     rules::{self, Features},
     version::{Argument, VersionJson},
 };
@@ -194,7 +195,8 @@ impl LaunchCommand {
         command
             .args(&self.args)
             .current_dir(&self.cwd)
-            .envs(self.env.iter().map(|(key, value)| (key, value)));
+            .envs(self.env.iter().map(|(key, value)| (key, value)))
+            .no_console_window();
         command
     }
 }

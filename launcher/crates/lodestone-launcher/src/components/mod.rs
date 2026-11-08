@@ -5,6 +5,7 @@
 mod button;
 mod dialog;
 mod dialog_slot;
+pub mod focus;
 mod icon;
 mod list_row;
 mod play_button;
@@ -16,6 +17,7 @@ mod toggle;
 pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
 pub use dialog::Dialog;
 pub use dialog_slot::{DialogSlot, EXIT, EXIT_REDUCED, Presence};
+pub use focus::{ArrowGroup, FocusScope, KeyboardFocus};
 pub use icon::Icon;
 pub use list_row::ListRow;
 pub use play_button::{PlayButton, PlayButtonState};
@@ -30,6 +32,6 @@ type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 /// Registers the components' key bindings. Call once at startup.
 pub fn init(cx: &mut App) {
-    dialog::init(cx);
+    focus::init(cx);
     text_input::init(cx);
 }

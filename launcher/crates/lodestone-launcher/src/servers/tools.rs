@@ -14,6 +14,7 @@ use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     Render, SharedString, Window, div, prelude::*,
 };
+use launcher_core::wording;
 use launcher_core::{
     Secret,
     cores::{
@@ -155,7 +156,7 @@ impl ServerTools {
         let password = self.password.read(cx).text().to_string();
         if username.is_empty() || password.is_empty() {
             self.result = Some((
-                "Enter your username and password for this core. Downloading a world needs permission to read the server's files, which this Mac's key doesn't have.".into(),
+                format!("Enter your username and password for this core. Downloading a world needs permission to read the server's files, which this {}'s key doesn't have.", wording::COMPUTER).into(),
                 true,
             ));
             cx.notify();
@@ -313,9 +314,9 @@ impl Render for ServerTools {
                 .child(pack_section)
                 .child(label("World"))
                 .child(note(if stopped {
-                    "A singleplayer copy of the server's world, in a new world folder. Changes you make in it stay on this Mac."
+                    format!("A singleplayer copy of the server's world, in a new world folder. Changes you make in it stay on this {}.", wording::COMPUTER)
                 } else {
-                    "Stop the server to download its world: a running server can be writing to it."
+                    "Stop the server to download its world: a running server can be writing to it.".to_string()
                 }))
                 .child(self.username.clone())
                 .child(self.password.clone())
