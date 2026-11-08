@@ -606,6 +606,28 @@ fn crlf_files_keep_their_line_endings() {
 }
 
 #[test]
+fn lines_that_arent_utf8_are_kept() {
+    // A Windows-1252 server name, as 1.12.2 writes it on Windows.
+    let world = World::new();
+    let a = world.instance("a", None);
+    let path = a.join("minecraft/options.txt");
+    let original = b"version:1343\nlastServer:caf\xe9.example.net\nmouseSensitivity:0.5\nfov:0.0\n";
+    fs::write(&path, original).unwrap();
+    world.set(&[("mouseSensitivity", "0.7")]);
+    world.launch("a", "1.12.2");
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        b"version:1343\nlastServer:caf\xe9.example.net\nmouseSensitivity:0.7\nfov:0.0\n"
+    );
+    set_overrides(&a, ["fov"], true).unwrap();
+    set_instance_value(&a, "1.12.2", None, "fov", "0.25").unwrap();
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        b"version:1343\nlastServer:caf\xe9.example.net\nmouseSensitivity:0.7\nfov:0.25\n"
+    );
+}
+
+#[test]
 fn copy_from_instance_and_reset() {
     let world = World::new();
     let a = world.instance("a", Some(&fixture("1.12.2")));
