@@ -98,6 +98,7 @@ export default function ModrinthSearch({
   placeholder,
   toolbar,
   installedProjectIds,
+  showClientSide = false,
   onPick,
 }: {
   projectType: ModrinthProjectType;
@@ -109,6 +110,8 @@ export default function ModrinthSearch({
   /** filters and sort controls, shown under the search box */
   toolbar?: ReactNode;
   installedProjectIds?: Set<string>;
+  /** for mods: show on each result whether players need it too */
+  showClientSide?: boolean;
   onPick: (pick: ModrinthPick) => void;
 }) {
   const initialIsLink = looksLikeModrinthLink(initialText.trim());
@@ -248,6 +251,7 @@ export default function ModrinthSearch({
                 key={hit.project_id}
                 hit={hit}
                 installed={installedProjectIds?.has(hit.project_id)}
+                showClientSide={showClientSide}
                 onClick={() =>
                   onPick({
                     projectId: hit.project_id,
