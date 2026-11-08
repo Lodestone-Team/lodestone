@@ -1,0 +1,11 @@
+{
+  "name": "Fabulously Fabric",
+  "gameVersion": "1.21.1",
+  "baseModLoader": {
+    "name": "fabric-0.16.9-1.21.1",
+    "minecraftVersion": "1.21.1",
+    "type": 4
+  },
+  "isMemoryOverride": false,
+  "allocatedMemory": 4096
+}

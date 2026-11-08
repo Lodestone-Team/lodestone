@@ -1,0 +1,24 @@
+{
+  "path": "Quilt Fun",
+  "install_stage": "installed",
+  "metadata": {
+    "name": "Quilt Fun",
+    "icon": null,
+    "groups": [],
+    "game_version": "1.20.1",
+    "loader": "quilt",
+    "loader_version": {
+      "id": "0.26.0",
+      "url": "",
+      "stable": true
+    }
+  },
+  "java": {
+    "extra_arguments": [
+      "-Dq=1"
+    ]
+  },
+  "memory": {
+    "maximum": 3000
+  }
+}

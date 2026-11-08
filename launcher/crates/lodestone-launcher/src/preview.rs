@@ -67,6 +67,8 @@ pub const SCENES: &[&str] = &[
     "screenshot-view",
     "shared-settings",
     "instance-shared-settings",
+    "import",
+    "import-progress",
 ];
 
 /// Scenes of the Worlds tab.
@@ -85,6 +87,7 @@ fn has_instances(scene: &str) -> bool {
         || is_worlds_scene(scene)
         || scene == "loader-change"
         || shared::is_scene(scene)
+        || scene.starts_with("import")
 }
 
 pub fn requested_scene() -> Option<String> {
@@ -370,6 +373,7 @@ fn sample_log() -> Vec<LogLine> {
 }
 
 mod content;
+mod import;
 mod modpacks;
 mod shared;
 mod worlds;
@@ -446,6 +450,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 });
             }
         }
+        "import" | "import-progress" => import::apply(scene, shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),
