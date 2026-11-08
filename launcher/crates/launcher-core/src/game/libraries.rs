@@ -22,7 +22,7 @@ use super::{
 pub struct Remote {
     pub url: String,
     pub sha1: String,
-    pub size: u64,
+    pub size: Option<u64>,
 }
 
 impl From<&Artifact> for Remote {
@@ -40,9 +40,11 @@ impl From<&Artifact> for Remote {
 pub struct LibraryFile {
     pub name: String,
     pub path: PathBuf,
-    /// Where to get it. `None` for libraries that are only installed locally (mod
-    /// loaders, in later milestones); a missing one is an error at launch.
+    /// Where to get it. `None` for files a mod loader's installer provides; a missing
+    /// one is an error at launch.
     pub remote: Option<Remote>,
+    /// The expected SHA-1 of a file without a download, when the version file has it.
+    pub sha1: Option<String>,
 }
 
 /// A jar of old-style natives to extract.
@@ -141,7 +143,12 @@ fn library_file(
     Ok(LibraryFile {
         name: library.name.clone(),
         path: safe_relative_path(&path)?,
-        remote: artifact.map(Remote::from),
+        remote: artifact
+            .filter(|artifact| !artifact.url.is_empty())
+            .map(Remote::from),
+        sha1: artifact
+            .filter(|artifact| artifact.url.is_empty() && !artifact.sha1.is_empty())
+            .map(|artifact| artifact.sha1.clone()),
     })
 }
 

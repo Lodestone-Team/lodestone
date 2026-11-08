@@ -6,10 +6,15 @@
 //! 2. the Java runtime from Mojang's runtime manifest, unless the instance has a Java
 //!    override;
 //! 3. the client jar, the libraries and the Log4j config;
-//! 4. the asset index and its objects, plus the by-name copies old versions read.
+//! 4. for an instance with a mod loader: the loader's profile, merged onto the
+//!    version (see [`super::loaders`]), its libraries, and for Forge and NeoForge the
+//!    installer's files and processors;
+//! 5. the asset index and its objects, plus the by-name copies old versions read.
 //!
 //! Each step reports its [`Stage`] and the download engine's counters, and stops when
 //! the [`CancelToken`] is set.
+
+mod loader;
 
 use std::{
     fs, io,
@@ -28,6 +33,7 @@ use super::{
     },
     launch::LaunchPaths,
     libraries::{self, Selection},
+    loaders::{self, LoaderChoice},
     mojang::{MojangUrls, UrlError},
     natives,
     platform::{self, Arch, Platform},
@@ -45,6 +51,10 @@ pub enum Stage {
     Preparing,
     Java,
     Libraries,
+    /// Fetching the mod loader's profile or installer.
+    Loader,
+    /// Running Forge's or NeoForge's installer processors.
+    Processors,
     Assets,
     Natives,
     Starting,
@@ -56,6 +66,8 @@ impl Stage {
             Stage::Preparing => "Preparing",
             Stage::Java => "Downloading Java",
             Stage::Libraries => "Downloading libraries",
+            Stage::Loader => "Installing the mod loader",
+            Stage::Processors => "Patching Minecraft for the mod loader",
             Stage::Assets => "Downloading assets",
             Stage::Natives => "Extracting natives",
             Stage::Starting => "Starting Java",
@@ -71,6 +83,8 @@ pub struct InstallProgress {
     /// Files trusted from install records, hashed and downloaded, over the whole
     /// install.
     pub stats: RunStats,
+    /// Lines for the console (the loader installer's output), taken by the UI.
+    notes: Mutex<Vec<String>>,
 }
 
 impl InstallProgress {
@@ -84,6 +98,19 @@ impl InstallProgress {
 
     pub fn snapshot(&self) -> (Stage, ProgressSnapshot) {
         (self.stage(), self.downloads.snapshot())
+    }
+
+    /// Adds a line for the console.
+    pub fn note(&self, line: impl Into<String>) {
+        self.notes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(line.into());
+    }
+
+    /// The lines added since the last call.
+    pub fn take_notes(&self) -> Vec<String> {
+        std::mem::take(&mut *self.notes.lock().unwrap_or_else(|p| p.into_inner()))
     }
 }
 
@@ -273,9 +300,11 @@ impl Installer {
 
     /// Installs `id` and returns what launching it needs. Files the install records
     /// vouch for are not hashed again.
+    #[allow(clippy::too_many_arguments)]
     pub async fn prepare(
         &self,
         id: &str,
+        loader: Option<&LoaderChoice>,
         machine: &Platform,
         java: &JavaChoice,
         game_dir: &Path,
@@ -284,6 +313,7 @@ impl Installer {
     ) -> Result<Prepared, InstallError> {
         self.prepare_with(
             id,
+            loader,
             machine,
             java,
             game_dir,
@@ -301,6 +331,7 @@ impl Installer {
     pub async fn prepare_with(
         &self,
         id: &str,
+        loader: Option<&LoaderChoice>,
         machine: &Platform,
         java: &JavaChoice,
         game_dir: &Path,
@@ -309,7 +340,18 @@ impl Installer {
         cancel: &CancelToken,
     ) -> Result<Prepared, InstallError> {
         progress.set_stage(Stage::Preparing);
-        let version = self.version_json(id, progress, cancel).await?;
+        let vanilla = self.version_json(id, progress, cancel).await?;
+        let child = match loader {
+            Some(choice) => Some(
+                self.loader_profile(choice, &vanilla, progress, cancel)
+                    .await?,
+            ),
+            None => None,
+        };
+        let version = match &child {
+            Some(child) => loaders::merge(&child.version, &vanilla),
+            None => vanilla.clone(),
+        };
         let java_arch = libraries::java_arch(&version, machine);
 
         // The Java runtime.
@@ -325,43 +367,30 @@ impl Installer {
             && machine.arch == Arch::Arm64
             && java_platform.arch == Arch::X86_64;
 
-        // The client jar, the libraries and the logging config.
+        // The vanilla client jar, libraries and logging config, under the vanilla
+        // version's record, as for an instance without a loader.
         progress.set_stage(Stage::Libraries);
-        let libraries = libraries::select(&version, &java_platform, &Features::default())
+        let vanilla_libraries = libraries::select(&vanilla, &java_platform, &Features::default())
             .map_err(|err| InstallError::Invalid(err.to_string()))?;
-        let version_dir = self.data.versions_dir().join(&version.id);
-        let client_jar = version_dir.join(format!("{}.jar", version.id));
-        let mut items = Vec::new();
-        let client = version.client_download().ok_or_else(|| {
+        let vanilla_jar = self
+            .data
+            .versions_dir()
+            .join(&vanilla.id)
+            .join(format!("{}.jar", vanilla.id));
+        let client = vanilla.client_download().ok_or_else(|| {
             InstallError::Invalid(format!("Minecraft {id} has no client download"))
         })?;
-        items.push(DownloadItem {
-            url: self.urls.resolve(&client.url)?,
-            dest: client_jar.clone(),
-            sha1: client.sha1.clone(),
-            size: Some(client.size),
-            executable: false,
-        });
-        let libraries_dir = self.data.libraries_dir();
-        for file in libraries.files() {
-            let dest = libraries_dir.join(&file.path);
-            match &file.remote {
-                Some(remote) => items.push(DownloadItem {
-                    url: self.urls.resolve(&remote.url)?,
-                    dest,
-                    sha1: remote.sha1.clone(),
-                    size: Some(remote.size),
-                    executable: false,
-                }),
-                None if dest.is_file() => {}
-                None => {
-                    return Err(InstallError::Invalid(format!(
-                        "the library {} has no download and isn't installed",
-                        file.name
-                    )));
-                }
-            }
-        }
+        let client_item = |dest: PathBuf| -> Result<DownloadItem, InstallError> {
+            Ok(DownloadItem {
+                url: self.urls.resolve(&client.url)?,
+                dest,
+                sha1: client.sha1.clone(),
+                size: Some(client.size),
+                executable: false,
+            })
+        };
+        let mut items = vec![client_item(vanilla_jar.clone())?];
+        items.extend(self.library_downloads(&vanilla_libraries)?);
         let logging_config = match version.client_logging() {
             Some(logging) => {
                 let name = libraries::safe_relative_path(&logging.file.id)
@@ -379,9 +408,68 @@ impl Installer {
             None => None,
         };
         let record_path =
-            install_record::version_record_path(&self.data.versions_dir(), &version.id);
-        self.run_recorded(items, &record_path, &version.sha1, verify, progress, cancel)
+            install_record::version_record_path(&self.data.versions_dir(), &vanilla.id);
+        self.run_recorded(items, &record_path, &vanilla.sha1, verify, progress, cancel)
             .await?;
+
+        // The loader's libraries, the processors' libraries, and the client jar under
+        // the loader's name, which Forge's `-DignoreList` expects.
+        let (libraries, client_jar) = match &child {
+            None => (vanilla_libraries, vanilla_jar),
+            Some(child) => {
+                let merged = libraries::select(&version, &java_platform, &Features::default())
+                    .map_err(|err| InstallError::Invalid(err.to_string()))?;
+                let client_jar = self
+                    .data
+                    .versions_dir()
+                    .join(&version.id)
+                    .join(format!("{}.jar", version.id));
+                link_or_copy(&vanilla_jar, &client_jar).map_err(io_err(&client_jar))?;
+                let mut items = vec![client_item(client_jar.clone())?];
+                let vanilla_paths: std::collections::HashSet<&Path> = vanilla_libraries
+                    .files()
+                    .map(|f| f.path.as_path())
+                    .collect();
+                let loader_only = Selection {
+                    classpath: merged
+                        .classpath
+                        .iter()
+                        .filter(|f| !vanilla_paths.contains(f.path.as_path()))
+                        .cloned()
+                        .collect(),
+                    natives: Vec::new(),
+                };
+                items.extend(self.library_downloads(&loader_only)?);
+                items.extend(self.processor_downloads(&version.id)?);
+                let record_path =
+                    install_record::version_record_path(&self.data.versions_dir(), &version.id);
+                self.run_recorded(items, &record_path, &version.sha1, verify, progress, cancel)
+                    .await?;
+                if let Some(installer) = &child.installer {
+                    self.restore_installer_files(&child.version, installer, verify)?;
+                    self.run_processors(
+                        &version.id,
+                        installer,
+                        &vanilla,
+                        &vanilla_jar,
+                        &java_path,
+                        verify,
+                        progress,
+                        cancel,
+                    )?;
+                }
+                (merged, client_jar)
+            }
+        };
+        // Files without a download come from the loader's installer.
+        for file in libraries.files().filter(|file| file.remote.is_none()) {
+            if !self.data.libraries_dir().join(&file.path).is_file() {
+                return Err(InstallError::Invalid(format!(
+                    "the library {} has no download and isn't installed",
+                    file.name
+                )));
+            }
+        }
 
         // The assets.
         progress.set_stage(Stage::Assets);
@@ -399,6 +487,25 @@ impl Installer {
             logging_config,
             assets_layout,
         })
+    }
+
+    /// The downloads of the libraries in `selection` that have one.
+    fn library_downloads(&self, selection: &Selection) -> Result<Vec<DownloadItem>, InstallError> {
+        let libraries_dir = self.data.libraries_dir();
+        selection
+            .files()
+            .filter_map(|file| {
+                let remote = file.remote.as_ref()?;
+                Some(self.urls.resolve(&remote.url).map(|url| DownloadItem {
+                    url,
+                    dest: libraries_dir.join(&file.path),
+                    sha1: remote.sha1.clone(),
+                    size: remote.size,
+                    executable: false,
+                }))
+            })
+            .collect::<Result<_, _>>()
+            .map_err(InstallError::from)
     }
 
     /// Runs the downloads with the install record at `record_path`, keyed by `key`,
@@ -581,6 +688,25 @@ impl Installer {
         }
         Ok(layout)
     }
+}
+
+/// Makes `to` the same file as `from`: a hard link, or a copy where links don't
+/// work. An existing `to` with the same size is kept; the download engine checks it.
+fn link_or_copy(from: &Path, to: &Path) -> io::Result<()> {
+    if let (Ok(a), Ok(b)) = (fs::metadata(from), fs::metadata(to))
+        && a.len() == b.len()
+    {
+        return Ok(());
+    }
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = to.with_extension("jar.linking");
+    let _ = fs::remove_file(&tmp);
+    if fs::hard_link(from, &tmp).is_err() {
+        fs::copy(from, &tmp)?;
+    }
+    fs::rename(&tmp, to)
 }
 
 impl Prepared {

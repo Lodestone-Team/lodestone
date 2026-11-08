@@ -236,6 +236,7 @@ fn installs_a_version_with_the_x64_runtime_under_rosetta() {
     let progress = InstallProgress::default();
     let prepared = block_on(fixture.installer(yes).prepare(
         "test-1.0",
+        None,
         &apple_silicon(),
         &JavaChoice::Mojang,
         &game_dir,
@@ -330,6 +331,7 @@ fn installs_a_version_with_the_x64_runtime_under_rosetta() {
     let progress = InstallProgress::default();
     block_on(fixture.installer(yes).prepare(
         "test-1.0",
+        None,
         &apple_silicon(),
         &JavaChoice::Mojang,
         &game_dir,
@@ -350,6 +352,7 @@ fn explains_when_rosetta_is_missing() {
     let fixture = fixture();
     let err = block_on(fixture.installer(no).prepare(
         "test-1.0",
+        None,
         &apple_silicon(),
         &JavaChoice::Mojang,
         &fixture.data.path().join("game"),
@@ -368,6 +371,7 @@ fn a_java_override_skips_the_runtime() {
     let fixture = fixture();
     let prepared = block_on(fixture.installer(no).prepare(
         "test-1.0",
+        None,
         &Platform::new(Os::MacOs, Arch::X86_64, "14.6.1"),
         &JavaChoice::Override("/opt/java/bin/java".into()),
         &fixture.data.path().join("game"),
@@ -390,6 +394,7 @@ fn works_offline_from_what_is_installed() {
     let installer = fixture.installer(yes);
     block_on(installer.prepare(
         "test-1.0",
+        None,
         &apple_silicon(),
         &JavaChoice::Mojang,
         &game_dir,
@@ -412,6 +417,7 @@ fn works_offline_from_what_is_installed() {
     }
     let prepared = block_on(installer.prepare(
         "test-1.0",
+        None,
         &apple_silicon(),
         &JavaChoice::Mojang,
         &game_dir,
@@ -423,6 +429,7 @@ fn works_offline_from_what_is_installed() {
     // An unknown version is still an error.
     let err = block_on(installer.prepare(
         "9.9.9",
+        None,
         &apple_silicon(),
         &JavaChoice::Mojang,
         &game_dir,
@@ -446,6 +453,7 @@ fn reports_a_tampered_version_file() {
     fixture.server.serve(manifest, Entry::ok(value.to_string()));
     let err = block_on(fixture.installer(yes).prepare(
         "test-1.0",
+        None,
         &apple_silicon(),
         &JavaChoice::Mojang,
         &fixture.data.path().join("game"),
@@ -468,6 +476,7 @@ fn runs_the_game_and_detects_the_crash() {
     let natives = fixture.data.path().join("instances/test/natives");
     let prepared = block_on(fixture.installer(yes).prepare(
         "test-1.0",
+        None,
         &apple_silicon(),
         &JavaChoice::Mojang,
         &game_dir,
@@ -609,6 +618,7 @@ fn install_counts(fixture: &Fixture, verify: Verify) -> (u64, u64, u64) {
     let progress = InstallProgress::default();
     block_on(fixture.installer(yes).prepare_with(
         "test-1.0",
+        None,
         &apple_silicon(),
         &JavaChoice::Mojang,
         &fixture.data.path().join("game"),

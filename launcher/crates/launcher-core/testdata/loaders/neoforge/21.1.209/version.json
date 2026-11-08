@@ -1,0 +1,558 @@
+{
+ "id": "neoforge-21.1.209",
+ "time": "2025-09-15T11:22:30.534405084",
+ "releaseTime": "2025-09-15T11:22:30.534405084",
+ "type": "release",
+ "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+ "inheritsFrom": "1.21.1",
+ "arguments": {
+  "game": [
+   "--fml.neoForgeVersion",
+   "21.1.209",
+   "--fml.fmlVersion",
+   "4.0.41",
+   "--fml.mcVersion",
+   "1.21.1",
+   "--fml.neoFormVersion",
+   "20240808.144430",
+   "--launchTarget",
+   "forgeclient"
+  ],
+  "jvm": [
+   "-Djava.net.preferIPv6Addresses=system",
+   "-DignoreList=client-extra,${version_name}.jar",
+   "-DlibraryDirectory=${library_directory}",
+   "-p",
+   "${library_directory}/cpw/mods/bootstraplauncher/2.0.2/bootstraplauncher-2.0.2.jar${classpath_separator}${library_directory}/cpw/mods/securejarhandler/3.0.8/securejarhandler-3.0.8.jar${classpath_separator}${library_directory}/org/ow2/asm/asm-commons/9.8/asm-commons-9.8.jar${classpath_separator}${library_directory}/org/ow2/asm/asm-util/9.8/asm-util-9.8.jar${classpath_separator}${library_directory}/org/ow2/asm/asm-analysis/9.8/asm-analysis-9.8.jar${classpath_separator}${library_directory}/org/ow2/asm/asm-tree/9.8/asm-tree-9.8.jar${classpath_separator}${library_directory}/org/ow2/asm/asm/9.8/asm-9.8.jar${classpath_separator}${library_directory}/net/neoforged/JarJarFileSystems/0.4.1/JarJarFileSystems-0.4.1.jar",
+   "--add-modules",
+   "ALL-MODULE-PATH",
+   "--add-opens",
+   "java.base/java.util.jar=cpw.mods.securejarhandler",
+   "--add-opens",
+   "java.base/java.lang.invoke=cpw.mods.securejarhandler",
+   "--add-exports",
+   "java.base/sun.security.util=cpw.mods.securejarhandler",
+   "--add-exports",
+   "jdk.naming.dns/com.sun.jndi.dns=java.naming"
+  ]
+ },
+ "libraries": [
+  {
+   "name": "net.neoforged.fancymodloader:earlydisplay:4.0.41",
+   "downloads": {
+    "artifact": {
+     "sha1": "53dfbd387ed1b88c7d144bdb6551b7f57d5da6d7",
+     "size": 261715,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/fancymodloader/earlydisplay/4.0.41/earlydisplay-4.0.41.jar",
+     "path": "net/neoforged/fancymodloader/earlydisplay/4.0.41/earlydisplay-4.0.41.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged.fancymodloader:loader:4.0.41",
+   "downloads": {
+    "artifact": {
+     "sha1": "3aebc81b9347fa87bb629ffaed20276f2a4c944e",
+     "size": 504881,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/fancymodloader/loader/4.0.41/loader-4.0.41.jar",
+     "path": "net/neoforged/fancymodloader/loader/4.0.41/loader-4.0.41.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged.accesstransformers:at-modlauncher:10.0.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "5aba50202aceead086bc09fbc2751c9f05cb4890",
+     "size": 2347,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/accesstransformers/at-modlauncher/10.0.1/at-modlauncher-10.0.1.jar",
+     "path": "net/neoforged/accesstransformers/at-modlauncher/10.0.1/at-modlauncher-10.0.1.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:accesstransformers:10.0.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "fd83b5725f76eae9115e9355fa1c456a6a441400",
+     "size": 67234,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/accesstransformers/10.0.1/accesstransformers-10.0.1.jar",
+     "path": "net/neoforged/accesstransformers/10.0.1/accesstransformers-10.0.1.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:bus:8.0.5",
+   "downloads": {
+    "artifact": {
+     "sha1": "5b2d33285ab5d1554e9798ad98c40d6ea3868bd5",
+     "size": 30340,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/bus/8.0.5/bus-8.0.5.jar",
+     "path": "net/neoforged/bus/8.0.5/bus-8.0.5.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:coremods:7.0.3",
+   "downloads": {
+    "artifact": {
+     "sha1": "09147e6f638b4272b3bd5fc8f92ad37802512c6c",
+     "size": 22659,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/coremods/7.0.3/coremods-7.0.3.jar",
+     "path": "net/neoforged/coremods/7.0.3/coremods-7.0.3.jar"
+    }
+   }
+  },
+  {
+   "name": "cpw.mods:modlauncher:11.0.5",
+   "downloads": {
+    "artifact": {
+     "sha1": "b8f0d49294f733fdb6173931b263553e943dc950",
+     "size": 116486,
+     "url": "https://maven.neoforged.net/releases/cpw/mods/modlauncher/11.0.5/modlauncher-11.0.5.jar",
+     "path": "cpw/mods/modlauncher/11.0.5/modlauncher-11.0.5.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:mergetool:2.0.0:api",
+   "downloads": {
+    "artifact": {
+     "sha1": "52fe1949be64e3303aabaaa21e315f551db9c9f4",
+     "size": 2550,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/mergetool/2.0.0/mergetool-2.0.0-api.jar",
+     "path": "net/neoforged/mergetool/2.0.0/mergetool-2.0.0-api.jar"
+    }
+   }
+  },
+  {
+   "name": "com.electronwill.night-config:toml:3.8.3",
+   "downloads": {
+    "artifact": {
+     "sha1": "90b2fd6efcb4a7d5b9810cf78f9d824994d717f2",
+     "size": 39516,
+     "url": "https://maven.neoforged.net/releases/com/electronwill/night-config/toml/3.8.3/toml-3.8.3.jar",
+     "path": "com/electronwill/night-config/toml/3.8.3/toml-3.8.3.jar"
+    }
+   }
+  },
+  {
+   "name": "com.electronwill.night-config:core:3.8.3",
+   "downloads": {
+    "artifact": {
+     "sha1": "b442a95f09e349927f5a945ecb594455870fcf4f",
+     "size": 382911,
+     "url": "https://maven.neoforged.net/releases/com/electronwill/night-config/core/3.8.3/core-3.8.3.jar",
+     "path": "com/electronwill/night-config/core/3.8.3/core-3.8.3.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:JarJarSelector:0.4.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "fb3cc7a58af22ad2880adb98af6d518128c47dae",
+     "size": 17168,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/JarJarSelector/0.4.1/JarJarSelector-0.4.1.jar",
+     "path": "net/neoforged/JarJarSelector/0.4.1/JarJarSelector-0.4.1.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:JarJarMetadata:0.4.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "f8da03683dc81694556dc3e177c5e3bb77ae6fcb",
+     "size": 15648,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/JarJarMetadata/0.4.1/JarJarMetadata-0.4.1.jar",
+     "path": "net/neoforged/JarJarMetadata/0.4.1/JarJarMetadata-0.4.1.jar"
+    }
+   }
+  },
+  {
+   "name": "org.apache.maven:maven-artifact:3.8.5",
+   "downloads": {
+    "artifact": {
+     "sha1": "4433f50c07debefaed0553bd0068f4f48d449313",
+     "size": 58077,
+     "url": "https://maven.neoforged.net/releases/org/apache/maven/maven-artifact/3.8.5/maven-artifact-3.8.5.jar",
+     "path": "org/apache/maven/maven-artifact/3.8.5/maven-artifact-3.8.5.jar"
+    }
+   }
+  },
+  {
+   "name": "net.jodah:typetools:0.6.3",
+   "downloads": {
+    "artifact": {
+     "sha1": "a01aaa6ddaea9ec07ec4f209487b7a46a526283a",
+     "size": 18281,
+     "url": "https://maven.neoforged.net/releases/net/jodah/typetools/0.6.3/typetools-0.6.3.jar",
+     "path": "net/jodah/typetools/0.6.3/typetools-0.6.3.jar"
+    }
+   }
+  },
+  {
+   "name": "net.minecrell:terminalconsoleappender:1.3.0",
+   "downloads": {
+    "artifact": {
+     "sha1": "b562e9bb61235c9520e26282cdee71f8f802d1fc",
+     "size": 16949,
+     "url": "https://maven.neoforged.net/releases/net/minecrell/terminalconsoleappender/1.3.0/terminalconsoleappender-1.3.0.jar",
+     "path": "net/minecrell/terminalconsoleappender/1.3.0/terminalconsoleappender-1.3.0.jar"
+    }
+   }
+  },
+  {
+   "name": "net.fabricmc:sponge-mixin:0.15.2+mixin.0.8.7",
+   "downloads": {
+    "artifact": {
+     "sha1": "2af2f021d8e02a0220dc27a7a72b4666d66d44ca",
+     "size": 1494751,
+     "url": "https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.15.2+mixin.0.8.7/sponge-mixin-0.15.2+mixin.0.8.7.jar",
+     "path": "net/fabricmc/sponge-mixin/0.15.2+mixin.0.8.7/sponge-mixin-0.15.2+mixin.0.8.7.jar"
+    }
+   }
+  },
+  {
+   "name": "org.openjdk.nashorn:nashorn-core:15.4",
+   "downloads": {
+    "artifact": {
+     "sha1": "f67f5ffaa5f5130cf6fb9b133da00c7df3b532a5",
+     "size": 2167292,
+     "url": "https://maven.neoforged.net/releases/org/openjdk/nashorn/nashorn-core/15.4/nashorn-core-15.4.jar",
+     "path": "org/openjdk/nashorn/nashorn-core/15.4/nashorn-core-15.4.jar"
+    }
+   }
+  },
+  {
+   "name": "org.apache.commons:commons-lang3:3.14.0",
+   "downloads": {
+    "artifact": {
+     "sha1": "1ed471194b02f2c6cb734a0cd6f6f107c673afae",
+     "size": 657952,
+     "url": "https://libraries.minecraft.net/org/apache/commons/commons-lang3/3.14.0/commons-lang3-3.14.0.jar",
+     "path": "org/apache/commons/commons-lang3/3.14.0/commons-lang3-3.14.0.jar"
+    }
+   }
+  },
+  {
+   "name": "cpw.mods:bootstraplauncher:2.0.2",
+   "downloads": {
+    "artifact": {
+     "sha1": "1a2d076cbc33b0520cbacd591224427b2a20047d",
+     "size": 11116,
+     "url": "https://maven.neoforged.net/releases/cpw/mods/bootstraplauncher/2.0.2/bootstraplauncher-2.0.2.jar",
+     "path": "cpw/mods/bootstraplauncher/2.0.2/bootstraplauncher-2.0.2.jar"
+    }
+   }
+  },
+  {
+   "name": "cpw.mods:securejarhandler:3.0.8",
+   "downloads": {
+    "artifact": {
+     "sha1": "c0ef95cecd8699a0449053ac7d9c160748d902cd",
+     "size": 103765,
+     "url": "https://maven.neoforged.net/releases/cpw/mods/securejarhandler/3.0.8/securejarhandler-3.0.8.jar",
+     "path": "cpw/mods/securejarhandler/3.0.8/securejarhandler-3.0.8.jar"
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm-commons:9.8",
+   "downloads": {
+    "artifact": {
+     "sha1": "36e4d212970388e5bd2c5180292012502df461bb",
+     "size": 73498,
+     "url": "https://maven.neoforged.net/releases/org/ow2/asm/asm-commons/9.8/asm-commons-9.8.jar",
+     "path": "org/ow2/asm/asm-commons/9.8/asm-commons-9.8.jar"
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm-util:9.8",
+   "downloads": {
+    "artifact": {
+     "sha1": "395f1c1f035258511f27bc9b2583d76e4b143f59",
+     "size": 94559,
+     "url": "https://maven.neoforged.net/releases/org/ow2/asm/asm-util/9.8/asm-util-9.8.jar",
+     "path": "org/ow2/asm/asm-util/9.8/asm-util-9.8.jar"
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm-analysis:9.8",
+   "downloads": {
+    "artifact": {
+     "sha1": "b9747a320844b6cb1eacd90d8ecfd260a16c01d3",
+     "size": 35151,
+     "url": "https://maven.neoforged.net/releases/org/ow2/asm/asm-analysis/9.8/asm-analysis-9.8.jar",
+     "path": "org/ow2/asm/asm-analysis/9.8/asm-analysis-9.8.jar"
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm-tree:9.8",
+   "downloads": {
+    "artifact": {
+     "sha1": "018419ca5b77a2f81097c741e7872e6ab8d2f40d",
+     "size": 51934,
+     "url": "https://maven.neoforged.net/releases/org/ow2/asm/asm-tree/9.8/asm-tree-9.8.jar",
+     "path": "org/ow2/asm/asm-tree/9.8/asm-tree-9.8.jar"
+    }
+   }
+  },
+  {
+   "name": "org.ow2.asm:asm:9.8",
+   "downloads": {
+    "artifact": {
+     "sha1": "dc19ecb3f7889b7860697215cae99c0f9b6f6b4b",
+     "size": 126113,
+     "url": "https://maven.neoforged.net/releases/org/ow2/asm/asm/9.8/asm-9.8.jar",
+     "path": "org/ow2/asm/asm/9.8/asm-9.8.jar"
+    }
+   }
+  },
+  {
+   "name": "net.neoforged:JarJarFileSystems:0.4.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "78f59f89defcd032ed788b151ca6a0d40ace796a",
+     "size": 31807,
+     "url": "https://maven.neoforged.net/releases/net/neoforged/JarJarFileSystems/0.4.1/JarJarFileSystems-0.4.1.jar",
+     "path": "net/neoforged/JarJarFileSystems/0.4.1/JarJarFileSystems-0.4.1.jar"
+    }
+   }
+  },
+  {
+   "name": "net.sf.jopt-simple:jopt-simple:5.0.4",
+   "downloads": {
+    "artifact": {
+     "sha1": "4fdac2fbe92dfad86aa6e9301736f6b4342a3f5c",
+     "size": 78146,
+     "url": "https://libraries.minecraft.net/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar",
+     "path": "net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar"
+    }
+   }
+  },
+  {
+   "name": "org.slf4j:slf4j-api:2.0.9",
+   "downloads": {
+    "artifact": {
+     "sha1": "7cf2726fdcfbc8610f9a71fb3ed639871f315340",
+     "size": 64579,
+     "url": "https://libraries.minecraft.net/org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar",
+     "path": "org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar"
+    }
+   }
+  },
+  {
+   "name": "org.antlr:antlr4-runtime:4.13.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "17125bae1d965624e265ef49552f6465a2bfa307",
+     "size": 326305,
+     "url": "https://maven.neoforged.net/releases/org/antlr/antlr4-runtime/4.13.1/antlr4-runtime-4.13.1.jar",
+     "path": "org/antlr/antlr4-runtime/4.13.1/antlr4-runtime-4.13.1.jar"
+    }
+   }
+  },
+  {
+   "name": "com.mojang:logging:1.2.7",
+   "downloads": {
+    "artifact": {
+     "sha1": "24cb95ffb0e3433fd6e844c04e68009e504ca1c0",
+     "size": 15343,
+     "url": "https://libraries.minecraft.net/com/mojang/logging/1.2.7/logging-1.2.7.jar",
+     "path": "com/mojang/logging/1.2.7/logging-1.2.7.jar"
+    }
+   }
+  },
+  {
+   "name": "org.apache.logging.log4j:log4j-slf4j2-impl:2.22.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "d7e6693c2606cb7e7335047d7bb96dec52db5665",
+     "size": 27364,
+     "url": "https://libraries.minecraft.net/org/apache/logging/log4j/log4j-slf4j2-impl/2.22.1/log4j-slf4j2-impl-2.22.1.jar",
+     "path": "org/apache/logging/log4j/log4j-slf4j2-impl/2.22.1/log4j-slf4j2-impl-2.22.1.jar"
+    }
+   }
+  },
+  {
+   "name": "org.apache.logging.log4j:log4j-core:2.22.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "7183a25510a02ad00cc6a95d3b3d2a7d3c5a8dc4",
+     "size": 1900022,
+     "url": "https://libraries.minecraft.net/org/apache/logging/log4j/log4j-core/2.22.1/log4j-core-2.22.1.jar",
+     "path": "org/apache/logging/log4j/log4j-core/2.22.1/log4j-core-2.22.1.jar"
+    }
+   }
+  },
+  {
+   "name": "org.apache.logging.log4j:log4j-api:2.22.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "bea6fede6328fabafd7e68363161a7ea6605abd1",
+     "size": 335001,
+     "url": "https://libraries.minecraft.net/org/apache/logging/log4j/log4j-api/2.22.1/log4j-api-2.22.1.jar",
+     "path": "org/apache/logging/log4j/log4j-api/2.22.1/log4j-api-2.22.1.jar"
+    }
+   }
+  },
+  {
+   "name": "org.jline:jline-reader:3.20.0",
+   "downloads": {
+    "artifact": {
+     "sha1": "8f15415b022a25b473e8e16c28ae913186ffb9c4",
+     "size": 171052,
+     "url": "https://maven.neoforged.net/releases/org/jline/jline-reader/3.20.0/jline-reader-3.20.0.jar",
+     "path": "org/jline/jline-reader/3.20.0/jline-reader-3.20.0.jar"
+    }
+   }
+  },
+  {
+   "name": "org.jline:jline-terminal:3.20.0",
+   "downloads": {
+    "artifact": {
+     "sha1": "d0ddcc708ddf527a3454c941b7b9225cc83a15ff",
+     "size": 228481,
+     "url": "https://maven.neoforged.net/releases/org/jline/jline-terminal/3.20.0/jline-terminal-3.20.0.jar",
+     "path": "org/jline/jline-terminal/3.20.0/jline-terminal-3.20.0.jar"
+    }
+   }
+  },
+  {
+   "name": "commons-io:commons-io:2.15.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "f11560da189ab563a5c8e351941415430e9304ea",
+     "size": 501218,
+     "url": "https://libraries.minecraft.net/commons-io/commons-io/2.15.1/commons-io-2.15.1.jar",
+     "path": "commons-io/commons-io/2.15.1/commons-io-2.15.1.jar"
+    }
+   }
+  },
+  {
+   "name": "net.minecraftforge:srgutils:0.4.15",
+   "downloads": {
+    "artifact": {
+     "sha1": "ca408b131759478f164e010fae0d73997e125fb5",
+     "size": 69393,
+     "url": "https://maven.neoforged.net/releases/net/minecraftforge/srgutils/0.4.15/srgutils-0.4.15.jar",
+     "path": "net/minecraftforge/srgutils/0.4.15/srgutils-0.4.15.jar"
+    }
+   }
+  },
+  {
+   "name": "com.google.guava:guava:32.1.2-jre",
+   "downloads": {
+    "artifact": {
+     "sha1": "5e64ec7e056456bef3a4bc4c6fdaef71e8ab6318",
+     "size": 3041591,
+     "url": "https://libraries.minecraft.net/com/google/guava/guava/32.1.2-jre/guava-32.1.2-jre.jar",
+     "path": "com/google/guava/guava/32.1.2-jre/guava-32.1.2-jre.jar"
+    }
+   }
+  },
+  {
+   "name": "com.google.guava:failureaccess:1.0.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "1dcf1de382a0bf95a3d8b0849546c88bac1292c9",
+     "size": 4617,
+     "url": "https://libraries.minecraft.net/com/google/guava/failureaccess/1.0.1/failureaccess-1.0.1.jar",
+     "path": "com/google/guava/failureaccess/1.0.1/failureaccess-1.0.1.jar"
+    }
+   }
+  },
+  {
+   "name": "com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava",
+   "downloads": {
+    "artifact": {
+     "sha1": "b421526c5f297295adef1c886e5246c39d4ac629",
+     "size": 2199,
+     "url": "https://libraries.minecraft.net/com/google/guava/listenablefuture/9999.0-empty-to-avoid-conflict-with-guava/listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar",
+     "path": "com/google/guava/listenablefuture/9999.0-empty-to-avoid-conflict-with-guava/listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar"
+    }
+   }
+  },
+  {
+   "name": "com.google.code.findbugs:jsr305:3.0.2",
+   "downloads": {
+    "artifact": {
+     "sha1": "25ea2e8b0c338a877313bd4672d3fe056ea78f0d",
+     "size": 19936,
+     "url": "https://libraries.minecraft.net/com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.jar",
+     "path": "com/google/code/findbugs/jsr305/3.0.2/jsr305-3.0.2.jar"
+    }
+   }
+  },
+  {
+   "name": "org.checkerframework:checker-qual:3.33.0",
+   "downloads": {
+    "artifact": {
+     "sha1": "de2b60b62da487644fc11f734e73c8b0b431238f",
+     "size": 223979,
+     "url": "https://libraries.minecraft.net/org/checkerframework/checker-qual/3.33.0/checker-qual-3.33.0.jar",
+     "path": "org/checkerframework/checker-qual/3.33.0/checker-qual-3.33.0.jar"
+    }
+   }
+  },
+  {
+   "name": "com.google.errorprone:error_prone_annotations:2.18.0",
+   "downloads": {
+    "artifact": {
+     "sha1": "89b684257096f548fa39a7df9fdaa409d4d4df91",
+     "size": 16017,
+     "url": "https://libraries.minecraft.net/com/google/errorprone/error_prone_annotations/2.18.0/error_prone_annotations-2.18.0.jar",
+     "path": "com/google/errorprone/error_prone_annotations/2.18.0/error_prone_annotations-2.18.0.jar"
+    }
+   }
+  },
+  {
+   "name": "com.google.j2objc:j2objc-annotations:2.8",
+   "downloads": {
+    "artifact": {
+     "sha1": "c85270e307e7b822f1086b93689124b89768e273",
+     "size": 9301,
+     "url": "https://libraries.minecraft.net/com/google/j2objc/j2objc-annotations/2.8/j2objc-annotations-2.8.jar",
+     "path": "com/google/j2objc/j2objc-annotations/2.8/j2objc-annotations-2.8.jar"
+    }
+   }
+  },
+  {
+   "name": "com.google.code.gson:gson:2.10.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "b3add478d4382b78ea20b1671390a858002feb6c",
+     "size": 283367,
+     "url": "https://libraries.minecraft.net/com/google/code/gson/gson/2.10.1/gson-2.10.1.jar",
+     "path": "com/google/code/gson/gson/2.10.1/gson-2.10.1.jar"
+    }
+   }
+  },
+  {
+   "name": "org.codehaus.plexus:plexus-utils:3.3.0",
+   "downloads": {
+    "artifact": {
+     "sha1": "cf43b5391de623b36fe066a21127baef82c64022",
+     "size": 263253,
+     "url": "https://maven.neoforged.net/releases/org/codehaus/plexus/plexus-utils/3.3.0/plexus-utils-3.3.0.jar",
+     "path": "org/codehaus/plexus/plexus-utils/3.3.0/plexus-utils-3.3.0.jar"
+    }
+   }
+  },
+  {
+   "name": "com.machinezoo.noexception:noexception:1.7.1",
+   "downloads": {
+    "artifact": {
+     "sha1": "b65330c98e38a1f915fa54a6e5eca496505e3f0a",
+     "size": 250861,
+     "url": "https://maven.neoforged.net/releases/com/machinezoo/noexception/noexception/1.7.1/noexception-1.7.1.jar",
+     "path": "com/machinezoo/noexception/noexception/1.7.1/noexception-1.7.1.jar"
+    }
+   }
+  }
+ ]
+}
