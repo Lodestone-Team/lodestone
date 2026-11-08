@@ -39,6 +39,10 @@ pub struct Settings {
     /// while on.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub auto_groups: bool,
+    /// Settings > General > Language. Follows the system's preferred languages by
+    /// default; left out of the file while it does.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub language: Language,
     #[serde(flatten)]
     pub other: Map<String, Value>,
 }
@@ -50,9 +54,42 @@ impl Default for Settings {
             instance_defaults: InstanceDefaults::default(),
             collapsed_groups: BTreeSet::new(),
             auto_groups: true,
+            language: Language::System,
             other: Map::new(),
         }
     }
+}
+
+/// The language the launcher shows, from Settings > General.
+///
+/// A value this build does not know (from a newer build with more languages) reads as
+/// [`Language::System`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Language {
+    #[serde(rename = "en")]
+    English,
+    #[serde(rename = "fr")]
+    French,
+    #[serde(rename = "zh-Hans")]
+    SimplifiedChinese,
+    #[serde(rename = "zh-Hant")]
+    TraditionalChinese,
+    /// The first of the system's preferred languages the launcher has, else English.
+    /// Last, as serde wants of the variant that reads unknown values.
+    #[default]
+    #[serde(rename = "system", other)]
+    System,
+}
+
+impl Language {
+    /// The choices, in the order Settings lists them.
+    pub const ALL: [Language; 5] = [
+        Language::System,
+        Language::English,
+        Language::French,
+        Language::SimplifiedChinese,
+        Language::TraditionalChinese,
+    ];
 }
 
 fn yes() -> bool {
@@ -336,5 +373,35 @@ mod tests {
         assert!(max_ram_is_high(12_800, gib(16)));
         assert!(!max_ram_is_high(12_000, gib(16)));
         assert!(!max_ram_is_high(12_800, None));
+    }
+
+    #[test]
+    fn language_round_trips_and_unknown_reads_as_system() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let raw = |path: &Path| -> Value {
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+        };
+        // Left out of the file while it follows the system.
+        storage::save(&path, &Settings::default()).unwrap();
+        assert!(raw(&path).get("language").is_none());
+        update(&path, |settings| {
+            settings.language = Language::TraditionalChinese
+        })
+        .unwrap();
+        assert_eq!(raw(&path)["language"], "zh-Hant");
+        assert_eq!(
+            load_or_default(&path).language,
+            Language::TraditionalChinese
+        );
+        std::fs::write(&path, r#"{"version": 1, "language": "eo"}"#).unwrap();
+        assert_eq!(load_or_default(&path).language, Language::System);
+        for (language, code) in [
+            (Language::English, "en"),
+            (Language::French, "fr"),
+            (Language::SimplifiedChinese, "zh-Hans"),
+        ] {
+            assert_eq!(serde_json::to_value(language).unwrap(), code);
+        }
     }
 }

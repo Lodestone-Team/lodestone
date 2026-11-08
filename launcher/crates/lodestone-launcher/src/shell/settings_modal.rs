@@ -2,7 +2,9 @@
 //! pages listed on the left and the open page on the right. Other dialogs, such as
 //! signing in, open over it.
 
-use gpui::{AnyElement, Context, FocusHandle, IntoElement, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*, px,
+};
 use launcher_core::accounts::AccountKind;
 
 use super::{LauncherShell, account_box, developer};
@@ -10,11 +12,13 @@ use crate::components::KeyboardFocus;
 use crate::{
     accounts::SessionState,
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, Toggle,
+        Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, ListRow, Toggle,
         settings::{
-            CONTENT_WIDTH, SettingRow, card, left_overlay, link, muted_link, tag, unsaved_bar,
+            CONTENT_WIDTH, SettingRow, card, left_overlay, link, muted_link, popover,
+            popover_panel, select_button, tag, unsaved_bar,
         },
     },
+    i18n::{self, Language, ShellMsg, t, tr},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -424,11 +428,51 @@ impl LauncherShell {
         )
     }
 
-    /// Settings > Accounts: each account, and adding one.
-    /// Settings > General: "Group instances automatically", which applies at once.
+    /// Settings > General: the language, and "Group instances automatically". Both
+    /// apply at once.
     fn render_general_page(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let auto_groups = self.instances.read(cx).auto_groups();
-        card([SettingRow::new("Group instances automatically")
+        let instances = self.instances.read(cx);
+        let auto_groups = instances.auto_groups();
+        let language = instances.language();
+        let current = match language {
+            Language::System => tr!(
+                ShellMsg::LanguageSystemIs,
+                language = i18n::locale().native_name()
+            ),
+            other => i18n::resolve(other).native_name().to_string(),
+        };
+        let language_row = SettingRow::new(t(ShellMsg::Language))
+            .hint(t(ShellMsg::LanguageHint))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .child(
+                        select_button(
+                            "language",
+                            div().font_weight(weights::BOLD.into()).child(current),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.language_menu_open = !this.language_menu_open;
+                            cx.notify();
+                        })),
+                    )
+                    .when(self.language_menu_open, |this| {
+                        let close = cx.listener(|this, _: &(), _, cx| {
+                            this.language_menu_open = false;
+                            cx.notify();
+                        });
+                        this.child(popover(
+                            "language-popover",
+                            self.render_language_list(language, cx),
+                            move |window, cx| close(&(), window, cx),
+                        ))
+                    }),
+            );
+        card([
+            language_row.into_any_element(),
+            SettingRow::new("Group instances automatically")
             .hint("The sidebar lists instances without a group of their own by loader, such as Fabric (modded) or Vanilla, and those imported from other launchers under Imported.")
             .child(
                 Toggle::new("auto-groups", auto_groups).on_change(cx.listener(
@@ -439,7 +483,40 @@ impl LauncherShell {
                     },
                 )),
             )
-            .into_any_element()])
+            .into_any_element(),
+        ])
+    }
+
+    /// The Language list: System, then each language in its own name.
+    fn render_language_list(
+        &self,
+        selected: Language,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let mut list = popover_panel("language-list")
+            .w(px(240.))
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.language_menu_open = false;
+                cx.notify();
+            }));
+        for (index, language) in Language::ALL.into_iter().enumerate() {
+            let label: SharedString = match language {
+                Language::System => t(ShellMsg::LanguageSystem).into(),
+                other => i18n::resolve(other).native_name().into(),
+            };
+            let row = ListRow::new(("language-choice", index), label)
+                .selected(language == selected)
+                .when(language == Language::System, |row| {
+                    row.detail(i18n::resolve(Language::System).native_name())
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.language_menu_open = false;
+                    this.instances
+                        .update(cx, |instances, cx| instances.set_language(language, cx));
+                }));
+            list = list.child(row);
+        }
+        list
     }
 
     fn render_accounts_page(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {

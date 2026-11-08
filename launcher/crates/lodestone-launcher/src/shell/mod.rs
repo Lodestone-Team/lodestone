@@ -191,6 +191,8 @@ pub struct LauncherShell {
     /// The dialog over the window, and those still fading out.
     modal: DialogSlot<LauncherShell, Modal>,
     account_menu_open: bool,
+    /// Settings > General: the Language list is open.
+    language_menu_open: bool,
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
     top_bar_drag_pending: bool,
     /// Tracked by the outermost element; focus goes here when it is lost, so keys
@@ -311,6 +313,7 @@ impl LauncherShell {
             settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
+            language_menu_open: false,
             top_bar_drag_pending: false,
             root_focus: cx.focus_handle(),
             _focus_lost: None,
@@ -1405,6 +1408,7 @@ impl Render for LauncherShell {
             .size_full()
             .bg(colors::GRAY_875)
             .font_family(fonts::SANS)
+            .map(crate::i18n::locale_fonts)
             .text_color(colors::GRAY_300)
             .text_size(theme::text_size(text::MEDIUM))
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))

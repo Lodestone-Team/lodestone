@@ -328,6 +328,8 @@ impl Instances {
                 Some(SharedString::from(err.to_string())),
             ),
         };
+        crate::i18n::apply(settings.language);
+        crate::set_menus(cx);
         let mut this = Self {
             store,
             data_dir,
@@ -461,6 +463,21 @@ impl Instances {
         if let Err(err) = self.update_settings(|settings| settings.auto_groups = on, cx) {
             self.notice = Some(err.into());
         }
+    }
+
+    /// Settings > General > Language.
+    pub fn language(&self) -> crate::i18n::Language {
+        self.settings.language
+    }
+
+    /// Changes the language, saves it, and redraws every window in it.
+    pub fn set_language(&mut self, language: crate::i18n::Language, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.language = language, cx) {
+            self.notice = Some(err.into());
+        }
+        crate::i18n::apply(language);
+        crate::set_menus(cx);
+        cx.refresh_windows();
     }
 
     /// The instances by sidebar group, as the sidebar lists them.
@@ -1426,15 +1443,7 @@ pub fn progress_state(stage: Stage, snapshot: ProgressSnapshot) -> PlayState {
 
 /// `1234567` as `1,234,567`.
 pub fn thousands(value: u64) -> String {
-    let digits = value.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, c) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    crate::i18n::format::number(value)
 }
 
 /// "Checked 4,091 game files in 45 ms: 4,091 unchanged, 0 hashed, 0 downloaded."
@@ -1450,14 +1459,9 @@ fn check_summary(progress: &InstallProgress, elapsed: Duration) -> String {
     )
 }
 
-/// "2 h 5 min", "12 min", "Never".
+/// "2 h 5 min", "12 min", "Not played yet".
 pub fn play_time(seconds: u64) -> String {
-    match seconds {
-        0 => "Not played yet".into(),
-        1..60 => "Less than a minute".into(),
-        60..3600 => format!("{} min", seconds / 60),
-        _ => format!("{} h {} min", seconds / 3600, seconds / 60 % 60),
-    }
+    crate::i18n::format::play_time(seconds)
 }
 
 /// When something happened, relative to now, for "Last played".
@@ -1498,26 +1502,23 @@ impl Ago {
             _ if days <= 0 || elapsed < 6 * 3600 => Ago::Hours(elapsed / 3600),
             _ if days == 1 => Ago::Yesterday,
             _ if days < 7 => Ago::Days(days as u64),
-            _ if chrono::Datelike::year(&then_day) == chrono::Datelike::year(&today) => {
-                Ago::On(then_day.format("%b %-d").to_string())
-            }
-            _ => Ago::On(then_day.format("%b %-d, %Y").to_string()),
+            _ => Ago::On(crate::i18n::format::short_date(
+                then_day,
+                chrono::Datelike::year(&then_day) != chrono::Datelike::year(&today),
+            )),
         }
     }
 
     /// "Just now", "5 minutes ago", "2 hours ago", "Yesterday", "3 days ago" or
     /// "Mar 12".
     pub fn label(&self) -> String {
-        let plural = |n: u64, unit: &str| match n {
-            1 => format!("1 {unit} ago"),
-            n => format!("{n} {unit}s ago"),
-        };
+        use crate::i18n::{FormatMsg, FormatPlural, t, trn};
         match self {
-            Ago::JustNow => "Just now".into(),
-            Ago::Minutes(n) => plural(*n, "minute"),
-            Ago::Hours(n) => plural(*n, "hour"),
-            Ago::Yesterday => "Yesterday".into(),
-            Ago::Days(n) => plural(*n, "day"),
+            Ago::JustNow => t(FormatMsg::JustNow).into(),
+            Ago::Minutes(n) => trn!(FormatPlural::MinutesAgo, *n),
+            Ago::Hours(n) => trn!(FormatPlural::HoursAgo, *n),
+            Ago::Yesterday => t(FormatMsg::Yesterday).into(),
+            Ago::Days(n) => trn!(FormatPlural::DaysAgo, *n),
             Ago::On(date) => date.clone(),
         }
     }
@@ -1525,11 +1526,12 @@ impl Ago {
     /// "Played just now", "Played 2 hours ago", "Played yesterday" or "Played on
     /// Mar 12".
     pub fn played(&self) -> String {
+        use crate::i18n::{FormatMsg, t, tr};
         match self {
-            Ago::JustNow => "Played just now".into(),
-            Ago::Yesterday => "Played yesterday".into(),
-            Ago::On(date) => format!("Played on {date}"),
-            other => format!("Played {}", other.label()),
+            Ago::JustNow => t(FormatMsg::PlayedJustNow).into(),
+            Ago::Yesterday => t(FormatMsg::PlayedYesterday).into(),
+            Ago::On(date) => tr!(FormatMsg::PlayedOn, date = date),
+            other => tr!(FormatMsg::PlayedAgo, ago = other.label()),
         }
     }
 }

@@ -15,7 +15,10 @@ use gpui::{
     fill, point, prelude::*, px, relative, size,
 };
 
-use crate::theme::{self, FOCUS_RING_WIDTH, colors, leading, radius, text, weights};
+use crate::{
+    i18n::Text,
+    theme::{self, FOCUS_RING_WIDTH, colors, leading, radius, text, weights},
+};
 
 actions!(
     text_input,
@@ -79,7 +82,8 @@ pub(super) fn init(cx: &mut App) {
 pub struct TextInput {
     focus_handle: FocusHandle,
     content: SharedString,
-    placeholder: SharedString,
+    /// Looked up when drawn, so it follows the language.
+    placeholder: Text,
     disabled: bool,
     /// Shows a mask instead of the text, and never copies it, for passwords.
     masked: bool,
@@ -96,7 +100,7 @@ impl TextInput {
         Self {
             focus_handle: cx.focus_handle(),
             content: SharedString::default(),
-            placeholder: SharedString::default(),
+            placeholder: Text::default(),
             disabled: false,
             masked: false,
             selected_range: 0..0,
@@ -108,7 +112,9 @@ impl TextInput {
         }
     }
 
-    pub fn with_placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
+    /// The text shown while the field is empty: a message (`InstancesMsg::SearchLog`),
+    /// so it follows the language, or text as it is.
+    pub fn with_placeholder(mut self, placeholder: impl Into<Text>) -> Self {
         self.placeholder = placeholder.into();
         self
     }
@@ -657,7 +663,7 @@ impl Element for TextElement {
 
         // `placeholder:text-white/30`
         let (display_text, text_color): (SharedString, Hsla) = if input.content.is_empty() {
-            (input.placeholder.clone(), colors::WHITE.opacity(30).into())
+            (input.placeholder.get(), colors::WHITE.opacity(30).into())
         } else {
             (input.display_content(), style.color)
         };

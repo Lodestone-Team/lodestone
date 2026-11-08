@@ -23,6 +23,9 @@ fn main() {
             // offscreen screenshots. It never touches the Keychain or the network.
             #[cfg(feature = "screenshot")]
             if let Some(scene) = lodestone_launcher::preview::requested_scene() {
+                if let Some(locale) = lodestone_launcher::preview::requested_locale() {
+                    lodestone_launcher::i18n::force(locale);
+                }
                 let width = lodestone_launcher::preview::window_width(&scene);
                 let height = lodestone_launcher::preview::window_height(&scene);
                 let options = match (width, height) {

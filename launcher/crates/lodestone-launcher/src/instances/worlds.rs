@@ -113,15 +113,7 @@ impl EventEmitter<WorldsEvent> for WorldsView {}
 /// "Today, 14:30", "Yesterday, 09:12" or "2026-10-30".
 pub fn when(time: SystemTime) -> String {
     let local = chrono::DateTime::<chrono::Local>::from(time);
-    let today = chrono::Local::now().date_naive();
-    let day = local.date_naive();
-    if day == today {
-        format!("Today, {}", local.format("%H:%M"))
-    } else if today.pred_opt() == Some(day) {
-        format!("Yesterday, {}", local.format("%H:%M"))
-    } else {
-        local.format("%Y-%m-%d").to_string()
-    }
+    crate::i18n::format::day_and_time(local, chrono::Local::now().date_naive())
 }
 
 /// A plain file name for a world zip of `name`.
