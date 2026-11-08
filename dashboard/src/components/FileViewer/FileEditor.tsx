@@ -98,14 +98,15 @@ export function FileEditor({
           'editor.lineHighlightBackground': '#2c2e33',
         },
       });
-      // gray-850 and a light line highlight of the light theme
+      // a white page with the light theme's hover gray for the current line
       monaco.editor.defineTheme('lodestone-light', {
         base: 'vs',
         inherit: true,
         rules: [],
         colors: {
-          'editor.background': '#FAFBFC',
-          'editor.lineHighlightBackground': '#EFF1F4',
+          'editor.background': '#FFFFFF',
+          'editor.lineHighlightBackground': '#F1F4F7',
+          'editorGutter.background': '#F3F5F8',
         },
       });
       // monaco 0.55 moved languages.typescript to the top level typescript namespace

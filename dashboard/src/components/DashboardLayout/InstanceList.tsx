@@ -57,7 +57,7 @@ export default function InstanceList({
       value={selectedInstance}
       onChange={selectInstance}
     >
-      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
+      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
         ALL INSTANCES
       </RadioGroup.Label>
       {userState === 'loading' ? null : userState === 'logged-in' ? (
@@ -79,7 +79,7 @@ export default function InstanceList({
             icon={faExpand}
             className="text-h1 text-gray-faded/30"
           />
-          <p className="text-center text-medium italic text-gray-faded/30">
+          <p className="text-center text-medium italic text-gray-faded/30 light:text-ink-muted">
             Log in to view your server instances.
           </p>
         </div>

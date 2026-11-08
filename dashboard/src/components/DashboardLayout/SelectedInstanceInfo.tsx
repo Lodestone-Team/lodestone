@@ -57,7 +57,7 @@ export const SelectedInstanceInfo = ({
     // instead of flashing the "no instance selected" box.
     return (
       <SkeletonGroup className="mx-1 flex flex-col gap-y-1 px-1 pb-1">
-        <div className="text-small leading-snug font-bold text-gray-faded/30">
+        <div className="text-small leading-snug font-bold text-gray-faded/30 light:text-ink-muted">
           SELECTED INSTANCE
         </div>
         <div className="my-2 flex flex-col gap-3 border-b-2 border-gray-faded/30 pb-2">
@@ -73,10 +73,10 @@ export const SelectedInstanceInfo = ({
   if (!selectedInstance || !uuid) {
     return (
       <div className="mx-1 px-1 text-gray-faded/30">
-        <div className="text-small font-bold leading-snug text-gray-faded/30">
+        <div className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
           SELECTED INSTANCE
         </div>
-        <div className="mt-2 flex h-[17.625rem] justify-center rounded-md border border-dashed text-center text-gray-faded/30">
+        <div className="mt-2 flex h-[17.625rem] justify-center rounded-md border border-dashed text-center text-gray-faded/30 light:border-line-strong light:text-ink-muted">
           <div className="mt-20 w-[5.5rem]">
             <div className="text-h1">
               <FontAwesomeIcon icon={faExpand} />
@@ -95,7 +95,7 @@ export const SelectedInstanceInfo = ({
       className={`child:w-full mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 ${className}`}
       onChange={setPathname}
     >
-      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
+      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
         SELECTED INSTANCE
       </RadioGroup.Label>
 
@@ -124,7 +124,7 @@ export const SelectedInstanceInfo = ({
               <div
                 className={clsx(
                   setActive === tab.path
-                    ? 'text-white/50'
+                    ? 'text-white/50 light:text-blue-200'
                     : 'text-gray-faded/30'
                 )}
               >

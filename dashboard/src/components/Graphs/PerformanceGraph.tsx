@@ -50,11 +50,11 @@ const axisColors = {
     gapFill: '#A5A5AC4D',
   },
   light: {
-    label: '#4D525B',
-    edge: '#A9ADB5',
-    grid: '#E3E5E9',
-    gapLine: '#A9ADB5',
-    gapFill: '#6B707A26',
+    label: '#474D58',
+    edge: '#B9C0CB',
+    grid: '#E1E5EB',
+    gapLine: '#B9C0CB',
+    gapFill: '#5E647026',
   },
 };
 

@@ -12,7 +12,7 @@ const bytesInGigabyte = 1024 * 1024 * 1024;
 // the light theme uses a darker green, so the line stands out on white
 const graphColors = {
   dark: { color: '#62DD76', backgroundColor: '#61AE3240' },
-  light: { color: '#2E9A49', backgroundColor: '#3DAE5E33' },
+  light: { color: '#1D7A3A', backgroundColor: '#1D7A3A1F' },
 };
 
 export default function InstancePerformance() {
@@ -43,7 +43,7 @@ export default function InstancePerformance() {
             CPU LOAD: {latestSample?.cpu_usage?.toFixed(1) ?? 0}%
           </h3>
 
-          <DashboardCard className="border-0 bg-gray-900">
+          <DashboardCard className="border-0 bg-gray-900 light:border light:bg-gray-800">
             <PerformanceGraph
               title="CPU Usage"
               color={color}
@@ -66,7 +66,7 @@ export default function InstancePerformance() {
             GiB
           </h3>
 
-          <DashboardCard className="border-0 bg-gray-900">
+          <DashboardCard className="border-0 bg-gray-900 light:border light:bg-gray-800">
             <PerformanceGraph
               title="Memory Usage"
               color={color}
