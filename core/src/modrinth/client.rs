@@ -64,23 +64,48 @@ impl Default for ModrinthClient {
 
 impl ModrinthClient {
     pub fn new() -> Self {
-        let api = reqwest::Client::builder()
+        Self::with_clients(
+            Self::api_client(),
+            Self::download_client(),
+            url::Url::parse(API_BASE).expect("API_BASE is a valid URL"),
+        )
+    }
+
+    fn api_client() -> reqwest::ClientBuilder {
+        reqwest::Client::builder()
             .user_agent(USER_AGENT)
             .connect_timeout(Duration::from_secs(10))
             .timeout(REQUEST_TIMEOUT)
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-        // no overall timeout for downloads, which can be large, but a stalled one ends
-        let downloads = reqwest::Client::builder()
+    }
+
+    /// No overall timeout for downloads, which can be large, but a stalled one ends.
+    fn download_client() -> reqwest::ClientBuilder {
+        reqwest::Client::builder()
             .user_agent(USER_AGENT)
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(60))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+    }
+
+    /// A client for a test server on loopback at `base_url`. It ignores proxy settings,
+    /// since it never leaves this machine.
+    #[cfg(test)]
+    pub(crate) fn for_test_server(base_url: url::Url) -> Self {
+        Self::with_clients(
+            Self::api_client().no_proxy(),
+            Self::download_client().no_proxy(),
+            base_url,
+        )
+    }
+
+    fn with_clients(
+        api: reqwest::ClientBuilder,
+        downloads: reqwest::ClientBuilder,
+        base_url: url::Url,
+    ) -> Self {
         Self {
-            api,
-            downloads,
-            base_url: url::Url::parse(API_BASE).expect("API_BASE is a valid URL"),
+            api: api.build().unwrap_or_else(|_| reqwest::Client::new()),
+            downloads: downloads.build().unwrap_or_else(|_| reqwest::Client::new()),
+            base_url,
             responses: Mutex::new(TtlCache::new(500, 64 * 1024 * 1024)),
             hashes: Mutex::new(TtlCache::new(5000, 16 * 1024 * 1024)),
             blocked_until: Mutex::new(None),
@@ -544,13 +569,90 @@ mod tests {
         assert!(until > Instant::now() + Duration::from_secs(25));
     }
 
-    // These tests call the real Modrinth API, with Lodestone's user agent and a handful of
-    // requests in total.
+    /// A request the test server received.
+    #[derive(Debug, Clone)]
+    struct Received {
+        method: String,
+        path: String,
+        query: Vec<(String, String)>,
+        body: Vec<u8>,
+    }
 
-    #[tokio::test]
-    async fn network_search_finds_fabric_api() {
-        let client = ModrinthClient::new();
-        let params = SearchParams::new(
+    impl Received {
+        fn query(&self, key: &str) -> Option<&str> {
+            self.query
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.as_str())
+        }
+    }
+
+    type Reply = (StatusCode, HeaderMap, Vec<u8>);
+
+    fn json(body: &str) -> Reply {
+        let mut headers = HeaderMap::new();
+        headers.insert("content-type", "application/json".parse().unwrap());
+        (StatusCode::OK, headers, body.as_bytes().to_vec())
+    }
+
+    fn status(status: StatusCode) -> Reply {
+        (status, HeaderMap::new(), Vec::new())
+    }
+
+    /// An HTTP server on loopback that answers with `respond` and records every request,
+    /// with a client whose API base URL points at it.
+    struct TestServer {
+        client: ModrinthClient,
+        base: url::Url,
+        received: std::sync::Arc<Mutex<Vec<Received>>>,
+    }
+
+    impl TestServer {
+        async fn start(respond: impl Fn(&Received) -> Reply + Send + Sync + 'static) -> Self {
+            use axum::http::{Method, Uri};
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let base =
+                url::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+            let received = std::sync::Arc::new(Mutex::new(Vec::new()));
+            let respond = std::sync::Arc::new(respond);
+            let log = received.clone();
+            let app = axum::Router::new().fallback(
+                move |method: Method, uri: Uri, body: Bytes| async move {
+                    let request = Received {
+                        method: method.to_string(),
+                        path: uri.path().to_string(),
+                        query: url::form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
+                            .into_owned()
+                            .collect(),
+                        body: body.to_vec(),
+                    };
+                    let reply = respond(&request);
+                    log.lock().unwrap().push(request);
+                    reply
+                },
+            );
+            tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            TestServer {
+                client: ModrinthClient::for_test_server(base.join("v2").unwrap()),
+                base,
+                received,
+            }
+        }
+
+        fn received(&self) -> Vec<Received> {
+            self.received.lock().unwrap().clone()
+        }
+    }
+
+    const SEARCH: &str = include_str!("testdata/search_fabric_api.json");
+    const PROJECT: &str = include_str!("testdata/project_fabric_api.json");
+    const VERSION: &str = include_str!("testdata/version_lazydfu_0.1.3.json");
+    const VERSIONS: &str = include_str!("testdata/versions_lazydfu.json");
+    const VERSION_FILES: &str = include_str!("testdata/version_files_lazydfu.json");
+    const LAZYDFU_SHA512: &str = "dc3766352c645f6da92b13000dffa80584ee58093c925c2154eb3c125a2b2f9a3af298202e2658b039c6ee41e81ca9a2e9d4b942561f7085239dd4421e0cce0a";
+
+    fn fabric_api_search() -> SearchParams {
+        SearchParams::new(
             Some("fabric-api".into()),
             crate::modrinth::ModrinthProjectType::Mod,
             Some("1.20.1".into()),
@@ -559,8 +661,250 @@ mod tests {
             None,
             Some(10),
         )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn search_sends_the_query_and_reads_the_hits() {
+        let server = TestServer::start(|r| match r.path.as_str() {
+            "/v2/search" => json(SEARCH),
+            _ => status(StatusCode::NOT_FOUND),
+        })
+        .await;
+        let params = fabric_api_search();
+        let response = server.client.search(&params).await.unwrap();
+        assert_eq!(response.total_hits, 44);
+        let hit = response
+            .hits
+            .iter()
+            .find(|h| h.slug == "fabric-api")
+            .expect("fabric-api is found");
+        assert_eq!(hit.project_id, "P7dR8mSH");
+        assert!(hit.categories.contains(&"fabric".to_string()));
+
+        let received = server.received();
+        assert_eq!(received.len(), 1);
+        let request = &received[0];
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.query("query"), Some("fabric-api"));
+        assert_eq!(request.query("limit"), Some("10"));
+        let facets: Vec<Vec<String>> =
+            serde_json::from_str(request.query("facets").unwrap()).unwrap();
+        assert_eq!(facets, params.facets());
+
+        // the same search again is answered from the cache
+        server.client.search(&params).await.unwrap();
+        assert_eq!(server.received().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn resolves_a_link_to_the_project() {
+        let server = TestServer::start(|r| match r.path.as_str() {
+            "/v2/project/fabric-api" => json(PROJECT),
+            "/v2/project/P7dR8mSH/version/0.1.3" => json(VERSION),
+            _ => status(StatusCode::NOT_FOUND),
+        })
+        .await;
+        let target = crate::modrinth::links::resolve_url(
+            &server.client,
+            "https://modrinth.com/mod/fabric-api",
+        )
+        .await
         .unwrap();
-        let response = client.search(&params).await.unwrap();
+        assert_eq!(target.project_id, "P7dR8mSH");
+        assert_eq!(target.slug, "fabric-api");
+        assert_eq!(target.project_type, "mod");
+        assert_eq!(target.version_id, None);
+
+        // a version link looks the version up under the canonical project id
+        let target = crate::modrinth::links::resolve_url(
+            &server.client,
+            "modrinth.com/mod/fabric-api/version/0.1.3",
+        )
+        .await
+        .unwrap();
+        assert_eq!(target.version_id.as_deref(), Some("4SHylIO9"));
+
+        let err =
+            crate::modrinth::links::resolve_url(&server.client, "https://modrinth.com/mod/nope")
+                .await
+                .unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::NotFound));
+    }
+
+    #[tokio::test]
+    async fn project_versions_are_filtered_and_newest_first() {
+        let server = TestServer::start(|r| match r.path.as_str() {
+            "/v2/project/lazydfu/version" => {
+                // in another order than Modrinth sends them, to check the sorting
+                let mut versions: Vec<serde_json::Value> = serde_json::from_str(VERSIONS).unwrap();
+                versions.reverse();
+                json(&serde_json::to_string(&versions).unwrap())
+            }
+            _ => status(StatusCode::NOT_FOUND),
+        })
+        .await;
+        let versions = server
+            .client
+            .project_versions("lazydfu", &["fabric".into()], &["1.16.5".into()])
+            .await
+            .unwrap();
+        let ids: Vec<_> = versions.iter().map(|v| v.id.as_str()).collect();
+        assert_eq!(ids, ["4SHylIO9", "C6e265zK", "aBDhdWUD", "8tFjDrHf"]);
+        let request = &server.received()[0];
+        assert_eq!(request.query("loaders"), Some(r#"["fabric"]"#));
+        assert_eq!(request.query("game_versions"), Some(r#"["1.16.5"]"#));
+    }
+
+    #[tokio::test]
+    async fn versions_by_hash_are_looked_up_once() {
+        let server = TestServer::start(|r| match (r.method.as_str(), r.path.as_str()) {
+            ("GET", "/v2/version/4SHylIO9") => json(VERSION),
+            ("POST", "/v2/version_files") => json(VERSION_FILES),
+            _ => status(StatusCode::NOT_FOUND),
+        })
+        .await;
+        let version = server.client.version("4SHylIO9").await.unwrap();
+        assert_eq!(version.project_id, "hvFnDODi");
+        let file = version.primary_file().unwrap();
+        assert_eq!(file.filename, "lazydfu-0.1.3.jar");
+        assert_eq!(file.size, 14531);
+        assert_eq!(file.sha512, LAZYDFU_SHA512);
+
+        let unknown = "f".repeat(128);
+        let hashes = [LAZYDFU_SHA512.to_uppercase(), unknown.clone()];
+        let found = server.client.versions_by_hash(&hashes).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[LAZYDFU_SHA512].id, "4SHylIO9");
+        let posts: Vec<_> = server
+            .received()
+            .into_iter()
+            .filter(|r| r.method == "POST")
+            .collect();
+        assert_eq!(posts.len(), 1);
+        let body: serde_json::Value = serde_json::from_slice(&posts[0].body).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({ "hashes": [LAZYDFU_SHA512, unknown], "algorithm": "sha512" })
+        );
+
+        // both answers are cached, including "not found"
+        let again = server.client.versions_by_hash(&hashes).await.unwrap();
+        assert_eq!(again.len(), 1);
+        assert_eq!(server.received().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn error_statuses_map_to_error_kinds() {
+        let server = TestServer::start(|r| match r.path.as_str() {
+            "/v2/version/missing" => status(StatusCode::NOT_FOUND),
+            "/v2/version/broken" => status(StatusCode::BAD_GATEWAY),
+            "/v2/version/rejected" => status(StatusCode::BAD_REQUEST),
+            "/v2/version/garbage" => json("{ not json"),
+            _ => status(StatusCode::IM_A_TEAPOT),
+        })
+        .await;
+        let kind = |id: &'static str| {
+            let client = &server.client;
+            async move { client.version(id).await.unwrap_err().kind }
+        };
+        assert!(matches!(kind("missing").await, ErrorKind::NotFound));
+        assert!(matches!(kind("broken").await, ErrorKind::External));
+        assert!(matches!(kind("rejected").await, ErrorKind::BadRequest));
+        assert!(matches!(kind("garbage").await, ErrorKind::External));
+    }
+
+    #[tokio::test]
+    async fn too_many_requests_pauses_later_requests() {
+        let server = TestServer::start(|_| {
+            let mut headers = HeaderMap::new();
+            headers.insert("x-ratelimit-remaining", "0".parse().unwrap());
+            headers.insert("x-ratelimit-reset", "30".parse().unwrap());
+            (StatusCode::TOO_MANY_REQUESTS, headers, Vec::new())
+        })
+        .await;
+        let err = server.client.version("4SHylIO9").await.unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::External));
+        assert!(
+            err.source.to_string().contains("too many requests"),
+            "{err:?}"
+        );
+        // the next request fails at once, without asking Modrinth again
+        let err = server.client.project("lazydfu").await.unwrap_err();
+        assert!(err
+            .source
+            .to_string()
+            .starts_with("Modrinth is not reachable: the rate limit was reached"));
+        assert_eq!(server.received().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn download_hashes_the_file_and_enforces_the_limit() {
+        let content: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8).collect();
+        let served = content.clone();
+        let server = TestServer::start(move |r| match r.path.as_str() {
+            "/data/a.jar" => (StatusCode::OK, HeaderMap::new(), served.clone()),
+            _ => status(StatusCode::NOT_FOUND),
+        })
+        .await;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.jar");
+        let url = server.base.join("data/a.jar").unwrap();
+
+        let mut file = tokio::fs::File::create(&path).await.unwrap();
+        let hashes = server
+            .client
+            .download(&url, &mut file, 1_000_000)
+            .await
+            .unwrap();
+        drop(file);
+        assert_eq!(hashes.size, content.len() as u64);
+        assert_eq!(hashes.sha512, crate::modrinth::fake::sha512_hex(&content));
+        assert_eq!(hashes.sha1, crate::modrinth::fake::sha1_hex(&content));
+        assert_eq!(std::fs::read(&path).unwrap(), content);
+
+        let mut file = tokio::fs::File::create(dir.path().join("b.jar"))
+            .await
+            .unwrap();
+        let err = server
+            .client
+            .download(&url, &mut file, 1000)
+            .await
+            .unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::BadRequest));
+
+        let missing = server.base.join("data/missing.jar").unwrap();
+        let err = server
+            .client
+            .download(&missing, &mut file, 1000)
+            .await
+            .unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::External));
+        assert!(err.source.to_string().contains("404"), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn fails_fast_while_rate_limited() {
+        let client = ModrinthClient::new();
+        *client.blocked_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs(60));
+        let err = client.version("abc").await.unwrap_err();
+        assert!(matches!(err.kind, ErrorKind::External));
+        assert!(err
+            .source
+            .to_string()
+            .starts_with("Modrinth is not reachable: the rate limit was reached"));
+    }
+
+    // Contract checks against the real Modrinth API, with Lodestone's user agent and a
+    // handful of requests in total. They check what only the live service can tell: that
+    // its search filters and CDN still behave as the code expects. Run them with
+    // `cargo test -- --ignored`.
+
+    #[tokio::test]
+    #[ignore = "network: Modrinth search still applies the loader, version and server-side facets"]
+    async fn network_search_finds_fabric_api() {
+        let client = ModrinthClient::new();
+        let response = client.search(&fabric_api_search()).await.unwrap();
         assert!(response.total_hits > 0);
         let hit = response
             .hits
@@ -579,6 +923,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "network: Modrinth reports plugins as mods with plugin loader categories"]
     async fn network_plugin_search_returns_plugins() {
         let client = ModrinthClient::new();
         let params = SearchParams::new(
@@ -606,19 +951,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn network_resolves_a_link() {
-        let client = ModrinthClient::new();
-        let target =
-            crate::modrinth::links::resolve_url(&client, "https://modrinth.com/mod/fabric-api")
-                .await
-                .unwrap();
-        assert_eq!(target.project_id, "P7dR8mSH");
-        assert_eq!(target.slug, "fabric-api");
-        assert_eq!(target.project_type, "mod");
-        assert_eq!(target.version_id, None);
-    }
-
-    #[tokio::test]
+    #[ignore = "network: a mod installed from Modrinth's CDN matches the hashes the API reports"]
     async fn network_installs_a_small_mod() {
         use crate::mods::{InstalledModLoader, ModFolder};
         let client = ModrinthClient::new();
@@ -631,6 +964,8 @@ mod tests {
         // LazyDFU 0.1.3, about 15 KB, without dependencies
         let version = client.version("4SHylIO9").await.unwrap();
         let project = client.project(&version.project_id).await.unwrap();
+        assert_eq!(project.slug, "lazydfu");
+        assert_eq!(project.project_type, "mod");
         let result = crate::mods::install::install(
             &client,
             &folder,
@@ -651,17 +986,5 @@ mod tests {
         let on_disk = crate::mods::scan::sha512_of(&folder.dir.join(&file.filename)).unwrap();
         assert_eq!(on_disk, file.sha512);
         assert_eq!(installed.modrinth.as_ref().unwrap().slug, "lazydfu");
-    }
-
-    #[tokio::test]
-    async fn fails_fast_while_rate_limited() {
-        let client = ModrinthClient::new();
-        *client.blocked_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs(60));
-        let err = client.version("abc").await.unwrap_err();
-        assert!(matches!(err.kind, ErrorKind::External));
-        assert!(err
-            .source
-            .to_string()
-            .starts_with("Modrinth is not reachable: the rate limit was reached"));
     }
 }
