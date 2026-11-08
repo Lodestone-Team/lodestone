@@ -212,6 +212,22 @@
   scrollbar-gutter: both-edges stable;
 }
 
+/* Loading indicators: invisible for the first 200ms, so loads that finish
+   quickly never flash a spinner or skeleton, then fade in. CSS only, so the
+   delay doesn't restart when React re-renders the element. */
+@keyframes loading-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@utility loading-delayed {
+  animation: loading-appear 150ms ease-out 200ms both;
+}
+
 @utility generic-gametype-hover {
   border: double 2px transparent;
   border-radius: 0.375rem;

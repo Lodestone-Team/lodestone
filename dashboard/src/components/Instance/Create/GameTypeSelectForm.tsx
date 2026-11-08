@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import Spinner from 'components/DashboardLayout/Spinner';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { InstanceGameTypes } from 'data/InstanceGameTypes';
 import SelectGameCard from './SelectGameCard';
 import {
@@ -25,17 +25,34 @@ export default function GameTypeSelectForm({
   const { gameType: selectedGameType, setGameType } =
     useContext(GameInstanceContext);
   const { data: game_types, isPending: isLoading } = InstanceGameTypes();
-  if (!game_types || isLoading) {
-    return <Spinner />;
-  }
-  return (
-    <div className={clsx(className, ' overflow-y-auto p-2')}>
+  const heading = (
+    <>
       <p className="text-left text-h2 font-extrabold tracking-medium text-gray-300">
         Select a game
       </p>
       <p className="text-left text-medium font-medium italic leading-5 tracking-medium text-white/50">
         What will your instance be used for?
       </p>
+    </>
+  );
+  if (!game_types || isLoading) {
+    // the cards' shapes, in place (a full-window spinner used to cover the
+    // dialog here)
+    return (
+      <div className={clsx(className, ' overflow-y-auto p-2')}>
+        {heading}
+        <SkeletonGroup className="box-border grid grid-cols-2 gap-9 pt-9">
+          <Skeleton className="col-span-2 h-14" />
+          {Array.from({ length: 5 }, (_, i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
+        </SkeletonGroup>
+      </div>
+    );
+  }
+  return (
+    <div className={clsx(className, ' overflow-y-auto p-2')}>
+      {heading}
       <div className="box-border grid grid-cols-2 gap-9 pt-9">
         <SelectGenericGameCard
           key={'Generic'}

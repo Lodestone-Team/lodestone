@@ -17,6 +17,8 @@ import { ConfigurableValue } from 'bindings/ConfigurableValue';
 import { AxiosError } from 'axios';
 import { toast } from 'react-toastify';
 import { SettingFieldObject } from './Instance/InstanceSettingsCreate/SettingObject';
+import { useQueryClient } from '@tanstack/react-query';
+import { setCachedInstanceSetting } from 'data/InstanceManifest';
 
 export default function SettingField({
   instance,
@@ -69,6 +71,13 @@ export default function SettingField({
 
   const errorString = errorToString(error);
   const URL = `/instance/${uuid}/settings/${sectionId}/${settingId}`;
+  const queryClient = useQueryClient();
+  // saves the value, and keeps the cached settings in step with it so the
+  // settings page shows the new value when it is opened again
+  const saveToInstance = async (newValue: ConfigurableValue | null) => {
+    await axiosPutSingleValue<void>(URL, newValue);
+    setCachedInstanceSetting(queryClient, uuid, sectionId, settingId, newValue);
+  };
   const submitSettingField = async (value: string) => {
     const getConfigurableValue: (value: string) => ConfigurableValue | null = (
       value: string
@@ -93,7 +102,7 @@ export default function SettingField({
           return null;
       }
     };
-    await (onSubmit? onSubmit(getConfigurableValue(value)) : axiosPutSingleValue<void>(`${URL}`, getConfigurableValue(value)));
+    await (onSubmit? onSubmit(getConfigurableValue(value)) : saveToInstance(getConfigurableValue(value)));
   };
   // const isLoading = can_access_instance_setting ? isSettingLoading : false;
 
@@ -181,7 +190,7 @@ export default function SettingField({
             await (onSubmit? onSubmit({
               type: 'Boolean',
               value: value,
-            }) : axiosPutSingleValue<void>(`${URL}`, {
+            }) : saveToInstance({
               type: 'Boolean',
               value: value,
             }));

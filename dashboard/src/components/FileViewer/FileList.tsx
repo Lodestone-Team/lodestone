@@ -58,6 +58,7 @@ const iconMap: { [key: string]: string } = {
 export default function FileList({
   fileList,
   loading,
+  stale = false,
   error,
   atTopLevel,
   onParentClick,
@@ -66,6 +67,8 @@ export default function FileList({
 }: {
   fileList: ClientFile[] | undefined;
   loading: boolean;
+  /** fileList is the previous folder's, kept on screen while this one loads */
+  stale?: boolean;
   error: Error | null;
   atTopLevel: boolean;
   onParentClick: () => void;
@@ -219,7 +222,9 @@ export default function FileList({
         ) : null}
 
         {loading ? (
-          <div className={fileTreeEntryClassName}>
+          // appears after a moment, so a folder that opens quickly
+          // doesn't flash it
+          <div className={clsx(fileTreeEntryClassName, 'loading-delayed')}>
             <p className="text-medium font-medium text-gray-400">Loading...</p>
           </div>
         ) : error ? (
@@ -248,6 +253,9 @@ export default function FileList({
                 'bg-gray-900': isOpened,
                 'bg-gray-700': isTicked && !isOpened,
                 'bg-gray-800': !isTicked && !isOpened,
+                // the previous folder, until the new one has loaded
+                'pointer-events-none opacity-50 transition-opacity delay-150':
+                  stale,
               })}
               onContextMenu={(e) => {
                 e.preventDefault();

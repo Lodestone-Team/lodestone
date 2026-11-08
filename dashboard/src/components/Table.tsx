@@ -20,6 +20,8 @@ interface TableProps {
   alignment?: 'even' | 'left';
   menuOptions?: ButtonMenuConfig;
   className?: string;
+  /** the rows are still loading: no "No data" message meanwhile */
+  isLoading?: boolean;
 }
 
 export function Table({
@@ -28,6 +30,7 @@ export function Table({
   alignment = 'even',
   menuOptions,
   className,
+  isLoading = false,
 }: TableProps) {
   // If menuOptions is truthy, add an extra column for the menu buttons
   // Add a unique index for each ButtonMenu created to control respective rows
@@ -105,7 +108,7 @@ export function Table({
           ))}
         </tbody>
       </table>
-      {rows.length === 0 && (
+      {rows.length === 0 && !isLoading && (
         <div>
           <div className="mt-8 flex flex-col items-center justify-center">
             <div className=" text-h2 font-bold text-gray-400">

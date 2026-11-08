@@ -5,6 +5,7 @@ import { useContext } from 'react';
 import Spinner from 'components/DashboardLayout/Spinner';
 import Button from 'components/Atoms/Button';
 import { InstanceContext } from 'data/InstanceContext';
+import { preloadCreateInstanceProps } from 'components/DashboardLayout/CreateInstanceFlow';
 
 const Home = () => {
   useDocumentTitle('Home - Lodestone');
@@ -35,7 +36,7 @@ const Home = () => {
         To start, select an instance from the menu or create a new instance
       </div>
       {userLoggedIn && (
-        <div className="mt-5">
+        <div className="mt-5" {...preloadCreateInstanceProps}>
           <Button
             align="start"
             labelGrow={true}

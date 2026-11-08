@@ -59,7 +59,12 @@ const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
             />
           )}
           <span className="min-w-0 flex-1 truncate text-left">
-            {accountLabel}
+            {/* not "Guest" while the user loads, that flashed before the name */}
+            {userState === 'loading' ? (
+              <span className="inline-block h-3 w-20 animate-pulse rounded-sm bg-gray-700 align-middle" />
+            ) : (
+              accountLabel
+            )}
           </span>
           <FontAwesomeIcon icon={faCaretUp} className="w-2.5 shrink-0" />
         </Menu.Button>

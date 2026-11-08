@@ -16,7 +16,6 @@ import {
   useSetupInstanceManifest,
 } from 'data/InstanceGameTypes';
 import { HandlerGameType } from 'bindings/HandlerGameType';
-import Spinner from 'components/DashboardLayout/Spinner';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import clsx from 'clsx';
 import * as yup from 'yup';
@@ -132,7 +131,6 @@ export default function InstanceCreateForm({
     yup.object().shape({}),
   ]);
 
-  // if (setupManifest === null && activeStep !== 0) return <Spinner />;
   const currentValidationSchema = validationSchema[activeStep];
 
   const sections = [

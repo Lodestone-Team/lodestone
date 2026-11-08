@@ -13,7 +13,11 @@ const FirstTime = () => {
   useDocumentTitle('Welcome to Lodestone');
   const { setPathname } = useContext(BrowserLocationContext);
   const { coreList, addCore, setCore } = useContext(LodestoneContext);
-  const [tauriIsSetup, setTauriIsSetup] = useState(false);
+  // null until the desktop app has said whether its core is set up
+  const [tauriIsSetup, setTauriIsSetup] = useState<boolean | null>(null);
+  // Cores known when the page opens: it only redirects (below), so don't
+  // flash it first. Read once: the desktop app adds its core further down.
+  const [redirecting] = useState(() => coreList.length > 0);
 
   useEffectOnce(() => {
     if (coreList.length > 0) {
@@ -30,8 +34,11 @@ const FirstTime = () => {
       })
       .catch((err: any) => {
         console.error('Tauri call failed is_setup', err);
+        setTauriIsSetup(false);
       });
   });
+
+  if (redirecting) return null;
 
   return (
     <div className="flex w-[680px] max-w-full flex-col items-stretch justify-center gap-16 transition-dimensions @container">
@@ -101,6 +108,16 @@ const FirstTime = () => {
               className="whitespace-nowrap"
             />
           </>
+        ) : tauriIsSetup === null ? (
+          // the button's place, until it is known which one it is (it used
+          // to show "Setup Lodestone Core" first, then switch to "Continue")
+          <Button
+            label="Setup Lodestone Core"
+            intention="primary"
+            size="large"
+            className="invisible whitespace-nowrap"
+            disabled
+          />
         ) : tauriIsSetup ? (
           <Button
             label="Continue"

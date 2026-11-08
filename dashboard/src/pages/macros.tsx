@@ -242,6 +242,13 @@ const Macros = () => {
 
   const [selectedPage, setSelectedPage] = useState<MacrosPage>('All Macros');
 
+  // only the first load of a list; refetches keep showing the rows
+  const pageLoading: Record<MacrosPage, boolean> = {
+    'All Macros': macrosQuery.isPending,
+    'Running Tasks': tasksQuery.isPending,
+    History: historyQuery.isPending,
+  };
+
   const MacrosPageMap: Record<
     MacrosPage,
     { rows: TableRow[]; columns: TableColumn[]; menuOptions?: ButtonMenuConfig }
@@ -470,6 +477,7 @@ const Macros = () => {
           columns={MacrosPageMap[selectedPage].columns}
           menuOptions={MacrosPageMap[selectedPage].menuOptions}
           alignment="even"
+          isLoading={pageLoading[selectedPage]}
         />
       </div>
     </div>
