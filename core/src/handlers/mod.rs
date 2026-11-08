@@ -21,6 +21,7 @@ pub mod modrinth;
 pub mod monitor;
 pub mod playitgg;
 pub mod public_instances;
+pub mod server_content;
 pub mod setup;
 pub mod system;
 pub mod users;
