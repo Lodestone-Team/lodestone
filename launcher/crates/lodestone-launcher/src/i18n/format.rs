@@ -92,7 +92,7 @@ fn sized(bytes: u64, step: f64) -> String {
 pub fn memory_mb(mb: u64) -> String {
     if mb < 1024 {
         tr!(FormatMsg::Megabytes, size = number(mb))
-    } else if mb % 1024 == 0 {
+    } else if mb.is_multiple_of(1024) {
         tr!(FormatMsg::Gigabytes, size = number(mb / 1024))
     } else {
         tr!(FormatMsg::Gigabytes, size = decimal(mb as f64 / 1024.0, 1))
