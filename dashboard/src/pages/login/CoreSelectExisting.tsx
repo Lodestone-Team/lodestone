@@ -1,7 +1,12 @@
 import axios from 'axios';
 import Button from 'components/Atoms/Button';
 import { useContext } from 'react';
-import { coreApiBaseUrl, DISABLE_AUTOFILL, errorToString } from 'utils/util';
+import {
+  coreApiBaseUrl,
+  DEFAULT_LOCAL_CORE,
+  DISABLE_AUTOFILL,
+  errorToString,
+} from 'utils/util';
 import { CoreConnectionInfo, LodestoneContext } from 'data/LodestoneContext';
 import { Form, Formik, FormikHelpers } from 'formik';
 import * as yup from 'yup';
@@ -11,6 +16,7 @@ import {
   faClone,
   faDownload,
   faPlus,
+  faScrewdriverWrench,
 } from '@fortawesome/free-solid-svg-icons';
 import SelectField from 'components/Atoms/Form/SelectField';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
@@ -21,6 +27,7 @@ import CoreConnectionHelp, {
   isRemoteNetworkError,
 } from 'components/CoreConnectionHelp';
 import Logo from 'components/Atoms/Logo';
+import { tauri } from 'utils/tauriUtil';
 type SelectCoreValue = {
   core: CoreConnectionInfo;
 };
@@ -39,18 +46,15 @@ const validationSchema = yup.object({
 const CoreSelectExisting = () => {
   useDocumentTitle('Select Core - Lodestone');
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
-  const { core, setCore, coreList } = useContext(LodestoneContext);
+  const { core, setCore, addCore, coreList } = useContext(LodestoneContext);
 
   const initialValues: SelectCoreValue = {
     core,
   };
 
-  const onSubmit = (
-    values: SelectCoreValue,
-    actions: FormikHelpers<SelectCoreValue>
-  ) => {
-    const { core } = values;
-    // check if core can be reached
+  // Checks that the core can be reached, then selects it and goes on to its
+  // setup or sign-in. Rejects with the error to show.
+  const connectToCore = (core: CoreConnectionInfo) =>
     axios
       .get<CoreInfo>(`/info`, {
         baseURL: coreApiBaseUrl(core),
@@ -59,23 +63,34 @@ const CoreSelectExisting = () => {
         if (res.status !== 200)
           throw new Error('Invalid response, setup may be invalid');
         setCore(core);
+        addCore(core);
         if (res.data.is_setup === false) {
           setPathname('/login/core/first_setup');
         } else {
           setPathname('/login/user/select');
         }
-        actions.setSubmitting(false);
-      })
+      });
+
+  const connect = (
+    core: CoreConnectionInfo,
+    actions: Pick<FormikHelpers<SelectCoreValue>, 'setStatus' | 'setSubmitting'>
+  ) => {
+    actions.setStatus(null);
+    actions.setSubmitting(true);
+    connectToCore(core)
       .catch((err) => {
-        const errorMessages = errorToString(err);
         actions.setStatus({
-          error: errorMessages,
+          error: errorToString(err),
           helpCore: isRemoteNetworkError(err, core) ? core : null,
         });
-        actions.setSubmitting(false);
-        return;
-      });
+      })
+      .finally(() => actions.setSubmitting(false));
   };
+
+  const onSubmit = (
+    values: SelectCoreValue,
+    actions: FormikHelpers<SelectCoreValue>
+  ) => connect(values.core, actions);
 
   return (
     <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
@@ -93,7 +108,7 @@ const CoreSelectExisting = () => {
         validateOnChange={false}
         validateOnBlur={false}
       >
-        {({ isSubmitting, status }) => (
+        {({ isSubmitting, status, setStatus, setSubmitting }) => (
           <Form
             id="addCoreForm"
             className="flex flex-col gap-12"
@@ -145,6 +160,17 @@ const CoreSelectExisting = () => {
                   );
                 }}
               />
+              {tauri && (
+                <Button
+                  type="button"
+                  iconRight={faScrewdriverWrench}
+                  label="Use local Core"
+                  disabled={isSubmitting}
+                  onClick={() =>
+                    connect(DEFAULT_LOCAL_CORE, { setStatus, setSubmitting })
+                  }
+                />
+              )}
               <Button
                 type="submit"
                 intention="primary"

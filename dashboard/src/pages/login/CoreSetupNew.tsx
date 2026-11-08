@@ -163,11 +163,9 @@ const CoreSetupNew = () => {
             <div className="flex w-full flex-row justify-end gap-4">
               <Button
                 type="button"
-                iconRight={faArrowLeft}
+                icon={faArrowLeft}
                 label="Back"
-                onClick={() => {
-                  navigateBack()
-                }}
+                onClick={navigateBack}
               />
               <Button
                 type="submit"
