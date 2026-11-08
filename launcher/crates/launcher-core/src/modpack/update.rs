@@ -21,8 +21,10 @@
 //! copies what will be replaced or removed into a content snapshot
 //! (`backups/modpack-update/<time>/`, with `instance.json`, `content.json` and
 //! `modpack.json`), optionally backs up every world, and only then changes the game
-//! folder. The loader and Minecraft version follow the new pack; they install on the
-//! next Play.
+//! folder. If changing the game folder or the records fails part way (a file another
+//! program holds open, say), the files changed so far and the records are put back
+//! from the snapshot. The loader and Minecraft version follow the new pack; they
+//! install on the next Play.
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -404,39 +406,12 @@ async fn apply_staged(
         return Err(ModpackError::Cancelled);
     }
 
-    // 3. The game folder.
+    // 3. The game folder. If a file can't be changed (another program has it open, say),
+    // what was changed so far is put back from the snapshot.
     progress.set_label(format!("Updating to {}", plan.record.version_number));
-    let snapshot_note = |err: ModpackError| {
-        ModpackError::Invalid(format!(
-            "The update stopped part way ({err}). The files it replaced are in {}.",
-            snapshot.display()
-        ))
-    };
-    for path in &plan.removals {
-        let target = game.join(path);
-        if let Err(err) = fs::remove_file(&target)
-            && err.kind() != std::io::ErrorKind::NotFound
-        {
-            return Err(snapshot_note(io_error(&target)(err)));
-        }
-    }
-    let staged: Vec<&String> = plan
-        .downloads
-        .iter()
-        .map(|(_, p)| p)
-        .chain(plan.overrides.iter().map(|(_, p)| p))
-        .collect();
-    for path in staged {
-        let from = staging.join(path);
-        let to = game.join(path);
-        let moved = (|| {
-            super::import::prepare_parent(game, &to)?;
-            if to.is_file() {
-                fs::remove_file(&to).map_err(io_error(&to))?;
-            }
-            fs::rename(&from, &to).map_err(io_error(&to))
-        })();
-        moved.map_err(snapshot_note)?;
+    let mut changed = BTreeSet::new();
+    if let Err(err) = swap_in(game, staging, plan, &mut changed) {
+        return Err(undo(dirs, &snapshot, &changed, err));
     }
 
     // 4. The records.
@@ -453,17 +428,109 @@ async fn apply_staged(
     let downloaded: Vec<(String, &PackDownload)> =
         plan.downloads.iter().map(|(d, p)| (p.clone(), d)).collect();
     let entries = content_entries(api, game, &downloaded).await;
-    Provenance::update(&dirs.instance, |provenance| {
-        for (kind, name) in &removed_keys {
-            provenance.files.remove(&key(*kind, name));
-        }
-        for (kind, name, entry) in &entries {
-            provenance.insert(*kind, name, entry.clone());
-        }
-    })?;
-    plan.record.save(&dirs.instance)?;
+    let saved = (|| -> Result<(), ModpackError> {
+        Provenance::update(&dirs.instance, |provenance| {
+            for (kind, name) in &removed_keys {
+                provenance.files.remove(&key(*kind, name));
+            }
+            for (kind, name, entry) in &entries {
+                provenance.insert(*kind, name, entry.clone());
+            }
+        })?;
+        plan.record.save(&dirs.instance)?;
+        Ok(())
+    })();
+    if let Err(err) = saved {
+        return Err(undo(dirs, &snapshot, &changed, err));
+    }
     Ok(UpdateOutcome {
         snapshot,
         world_backups,
     })
+}
+
+/// Removes the files `plan` removes and moves the staged files into the game folder.
+/// Every path changed so far is added to `changed`, also when the step that fails is
+/// part way through it (the old file removed, the new one not moved in yet).
+fn swap_in(
+    game: &Path,
+    staging: &Path,
+    plan: &UpdatePlan,
+    changed: &mut BTreeSet<String>,
+) -> Result<(), ModpackError> {
+    for path in &plan.removals {
+        let target = game.join(path);
+        match fs::remove_file(&target) {
+            Ok(()) => {
+                changed.insert(path.clone());
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(io_error(&target)(err)),
+        }
+    }
+    let staged = plan
+        .downloads
+        .iter()
+        .map(|(_, p)| p)
+        .chain(plan.overrides.iter().map(|(_, p)| p));
+    for path in staged {
+        let from = staging.join(path);
+        let to = game.join(path);
+        super::import::prepare_parent(game, &to)?;
+        if to.is_file() {
+            fs::remove_file(&to).map_err(io_error(&to))?;
+        }
+        changed.insert(path.clone());
+        fs::rename(&from, &to).map_err(io_error(&to))?;
+    }
+    Ok(())
+}
+
+/// Puts the instance back as it was before an update that stopped with `err`: each of
+/// the `changed` game files is copied back from the snapshot, or removed when the update
+/// added it, and `content.json` and `modpack.json` are restored. Returns the error to
+/// show, which says whether that worked.
+fn undo(
+    dirs: &InstanceDirs,
+    snapshot: &Path,
+    changed: &BTreeSet<String>,
+    err: ModpackError,
+) -> ModpackError {
+    let restore = |saved: &Path, target: &Path| -> std::io::Result<()> {
+        if saved.is_file() {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(saved, target).map(drop)
+        } else if target.is_file() {
+            fs::remove_file(target)
+        } else {
+            Ok(())
+        }
+    };
+    let mut failed = Vec::new();
+    for path in changed {
+        let saved = snapshot.join("minecraft").join(path);
+        if restore(&saved, &dirs.game.join(path)).is_err() {
+            failed.push(path.clone());
+        }
+    }
+    for file in [crate::content::provenance::FILE, super::RECORD_FILE] {
+        if restore(&snapshot.join(file), &dirs.instance.join(file)).is_err() {
+            failed.push(file.to_string());
+        }
+    }
+    if failed.is_empty() {
+        ModpackError::Invalid(format!(
+            "The update stopped part way ({err}), so the files it had changed were put \
+             back. The instance is as it was before the update."
+        ))
+    } else {
+        ModpackError::Invalid(format!(
+            "The update stopped part way ({err}), and these couldn't be put back: {}. \
+             The files it replaced are in {}.",
+            failed.join(", "),
+            snapshot.display()
+        ))
+    }
 }

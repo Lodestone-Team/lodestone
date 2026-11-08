@@ -258,16 +258,7 @@ pub fn folder_name(name: &str) -> String {
 
 /// `base`, or `base (2)`, `base (3)`… whichever isn't taken in `dir`.
 pub(crate) fn unused(dir: &Path, base: &str) -> String {
-    (1..)
-        .map(|n| {
-            if n == 1 {
-                base.to_string()
-            } else {
-                format!("{base} ({n})")
-            }
-        })
-        .find(|name| fs::symlink_metadata(dir.join(name)).is_err())
-        .expect("an unused name")
+    unused_in(&[dir], base)
 }
 
 fn random_suffix() -> String {
@@ -277,36 +268,100 @@ fn random_suffix() -> String {
 /// Renames a world: its folder (to [`folder_name`] of `name`) and, when `level.dat`
 /// reads and writes back unchanged, the name inside it. Its backups move along.
 /// Returns the new folder.
+///
+/// The new folder name is one that is free in both `saves/` and `backups/`, so the
+/// backups always have somewhere to go. If moving the backups or writing `level.dat`
+/// fails, the world is moved back and the error returned.
 pub fn rename(dirs: &InstanceDirs, folder: &str, name: &str) -> Result<String, WorldError> {
+    rename_with(dirs, folder, name, |from, to| fs::rename(from, to))
+}
+
+/// Like [`rename`], with `move_dir` moving the world's folder and its backups folder
+/// (tests make it fail).
+pub fn rename_with(
+    dirs: &InstanceDirs,
+    folder: &str,
+    name: &str,
+    mut move_dir: impl FnMut(&Path, &Path) -> io::Result<()>,
+) -> Result<String, WorldError> {
     let dir = world_dir(dirs, folder)?;
     let name = name.trim();
     if name.is_empty() {
         return Err(WorldError::Invalid("Give the world a name.".into()));
     }
     let saves = saves_dir(dirs);
+    let backups = backups_dir(dirs);
     let wanted = folder_name(name);
-    let new_folder = if wanted == folder {
-        wanted
-    } else {
-        unused(&saves, &wanted)
-    };
-    if new_folder != folder {
-        let target = saves.join(&new_folder);
-        fs::rename(&dir, &target).map_err(io_error(&dir))?;
-        let backups = backups_dir(dirs);
-        let old_backups = backups.join(folder);
-        let new_backups = backups.join(&new_folder);
-        if old_backups.is_dir() && fs::symlink_metadata(&new_backups).is_err() {
-            let _ = fs::rename(&old_backups, &new_backups);
+    let level_dat = |dir: &Path| dir.join("level.dat");
+    let renamed_level = fs::read(level_dat(&dir))
+        .ok()
+        .and_then(|bytes| level::rename(&bytes, name));
+    if wanted == folder {
+        if let Some(renamed) = renamed_level {
+            let path = level_dat(&dir);
+            storage::write_atomic(&path, &renamed).map_err(io_error(&path))?;
         }
+        return Ok(wanted);
     }
-    let level_dat = saves.join(&new_folder).join("level.dat");
-    if let Ok(bytes) = fs::read(&level_dat)
-        && let Some(renamed) = level::rename(&bytes, name)
-    {
-        storage::write_atomic(&level_dat, &renamed).map_err(io_error(&level_dat))?;
-    }
-    Ok(new_folder)
+    let new_folder = unused_in(&[&saves, &backups], &wanted);
+    let target = saves.join(&new_folder);
+    let old_backups = backups.join(folder);
+    let new_backups = backups.join(&new_folder);
+    let has_backups = old_backups.is_dir();
+
+    move_dir(&dir, &target).map_err(io_error(&dir))?;
+    let mut backups_moved = false;
+    let finished = (|| {
+        if has_backups {
+            move_dir(&old_backups, &new_backups).map_err(io_error(&old_backups))?;
+            backups_moved = true;
+        }
+        if let Some(renamed) = &renamed_level {
+            let path = level_dat(&target);
+            storage::write_atomic(&path, renamed).map_err(io_error(&path))?;
+        }
+        Ok::<_, WorldError>(())
+    })();
+    let Err(err) = finished else {
+        return Ok(new_folder);
+    };
+    // Put everything back as it was, so the backups stay with their world.
+    let backups_back = !backups_moved || move_dir(&new_backups, &old_backups).is_ok();
+    let world_back = move_dir(&target, &dir).is_ok();
+    Err(if backups_back && world_back {
+        WorldError::Invalid(format!(
+            "Couldn't rename the world, so it was left as it was: {err}"
+        ))
+    } else {
+        WorldError::Invalid(format!(
+            "Couldn't rename the world ({err}), and couldn't put it back as it was. \
+             The world is in {}, and its backups are in {}.",
+            if world_back { &dir } else { &target }.display(),
+            if backups_back {
+                &old_backups
+            } else {
+                &new_backups
+            }
+            .display()
+        ))
+    })
+}
+
+/// `base`, or `base (2)`, `base (3)`… whichever isn't taken in any of `dirs`.
+fn unused_in(dirs: &[&Path], base: &str) -> String {
+    (1..)
+        .map(|n| {
+            if n == 1 {
+                base.to_string()
+            } else {
+                format!("{base} ({n})")
+            }
+        })
+        .find(|name| {
+            dirs.iter()
+                .all(|dir| fs::symlink_metadata(dir.join(name)).is_err())
+        })
+        .expect("an unused name")
 }
 
 /// Moves a world to the Trash.
