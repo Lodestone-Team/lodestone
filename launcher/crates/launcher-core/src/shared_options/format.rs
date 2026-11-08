@@ -159,6 +159,12 @@ pub fn display(spec: &Spec, value: &str) -> String {
             // The game shows the slider doubled: 0.5 is 100%.
             ("mouseSensitivity", Some(n)) => percent(n * 2.0),
             ("guiScale", Some(0.0)) => "Auto".into(),
+            ("particles", Some(n)) => match n as i64 {
+                0 => "All".into(),
+                1 => "Decreased".into(),
+                2 => "Minimal".into(),
+                _ => value.into(),
+            },
             ("maxFps", Some(n)) if n >= 260.0 => "Unlimited".into(),
             ("renderDistance" | "simulationDistance", Some(n)) => {
                 format!("{} chunks", n as i64)

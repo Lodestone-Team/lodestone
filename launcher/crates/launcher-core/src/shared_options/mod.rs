@@ -672,6 +672,12 @@ pub fn set_instance_value(
     Ok(())
 }
 
+/// Whether `key` can be set in a file at data version `dv`: a key of the table that
+/// exists there (under any of its names). Mod key bindings depend on the file.
+pub fn exists_at(key: &str, dv: u32) -> bool {
+    find(key).is_some_and(|spec| spec.forms().any(|form| form.exists_at(dv)))
+}
+
 /// A row of the shared settings lists.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row {
