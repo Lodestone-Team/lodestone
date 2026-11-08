@@ -14,6 +14,7 @@ import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
 import ApiKeysSection from 'components/Settings/ApiKeys/ApiKeysSection';
 import { OwnMinecraftLinks } from 'components/Settings/MinecraftLinks';
 import AppearanceSetting from 'components/Settings/AppearanceSetting';
+import LanguageSetting from 'components/Settings/LanguageSetting';
 import ToggleBox from 'components/Atoms/Config/ToggleBox';
 import { useColoredConsole } from 'utils/hooks';
 import { toast } from 'react-toastify';
@@ -114,6 +115,7 @@ const ProfilePage = () => {
           lead="Saved in this browser, not on the core."
         >
           <SettingsCard>
+            <LanguageSetting />
             <AppearanceSetting />
             <ToggleBox
               label="Colored console"

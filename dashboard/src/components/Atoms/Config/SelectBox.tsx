@@ -30,6 +30,7 @@ export default function SelectBox({
   actionIcon,
   actionIconClick,
   optimistic = true, // if true, the dropdown will change immediately and go into loading state, and will change back if onChange throws an error
+  optionLabel = (option) => option,
 }: {
   label: string;
   value?: string;
@@ -45,6 +46,8 @@ export default function SelectBox({
   actionIcon?: IconDefinition;
   actionIconClick?: () => void;
   optimistic?: boolean;
+  /** the text shown for an option, e.g. a translated name (default: itself) */
+  optionLabel?: (option: string) => string;
 }) {
   const [value, setValue] = useState(initialValue || 'Select...');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -131,7 +134,7 @@ export default function SelectBox({
                 errorText ? 'input-border-error' : 'input-border-normal'
               )}
             >
-              {value}
+              {options.includes(value) ? optionLabel(value) : value}
               <div
                 className={clsx(
                   'pointer-events-none absolute items-center justify-end',
@@ -170,7 +173,9 @@ export default function SelectBox({
                   >
                     {({ active }) => (
                       <div className="flex flex-row justify-between">
-                        <span className="block truncate pr-1">{option}</span>
+                        <span className="block truncate pr-1">
+                          {optionLabel(option)}
+                        </span>
                         <div
                           onClick={actionIconClick}
                           className="absolute right-3"
