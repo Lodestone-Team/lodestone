@@ -35,6 +35,14 @@ impl Os {
             Os::MacOs
         }
     }
+
+    /// The separator between the entries of a Java classpath (`-cp`) on this OS.
+    pub fn classpath_separator(self) -> &'static str {
+        match self {
+            Os::Windows => ";",
+            Os::MacOs | Os::Linux => ":",
+        }
+    }
 }
 
 /// A CPU architecture.
@@ -326,6 +334,13 @@ mod tests {
         // Not the 6.2 that GetVersionEx reports without a manifest.
         assert!(parts[0] >= 10, "{version}");
         assert!(total_memory().unwrap() >= 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn classpath_separators() {
+        assert_eq!(Os::Windows.classpath_separator(), ";");
+        assert_eq!(Os::MacOs.classpath_separator(), ":");
+        assert_eq!(Os::Linux.classpath_separator(), ":");
     }
 
     #[cfg(target_os = "macos")]

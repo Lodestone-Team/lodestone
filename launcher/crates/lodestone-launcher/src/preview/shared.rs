@@ -59,6 +59,11 @@ pub fn fill(data: &DataDir, store: &InstanceStore) {
 }
 
 /// The window height the scene needs to show the whole section.
+/// The window width of scenes narrower than the usual 1200 px.
+pub fn window_width(scene: &str) -> Option<f32> {
+    scene.contains("-narrow").then_some(720.)
+}
+
 pub fn window_height(scene: &str) -> Option<f32> {
     match scene {
         "shared-settings" => Some(1700.),

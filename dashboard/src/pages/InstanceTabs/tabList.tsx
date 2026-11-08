@@ -48,7 +48,8 @@ export const tabs: InstanceTabInfo[] = [
     title: 'Settings',
     displayTitle: 'Settings',
     path: 'settings',
-    width: 'max-w-2xl',
+    // the list of sections (11rem) and the content column (680px)
+    width: 'max-w-4xl',
     icon: <FontAwesomeIcon icon={faCog} />,
   },
   {
