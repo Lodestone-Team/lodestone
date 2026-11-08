@@ -320,6 +320,7 @@ export const CoreSettings = () => {
     <Dialog
       open={showOpenPortDialog}
       onClose={() => setShowOpenPortDialog(false)}
+      className="relative z-60"
     >
       <ModalBackdrop strong />
       <div className="fixed inset-0 overflow-y-auto">

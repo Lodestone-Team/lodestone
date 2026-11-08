@@ -275,7 +275,7 @@ export const UserSettings = () => {
       <Transition appear show={showCreateUser} as={Fragment}>
         <Dialog
           onClose={() => setShowCreateUser(false)}
-          className="relative z-10"
+          className="relative z-60"
         >
           <ModalBackdrop />
           <div className="fixed inset-0 overflow-y-auto">
