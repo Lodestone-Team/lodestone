@@ -31,7 +31,7 @@ export default function GameTypeSelectForm({
         Select a game
       </p>
       <p className="text-left text-medium font-medium italic leading-5 tracking-medium text-white/50">
-        What will your instance be used for?
+        What will your server be used for?
       </p>
     </>
   );
@@ -56,11 +56,11 @@ export default function GameTypeSelectForm({
       <div className="box-border grid grid-cols-2 gap-9 pt-9">
         <SelectGenericGameCard
           key={'Generic'}
-          title={'Learn about Docker Instance (beta)'}
+          title={'Learn about Docker Server (beta)'}
           game_type={{
             type: 'Generic',
             game_name: 'Generic',
-            game_display_name: 'Docker Instance',
+            game_display_name: 'Docker Server',
           }}
           className={clsx(
             'Generic' === selectedGameType &&
@@ -68,7 +68,7 @@ export default function GameTypeSelectForm({
           )}
           onClick={() => setGameType('Generic')}
           manifestLoading={manifestLoading}
-          errorText={manifestError ? 'Error fetching the instance' : ''}
+          errorText={manifestError ? 'Error fetching the server' : ''}
         />
         {game_types.map((game_type) => {
           const game = HandlerGameType_to_Game[game_type];

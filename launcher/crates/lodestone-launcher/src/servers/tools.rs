@@ -369,26 +369,30 @@ impl Servers {
         let uuid = server.uuid.clone();
         let tools =
             cx.new(|cx| ServerTools::new(core_uuid.to_string(), server, targets, username, cx));
-        let subscription = cx.subscribe(&tools, |this, tools, event, cx| match event {
-            ToolsEvent::Dismissed => {
-                this.extras.tools = None;
-                cx.notify();
+        let subscription = cx.subscribe(&tools, |this, tools, event, cx| {
+            // a dialog that is fading out has nothing more to say
+            if this.extras.tools.current().map(|(open, _)| open) != Some(&tools) {
+                return;
             }
-            ToolsEvent::DownloadWorld {
-                target,
-                username,
-                password,
-            } => this.download_world(
-                &tools,
-                target.clone(),
-                username.clone(),
-                password.clone(),
-                cx,
-            ),
-            ToolsEvent::DownloadPack(target) => this.download_pack(&tools, target.clone(), cx),
+            match event {
+                ToolsEvent::Dismissed => {
+                    this.extras.tools.close(cx);
+                }
+                ToolsEvent::DownloadWorld {
+                    target,
+                    username,
+                    password,
+                } => this.download_world(
+                    &tools,
+                    target.clone(),
+                    username.clone(),
+                    password.clone(),
+                    cx,
+                ),
+                ToolsEvent::DownloadPack(target) => this.download_pack(&tools, target.clone(), cx),
+            }
         });
-        self.extras.tools = Some((tools.clone(), subscription));
-        cx.notify();
+        self.extras.tools.open((tools.clone(), subscription), cx);
         if self.preview {
             return;
         }
@@ -434,7 +438,7 @@ impl Servers {
                     // answered), so the download waits for it
                     _ if server.has_pack() && self.notice.is_none() => {
                         // the dialog closes so any prompt about the mods can show
-                        self.extras.tools = None;
+                        self.extras.tools.close(cx);
                         self.notice = Some((
                             "Creating the matching instance".into(),
                             "It is made once the server's mods are downloaded. Then open More… on the server again, pick it, and download again."
@@ -644,7 +648,7 @@ impl Servers {
         cx: &mut Context<Self>,
     ) {
         self.open_tools(core_uuid, server, cx);
-        if let Some((tools, _)) = &self.extras.tools {
+        if let Some((tools, _)) = self.extras.tools.current() {
             tools.update(cx, |t, cx| {
                 t.pack = pack;
                 t.busy = busy;

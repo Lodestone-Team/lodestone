@@ -101,7 +101,7 @@ export default function InstanceCard({
   const atomBlockedReason = !isAtom
     ? null
     : !genericInstances
-      ? "This core was built without scripting support (Deno), so atom instances aren't available."
+      ? "This core was built without scripting support (Deno), so atom servers aren't available."
       : !canManage
         ? OWNER_ONLY_ATOM_MESSAGE
         : null;

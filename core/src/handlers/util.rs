@@ -165,7 +165,7 @@ pub fn require_code_write(state: &AppState, user: &User) -> Result<(), Error> {
 // only `POST /instance/create_generic` uses it, which needs the `deno` feature
 #[cfg_attr(not(feature = "deno"), allow(dead_code))]
 pub fn check_create_atom(user: &User, code_execution: &CodeExecutionSwitch) -> Result<(), Error> {
-    user.owner_only("create atom instances")?;
+    user.owner_only("create atom servers")?;
     code_execution.check()
 }
 
@@ -192,7 +192,7 @@ pub fn is_atom(instance: &GameInstance) -> bool {
 /// Atom (generic) instances run code, so changing or running one is owner only.
 pub fn require_owner_for_atom(user: &User, instance: &GameInstance) -> Result<(), Error> {
     if is_atom(instance) {
-        user.owner_only("manage atom instances")?;
+        user.owner_only("manage atom servers")?;
     }
     Ok(())
 }
@@ -274,7 +274,7 @@ pub fn get_instance(state: &AppState, uuid: &InstanceUuid) -> Result<GameInstanc
         .map(|instance| instance.value().clone())
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
+            source: eyre!("Server not found"),
         })
 }
 
@@ -410,7 +410,7 @@ mod tests {
             assert!(matches!(err.kind, ErrorKind::PermissionDenied));
             assert_eq!(
                 err.source.to_string(),
-                "Only the owner can create atom instances"
+                "Only the owner can create atom servers"
             );
         }
     }

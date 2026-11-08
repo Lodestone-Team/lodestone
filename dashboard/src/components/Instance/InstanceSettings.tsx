@@ -35,12 +35,12 @@ const STARTUP_SETTINGS: Array<{
   {
     key: 'auto_start',
     label: 'Auto Start',
-    description: 'Start this instance when Lodestone Core starts',
+    description: 'Start this server when Lodestone Core starts',
   },
   {
     key: 'restart_on_crash',
     label: 'Restart on Crash',
-    description: 'Start this instance again if it crashes',
+    description: 'Start this server again if it crashes',
   },
 ];
 
@@ -87,7 +87,7 @@ function StartupSettings({
       <div className="w-full shrink-0">
         <h2 className="text-h2 font-extrabold tracking-medium">Automation</h2>
         <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-          When Lodestone starts this instance by itself
+          When Lodestone starts this server by itself
         </h3>
       </div>
       <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
@@ -150,10 +150,10 @@ function InstanceSettingsSkeleton() {
 }
 
 export default function InstanceSetting() {
-  useDocumentTitle('Instance Settings - Lodestone');
+  useDocumentTitle('Server Settings - Lodestone');
   const { selectedInstance: instance, selectInstance } =
     useContext(InstanceContext);
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
   const {
     data: manifest,
     isPending: isLoading,
@@ -209,7 +209,7 @@ export default function InstanceSetting() {
               setShowDeleteDialog(false);
             });
         }}
-        confirmButtonText="I understand, delete this instance"
+        confirmButtonText="I understand, delete this server"
         isOpen={showDeleteDialog}
       >
         <span className="font-bold">This action cannot be undone.</span> This
@@ -255,7 +255,7 @@ export default function InstanceSetting() {
                   Not available at this moment
                 </h2>
                 <h2 className="text-medium font-medium tracking-medium text-white/50">
-                  Try to start this instance at least once
+                  Try to start this server at least once
                 </h2>
               </div>
             )}
@@ -288,11 +288,11 @@ export default function InstanceSetting() {
           <div className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
             <div className="flex min-w-0 grow flex-col">
               <label className="text-medium font-medium text-gray-300">
-                Delete Instance
+                Delete Server
               </label>
               {can_delete_instance ? (
                 <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
-                  Permanently deletes this instance and its data
+                  Permanently deletes this server and its data
                 </div>
               ) : (
                 <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">

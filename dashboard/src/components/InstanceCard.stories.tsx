@@ -62,7 +62,7 @@ type Story = StoryObj<typeof InstanceCard>;
 export const Default: Story = {
   args: {
     uuid: '1',
-    name: 'Test Instance',
+    name: 'Test Server',
     game_type: { type: 'MinecraftJava', variant: { type: 'Vanilla' } },
     state: 'Running',
     player_count: 1,
@@ -75,7 +75,7 @@ export const Default: Story = {
 export const InvestigatingCrash: Story = {
   args: {
     uuid: '2',
-    name: 'Crashed Instance',
+    name: 'Crashed Server',
     game_type: { type: 'MinecraftJava', variant: { type: 'Vanilla' } },
     state: 'Error',
     player_count: 0,

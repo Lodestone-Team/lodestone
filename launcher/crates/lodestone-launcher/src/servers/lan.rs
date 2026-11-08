@@ -134,24 +134,22 @@ impl Servers {
     }
 
     pub(super) fn open_lan_join(&mut self, world: LanWorld, cx: &mut Context<Self>) {
-        self.extras.lan_picker = Some(LanPicker {
-            world,
-            focus: cx.focus_handle(),
-        });
-        cx.notify();
+        let focus = cx.focus_handle();
+        self.extras.lan_picker.open(LanPicker { world, focus }, cx);
     }
 
     fn join_lan(&mut self, instance_id: &str, cx: &mut Context<Self>) {
-        let Some(picker) = self.extras.lan_picker.take() else {
+        let Some(picker) = self.extras.lan_picker.close(cx) else {
             return;
         };
-        let host = match picker.world.host {
+        let world = picker.world.clone();
+        let host = match world.host {
             IpAddr::V4(ip) => ip.to_string(),
             IpAddr::V6(ip) => ip.to_string(),
         };
         let target = JoinServer {
             host,
-            port: picker.world.port,
+            port: world.port,
         };
         let id = instance_id.to_string();
         if self.instances.read(cx).is_active(&id) {
@@ -316,11 +314,8 @@ impl Servers {
 }
 
 /// "Join with…": the instances to start, most recently played first.
-pub fn render_picker(servers: &Entity<Servers>, cx: &mut App) -> AnyElement {
+pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) -> AnyElement {
     let this = servers.read(cx);
-    let Some(picker) = &this.extras.lan_picker else {
-        return div().into_any_element();
-    };
     let mut instances: Vec<(String, String, String, Option<u64>)> = this
         .instances
         .read(cx)
@@ -348,8 +343,7 @@ pub fn render_picker(servers: &Entity<Servers>, cx: &mut App) -> AnyElement {
     )
     .on_close(move |_, cx| {
         close.update(cx, |this, cx| {
-            this.extras.lan_picker = None;
-            cx.notify();
+            this.extras.lan_picker.close(cx);
         })
     })
     .child(
@@ -398,8 +392,7 @@ pub fn render_picker(servers: &Entity<Servers>, cx: &mut App) -> AnyElement {
         let cancel = servers.clone();
         Button::new("lan-join-cancel", "Cancel").on_click(move |_, _, cx| {
             cancel.update(cx, |this, cx| {
-                this.extras.lan_picker = None;
-                cx.notify();
+                this.extras.lan_picker.close(cx);
             })
         })
     })

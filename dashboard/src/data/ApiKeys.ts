@@ -173,7 +173,7 @@ export const countPermissions = (permissions: UserPermission) => {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * "Full access", "Custom: 3 instances, 5 permissions", or the fixed scope of a
+ * "Full access", "Custom: 3 servers, 5 permissions", or the fixed scope of a
  * Lodestone Launcher device.
  */
 export const apiKeyScopeSummary = (scope: ApiKeyScope) => {
@@ -187,10 +187,10 @@ export const apiKeyScopeSummary = (scope: ApiKeyScope) => {
           : scope.console_write
             ? ', send console commands'
             : '';
-    return `Launcher: view, start and stop instances${console}`;
+    return `Launcher: view, start and stop servers${console}`;
   }
   const { permissions, instances } = countPermissions(scope.permissions);
-  return `Custom: ${plural(instances, 'instance')}, ${plural(
+  return `Custom: ${plural(instances, 'server')}, ${plural(
     permissions,
     'permission'
   )}`;

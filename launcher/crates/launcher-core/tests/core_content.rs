@@ -128,7 +128,7 @@ fn route(state: &mut State, request: &Recorded) -> (u16, Vec<u8>) {
         // the device key can't read files
         ("GET", "/api/v1/instance/inst-1/world/download") if key => json_reply(
             403,
-            json!({ "kind": "PermissionDenied", "causes": ["You don't have permission to read this instance's files"] }),
+            json!({ "kind": "PermissionDenied", "causes": ["You don't have permission to read this server's files"] }),
         ),
         ("GET", p) if p == format!("/api/v1/file/{DOWNLOAD_KEY}") => (200, state.world_zip.clone()),
         ("GET", "/api/v1/instance/inst-1/resource_pack") if key => match &state.pack {

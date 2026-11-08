@@ -181,7 +181,7 @@ pub(super) async fn spawn_minecraft_instance_creation(
 
     tokio::fs::create_dir_all(&setup_path)
         .await
-        .context("Failed to create instance directory")?;
+        .context("Failed to create server directory")?;
 
     let dot_lodestone_config =
         DotLodestoneConfig::new(instance_uuid.clone(), GameType::MinecraftJava);
@@ -238,8 +238,8 @@ pub(super) async fn spawn_minecraft_instance_creation(
             let minecraft_instance = match created {
                 Ok((v, message)) => {
                     let message = match message {
-                        Some(extra) => format!("Instance created successfully. {extra}"),
-                        None => "Instance created successfully".to_string(),
+                        Some(extra) => format!("Server created successfully. {extra}"),
+                        None => "Server created successfully".to_string(),
                     };
                     event_broadcaster.send(Event::new_progression_event_end(
                         event_id,
@@ -255,7 +255,7 @@ pub(super) async fn spawn_minecraft_instance_creation(
                     event_broadcaster.send(Event::new_progression_event_end(
                         event_id,
                         false,
-                        Some(&format!("Instance creation failed: {e}")),
+                        Some(&format!("Server creation failed: {e}")),
                         None,
                     ));
                     remove_failed_instance_dir(setup_path).await;
@@ -308,11 +308,11 @@ pub async fn delete_instance(
             state.instances.insert(uuid.clone(), instance);
             Err(Error {
                 kind: ErrorKind::BadRequest,
-                source: eyre!("Instance must be stopped before deletion"),
+                source: eyre!("Server must be stopped before deletion"),
             })
         } else {
             let (progression_event_start, event_id) = Event::new_progression_event_start(
-                format!("Deleting instance {}", instance.name().await),
+                format!("Deleting server {}", instance.name().await),
                 Some(10.0),
                 Some(ProgressionStartValue::InstanceDelete {
                     instance_uuid: uuid.clone(),
@@ -327,12 +327,12 @@ pub async fn delete_instance(
                 event_broadcaster.send(Event::new_progression_event_end(
                     event_id,
                     false,
-                    Some("Failed to delete .lodestone_config. Instance not deleted"),
+                    Some("Failed to delete .lodestone_config. Server not deleted"),
                     None,
                 ));
                 state.instances.insert(uuid.clone(), instance);
                 return Err::<Json<()>, std::io::Error>(e)
-                    .context("Failed to delete .lodestone_config file. Instance not deleted")
+                    .context("Failed to delete .lodestone_config file. Server not deleted")
                     .map_err(Into::into);
             }
 
@@ -353,7 +353,7 @@ pub async fn delete_instance(
                 Ok(_) => event_broadcaster.send(Event::new_progression_event_end(
                     event_id,
                     true,
-                    Some("Instance deleted successfully"),
+                    Some("Server deleted successfully"),
                     Some(ProgressionEndValue::InstanceDelete {
                         instance_uuid: uuid.clone(),
                     }),
@@ -363,7 +363,7 @@ pub async fn delete_instance(
                         event_id,
                         false,
                         Some(&format!(
-                            "Failed to delete some or all of the instance's files: {e}"
+                            "Failed to delete some or all of the server's files: {e}"
                         )),
                         None,
                     ));
@@ -374,7 +374,7 @@ pub async fn delete_instance(
     } else {
         Err(Error {
             kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
+            source: eyre!("Server not found"),
         })
     }
 }

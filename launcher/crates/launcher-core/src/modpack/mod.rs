@@ -152,10 +152,13 @@ impl ModpackRecord {
         instance_dir.join(RECORD_FILE)
     }
 
-    /// The instance's record, if it was made from a modpack.
+    /// The instance's record, if it was made from a modpack. `None` when the instance has
+    /// no `modpack.json` (`storage::load` would otherwise hand back a default record, and
+    /// every instance would look like it came from a pack that isn't on Modrinth).
     pub fn load(instance_dir: &Path) -> Option<Self> {
         storage::load::<ModpackRecord>(&Self::path(instance_dir))
             .ok()
+            .filter(|loaded| loaded.file_version.is_some())
             .map(|loaded| loaded.document)
     }
 
@@ -508,6 +511,18 @@ pub(crate) fn slash_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_instance_without_modpack_json_has_no_modpack_record() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(ModpackRecord::load(dir.path()).is_none());
+        let record = ModpackRecord {
+            slug: "pack".into(),
+            ..ModpackRecord::default()
+        };
+        record.save(dir.path()).unwrap();
+        assert_eq!(ModpackRecord::load(dir.path()).unwrap().slug, "pack");
+    }
 
     fn versions(ids: &[&str]) -> Vec<LoaderVersion> {
         ids.iter()

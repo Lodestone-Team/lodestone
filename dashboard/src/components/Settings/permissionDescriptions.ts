@@ -14,13 +14,13 @@ export type PermissionDescription = {
 export const NormalPermissions: PermissionDescription[] = [
   {
     permission: 'can_create_instance',
-    title: 'Create Instances',
-    allows: 'can create new instances.',
+    title: 'Create Servers',
+    allows: 'can create new servers.',
   },
   {
     permission: 'can_delete_instance',
-    title: 'Delete Instances',
-    allows: 'can delete any instance.',
+    title: 'Delete Servers',
+    allows: 'can delete any server.',
   },
   {
     permission: 'can_read_global_file',
@@ -29,52 +29,52 @@ export const NormalPermissions: PermissionDescription[] = [
   },
   {
     permission: 'can_view_instance',
-    title: 'View Instances',
-    allows: 'can see these instances.',
+    title: 'View Servers',
+    allows: 'can see these servers.',
   },
   {
     permission: 'can_start_instance',
-    title: 'Start Instances',
-    allows: 'can start these instances.',
+    title: 'Start Servers',
+    allows: 'can start these servers.',
   },
   {
     permission: 'can_stop_instance',
-    title: 'Stop Instances',
-    allows: 'can stop these instances.',
+    title: 'Stop Servers',
+    allows: 'can stop these servers.',
   },
   {
     permission: 'can_access_instance_console',
-    title: 'Access Instance Console',
+    title: 'Access Server Console',
     allows:
-      'can read and send commands to the console of these instances. This essentially gives operator access to the instance.',
+      'can read and send commands to the console of these servers. This essentially gives operator access to the server.',
   },
   {
     permission: 'can_access_instance_setting',
-    title: 'Access Instance Settings',
-    allows: 'can read and change the settings of these instances.',
+    title: 'Access Server Settings',
+    allows: 'can read and change the settings of these servers.',
   },
   {
     permission: 'can_read_instance_resource',
-    title: 'Read Instance Resources',
-    allows: 'can read the resources(worlds, mods, etc.) of these instances.',
+    title: 'Read Server Resources',
+    allows: 'can read the resources(worlds, mods, etc.) of these servers.',
   },
   {
     permission: 'can_read_instance_file',
-    title: 'Read Instance Files',
-    allows: 'can read the files of these instances.',
+    title: 'Read Server Files',
+    allows: 'can read the files of these servers.',
   },
 ];
 
 export const UnsafePermissions: PermissionDescription[] = [
   {
     permission: 'can_write_instance_resource',
-    title: 'Modify Instance Resources',
-    allows: 'can modify the resources(worlds, mods, etc.) of these instances.',
+    title: 'Modify Server Resources',
+    allows: 'can modify the resources(worlds, mods, etc.) of these servers.',
   },
   {
     permission: 'can_write_instance_file',
-    title: 'Modify Instance Files',
-    allows: 'can modify the files of these instances.',
+    title: 'Modify Server Files',
+    allows: 'can modify the files of these servers.',
   },
   {
     permission: 'can_write_global_file',

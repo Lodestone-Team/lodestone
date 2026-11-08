@@ -92,11 +92,11 @@ export default function ModsTab() {
     setShowCreateInstance,
     setModpackPreset,
   } = useContext(InstanceContext);
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
   const uuid = instance.uuid;
   const support = getModSupport(instance.game_type);
   useDocumentTitle(
-    `Instance ${support ? modTabTitle(support.kind) : 'Mods'} - Lodestone`
+    `Server ${support ? modTabTitle(support.kind) : 'Mods'} - Lodestone`
   );
   const canRead = useUserAuthorized('can_read_instance_file', uuid);
   const canWrite = useUserAuthorized('can_write_instance_file', uuid);
@@ -127,8 +127,8 @@ export default function ModsTab() {
   if (!support)
     return (
       <div className="text-medium text-white/50">
-        This instance does not support mods or plugins. Fabric, Forge, Paper and
-        Spigot instances do.
+        This server does not support mods or plugins. Fabric, Forge, Paper and
+        Spigot servers do.
       </div>
     );
   if (!canRead)

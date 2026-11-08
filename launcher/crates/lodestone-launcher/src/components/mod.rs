@@ -4,15 +4,18 @@
 
 mod button;
 mod dialog;
+mod dialog_slot;
 mod icon;
 mod list_row;
 mod play_button;
+pub mod settings;
 mod tabs;
 mod text_input;
 mod toggle;
 
 pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
 pub use dialog::Dialog;
+pub use dialog_slot::{DialogSlot, EXIT, EXIT_REDUCED, Presence};
 pub use icon::Icon;
 pub use list_row::ListRow;
 pub use play_button::{PlayButton, PlayButtonState};

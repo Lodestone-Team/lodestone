@@ -41,9 +41,9 @@ const parsed = (line: ConsoleEvent) => {
 };
 
 export default function GameConsole() {
-  useDocumentTitle('Instance Console - Lodestone');
+  useDocumentTitle('Server Console - Lodestone');
   const { selectedInstance: instance } = useContext(InstanceContext);
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
   const uuid = instance.uuid;
   const canAccessConsole = useUserAuthorized(
     'can_access_instance_console',
@@ -164,7 +164,7 @@ export default function GameConsole() {
   }
   // overwrites
   if (instance.state === 'Stopped') {
-    consoleStatusMessage = `Instance is ${instance.state.toLowerCase()}`;
+    consoleStatusMessage = `Server is ${instance.state.toLowerCase()}`;
     consoleStatusColor = 'text-gray-500';
   }
 
@@ -173,7 +173,7 @@ export default function GameConsole() {
     consoleInputMessage = 'No permission';
   else if (!canControlInstance) consoleInputMessage = OWNER_ONLY_ATOM_MESSAGE;
   else if (instance.state === 'Stopped')
-    consoleInputMessage = `Instance is ${instance.state.toLowerCase()}`;
+    consoleInputMessage = `Server is ${instance.state.toLowerCase()}`;
   else if (consoleStatus === 'closed')
     consoleInputMessage = 'Console is closed';
 

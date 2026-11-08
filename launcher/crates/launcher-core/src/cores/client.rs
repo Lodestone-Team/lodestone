@@ -592,7 +592,7 @@ pub(crate) fn segment(uuid: &str) -> Result<&str, CoreError> {
     {
         Ok(uuid)
     } else {
-        Err(CoreError::Invalid(format!("{uuid:?} isn't an instance id")))
+        Err(CoreError::Invalid(format!("{uuid:?} isn't a server id")))
     }
 }
 

@@ -194,7 +194,7 @@ pub async fn change_list_instances_publicly(
     requester: AuthedUser,
     Json(enabled): Json<bool>,
 ) -> Result<(), Error> {
-    requester.owner_only("list instances publicly")?;
+    requester.owner_only("list servers publicly")?;
     state
         .global_settings
         .lock()
@@ -203,13 +203,13 @@ pub async fn change_list_instances_publicly(
         .await?;
     state.public_listing.invalidate().await;
     info!(
-        "Listing instances publicly turned {}",
+        "Listing servers publicly turned {}",
         if enabled { "on" } else { "off" }
     );
     state.event_broadcaster.send(Event {
         event_inner: EventInner::GlobalSettingsChanged,
         details: format!(
-            "Listing instances publicly turned {}",
+            "Listing servers publicly turned {}",
             if enabled { "on" } else { "off" }
         ),
         snowflake: Snowflake::default(),

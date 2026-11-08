@@ -66,11 +66,11 @@ Variables can be assigned to other variables:
 
 `$31` end of the program
 
-`$INSTANCE_NAME` name of the instance this macro belongs in
+`$INSTANCE_NAME` name of the server this macro belongs in
 
-`$INSTANCE_UUID` name of the instance this macro belongs in
+`$INSTANCE_UUID` UUID of the server this macro belongs in
 
-`$INSTANCE_PATH` path of the instance this macro belongs in
+`$INSTANCE_PATH` path of the server this macro belongs in
 
 
 ## Instructions

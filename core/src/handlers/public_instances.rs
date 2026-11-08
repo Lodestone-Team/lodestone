@@ -57,7 +57,7 @@ const MRPACK_TYPE: &str = "application/x-modrinth-modpack+zip";
 fn not_found() -> Error {
     Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     }
 }
 
@@ -460,13 +460,13 @@ fn check_change(
     if !requester.is_owner {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
-            source: eyre!("Only the owner can change whether an instance is public"),
+            source: eyre!("Only the owner can change whether a server is public"),
         });
     }
     if change.listed == Some(true) && !current.listed && !switch_on {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
-            source: eyre!("Listing instances publicly is turned off in Core Settings"),
+            source: eyre!("Listing servers publicly is turned off in Core Settings"),
         });
     }
     Ok(())
@@ -509,7 +509,7 @@ async fn set_public_listing(
     let instance = get_instance(&state, &uuid)?;
     if !is_minecraft_java(&instance).await {
         return Err(bad_request(
-            "Only Minecraft Java Edition instances can be listed publicly",
+            "Only Minecraft Java Edition servers can be listed publicly",
         ));
     }
     let before = state.public_listing.scope(&uuid);

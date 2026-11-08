@@ -22,7 +22,7 @@ export default function CreateFileForm({
   const queryClient = useQueryClient();
   const { directorySeparator } = useFileViewer();
 
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
 
   return (
     <Formik

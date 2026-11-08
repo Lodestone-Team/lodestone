@@ -99,32 +99,32 @@ pub trait TConfigurable {
     async fn set_port(&self, _port: u32) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support setting port"),
+            source: eyre!("This server does not support setting port"),
         })
     }
     async fn set_auto_start(&self, _auto_start: bool) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support setting auto start"),
+            source: eyre!("This server does not support setting auto start"),
         })
     }
     async fn set_restart_on_crash(&self, _restart_on_crash: bool) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support setting restart on crash"),
+            source: eyre!("This server does not support setting restart on crash"),
         })
     }
     async fn set_backup_period(&self, _backup_period: Option<u32>) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support setting backup period"),
+            source: eyre!("This server does not support setting backup period"),
         })
     }
 
     async fn change_version(&self, _version: String) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support changing version"),
+            source: eyre!("This server does not support changing version"),
         })
     }
 

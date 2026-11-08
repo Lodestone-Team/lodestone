@@ -114,7 +114,7 @@ export const useEventStream = () => {
           StateTransition: ({ to }) => {
             if (fresh) updateInstanceState(queryClient, uuid, to);
             dispatch({
-              title: `Instance ${name} ${
+              title: `Server ${name} ${
                 {
                   Starting: `is starting`,
                   Running: `started`,
@@ -130,10 +130,10 @@ export const useEventStream = () => {
           },
           InstanceWarning: () => {
             toast.error(
-              "Warning: An instance has encountered a warning. This shouldn't happen, please report this to the developers."
+              "Warning: A server has encountered a warning. This shouldn't happen, please report this to the developers."
             );
             dispatch({
-              title: `Instance ${name} encountered a warning`,
+              title: `Server ${name} encountered a warning`,
               event,
               type: 'add',
               fresh,
@@ -142,7 +142,7 @@ export const useEventStream = () => {
           InstanceError: () => {
             if (fresh) updateInstanceState(queryClient, uuid, 'Error');
             dispatch({
-              title: `Instance ${name} encountered an error`,
+              title: `Server ${name} encountered an error`,
               event,
               type: 'add',
               fresh,

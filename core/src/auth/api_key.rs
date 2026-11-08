@@ -963,7 +963,7 @@ mod manager_tests {
         assert!(user
             .try_action(&UserAction::InstallExtension, false)
             .is_err());
-        assert!(user.owner_only("create atom instances").is_err());
+        assert!(user.owner_only("create atom servers").is_err());
         assert!(crate::handlers::util::check_code_write(
             user.is_owner,
             &crate::global_settings::CodeExecutionSwitch::new(true)

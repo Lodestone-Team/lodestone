@@ -39,9 +39,9 @@ const Home = () => {
           style={{ imageRendering: 'pixelated' }}
         />
       </div>
-      <div className="mt-4 text-h2 font-extrabold ">Manage your instances</div>
+      <div className="mt-4 text-h2 font-extrabold ">Manage your servers</div>
       <div className="text-medium font-bold">
-        To start, select an instance from the menu or create a new instance
+        To start, select a server from the menu or create a new one
       </div>
       {userLoggedIn && (
         <div className="mt-5" {...preloadCreateInstanceProps}>
@@ -49,7 +49,7 @@ const Home = () => {
             align="start"
             labelGrow={true}
             className="w-full"
-            label="Create a new instance"
+            label="Create a new server"
             onClick={() => setShowCreateInstance(true)}
             disabled={!canCreateInstance}
           />

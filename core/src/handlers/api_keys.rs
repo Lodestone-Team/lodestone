@@ -26,7 +26,7 @@ async fn check_scope_instances(state: &AppState, scope: &ApiKeyScope) -> Result<
         if !state.instances.contains_key(uuid) && !state.docker_bridge.is_watched(uuid).await {
             return Err(Error {
                 kind: ErrorKind::BadRequest,
-                source: eyre!("Instance {uuid} does not exist"),
+                source: eyre!("Server {uuid} does not exist"),
             });
         }
     }
@@ -559,7 +559,7 @@ mod tests {
                 )
                 .await;
             assert_eq!(status, StatusCode::FORBIDDEN);
-            assert_eq!(message(&body), "Only the owner can create atom instances");
+            assert_eq!(message(&body), "Only the owner can create atom servers");
             let (status, body) = core
                 .call(Method::POST, "/instance/create_generic", &full, Some(atom))
                 .await;

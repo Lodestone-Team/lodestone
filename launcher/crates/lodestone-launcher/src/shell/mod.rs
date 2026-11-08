@@ -6,17 +6,20 @@ mod account_box;
 mod developer;
 mod launcher_settings;
 mod play;
+mod settings_modal;
 mod shared_settings;
 mod sidebar;
 mod top_bar;
 
 pub use launcher_settings::LauncherSettings;
+use settings_modal::SettingsModal;
+pub use settings_modal::SettingsPage;
 pub use shared_settings::SharedSettings;
 pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, FocusHandle, Focusable as _, IntoElement, Render,
-    SharedString, Subscription, Window, div, prelude::*, px,
+    AnyElement, ClipboardItem, Context, Entity, EntityId, FocusHandle, Focusable as _, IntoElement,
+    Render, SharedString, Subscription, Window, div, prelude::*, px,
 };
 
 use crate::{
@@ -25,7 +28,7 @@ use crate::{
         offline_dialog::{OfflineDialog, OfflineDialogDismissed},
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
-    components::{Button, ButtonVariant, Dialog, Icon},
+    components::{Button, ButtonVariant, Dialog, DialogSlot, Icon},
     instances::{
         CrashInfo, Instances, InstancesEvent,
         console::Console,
@@ -45,7 +48,6 @@ use crate::{
 pub enum Page {
     #[default]
     Instance,
-    Settings,
     /// Lodestone cores and their servers.
     Servers,
 }
@@ -163,7 +165,7 @@ pub struct LauncherShell {
     content: Entity<ContentView>,
     /// The Worlds tab: worlds, backups and screenshots.
     worlds: Entity<WorldsView>,
-    /// The launcher's Settings page.
+    /// Settings > Instance defaults.
     launcher_settings: Entity<LauncherSettings>,
     /// The Servers page, and its dialogs over the window.
     servers: Entity<Servers>,
@@ -174,7 +176,11 @@ pub struct LauncherShell {
     settings: Option<(Entity<InstanceSettings>, [Subscription; 4])>,
     page: Page,
     tab: InstanceTab,
-    modal: Option<Modal>,
+    /// The launcher's Settings, a large dialog under the other dialogs.
+    settings_modal: DialogSlot<LauncherShell, SettingsModal>,
+    settings_page: SettingsPage,
+    /// The dialog over the window, and those still fading out.
+    modal: DialogSlot<LauncherShell, Modal>,
     account_menu_open: bool,
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
     top_bar_drag_pending: bool,
@@ -197,12 +203,15 @@ impl LauncherShell {
                 InstancesEvent::Crashed(crash) => this.show_crash(crash.clone(), cx),
                 InstancesEvent::LaunchFailed { title, message }
                 | InstancesEvent::Notice { title, message } => {
-                    this.modal = Some(Modal::LaunchFailed {
-                        title: title.clone(),
-                        message: message.clone(),
-                        focus: cx.focus_handle(),
-                    });
-                    cx.notify();
+                    let focus = cx.focus_handle();
+                    this.modal.open(
+                        Modal::LaunchFailed {
+                            title: title.clone(),
+                            message: message.clone(),
+                            focus,
+                        },
+                        cx,
+                    );
                 }
                 InstancesEvent::LoaderChanged(_) => {
                     // The Settings tab shows the loader it was built with; build it again.
@@ -220,7 +229,7 @@ impl LauncherShell {
         }));
         let worlds = cx.new(|cx| WorldsView::new(instances.clone(), cx));
         observe.push(cx.subscribe(&worlds, |this, _, event, cx| {
-            this.modal = Some(match event {
+            let modal = match event {
                 WorldsEvent::Delete { folder, name } => Modal::DeleteWorld {
                     folder: folder.clone(),
                     name: name.clone(),
@@ -236,8 +245,8 @@ impl LauncherShell {
                     backup: backup.clone(),
                     focus: cx.focus_handle(),
                 },
-            });
-            cx.notify();
+            };
+            this.modal.open(modal, cx);
         }));
         let launcher_settings = {
             let instances = instances.clone();
@@ -249,12 +258,15 @@ impl LauncherShell {
             ServersEvent::OpenInstance(id) => this.select_instance(id, cx),
             ServersEvent::ShowServers => this.show(Page::Servers, cx),
             ServersEvent::Failed { title, message } => {
-                this.modal = Some(Modal::LaunchFailed {
-                    title: title.clone(),
-                    message: message.clone(),
-                    focus: cx.focus_handle(),
-                });
-                cx.notify();
+                let focus = cx.focus_handle();
+                this.modal.open(
+                    Modal::LaunchFailed {
+                        title: title.clone(),
+                        message: message.clone(),
+                        focus,
+                    },
+                    cx,
+                );
             }
         }));
         // the instance page shows the server an instance is linked to, and its progress
@@ -263,6 +275,9 @@ impl LauncherShell {
             let instances = instances.clone();
             cx.new(|cx| SharedSettings::new(instances, cx))
         };
+        // The Settings dialog draws their "Saved" notices.
+        observe.push(cx.observe(&launcher_settings, |_, _, cx| cx.notify()));
+        observe.push(cx.observe(&shared_settings, |_, _, cx| cx.notify()));
         let mut this = Self {
             accounts,
             instances,
@@ -276,7 +291,9 @@ impl LauncherShell {
             settings: None,
             page: Page::default(),
             tab: InstanceTab::default(),
-            modal: None,
+            settings_modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.settings_modal),
+            settings_page: SettingsPage::default(),
+            modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
             top_bar_drag_pending: false,
             _observe: observe,
@@ -303,7 +320,7 @@ impl LauncherShell {
 
     /// The open "New instance" dialog, for the offscreen screenshots.
     pub fn new_instance_dialog(&self) -> Option<&Entity<NewInstanceDialog>> {
-        match &self.modal {
+        match self.modal.current() {
             Some(Modal::NewInstance { dialog, .. }) => Some(dialog),
             _ => None,
         }
@@ -312,17 +329,20 @@ impl LauncherShell {
     /// Asks before applying a modpack update.
     pub fn show_modpack_update(&mut self, prompt: UpdatePrompt, cx: &mut Context<Self>) {
         self.discard_pending_update(cx);
-        self.modal = Some(Modal::ModpackUpdate {
-            prompt: Box::new(prompt),
-            backup_worlds: true,
-            focus: cx.focus_handle(),
-        });
-        cx.notify();
+        let focus = cx.focus_handle();
+        self.modal.open(
+            Modal::ModpackUpdate {
+                prompt: Box::new(prompt),
+                backup_worlds: true,
+                focus,
+            },
+            cx,
+        );
     }
 
     /// Removes the downloaded pack of an update prompt that is being closed unanswered.
     fn discard_pending_update(&mut self, cx: &mut Context<Self>) {
-        if let Some(Modal::ModpackUpdate { prompt, .. }) = &self.modal {
+        if let Some(Modal::ModpackUpdate { prompt, .. }) = self.modal.current() {
             let prompt = prompt.clone();
             self.instances
                 .update(cx, |instances, _| instances.discard_update(&prompt));
@@ -499,7 +519,7 @@ impl LauncherShell {
                                 crate::components::Toggle::new("modpack-update-backup", backup_worlds)
                                     .on_change(cx.listener(|this, value: &bool, _, cx| {
                                         if let Some(Modal::ModpackUpdate { backup_worlds, .. }) =
-                                            &mut this.modal
+                                            this.modal.current_mut()
                                         {
                                             *backup_worlds = *value;
                                         }
@@ -518,17 +538,19 @@ impl LauncherShell {
                 Button::new("confirm-modpack-update", "Update")
                     .variant(ButtonVariant::Primary)
                     .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(Modal::ModpackUpdate {
-                            prompt,
-                            backup_worlds,
-                            ..
-                        }) = this.modal.take()
-                        {
+                        let update = match this.modal.close(cx) {
+                            Some(Modal::ModpackUpdate {
+                                prompt,
+                                backup_worlds,
+                                ..
+                            }) => Some(((**prompt).clone(), *backup_worlds)),
+                            _ => None,
+                        };
+                        if let Some((prompt, backup_worlds)) = update {
                             this.instances.update(cx, |instances, cx| {
-                                instances.apply_modpack_update(*prompt, backup_worlds, cx)
+                                instances.apply_modpack_update(prompt, backup_worlds, cx)
                             });
                         }
-                        cx.notify();
                     })),
             )
             .footer(
@@ -542,12 +564,12 @@ impl LauncherShell {
             .into_any_element()
     }
 
-    fn render_world_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn render_world_dialog(&self, modal: &Modal, cx: &mut Context<Self>) -> Option<AnyElement> {
         let entity = cx.entity();
         let close = move |_: &mut Window, cx: &mut gpui::App| {
             entity.update(cx, |this, cx| this.close_modal(cx))
         };
-        Some(match self.modal.as_ref()? {
+        Some(match modal {
             Modal::DeleteWorld {
                 folder,
                 name,
@@ -626,7 +648,9 @@ impl LauncherShell {
             None => self.settings = None,
             Some(instance) if current.as_deref() != Some(instance.id.as_str()) => {
                 let instances = self.instances.clone();
-                let settings = cx.new(|cx| InstanceSettings::new(instances, &instance, cx));
+                let servers = self.servers.clone();
+                let settings =
+                    cx.new(|cx| InstanceSettings::new(instances, servers, &instance, cx));
                 let subscriptions = [
                     cx.subscribe(&settings, |this, _, DeleteRequested(id), cx| {
                         this.confirm_delete_instance(id, cx)
@@ -658,39 +682,50 @@ impl LauncherShell {
 
     /// Shows the launch error dialog, for the offscreen screenshots.
     pub fn preview_launch_failed(&mut self, title: &str, message: &str, cx: &mut Context<Self>) {
-        self.modal = Some(Modal::LaunchFailed {
-            title: title.to_string().into(),
-            message: message.to_string().into(),
-            focus: cx.focus_handle(),
-        });
-        cx.notify();
+        let focus = cx.focus_handle();
+        self.modal.open(
+            Modal::LaunchFailed {
+                title: title.to_string().into(),
+                message: message.to_string().into(),
+                focus,
+            },
+            cx,
+        );
     }
 
     /// Shows the crash dialog.
     pub fn show_crash(&mut self, crash: CrashInfo, cx: &mut Context<Self>) {
-        self.modal = Some(Modal::Crash {
-            crash,
-            focus: cx.focus_handle(),
-            copied: false,
-        });
-        cx.notify();
+        let focus = cx.focus_handle();
+        self.modal.open(
+            Modal::Crash {
+                crash,
+                focus,
+                copied: false,
+            },
+            cx,
+        );
     }
 
     /// Asks before saving a loader change (from the Settings tab).
     pub fn show_loader_change(&mut self, prompt: LoaderChangePrompt, cx: &mut Context<Self>) {
-        self.modal = Some(Modal::LoaderChange {
-            prompt: Box::new(prompt),
-            focus: cx.focus_handle(),
-        });
-        cx.notify();
+        let focus = cx.focus_handle();
+        self.modal.open(
+            Modal::LoaderChange {
+                prompt: Box::new(prompt),
+                focus,
+            },
+            cx,
+        );
     }
 
     /// Saves the change the dialog asked about, turning the mismatched mods off first if
     /// `turn_off`.
     fn finish_loader_change(&mut self, turn_off: bool, cx: &mut Context<Self>) {
-        let Some(Modal::LoaderChange { prompt, .. }) = self.modal.take() else {
+        let Some(Modal::LoaderChange { prompt, .. }) = self.modal.current() else {
             return;
         };
+        let prompt = (**prompt).clone();
+        self.modal.close(cx);
         let disable: Vec<String> = if turn_off {
             prompt
                 .check
@@ -821,13 +856,16 @@ impl LauncherShell {
         else {
             return;
         };
-        self.modal = Some(Modal::DeleteInstance {
-            id: instance.id,
-            name: instance.name,
-            focus: cx.focus_handle(),
-            error: None,
-        });
-        cx.notify();
+        let focus = cx.focus_handle();
+        self.modal.open(
+            Modal::DeleteInstance {
+                id: instance.id,
+                name: instance.name,
+                focus,
+                error: None,
+            },
+            cx,
+        );
     }
 
     pub fn select_instance(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -859,9 +897,27 @@ impl LauncherShell {
         cx.notify();
     }
 
+    /// Closes the dialog; it fades out.
     fn close_modal(&mut self, cx: &mut Context<Self>) {
-        self.modal = None;
-        cx.notify();
+        // A loader change that wasn't confirmed: the Settings tab shows the saved loader.
+        if matches!(self.modal.current(), Some(Modal::LoaderChange { .. }))
+            && let Some(settings) = self.settings_view().cloned()
+        {
+            settings.update(cx, |settings, cx| settings.revert_loader(cx));
+        }
+        self.modal.close(cx);
+    }
+
+    /// Whether `dialog` is the open dialog's view. Events from a dialog that is fading
+    /// out are ignored, so it can't close the dialog that replaced it.
+    fn is_open_dialog(&self, dialog: EntityId) -> bool {
+        match self.modal.current() {
+            Some(Modal::NewInstance { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::Import { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::SignIn { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::Offline { dialog: open, .. }) => open.entity_id() == dialog,
+            _ => false,
+        }
     }
 
     fn open_new_instance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -872,7 +928,7 @@ impl LauncherShell {
     /// instance.
     fn open_new_instance_with_loader(&mut self, cx: &mut Context<Self>) {
         self.open_new_instance_with(None, None, cx);
-        if let Some(Modal::NewInstance { dialog, .. }) = &self.modal {
+        if let Some(Modal::NewInstance { dialog, .. }) = self.modal.current() {
             dialog.update(cx, |dialog, cx| {
                 dialog.choose_loader(launcher_core::game::loaders::LoaderKind::Fabric, cx)
             });
@@ -895,7 +951,10 @@ impl LauncherShell {
                 None => dialog,
             }
         });
-        let subscription = cx.subscribe(&dialog, |this, _, _: &NewInstanceDismissed, cx| {
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &NewInstanceDismissed, cx| {
+            if !this.is_open_dialog(dialog.entity_id()) {
+                return;
+            }
             this.show(Page::Instance, cx);
             this.tab = InstanceTab::Play;
             this.close_modal(cx)
@@ -903,11 +962,13 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
-        self.modal = Some(Modal::NewInstance {
-            dialog,
-            _events: subscription,
-        });
-        cx.notify();
+        self.modal.open(
+            Modal::NewInstance {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
     }
 
     fn open_import(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -920,15 +981,20 @@ impl LauncherShell {
     /// Shows the import dialog (a prepared one for the offscreen screenshots).
     pub fn show_import(&mut self, dialog: Entity<ImportDialog>, cx: &mut Context<Self>) {
         self.account_menu_open = false;
-        let subscription = cx.subscribe(&dialog, |this, _, _: &ImportDismissed, cx| {
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &ImportDismissed, cx| {
+            if !this.is_open_dialog(dialog.entity_id()) {
+                return;
+            }
             this.page = Page::Instance;
             this.close_modal(cx)
         });
-        self.modal = Some(Modal::Import {
-            dialog,
-            _events: subscription,
-        });
-        cx.notify();
+        self.modal.open(
+            Modal::Import {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
     }
 
     fn open_sign_in(&mut self, window: Option<&mut Window>, cx: &mut Context<Self>) {
@@ -946,18 +1012,25 @@ impl LauncherShell {
         self.account_menu_open = false;
         let accounts = self.accounts.clone();
         let dialog = cx.new(|cx| SignInDialog::new(accounts, cx).with_stage(stage));
-        let subscription = cx.subscribe(&dialog, |this, _, event, cx| match event {
-            SignInEvent::Dismissed => this.close_modal(cx),
-            SignInEvent::UseOffline => this.open_offline(None, None, cx),
+        let subscription = cx.subscribe(&dialog, |this, dialog, event, cx| {
+            if !this.is_open_dialog(dialog.entity_id()) {
+                return;
+            }
+            match event {
+                SignInEvent::Dismissed => this.close_modal(cx),
+                SignInEvent::UseOffline => this.open_offline(None, None, cx),
+            }
         });
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
-        self.modal = Some(Modal::SignIn {
-            dialog,
-            _events: subscription,
-        });
-        cx.notify();
+        self.modal.open(
+            Modal::SignIn {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
     }
 
     /// Opens "Add offline account", with `username` filled in for screenshots.
@@ -976,17 +1049,21 @@ impl LauncherShell {
                 None => dialog,
             }
         });
-        let subscription = cx.subscribe(&dialog, |this, _, _: &OfflineDialogDismissed, cx| {
-            this.close_modal(cx)
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &OfflineDialogDismissed, cx| {
+            if this.is_open_dialog(dialog.entity_id()) {
+                this.close_modal(cx)
+            }
         });
         if let Some(window) = window {
             window.focus(&dialog.focus_handle(cx), cx);
         }
-        self.modal = Some(Modal::Offline {
-            dialog,
-            _events: subscription,
-        });
-        cx.notify();
+        self.modal.open(
+            Modal::Offline {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
     }
 
     /// Asks before removing the account.
@@ -1011,12 +1088,14 @@ impl LauncherShell {
         if let Some(window) = window {
             window.focus(&focus, cx);
         }
-        self.modal = Some(Modal::RemoveAccount {
-            id: account.id,
-            username: account.username,
-            focus,
-        });
-        cx.notify();
+        self.modal.open(
+            Modal::RemoveAccount {
+                id: account.id,
+                username: account.username,
+                focus,
+            },
+            cx,
+        );
     }
 
     /// Opens the account menu, for the screenshots.
@@ -1024,14 +1103,15 @@ impl LauncherShell {
         self.set_account_menu(true, cx);
     }
 
-    fn render_modal(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    /// Renders a dialog from its state: the open one, or one fading out.
+    fn render_modal(&self, modal: &Modal, cx: &mut Context<Self>) -> Option<AnyElement> {
         let close = |cx: &mut Context<Self>| {
             let entity = cx.entity();
             move |_: &mut Window, cx: &mut gpui::App| {
                 entity.update(cx, |this, cx| this.close_modal(cx))
             }
         };
-        Some(match self.modal.as_ref()? {
+        Some(match modal {
             Modal::NewInstance { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Import { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Crash {
@@ -1103,7 +1183,7 @@ impl LauncherShell {
                                         this.close_modal(cx);
                                     }
                                     Err(err) => {
-                                        if let Some(Modal::DeleteInstance { error, .. }) = &mut this.modal {
+                                        if let Some(Modal::DeleteInstance { error, .. }) = this.modal.current_mut() {
                                             *error = Some(err.into());
                                         }
                                         cx.notify();
@@ -1122,7 +1202,7 @@ impl LauncherShell {
                 self.render_loader_change(prompt, focus.clone(), cx)
             }
             Modal::DeleteWorld { .. } | Modal::ReplaceWorld { .. } => {
-                self.render_world_dialog(cx)?
+                self.render_world_dialog(modal, cx)?
             }
             Modal::ModpackUpdate {
                 prompt,
@@ -1244,7 +1324,7 @@ fn render_crash(
                 .variant(ButtonVariant::Secondary)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(log_text.clone()));
-                    if let Some(Modal::Crash { copied, .. }) = &mut this.modal {
+                    if let Some(Modal::Crash { copied, .. }) = this.modal.current_mut() {
                         *copied = true;
                     }
                     cx.notify();
@@ -1259,24 +1339,17 @@ fn render_crash(
 }
 
 impl Render for LauncherShell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
-            // The global game settings, then Developer.
-            Page::Settings => div()
-                .id("settings-page")
-                .flex()
-                .flex_col()
-                .size_full()
-                .overflow_y_scroll()
-                .pb_8()
-                .child(self.launcher_settings.clone())
-                .child(self.shared_settings.clone())
-                .child(developer::render(self, cx))
-                .into_any_element(),
             Page::Servers => self.servers.clone().into_any_element(),
         };
-        let modal = self.render_modal(cx);
+        let settings = self.settings_modal.render(window, |modal| {
+            Some(self.render_settings(modal, window, cx))
+        });
+        let modal = self
+            .modal
+            .render(window, |modal| self.render_modal(modal, cx));
 
         div()
             .id("launcher-shell")
@@ -1300,6 +1373,7 @@ impl Render for LauncherShell {
                     .child(sidebar::render(self, cx))
                     .child(div().flex().flex_1().min_w_0().h_full().child(main)),
             )
+            .children(settings)
             .children(modal)
             .child(self.servers_overlay.clone())
     }

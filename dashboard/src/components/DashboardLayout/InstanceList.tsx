@@ -63,7 +63,7 @@ export default function InstanceList({
       </RadioGroup.Label>
       {userState === 'loading' || (userState === 'logged-in' && !instances) ? (
         // instance pills (icon, name, status dot) while the list loads
-        <SkeletonGroup label="Loading instances">
+        <SkeletonGroup label="Loading servers">
           <SkeletonRows
             rows={4}
             icon="square"
@@ -93,7 +93,7 @@ export default function InstanceList({
             className="text-h1 text-gray-faded/30"
           />
           <p className="text-center text-medium italic text-gray-faded/30 light:text-ink-muted">
-            Log in to view your server instances.
+            Log in to view your servers.
           </p>
         </div>
       )}

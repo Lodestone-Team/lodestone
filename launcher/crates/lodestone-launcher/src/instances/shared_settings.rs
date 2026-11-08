@@ -8,7 +8,8 @@ use std::{
 };
 
 use gpui::{
-    Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div, prelude::*, px,
+    AnyElement, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
+    prelude::*, px,
 };
 use launcher_core::{
     game::log4j::Level,
@@ -16,10 +17,13 @@ use launcher_core::{
     shared_options::{self, Category, ExitOutcome, InstanceSharing, Profile, Row},
 };
 
-use super::{Instances, fields::section};
+use super::Instances;
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, TextInput, Toggle},
-    theme::{self, colors, radius, text, weights},
+    components::{
+        Button, ButtonSize, ButtonVariant, TextInput, Toggle,
+        settings::{SettingRow, card, link, muted_link, section, tag, value},
+    },
+    theme::{self, colors, radius, text},
 };
 
 impl Instances {
@@ -268,13 +272,15 @@ impl InstanceSharedSettings {
         self.after(result, cx);
     }
 
+    /// A category's row: its name, how many values are shared or overridden, and
+    /// "Override all" or "Share all".
     fn category(
         &self,
         category: Category,
         rows: &[&Row],
         busy: bool,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
+    ) -> AnyElement {
         let expanded = self.expanded.contains(&category);
         let shared = self.state.profile.shares(category);
         let overridden = rows.iter().filter(|r| r.overridden).count();
@@ -290,75 +296,49 @@ impl InstanceSharedSettings {
         };
         let keys: Vec<String> = rows.iter().map(|r| r.key.clone()).collect();
         let all_overridden = !rows.is_empty() && overridden == rows.len();
-        let mut body = div().flex().flex_col();
-        if expanded && shared {
-            for (index, row) in rows.iter().enumerate() {
-                body = body.child(self.row(category, index, row, busy, cx));
-            }
-        }
-        div()
-            .flex()
-            .flex_col()
-            .rounded(radius::LG)
-            .border_1()
-            .border_color(colors::FADE_700)
-            .bg(colors::GRAY_850)
+        let can_open = shared && !rows.is_empty();
+        SettingRow::new(category.label())
             .child(
                 div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .py_2()
-                    .child(
-                        Button::new(("shared-category", category as usize), category.label())
-                            .variant(ButtonVariant::Ghost)
-                            .size(ButtonSize::Slim)
-                            .icon_right(if expanded {
-                                Icon::ArrowUp
-                            } else {
-                                Icon::ArrowDown
-                            })
-                            .disabled(!shared || rows.is_empty())
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if !this.expanded.remove(&category) {
-                                    this.expanded.insert(category);
-                                }
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(theme::text_size(text::SMALL))
-                            .text_color(colors::GRAY_500)
-                            .child(summary),
-                    )
-                    .when(shared && !rows.is_empty(), |this| {
-                        this.child(
-                            Button::new(
-                                ("shared-category-bulk", category as usize),
-                                if all_overridden {
-                                    "Share all"
-                                } else {
-                                    "Override all"
-                                },
-                            )
-                            .variant(ButtonVariant::Ghost)
-                            .size(ButtonSize::Slim)
-                            .disabled(busy)
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    this.set_overrides(keys.clone(), !all_overridden, cx)
-                                },
-                            )),
-                        )
-                    }),
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(colors::GRAY_500)
+                    .child(summary),
             )
-            .child(body)
+            .when(can_open && expanded, |row| {
+                row.child(
+                    muted_link(
+                        ("shared-category-bulk", category as usize),
+                        if all_overridden {
+                            "Share all"
+                        } else {
+                            "Override all"
+                        },
+                    )
+                    .when(!busy, |link| {
+                        link.on_click(cx.listener(move |this, _, _, cx| {
+                            this.set_overrides(keys.clone(), !all_overridden, cx)
+                        }))
+                    }),
+                )
+            })
+            .when(can_open, |row| {
+                row.child(
+                    link(
+                        ("shared-category", category as usize),
+                        if expanded { "Hide" } else { "Show" },
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.expanded.remove(&category) {
+                            this.expanded.insert(category);
+                        }
+                        cx.notify();
+                    })),
+                )
+            })
+            .into_any_element()
     }
 
+    /// One value of an opened category: the shared value, or this instance's own.
     fn row(
         &self,
         category: Category,
@@ -366,10 +346,9 @@ impl InstanceSharedSettings {
         row: &Row,
         busy: bool,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
+    ) -> AnyElement {
         let id = category as usize * 10_000 + index;
         let key = row.key.clone();
-        let overridden = row.overridden;
         let editing = self
             .editing
             .as_ref()
@@ -384,135 +363,52 @@ impl InstanceSharedSettings {
             .as_deref()
             .map_or("Not in options.txt".to_string(), |v| row.show(v));
         let edit_row = row.clone();
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_1()
-            .border_t_1()
-            .border_color(colors::FADE_700)
-            .child(
-                div()
-                    .w(px(190.))
-                    .flex_none()
-                    .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_300)
-                    .child(row.label.clone()),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(match (overridden, editing) {
-                        (true, Some(input)) => div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(div().w(px(180.)).child(input))
-                            .child(
-                                Button::new(("shared-save", id), "Save")
-                                    .variant(ButtonVariant::Primary)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
-                            )
-                            .child(
-                                Button::new(("shared-cancel", id), "Cancel")
-                                    .variant(ButtonVariant::Ghost)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.editing = None;
-                                        cx.notify();
-                                    })),
-                            )
-                            .into_any_element(),
-                        (true, None) => div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(value_pill(local_text, true))
-                            .child(
-                                div()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .text_color(colors::GRAY_500)
-                                    .child(format!("shared: {shared_text}")),
-                            )
-                            .child(
-                                Button::new(("shared-edit", id), "Edit")
-                                    .variant(ButtonVariant::Ghost)
-                                    .size(ButtonSize::Slim)
-                                    .disabled(busy)
-                                    .on_click(
-                                        cx.listener(move |this, _, _, cx| this.edit(&edit_row, cx)),
-                                    ),
-                            )
-                            .into_any_element(),
-                        (false, _) => value_pill(shared_text, false).into_any_element(),
-                    }),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_size(theme::text_size(text::SMALL))
-                            .text_color(colors::GRAY_500)
-                            .child("Override"),
+        let line = SettingRow::new(row.label.clone()).indent();
+        let line = match (row.overridden, editing) {
+            (true, Some(input)) => line
+                .child(div().w(px(180.)).child(input))
+                .child(
+                    Button::new(("shared-save", id), "Save")
+                        .variant(ButtonVariant::Primary)
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
+                )
+                .child(
+                    muted_link(("shared-cancel", id), "Cancel").on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.editing = None;
+                            cx.notify();
+                        },
+                    )),
+                ),
+            (true, None) => line
+                .child(value(local_text, false))
+                .child(tag("This instance", colors::BLUE_200))
+                .when(!busy, |line| {
+                    line.child(
+                        link(("shared-edit", id), "Edit")
+                            .on_click(cx.listener(move |this, _, _, cx| this.edit(&edit_row, cx))),
                     )
                     .child(
-                        Toggle::new(("shared-override", id), overridden)
-                            .disabled(busy)
-                            .on_change(cx.listener(move |this, value: &bool, _, cx| {
-                                this.set_overrides(vec![key.clone()], *value, cx)
+                        muted_link(("shared-use", id), format!("Use shared ({shared_text})"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.set_overrides(vec![key.clone()], false, cx)
                             })),
-                    ),
-            )
+                    )
+                }),
+            (false, _) => line
+                .child(value(shared_text, true))
+                .child(tag("Shared", colors::GRAY_500))
+                .when(!busy, |line| {
+                    line.child(
+                        link(("shared-override", id), "Override").on_click(cx.listener(
+                            move |this, _, _, cx| this.set_overrides(vec![key.clone()], true, cx),
+                        )),
+                    )
+                }),
+        };
+        line.into_any_element()
     }
-}
-
-/// A value in the shared settings lists.
-pub fn value_pill(text_: impl Into<SharedString>, own: bool) -> impl IntoElement {
-    div()
-        .px_2()
-        .rounded(radius::MD)
-        .border_1()
-        .border_color(if own {
-            colors::BLUE_400
-        } else {
-            colors::TRANSPARENT
-        })
-        .bg(colors::GRAY_800)
-        .text_color(if own {
-            colors::BLUE_200
-        } else {
-            colors::GRAY_300
-        })
-        .font_weight(weights::BOLD.into())
-        .text_size(theme::text_size(text::SMALL))
-        .child(text_.into())
-}
-
-/// A line of text in a box, like the inherited values of the other sections.
-pub fn note_box(text_: impl Into<SharedString>) -> impl IntoElement {
-    div()
-        .px_3()
-        .py_2()
-        .rounded(radius::LG)
-        .border_1()
-        .border_color(colors::FADE_700)
-        .bg(colors::GRAY_850)
-        .text_color(colors::GRAY_400)
-        .child(text_.into())
 }
 
 /// The labels of up to three keys, for messages.
@@ -562,7 +458,10 @@ impl Render for InstanceSharedSettings {
         .collect();
         let changed = self.state.sharing.changed.clone();
 
-        let source = if is_preferred {
+        let source = if !enabled {
+            "Off: this instance keeps its own options.txt, and nothing is read back from it."
+                .to_string()
+        } else if is_preferred {
             "This is the preferred instance: settings you change in-game here update every instance."
                 .to_string()
         } else {
@@ -577,80 +476,66 @@ impl Render for InstanceSharedSettings {
             }
         };
 
-        let mut section = section(
-            "Shared game settings",
-            Some("Mouse, key bindings, video, sound and more from options.txt.".into()),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .items_center()
-                .gap_3()
+        let mut items: Vec<AnyElement> = vec![
+            SettingRow::new("Use shared settings")
+                .hint(source)
+                .when(enabled && is_preferred, |row| {
+                    row.child(tag("Preferred", colors::GREEN_300))
+                })
+                .when(enabled && !is_preferred, |row| {
+                    row.child(
+                        link("make-preferred", "Make preferred")
+                            .on_click(cx.listener(|this, _, _, cx| this.make_preferred(cx))),
+                    )
+                })
                 .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            Toggle::new("use-shared-settings", enabled)
-                                .disabled(busy)
-                                .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                    this.set_enabled(*value, cx)
-                                })),
-                        )
-                        .child(
-                            div()
-                                .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_400)
-                                .child("Use shared settings"),
+                    Toggle::new("use-shared-settings", enabled)
+                        .disabled(busy)
+                        .on_change(
+                            cx.listener(|this, value: &bool, _, cx| this.set_enabled(*value, cx)),
                         ),
                 )
-                .child(if is_preferred {
-                    div()
-                        .px_2()
-                        .py(px(2.))
-                        .rounded(radius::MD)
-                        .bg(colors::GREEN_FADED)
-                        .text_color(colors::GREEN_300)
-                        .text_size(theme::text_size(text::SMALL))
-                        .font_weight(weights::BOLD.into())
-                        .child("Preferred")
-                        .into_any_element()
-                } else {
-                    Button::new("make-preferred", "Make preferred")
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|this, _, _, cx| this.make_preferred(cx)))
-                        .into_any_element()
-                }),
-        )
-        .child(
-            div()
-                .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
-                .child(source),
-        );
+                .when(busy, |row| {
+                    row.note(
+                        "Stop the game to change these: it rewrites options.txt when it quits.",
+                        colors::GRAY_400,
+                    )
+                })
+                .into_any_element(),
+        ];
+        if enabled {
+            for category in Category::ALL {
+                let in_category: Vec<&Row> =
+                    rows.iter().filter(|r| r.category == category).collect();
+                items.push(self.category(category, &in_category, busy, cx));
+                if self.expanded.contains(&category) && self.state.profile.shares(category) {
+                    for (index, row) in in_category.iter().enumerate() {
+                        items.push(self.row(category, index, row, busy, cx));
+                    }
+                }
+            }
+        }
 
+        let mut body = section(
+            "Shared game settings",
+            Some("Mouse, key bindings, video, sound and more from options.txt, kept the same in every instance.".into()),
+        );
         if !changed.is_empty() && enabled {
             let count = changed.len();
-            section = section.child(
+            body = body.child(
                 div()
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .px_3()
-                    .py_2()
-                    .rounded(radius::LG)
+                    .px_4()
+                    .py_3()
+                    .rounded(radius::XL)
                     .border_1()
-                    .border_color(colors::YELLOW)
-                    .bg(colors::GRAY_850)
+                    .border_color(colors::YELLOW.opacity(30))
+                    .bg(colors::YELLOW.opacity(5))
                     .child(
                         div()
-                            .text_color(colors::YELLOW_300)
-                            .font_weight(weights::BOLD.into())
+                            .text_color(colors::GRAY_300)
                             .child(format!(
                                 "{count} setting{} you changed in-game ({}) will be replaced by the shared ones next launch.",
                                 if count == 1 { "" } else { "s" },
@@ -661,61 +546,35 @@ impl Render for InstanceSharedSettings {
                         div()
                             .flex()
                             .flex_row()
-                            .gap_2()
+                            .items_center()
+                            .gap_3()
                             .child(
-                                Button::new("keep-changes", "Keep them as overrides for this instance")
+                                Button::new("keep-changes", "Keep them for this instance")
                                     .variant(ButtonVariant::Secondary)
                                     .size(ButtonSize::Slim)
                                     .on_click(cx.listener(|this, _, _, cx| this.keep_changes(cx))),
                             )
                             .child(
-                                Button::new("dismiss-changes", "Dismiss")
-                                    .variant(ButtonVariant::Ghost)
-                                    .size(ButtonSize::Slim)
-                                    .on_click(
-                                        cx.listener(|this, _, _, cx| this.dismiss_changes(cx)),
-                                    ),
+                                muted_link("dismiss-changes", "Dismiss")
+                                    .on_click(cx.listener(|this, _, _, cx| this.dismiss_changes(cx))),
                             ),
                     ),
             );
         }
-
-        if busy {
-            section = section.child(
-                div()
-                    .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_500)
-                    .child("Stop the game to change these: it rewrites options.txt when it quits."),
-            );
-        }
-
-        if enabled {
-            let mut list = div().flex().flex_col().gap_2();
-            for category in Category::ALL {
-                let in_category: Vec<&Row> =
-                    rows.iter().filter(|r| r.category == category).collect();
-                list = list.child(self.category(category, &in_category, busy, cx));
-            }
-            section = section.child(list);
-        } else {
-            section = section.child(note_box(
-                "Off: this instance keeps its own options.txt and nothing is read back from it.",
-            ));
-        }
-
         let message = self
             .message
             .clone()
             .or(self.state.error.clone().map(|e| (e, true)));
-        section.when_some(message, |this, (message, error)| {
-            this.child(super::fields::status(
-                message,
-                if error {
-                    colors::RED_200
-                } else {
-                    colors::GREEN_300
-                },
-            ))
-        })
+        body.child(card(items))
+            .when_some(message, |this, (message, error)| {
+                this.child(super::fields::status(
+                    message,
+                    if error {
+                        colors::RED_200
+                    } else {
+                        colors::GREEN_300
+                    },
+                ))
+            })
     }
 }
