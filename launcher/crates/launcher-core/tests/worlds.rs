@@ -87,6 +87,109 @@ fn progress() -> (Progress, CancelToken) {
 }
 
 #[test]
+fn world_zips_with_colliding_names_are_rejected() {
+    let (temp, dirs) = instance();
+    make_world(&dirs, "World", LEVEL_DAT);
+    let (progress, cancel) = progress();
+
+    let check = |name: &str, entries: &[(&str, &[u8])], expected: &str| {
+        let path = temp.path().join(name);
+        write_zip(&path, entries);
+        let before = tree(&worlds::saves_dir(&dirs));
+        let err = worlds::import_zip(&dirs, &path, &progress, &cancel).unwrap_err();
+        assert!(matches!(err, WorldError::Conflict(_)), "{name}: {err:?}");
+        assert!(err.to_string().contains(expected), "{name}: {err}");
+        assert_eq!(tree(&worlds::saves_dir(&dirs)), before, "{name} left files");
+    };
+    // the case from the Windows report: only one region file survived, silently
+    check(
+        "Collide World.zip",
+        &[
+            ("Collide World/level.dat", LEVEL_DAT),
+            ("Collide World/region/r.0.0.mca", b"AAAA"),
+            ("Collide World/REGION/r.0.0.mca", b"BBBB"),
+        ],
+        "Collide World/region/r.0.0.mca and Collide World/REGION/r.0.0.mca",
+    );
+    check(
+        "file case.zip",
+        &[
+            ("level.dat", LEVEL_DAT),
+            ("data/raids.dat", b"a"),
+            ("data/Raids.dat", b"b"),
+        ],
+        "differ only in case",
+    );
+    check(
+        "level case.zip",
+        &[("level.dat", LEVEL_DAT), ("LEVEL.DAT", b"not nbt")],
+        "differ only in case",
+    );
+    check(
+        "unicode case.zip",
+        &[
+            ("level.dat", LEVEL_DAT),
+            ("datapacks/Ünï/pack.mcmeta", b"a"),
+            ("datapacks/üNÏ/pack.mcmeta", b"b"),
+        ],
+        "differ only in case",
+    );
+    check(
+        "file and folder.zip",
+        &[
+            ("level.dat", LEVEL_DAT),
+            ("stats", b"a file"),
+            ("STATS/p.json", b"{}"),
+        ],
+        "differ only in case",
+    );
+    check(
+        "same file and folder.zip",
+        &[
+            ("level.dat", LEVEL_DAT),
+            ("stats", b"a file"),
+            ("stats/p.json", b"{}"),
+        ],
+        "more than once",
+    );
+    check(
+        "twice.zip",
+        &[
+            ("level.dat", LEVEL_DAT),
+            ("region/r.0.0.mca", b"AAAA"),
+            ("region/r.0.0.mca", b"BBBB"),
+        ],
+        "region/r.0.0.mca more than once",
+    );
+
+    // Folders may repeat, and names that differ by more than case are fine.
+    let fine = temp.path().join("Fine.zip");
+    write_zip(
+        &fine,
+        &[
+            ("Fine/", b""),
+            ("Fine/level.dat", LEVEL_DAT),
+            ("Fine/region/", b""),
+            ("Fine/region/r.0.0.mca", b"AAAA"),
+            ("Fine/region/r.0.1.mca", b"BBBB"),
+            ("Fine/region/", b""),
+            ("Fine/DIM-1/region/r.0.0.mca", b"CCCC"),
+        ],
+    );
+    assert_eq!(
+        worlds::import_zip(&dirs, &fine, &progress, &cancel).unwrap(),
+        "Fine"
+    );
+    let dir = worlds::saves_dir(&dirs).join("Fine");
+    assert_eq!(fs::read(dir.join("region/r.0.0.mca")).unwrap(), b"AAAA");
+    assert_eq!(fs::read(dir.join("region/r.0.1.mca")).unwrap(), b"BBBB");
+    assert_eq!(
+        fs::read(dir.join("DIM-1/region/r.0.0.mca")).unwrap(),
+        b"CCCC"
+    );
+}
+
+#[test]
 fn lists_worlds_from_level_dat() {
     let (_temp, dirs) = instance();
     assert!(worlds::list(&dirs).is_empty());
@@ -285,6 +388,67 @@ fn rename_and_delete() {
     assert_eq!(removed, [worlds::saves_dir(&dirs).join("Taken")]);
     assert!(worlds::delete_with(&dirs, "Missing", |_| Ok(())).is_err());
     assert!(worlds::delete_with(&dirs, "..", |_| Ok(())).is_err());
+}
+
+#[test]
+fn renaming_keeps_the_backups_with_their_world() {
+    let (_temp, dirs) = instance();
+    make_world(&dirs, "World", LEVEL_DAT);
+    let (progress, cancel) = progress();
+    worlds::backup(&dirs, "World", &progress, &cancel).unwrap();
+    let level_name = |folder: &str| {
+        let bytes = fs::read(worlds::saves_dir(&dirs).join(folder).join("level.dat")).unwrap();
+        level::summarize(&bytes).unwrap().name
+    };
+
+    // Backups of a deleted world called Base are still there: the renamed world gets a
+    // folder whose backups folder is free, and takes its own backups along.
+    let stale = worlds::backups_dir(&dirs).join("Base");
+    fs::create_dir_all(&stale).unwrap();
+    fs::write(stale.join("old.zip"), b"not ours").unwrap();
+    assert_eq!(worlds::rename(&dirs, "World", "Base").unwrap(), "Base (2)");
+    assert_eq!(worlds::backups(&dirs, "Base (2)").len(), 1);
+    assert!(!worlds::backups_dir(&dirs).join("World").exists());
+    assert_eq!(
+        fs::read_dir(&stale).unwrap().count(),
+        1,
+        "the old backups are left alone"
+    );
+
+    // When the backups can't be moved (Windows refuses while a backup is open), the
+    // world is moved back and the error shown.
+    let backups = worlds::backups_dir(&dirs).join("Base (2)");
+    let err = worlds::rename_with(&dirs, "Base (2)", "Elsewhere", |from, to| {
+        if from == backups {
+            Err(std::io::Error::other("the folder is in use"))
+        } else {
+            fs::rename(from, to)
+        }
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("left as it was"), "{err}");
+    assert!(err.to_string().contains("the folder is in use"), "{err}");
+    assert!(!worlds::saves_dir(&dirs).join("Elsewhere").exists());
+    assert_eq!(level_name("Base (2)").as_deref(), Some("Base"));
+    assert_eq!(worlds::backups(&dirs, "Base (2)").len(), 1);
+
+    // If even moving the world back fails, the error says where everything is.
+    let world = worlds::saves_dir(&dirs).join("Elsewhere");
+    let err = worlds::rename_with(&dirs, "Base (2)", "Elsewhere", |from, to| {
+        if from == backups || from == world {
+            Err(std::io::Error::other("the folder is in use"))
+        } else {
+            fs::rename(from, to)
+        }
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("couldn't put it back"), "{err}");
+    assert!(
+        err.to_string().contains(&world.display().to_string()),
+        "{err}"
+    );
+    assert!(world.is_dir());
+    assert_eq!(worlds::backups(&dirs, "Base (2)").len(), 1);
 }
 
 #[test]

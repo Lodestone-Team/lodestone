@@ -1,25 +1,30 @@
-//! The launcher's Settings page: the settings every instance uses unless its own
-//! Settings tab overrides them. Each section is its own function, so later sections
-//! (such as a Developer section) slot in beside them.
+//! Settings > Instance defaults: the memory, window, arguments and environment
+//! variables every instance uses unless its own Settings tab changes them. Changes
+//! are kept until Save; the Settings dialog shows the bar with Save and Discard, and
+//! asks before closing over unsaved ones.
 
 use gpui::{
-    Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div, prelude::*, px,
+    App, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div, prelude::*,
+    px,
 };
 use launcher_core::settings::{DEFAULT_MIN_RAM_MB, InstanceDefaults, default_max_ram_mb};
 
 use crate::{
-    components::{Button, ButtonVariant},
+    components::{
+        TextInput, Toggle,
+        settings::{SettingRow, Toast, card},
+    },
     instances::{
         Instances,
-        fields::{self, Fields, Values, field, section},
+        fields::{self, Fields, Values},
     },
-    theme::{self, colors, fonts, leading, radius, text, weights},
+    theme::{self, colors, leading, text},
 };
 
 pub struct LauncherSettings {
     instances: Entity<Instances>,
     fields: Fields,
-    message: Option<(SharedString, bool)>,
+    toast: Toast,
     _observe: Vec<Subscription>,
 }
 
@@ -39,34 +44,88 @@ impl LauncherSettings {
             },
             cx,
         );
-        let observe = vec![
-            cx.observe(&fields.min_ram, |_, _, cx| cx.notify()),
-            cx.observe(&fields.max_ram, |_, _, cx| cx.notify()),
-        ];
+        let observe = [
+            &fields.min_ram,
+            &fields.max_ram,
+            &fields.jvm_args,
+            &fields.game_args,
+            &fields.width,
+            &fields.height,
+            &fields.env,
+        ]
+        .into_iter()
+        .map(|input| cx.observe(input, |_, _, cx| cx.notify()))
+        .collect();
         Self {
             instances,
             fields,
-            message: None,
+            toast: Toast::default(),
             _observe: observe,
         }
     }
 
-    fn save(&mut self, cx: &mut Context<Self>) {
-        let result = self.read(cx).and_then(|defaults| {
-            self.instances
-                .update(cx, |instances, cx| instances.save_defaults(defaults, cx))
-        });
-        self.message = Some(match result {
-            Ok(()) => (
-                "Saved. Instances that don't override these use them from the next Play.".into(),
-                false,
-            ),
-            Err(err) => (err.into(), true),
-        });
+    /// Whether the fields differ from the saved defaults (or aren't valid).
+    pub fn has_changes(&self, cx: &App) -> bool {
+        match self.read(cx) {
+            Ok(defaults) => &defaults != self.instances.read(cx).defaults(),
+            Err(_) => true,
+        }
+    }
+
+    /// Whether the fields can be saved: every value is valid.
+    pub fn can_save(&self, cx: &App) -> bool {
+        self.read(cx).is_ok()
+    }
+
+    /// Saves the fields. Returns whether they are saved now; invalid ones say why
+    /// under their rows.
+    pub fn save(&mut self, cx: &mut Context<Self>) -> bool {
+        let Ok(defaults) = self.read(cx) else {
+            cx.notify();
+            return false;
+        };
+        if &defaults == self.instances.read(cx).defaults() {
+            return true;
+        }
+        let result = self
+            .instances
+            .update(cx, |instances, cx| instances.save_defaults(defaults, cx));
+        let (message, error): (SharedString, bool) = match &result {
+            Ok(()) => ("Saved".into(), false),
+            Err(err) => (err.clone().into(), true),
+        };
+        self.toast
+            .show(message, error, |this: &mut Self| &mut this.toast, cx);
+        result.is_ok()
+    }
+
+    /// Changes a field without saving, for the offscreen screenshots.
+    pub fn preview_change(&mut self, cx: &mut Context<Self>) {
+        self.fields
+            .jvm_args
+            .update(cx, |input, cx| input.set_text("-XX:+UseZGC", cx));
+    }
+
+    /// Puts the saved defaults back in the fields.
+    pub fn discard(&mut self, cx: &mut Context<Self>) {
+        let (defaults, total) = {
+            let instances = self.instances.read(cx);
+            (instances.defaults().clone(), instances.total_memory())
+        };
+        self.fields.set(
+            &Values {
+                memory: defaults.memory(total),
+                jvm_args: &defaults.jvm_args,
+                game_args: &defaults.game_args,
+                window: defaults.window(),
+                env: &defaults.env,
+            },
+            cx,
+        );
         cx.notify();
     }
 
-    fn read(&self, cx: &Context<Self>) -> Result<InstanceDefaults, String> {
+    fn read(&self, cx: &App) -> Result<InstanceDefaults, String> {
         let instances = self.instances.read(cx);
         let total = instances.total_memory();
         let mut defaults = instances.defaults().clone();
@@ -85,142 +144,84 @@ impl LauncherSettings {
         defaults.env = self.fields.env(cx)?;
         Ok(defaults)
     }
+}
 
-    fn memory_section(&self, cx: &Context<Self>) -> impl IntoElement {
-        let total = self.instances.read(cx).total_memory();
-        let check = self.fields.memory(total, cx);
-        section("Memory", fields::total_memory_label(total))
-            .child(
-                div()
-                    .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_500)
-                    .child(format!(
-                        "The default is {} MB to {} MB: half this Mac's memory, at most 4 GB.",
-                        DEFAULT_MIN_RAM_MB,
-                        crate::instances::thousands(default_max_ram_mb(total).into())
-                    )),
-            )
-            .child(fields::memory_inputs(&self.fields, &check))
-    }
+fn sized(input: &Entity<TextInput>, width: f32) -> impl IntoElement {
+    div().w(px(width)).child(input.clone())
+}
 
-    fn arguments_section(&self) -> impl IntoElement {
-        section(
-            "Arguments",
-            Some("Separated by spaces; quote values with spaces.".into()),
-        )
-        .child(field("JVM ARGUMENTS", self.fields.jvm_args.clone()))
-        .child(field("GAME ARGUMENTS", self.fields.game_args.clone()))
-    }
-
-    fn window_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        section(
-            "Game window",
-            Some("Leave the size empty for the game's default.".into()),
-        )
-        .child(fields::window_inputs(
-            &self.fields,
-            "default-fullscreen",
-            cx.listener(|this, value: &bool, _, cx| {
-                this.fields.fullscreen = *value;
-                cx.notify();
-            }),
-        ))
-    }
-
-    fn env_section(&self) -> impl IntoElement {
-        section(
-            "Environment variables",
-            Some("NAME=value, separated by spaces.".into()),
-        )
-        .child(self.fields.env.clone())
+impl LauncherSettings {
+    /// Drawn by the Settings dialog, at the bottom of its page.
+    pub fn toast(&self) -> &Toast {
+        &self.toast
     }
 }
 
 impl Render for LauncherSettings {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let total = self.instances.read(cx).total_memory();
+        let memory_check = self.fields.memory(total, cx);
+        let memory_hint = format!(
+            "{} The default is {} MB to {} MB: half this Mac's memory, at most 4 GB.",
+            fields::total_memory_label(total).unwrap_or_default(),
+            DEFAULT_MIN_RAM_MB,
+            crate::instances::thousands(default_max_ram_mb(total).into())
+        );
+        let window_error = self.fields.window(cx).err();
+        let env_error = self.fields.env(cx).err();
         div()
-            .id("launcher-settings")
             .flex()
             .flex_col()
-            .gap_6()
             .w_full()
-            .px_8()
-            .pt_6()
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
+            .child(card([
+                SettingRow::new("Memory")
+                    .hint(memory_hint.trim().to_string())
+                    .child(sized(&self.fields.min_ram, 84.))
+                    .child("–")
+                    .child(sized(&self.fields.max_ram, 84.))
+                    .child(div().text_color(colors::GRAY_500).child("MB"))
+                    .note_opt(
+                        memory_check
+                            .error
+                            .map(|e| (e.into(), colors::RED_200))
+                            .or(memory_check.warning.map(|w| (w.into(), colors::YELLOW))),
+                    )
+                    .into_any_element(),
+                SettingRow::new("Window")
+                    .hint("Leave the size empty for the game's default.")
+                    .child(sized(&self.fields.width, 72.))
+                    .child("×")
+                    .child(sized(&self.fields.height, 72.))
                     .child(
                         div()
-                            .font_family(fonts::TITLE)
-                            .text_size(theme::text_size(text::H1))
-                            .line_height(theme::line_height(text::H1, leading::TIGHT))
-                            .font_weight(weights::BOLD.into())
-                            .child("Settings"),
+                            .ml_2()
+                            .text_color(colors::GRAY_400)
+                            .child("Fullscreen"),
                     )
                     .child(
-                        div()
-                            .text_color(colors::GRAY_500)
-                            .font_weight(weights::BOLD.into())
-                            .child("Every instance uses these unless its own Settings tab overrides them."),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap_8()
-                    .w_full()
-                    .max_w(px(1000.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_6()
-                            .flex_1()
-                            .min_w_0()
-                            .child(self.memory_section(cx))
-                            .child(self.window_section(cx)),
+                        Toggle::new("default-fullscreen", self.fields.fullscreen).on_change(
+                            cx.listener(|this, value: &bool, _, cx| {
+                                this.fields.fullscreen = *value;
+                                cx.notify();
+                            }),
+                        ),
                     )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_6()
-                            .flex_1()
-                            .min_w_0()
-                            .child(self.arguments_section())
-                            .child(self.env_section()),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        Button::new("save-launcher-settings", "Save")
-                            .variant(ButtonVariant::Primary)
-                            .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
-                    )
-                    .when_some(self.message.clone(), |this, (message, error)| {
-                        this.child(
-                            div()
-                                .px_3()
-                                .py_1()
-                                .rounded(radius::MD)
-                                .text_size(theme::text_size(text::SMALL))
-                                .font_weight(weights::BOLD.into())
-                                .text_color(if error {
-                                    colors::RED_200
-                                } else {
-                                    colors::GREEN_300
-                                })
-                                .child(message),
-                        )
-                    }),
-            )
+                    .note_opt(window_error.map(|e| (e.into(), colors::RED_200)))
+                    .into_any_element(),
+                SettingRow::new("JVM arguments")
+                    .hint("Separated by spaces; quote values with spaces.")
+                    .child(sized(&self.fields.jvm_args, 280.))
+                    .into_any_element(),
+                SettingRow::new("Game arguments")
+                    .hint("Passed to Minecraft itself.")
+                    .child(sized(&self.fields.game_args, 280.))
+                    .into_any_element(),
+                SettingRow::new("Environment variables")
+                    .hint("NAME=value, separated by spaces.")
+                    .child(sized(&self.fields.env, 280.))
+                    .note_opt(env_error.map(|e| (e.into(), colors::RED_200)))
+                    .into_any_element(),
+            ]))
     }
 }
