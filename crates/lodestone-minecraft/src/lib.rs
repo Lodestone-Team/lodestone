@@ -11,5 +11,6 @@
 
 mod error;
 pub mod util;
+pub mod versions;
 
 pub use error::Error;
