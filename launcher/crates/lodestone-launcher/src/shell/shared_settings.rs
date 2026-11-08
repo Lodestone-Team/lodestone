@@ -17,7 +17,7 @@ use crate::{
             select_button, value,
         },
     },
-    instances::{Instances, fields},
+    instances::{Instances, fields, shared_settings::value_control},
     theme::{self, colors, text, weights},
 };
 
@@ -102,6 +102,8 @@ impl SharedSettings {
         match result {
             Ok(profile) => {
                 self.profile = profile;
+                self.instances
+                    .update(cx, |instances, cx| instances.shared_settings_changed(cx));
                 if let Some(message) = ok {
                     self.say(message, false, cx);
                 }
@@ -182,6 +184,13 @@ impl SharedSettings {
         self.done(result, None, cx);
     }
 
+    /// Saves a value picked with a switch, choice or slider straight away.
+    fn set_now(&mut self, key: &str, text: &str, cx: &mut Context<Self>) {
+        let data = self.instances.read(cx).data_dir().clone();
+        let result = shared_options::set_value(&data, key, text);
+        self.done(result, None, cx);
+    }
+
     fn picker_list(&self, picker: Picker, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let instances = self.instances.read(cx);
         let mut list = popover_panel(match picker {
@@ -237,6 +246,19 @@ impl SharedSettings {
             .map(|v| row.show(v))
             .unwrap_or_default();
         let line = SettingRow::new(row.label.clone()).indent();
+        if editing.is_none()
+            && let Some(control) = value_control(
+                ("shared-value", index),
+                row,
+                row.shared.as_deref(),
+                cx.listener({
+                    let key = key.clone();
+                    move |this, text: &String, _, cx| this.set_now(&key, text, cx)
+                }),
+            )
+        {
+            return line.child(control).into_any_element();
+        }
         match editing {
             Some(input) => line
                 .child(div().w(px(200.)).child(input))

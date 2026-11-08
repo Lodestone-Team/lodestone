@@ -136,6 +136,11 @@ fn legacy_language(code: &str) -> String {
 
 /// The value as the launcher shows it.
 pub fn display(spec: &Spec, value: &str) -> String {
+    if let Control::Choice(choices) = control(spec)
+        && let Some((_, label)) = choices.iter().find(|(v, _)| *v == value.trim())
+    {
+        return (*label).to_string();
+    }
     let number = value.trim().parse::<f64>().ok();
     let percent = |n: f64| format!("{}%", (n * 100.0).round() as i64);
     match spec.kind {
@@ -250,6 +255,108 @@ pub fn parse_input(spec: &Spec, text: &str) -> Result<String, String> {
     }
 }
 
+/// How the launcher lets the user change a setting.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Control {
+    /// An on/off switch; the values are `true` and `false`.
+    Toggle,
+    /// One of a few named states: (canonical value, label).
+    Choice(&'static [(&'static str, &'static str)]),
+    /// A number in steps, as in the game's own slider.
+    Slider { min: f64, max: f64, step: f64 },
+    /// Typed in: key bindings, the language, and numbers without a fixed range.
+    Text,
+}
+
+const GRAPHICS: &[(&str, &str)] = &[
+    ("fast", "Fast"),
+    ("fancy", "Fancy"),
+    ("fabulous", "Fabulous!"),
+];
+const PARTICLES: &[(&str, &str)] = &[("0", "All"), ("1", "Decreased"), ("2", "Minimal")];
+const NARRATOR: &[(&str, &str)] = &[
+    ("0", "Off"),
+    ("1", "All"),
+    ("2", "Chat only"),
+    ("3", "System only"),
+];
+const CHAT: &[(&str, &str)] = &[("0", "Shown"), ("1", "Commands only"), ("2", "Hidden")];
+const FILTERING: &[(&str, &str)] = &[("0", "None"), ("1", "RGSS"), ("2", "Anisotropic")];
+const ANISOTROPY: &[(&str, &str)] = &[("1", "2×"), ("2", "4×"), ("3", "8×")];
+
+/// The control for `spec`: a switch for on/off settings, a choice for settings with a
+/// few named states, a slider for numbers the game changes in steps.
+pub fn control(spec: &Spec) -> Control {
+    match spec.kind {
+        Kind::Bool | Kind::AmbientOcclusion => Control::Toggle,
+        Kind::Graphics => Control::Choice(GRAPHICS),
+        Kind::Blurriness => Control::Slider {
+            min: 0.0,
+            max: 10.0,
+            step: 1.0,
+        },
+        Kind::KeyBinding | Kind::Language => Control::Text,
+        Kind::Number => {
+            let choices = match spec.key {
+                "particles" => Some(PARTICLES),
+                "narrator" => Some(NARRATOR),
+                "chatVisibility" => Some(CHAT),
+                "textureFiltering" => Some(FILTERING),
+                "maxAnisotropyBit" => Some(ANISOTROPY),
+                _ => None,
+            };
+            if let Some(choices) = choices {
+                return Control::Choice(choices);
+            }
+            match number_range(spec.key) {
+                // GUI scale's top depends on the window; it stays typed.
+                Some(range) if range.max != f64::MAX => Control::Slider {
+                    min: range.min,
+                    max: range.max,
+                    step: slider_step(spec.key, range),
+                },
+                _ => Control::Text,
+            }
+        }
+    }
+}
+
+/// The step of a number's slider: what one notch changes in the game.
+fn slider_step(key: &str, range: Range) -> f64 {
+    match key {
+        // One degree: stored as (degrees − 70) / 40.
+        "fov" => 0.025,
+        // Shown doubled, so this is one percent.
+        "mouseSensitivity" => 0.005,
+        "maxFps" => 10.0,
+        "entityDistanceScaling" => 0.25,
+        "notificationDisplayTime" => 0.5,
+        "chunkSectionFadeInTime" | "chatDelay" => 0.1,
+        _ if range.whole => 1.0,
+        _ => 0.01,
+    }
+}
+
+/// The canonical text of a slider position: snapped to its step, inside its range.
+/// Whole steps are written as whole numbers; others keep the step's decimals.
+pub fn slider_text(min: f64, max: f64, step: f64, value: f64) -> String {
+    let steps = ((value - min) / step).round();
+    let n = (min + steps * step).clamp(min, max);
+    if step.fract() == 0.0 && min.fract() == 0.0 {
+        return format!("{}", n.round() as i64);
+    }
+    let decimals = format!("{step}")
+        .split_once('.')
+        .map_or(0, |(_, frac)| frac.len());
+    let text = format!("{n:.decimals$}");
+    let text = text.trim_end_matches('0');
+    if text.ends_with('.') {
+        format!("{text}0")
+    } else {
+        text.to_string()
+    }
+}
+
 /// The values the game accepts for a number setting (its `OptionInstance` range in
 /// the 26.3 client), as stored in `options.txt`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -350,7 +457,76 @@ fn number_range(key: &str) -> Option<Range> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared_options::keys::find;
+    use crate::shared_options::keys::{SPECS, find};
+
+    #[test]
+    fn controls_follow_what_a_setting_holds() {
+        let control_of = |key| control(find(key).unwrap());
+        assert_eq!(control_of("enableVsync"), Control::Toggle);
+        assert_eq!(control_of("ao"), Control::Toggle);
+        assert_eq!(control_of("narrator"), Control::Choice(NARRATOR));
+        assert_eq!(control_of("graphicsPreset"), Control::Choice(GRAPHICS));
+        assert_eq!(
+            control_of("renderDistance"),
+            Control::Slider {
+                min: 2.0,
+                max: 32.0,
+                step: 1.0
+            }
+        );
+        assert_eq!(
+            control_of("soundCategory_master"),
+            Control::Slider {
+                min: 0.0,
+                max: 1.0,
+                step: 0.01
+            }
+        );
+        assert_eq!(control_of("key_key.forward"), Control::Text);
+        assert_eq!(control_of("lang"), Control::Text);
+        assert_eq!(control_of("guiScale"), Control::Text);
+    }
+
+    #[test]
+    fn every_choice_and_slider_value_is_accepted() {
+        for spec in SPECS {
+            match control(spec) {
+                Control::Choice(choices) => {
+                    for (value, label) in choices {
+                        assert_eq!(
+                            parse_input(spec, value).as_deref(),
+                            Ok(*value),
+                            "{}",
+                            spec.key
+                        );
+                        assert_eq!(display(spec, value), *label, "{}", spec.key);
+                    }
+                }
+                Control::Slider { min, max, step } => {
+                    for n in [min, max, (min + max) / 2.0, min + step] {
+                        let text = slider_text(min, max, step, n);
+                        assert!(parse_input(spec, &text).is_ok(), "{} {text}", spec.key);
+                    }
+                }
+                Control::Toggle => {
+                    assert_eq!(parse_input(spec, "true").as_deref(), Ok("true"));
+                    assert_eq!(parse_input(spec, "false").as_deref(), Ok("false"));
+                }
+                Control::Text => {}
+            }
+        }
+    }
+
+    #[test]
+    fn slider_text_snaps_to_the_step() {
+        assert_eq!(slider_text(2.0, 32.0, 1.0, 12.4), "12");
+        assert_eq!(slider_text(2.0, 32.0, 1.0, 99.0), "32");
+        assert_eq!(slider_text(0.0, 1.0, 0.01, 0.4567), "0.46");
+        assert_eq!(slider_text(0.0, 1.0, 0.01, 1.0), "1.0");
+        assert_eq!(slider_text(-1.0, 1.0, 0.025, 0.5), "0.5");
+        assert_eq!(slider_text(10.0, 260.0, 10.0, 133.0), "130");
+        assert_eq!(slider_text(0.5, 10.0, 0.5, 0.2), "0.5");
+    }
 
     #[test]
     fn graphics_across_versions() {
