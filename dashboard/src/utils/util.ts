@@ -49,7 +49,7 @@ export const myTwMerge = extendTailwindMerge({
   },
 });
 
-export const supportedZip = ["zip", "gz", "tgz"];
+export const supportedZip = ['zip', 'gz', 'tgz'];
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -99,11 +99,11 @@ export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
 };
 
 export const stateToColor: { [key in InstanceState]: string } = {
-  Starting: "text-yellow-300",
-  Running: "text-green-300",
-  Stopping: "text-yellow-300",
-  Stopped: "text-gray-faded/30",
-  Error: "text-red-200",
+  Starting: 'text-yellow-300',
+  Running: 'text-green-300',
+  Stopping: 'text-yellow-300',
+  Stopped: 'text-gray-faded/30',
+  Error: 'text-red-200',
 };
 
 export function isAxiosError<ResponseType>(
@@ -246,8 +246,6 @@ export function parseFloatStrict(value: string): number {
   return parsed;
 }
 
-  
-
 export function getWidth(
   el: HTMLElement,
   type: 'inner' | 'outer' | 'width' | 'full'
@@ -359,7 +357,6 @@ export const getSnowflakeTimestamp = (snowflake: string) => {
   const snowflakeBigInt = BigInt(snowflake);
   return Number(snowflakeBigInt >> BigInt(22)) + Number(LODESTONE_EPOCH);
 };
-
 
 export const chooseFiles = async () => {
   const input = document.createElement('input');
