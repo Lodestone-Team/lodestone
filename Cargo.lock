@@ -6831,6 +6831,7 @@ dependencies = [
 name = "lodestone_minecraft"
 version = "0.5.1"
 dependencies = [
+ "flate2",
  "indexmap 2.14.2",
  "serde",
  "serde_json",
