@@ -4,8 +4,9 @@ import type { InstanceUuid } from "./InstanceUuid";
 import type { PublicLoader } from "./PublicLoader";
 
 /**
- * An instance as anyone may see it once it is listed. Only what a player needs to join:
- * no paths, description, owner, settings, console or player names.
+ * An instance as anyone may see it once it is listed, limited by its [`PublicScope`].
+ * Only what a player needs to join: no paths, description, owner, settings, console or
+ * player names. A field left out was not shared; a `null` one was shared but is unknown.
  */
 export type PublicInstance = { uuid: InstanceUuid, name: string, game_version: string, loader: PublicLoader, 
 /**
@@ -14,17 +15,31 @@ export type PublicInstance = { uuid: InstanceUuid, name: string, game_version: s
  */
 loader_version: string | null, 
 /**
- * The game port.
+ * The game port. Scope `address`.
  */
-port: number, state: InstanceState, player_count: number | null, max_player_count: number | null, 
+port?: number, 
+/**
+ * Scope `status`.
+ */
+state?: InstanceState, 
+/**
+ * Scope `status`; `null` when unknown.
+ */
+player_count?: number | null, 
+/**
+ * Scope `status`; `null` when unknown.
+ */
+max_player_count?: number | null, 
 /**
  * A Fabric instance with at least one enabled mod, so it may have a client modpack.
+ * Scope `client_pack`.
  */
-has_client_pack: boolean, 
+has_client_pack?: boolean, 
 /**
- * The public address of an active playit.gg tunnel to the game port.
+ * The public address of an active playit.gg tunnel to the game port, `null` when
+ * there is none. Scope `address`.
  */
-playit_address: string | null, 
+playit_address?: string | null, 
 /**
  * Whether the instance is listed publicly. Always true on the public route.
  */
