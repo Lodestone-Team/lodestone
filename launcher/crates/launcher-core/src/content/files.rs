@@ -10,7 +10,7 @@ use std::{
 
 use super::{
     ContentError, ContentKind, InstanceDirs, MAX_FILE_BYTES, Target, disabled_name, enabled_name,
-    io_error, is_content_name,
+    io_error, is_content_name, loader_change,
     options::{self, PackChange, PackOptions},
     packs::Compatibility,
     provenance::Provenance,
@@ -22,23 +22,6 @@ use crate::{game::libraries::safe_relative_path, instances::Loader, storage};
 /// A folder pack may hold at most this many files, and this many bytes.
 const MAX_FOLDER_FILES: usize = 50_000;
 const MAX_FOLDER_BYTES: u64 = 4 * 1024 * 1024 * 1024;
-
-/// Whether a mod with metadata for `formats` can load on `loader`.
-fn fits_loader(formats: &[ModFormat], optifine: bool, loader: Loader) -> bool {
-    if optifine {
-        // OptiFine runs on Forge, or on Fabric through OptiFabric.
-        return true;
-    }
-    formats.iter().any(|format| {
-        matches!(
-            (loader, format),
-            (Loader::Fabric, ModFormat::Fabric)
-                | (Loader::Quilt, ModFormat::Fabric | ModFormat::Quilt)
-                | (Loader::Forge, ModFormat::Forge)
-                | (Loader::NeoForge, ModFormat::NeoForge | ModFormat::Forge)
-        )
-    })
-}
 
 fn format_label(format: ModFormat) -> &'static str {
     match format {
@@ -88,7 +71,11 @@ pub fn check_addition(kind: ContentKind, path: &Path, target: &Target) -> Result
             if target.loader == Loader::None {
                 return Err("This instance is vanilla; mods need a mod loader.".into());
             }
-            if !fits_loader(&meta.mod_formats, meta.optifine, target.loader) {
+            // OptiFine runs on Forge, or on Fabric through OptiFabric.
+            let fits = meta.optifine
+                || loader_change::loads_on(&meta.mod_formats, target.loader, &target.game_version)
+                    == Some(true);
+            if !fits {
                 let made_for: Vec<&str> =
                     meta.mod_formats.iter().map(|f| format_label(*f)).collect();
                 return Err(format!(
@@ -457,8 +444,11 @@ mod tests {
         assert!(check(ContentKind::Mod, "fake.jar", &fabric).is_err());
         assert!(check(ContentKind::Mod, "OptiFine.jar", &fabric).is_ok());
         assert!(check(ContentKind::Mod, "Pack.zip", &fabric).is_err());
-        let neoforge = Target::new("1.21.1", Loader::NeoForge);
+        // NeoForge reads mods.toml before 1.20.5 only
+        let neoforge = Target::new("1.20.4", Loader::NeoForge);
         assert!(check(ContentKind::Mod, "jei.jar", &neoforge).is_ok());
+        let neoforge = Target::new("1.21.1", Loader::NeoForge);
+        assert!(check(ContentKind::Mod, "jei.jar", &neoforge).is_err());
         let vanilla = Target::new("1.21.1", Loader::None);
         assert!(check(ContentKind::Mod, "lithium.jar", &vanilla).is_err());
 

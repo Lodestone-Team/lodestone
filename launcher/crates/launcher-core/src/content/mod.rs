@@ -14,6 +14,7 @@
 pub mod files;
 pub mod install;
 pub mod listing;
+pub mod loader_change;
 pub mod modrinth;
 pub mod options;
 pub mod packs;
