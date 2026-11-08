@@ -93,7 +93,7 @@ export const SortSelect = ({
           transition
           className={cn(
             'input-text-style z-40 w-(--button-width) overflow-auto rounded py-1',
-            'bg-gray-850 outline-1 outline-gray-550 outline-solid drop-shadow-md',
+            'bg-gray-850 outline-1 outline-gray-550 drop-shadow-md outline-solid',
             'transition duration-150 ease-in data-leave:data-closed:opacity-0'
           )}
         >
