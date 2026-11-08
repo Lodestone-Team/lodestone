@@ -1,8 +1,8 @@
 //! Prism Launcher and MultiMC, which share the instance format.
 //!
-//! - Data folder: Prism `~/Library/Application Support/PrismLauncher`
-//!   (`prismlauncher.cfg`, or an older `polymc.cfg`/`multimc.cfg`); MultiMC keeps its
-//!   data in `MultiMC.app/Data` (`multimc.cfg`). `InstanceDir` (default `instances`) and
+//! - Data folder: Prism `~/Library/Application Support/PrismLauncher` (`%APPDATA%` on
+//!   Windows) (`prismlauncher.cfg`, or an older `polymc.cfg`/`multimc.cfg`); MultiMC keeps
+//!   its data in `MultiMC.app/Data`, or beside `MultiMC.exe` on Windows (`multimc.cfg`). `InstanceDir` (default `instances`) and
 //!   `IconsDir` (default `icons`) are relative to it (PrismLauncher `launcher/Application.cpp`).
 //! - `instance.cfg`: Prism writes QSettings INI (a `[General]` section, values with `;`,
 //!   `,`, `=` or edge spaces quoted, `\"`, `\\`, `\n` escapes, a leading `@` doubled,
