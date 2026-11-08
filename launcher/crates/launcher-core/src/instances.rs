@@ -524,6 +524,33 @@ impl InstanceStore {
         result
     }
 
+    /// A new hidden folder next to the instances (with an empty game folder) to build an
+    /// instance in; [`InstanceStore::commit_staged`] makes it one. The list skips it.
+    pub fn new_staging(&self) -> Result<PathBuf, InstanceError> {
+        let staging = self.root.join(format!(
+            ".lodestone-staging-{:016x}",
+            u64::from_le_bytes(crate::random_bytes())
+        ));
+        let game = staging.join("minecraft");
+        fs::create_dir_all(&game).map_err(io_error(&game))?;
+        Ok(staging)
+    }
+
+    /// Makes the folder from [`InstanceStore::new_staging`] the instance `instance`, under
+    /// an unused id from its name, by renaming it into place.
+    pub fn commit_staged(
+        &self,
+        staging: &Path,
+        mut instance: Instance,
+    ) -> Result<Instance, InstanceError> {
+        instance.name = clean_name(&instance.name)?;
+        instance.id = self.unused_id(&instance.name);
+        storage::save(&staging.join("instance.json"), &instance)?;
+        let dir = self.dir(&instance.id);
+        fs::rename(staging, &dir).map_err(io_error(staging))?;
+        Ok(instance)
+    }
+
     /// The instance's own icon, if it has one.
     pub fn icon_path(&self, instance: &Instance) -> Option<PathBuf> {
         let path = self.dir(&instance.id).join(ICON_FILE);

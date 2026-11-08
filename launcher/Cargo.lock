@@ -2770,6 +2770,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "chrono",
  "dirs",
  "futures",
  "http_client",
@@ -2777,6 +2778,7 @@ dependencies = [
  "libc",
  "lodestone_minecraft",
  "md-5",
+ "pulldown-cmark",
  "rand 0.9.4",
  "regex",
  "reqwest_client",
@@ -2903,6 +2905,7 @@ name = "lodestone-launcher"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "futures",
  "gpui",
  "gpui_platform",
@@ -2919,6 +2922,7 @@ dependencies = [
 name = "lodestone_minecraft"
 version = "0.5.1"
 dependencies = [
+ "flate2",
  "indexmap",
  "serde",
  "serde_json",
@@ -4032,6 +4036,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.3",
+]
+
+[[package]]
+name = "pulldown-cmark"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+dependencies = [
+ "bitflags 2.13.1",
+ "memchr",
+ "unicase",
 ]
 
 [[package]]
@@ -5704,6 +5719,12 @@ name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
+
+[[package]]
+name = "unicase"
+version = "2.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b844d17643ee918803943289730bec8aac480150456169e647ed0b576ba539"
 
 [[package]]
 name = "unicode-bidi"

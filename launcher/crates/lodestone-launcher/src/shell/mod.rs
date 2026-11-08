@@ -30,8 +30,10 @@ use crate::{
         CrashInfo, Instances, InstancesEvent,
         console::Console,
         content::{ContentEvent, ContentView},
+        modpacks::UpdatePrompt,
         new_instance::{NewInstanceDialog, NewInstanceDismissed},
         settings::{DeleteRequested, InstanceSettings, LoaderChangePrompt},
+        worlds::{WorldsEvent, WorldsView},
     },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
@@ -115,6 +117,25 @@ enum Modal {
         prompt: Box<LoaderChangePrompt>,
         focus: FocusHandle,
     },
+    /// Moving a world to the Trash.
+    DeleteWorld {
+        folder: String,
+        name: String,
+        focus: FocusHandle,
+    },
+    /// Replacing a world with one of its backups.
+    ReplaceWorld {
+        folder: String,
+        name: String,
+        backup: launcher_core::worlds::Backup,
+        focus: FocusHandle,
+    },
+    /// What a modpack update will do, before it does it.
+    ModpackUpdate {
+        prompt: Box<UpdatePrompt>,
+        backup_worlds: bool,
+        focus: FocusHandle,
+    },
     /// The disclosure before "Sign in as the Minecraft Launcher" is turned on.
     EnableLauncherIdentity { focus: FocusHandle },
     /// Turning it off, with the accounts that used it.
@@ -131,12 +152,14 @@ pub struct LauncherShell {
     console: Entity<Console>,
     /// The Content tab: mods, resource packs and shader packs.
     content: Entity<ContentView>,
+    /// The Worlds tab: worlds, backups and screenshots.
+    worlds: Entity<WorldsView>,
     /// The launcher's Settings page.
     launcher_settings: Entity<LauncherSettings>,
     /// Settings > Shared game settings.
     shared_settings: Entity<SharedSettings>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
-    settings: Option<(Entity<InstanceSettings>, [Subscription; 2])>,
+    settings: Option<(Entity<InstanceSettings>, [Subscription; 3])>,
     page: Page,
     tab: InstanceTab,
     modal: Option<Modal>,
@@ -183,6 +206,27 @@ impl LauncherShell {
         observe.push(cx.subscribe(&content, |this, _, event, cx| match event {
             ContentEvent::NewFabricInstance => this.open_new_instance_with_loader(cx),
         }));
+        let worlds = cx.new(|cx| WorldsView::new(instances.clone(), cx));
+        observe.push(cx.subscribe(&worlds, |this, _, event, cx| {
+            this.modal = Some(match event {
+                WorldsEvent::Delete { folder, name } => Modal::DeleteWorld {
+                    folder: folder.clone(),
+                    name: name.clone(),
+                    focus: cx.focus_handle(),
+                },
+                WorldsEvent::Replace {
+                    folder,
+                    name,
+                    backup,
+                } => Modal::ReplaceWorld {
+                    folder: folder.clone(),
+                    name: name.clone(),
+                    backup: backup.clone(),
+                    focus: cx.focus_handle(),
+                },
+            });
+            cx.notify();
+        }));
         let launcher_settings = {
             let instances = instances.clone();
             cx.new(|cx| LauncherSettings::new(instances, cx))
@@ -196,6 +240,7 @@ impl LauncherShell {
             instances,
             console,
             content,
+            worlds,
             launcher_settings,
             shared_settings,
             settings: None,
@@ -222,6 +267,324 @@ impl LauncherShell {
         &self.content
     }
 
+    pub fn worlds(&self) -> &Entity<WorldsView> {
+        &self.worlds
+    }
+
+    /// The open "New instance" dialog, for the offscreen screenshots.
+    pub fn new_instance_dialog(&self) -> Option<&Entity<NewInstanceDialog>> {
+        match &self.modal {
+            Some(Modal::NewInstance { dialog, .. }) => Some(dialog),
+            _ => None,
+        }
+    }
+
+    /// Asks before applying a modpack update.
+    pub fn show_modpack_update(&mut self, prompt: UpdatePrompt, cx: &mut Context<Self>) {
+        self.discard_pending_update(cx);
+        self.modal = Some(Modal::ModpackUpdate {
+            prompt: Box::new(prompt),
+            backup_worlds: true,
+            focus: cx.focus_handle(),
+        });
+        cx.notify();
+    }
+
+    /// Removes the downloaded pack of an update prompt that is being closed unanswered.
+    fn discard_pending_update(&mut self, cx: &mut Context<Self>) {
+        if let Some(Modal::ModpackUpdate { prompt, .. }) = &self.modal {
+            let prompt = prompt.clone();
+            self.instances
+                .update(cx, |instances, _| instances.discard_update(&prompt));
+        }
+    }
+
+    fn render_modpack_update(
+        &self,
+        prompt: &UpdatePrompt,
+        backup_worlds: bool,
+        focus: FocusHandle,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        const SHOWN: usize = 6;
+        let plan = &prompt.plan;
+        let entity = cx.entity();
+        let list = |title: String, items: Vec<String>, color: theme::Color| {
+            let more = items.len().saturating_sub(SHOWN);
+            div()
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .child(
+                    div()
+                        .text_size(theme::text_size(text::SMALL))
+                        .font_weight(weights::BOLD.into())
+                        .text_color(color)
+                        .child(title),
+                )
+                .children(items.into_iter().take(SHOWN).map(|item| {
+                    div()
+                        .pl_3()
+                        .truncate()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(colors::GRAY_400)
+                        .child(item)
+                }))
+                .when(more > 0, |this| {
+                    this.child(
+                        div()
+                            .pl_3()
+                            .text_size(theme::text_size(text::SMALL))
+                            .text_color(colors::GRAY_500)
+                            .child(format!("and {more} more")),
+                    )
+                })
+        };
+        let name = |path: &String| path.rsplit('/').next().unwrap_or(path).to_string();
+        let mut groups = Vec::new();
+        if !plan.updated.is_empty() {
+            groups.push(list(
+                format!("Updated ({})", plan.updated.len()),
+                plan.updated
+                    .iter()
+                    .map(|(old, new)| {
+                        if old == new {
+                            name(new)
+                        } else {
+                            format!("{} → {}", name(old), name(new))
+                        }
+                    })
+                    .collect(),
+                colors::BLUE_200,
+            ));
+        }
+        if !plan.added.is_empty() {
+            groups.push(list(
+                format!("Added ({})", plan.added.len()),
+                plan.added.iter().map(name).collect(),
+                colors::GREEN_300,
+            ));
+        }
+        if !plan.removed.is_empty() {
+            groups.push(list(
+                format!("Removed ({})", plan.removed.len()),
+                plan.removed.iter().map(name).collect(),
+                colors::RED_200,
+            ));
+        }
+        if !plan.replaced_own.is_empty() {
+            groups.push(list(
+                format!(
+                    "Your files the pack now provides ({})",
+                    plan.replaced_own.len()
+                ),
+                plan.replaced_own.clone(),
+                colors::YELLOW_300,
+            ));
+        }
+        let kept: Vec<String> = plan
+            .kept_changed
+            .iter()
+            .chain(&plan.overrides_kept)
+            .cloned()
+            .collect();
+        if !kept.is_empty() {
+            groups.push(list(
+                format!("Kept as you changed them ({})", kept.len()),
+                kept,
+                colors::GRAY_400,
+            ));
+        }
+        if !plan.overrides_written.is_empty() {
+            groups.push(list(
+                format!(
+                    "Configs and other files written ({})",
+                    plan.overrides_written.len()
+                ),
+                plan.overrides_written.clone(),
+                colors::GRAY_400,
+            ));
+        }
+        let loader = match &plan.loader {
+            Some(loader) => format!("{} {}", loader.kind.label(), loader.version),
+            None => "Vanilla".to_string(),
+        };
+        let summary = format!(
+            "{} {} → {}. Minecraft {} with {loader}. {} to download.",
+            plan.record.title,
+            if prompt.from_version.is_empty() {
+                "?"
+            } else {
+                &prompt.from_version
+            },
+            plan.record.version_number,
+            plan.game_version,
+            lodestone_minecraft::util::format_byte(plan.download_size()),
+        );
+        Dialog::new("modpack-update", format!("Update {}?", prompt.instance_name), focus)
+            .width(px(560.))
+            .on_close({
+                let entity = entity.clone();
+                move |_, cx| {
+                    entity.update(cx, |this, cx| {
+                        this.discard_pending_update(cx);
+                        this.close_modal(cx)
+                    })
+                }
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .text_color(colors::GRAY_400)
+                    .child(div().whitespace_normal().child(summary))
+                    .when(!plan.changes_files(), |this| {
+                        this.child(div().child("No files change; only the version is recorded."))
+                    })
+                    .child(
+                        div()
+                            .id("modpack-update-plan")
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .max_h(px(260.))
+                            .overflow_y_scroll()
+                            .px_3()
+                            .py_2()
+                            .rounded(radius::LG)
+                            .bg(colors::GRAY_900)
+                            .children(groups),
+                    )
+                    .child(div().whitespace_normal().text_size(theme::text_size(text::SMALL)).child(
+                        "Your own mods, worlds and changed configs aren't touched. Every file that is replaced or removed is saved in the instance's backups folder first.",
+                    ))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                crate::components::Toggle::new("modpack-update-backup", backup_worlds)
+                                    .on_change(cx.listener(|this, value: &bool, _, cx| {
+                                        if let Some(Modal::ModpackUpdate { backup_worlds, .. }) =
+                                            &mut this.modal
+                                        {
+                                            *backup_worlds = *value;
+                                        }
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .text_size(theme::text_size(text::SMALL))
+                                    .font_weight(weights::BOLD.into())
+                                    .child("Back up every world first"),
+                            ),
+                    ),
+            )
+            .footer(
+                Button::new("confirm-modpack-update", "Update")
+                    .variant(ButtonVariant::Primary)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(Modal::ModpackUpdate {
+                            prompt,
+                            backup_worlds,
+                            ..
+                        }) = this.modal.take()
+                        {
+                            this.instances.update(cx, |instances, cx| {
+                                instances.apply_modpack_update(*prompt, backup_worlds, cx)
+                            });
+                        }
+                        cx.notify();
+                    })),
+            )
+            .footer(
+                Button::new("cancel-modpack-update", "Cancel")
+                    .variant(ButtonVariant::Secondary)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.discard_pending_update(cx);
+                        this.close_modal(cx)
+                    })),
+            )
+            .into_any_element()
+    }
+
+    fn render_world_dialog(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let entity = cx.entity();
+        let close = move |_: &mut Window, cx: &mut gpui::App| {
+            entity.update(cx, |this, cx| this.close_modal(cx))
+        };
+        Some(match self.modal.as_ref()? {
+            Modal::DeleteWorld {
+                folder,
+                name,
+                focus,
+            } => {
+                let (folder, name) = (folder.clone(), name.clone());
+                Dialog::new("delete-world", format!("Delete {name}?"), focus.clone())
+                    .on_close(close)
+                    .child(div().text_color(colors::GRAY_400).whitespace_normal().child(
+                        "The world's folder moves to the Trash, so you can put it back from there. Its backups stay.",
+                    ))
+                    .footer(
+                        Button::new("confirm-delete-world", "Move to Trash")
+                            .variant(ButtonVariant::Danger)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let (folder, name) = (folder.clone(), name.clone());
+                                this.worlds
+                                    .update(cx, |worlds, cx| worlds.delete_world(folder, name, cx));
+                                this.close_modal(cx);
+                            })),
+                    )
+                    .footer(
+                        Button::new("cancel-delete-world", "Cancel")
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
+            }
+            Modal::ReplaceWorld {
+                folder,
+                name,
+                backup,
+                focus,
+            } => {
+                let (folder, backup) = (folder.clone(), backup.clone());
+                let when = backup
+                    .created
+                    .map(crate::instances::worlds::when)
+                    .unwrap_or_else(|| backup.file_name.clone());
+                Dialog::new("replace-world", format!("Replace {name} with this backup?"), focus.clone())
+                    .on_close(close)
+                    .child(div().text_color(colors::GRAY_400).whitespace_normal().child(format!(
+                        "{name} goes back to how it was {}. Everything since is lost from the world, but it is backed up first and the current folder goes to the Trash.",
+                        when.to_lowercase()
+                    )))
+                    .footer(
+                        Button::new("confirm-replace-world", "Back up and replace")
+                            .variant(ButtonVariant::Danger)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let (folder, backup) = (folder.clone(), backup.clone());
+                                this.worlds.update(cx, |worlds, cx| {
+                                    worlds.restore_replace(folder, backup, cx)
+                                });
+                                this.close_modal(cx);
+                            })),
+                    )
+                    .footer(
+                        Button::new("cancel-replace-world", "Cancel")
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                    )
+                    .into_any_element()
+            }
+            _ => return None,
+        })
+    }
+
     /// Rebuilds the Settings tab when another instance is selected.
     fn sync_settings(&mut self, cx: &mut Context<Self>) {
         let selected = self.instances.read(cx).selected().cloned();
@@ -240,6 +603,9 @@ impl LauncherShell {
                     }),
                     cx.subscribe(&settings, |this, _, prompt: &LoaderChangePrompt, cx| {
                         this.show_loader_change(prompt.clone(), cx)
+                    }),
+                    cx.subscribe(&settings, |this, _, prompt: &UpdatePrompt, cx| {
+                        this.show_modpack_update(prompt.clone(), cx)
                     }),
                 ];
                 self.settings = Some((settings, subscriptions));
@@ -691,6 +1057,14 @@ impl LauncherShell {
             Modal::LoaderChange { prompt, focus } => {
                 self.render_loader_change(prompt, focus.clone(), cx)
             }
+            Modal::DeleteWorld { .. } | Modal::ReplaceWorld { .. } => {
+                self.render_world_dialog(cx)?
+            }
+            Modal::ModpackUpdate {
+                prompt,
+                backup_worlds,
+                focus,
+            } => self.render_modpack_update(prompt, *backup_worlds, focus.clone(), cx),
             Modal::EnableLauncherIdentity { focus } => {
                 self.render_enable_launcher_identity(focus.clone(), cx)
             }

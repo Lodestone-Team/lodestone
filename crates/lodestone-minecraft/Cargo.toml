@@ -16,6 +16,8 @@ license.workspace = true
 # the crates and versions in Zed stable's Cargo.lock. So the version requirements below
 # are the lowest versions that both lockfiles have, not the newest ones.
 [dependencies]
+# Unpacking gzipped NBT (`level.dat`). Both lockfiles have it (zip uses it).
+flate2 = { version = "1.1.8", default-features = false, features = ["rust_backend"] }
 indexmap = { version = "2.14.0", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

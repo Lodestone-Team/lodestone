@@ -5,9 +5,12 @@ pub mod console;
 pub mod content;
 pub mod fields;
 pub mod loader_picker;
+pub mod modpack_browser;
+pub mod modpacks;
 pub mod new_instance;
 pub mod settings;
 pub mod shared_settings;
+pub mod worlds;
 
 use std::{
     collections::{HashMap, VecDeque},
@@ -270,6 +273,13 @@ pub struct Instances {
     content_downloader: Downloader,
     /// "Switch to Fabric" in progress.
     loader_switch: Option<Task<()>>,
+    /// Modpacks being made into instances.
+    imports: Vec<modpacks::ImportJob>,
+    next_import: u64,
+    /// Modpack updates in progress, by instance.
+    modpack_updates: HashMap<String, modpacks::UpdateJob>,
+    /// Redraws while imports and updates run.
+    import_ticker: Option<Task<()>>,
 }
 
 impl EventEmitter<InstancesEvent> for Instances {}
@@ -335,6 +345,10 @@ impl Instances {
             modrinth: Some(modrinth),
             content_downloader,
             loader_switch: None,
+            imports: Vec::new(),
+            next_import: 0,
+            modpack_updates: HashMap::new(),
+            import_ticker: None,
         };
         this.reload(cx);
         if settings_notice.is_some() {
@@ -886,6 +900,13 @@ impl Instances {
     /// Installs what the instance needs and starts the game.
     pub fn play(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.is_active(id) {
+            return;
+        }
+        if self.modpack_updates.contains_key(id) {
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: "The modpack is updating".into(),
+                message: "Wait for the update to finish, then press Play.".into(),
+            });
             return;
         }
         let Ok(instance) = self.store.get(id) else {

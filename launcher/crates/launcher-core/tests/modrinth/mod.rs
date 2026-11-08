@@ -164,6 +164,8 @@ pub struct State {
     pub next_status: Option<(u16, Vec<(String, String)>)>,
     /// Headers added to every answer.
     pub headers: Vec<(String, String)>,
+    /// Other files, by path (`/<host>/<path>`), such as a modpack's downloads.
+    pub files: HashMap<String, Vec<u8>>,
 }
 
 pub struct ModrinthMock {
@@ -233,6 +235,14 @@ impl ModrinthMock {
         self
     }
 
+    /// Serves `bytes` for the URL `url` (on any host), through the mirror.
+    pub fn serve(&self, url: &str, bytes: &[u8]) -> &Self {
+        let url = Url::parse(url).unwrap();
+        let path = format!("/{}{}", url.host_str().unwrap(), url.path());
+        self.state().files.insert(path, bytes.to_vec());
+        self
+    }
+
     pub fn requests(&self) -> Vec<Recorded> {
         self.state().requests.clone()
     }
@@ -299,6 +309,11 @@ fn route(state: &mut State, request: &Recorded) -> (u16, Vec<u8>) {
             .find(|p| p.id == id || p.slug == id)
             .cloned()
     };
+    if request.method == "GET"
+        && let Some(bytes) = state.files.get(&request.path)
+    {
+        return (200, bytes.clone());
+    }
     match (request.method.as_str(), segments.as_slice()) {
         ("GET", ["cdn.modrinth.com", "data", project, "versions", id, _]) => {
             match state

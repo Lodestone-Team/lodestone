@@ -55,10 +55,24 @@ pub const SCENES: &[&str] = &[
     "content-shaders",
     "content-shaders-missing",
     "content-shaders-vanilla",
+    "content-description",
     "loader-change",
+    "new-instance-modpack",
+    "modpack-importing",
+    "modpack-settings",
+    "modpack-update",
+    "worlds",
+    "worlds-backups",
+    "screenshots",
+    "screenshot-view",
     "shared-settings",
     "instance-shared-settings",
 ];
+
+/// Scenes of the Worlds tab.
+fn is_worlds_scene(scene: &str) -> bool {
+    scene.starts_with("worlds") || scene.starts_with("screenshot")
+}
 
 /// Scenes that show made-up instances.
 fn has_instances(scene: &str) -> bool {
@@ -66,6 +80,9 @@ fn has_instances(scene: &str) -> bool {
         scene,
         "play-progress" | "playing" | "logs" | "instance-settings" | "crash" | "rosetta"
     ) || scene.starts_with("content-")
+        || scene.starts_with("modpack-")
+        || scene == "new-instance-modpack"
+        || is_worlds_scene(scene)
         || scene == "loader-change"
         || shared::is_scene(scene)
 }
@@ -186,6 +203,12 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 {
                     content::fill(&store.dir(&instance.id), scene);
                 }
+                if name == "Survival 1.20.1" && is_worlds_scene(scene) {
+                    worlds::fill(&store.dir(&instance.id));
+                }
+                if name == "Survival 1.20.1" && scene.starts_with("modpack-") {
+                    modpacks::fill(&store.dir(&instance.id));
+                }
                 if played > 0 {
                     let _ = store.record_play(&instance.id, 1_762_500_000, played);
                 }
@@ -219,7 +242,12 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
             "instance-shared-settings" => Some("Survival 1.20.1"),
-            scene if scene.starts_with("content-") || scene == "loader-change" => {
+            scene
+                if scene.starts_with("content-")
+                    || scene.starts_with("modpack-")
+                    || is_worlds_scene(scene)
+                    || scene == "loader-change" =>
+            {
                 Some("Survival 1.20.1")
             }
             _ => None,
@@ -250,6 +278,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
             }
             "logs" | "crash" => instances.preview_log(&first.id, sample_log()),
             "playing" => instances.preview_play_state(crate::instances::PlayState::Playing),
+            "modpack-importing" => modpacks::importing(&mut instances, cx),
             _ => {}
         }
         instances
@@ -341,7 +370,9 @@ fn sample_log() -> Vec<LogLine> {
 }
 
 mod content;
+mod modpacks;
 mod shared;
+mod worlds;
 
 pub use shared::window_height;
 
@@ -374,6 +405,14 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             launcher_core::game::platform::ROSETTA_MISSING,
             cx,
         ),
+        scene if is_worlds_scene(scene) => {
+            shell.select_tab(InstanceTab::Worlds, cx);
+            let view = shell.worlds().clone();
+            view.update(cx, |view, cx| worlds::apply(scene, view, cx));
+        }
+        "new-instance-modpack" | "modpack-settings" | "modpack-update" => {
+            modpacks::apply(scene, shell, cx)
+        }
         scene if scene.starts_with("content-") => {
             shell.select_tab(InstanceTab::Content, cx);
             let view = shell.content().clone();

@@ -21,7 +21,7 @@ use lodestone_minecraft::{
     util::format_byte,
 };
 
-use super::{ContentView, Load, PAGE_SIZE, SubView};
+use super::{ContentView, Load, PAGE_SIZE, ProjectTab, SubView};
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, IconButton, LoadingDots, Toggle},
     theme::{self, colors, fonts, leading, radius, text, weights},
@@ -41,11 +41,11 @@ pub fn modrinth_page(project_type: &str, slug: &str) -> String {
     format!("https://modrinth.com/{project_type}/{slug}")
 }
 
-fn muted(text: impl Into<SharedString>) -> gpui::Div {
+pub(crate) fn muted(text: impl Into<SharedString>) -> gpui::Div {
     div().text_color(colors::GRAY_500).child(text.into())
 }
 
-fn small(text: impl Into<SharedString>) -> gpui::Div {
+pub(crate) fn small(text: impl Into<SharedString>) -> gpui::Div {
     div()
         .text_size(theme::text_size(text::SMALL))
         .line_height(theme::line_height(text::SMALL, leading::NORMAL))
@@ -53,7 +53,7 @@ fn small(text: impl Into<SharedString>) -> gpui::Div {
 }
 
 /// A small coloured label.
-fn badge(label: impl Into<SharedString>, color: theme::Color) -> gpui::Div {
+pub(crate) fn badge(label: impl Into<SharedString>, color: theme::Color) -> gpui::Div {
     div()
         .flex_none()
         .px_1p5()
@@ -68,7 +68,7 @@ fn badge(label: impl Into<SharedString>, color: theme::Color) -> gpui::Div {
 }
 
 /// An icon image, or the cube placeholder.
-fn icon_box(image: Option<Arc<RenderImage>>, size: f32) -> AnyElement {
+pub(crate) fn icon_box(image: Option<Arc<RenderImage>>, size: f32) -> AnyElement {
     match image {
         Some(image) => img(image)
             .flex_none()
@@ -90,7 +90,7 @@ fn icon_box(image: Option<Arc<RenderImage>>, size: f32) -> AnyElement {
 }
 
 /// A row of pills; the selected one is filled.
-fn pills(
+pub(crate) fn pills(
     id: &'static str,
     labels: Vec<SharedString>,
     selected: usize,
@@ -131,7 +131,7 @@ fn pills(
 }
 
 /// A box for a notice: the shader mod card, the vanilla card, errors.
-fn card() -> gpui::Div {
+pub(crate) fn card() -> gpui::Div {
     div()
         .flex()
         .flex_col()
@@ -143,7 +143,7 @@ fn card() -> gpui::Div {
         .bg(colors::GRAY_850)
 }
 
-fn heading(text_value: impl Into<SharedString>) -> gpui::Div {
+pub(crate) fn heading(text_value: impl Into<SharedString>) -> gpui::Div {
     div()
         .font_family(fonts::HEADING)
         .text_size(theme::text_size(text::H3))
@@ -152,7 +152,7 @@ fn heading(text_value: impl Into<SharedString>) -> gpui::Div {
         .child(text_value.into())
 }
 
-fn list_box() -> gpui::Div {
+pub(crate) fn list_box() -> gpui::Div {
     div()
         .flex()
         .flex_col()
@@ -162,7 +162,7 @@ fn list_box() -> gpui::Div {
         .border_color(colors::GRAY_FADED.opacity(30))
 }
 
-fn row_base(id: impl Into<gpui::ElementId>, first: bool) -> gpui::Stateful<gpui::Div> {
+pub(crate) fn row_base(id: impl Into<gpui::ElementId>, first: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .flex()
@@ -178,7 +178,7 @@ fn row_base(id: impl Into<gpui::ElementId>, first: bool) -> gpui::Stateful<gpui:
         })
 }
 
-fn version_label(kind: ModrinthVersionType) -> (&'static str, theme::Color) {
+pub(crate) fn version_label(kind: ModrinthVersionType) -> (&'static str, theme::Color) {
     match kind {
         ModrinthVersionType::Release => ("Release", colors::GREEN_300),
         ModrinthVersionType::Beta => ("Beta", colors::YELLOW_300),
@@ -187,7 +187,7 @@ fn version_label(kind: ModrinthVersionType) -> (&'static str, theme::Color) {
 }
 
 /// "1.20.1, 1.20" with at most three versions.
-fn short_list(values: &[String], max: usize) -> String {
+pub(crate) fn short_list(values: &[String], max: usize) -> String {
     let mut shown: Vec<&str> = values.iter().take(max).map(String::as_str).collect();
     if values.len() > max {
         shown.push("…");
@@ -1346,6 +1346,7 @@ impl ContentView {
         let project = view.project.clone();
         let versions = view.versions.clone();
         let show_all = view.show_all;
+        let tab = view.tab;
         let with_dependencies = view.with_dependencies;
         let confirm_force = view.confirm_force.clone();
         let linked = view.linked_version.clone();
@@ -1455,6 +1456,46 @@ impl ContentView {
             );
         if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
             column = column.child(self.render_shader_mod(cx));
+        }
+        let has_body = !project.body.trim().is_empty();
+        if has_body {
+            let entity = cx.entity();
+            column = column.child(div().flex().child(pills(
+                "project-tabs",
+                vec!["Versions".into(), "Description".into()],
+                match tab {
+                    ProjectTab::Versions => 0,
+                    ProjectTab::Description => 1,
+                },
+                move |index, _, cx| {
+                    let tab = if index == 0 {
+                        ProjectTab::Versions
+                    } else {
+                        ProjectTab::Description
+                    };
+                    entity.update(cx, |this, cx| this.set_project_tab(kind, tab, cx));
+                },
+            )));
+        }
+        if has_body && tab == ProjectTab::Description {
+            let blocks = self.description(&project);
+            let urls = crate::markdown::image_urls(&blocks);
+            let images = self.description_images(&urls, cx);
+            return column
+                .child(
+                    div()
+                        .p_4()
+                        .rounded(radius::LG)
+                        .border_1()
+                        .border_color(colors::FADE_700)
+                        .bg(colors::GRAY_850)
+                        .child(crate::markdown::render(
+                            format!("description-{}", project.id),
+                            &blocks,
+                            &images,
+                        )),
+                )
+                .into_any_element();
         }
         let versions = match versions {
             Load::Ready(versions) => versions,

@@ -88,6 +88,7 @@ impl ContentKind {
             ClientProjectType::Mod => ContentKind::Mod,
             ClientProjectType::ResourcePack => ContentKind::ResourcePack,
             ClientProjectType::Shader => ContentKind::ShaderPack,
+            ClientProjectType::Modpack => return None,
         })
     }
 
