@@ -150,7 +150,6 @@ export const UserSettings = () => {
               count: Object.keys(userList).length,
             })
       }
-      lead={t('settings.users.allMembersLead')}
       action={
         <Button
           label={t('settings.users.createUser')}

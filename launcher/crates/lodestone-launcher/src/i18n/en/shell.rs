@@ -6,7 +6,6 @@ crate::i18n::messages! {
         QuitApp = "Quit {app}",
         /// Settings > General.
         Language = "Language",
-        LanguageHint = "The language Lodestone Launcher is shown in. System uses the first of your preferred languages it has, else English.",
         /// The Language setting's first choice.
         LanguageSystem = "System",
         /// The setting's button while it is System: {language} is the language it uses.
@@ -145,16 +144,12 @@ crate::i18n::messages! {
         General = "General",
         Accounts = "Accounts",
         Developer = "Developer",
-        DefaultsLead = "Every instance uses these unless its own Settings tab changes them.",
-        SharedLead = "One set of options.txt settings for every instance: mouse, key bindings, video, sound and more. An instance can override single values in its Settings tab.",
-        GeneralLead = "The launcher's language, and how it lists your instances.",
-        AccountsLead = "Play signs in with the account in use.",
-        DeveloperLead = "Options for testing Lodestone Launcher.",
+        DefaultsLead = "Each instance can change these in its own settings.",
+        SharedLead = "The same game options in every instance.",
         NoAccount = "No account",
         ManageAccounts = "Manage accounts",
         GroupAutomatically = "Group instances automatically",
-        /// {fabric}, {vanilla} and {imported} are the groups' names.
-        GroupAutomaticallyHint = "The sidebar lists instances without a group of their own by loader, such as {fabric} or {vanilla}, and those imported from other launchers under {imported}.",
+        GroupAutomaticallyHint = "Sorts ungrouped instances by loader.",
         OfflineAccount = "Offline account",
         MicrosoftAccount = "Microsoft account",
         SignInAgain = "Sign in again",
@@ -163,8 +158,6 @@ crate::i18n::messages! {
         /// Makes an account the one in use.
         Use = "Use",
         AddAnAccount = "Add an account",
-        AddAccountHintWithOffline = "A Microsoft account plays online. An offline account plays single-player and offline-mode servers.",
-        AddAccountHint = "Sign in with the Microsoft account you play Minecraft with.",
         /// Adds a Microsoft account.
         AddMicrosoftEllipsis = "Microsoft…",
         /// Adds an offline account.
@@ -175,19 +168,14 @@ crate::i18n::messages! {
         MemoryError = "Memory: {error}",
         /// {total} is "This Mac has 16 GB of memory." (or nothing), {computer}
         /// "this Mac", {min} and {max} "512 MB", {limit} "4 GB".
-        MemoryDefaultHint = "{total} The default is {min} to {max}: half {computer}'s memory, at most {limit}.",
+        MemoryDefaultHint = "Default: {min} – {max}",
         /// The unit beside the memory fields.
         MegabytesUnit = "MB",
         Window = "Window",
-        WindowHint = "Leave the size empty for the game's default.",
         Fullscreen = "Fullscreen",
         JvmArguments = "JVM arguments",
-        JvmArgumentsHint = "Separated by spaces; quote values with spaces.",
         GameArguments = "Game arguments",
-        GameArgumentsHint = "Passed to Minecraft itself.",
         EnvironmentVariables = "Environment variables",
-        /// NAME=value is how a variable is written; keep it.
-        EnvironmentVariablesHint = "NAME=value, separated by spaces.",
 
         // Settings > Shared game settings.
         SyncedFrom = "Settings changed in-game in {name} now update every instance.",
@@ -199,10 +187,9 @@ crate::i18n::messages! {
         /// The placeholder of a shared value being edited.
         Value = "Value",
         SyncFrom = "Sync from",
-        SyncFromHint = "Settings you change in-game in this instance become the shared ones. Other instances only receive them.",
-        SyncFromNoneHint = "Without one, nothing is read back from the games, and shared values change only here.",
+        SyncFromHint = "In-game changes in this instance update the others.",
+        SyncFromNoneHint = "Shared values change only here.",
         StartFromInstance = "Start from an instance",
-        StartFromInstanceHint = "Copies an instance's options.txt into the shared values.",
         CopyFromInstance = "Copy from instance…",
         ClearShared = "Clear the shared values",
         ClearSharedHint = "Instances keep their own options.txt.",
@@ -212,25 +199,25 @@ crate::i18n::messages! {
         Hide = "Hide",
         Show = "Show",
         ServerList = "Server list",
-        ServerListHint = "Coming soon. Resource and shader packs stay per instance.",
+        ServerListHint = "Coming soon.",
         /// A section of Shared game settings: where the values come from.
         Source = "Source",
         WhatsShared = "What's shared",
-        WhatsSharedLead = "A category that is off stays separate in each instance.",
+        WhatsSharedLead = "Categories that are off stay per instance.",
         CategoryControls = "Controls",
         CategoryVideo = "Video",
         CategorySound = "Sound",
         CategoryAccessibility = "Accessibility & chat",
         CategoryLanguage = "Language",
-        CategoryControlsHint = "Mouse sensitivity, invert, raw input, key bindings, toggle crouch and sprint",
-        CategoryVideoHint = "FOV, render and simulation distance, GUI scale, brightness, fullscreen, VSync, max FPS, particles, graphics",
-        CategorySoundHint = "Every volume slider, subtitles, directional audio",
-        CategoryAccessibilityHint = "Narrator, text background, chat size and opacity, effects",
+        CategoryControlsHint = "Mouse, key bindings",
+        CategoryVideoHint = "FOV, render distance, GUI scale, graphics",
+        CategorySoundHint = "Volume, subtitles",
+        CategoryAccessibilityHint = "Narrator, chat, text background",
         CategoryLanguageHint = "Game language and font",
         /// Shared game settings > Narrator.
         NarratorSection = "Narrator",
         KeepNarratorOff = "Keep the narrator off",
-        KeepNarratorOffHint = "In every instance, new ones included: the narrator stays off, and Minecraft's first-start accessibility screen, which reads itself aloud, is skipped.",
+        KeepNarratorOffHint = "Also skips the first-start accessibility screen.",
         /// {category} is "Accessibility & chat".
         NarratorNotShared = "{category} isn't shared, so each instance keeps its own narrator setting.",
         NarratorKeptOff = "The narrator stays off in every instance, new ones included.",
@@ -259,7 +246,7 @@ crate::i18n::messages! {
         /// The badge on accounts signed in as the Minecraft Launcher.
         LauncherIdentity = "Launcher identity",
         SignInAsLauncher = "Sign in as the Minecraft Launcher",
-        SignInAsLauncherHint = "New Microsoft sign-ins use the official Minecraft Launcher's app instead of Lodestone's, while Lodestone's waits for Mojang's approval. For personal testing.",
+        SignInAsLauncherHint = "Until Lodestone's own app is approved. For testing only.",
         SignInAsLauncherTitle = "Sign in as the Minecraft Launcher?",
         WhatThisDoes = "What this does",
         WhatThisDoesBody = "Lodestone Launcher will tell Microsoft that it is Mojang's official Minecraft Launcher, using that launcher's public client ID, instead of Lodestone's own registered app. Microsoft and Mojang haven't approved this, Lodestone isn't affiliated with them, and it may be against Microsoft's terms for their apps.",

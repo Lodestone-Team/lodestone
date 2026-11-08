@@ -357,8 +357,6 @@ export const fr: Messages = {
   // ===== Settings: core settings, users, profile, API keys =====
 
   'settings.language.label': 'Langue',
-  'settings.language.hint':
-    'La langue du tableau de bord. Les noms, journaux et messages des serveurs et du core restent tels quels.',
   'settings.language.auto': 'Langue du navigateur ({language})',
 
   'settings.theme.label': 'Thème',
@@ -376,46 +374,37 @@ export const fr: Messages = {
 
   'settings.core.documentTitle': 'Paramètres de Lodestone Core',
   'settings.core.title': 'Général',
-  'settings.core.description': 'Ces paramètres concernent le core lui-même.',
   'settings.core.section.core': 'Core',
   'settings.core.section.public': 'Serveurs publics',
-  'settings.core.section.publicLead':
-    'Ce que tout le monde peut voir sans se connecter. Vous seul pouvez le modifier.',
+  'settings.core.section.publicLead': 'Visible sans connexion.',
   'settings.core.section.info': 'Informations',
-  'settings.core.section.infoLead':
-    'Informations sur votre core et votre tableau de bord.',
   'settings.core.section.danger': 'Zone de danger',
-  'settings.core.section.dangerLead':
-    'Ces paramètres peuvent causer des dommages irréversibles à votre core.',
+  'settings.core.section.dangerLead': 'À modifier avec prudence.',
   'settings.core.name.label': 'Nom du core',
-  'settings.core.name.hint':
-    'Un surnom pour ce core. C’est ce que vous et les autres verrez en vous connectant à ce core',
   'settings.core.name.empty': 'Le nom ne peut pas être vide',
   'settings.core.name.tooLong': 'Le nom ne peut pas dépasser {max} caractères',
   'settings.core.domain.label': 'Domaine ou IP publique',
-  'settings.core.domain.hint': 'Le domaine ou l’adresse IP publique de ce core',
   'settings.core.domain.tooLong':
     'Le domaine ne peut pas dépasser {max} caractères',
   'settings.core.domain.tooltip':
     'C’est votre IP publique si vous avez configuré une redirection de port. Sinon, laissez tel quel.',
   'settings.core.playit.label': 'Activer l’intégration Playit',
   'settings.core.playit.hint':
-    'Active l’intégration Playit, qui permet aux utilisateurs d’ouvrir leurs serveurs au public sans redirection de port',
+    'Ouvre les serveurs à Internet sans redirection de port.',
   'settings.core.listPublicly.label': 'Lister les serveurs publiquement',
   'settings.core.listPublicly.hint':
-    'Permet à quiconque peut joindre ce core de voir les serveurs que vous rendez publics ci-dessous, sans se connecter, et uniquement ce que vous choisissez pour chacun. Désactiver cette option les masque tous d’un coup. Lodestone Launcher s’en sert pour les rejoindre.',
+    'Toute personne qui peut joindre ce core voit les serveurs que vous rendez publics ci-dessous.',
   'settings.core.safeMode.label': 'Mode sécurisé',
   'settings.core.safeMode.hint':
-    'Tente d’empêcher les utilisateurs autres que le propriétaire d’accéder aux autorisations d’administration de votre machine',
+    'Réserve l’accès administrateur de cette machine au propriétaire.',
   'settings.core.safeMode.offTitle': 'Désactiver le mode sécurisé ?',
   'settings.core.safeMode.offBody':
     'Voulez-vous vraiment désactiver le mode sécurisé ? Vous pourrez alors permettre à d’autres utilisateurs que vous d’exécuter des commandes potentiellement dangereuses. Assurez-vous de faire confiance à tous les utilisateurs à qui vous donnez ces autorisations.',
   'settings.core.turnOff': 'Désactiver',
   'settings.core.codeExecution.label': 'Exécution de code',
   'settings.core.codeExecution.hint':
-    'Autorise les macros, les serveurs atom, les extensions, les scripts de serveur et les commandes Java personnalisées à s’exécuter sur ce core.',
-  'settings.core.codeExecution.hintJavaOnly':
-    'Autorise les commandes Java personnalisées à s’exécuter sur ce core.',
+    'Macros, serveurs atom, extensions, scripts de serveur et commandes Java personnalisées.',
+  'settings.core.codeExecution.hintJavaOnly': 'Commandes Java personnalisées.',
   'settings.core.codeExecution.locked':
     'Verrouillé par l’administrateur de ce core (LODESTONE_DISABLE_CODE_EXECUTION ou --disable-code-execution).',
   'settings.core.codeExecution.offTitle': 'Désactiver l’exécution de code ?',
@@ -425,7 +414,7 @@ export const fr: Messages = {
     'Les commandes Java personnalisées ne s’exécuteront plus sur ce core tant que vous n’aurez pas réactivé l’exécution de code. Rien n’est redémarré automatiquement.',
   'settings.core.lanHttp.label': 'Autoriser l’accès LAN en HTTP simple',
   'settings.core.lanHttp.hint':
-    'Permet aux autres appareils de se connecter en http:// au lieu de https://. Les mots de passe et jetons de session traversent alors votre réseau sans chiffrement. Cette machine peut toujours utiliser http://.',
+    'Sans chiffrement. D’autres personnes sur votre réseau peuvent lire les mots de passe.',
   'settings.core.lanHttp.confirmTitle':
     'Autoriser le HTTP simple depuis d’autres appareils ?',
   'settings.core.lanHttp.confirmBody':
@@ -437,7 +426,7 @@ export const fr: Messages = {
     'D’autres appareils peuvent se connecter à ce core en HTTP simple : les mots de passe et jetons de session peuvent donc traverser votre réseau sans chiffrement. Connectez-vous en https:// et demandez au propriétaire de désactiver l’accès en HTTP simple.',
   'settings.core.openPort.label': 'Ouvrir un port',
   'settings.core.openPort.hint':
-    'Tente une redirection de port sur votre routeur avec {upnp}. Les personnes sur Internet pourront ainsi se connecter à votre serveur.',
+    'Redirige un port sur votre routeur avec {upnp}.',
   'settings.core.openPort.noPermission': 'Aucune autorisation',
   'settings.core.openPort.button': 'Ouvrir un port',
   'settings.core.openPort.portLabel': 'Port à ouvrir',
@@ -463,17 +452,13 @@ export const fr: Messages = {
 
   'settings.users.documentTitle': 'Paramètres des utilisateurs',
   'settings.users.title': 'Utilisateurs',
-  'settings.users.description':
-    'Les comptes de ce core et ce que chacun peut faire.',
+  'settings.users.description': 'Les comptes de ce core et leurs droits.',
   'settings.users.allUsers': 'Tous les utilisateurs',
   'settings.users.allMembers': 'Tous les membres',
   'settings.users.allMembersCount': 'Tous les membres ({count})',
-  'settings.users.allMembersLead':
-    'La liste de tous les utilisateurs. Cliquez sur un utilisateur pour le gérer.',
   'settings.users.createUser': 'Nouvel utilisateur',
   'settings.users.createTitle': 'Créer un compte utilisateur',
-  'settings.users.createLead':
-    'Cet utilisateur commencera sans aucune autorisation. Vous pourrez lui en accorder plus tard.',
+  'settings.users.createLead': 'Commence sans aucune autorisation.',
   'settings.users.loadingUsers': 'Chargement des utilisateurs',
   'settings.users.loadingUser': 'Chargement de l’utilisateur',
   'settings.users.loadingServers': 'Chargement des serveurs',
@@ -481,10 +466,10 @@ export const fr: Messages = {
   'settings.users.permissionsLead': 'Ce que {username} peut faire sur ce core.',
   'settings.users.unsafePermissions': 'Autorisations à risque',
   'settings.users.unsafePermissionsLead':
-    'Désactivez le mode sécurisé dans les paramètres du core pour accorder ces autorisations aux utilisateurs autres que le propriétaire.',
+    'Désactivez le mode sécurisé pour les accorder à d’autres utilisateurs.',
   'settings.users.ownerOnly': 'Macros, extensions et serveurs atom',
   'settings.users.ownerOnlyHint':
-    'Seul le propriétaire peut utiliser les macros, installer des extensions et créer ou contrôler des serveurs atom. Ces droits ne peuvent pas être accordés à d’autres utilisateurs. Les serveurs Docker utilisent les autorisations de serveur normales.',
+    'Réservé au propriétaire. Les serveurs Docker utilisent les autorisations habituelles.',
 
   'settings.permission.can_create_instance.title': 'Créer des serveurs',
   'settings.permission.can_create_instance.user':
@@ -565,7 +550,6 @@ export const fr: Messages = {
 
   'settings.profile.documentTitle': 'Profil utilisateur',
   'settings.profile.title': 'Profil',
-  'settings.profile.description': 'Préférences du profil de {username}',
   'settings.profile.guest': 'Invité',
   'settings.profile.notLoggedIn':
     'Vous n’êtes pas connecté ! Connectez-vous pour accéder à cette page.',
@@ -577,8 +561,6 @@ export const fr: Messages = {
   'settings.profile.appearanceLead':
     'Enregistré dans ce navigateur, pas sur le core.',
   'settings.profile.coloredConsole': 'Console en couleur',
-  'settings.profile.coloredConsoleHint':
-    'Affiche les couleurs et les styles que les serveurs écrivent dans la console du serveur',
 
   'settings.form.username': 'Nom d’utilisateur',
   'settings.form.password': 'Mot de passe',
@@ -594,8 +576,7 @@ export const fr: Messages = {
   'settings.form.createUser': 'Créer l’utilisateur',
 
   'settings.minecraft.title': 'Comptes Minecraft',
-  'settings.minecraft.ownLead':
-    'Les comptes que vous avez liés depuis Lodestone Launcher, qui vérifie auprès de Microsoft qu’ils vous appartiennent. Le tableau de bord affiche votre nom à côté.',
+  'settings.minecraft.ownLead': 'Liés depuis Lodestone Launcher.',
   'settings.minecraft.ownEmpty':
     'Aucun compte Minecraft n’est lié. Connectez-vous à ce core dans Lodestone Launcher pour en lier un.',
   'settings.minecraft.userLead':
@@ -610,10 +591,10 @@ export const fr: Messages = {
 
   'settings.apiKeys.title': 'Clés d’API',
   'settings.apiKeys.ownLead':
-    'Les clés permettent à la CLI, aux scripts et aux agents d’utiliser Lodestone en votre nom, sans votre mot de passe. Révoquer une clé ne vous déconnecte nulle part ailleurs.',
+    'Permettent à la CLI, aux scripts et aux agents d’agir en votre nom sans votre mot de passe.',
   'settings.apiKeys.ownEmpty': 'Vous n’avez aucune clé d’API.',
   'settings.apiKeys.userLead':
-    'Les clés créées par {username}. Révoquez une clé pour couper immédiatement l’accès de ce qui l’utilise. Seul {username} peut créer ses propres clés.',
+    'Clés créées par {username}. En révoquer une coupe l’accès de ce qui l’utilise.',
   'settings.apiKeys.userEmpty': '{username} n’a aucune clé d’API.',
   'settings.apiKeys.create': 'Créer une clé d’API',
   'settings.apiKeys.created': 'Clé d’API « {name} » créée',
@@ -650,7 +631,7 @@ export const fr: Messages = {
   'settings.apiKeys.passwordSessionOnly':
     'Les clés d’API ne peuvent être gérées que si vous vous connectez avec votre mot de passe, pas avec une clé d’API.',
   'settings.apiKeys.createLead':
-    'La CLI, les scripts et les agents peuvent se connecter avec une clé d’API au lieu de votre mot de passe. Donnez à chaque clé un nom, une courte durée de validité et uniquement l’accès dont elle a besoin.',
+    'Donnez à chaque clé une courte durée de validité et uniquement l’accès nécessaire.',
   'settings.apiKeys.name': 'Nom',
   'settings.apiKeys.nameRequired': 'Le nom est requis',
   'settings.apiKeys.nameTooLong':
@@ -677,7 +658,7 @@ export const fr: Messages = {
     'Le mode sécurisé est activé : le core refuse donc ces autorisations aux clés à accès personnalisé tant que le mode sécurisé n’est pas désactivé dans les paramètres du core.',
   'settings.apiKeys.ownerOnly': 'Macros, extensions et serveurs atom',
   'settings.apiKeys.ownerOnlyHint':
-    'Les clés à accès personnalisé ne peuvent pas utiliser les macros, installer des extensions, ni créer ou contrôler des serveurs atom, même si elles appartiennent au propriétaire. Une clé à accès complet le peut, si vous le pouvez.',
+    'Seules les clés à accès complet peuvent utiliser les macros, les extensions et les serveurs atom.',
   'settings.apiKeys.newTitle': 'Clé d’API « {name} » créée',
   'settings.apiKeys.newCopyNow':
     'Copiez cette clé maintenant. Vous ne pourrez plus la voir.',

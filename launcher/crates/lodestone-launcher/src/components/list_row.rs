@@ -81,9 +81,9 @@ impl RenderOnce for ListRow {
             .font_weight(weights::MEDIUM.into())
             .text_color(colors::GRAY_300)
             .cursor_pointer()
-            .hover(|style| style.bg(colors::GRAY_800))
+            .hover(|style| style.bg(colors::GRAY_700).text_color(colors::WHITE))
             .when(self.selected, |this| {
-                this.bg(colors::GRAY_800).border_color(colors::FADE_700)
+                this.bg(colors::GRAY_750).border_color(colors::FADE_700)
             })
             .when_some(self.icon, |this, icon| {
                 this.child(icon.render(px(14.), icon_color))

@@ -4,9 +4,6 @@ pub fn text(message: M) -> &'static str {
     match message {
         M::QuitApp => "退出 {app}",
         M::Language => "语言",
-        M::LanguageHint => {
-            "Lodestone Launcher 的显示语言。“系统”会使用你的首选语言中第一个可用的语言，否则使用英语。"
-        }
         M::LanguageSystem => "系统",
         M::LanguageSystemIs => "系统（{language}）",
 
@@ -125,51 +122,30 @@ pub fn text(message: M) -> &'static str {
         M::General => "通用",
         M::Accounts => "账户",
         M::Developer => "开发者",
-        M::DefaultsLead => "实例默认使用这些设置，可在实例的“设置”标签页中单独更改。",
-        M::SharedLead => {
-            "所有实例共用一套 options.txt 设置：鼠标、按键、视频、声音等。实例可以在其“设置”标签页中单独覆盖某些值。"
-        }
-        M::GeneralLead => "启动器的语言，以及实例的排列方式。",
-        M::AccountsLead => "“开始游戏”会使用当前账户登录。",
-        M::DeveloperLead => "用于测试 Lodestone Launcher 的选项。",
+        M::DefaultsLead => "每个实例都可以在自己的设置中更改。",
+        M::SharedLead => "所有实例使用相同的游戏选项。",
         M::NoAccount => "无账户",
         M::ManageAccounts => "管理账户",
         M::GroupAutomatically => "自动分组实例",
-        M::GroupAutomaticallyHint => {
-            "侧边栏会按加载器列出没有自定分组的实例，例如“{fabric}”或“{vanilla}”，从其他启动器导入的实例则列在“{imported}”下。"
-        }
+        M::GroupAutomaticallyHint => "按加载器为未分组的实例分组。",
         M::OfflineAccount => "离线账户",
         M::MicrosoftAccount => "Microsoft 账户",
         M::SignInAgain => "重新登录",
         M::InUse => "使用中",
         M::Use => "使用",
         M::AddAnAccount => "添加账户",
-        M::AddAccountHintWithOffline => {
-            "Microsoft 账户可以在线游玩。离线账户可以玩单人游戏和离线模式服务器。"
-        }
-        M::AddAccountHint => "使用你玩 Minecraft 的 Microsoft 账户登录。",
         M::AddMicrosoftEllipsis => "Microsoft 账户…",
         M::AddOfflineEllipsis => "离线账户…",
 
         M::Memory => "内存",
         M::MemoryError => "内存：{error}",
-        M::MemoryDefaultHint => {
-            if cfg!(target_os = "macos") {
-                "{total}默认为 {min} 到 {max}：{computer} 内存的一半，最多 {limit}。"
-            } else {
-                "{total}默认为 {min} 到 {max}：{computer}内存的一半，最多 {limit}。"
-            }
-        }
+        M::MemoryDefaultHint => "默认：{min} – {max}",
         M::MegabytesUnit => "MB",
         M::Window => "窗口",
-        M::WindowHint => "大小留空则使用游戏的默认值。",
         M::Fullscreen => "全屏",
         M::JvmArguments => "JVM 参数",
-        M::JvmArgumentsHint => "以空格分隔；含空格的值请加引号。",
         M::GameArguments => "游戏参数",
-        M::GameArgumentsHint => "直接传给 Minecraft。",
         M::EnvironmentVariables => "环境变量",
-        M::EnvironmentVariablesHint => "NAME=value，以空格分隔。",
 
         M::SyncedFrom => "现在，在“{name}”的游戏中更改的设置会更新所有实例。",
         M::SyncedFromNone => "现在没有实例会更新共享设置，请在这里编辑。",
@@ -178,10 +154,9 @@ pub fn text(message: M) -> &'static str {
         M::EditHereOnly => "仅在此处编辑",
         M::Value => "值",
         M::SyncFrom => "同步来源",
-        M::SyncFromHint => "你在此实例的游戏中更改的设置会成为共享设置。其他实例只会接收这些设置。",
-        M::SyncFromNoneHint => "没有同步来源时，不会从游戏中读回任何设置，共享值只能在这里更改。",
+        M::SyncFromHint => "在此实例游戏内的更改会同步到其他实例。",
+        M::SyncFromNoneHint => "共享值只在这里更改。",
         M::StartFromInstance => "从实例开始",
-        M::StartFromInstanceHint => "将某个实例的 options.txt 复制到共享值中。",
         M::CopyFromInstance => "从实例复制…",
         M::ClearShared => "清除共享值",
         M::ClearSharedHint => "各实例保留自己的 options.txt。",
@@ -191,27 +166,23 @@ pub fn text(message: M) -> &'static str {
         M::Hide => "隐藏",
         M::Show => "显示",
         M::ServerList => "服务器列表",
-        M::ServerListHint => "即将推出。资源包和光影包仍按实例分别保存。",
+        M::ServerListHint => "即将推出。",
         M::Source => "来源",
         M::WhatsShared => "共享内容",
-        M::WhatsSharedLead => "关闭的类别在每个实例中保持独立。",
+        M::WhatsSharedLead => "关闭的类别由各实例单独保存。",
         M::CategoryControls => "控制",
         M::CategoryVideo => "视频",
         M::CategorySound => "声音",
         M::CategoryAccessibility => "辅助功能与聊天",
         M::CategoryLanguage => "语言",
-        M::CategoryControlsHint => "鼠标灵敏度、反转、原始输入、按键、切换潜行和疾跑",
-        M::CategoryVideoHint => {
-            "视场角、渲染和模拟距离、界面尺寸、亮度、全屏、垂直同步、最大帧率、粒子、图像品质"
-        }
-        M::CategorySoundHint => "所有音量滑块、字幕、定向音频",
-        M::CategoryAccessibilityHint => "旁白、文本背景、聊天大小和不透明度、效果",
+        M::CategoryControlsHint => "鼠标、按键绑定",
+        M::CategoryVideoHint => "视野、渲染距离、界面尺寸、图像品质",
+        M::CategorySoundHint => "音量、字幕",
+        M::CategoryAccessibilityHint => "旁白、聊天、文本背景",
         M::CategoryLanguageHint => "游戏语言和字体",
         M::NarratorSection => "旁白",
         M::KeepNarratorOff => "始终关闭旁白",
-        M::KeepNarratorOffHint => {
-            "适用于每个实例，包括新实例：旁白保持关闭，并跳过 Minecraft 首次启动时会朗读自身的辅助功能界面。"
-        }
+        M::KeepNarratorOffHint => "同时跳过首次启动时的辅助功能界面。",
         M::NarratorNotShared => "“{category}”未共享，因此每个实例保留自己的旁白设置。",
         M::NarratorKeptOff => "旁白在每个实例中都保持关闭，包括新实例。",
         M::NarratorPerInstance => "每个实例重新使用自己的旁白设置。",
@@ -234,9 +205,7 @@ pub fn text(message: M) -> &'static str {
 
         M::LauncherIdentity => "启动器身份",
         M::SignInAsLauncher => "以 Minecraft Launcher 身份登录",
-        M::SignInAsLauncherHint => {
-            "在 Lodestone 的应用等待 Mojang 批准期间，新的 Microsoft 登录将使用官方 Minecraft Launcher 的应用，而不是 Lodestone 的。仅供个人测试。"
-        }
+        M::SignInAsLauncherHint => "在 Lodestone 自己的应用获批前使用。仅供测试。",
         M::SignInAsLauncherTitle => "以 Minecraft Launcher 身份登录？",
         M::WhatThisDoes => "此选项的作用",
         M::WhatThisDoesBody => {

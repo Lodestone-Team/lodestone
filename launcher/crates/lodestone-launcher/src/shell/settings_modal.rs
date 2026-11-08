@@ -61,14 +61,12 @@ impl SettingsPage {
         }
     }
 
-    fn lead(self) -> &'static str {
-        t(match self {
-            SettingsPage::Defaults => M::DefaultsLead,
-            SettingsPage::Shared => M::SharedLead,
-            SettingsPage::General => M::GeneralLead,
-            SettingsPage::Accounts => M::AccountsLead,
-            SettingsPage::Developer => M::DeveloperLead,
-        })
+    fn lead(self) -> Option<&'static str> {
+        match self {
+            SettingsPage::Defaults => Some(t(M::DefaultsLead)),
+            SettingsPage::Shared => Some(t(M::SharedLead)),
+            SettingsPage::General | SettingsPage::Accounts | SettingsPage::Developer => None,
+        }
     }
 
     fn icon(self) -> Icon {
@@ -265,7 +263,7 @@ impl LauncherShell {
                                             .text_color(colors::GRAY_300)
                                             .child(page.title()),
                                     )
-                                    .child(
+                                    .children(page.lead().map(|lead| {
                                         div()
                                             .text_size(theme::text_size(text::SMALL))
                                             .line_height(theme::line_height(
@@ -273,8 +271,8 @@ impl LauncherShell {
                                                 leading::NORMAL,
                                             ))
                                             .text_color(colors::GRAY_500)
-                                            .child(page.lead()),
-                                    ),
+                                            .child(lead)
+                                    })),
                             )
                             .child(div().flex_1())
                             .child(IconButton::new("close-settings", Icon::Xmark).on_click(
@@ -442,44 +440,37 @@ impl LauncherShell {
             ),
             other => i18n::resolve(other).native_name().to_string(),
         };
-        let language_row = SettingRow::new(t(ShellMsg::Language))
-            .hint(t(ShellMsg::LanguageHint))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_end()
-                    .child(
-                        select_button(
-                            "language",
-                            div().font_weight(weights::BOLD.into()).child(current),
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.language_menu_open = !this.language_menu_open;
-                            cx.notify();
-                        })),
+        let language_row = SettingRow::new(t(ShellMsg::Language)).child(
+            div()
+                .flex()
+                .flex_col()
+                .items_end()
+                .child(
+                    select_button(
+                        "language",
+                        div().font_weight(weights::BOLD.into()).child(current),
                     )
-                    .when(self.language_menu_open, |this| {
-                        let close = cx.listener(|this, _: &(), _, cx| {
-                            this.language_menu_open = false;
-                            cx.notify();
-                        });
-                        this.child(popover(
-                            "language-popover",
-                            self.render_language_list(language, cx),
-                            move |window, cx| close(&(), window, cx),
-                        ))
-                    }),
-            );
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.language_menu_open = !this.language_menu_open;
+                        cx.notify();
+                    })),
+                )
+                .when(self.language_menu_open, |this| {
+                    let close = cx.listener(|this, _: &(), _, cx| {
+                        this.language_menu_open = false;
+                        cx.notify();
+                    });
+                    this.child(popover(
+                        "language-popover",
+                        self.render_language_list(language, cx),
+                        move |window, cx| close(&(), window, cx),
+                    ))
+                }),
+        );
         let general = card([
             language_row.into_any_element(),
             SettingRow::new(t(M::GroupAutomatically))
-                .hint(tr!(
-                    M::GroupAutomaticallyHint,
-                    fabric = tr!(M::GroupModded, loader = "Fabric"),
-                    vanilla = t(M::Vanilla),
-                    imported = t(M::GroupImported),
-                ))
+                .hint(t(M::GroupAutomaticallyHint))
                 .child(
                     Toggle::new("auto-groups", auto_groups).on_change(cx.listener(
                         |this, value: &bool, _, cx| {
@@ -695,11 +686,6 @@ impl LauncherShell {
         }
         rows.push(
             SettingRow::new(t(M::AddAnAccount))
-                .hint(if offline_enabled {
-                    t(M::AddAccountHintWithOffline)
-                } else {
-                    t(M::AddAccountHint)
-                })
                 .child(
                     Button::new("settings-add-microsoft", t(M::AddMicrosoftEllipsis))
                         .variant(ButtonVariant::Secondary)

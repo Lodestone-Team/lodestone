@@ -4,9 +4,6 @@ pub fn text(message: M) -> &'static str {
     match message {
         M::QuitApp => "Quitter {app}",
         M::Language => "Langue",
-        M::LanguageHint => {
-            "La langue d’affichage de Lodestone Launcher. Système utilise la première de vos langues préférées qui est disponible, sinon l’anglais."
-        }
         M::LanguageSystem => "Système",
         M::LanguageSystemIs => "Système ({language})",
 
@@ -155,53 +152,30 @@ pub fn text(message: M) -> &'static str {
         M::General => "Général",
         M::Accounts => "Comptes",
         M::Developer => "Développeur",
-        M::DefaultsLead => {
-            "Toutes les instances les utilisent, sauf si leur propre onglet Paramètres les modifie."
-        }
-        M::SharedLead => {
-            "Un seul ensemble de réglages options.txt pour toutes les instances\u{a0}: souris, touches, vidéo, son et plus encore. Une instance peut remplacer des valeurs une à une dans son onglet Paramètres."
-        }
-        M::GeneralLead => "La langue du lanceur et la façon dont il liste vos instances.",
-        M::AccountsLead => "Le bouton Jouer se connecte avec le compte utilisé.",
-        M::DeveloperLead => "Options pour tester Lodestone Launcher.",
+        M::DefaultsLead => "Chaque instance peut les modifier dans ses propres paramètres.",
+        M::SharedLead => "Les mêmes options de jeu dans toutes les instances.",
         M::NoAccount => "Aucun compte",
         M::ManageAccounts => "Gérer les comptes",
         M::GroupAutomatically => "Grouper les instances automatiquement",
-        M::GroupAutomaticallyHint => {
-            "La barre latérale classe les instances sans groupe par chargeur, comme «\u{a0}{fabric}\u{a0}» ou «\u{a0}{vanilla}\u{a0}», et range celles importées d’autres lanceurs dans «\u{a0}{imported}\u{a0}»."
-        }
+        M::GroupAutomaticallyHint => "Classe les instances sans groupe par chargeur de mods.",
         M::OfflineAccount => "Compte hors ligne",
         M::MicrosoftAccount => "Compte Microsoft",
         M::SignInAgain => "Se reconnecter",
         M::InUse => "Utilisé",
         M::Use => "Utiliser",
         M::AddAnAccount => "Ajouter un compte",
-        M::AddAccountHintWithOffline => {
-            "Un compte Microsoft joue en ligne. Un compte hors ligne joue en solo et sur les serveurs en mode hors ligne."
-        }
-        M::AddAccountHint => {
-            "Connectez-vous avec le compte Microsoft avec lequel vous jouez à Minecraft."
-        }
         M::AddMicrosoftEllipsis => "Microsoft…",
         M::AddOfflineEllipsis => "Hors ligne…",
 
         M::Memory => "Mémoire",
         M::MemoryError => "Mémoire\u{a0}: {error}",
-        M::MemoryDefaultHint => {
-            "{total} Par défaut\u{a0}: de {min} à {max}, soit la moitié de la mémoire de {computer}, au plus {limit}."
-        }
+        M::MemoryDefaultHint => "Par défaut\u{a0}: {min} – {max}",
         M::MegabytesUnit => "Mo",
         M::Window => "Fenêtre",
-        M::WindowHint => "Laissez la taille vide pour celle du jeu par défaut.",
         M::Fullscreen => "Plein écran",
         M::JvmArguments => "Arguments JVM",
-        M::JvmArgumentsHint => {
-            "Séparés par des espaces\u{202F}; mettez entre guillemets les valeurs qui contiennent des espaces."
-        }
         M::GameArguments => "Arguments du jeu",
-        M::GameArgumentsHint => "Transmis à Minecraft lui-même.",
         M::EnvironmentVariables => "Variables d’environnement",
-        M::EnvironmentVariablesHint => "NOM=valeur, séparées par des espaces.",
 
         M::SyncedFrom => {
             "Les réglages modifiés en jeu dans {name} mettent désormais à jour toutes les instances."
@@ -217,15 +191,10 @@ pub fn text(message: M) -> &'static str {
         M::Value => "Valeur",
         M::SyncFrom => "Synchroniser depuis",
         M::SyncFromHint => {
-            "Les réglages que vous modifiez en jeu dans cette instance deviennent les réglages partagés. Les autres instances ne font que les recevoir."
+            "Les changements faits en jeu dans cette instance s’appliquent aux autres."
         }
-        M::SyncFromNoneHint => {
-            "Sans instance, rien n’est relu depuis les jeux, et les valeurs partagées ne changent qu’ici."
-        }
+        M::SyncFromNoneHint => "Les valeurs partagées ne changent qu’ici.",
         M::StartFromInstance => "Partir d’une instance",
-        M::StartFromInstanceHint => {
-            "Copie le fichier options.txt d’une instance dans les valeurs partagées."
-        }
         M::CopyFromInstance => "Copier depuis une instance…",
         M::ClearShared => "Effacer les valeurs partagées",
         M::ClearSharedHint => "Les instances gardent leur propre options.txt.",
@@ -235,33 +204,25 @@ pub fn text(message: M) -> &'static str {
         M::Hide => "Masquer",
         M::Show => "Afficher",
         M::ServerList => "Liste des serveurs",
-        M::ServerListHint => {
-            "Bientôt disponible. Les packs de ressources et de shaders restent propres à chaque instance."
-        }
+        M::ServerListHint => "Bientôt disponible.",
         M::Source => "Source",
         M::WhatsShared => "Ce qui est partagé",
-        M::WhatsSharedLead => "Une catégorie désactivée reste séparée dans chaque instance.",
+        M::WhatsSharedLead => "Les catégories désactivées restent propres à chaque instance.",
         M::CategoryControls => "Commandes",
         M::CategoryVideo => "Vidéo",
         M::CategorySound => "Son",
         M::CategoryAccessibility => "Accessibilité et chat",
         M::CategoryLanguage => "Langue",
-        M::CategoryControlsHint => {
-            "Sensibilité de la souris, inversion, entrée brute, touches, accroupissement et sprint en bascule"
-        }
+        M::CategoryControlsHint => "Souris, touches",
         M::CategoryVideoHint => {
-            "Champ de vision, distance d’affichage et de simulation, taille de l’interface, luminosité, plein écran, VSync, FPS max., particules, graphismes"
+            "Champ de vision, distance d’affichage, taille de l’interface, graphismes"
         }
-        M::CategorySoundHint => "Tous les curseurs de volume, sous-titres, son directionnel",
-        M::CategoryAccessibilityHint => {
-            "Narrateur, fond du texte, taille et opacité du chat, effets"
-        }
+        M::CategorySoundHint => "Volume, sous-titres",
+        M::CategoryAccessibilityHint => "Narrateur, chat, fond du texte",
         M::CategoryLanguageHint => "Langue et police du jeu",
         M::NarratorSection => "Narrateur",
         M::KeepNarratorOff => "Laisser le narrateur désactivé",
-        M::KeepNarratorOffHint => {
-            "Dans toutes les instances, y compris les nouvelles\u{a0}: le narrateur reste désactivé, et l’écran d’accessibilité du premier lancement de Minecraft, qui se lit à voix haute, est ignoré."
-        }
+        M::KeepNarratorOffHint => "Ignore aussi l’écran d’accessibilité du premier lancement.",
         M::NarratorNotShared => {
             "« {category} » n’est pas partagé\u{a0}: chaque instance garde son propre réglage du narrateur."
         }
@@ -291,7 +252,7 @@ pub fn text(message: M) -> &'static str {
         M::LauncherIdentity => "Identité du lanceur",
         M::SignInAsLauncher => "Se connecter en tant que Minecraft Launcher",
         M::SignInAsLauncherHint => {
-            "Les nouvelles connexions Microsoft utilisent l’application du Minecraft Launcher officiel au lieu de celle de Lodestone, en attendant que Mojang approuve celle de Lodestone. Pour des tests personnels."
+            "En attendant que l’application de Lodestone soit approuvée. Pour les tests uniquement."
         }
         M::SignInAsLauncherTitle => "Se connecter en tant que Minecraft Launcher\u{202F}?",
         M::WhatThisDoes => "Ce que fait cette option",
