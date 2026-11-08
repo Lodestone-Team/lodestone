@@ -105,8 +105,8 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
         "focus-settings-row" => &[
             "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab",
         ],
-        // From the window's root: the account box, then the sidebar's New instance and
-        // Import instances.
+        // From the window's root: the logo, the account box, then the sidebar's New
+        // instance.
         "focus-home" => &["tab", "tab", "tab"],
         // Shared game settings: the Sync from list opened with Enter (it takes focus),
         // then Tab to its second row.
