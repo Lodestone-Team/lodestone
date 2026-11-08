@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, Context, ExternalPaths, IntoElement, ObjectFit, Render, RenderImage, SharedString,
-    Window, div, img, prelude::*,
+    Window, div, img, list, prelude::*,
 };
 use launcher_core::{
     content::{
@@ -181,6 +181,44 @@ pub(crate) fn list_box() -> gpui::Div {
         .overflow_hidden()
         .border_1()
         .border_color(colors::GRAY_FADED.opacity(30))
+}
+
+/// What one entry of the Installed list is. See `ContentView::installed_plan`.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Entry {
+    ShaderMod,
+    NeedsLoader,
+    Toolbar,
+    Loading,
+    Failed(SharedString),
+    /// A note above the list; `true` for a warning.
+    Note(String, bool),
+    Empty,
+    /// Resource packs' Enabled (`true`) or Available heading.
+    Heading(bool),
+    /// The Shaders list's "Off" row.
+    ShadersOff,
+    /// A file's row: `first` and `last` in its box.
+    Row {
+        index: usize,
+        file: String,
+        first: bool,
+        last: bool,
+        reorder: Option<(bool, bool)>,
+    },
+}
+
+/// A row drawn as part of a `list_box`: the box's sides, and its top or bottom edge
+/// on the first or last row.
+fn in_box(row: AnyElement, first: bool, last: bool) -> AnyElement {
+    div()
+        .overflow_hidden()
+        .border_x_1()
+        .border_color(colors::GRAY_FADED.opacity(30))
+        .when(first, |this| this.border_t_1().rounded_t(radius::LG))
+        .when(last, |this| this.border_b_1().rounded_b(radius::LG))
+        .child(row)
+        .into_any_element()
 }
 
 pub(crate) fn row_base(id: impl Into<gpui::ElementId>, first: bool) -> gpui::Stateful<gpui::Div> {
@@ -1042,62 +1080,56 @@ impl ContentView {
             .into_any_element()
     }
 
-    fn render_installed(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
-        let target = self.context(cx).map(|(_, _, t)| t);
-        let listing = self.section(kind).listing.clone();
-        let mut column = div().flex().flex_col().gap_3();
+    /// What the Installed view lists, top to bottom: the cards and toolbar above the
+    /// list, then one entry per row. Cheap to build every frame; the rows' elements
+    /// are only made for the entries on screen (see [`Self::render_entry`]).
+    fn installed_plan(&self, kind: ContentKind, cx: &gpui::App) -> Vec<Entry> {
+        let mut plan = Vec::new();
         if kind == ContentKind::ShaderPack {
-            column = column.child(self.render_shader_mod(cx));
+            plan.push(Entry::ShaderMod);
         }
-        if kind == ContentKind::Mod && target.as_ref().is_some_and(|t| t.loader == Loader::None) {
-            column = column.child(self.render_needs_loader(NeedsLoader::Mods, cx));
+        if kind == ContentKind::Mod
+            && self
+                .context(cx)
+                .is_some_and(|(_, _, target)| target.loader == Loader::None)
+        {
+            plan.push(Entry::NeedsLoader);
         }
-        column = column.child(self.render_toolbar(kind, cx));
-        let listing = match listing {
+        plan.push(Entry::Toolbar);
+        let listing = match &self.section(kind).listing {
             Load::NotLoaded | Load::Loading => {
-                return column
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .py_6()
-                            .justify_center()
-                            .text_color(colors::GRAY_500)
-                            .child(LoadingDots)
-                            .child(tr!(M::ReadingFolder, folder = kind.dir())),
-                    )
-                    .into_any_element();
+                plan.push(Entry::Loading);
+                return plan;
             }
             Load::Failed(err) => {
-                return column
-                    .child(
-                        small(tr!(M::CouldntReadFolder, folder = kind.dir(), error = err))
-                            .text_color(colors::RED_200),
-                    )
-                    .into_any_element();
+                plan.push(Entry::Failed(err.clone()));
+                return plan;
             }
             Load::Ready(listing) => listing,
         };
         if let Some(error) = &listing.lookup_error {
-            column = column.child(
-                small(tr!(M::SomeFilesNotMatched, error = error)).text_color(colors::GRAY_500),
-            );
+            plan.push(Entry::Note(error.clone(), false));
         }
         if let Some(error) = &listing.options_error {
-            column = column.child(small(error.clone()).text_color(colors::YELLOW_300));
+            plan.push(Entry::Note(error.clone(), true));
         }
         if listing.items.is_empty() {
-            return column.child(self.render_empty(kind, cx)).into_any_element();
+            plan.push(Entry::Empty);
+            return plan;
         }
+        let row = |index: usize, item: &Item, first: bool, last: bool, reorder| Entry::Row {
+            index,
+            file: item.file.file_name.clone(),
+            first,
+            last,
+            reorder,
+        };
+        let count = listing.items.len();
         match kind {
             ContentKind::Mod => {
-                let mut rows = list_box();
                 for (index, item) in listing.items.iter().enumerate() {
-                    rows = rows.child(self.render_item(kind, index, item, index == 0, None, cx));
+                    plan.push(row(index, item, index == 0, index + 1 == count, None));
                 }
-                column = column.child(rows);
             }
             ContentKind::ResourcePack => {
                 let mut enabled: Vec<(usize, &Item)> = listing
@@ -1114,51 +1146,109 @@ impl ContentView {
                     .filter(|(_, i)| i.priority.is_none())
                     .collect();
                 if !enabled.is_empty() {
-                    column = column.child(
-                        small(t(M::EnabledHeader))
-                            .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_500),
-                    );
+                    plan.push(Entry::Heading(true));
                     let count = enabled.len();
-                    let mut rows = list_box();
                     for (position, (index, item)) in enabled.into_iter().enumerate() {
                         let reorder = Some((position > 0, position + 1 < count));
-                        rows = rows.child(self.render_item(
-                            kind,
+                        plan.push(row(
                             index,
                             item,
                             position == 0,
+                            position + 1 == count,
                             reorder,
-                            cx,
                         ));
                     }
-                    column = column.child(rows);
                 }
                 if !others.is_empty() {
-                    column = column.child(
-                        small(t(M::AvailableHeader))
-                            .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_500),
-                    );
-                    let mut rows = list_box();
+                    plan.push(Entry::Heading(false));
+                    let count = others.len();
                     for (position, (index, item)) in others.into_iter().enumerate() {
-                        rows = rows.child(self.render_item(
-                            kind,
-                            index,
-                            item,
-                            position == 0,
-                            None,
-                            cx,
-                        ));
+                        plan.push(row(index, item, position == 0, position + 1 == count, None));
                     }
-                    column = column.child(rows);
                 }
             }
             ContentKind::ShaderPack => {
+                plan.push(Entry::ShadersOff);
+                for (index, item) in listing.items.iter().enumerate() {
+                    plan.push(row(index, item, false, index + 1 == count, None));
+                }
+            }
+        }
+        plan
+    }
+
+    /// Brings the list of `kind` up to date with `plan`: entries that changed are
+    /// measured again, and the scroll position stays where it is.
+    fn sync_installed_list(&mut self, kind: ContentKind, plan: Vec<Entry>) {
+        let section = self.section_mut(kind);
+        let old = &section.plan;
+        if *old == plan {
+            return;
+        }
+        let prefix = old.iter().zip(&plan).take_while(|(a, b)| a == b).count();
+        let suffix = old[prefix..]
+            .iter()
+            .rev()
+            .zip(plan[prefix..].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        section
+            .rows
+            .splice(prefix..old.len() - suffix, plan.len() - prefix - suffix);
+        section.plan = plan;
+    }
+
+    /// The element of entry `ix` of the Installed list of `kind`.
+    fn render_entry(&mut self, kind: ContentKind, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(entry) = self.section(kind).plan.get(ix).cloned() else {
+            return div().into_any_element();
+        };
+        let last_entry = ix + 1 == self.section(kind).plan.len();
+        let element = match &entry {
+            Entry::ShaderMod => self.render_shader_mod(cx),
+            Entry::NeedsLoader => self.render_needs_loader(NeedsLoader::Mods, cx),
+            Entry::Toolbar => self.render_toolbar(kind, cx).into_any_element(),
+            Entry::Loading => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .py_6()
+                .justify_center()
+                .text_color(colors::GRAY_500)
+                .child(LoadingDots)
+                .child(tr!(M::ReadingFolder, folder = kind.dir()))
+                .into_any_element(),
+            Entry::Failed(err) => {
+                small(tr!(M::CouldntReadFolder, folder = kind.dir(), error = err))
+                    .text_color(colors::RED_200)
+                    .into_any_element()
+            }
+            Entry::Note(note, warning) => small(if *warning {
+                note.clone()
+            } else {
+                tr!(M::SomeFilesNotMatched, error = note)
+            })
+            .text_color(if *warning {
+                colors::YELLOW_300
+            } else {
+                colors::GRAY_500
+            })
+            .into_any_element(),
+            Entry::Empty => self.render_empty(kind, cx),
+            Entry::Heading(enabled) => small(t(if *enabled {
+                M::EnabledHeader
+            } else {
+                M::AvailableHeader
+            }))
+            .font_weight(weights::BOLD.into())
+            .text_color(colors::GRAY_500)
+            .into_any_element(),
+            Entry::ShadersOff => {
                 let loader = self.shaders.loader;
                 let busy = self.locked(cx) || self.job.is_some() || loader.is_none();
                 let selected_none = self.shaders.selection.pack.is_none();
-                let mut rows = list_box().child(
+                in_box(
                     row_base("shaders-off", true)
                         .when(!busy, |this| {
                             this.keyboard_focus()
@@ -1181,15 +1271,35 @@ impl ContentView {
                                 .child(
                                     small(t(M::NormalLook)).text_color(colors::WHITE.opacity(30)),
                                 ),
-                        ),
-                );
-                for (index, item) in listing.items.iter().enumerate() {
+                        )
+                        .into_any_element(),
+                    true,
+                    false,
+                )
+            }
+            Entry::Row {
+                index,
+                first,
+                last,
+                reorder,
+                ..
+            } => {
+                let item = match &self.section(kind).listing {
+                    Load::Ready(listing) => listing.items.get(*index).cloned(),
+                    _ => None,
+                };
+                let Some(item) = item else {
+                    return div().into_any_element();
+                };
+                if kind == ContentKind::ShaderPack {
+                    let loader = self.shaders.loader;
+                    let busy = self.locked(cx) || self.job.is_some() || loader.is_none();
                     let name = item.file.file_name.clone();
-                    let row = self.render_item(kind, index, item, true, None, cx);
                     let selected = item.enabled;
-                    rows = rows.child(
+                    let row = self.render_item(kind, *index, &item, true, None, cx);
+                    in_box(
                         div()
-                            .id(("shader-select", index))
+                            .id(("shader-select", *index))
                             .flex()
                             .flex_row()
                             .items_center()
@@ -1206,13 +1316,26 @@ impl ContentView {
                                     }))
                             })
                             .child(div().pl_4().child(radio(selected)))
-                            .child(div().flex_1().min_w_0().child(row)),
-                    );
+                            .child(div().flex_1().min_w_0().child(row))
+                            .into_any_element(),
+                        false,
+                        *last,
+                    )
+                } else {
+                    let row = self.render_item(kind, *index, &item, *first, *reorder, cx);
+                    in_box(row, *first, *last)
                 }
-                column = column.child(rows);
             }
-        }
-        column.into_any_element()
+        };
+        // The gap between blocks; rows of one box touch.
+        let joined = matches!(entry, Entry::Row { first: false, .. })
+            || (matches!(entry, Entry::Row { .. }) && kind == ContentKind::ShaderPack);
+        div()
+            .w_full()
+            .when(ix > 0 && !joined, |this| this.pt_3())
+            .when(last_entry, |this| this.pb_4())
+            .child(element)
+            .into_any_element()
     }
 
     fn render_browse(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
@@ -1900,7 +2023,18 @@ impl Render for ContentView {
             self.search(kind, cx);
         }
         let body = match view {
-            SubView::Installed => self.render_installed(kind, cx),
+            // Only the rows on screen are made: a long list scrolls as fast as a
+            // short one.
+            SubView::Installed => {
+                let plan = self.installed_plan(kind, cx);
+                self.sync_installed_list(kind, plan);
+                let entity = cx.entity();
+                list(self.section(kind).rows.clone(), move |ix, _, cx| {
+                    entity.update(cx, |this, cx| this.render_entry(kind, ix, cx))
+                })
+                .size_full()
+                .into_any_element()
+            }
             SubView::Browse => self.render_browse(kind, cx),
         };
         let accepts_drop = view == SubView::Installed;
@@ -1916,7 +2050,7 @@ impl Render for ContentView {
                     .id(("content-body", kind as usize))
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
+                    .when(!accepts_drop, |this| this.overflow_y_scroll())
                     .rounded(radius::LG)
                     .border_2()
                     .border_color(colors::TRANSPARENT)
@@ -1932,7 +2066,13 @@ impl Render for ContentView {
                             },
                         ))
                     })
-                    .child(div().pb_4().child(body)),
+                    .map(|this| {
+                        if accepts_drop {
+                            this.child(body)
+                        } else {
+                            this.child(div().pb_4().child(body))
+                        }
+                    }),
             )
     }
 }
