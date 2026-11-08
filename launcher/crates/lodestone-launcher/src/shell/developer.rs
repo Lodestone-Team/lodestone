@@ -126,7 +126,7 @@ impl LauncherShell {
         let focus = cx.focus_handle();
         if enabled {
             window.focus(&focus, cx);
-            self.modal = Some(Modal::EnableLauncherIdentity { focus });
+            self.modal.open(Modal::EnableLauncherIdentity { focus }, cx);
         } else {
             let usernames: Vec<String> = self
                 .accounts
@@ -140,7 +140,8 @@ impl LauncherShell {
                     .update(cx, |accounts, cx| accounts.set_launcher_identity(false, cx));
             } else {
                 window.focus(&focus, cx);
-                self.modal = Some(Modal::DisableLauncherIdentity { focus, usernames });
+                self.modal
+                    .open(Modal::DisableLauncherIdentity { focus, usernames }, cx);
             }
         }
         cx.notify();
@@ -148,10 +149,8 @@ impl LauncherShell {
 
     /// Opens the disclosure, for the offscreen screenshots.
     pub fn preview_enable_launcher_identity(&mut self, cx: &mut Context<Self>) {
-        self.modal = Some(Modal::EnableLauncherIdentity {
-            focus: cx.focus_handle(),
-        });
-        cx.notify();
+        let focus = cx.focus_handle();
+        self.modal.open(Modal::EnableLauncherIdentity { focus }, cx);
     }
 
     pub(super) fn render_enable_launcher_identity(
