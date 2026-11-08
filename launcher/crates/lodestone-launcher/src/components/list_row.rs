@@ -3,7 +3,7 @@ use gpui::{
     rems,
 };
 
-use super::{ClickHandler, Icon};
+use super::{ClickHandler, Icon, focus::KeyboardFocus};
 use crate::theme::{self, colors, radius, text, weights};
 
 /// A selectable row with an icon, a label and optional trailing detail, after the
@@ -64,6 +64,7 @@ impl RenderOnce for ListRow {
         };
         div()
             .id(self.id)
+            .keyboard_focus()
             .flex()
             .flex_row()
             .items_center()

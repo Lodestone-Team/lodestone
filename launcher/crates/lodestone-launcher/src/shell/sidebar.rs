@@ -5,6 +5,7 @@ use gpui::{
 use launcher_core::instances::{Instance, last_played};
 
 use super::{LauncherShell, Page, account_box};
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Align, Button, ButtonVariant, Icon},
     instances::{Ago, play_time},
@@ -54,7 +55,13 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                     this.instances
                         .update(cx, |instances, cx| instances.import_files(paths, cx));
                 }))
-                .child(instance_list(shell, cx)),
+                // Up and Down move between the groups and instances.
+                .child(
+                    crate::components::ArrowGroup::new("sidebar-list")
+                        .flex()
+                        .flex_col()
+                        .child(instance_list(shell, cx)),
+                ),
         )
         .child(footer(shell, cx))
 }
@@ -206,6 +213,7 @@ fn instance_row(
     };
     div()
         .id(SharedString::from(element_id))
+        .keyboard_focus()
         .flex()
         .flex_row()
         .items_center()
@@ -281,6 +289,7 @@ fn group_header(
     };
     div()
         .id(SharedString::from(format!("group-{name}")))
+        .keyboard_focus()
         .flex()
         .flex_row()
         .items_center()
@@ -444,6 +453,7 @@ fn page_link(
 ) -> impl IntoElement {
     div()
         .id(id)
+        .keyboard_focus()
         .flex()
         .flex_row()
         .items_center()
@@ -493,6 +503,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .child(
             div()
                 .id("settings")
+                .keyboard_focus()
                 .flex()
                 .flex_row()
                 .items_center()

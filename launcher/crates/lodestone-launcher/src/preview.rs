@@ -86,7 +86,44 @@ pub const SCENES: &[&str] = &[
     "settings-unsaved",
     "settings-unsaved-prompt",
     "instance-settings-unsaved",
+    "focus-dialog",
+    "focus-settings-row",
+    "focus-home",
+    "focus-popover",
+    "focus-escape",
+    "focus-escape-prompt",
 ];
+
+/// Keys pressed once a scene has settled, before the screenshot, to show where
+/// keyboard focus goes and its ring.
+pub fn keystrokes(scene: &str) -> &'static [&'static str] {
+    match scene {
+        // The Remove dialog takes focus when it opens; Tab reaches Remove, then Cancel.
+        "focus-dialog" => &["tab", "tab"],
+        // Settings > Instance defaults: past the account, the pages, Close and the
+        // four fields, to the Fullscreen switch.
+        "focus-settings-row" => &[
+            "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab",
+        ],
+        // From the window's root: the logo, the account box, then the sidebar's New
+        // instance.
+        "focus-home" => &["tab", "tab", "tab"],
+        // Shared game settings: the Sync from list opened with Enter (it takes focus),
+        // then Tab to its second row.
+        "focus-popover" => &[
+            "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "enter", "tab", "tab",
+        ],
+        // The same list closed again with Escape: focus is back on its button, and the
+        // Settings dialog stays open.
+        "focus-escape" => &[
+            "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "enter", "escape",
+        ],
+        // "Save your changes?", opened without a window, closed with Escape; Settings
+        // stays open and takes focus back.
+        "focus-escape-prompt" => &["escape", "tab"],
+        _ => &[],
+    }
+}
 
 /// Scenes that show instance icons and Play backgrounds.
 fn is_appearance_scene(scene: &str) -> bool {
@@ -605,9 +642,20 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         "offline" => shell.open_offline(Some("Alex_Dev"), None, cx),
         scene if scene.starts_with("servers") => servers::apply(scene, shell, cx),
         scene if server_detail::is_scene(scene) => server_detail::apply(scene, shell, cx),
-        "remove" => {
+        "remove" | "focus-dialog" => {
             let id = microsoft_account().id;
             shell.confirm_remove(&id, None, cx);
+        }
+        "focus-settings-row" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx)
+        }
+        "focus-popover" | "focus-escape" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Shared), None, cx)
+        }
+        "focus-escape-prompt" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
+            shell.preview_unsaved_defaults(cx);
+            shell.preview_unsaved_prompt(cx);
         }
         _ => {}
     }

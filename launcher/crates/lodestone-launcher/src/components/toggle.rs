@@ -1,10 +1,12 @@
 use gpui::{App, ElementId, IntoElement, RenderOnce, Window, div, prelude::*, px};
 
+use super::focus::KeyboardFocus;
 use crate::theme::colors;
 
 type ChangeHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
 
-/// An on/off switch, after the dashboard's `Toggle` atom.
+/// An on/off switch, after the dashboard's `Toggle` atom. Tab reaches it, and Space
+/// (or Enter) flips it.
 #[derive(IntoElement)]
 pub struct Toggle {
     id: ElementId,
@@ -52,6 +54,7 @@ impl RenderOnce for Toggle {
         // h-6 w-11 track with an h-4 w-4 knob at translate-x-1 or translate-x-6.
         div()
             .id(self.id)
+            .when(!self.disabled, |this| this.keyboard_focus_outer())
             .flex()
             .flex_none()
             .items_center()

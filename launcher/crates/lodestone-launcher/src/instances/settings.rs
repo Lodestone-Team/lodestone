@@ -32,6 +32,7 @@ use super::{
     modpacks::UpdatePrompt,
     shared_settings::InstanceSharedSettings,
 };
+use crate::components::KeyboardFocus;
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, LoadingDots, TextInput, Toggle,
@@ -815,6 +816,7 @@ impl InstanceSettings {
                         let path = path.clone();
                         div()
                             .id(("background-shot", index))
+                            .keyboard_focus_outer()
                             .w(px(112.))
                             .h(px(63.))
                             .rounded(radius::MD)
@@ -934,6 +936,7 @@ impl InstanceSettings {
             let selected = tab == this_tab;
             div()
                 .id(id)
+                .keyboard_focus()
                 .px_2p5()
                 .py_1()
                 .rounded(radius::MD)
@@ -957,6 +960,7 @@ impl InstanceSettings {
         let tile = |id: (&'static str, usize), selected: bool| {
             div()
                 .id(id)
+                .keyboard_focus()
                 .flex()
                 .items_center()
                 .justify_center()
@@ -1007,6 +1011,7 @@ impl InstanceSettings {
                                 let selected = color == self.emoji_tile;
                                 div()
                                     .id(("icon-tile-color", index))
+                                    .keyboard_focus_outer()
                                     .size(px(20.))
                                     .rounded_full()
                                     .cursor_pointer()
@@ -1506,11 +1511,15 @@ impl Render for InstanceSettings {
                             )
                             .when_some(self.icon_picker, |this, tab| {
                                 let current = instance.as_ref().and_then(|i| i.icon.clone());
-                                this.child(popover(self.icon_picker_panel(
-                                    tab,
-                                    current.as_deref(),
-                                    cx,
-                                )))
+                                let close = cx.listener(|this, _: &(), _, cx| {
+                                    this.icon_picker = None;
+                                    cx.notify();
+                                });
+                                this.child(popover(
+                                    "icon-picker-popover",
+                                    self.icon_picker_panel(tab, current.as_deref(), cx),
+                                    move |window, cx| close(&(), window, cx),
+                                ))
                             }),
                     )
                     .into_any_element(),
@@ -1545,7 +1554,15 @@ impl Render for InstanceSettings {
                                     })),
                             )
                             .when(self.background_picker, |this| {
-                                this.child(popover(self.background_picker_panel(has_background, cx)))
+                                let close = cx.listener(|this, _: &(), _, cx| {
+                                    this.background_picker = false;
+                                    cx.notify();
+                                });
+                                this.child(popover(
+                                    "background-picker-popover",
+                                    self.background_picker_panel(has_background, cx),
+                                    move |window, cx| close(&(), window, cx),
+                                ))
                             }),
                     )
                     .into_any_element(),

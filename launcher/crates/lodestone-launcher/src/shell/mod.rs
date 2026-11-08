@@ -30,7 +30,7 @@ use crate::{
         offline_dialog::{OfflineDialog, OfflineDialogDismissed},
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
-    components::{Button, ButtonVariant, Dialog, DialogSlot, Icon},
+    components::{Button, ButtonVariant, Dialog, DialogSlot, Icon, focus},
     instances::{
         CrashInfo, Instances, InstancesEvent,
         console::Console,
@@ -193,6 +193,10 @@ pub struct LauncherShell {
     account_menu_open: bool,
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
     top_bar_drag_pending: bool,
+    /// Tracked by the outermost element; focus goes here when it is lost, so keys
+    /// still reach the window's handlers.
+    root_focus: FocusHandle,
+    _focus_lost: Option<Subscription>,
     _observe: Vec<Subscription>,
     /// Draws the window again every minute, so "5 minutes ago" stays true.
     _clock: Task<()>,
@@ -308,6 +312,8 @@ impl LauncherShell {
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
             top_bar_drag_pending: false,
+            root_focus: cx.focus_handle(),
+            _focus_lost: None,
             _observe: observe,
             _clock: cx.spawn(async move |this, cx| {
                 loop {
@@ -1374,6 +1380,9 @@ fn render_crash(
 
 impl Render for LauncherShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self._focus_lost.is_none() {
+            self._focus_lost = Some(focus::install(&self.root_focus, window, cx));
+        }
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
             Page::Servers => self.servers.clone().into_any_element(),
@@ -1387,6 +1396,9 @@ impl Render for LauncherShell {
 
         div()
             .id("launcher-shell")
+            .track_focus(&self.root_focus)
+            .on_action(|_: &focus::FocusNext, window, cx| focus::step(true, window, cx))
+            .on_action(|_: &focus::FocusPrev, window, cx| focus::step(false, window, cx))
             .relative()
             .flex()
             .flex_col()

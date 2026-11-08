@@ -10,7 +10,7 @@ use launcher_core::accounts::{Account, AccountKind};
 use super::{LauncherShell, developer};
 use crate::{
     accounts::{Accounts, SessionState, offline_dialog::OFFLINE_NOTE},
-    components::{Icon, LoadingDots},
+    components::{FocusScope, Icon, KeyboardFocus, LoadingDots},
     theme::{self, colors, layout, leading, radius, shadow, text, weights},
 };
 
@@ -96,6 +96,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
 
     let button = div()
         .id("account-box")
+        .keyboard_focus()
         .flex()
         .flex_row()
         .items_center()
@@ -162,6 +163,7 @@ fn menu_row(
 ) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
+        .keyboard_focus()
         .flex()
         .flex_row()
         .items_center()
@@ -332,6 +334,16 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
             )
         });
 
-    // Drawn above the rest of the window, under the account box.
-    deferred(anchored().child(panel)).with_priority(1)
+    // Drawn above the rest of the window, under the account box. It takes focus, and
+    // Escape closes it.
+    let close = cx.listener(|this, _: &(), _, cx| this.set_account_menu(false, cx));
+    deferred(
+        anchored().child(
+            FocusScope::new("account-menu-scope")
+                .arrow_keys()
+                .on_dismiss(move |window, cx| close(&(), window, cx))
+                .child(panel),
+        ),
+    )
+    .with_priority(1)
 }

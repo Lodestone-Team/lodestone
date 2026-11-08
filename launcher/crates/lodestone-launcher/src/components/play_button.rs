@@ -4,6 +4,7 @@ use gpui::{
 };
 
 use super::ClickHandler;
+use super::focus::KeyboardFocus;
 use crate::theme::{self, colors, fonts, leading, radius, text, weights};
 
 /// What the Play button shows.
@@ -107,6 +108,7 @@ fn side_button(
 ) -> impl IntoElement {
     div()
         .id(id)
+        .keyboard_focus_outer()
         .flex_none()
         .px_3()
         .py_1p5()
@@ -141,7 +143,8 @@ impl RenderOnce for PlayButton {
                                 .border_color(colors::GREEN_400.opacity(30))
                                 .text_color(colors::WHITE.opacity(40))
                         } else {
-                            this.bg(colors::GREEN_400)
+                            this.keyboard_focus_outer()
+                                .bg(colors::GREEN_400)
                                 .border_color(colors::GREEN_300)
                                 .text_color(colors::WHITE)
                                 .cursor_pointer()

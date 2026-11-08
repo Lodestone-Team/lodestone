@@ -23,6 +23,7 @@ use super::{
         view::{badge, compact, icon_box, pills, short_list, small, version_label},
     },
 };
+use crate::components::KeyboardFocus;
 use crate::{
     components::{LoadingDots, TextInput},
     theme::{self, colors, fonts, radius, text, weights},
@@ -362,6 +363,7 @@ impl ModpackBrowser {
             list = list.child(
                 div()
                     .id(("pack-hit", index))
+                    .keyboard_focus()
                     .flex()
                     .flex_row()
                     .items_center()
@@ -512,6 +514,7 @@ impl ModpackBrowser {
                         rows = rows.child(
                             div()
                                 .id(("pack-version", index))
+                                .keyboard_focus()
                                 .flex()
                                 .flex_row()
                                 .items_center()

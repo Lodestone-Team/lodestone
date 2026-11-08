@@ -38,17 +38,11 @@ use std::{rc::Rc, time::Duration};
 
 use gpui::{
     Animation, AnimationExt, AnyElement, App, BoxShadow, ElementId, FocusHandle, Hsla, IntoElement,
-    KeyBinding, MouseButton, ParentElement, RenderOnce, SharedString, Window, actions, div, point,
-    prelude::*, px,
+    MouseButton, ParentElement, RenderOnce, SharedString, Window, div, point, prelude::*, px,
 };
 
+use super::focus;
 use crate::theme::{self, colors, layout, leading, radius, shadow, text, weights};
-
-actions!(dialog, [Dismiss]);
-
-pub(super) fn init(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new("escape", Dismiss, Some("Dialog"))]);
-}
 
 type CloseHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
@@ -67,7 +61,12 @@ fn ease_out_cubic(delta: f32) -> f32 {
 /// A modal dialog over a dimmed backdrop, after the dashboard's `ConfirmDialog`.
 ///
 /// Render it as the last child of a full-window, relatively positioned element. It
-/// closes on Escape (while `focus_handle` is focused) and on a click on the backdrop.
+/// closes on Escape and on a click on the backdrop.
+///
+/// The dialog tracks `focus_handle`, which should be its own (not a text field's).
+/// When it first renders it takes focus, unless focus is already in it (say, in a
+/// field the opener focused); Tab and Shift-Tab then stay inside it until it closes,
+/// and focus goes back to what had it before (see [`focus`](super::focus)).
 ///
 /// When it appears, the backdrop's dim fades in and the panel fades in while it
 /// slides down into place. The animation is keyed by the dialog's id, so each dialog
@@ -149,7 +148,14 @@ impl ParentElement for Dialog {
 }
 
 impl RenderOnce for Dialog {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let focus_handle = focus::open_scope(
+            ElementId::from((self.id.clone(), "focus")),
+            Some(&self.focus_handle),
+            true,
+            window,
+            cx,
+        );
         let on_dismiss = self.on_close.clone();
         let on_backdrop = self.on_close;
         let reduce_motion = prefers_reduced_motion();
@@ -219,10 +225,8 @@ impl RenderOnce for Dialog {
                 },
             );
 
-        div()
-            .id(self.id.clone())
-            .key_context("Dialog")
-            .track_focus(&self.focus_handle)
+        let root = div().id(self.id.clone()).key_context("Dialog");
+        focus::trap(root, &focus_handle, on_dismiss)
             .absolute()
             .inset_0()
             .occlude()
@@ -231,9 +235,6 @@ impl RenderOnce for Dialog {
             .map(|this| match edge_to_edge {
                 Some(top) => this.items_start().pt(top),
                 None => this.items_center(),
-            })
-            .when_some(on_dismiss, |this, on_close| {
-                this.on_action(move |_: &Dismiss, window, cx| on_close(window, cx))
             })
             .when_some(on_backdrop, |this, on_close| {
                 this.on_mouse_down(MouseButton::Left, move |_, window, cx| on_close(window, cx))
