@@ -46,8 +46,53 @@ import {
   NO_WRITE_PERMISSION,
   VersionTypeLabel,
 } from './common';
+import {
+  Skeleton,
+  SkeletonGroup,
+  SkeletonRows,
+  SkeletonText,
+} from 'components/Atoms/Skeleton';
 
 /** The instance a project view installs into. */
+// version rows: name, details, and the install button at the end
+const VersionRowsSkeleton = () => (
+  <SkeletonRows
+    rows={5}
+    secondLine
+    trailing
+    className="divide-y divide-gray-faded/30 overflow-hidden rounded-lg border border-gray-faded/30"
+    rowClassName="h-14 bg-gray-800 px-4"
+  />
+);
+
+// the project page: icon, title, summary and tags, versions, description
+const ProjectSkeleton = () => (
+  <SkeletonGroup label="Loading project" className="flex flex-col gap-6">
+    <div className="flex flex-row items-start gap-4">
+      <Skeleton className="size-20 shrink-0 rounded-lg" />
+      <div className="flex grow flex-col gap-3 pt-1">
+        <Skeleton className="h-7 w-64 max-w-full" />
+        <SkeletonText lines={2} className="max-w-xl" />
+        <div className="flex flex-row gap-2">
+          <Skeleton className="h-5 w-16 rounded-full" />
+          <Skeleton className="h-5 w-20 rounded-full" />
+          <Skeleton className="h-5 w-14 rounded-full" />
+        </div>
+      </div>
+    </div>
+    <div className="flex flex-col gap-2">
+      <Skeleton className="h-6 w-28" />
+      <VersionRowsSkeleton />
+    </div>
+    <div className="flex flex-col gap-2">
+      <Skeleton className="h-6 w-32" />
+      <div className="rounded-lg border border-gray-faded/30 bg-gray-800 p-4">
+        <SkeletonText lines={5} />
+      </div>
+    </div>
+  </SkeletonGroup>
+);
+
 export type InstallTarget = {
   uuid: string;
   kind: InstalledModKind;
@@ -331,7 +376,9 @@ const ProjectVersions = ({
           Failed to load versions: {errorToString(versionsQuery.error)}
         </div>
       ) : versionsQuery.isPending ? (
-        <div className="text-medium text-white/50">Loading versions...</div>
+        <SkeletonGroup label="Loading versions">
+          <VersionRowsSkeleton />
+        </SkeletonGroup>
       ) : versions.length === 0 ? (
         <div className="text-medium text-white/50">
           No versions for {target.loader} {target.gameVersion}.{' '}
@@ -407,9 +454,9 @@ export default function ModrinthProjectView({
     );
   if (isPending || !project)
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6">
         {backButton}
-        <div className="text-medium text-white/50">Loading...</div>
+        <ProjectSkeleton />
       </div>
     );
 

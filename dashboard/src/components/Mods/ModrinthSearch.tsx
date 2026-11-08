@@ -19,6 +19,7 @@ import { useDebounceCallback, useDebounceValue } from 'usehooks-ts';
 import { looksLikeModrinthLink } from 'utils/mods';
 import { cn, DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import { ModrinthHitCard } from './common';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 const PAGE_SIZE = 20;
 const DEBOUNCE_MS = 300;
@@ -72,11 +73,12 @@ export const SortSelect = ({
 
 /** A result card's shape while the results load, so nothing jumps. */
 export const HitCardSkeleton = () => (
-  <div className="flex h-21 w-full animate-pulse flex-row items-start gap-3 rounded-lg border border-gray-faded/30 bg-gray-800 p-3">
-    <div className="size-12 shrink-0 rounded-md bg-gray-700" />
+  <div className="flex h-21 w-full flex-row items-start gap-3 rounded-lg border border-gray-faded/30 bg-gray-800 p-3">
+    <Skeleton className="size-12 shrink-0" />
     <div className="flex grow flex-col gap-2 pt-1">
-      <div className="h-4 w-1/3 rounded-sm bg-gray-700" />
-      <div className="h-3 w-3/4 rounded-sm bg-gray-700" />
+      <Skeleton className="h-4 w-1/3 rounded-sm" />
+      <Skeleton className="h-3 w-3/4 rounded-sm" />
+      <Skeleton className="h-3 w-1/2 rounded-sm" />
     </div>
   </div>
 );
@@ -236,11 +238,11 @@ export default function ModrinthSearch({
           Search failed: {errorToString(search.error)}
         </div>
       ) : !search.data ? (
-        <div className="flex flex-col gap-2" aria-busy="true">
+        <SkeletonGroup label="Loading results" className="flex flex-col gap-2">
           {Array.from({ length: 5 }, (_, i) => (
             <HitCardSkeleton key={i} />
           ))}
-        </div>
+        </SkeletonGroup>
       ) : search.data.hits.length === 0 ? (
         <div className="text-medium text-white/50">No results.</div>
       ) : (

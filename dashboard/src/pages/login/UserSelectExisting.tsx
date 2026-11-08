@@ -18,6 +18,7 @@ import { tauri } from 'utils/tauriUtil';
 import { JwtToken } from 'bindings/JwtToken';
 import { isLocalCore } from 'utils/util';
 import Logo from 'components/Atoms/Logo';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 const UserSelectExisting = () => {
   useDocumentTitle('Select user - Lodestone');
@@ -68,13 +69,17 @@ const UserSelectExisting = () => {
         </h2>
       </div>
       <div className="flex flex-row items-baseline gap-8">
-        {token ? (
+        {token && isUserInfoLoading ? (
+          // the button's shape until the user's name is known
+          <SkeletonGroup label="Loading the user" className="flex-1">
+            <Skeleton className="h-8 w-full rounded" />
+          </SkeletonGroup>
+        ) : token ? (
           <Button
             type="button"
             iconComponent={<Avatar name={uid} />}
             className="flex-1"
             label={`Continue as ${userInfo?.username ?? 'current user'}`}
-            loading={isUserInfoLoading}
             onClick={() => setPathname('/')}
           />
         ) : (

@@ -12,7 +12,11 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 import { useInstanceList } from 'data/InstanceList';
 import { SettingsContext } from 'data/SettingsContext';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
+import {
+  Skeleton,
+  SkeletonGroup,
+  SkeletonRows,
+} from 'components/Atoms/Skeleton';
 import { useUid, useUserInfo } from 'data/UserInfo';
 import { Fragment, useContext, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
@@ -26,6 +30,21 @@ import {
 } from 'components/Settings/permissionDescriptions';
 import UserApiKeys from 'components/Settings/ApiKeys/UserApiKeys';
 import { useDocumentTitle } from 'usehooks-ts';
+
+// a user's permission rows (title, description, toggle) while the user loads
+const PermissionsSkeleton = () => (
+  <SkeletonGroup label="Loading the user" className="flex flex-col gap-10">
+    {Array.from({ length: 6 }, (_, i) => (
+      <div key={i} className="flex flex-row items-center justify-between gap-4">
+        <div className="flex grow flex-col gap-2">
+          <Skeleton className="h-4 w-48 rounded-sm" />
+          <Skeleton className="h-3.5 w-72 max-w-full rounded-sm" />
+        </div>
+        <Skeleton className="h-6 w-11 shrink-0 rounded-full" />
+      </div>
+    ))}
+  </SkeletonGroup>
+);
 
 export const UserSettings = () => {
   useDocumentTitle('User Settings - Lodestone');
@@ -119,8 +138,15 @@ export const UserSettings = () => {
         />
       </div>
       {userListLoading ? (
-        <SkeletonGroup className="w-full min-w-0">
-          <Skeleton className="h-30 w-full rounded-lg" />
+        // user rows: avatar, name and role
+        <SkeletonGroup label="Loading users" className="w-full min-w-0">
+          <SkeletonRows
+            rows={3}
+            icon="round"
+            secondLine
+            className="divide-y divide-gray-faded/30 overflow-hidden rounded-lg border border-gray-faded/30"
+            rowClassName="h-15 bg-gray-800 px-4"
+          />
         </SkeletonGroup>
       ) : (
         <div className="h-fit w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
@@ -177,7 +203,21 @@ export const UserSettings = () => {
                   The user {permission.allows}
                 </div>
               </div>
-              {typeof currentSettings === 'object' && (
+              {typeof currentSettings === 'object' && !instanceList && (
+                // the instance checkboxes, while the instances load
+                <SkeletonGroup
+                  label="Loading instances"
+                  className="grid grid-cols-2 gap-4 rounded-lg border border-gray-faded/30 bg-gray-800 px-6 py-4"
+                >
+                  {Array.from({ length: 4 }, (_, i) => (
+                    <div key={i} className="flex flex-row items-center gap-3">
+                      <Skeleton className="size-4 rounded-sm" />
+                      <Skeleton className="h-3.5 w-28 rounded-sm" />
+                    </div>
+                  ))}
+                </SkeletonGroup>
+              )}
+              {typeof currentSettings === 'object' && instanceList && (
                 <MultiSelectGrid
                   className="rounded-lg border border-gray-faded/30 bg-gray-800 px-6 py-4"
                   options={
@@ -272,6 +312,7 @@ export const UserSettings = () => {
         <div className="flex w-full flex-col gap-12 overflow-y-scroll px-4 pt-8">
           <h1 className="dashboard-instance-heading">User Settings</h1>
           {UserBoxes}
+          {openingUser && <PermissionsSkeleton />}
           {UserPermissions(NormalPermissions, false)}
           {selectedUser && (
             <>

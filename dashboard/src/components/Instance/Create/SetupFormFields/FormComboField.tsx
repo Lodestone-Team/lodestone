@@ -11,6 +11,7 @@ import {
 import clsx from 'clsx';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
 import { VirtualizedList } from '../../../Atoms/Form/ComboField';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 /**
  * A combo box field that allows the user to select from a list of options, or
@@ -133,7 +134,13 @@ export default function FormComboField(props: ComboFieldProps) {
             </div>
           )}
         </div>
-        <div className="relative w-5/12 shrink-0">
+        {loadingVisual && (
+          // the options are loading: the field's shape (after a moment)
+          <SkeletonGroup className="w-5/12 shrink-0">
+            <Skeleton className="h-8.5 w-full rounded" />
+          </SkeletonGroup>
+        )}
+        <div className={clsx('relative w-5/12 shrink-0', loadingVisual && 'hidden')}>
           <Combobox
             value={selectedValue ? selectedValue : ''}
             name={field.name}

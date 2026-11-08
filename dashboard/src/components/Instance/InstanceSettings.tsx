@@ -116,7 +116,7 @@ function StartupSettings({
   );
 }
 
-/** A quiet outline of a settings section, while the settings load. */
+/** The settings sections' shape, while the settings load. */
 function InstanceSettingsSkeleton() {
   return (
     <SkeletonGroup className="flex flex-col">
@@ -126,9 +126,19 @@ function InstanceSettingsSkeleton() {
             <Skeleton className="h-6 w-40" />
             <Skeleton className="h-5 w-72 max-w-full" />
           </div>
-          <div className="flex w-full min-w-0 flex-col gap-px overflow-hidden rounded-lg border border-gray-faded/30">
+          {/* setting rows: name and description, and the control */}
+          <div className="flex w-full min-w-0 flex-col divide-y divide-gray-faded/30 overflow-hidden rounded-lg border border-gray-faded/30">
             {Array.from({ length: rows }, (_, row) => (
-              <Skeleton key={row} className="h-17 rounded-none" />
+              <div
+                key={row}
+                className="flex h-17 flex-row items-center justify-between gap-4 bg-gray-800 px-4"
+              >
+                <div className="flex grow flex-col gap-2">
+                  <Skeleton className="h-3.5 w-36 rounded-sm" />
+                  <Skeleton className="h-3 w-56 max-w-full rounded-sm" />
+                </div>
+                <Skeleton className="h-8 w-5/12 shrink-0" />
+              </div>
             ))}
           </div>
         </div>

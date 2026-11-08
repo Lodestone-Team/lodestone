@@ -6,6 +6,7 @@ import { useCoreInfo } from 'data/SystemInfo';
 import { useContext } from 'react';
 import { round } from 'utils/util';
 import { useResolvedTheme } from 'utils/theme';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 const bytesInGigabyte = 1024 * 1024 * 1024;
 
@@ -28,6 +29,10 @@ export default function InstancePerformance() {
   // the buffer is oldest-first, so the newest sample is the last one
   const latestSample = performanceBuffer.at(-1);
   const { color, backgroundColor } = graphColors[useResolvedTheme()];
+  // no report yet from a running instance: the graph area is a placeholder
+  // (a stopped instance may send none, so its empty graph shows as before)
+  const waitingForData =
+    counter < 0 && (instance.state === 'Running' || instance.state === 'Starting');
 
   return (
     <div>
@@ -44,17 +49,23 @@ export default function InstancePerformance() {
           </h3>
 
           <DashboardCard className="border-0 bg-gray-900 light:border light:bg-gray-800">
-            <PerformanceGraph
-              title="CPU Usage"
-              color={color}
-              backgroundColor={backgroundColor}
-              data={performanceBuffer.map((p) =>
-                p.cpu_usage !== null ? round(p.cpu_usage, 1) : NaN
-              )}
-              max={100}
-              counter={counter}
-              unit="%"
-            />
+            {waitingForData ? (
+              <SkeletonGroup label="Loading the graph">
+                <Skeleton className="aspect-2 w-full" />
+              </SkeletonGroup>
+            ) : (
+              <PerformanceGraph
+                title="CPU Usage"
+                color={color}
+                backgroundColor={backgroundColor}
+                data={performanceBuffer.map((p) =>
+                  p.cpu_usage !== null ? round(p.cpu_usage, 1) : NaN
+                )}
+                max={100}
+                counter={counter}
+                unit="%"
+              />
+            )}
           </DashboardCard>
         </div>
         <div>
@@ -67,19 +78,25 @@ export default function InstancePerformance() {
           </h3>
 
           <DashboardCard className="border-0 bg-gray-900 light:border light:bg-gray-800">
-            <PerformanceGraph
-              title="Memory Usage"
-              color={color}
-              backgroundColor={backgroundColor}
-              data={performanceBuffer.map((p) =>
-                p.memory_usage !== null
-                  ? round(Number(p.memory_usage) / bytesInGigabyte, 1)
-                  : NaN
-              )}
-              max={round(total_ram / bytesInGigabyte, 1)}
-              counter={counter}
-              unit="GiB"
-            />
+            {waitingForData ? (
+              <SkeletonGroup label="Loading the graph">
+                <Skeleton className="aspect-2 w-full" />
+              </SkeletonGroup>
+            ) : (
+              <PerformanceGraph
+                title="Memory Usage"
+                color={color}
+                backgroundColor={backgroundColor}
+                data={performanceBuffer.map((p) =>
+                  p.memory_usage !== null
+                    ? round(Number(p.memory_usage) / bytesInGigabyte, 1)
+                    : NaN
+                )}
+                max={round(total_ram / bytesInGigabyte, 1)}
+                counter={counter}
+                unit="GiB"
+              />
+            )}
           </DashboardCard>
         </div>
       </div>

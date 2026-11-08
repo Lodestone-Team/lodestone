@@ -65,7 +65,7 @@ export const SelectedInstanceInfo = ({
           <Skeleton className="h-6 w-full" />
         </div>
         {visibleTabs.map((tab) => (
-          <Skeleton key={tab.path} className="h-7 w-full bg-gray-800/60" />
+          <Skeleton key={tab.path} className="h-7 w-full" />
         ))}
       </SkeletonGroup>
     );

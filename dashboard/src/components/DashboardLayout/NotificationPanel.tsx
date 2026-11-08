@@ -3,6 +3,11 @@ import { forwardRef, Fragment, useContext } from 'react';
 import NotificationCard from 'components/Atoms/NotificationCard';
 import { Transition } from '@headlessui/react';
 import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
+import {
+  Skeleton,
+  SkeletonGroup,
+  SkeletonText,
+} from 'components/Atoms/Skeleton';
 
 const NotificationPanel = forwardRef(
   (
@@ -14,7 +19,7 @@ const NotificationPanel = forwardRef(
     ref: React.Ref<HTMLDivElement>
   ) => {
     const gaEventTracker = useAnalyticsEventTracker('Notification Panel');
-    const { notifications, ongoingNotifications } =
+    const { notifications, ongoingNotifications, historyLoaded } =
       useContext(NotificationContext);
     useEffectOnce(() => {
       gaEventTracker('Notification Panel Opened');
@@ -57,7 +62,20 @@ const NotificationPanel = forwardRef(
           All Notifications
         </div>
         <div className="grow basis-1 space-y-2 overflow-y-auto p-4">
-          {notifications.length > 0 ? (
+          {notifications.length === 0 && !historyLoaded ? (
+            // notification cards while the past events load (after a moment)
+            <SkeletonGroup label="Loading notifications" className="space-y-2">
+              {Array.from({ length: 4 }, (_, i) => (
+                <div
+                  key={i}
+                  className="flex flex-row items-center gap-3 rounded-md bg-gray-900 px-4 py-3"
+                >
+                  <Skeleton className="size-5 shrink-0 rounded-full" />
+                  <SkeletonText lines={2} />
+                </div>
+              ))}
+            </SkeletonGroup>
+          ) : notifications.length > 0 ? (
             notifications
               .map((notification) => (
                 <NotificationCard
