@@ -361,14 +361,12 @@ pub fn text(message: M) -> &'static str {
 
         M::UpdatesSection => "更新",
         M::UpdateAutomatically => "自動更新",
-        M::UpdateAutomaticallyHint => {
-            "在背景從 GitHub 下載 Lodestone Launcher 的新組建，下次啟動啟動器時生效。"
-        }
+        M::UpdateAutomaticallyHint => "在背景從 GitHub 下載新組建。",
         M::BuildNumber => "組建 {build}",
         M::BuildNumberCommit => "組建 {build} · {commit}",
         M::DevelopmentBuild => "開發組建",
         M::UpdatesUnavailable => "此組建並非在 GitHub 上發布，因此不會自動更新。",
-        M::UpdateNotChecked => "Lodestone Launcher 每隔幾小時會在 GitHub 上檢查是否有新組建。",
+        M::UpdateNotChecked => "每隔幾小時在 GitHub 上檢查新組建。",
         M::UpdateChecking => "正在檢查新組建…",
         M::UpToDate => "目前已是最新組建。",
         M::UpdateAvailable => "組建 {build} 現已可用。",

@@ -446,7 +446,7 @@ pub fn text(message: M) -> &'static str {
         M::UpdatesSection => "Mises à jour",
         M::UpdateAutomatically => "Mettre à jour automatiquement",
         M::UpdateAutomaticallyHint => {
-            "Télécharge les nouveaux builds de Lodestone Launcher depuis GitHub en arrière-plan. Ils s’appliquent au prochain démarrage du lanceur."
+            "Télécharge les nouveaux builds depuis GitHub en arrière-plan."
         }
         M::BuildNumber => "Build {build}",
         M::BuildNumberCommit => "Build {build} · {commit}",
@@ -455,7 +455,7 @@ pub fn text(message: M) -> &'static str {
             "Ce build n’a pas été publié sur GitHub, il ne se met donc pas à jour tout seul."
         }
         M::UpdateNotChecked => {
-            "Lodestone Launcher recherche un build plus récent sur GitHub toutes les quelques heures."
+            "Recherche de nouveaux builds sur GitHub toutes les quelques heures."
         }
         M::UpdateChecking => "Recherche d’un build plus récent…",
         M::UpToDate => "C’est le build le plus récent.",

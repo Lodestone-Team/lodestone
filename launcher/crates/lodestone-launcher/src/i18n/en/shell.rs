@@ -371,14 +371,14 @@ crate::i18n::messages! {
         /// Settings > General: the section about updating the launcher.
         UpdatesSection = "Updates",
         UpdateAutomatically = "Update automatically",
-        UpdateAutomaticallyHint = "Download new builds of Lodestone Launcher from GitHub in the background. They run the next time the launcher starts.",
+        UpdateAutomaticallyHint = "Downloads new builds from GitHub in the background.",
         /// The running build, numbered by GitHub's CI.
         BuildNumber = "Build {build}",
         /// {commit} is the first seven characters of the commit.
         BuildNumberCommit = "Build {build} · {commit}",
         DevelopmentBuild = "Development build",
         UpdatesUnavailable = "This build wasn't published on GitHub, so it doesn't update itself.",
-        UpdateNotChecked = "Lodestone Launcher checks GitHub for a newer build every few hours.",
+        UpdateNotChecked = "Checks GitHub for new builds every few hours.",
         UpdateChecking = "Looking for a newer build…",
         UpToDate = "This is the newest build.",
         UpdateAvailable = "Build {build} is available.",

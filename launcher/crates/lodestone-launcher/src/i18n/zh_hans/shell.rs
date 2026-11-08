@@ -359,14 +359,12 @@ pub fn text(message: M) -> &'static str {
 
         M::UpdatesSection => "更新",
         M::UpdateAutomatically => "自动更新",
-        M::UpdateAutomaticallyHint => {
-            "在后台从 GitHub 下载 Lodestone Launcher 的新构建，下次启动启动器时生效。"
-        }
+        M::UpdateAutomaticallyHint => "在后台从 GitHub 下载新构建。",
         M::BuildNumber => "构建 {build}",
         M::BuildNumberCommit => "构建 {build} · {commit}",
         M::DevelopmentBuild => "开发构建",
         M::UpdatesUnavailable => "此构建并非在 GitHub 上发布，因此不会自动更新。",
-        M::UpdateNotChecked => "Lodestone Launcher 每隔几小时会在 GitHub 上检查是否有新构建。",
+        M::UpdateNotChecked => "每隔几小时在 GitHub 上检查新构建。",
         M::UpdateChecking => "正在检查新构建…",
         M::UpToDate => "当前已是最新构建。",
         M::UpdateAvailable => "构建 {build} 现已可用。",
