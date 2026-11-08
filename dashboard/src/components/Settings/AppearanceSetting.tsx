@@ -1,6 +1,7 @@
 import { Radio, RadioGroup } from '@headlessui/react';
 import clsx from 'clsx';
 import { ThemePreference, useThemePreference } from 'utils/theme';
+import { SettingsRow } from './SettingsBlocks';
 
 const options: { value: ThemePreference; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -22,49 +23,36 @@ export default function AppearanceSetting() {
   const [preference, setPreference] = useThemePreference();
 
   return (
-    <div className="flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-medium">
-      <div className="flex min-w-0 grow flex-col">
-        <label
-          id="theme-label"
-          className="text-medium font-medium text-gray-300"
-        >
-          Theme
-        </label>
-        <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
-          {descriptions[preference]}
-        </div>
-      </div>
+    <SettingsRow
+      label="Theme"
+      labelId="theme-label"
+      hint={descriptions[preference]}
+    >
+      {/* a segmented control */}
       <RadioGroup
         value={preference}
         onChange={setPreference}
         aria-labelledby="theme-label"
-        className="flex w-5/12 shrink-0 flex-row child:grow"
+        className="flex flex-row rounded-lg border border-gray-700 bg-gray-900 p-0.5 light:border-line-input"
       >
         {options.map(({ value, label }) => (
           <Radio
             key={value}
             value={value}
             className={clsx(
-              'input-background input-outlines input-text-style input-border-normal',
-              'cursor-pointer overflow-clip rounded-none p-0 first:rounded-l-md last:rounded-r-md',
-              'focus-visible:ring-blue-faded/50'
+              'cursor-pointer rounded-md px-2.5 py-1 select-none',
+              'text-[0.8125rem] font-mediumbold',
+              'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden',
+              'text-gray-400 hover:text-gray-300',
+              'data-checked:bg-gray-700 data-checked:text-gray-300',
+              // light: the chosen one is a raised white segment
+              'light:data-checked:bg-gray-800 light:data-checked:shadow-sm'
             )}
           >
-            {({ checked }) => (
-              <span
-                className={clsx(
-                  'block size-full px-3 py-1.5 text-center select-none',
-                  checked
-                    ? 'bg-blue-faded/30 text-gray-300'
-                    : 'text-white/75 hover:bg-gray-700'
-                )}
-              >
-                {label}
-              </span>
-            )}
+            {label}
           </Radio>
         ))}
       </RadioGroup>
-    </div>
+    </SettingsRow>
   );
 }

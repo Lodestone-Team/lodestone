@@ -38,7 +38,10 @@ uuid.workspace = true
 zip.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_System_SystemInformation"] }
+windows-sys = { workspace = true, features = [
+    "Wdk_System_SystemServices",
+    "Win32_System_SystemInformation",
+] }
 
 [dev-dependencies]
 tempfile.workspace = true

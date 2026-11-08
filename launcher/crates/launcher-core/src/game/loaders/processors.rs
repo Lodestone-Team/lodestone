@@ -27,6 +27,7 @@ use super::{
 use crate::game::{
     download::{CancelToken, file_matches},
     libraries::{maven_path, safe_relative_path},
+    platform::Os,
     process::NoConsoleWindow as _,
 };
 
@@ -251,6 +252,16 @@ pub fn parse_main_class(manifest: &str) -> Option<String> {
         .filter(|class| !class.is_empty())
 }
 
+/// `paths` as the `-cp` of a Java on `os`. On Windows the separator is `;`, since
+/// every absolute path has a `:` after its drive letter.
+fn classpath(paths: &[PathBuf], os: Os) -> Result<String, LoaderError> {
+    Ok(paths
+        .iter()
+        .map(|path| path_string(path))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(os.classpath_separator()))
+}
+
 /// Runs one processor with `java` in `cwd`, passing each line it prints to `on_line`.
 /// Checks its outputs afterwards.
 pub fn run(
@@ -261,12 +272,7 @@ pub fn run(
     on_line: &(dyn Fn(String) + Sync),
 ) -> Result<(), LoaderError> {
     let main = main_class(&processor.jar)?;
-    let classpath = processor
-        .classpath
-        .iter()
-        .map(|path| path_string(path))
-        .collect::<Result<Vec<_>, _>>()?
-        .join(":");
+    let classpath = classpath(&processor.classpath, Os::current())?;
     let mut child = Command::new(java)
         .arg("-cp")
         .arg(classpath)
@@ -459,6 +465,21 @@ mod tests {
         assert_eq!(values.substitute("'{PATH}'", libraries).unwrap(), "{PATH}");
         assert!(values.substitute("{NOPE}", libraries).is_err());
         assert!(values.substitute("[../../x:y:1]", libraries).is_err());
+    }
+
+    #[test]
+    fn classpaths() {
+        let windows = [
+            PathBuf::from(r"C:\Users\a\libraries\installertools.jar"),
+            PathBuf::from(r"C:\Users\a\libraries\jopt-simple.jar"),
+        ];
+        assert_eq!(
+            classpath(&windows, Os::Windows).unwrap(),
+            r"C:\Users\a\libraries\installertools.jar;C:\Users\a\libraries\jopt-simple.jar"
+        );
+        let unix = [PathBuf::from("/l/a.jar"), PathBuf::from("/l/b.jar")];
+        assert_eq!(classpath(&unix, Os::MacOs).unwrap(), "/l/a.jar:/l/b.jar");
+        assert_eq!(classpath(&unix, Os::Linux).unwrap(), "/l/a.jar:/l/b.jar");
     }
 
     #[test]

@@ -70,7 +70,50 @@ pub const SCENES: &[&str] = &[
     "import",
     "import-progress",
     "instance-linked",
+    "settings",
+    "settings-accounts",
+    "settings-developer",
+    "play-background",
+    "play-background-dark",
+    "icon-picker",
+    "icon-picker-emoji",
+    "background-picker",
+    "instance-settings-narrow",
+    "instance-settings-narrow-open",
+    "settings-narrow",
+    "settings-narrow-open",
+    "settings-unsaved",
+    "settings-unsaved-prompt",
+    "instance-settings-unsaved",
 ];
+
+/// Scenes that show instance icons and Play backgrounds.
+fn is_appearance_scene(scene: &str) -> bool {
+    scene.starts_with("play-background")
+        || scene.starts_with("icon-picker")
+        || scene == "background-picker"
+}
+
+/// A made-up landscape for the background scenes: a pale sky over a snowfield (bright
+/// under the text), or a night sky over dark hills.
+fn background_image(bright: bool) -> image::RgbaImage {
+    image::RgbaImage::from_fn(1600, 900, |x, y| {
+        let (fx, fy) = (x as f32 / 1600.0, y as f32 / 900.0);
+        let hill = 0.55 + 0.08 * (fx * 7.0).sin() + 0.05 * (fx * 17.0 + 1.0).sin();
+        let ground = fy > hill;
+        let rgb = match (bright, ground) {
+            (true, true) => [236, 242, 248],
+            (true, false) => [(150.0 + 90.0 * fy) as u8, (200.0 + 50.0 * fy) as u8, 255],
+            (false, true) => [18, 30, 26],
+            (false, false) => [
+                (14.0 + 20.0 * fy) as u8,
+                (18.0 + 26.0 * fy) as u8,
+                (40.0 + 50.0 * fy) as u8,
+            ],
+        };
+        image::Rgba([rgb[0], rgb[1], rgb[2], 255])
+    })
+}
 
 /// Scenes of the Worlds tab.
 fn is_worlds_scene(scene: &str) -> bool {
@@ -88,9 +131,12 @@ fn has_instances(scene: &str) -> bool {
         || is_worlds_scene(scene)
         || scene == "loader-change"
         || shared::is_scene(scene)
+        || scene.starts_with("instance-settings-narrow")
+        || scene == "instance-settings-unsaved"
         || scene.starts_with("import")
         || servers::has_instances(scene)
         || scene == "instance-linked"
+        || is_appearance_scene(scene)
 }
 
 pub fn requested_scene() -> Option<String> {
@@ -216,6 +262,25 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 {
                     content::fill(&store.dir(&instance.id), scene);
                 }
+                if is_appearance_scene(scene) {
+                    let icon = match name {
+                        "Latest release" => Some("emoji:1D8EB2:🚀"),
+                        "All the mods" => Some("builtin:gold-ore"),
+                        "Old school" => Some("builtin:cobblestone"),
+                        _ => None,
+                    };
+                    let _ = store.set_icon_name(&instance.id, icon);
+                    if name == "Survival 1.20.1" {
+                        worlds::fill(&store.dir(&instance.id));
+                        if scene.starts_with("play-background") {
+                            let file = data_dir.root().join("background-preview.png");
+                            let bright = scene == "play-background";
+                            if background_image(bright).save(&file).is_ok() {
+                                let _ = store.set_background(&instance.id, &file);
+                            }
+                        }
+                    }
+                }
                 if name == "Survival 1.20.1" && is_worlds_scene(scene) {
                     worlds::fill(&store.dir(&instance.id));
                 }
@@ -255,6 +320,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
             "instance-shared-settings" | "instance-linked" => Some("Survival 1.20.1"),
+            scene if is_appearance_scene(scene) => Some("Survival 1.20.1"),
             scene
                 if scene.starts_with("content-")
                     || scene.starts_with("modpack-")
@@ -390,7 +456,7 @@ mod servers;
 mod shared;
 mod worlds;
 
-pub use shared::window_height;
+pub use shared::{window_height, window_width};
 
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     match scene {
@@ -448,7 +514,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "shared-settings" => {
-            shell.show(crate::shell::Page::Settings, cx);
+            shell.open_settings(Some(crate::shell::SettingsPage::Shared), None, cx);
             shell.shared_settings().clone().update(cx, |shared, cx| {
                 shared.preview_expand(&[launcher_core::shared_options::Category::Video], cx)
             });
@@ -463,6 +529,50 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "import" | "import-progress" => import::apply(scene, shell, cx),
+        "icon-picker" | "icon-picker-emoji" | "background-picker" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if let Some(settings) = shell.settings_view().cloned() {
+                settings.update(cx, |settings, cx| match scene {
+                    "background-picker" => settings.preview_background_picker(cx),
+                    _ => settings.preview_icon_picker(scene == "icon-picker-emoji"),
+                });
+            }
+        }
+        "instance-settings-narrow" | "instance-settings-narrow-open" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if scene.ends_with("-open")
+                && let Some(settings) = shell.settings_view().cloned()
+            {
+                settings.update(cx, |settings, _| settings.preview_nav_open());
+            }
+        }
+        "settings-unsaved" | "settings-unsaved-prompt" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
+            shell.preview_unsaved_defaults(cx);
+            if scene.ends_with("-prompt") {
+                shell.preview_unsaved_prompt(cx);
+            }
+        }
+        "instance-settings-unsaved" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if let Some(settings) = shell.settings_view().cloned() {
+                settings.update(cx, |settings, cx| settings.preview_change(cx));
+            }
+        }
+        "settings-narrow" | "settings-narrow-open" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
+            if scene.ends_with("-open") {
+                shell.preview_settings_nav_open();
+            }
+        }
+        "settings" | "settings-accounts" | "settings-developer" => {
+            let page = match scene {
+                "settings-accounts" => crate::shell::SettingsPage::Accounts,
+                "settings-developer" => crate::shell::SettingsPage::Developer,
+                _ => crate::shell::SettingsPage::Defaults,
+            };
+            shell.open_settings(Some(page), None, cx);
+        }
         "instance-linked" => servers::apply_linked_instance(shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),

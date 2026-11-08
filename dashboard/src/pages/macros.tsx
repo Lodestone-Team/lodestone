@@ -29,6 +29,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import SettingField from 'components/SettingField';
+import { SettingsCard } from 'components/Settings/SettingsBlocks';
 import { adaptSettingManifest } from 'components/Instance/InstanceSettingsCreate/SettingObject';
 import { GetConfigResponse } from 'bindings/GetConfigResponse';
 import { InstanceInfo } from 'bindings/InstanceInfo';
@@ -57,7 +58,7 @@ const MacroModalContents = ({
     useState<GetConfigResponse>(initialMacroData);
   return (
     <div className={clsx('mb-2', 'flex flex-col gap-4 @4xl:flex-row')}>
-      <span className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
+      <SettingsCard className="bg-gray-800">
         {Object.entries(macroData.config).map(([_, manifest], index) => {
           return (
             <SettingField
@@ -84,11 +85,11 @@ const MacroModalContents = ({
             />
           );
         })}
-      </span>
+      </SettingsCard>
       {macroData && macroData.error && (
         <TextCaption
           text={'This macro requires additional config.'}
-          className="whitespace-pre-wrap text-small text-red-300"
+          className="text-small whitespace-pre-wrap text-red-300"
         />
       )}
     </div>

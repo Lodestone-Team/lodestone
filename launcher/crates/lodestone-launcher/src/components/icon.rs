@@ -7,6 +7,7 @@ pub enum Icon {
     ArrowLeft,
     ArrowUp,
     ArrowUpRightFromSquare,
+    Bars,
     CaretDown,
     Check,
     CircleUp,
@@ -27,11 +28,12 @@ pub enum Icon {
 }
 
 impl Icon {
-    pub const ALL: [Icon; 21] = [
+    pub const ALL: [Icon; 22] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
         Icon::ArrowUpRightFromSquare,
+        Icon::Bars,
         Icon::CaretDown,
         Icon::Check,
         Icon::CircleUp,
@@ -58,6 +60,7 @@ impl Icon {
             Icon::ArrowLeft => "icons/arrow-left.svg",
             Icon::ArrowUp => "icons/arrow-up.svg",
             Icon::ArrowUpRightFromSquare => "icons/arrow-up-right-from-square.svg",
+            Icon::Bars => "icons/bars.svg",
             Icon::CaretDown => "icons/caret-down.svg",
             Icon::Check => "icons/check.svg",
             Icon::CircleUp => "icons/circle-up.svg",
