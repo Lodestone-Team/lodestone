@@ -167,6 +167,26 @@ These instructions apply to Ubuntu 20.04 LTS and later.
    cargo run -p lodestone_core
    ```
 
+#### Building without Deno
+
+Macros, tasks, instance scripts (`prelaunch`), extensions and atom (generic TypeScript) instances run on the Deno runtime, which is behind the `deno` cargo feature. It is on by default. Turning it off builds a much smaller core much faster:
+
+```sh
+cargo build -p lodestone_core --no-default-features
+cargo test -p lodestone_core --no-default-features
+```
+
+The desktop app forwards the feature: `cargo build -p lodestone-client --no-default-features`.
+
+Without the feature:
+
+* Macro, task, extension and `/instance/create_generic` routes answer `501 Not Implemented` (error kind `UnsupportedOperation`, naming the missing capability).
+* Prelaunch scripts are skipped; the server still starts.
+* Atom instances on disk are not restored. The core logs a warning, keeps their files and restores them again once it is built with the feature. Macros and their configs stay on disk too.
+* `GET /api/v1/info` reports `"capabilities": { "macros": false, "generic_instances": false, ... }`, and the dashboard hides the features this core lacks.
+
+Minecraft instances, mods, modpacks, Docker instances, playit.gg and everything else work as usual. The code execution setting still controls custom Java commands.
+
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 
