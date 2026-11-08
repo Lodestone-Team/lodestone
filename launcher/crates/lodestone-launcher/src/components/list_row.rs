@@ -1,5 +1,6 @@
+use crate::theme::px;
 use gpui::{
-    App, ClickEvent, ElementId, IntoElement, RenderOnce, SharedString, Window, div, prelude::*, px,
+    App, ClickEvent, ElementId, IntoElement, RenderOnce, SharedString, Window, div, prelude::*,
     rems,
 };
 

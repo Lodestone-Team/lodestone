@@ -1,11 +1,12 @@
 //! Settings > Shared game settings: which categories are shared, the instance they sync
 //! from, "Copy from instance…", "Reset", and the shared values themselves.
 
+use crate::theme::px;
 use std::collections::BTreeSet;
 
 use gpui::{
     AnyElement, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
-    prelude::*, px,
+    prelude::*,
 };
 use launcher_core::shared_options::{self, Category, Profile, Row};
 

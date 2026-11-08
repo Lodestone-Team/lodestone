@@ -1,9 +1,10 @@
 //! How the Servers page looks: each core as a card with its servers, and the dialogs
 //! over the window (Add server, the mod update prompt).
 
+use crate::theme::px;
 use gpui::{
     AnyElement, App, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
-    prelude::*, px,
+    prelude::*,
 };
 use launcher_core::cores::{
     CoreError, ServerInstance, ServerLoader, ServerState, client::display_address,

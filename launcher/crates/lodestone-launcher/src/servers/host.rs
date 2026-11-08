@@ -2,6 +2,7 @@
 //! instance's Settings tab. See [`launcher_core::cores::hosting`] for the steps. The
 //! server is created stopped and never started here.
 
+use crate::theme::px;
 use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     Render, SharedString, Window, div, prelude::*,
@@ -248,7 +249,7 @@ impl Render for HostDialog {
             }
         };
         let dialog = Dialog::new("host-modpack", t(M::HostTitle), self.focus_handle.clone())
-            .width(layout::DIALOG_WIDTH + gpui::px(80.))
+            .width(layout::dialog_width() + px(80.))
             .on_close(close);
 
         if let Some(done) = &self.done {

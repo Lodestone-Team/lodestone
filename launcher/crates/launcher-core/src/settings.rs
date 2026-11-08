@@ -43,6 +43,10 @@ pub struct Settings {
     /// default; left out of the file while it does.
     #[serde(default, skip_serializing_if = "is_default")]
     pub language: Language,
+    /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
+    /// at 100%.
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub zoom: f32,
     #[serde(flatten)]
     pub other: Map<String, Value>,
 }
@@ -55,6 +59,7 @@ impl Default for Settings {
             collapsed_groups: BTreeSet::new(),
             auto_groups: true,
             language: Language::System,
+            zoom: 1.0,
             other: Map::new(),
         }
     }
@@ -90,6 +95,14 @@ impl Language {
         Language::SimplifiedChinese,
         Language::TraditionalChinese,
     ];
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+fn is_one(value: &f32) -> bool {
+    *value == 1.0
 }
 
 fn yes() -> bool {

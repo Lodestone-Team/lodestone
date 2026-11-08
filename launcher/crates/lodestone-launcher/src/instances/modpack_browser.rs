@@ -1,11 +1,12 @@
 //! "New instance" → Modpack: Modrinth's modpacks (search, sort, a pasted link), the
 //! picked pack's versions, and its description.
 
+use crate::theme::px;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, IntoElement, Render, RenderImage, SharedString,
-    Subscription, Task, Window, div, prelude::*, px,
+    Subscription, Task, Window, div, prelude::*,
 };
 use launcher_core::content::Modrinth;
 use lodestone_minecraft::modrinth::{

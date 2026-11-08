@@ -1,10 +1,11 @@
 //! How a server's page looks: its state and controls, the console with the
 //! dashboard's colours, the chat box, the players, and the Minecraft account link.
 
+use crate::theme::px;
 use gpui::{
     AnyElement, Context, FontStyle, FontWeight, HighlightStyle, IntoElement, KeyDownEvent, Render,
     ScrollEvent, ScrollStrategy, SharedString, StrikethroughStyle, StyledText, UnderlineStyle,
-    Window, div, prelude::*, px, uniform_list,
+    Window, div, prelude::*, uniform_list,
 };
 use launcher_core::cores::{ServerLoader, ServerState};
 use lodestone_minecraft::console_format::{

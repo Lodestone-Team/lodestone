@@ -1,4 +1,5 @@
-use gpui::{Context, IntoElement, MouseButton, WindowControlArea, div, img, prelude::*, px};
+use crate::theme::px;
+use gpui::{Context, IntoElement, MouseButton, WindowControlArea, div, img, prelude::*};
 
 use super::{LauncherShell, Page};
 use crate::{
@@ -26,7 +27,8 @@ pub fn render(cx: &mut Context<LauncherShell>) -> impl IntoElement {
         .flex_none()
         .items_center()
         .w_full()
-        .h(px(TOP_BAR_HEIGHT + 1.0))
+        // The bar keeps its height at any zoom: the window's buttons sit in it.
+        .h(gpui::px(TOP_BAR_HEIGHT + 1.0))
         .px_4()
         .bg(colors::GRAY_800)
         .border_b_1()
@@ -65,9 +67,9 @@ pub fn render(cx: &mut Context<LauncherShell>) -> impl IntoElement {
                 .on_click(cx.listener(|this, _, _, cx| this.show(Page::Instance, cx)))
                 .child(
                     img(crate::images::logo(cx))
-                        .w(layout::LOGO_WIDTH)
+                        .w(layout::logo_width())
                         // The logo's viewBox is 106 by 22.
-                        .h(layout::LOGO_WIDTH * (22.0 / 106.0)),
+                        .h(layout::logo_width() * (22.0 / 106.0)),
                 ),
         )
         .child(side())

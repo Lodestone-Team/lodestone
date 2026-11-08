@@ -25,7 +25,7 @@ use gpui::{
     WindowOptions, actions, px, size,
 };
 
-actions!(launcher, [Quit]);
+actions!(launcher, [Quit, ZoomIn, ZoomOut, ResetZoom]);
 
 /// The window title, also used for the app menu.
 pub const APP_NAME: &str = "Lodestone Launcher";
@@ -40,6 +40,23 @@ pub fn init(cx: &mut App) {
 
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+    // Zoom, as in browsers: ⌘ on macOS (Ctrl works there too), Ctrl elsewhere. The
+    // window's root handles the actions, so they reach it from anywhere inside.
+    cx.bind_keys([
+        KeyBinding::new("ctrl-=", ZoomIn, None),
+        KeyBinding::new("ctrl-+", ZoomIn, None),
+        KeyBinding::new("ctrl-shift-=", ZoomIn, None),
+        KeyBinding::new("ctrl--", ZoomOut, None),
+        KeyBinding::new("ctrl-0", ResetZoom, None),
+    ]);
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("cmd-=", ZoomIn, None),
+        KeyBinding::new("cmd-+", ZoomIn, None),
+        KeyBinding::new("cmd-shift-=", ZoomIn, None),
+        KeyBinding::new("cmd--", ZoomOut, None),
+        KeyBinding::new("cmd-0", ResetZoom, None),
+    ]);
     set_menus(cx);
     // The launcher has one window; closing it quits, as in the dashboard app.
     cx.on_window_closed(|cx, _| {
@@ -53,7 +70,15 @@ pub fn init(cx: &mut App) {
 /// Sets the app menu, in the current language. Called again when it changes.
 pub fn set_menus(cx: &mut App) {
     let quit = i18n::tr!(i18n::ShellMsg::QuitApp, app = APP_NAME);
-    cx.set_menus([Menu::new(APP_NAME).items([MenuItem::action(quit, Quit)])]);
+    use i18n::{ShellMsg, t};
+    cx.set_menus([
+        Menu::new(APP_NAME).items([MenuItem::action(quit, Quit)]),
+        Menu::new(t(ShellMsg::ViewMenu)).items([
+            MenuItem::action(t(ShellMsg::ActualSize), ResetZoom),
+            MenuItem::action(t(ShellMsg::ZoomIn), ZoomIn),
+            MenuItem::action(t(ShellMsg::ZoomOut), ZoomOut),
+        ]),
+    ]);
 }
 
 /// Options for a launcher window with the given title and size, centred on screen.

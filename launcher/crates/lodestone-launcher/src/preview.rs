@@ -193,6 +193,13 @@ pub fn requested_locale() -> Option<crate::i18n::Locale> {
     }
 }
 
+/// `--zoom 1.5`: the interface's zoom for the screenshot.
+pub fn requested_zoom() -> Option<f32> {
+    let mut args = std::env::args().skip_while(|arg| arg != "--zoom");
+    args.next()?;
+    args.next()?.parse().ok()
+}
+
 pub fn requested_scene() -> Option<String> {
     let mut args = std::env::args().skip_while(|arg| arg != "--scene");
     args.next()?;

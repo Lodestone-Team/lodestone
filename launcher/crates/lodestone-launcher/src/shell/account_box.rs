@@ -1,9 +1,10 @@
 //! The account box at the top of the sidebar, and its menu: switch, add and
 //! remove accounts.
 
+use crate::theme::px;
 use gpui::{
     AnyElement, Context, IntoElement, Pixels, SharedString, anchored, deferred, div, img,
-    prelude::*, px,
+    prelude::*,
 };
 use launcher_core::accounts::{Account, AccountKind};
 
@@ -289,7 +290,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
         .occlude()
         .flex()
         .flex_col()
-        .w(layout::SIDEBAR_WIDTH - px(16.))
+        .w(layout::sidebar_width() - px(16.))
         .mt_1p5()
         .py_2()
         .px_1p5()

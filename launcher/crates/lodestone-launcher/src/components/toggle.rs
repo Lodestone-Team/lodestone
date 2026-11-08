@@ -1,4 +1,5 @@
-use gpui::{App, ElementId, IntoElement, RenderOnce, Window, div, prelude::*, px};
+use crate::theme::px;
+use gpui::{App, ElementId, IntoElement, RenderOnce, Window, div, prelude::*};
 
 use super::focus::KeyboardFocus;
 use crate::theme::colors;

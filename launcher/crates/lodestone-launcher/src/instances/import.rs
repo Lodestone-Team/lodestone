@@ -3,6 +3,7 @@
 //! size, and a queue that imports the checked ones one after another with progress and
 //! Cancel. The work is `launcher_core::import`'s.
 
+use crate::theme::px;
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, atomic::Ordering},
@@ -11,7 +12,7 @@ use std::{
 
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, PathPromptOptions,
-    Render, RenderImage, SharedString, Task, Window, div, img, prelude::*, px,
+    Render, RenderImage, SharedString, Task, Window, div, img, prelude::*,
 };
 use launcher_core::{
     game::download::CancelToken,

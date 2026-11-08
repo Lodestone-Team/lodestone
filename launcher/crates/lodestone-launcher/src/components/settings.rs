@@ -3,12 +3,13 @@
 //! the list of sections beside the page, a select button with its popover, and the
 //! short notice that says a change was saved.
 
+use crate::theme::px;
 use std::{rc::Rc, time::Duration};
 
 use gpui::{
     Anchor, AnimationExt, AnyElement, App, Context, Div, ElementId, IntoElement, Pixels,
     RenderOnce, ScrollHandle, SharedString, Stateful, Task, Window, anchored, deferred, div,
-    prelude::*, px,
+    prelude::*,
 };
 
 use crate::{
@@ -18,9 +19,13 @@ use crate::{
 };
 
 /// The width of the column the settings sit in.
-pub const CONTENT_WIDTH: Pixels = px(680.);
+pub fn content_width() -> Pixels {
+    px(680.)
+}
 /// The width of the list of sections beside it.
-pub const NAV_WIDTH: Pixels = px(176.);
+pub fn nav_width() -> Pixels {
+    px(176.)
+}
 
 /// A section: its heading and an optional line under it, then its cards.
 pub fn section(title: impl Into<SharedString>, lead: Option<SharedString>) -> Div {
@@ -400,7 +405,7 @@ pub fn section_list(
         .flex_col()
         .flex_none()
         .gap_0p5()
-        .w(NAV_WIDTH)
+        .w(nav_width())
         .children(titles.iter().enumerate().map(|(index, title)| {
             let on_pick = on_pick.clone();
             let selected = index == active;

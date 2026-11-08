@@ -2,9 +2,10 @@
 //! releases / snapshots / old versions filter and search), and a mod loader with its
 //! version.
 
+use crate::theme::px;
 use gpui::{
     App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, PathPromptOptions,
-    Render, SharedString, Subscription, Task, UniformListScrollHandle, Window, div, prelude::*, px,
+    Render, SharedString, Subscription, Task, UniformListScrollHandle, Window, div, prelude::*,
     uniform_list,
 };
 use lodestone_minecraft::versions::mojang::{MojangVersion, MojangVersionType};
