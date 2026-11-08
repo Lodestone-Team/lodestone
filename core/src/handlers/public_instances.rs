@@ -414,7 +414,14 @@ async fn get_public_listing_overview(
             },
         ));
     }
-    instances.sort_by_key(|(created, _)| *created);
+    // Creation times are in seconds, so instances made in the same second are ordered by
+    // name, then uuid: the order never depends on the instance map's iteration order.
+    instances.sort_by(|(a_created, a), (b_created, b)| {
+        a_created
+            .cmp(b_created)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.uuid.to_string().cmp(&b.uuid.to_string()))
+    });
     Ok(Json(PublicListingOverview {
         list_instances_publicly: state.global_settings.lock().await.list_instances_publicly(),
         instances: instances.into_iter().map(|(_, entry)| entry).collect(),
