@@ -439,6 +439,8 @@ fn installs_forge_and_runs_its_processor_once() {
     let prepared = fixture
         .prepare(&choice, &java, Verify::Recorded, &progress)
         .unwrap();
+    // Modern Forge has no splash screen to turn off.
+    assert!(!fixture.game_dir().join("config/splash.properties").exists());
     let runs_now = runs(&fixture);
     assert_eq!(runs_now.len(), 1, "only the client processor runs");
     // `java -cp <patcher>:<jopt> <Main-Class> <args>`.
@@ -592,4 +594,117 @@ fn a_wrong_installer_sha1_is_refused() {
         .unwrap_err();
     assert!(err.to_string().contains("SHA-1"), "{err}");
     assert!(runs(&fixture).is_empty());
+}
+
+const LEGACY: &str = "1.20.1-11.0.0.1";
+
+/// Serves an old-format (`install` + `versionInfo`) Forge installer whose Scala
+/// library has no `.sha1` file next to it, like Forge 1.8.9's. `checksums` lists the
+/// jar's SHA-1 when `listed`, and only an unrelated one otherwise.
+fn serve_legacy_forge(fixture: &Fixture, listed: bool) -> &'static [u8] {
+    let scala: &'static [u8] = b"scala library jar";
+    let scala_url = "https://maven.minecraftforge.net/org/scala-lang/scala-library/2.11.1/scala-library-2.11.1.jar";
+    fixture.server.serve(scala_url, Entry::ok(scala));
+    let other_url = "https://maven.minecraftforge.net/com/example/other/1.0/other-1.0.jar";
+    fixture.serve_maven(other_url, b"other library");
+    let checksums = if listed {
+        json!([sha1_hex(b"pack.xz of the scala library"), sha1_hex(scala)])
+    } else {
+        json!([sha1_hex(b"something else")])
+    };
+    let profile = json!({
+        "install": {
+            "path": format!("net.minecraftforge:forge:{LEGACY}"),
+            "filePath": "forge-universal.jar",
+            "minecraft": GAME,
+        },
+        "versionInfo": {
+            "id": format!("{GAME}-Forge"),
+            "mainClass": "net.minecraft.launchwrapper.Launch",
+            "minecraftArguments": "--username ${auth_player_name} --tweakClass net.minecraftforge.fml.common.launcher.FMLTweaker",
+            "libraries": [
+                {"name": format!("net.minecraftforge:forge:{LEGACY}")},
+                {"name": "org.scala-lang:scala-library:2.11.1", "url": "https://maven.minecraftforge.net/",
+                 "checksums": checksums, "clientreq": true},
+                {"name": "com.example:other:1.0", "url": "https://maven.minecraftforge.net/"},
+                {"name": "jline:jline:2.13", "clientreq": false},
+            ],
+        },
+    })
+    .to_string();
+    let installer = zip(&[
+        ("install_profile.json", profile.as_bytes()),
+        ("forge-universal.jar", b"legacy universal jar"),
+    ]);
+    fixture.serve_maven(
+        &format!("https://maven.minecraftforge.net/net/minecraftforge/forge/{LEGACY}/forge-{LEGACY}-installer.jar"),
+        &installer,
+    );
+    scala
+}
+
+#[test]
+fn an_old_forge_library_without_a_sha1_file_is_hashed_and_checked_against_checksums() {
+    let fixture = Fixture::new();
+    let scala = serve_legacy_forge(&fixture, true);
+    let java = fixture.script("java", "#!/bin/sh\n");
+    let choice = LoaderChoice {
+        kind: LoaderKind::Forge,
+        version: LEGACY.into(),
+    };
+    fixture
+        .prepare(
+            &choice,
+            &java,
+            Verify::Recorded,
+            &InstallProgress::default(),
+        )
+        .unwrap();
+    let installed = fixture
+        .data
+        .path()
+        .join("libraries/org/scala-lang/scala-library/2.11.1/scala-library-2.11.1.jar");
+    assert_eq!(fs::read(installed).unwrap(), scala);
+    // The `.sha1` file was asked for once, found missing, and the jar hashed instead.
+    let scala_url = "https://maven.minecraftforge.net/org/scala-lang/scala-library/2.11.1/scala-library-2.11.1.jar";
+    assert_eq!(fixture.server.hits(&format!("{scala_url}.sha1")), 1);
+
+    // Old Forge's splash screen is turned off on macOS, once; a file the player
+    // changed afterwards is left alone.
+    let splash = fixture.game_dir().join("config/splash.properties");
+    assert_eq!(fs::read_to_string(&splash).unwrap(), "enabled=false\n");
+    fs::write(&splash, "enabled=true\n").unwrap();
+    fixture
+        .prepare(
+            &choice,
+            &java,
+            Verify::Recorded,
+            &InstallProgress::default(),
+        )
+        .unwrap();
+    assert_eq!(fs::read_to_string(&splash).unwrap(), "enabled=true\n");
+}
+
+#[test]
+fn an_old_forge_library_without_a_sha1_file_must_match_the_listed_checksums() {
+    let fixture = Fixture::new();
+    serve_legacy_forge(&fixture, false);
+    let java = fixture.script("java", "#!/bin/sh\n");
+    let choice = LoaderChoice {
+        kind: LoaderKind::Forge,
+        version: LEGACY.into(),
+    };
+    let err = fixture
+        .prepare(
+            &choice,
+            &java,
+            Verify::Recorded,
+            &InstallProgress::default(),
+        )
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("is not one the Forge profile lists"),
+        "{err}"
+    );
 }

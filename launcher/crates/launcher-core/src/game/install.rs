@@ -33,10 +33,10 @@ use super::{
     },
     launch::LaunchPaths,
     libraries::{self, Selection},
-    loaders::{self, LoaderChoice},
+    loaders::{self, LoaderChoice, LoaderKind},
     mojang::{MojangUrls, UrlError},
     natives,
-    platform::{self, Arch, Platform},
+    platform::{self, Arch, Os, Platform},
     record::{self as install_record, InstallRecord},
     rules::Features,
     runtime::{self, RuntimeIndex, RuntimeManifest},
@@ -118,7 +118,7 @@ impl InstallProgress {
 pub enum InstallError {
     #[error("cancelled")]
     Cancelled,
-    #[error("couldn't reach Mojang's servers: {0}")]
+    #[error("couldn't download a file: {0}")]
     Network(String),
     #[error("Minecraft {0} isn't in Mojang's version list")]
     UnknownVersion(String),
@@ -147,6 +147,18 @@ impl From<DownloadError> for InstallError {
             other => InstallError::Download(other),
         }
     }
+}
+
+/// Forge before 1.13 draws its loading splash from a second thread, which current
+/// macOS rejects: the game aborts in AppKit as the window opens (seen with Forge
+/// 1.7.10). Later 1.x builds turn the splash off on macOS by default; for the rest,
+/// write `enabled=false` the first time, and never touch a file that already exists.
+fn disable_forge_splash(game_dir: &Path) -> Result<(), InstallError> {
+    let path = game_dir.join("config").join("splash.properties");
+    if path.exists() {
+        return Ok(());
+    }
+    storage::write_atomic(&path, b"enabled=false\n").map_err(io_err(&path))
 }
 
 fn io_err(path: &Path) -> impl FnOnce(io::Error) -> InstallError + '_ {
@@ -353,6 +365,12 @@ impl Installer {
             None => vanilla.clone(),
         };
         let java_arch = libraries::java_arch(&version, machine);
+        if machine.os == Os::MacOs
+            && loader.is_some_and(|choice| choice.kind == LoaderKind::Forge)
+            && version.minecraft_arguments.is_some()
+        {
+            disable_forge_splash(game_dir)?;
+        }
 
         // The Java runtime.
         let (java_path, java_platform) = match java {

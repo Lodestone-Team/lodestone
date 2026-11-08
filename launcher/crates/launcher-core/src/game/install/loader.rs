@@ -119,7 +119,9 @@ impl Installer {
     }
 
     /// The SHA-1s of the files at `urls`, from the `.sha1` file Maven keeps next to
-    /// each.
+    /// each. Some old jars have no `.sha1` file (Forge 1.8.9's Scala libraries); those
+    /// are downloaded and hashed instead, and [`forge::normalize_legacy`] still
+    /// requires the result to be one of the profile's `checksums` when it lists any.
     async fn maven_sha1s(
         &self,
         urls: Vec<String>,
@@ -130,9 +132,15 @@ impl Installer {
                 if cancel.is_cancelled() {
                     return Err(InstallError::Cancelled);
                 }
-                let body = self.fetch(&format!("{url}.sha1")).await?;
-                let sha1 = loaders::parse_sha1_file(&String::from_utf8_lossy(&body))
-                    .ok_or_else(|| InstallError::Invalid(format!("{url}.sha1 is not a SHA-1")))?;
+                let listed = match self.fetch(&format!("{url}.sha1")).await {
+                    Ok(body) => loaders::parse_sha1_file(&String::from_utf8_lossy(&body)),
+                    Err(InstallError::Network(_)) => None,
+                    Err(err) => return Err(err),
+                };
+                let sha1 = match listed {
+                    Some(sha1) => sha1,
+                    None => sha1_hex(&self.fetch(&url).await?),
+                };
                 Ok((url, sha1))
             }))
             .buffer_unordered(8)
