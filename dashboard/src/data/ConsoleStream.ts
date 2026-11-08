@@ -7,9 +7,19 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { openReconnectingWebSocket } from 'utils/websocket';
+import { ConsoleHistoryPage } from 'bindings/ConsoleHistoryPage';
+import {
+  ConsoleEvent,
+  MAX_CONSOLE_LINES,
+  MAX_LOADED_LINES,
+  mergeConsoleEvents,
+  olderSnowflake,
+} from 'utils/consoleLog';
 
-/** Only the newest lines are kept, older ones are dropped. */
-export const MAX_CONSOLE_LINES = 5000;
+export type { ConsoleEvent };
+
+/** Lines asked for in one request for older history (the core caps it as well). */
+const HISTORY_PAGE_SIZE = 200;
 
 export type ConsoleStreamStatus =
   | 'no-permission'
@@ -19,16 +29,6 @@ export type ConsoleStreamStatus =
   | 'live-no-buffer'
   | 'closed'
   | 'error';
-
-// simplified version of a ClientEvent with just InstanceOutput
-export type ConsoleEvent = {
-  timestamp: number;
-  snowflake: string;
-  detail: string;
-  uuid: string;
-  name: string;
-  message: string;
-};
 
 // function to convert a ClientEvent to a ConsoleEvent
 const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
@@ -70,50 +70,6 @@ const isConsoleOutput = (event: ClientEvent) =>
   event.event_inner.type === 'InstanceEvent' &&
   event.event_inner.instance_event_inner.type === 'InstanceOutput';
 
-// snowflakes are 64-bit, so compare them as BigInt
-const compareSnowflakes = (a: string, b: string) => {
-  const x = BigInt(a);
-  const y = BigInt(b);
-  return x < y ? -1 : x > y ? 1 : 0;
-};
-
-/**
- * Merges new lines into the log, ordered by snowflake (time), without
- * duplicates, keeping at most MAX_CONSOLE_LINES.
- * Live lines are almost always newer than the last line, which is checked in
- * O(1). Only an overlapping batch (e.g. the buffer arriving after live lines)
- * needs the full merge.
- */
-export const mergeConsoleEvents = (
-  oldLog: ConsoleEvent[],
-  newEvents: ConsoleEvent[]
-): ConsoleEvent[] => {
-  if (newEvents.length === 0) return oldLog;
-  let merged: ConsoleEvent[];
-  let last = oldLog.length > 0 ? oldLog[oldLog.length - 1].snowflake : null;
-  const appendable = newEvents.every((event) => {
-    if (last !== null && compareSnowflakes(event.snowflake, last) <= 0)
-      return false;
-    last = event.snowflake;
-    return true;
-  });
-  if (appendable) {
-    merged = [...oldLog, ...newEvents];
-  } else {
-    const seen = new Set<string>();
-    merged = [...oldLog, ...newEvents]
-      .filter((event) => {
-        if (seen.has(event.snowflake)) return false;
-        seen.add(event.snowflake);
-        return true;
-      })
-      .sort((a, b) => compareSnowflakes(a.snowflake, b.snowflake));
-  }
-  return merged.length > MAX_CONSOLE_LINES
-    ? merged.slice(merged.length - MAX_CONSOLE_LINES)
-    : merged;
-};
-
 /**
  * Does two things:
  * 1. fetches the console buffer (history)
@@ -136,14 +92,99 @@ export const useConsoleStream = (uuid: string) => {
     uuid
   );
 
+  // Older history, fetched page by page from the core's event database. The
+  // cursor is the oldest snowflake received so far, from the buffer, the live
+  // stream or an earlier page, so a page never repeats a line already shown.
+  const [hasOlder, setHasOlder] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [historyFailed, setHistoryFailed] = useState(false);
+  // counts the times older lines were put in front of the log
+  const [olderVersion, setOlderVersion] = useState(0);
+  const oldestRef = useRef<string | null>(null);
+  const maxLinesRef = useRef(MAX_CONSOLE_LINES);
+  const logLengthRef = useRef(0);
+  const hasOlderRef = useRef(true);
+  const loadingOlderRef = useRef(false);
+  // changes with the instance, so that a page of the previous one is dropped
+  const generationRef = useRef(0);
+
+  useEffect(() => {
+    logLengthRef.current = consoleLog.length;
+  }, [consoleLog]);
+
+  useEffect(() => {
+    generationRef.current += 1;
+    oldestRef.current = null;
+    maxLinesRef.current = MAX_CONSOLE_LINES;
+    hasOlderRef.current = true;
+    loadingOlderRef.current = false;
+    setHasOlder(true);
+    setLoadingOlder(false);
+    setHistoryFailed(false);
+    setConsoleLog([]);
+  }, [uuid]);
+
   const clearConsoleLog = () => {
     setConsoleLog([]);
   };
 
   const mergeConsoleLog = (newLog: ClientEvent[]) => {
+    for (const event of newLog) {
+      oldestRef.current = olderSnowflake(oldestRef.current, event.snowflake);
+    }
     const consoleEvents = newLog.filter(isConsoleOutput).map(toConsoleEvent);
-    setConsoleLog((oldLog) => mergeConsoleEvents(oldLog, consoleEvents));
+    setConsoleLog((oldLog) =>
+      mergeConsoleEvents(oldLog, consoleEvents, maxLinesRef.current)
+    );
   };
+
+  /** Fetches the page of console lines before the oldest one received. */
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || !hasOlderRef.current) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    setHistoryFailed(false);
+    const generation = generationRef.current;
+    try {
+      const response = await axios.get<ConsoleHistoryPage>(
+        `/instance/${uuid}/console/history`,
+        {
+          params: {
+            limit: HISTORY_PAGE_SIZE,
+            ...(oldestRef.current !== null && { before: oldestRef.current }),
+          },
+        }
+      );
+      if (generation !== generationRef.current) return;
+      const { events, has_more } = response.data;
+      // lines that are not console output still move the cursor
+      for (const event of events) {
+        oldestRef.current = olderSnowflake(oldestRef.current, event.snowflake);
+      }
+      const consoleEvents = events.filter(isConsoleOutput).map(toConsoleEvent);
+      // the loaded history is kept, up to a limit
+      const total = logLengthRef.current + consoleEvents.length;
+      maxLinesRef.current = Math.min(
+        MAX_LOADED_LINES,
+        Math.max(maxLinesRef.current, total)
+      );
+      setConsoleLog((oldLog) =>
+        mergeConsoleEvents(oldLog, consoleEvents, maxLinesRef.current)
+      );
+      if (consoleEvents.length > 0) setOlderVersion((version) => version + 1);
+      hasOlderRef.current = has_more && total < MAX_LOADED_LINES;
+      setHasOlder(hasOlderRef.current);
+    } catch (e) {
+      if (generation !== generationRef.current) return;
+      console.error(e);
+      setHistoryFailed(true);
+    } finally {
+      if (generation === generationRef.current) {
+        loadingOlderRef.current = false;
+        setLoadingOlder(false);
+      }
+    }
+  }, [uuid]);
 
   // resolves to true if the buffer was fetched
   const fetchBuffer = useCallback(
@@ -189,6 +230,8 @@ export const useConsoleStream = (uuid: string) => {
 
     fetchBuffer().then((ok) => {
       if (cancelled) return;
+      // nothing in memory: the core may have restarted since it stored lines
+      if (oldestRef.current === null) loadOlder();
       buffer = ok ? 'fetched' : 'failed';
       // the socket may have dropped meanwhile; that status stays
       if (socketOpen || statusRef.current === 'loading') updateStatus();
@@ -243,11 +286,16 @@ export const useConsoleStream = (uuid: string) => {
       cancelled = true;
       websocket.close();
     };
-  }, [core, token, uuid, canAccessConsole, fetchBuffer]);
+  }, [core, token, uuid, canAccessConsole, fetchBuffer, loadOlder]);
 
   return {
     consoleLog,
     consoleStatus: status,
     clearConsoleLog,
+    loadOlder,
+    loadingOlder,
+    hasOlder,
+    historyFailed,
+    olderVersion,
   };
 };

@@ -10,7 +10,7 @@ import {
   useCanControlInstance,
 } from 'data/CodeExecution';
 import Tooltip from 'rc-tooltip';
-import { useContext, useLayoutEffect, useMemo } from 'react';
+import { useContext, useEffect, useLayoutEffect, useMemo } from 'react';
 import { useRef, useState } from 'react';
 import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import ErrorGraphic from './ErrorGraphic';
@@ -19,13 +19,18 @@ import Checkbox from './Atoms/Checkbox';
 import { SkeletonCode, SkeletonGroup } from './Atoms/Skeleton';
 import { toast } from 'react-toastify';
 import { ConsoleLine } from './ConsoleLine';
+import LogLoading from './LogLoading';
 import { ParsedConsoleLine, parseConsoleLine } from 'utils/consoleFormat';
 import { useColoredConsole } from 'utils/hooks';
 import { useResolvedTheme } from 'utils/theme';
 
 const autoScrollThreshold = 10;
+// closer than this to the top of the list, older lines are shown or fetched
+const loadOlderThreshold = 40;
 // rendering is the slow part, so only the newest lines are put in the DOM
 const maxRenderedLines = 2000;
+// more lines put in the DOM when the user scrolls up to the hidden ones
+const renderedLinesStep = 1000;
 
 // each line is parsed once; the log keeps the same event objects as it grows
 const parsedLines = new WeakMap<ConsoleEvent, ParsedConsoleLine>();
@@ -49,7 +54,14 @@ export default function GameConsole() {
   );
   // only the owner can send input to atom instances
   const canControlInstance = useCanControlInstance(instance);
-  const { consoleLog, consoleStatus } = useConsoleStream(uuid);
+  const {
+    consoleLog,
+    consoleStatus,
+    loadOlder,
+    loadingOlder,
+    hasOlder,
+    historyFailed,
+  } = useConsoleStream(uuid);
   const [command, setCommand] = useState('');
   const [filter, setFilter] = useState('');
   const [regex, setRegex] = useState(true);
@@ -63,14 +75,23 @@ export default function GameConsole() {
   // whether the user was at the bottom of the list the last time they
   // scrolled; starts true so the console opens at the newest line
   const stickToBottomRef = useRef(true);
+  const [renderedLines, setRenderedLines] = useState(maxRenderedLines);
+  // what the list looked like after the last update, to keep the user's place
+  // when lines are added in front of the ones they are reading
+  const lastViewRef = useRef({
+    uuid,
+    firstKey: '',
+    scrollHeight: 0,
+    filter: '',
+    regex: true,
+  });
 
-  const onListScroll = () => {
-    const list = listRef.current;
-    if (!list) return;
-    stickToBottomRef.current =
-      list.scrollHeight - list.scrollTop - list.clientHeight <
-      autoScrollThreshold;
-  };
+  // the instance has its own lines
+  const [renderedLinesUuid, setRenderedLinesUuid] = useState(uuid);
+  if (renderedLinesUuid !== uuid) {
+    setRenderedLinesUuid(uuid);
+    setRenderedLines(maxRenderedLines);
+  }
 
   const scrollToBottom = () => {
     if (listRef.current) {
@@ -98,18 +119,66 @@ export default function GameConsole() {
     }
     const filtered = filter === '' ? consoleLog : consoleLog.filter(matches);
     return {
-      lines: filtered.slice(-maxRenderedLines),
-      hiddenCount: Math.max(0, filtered.length - maxRenderedLines),
+      lines: filtered.slice(-renderedLines),
+      hiddenCount: Math.max(0, filtered.length - renderedLines),
     };
-  }, [consoleLog, filter, regex]);
+  }, [consoleLog, filter, regex, renderedLines]);
+
+  // Older lines: first the ones already loaded but not rendered, then the
+  // next page from the core.
+  const showOlder = () => {
+    const list = listRef.current;
+    if (list) lastViewRef.current.scrollHeight = list.scrollHeight;
+    if (visibleLines.hiddenCount > 0) {
+      setRenderedLines((count) => count + renderedLinesStep);
+    } else if (hasOlder && !loadingOlder) {
+      loadOlder();
+    }
+  };
+
+  const onListScroll = () => {
+    const list = listRef.current;
+    if (!list) return;
+    stickToBottomRef.current =
+      list.scrollHeight - list.scrollTop - list.clientHeight <
+      autoScrollThreshold;
+    if (list.scrollTop < loadOlderThreshold) showOlder();
+  };
 
   // if the user was at the bottom of the list, keep them there when new
-  // lines are added; if they scrolled up, leave them where they are
+  // lines are added; if they scrolled up, leave them where they are, also
+  // when lines are added above (or dropped from) what they are reading
   useLayoutEffect(() => {
-    if (stickToBottomRef.current && listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight;
+    const list = listRef.current;
+    if (!list) return;
+    const last = lastViewRef.current;
+    const firstKey = visibleLines.lines[0]?.snowflake ?? '';
+    if (last.uuid !== uuid) stickToBottomRef.current = true;
+    if (stickToBottomRef.current) {
+      list.scrollTop = list.scrollHeight;
+    } else if (
+      firstKey !== last.firstKey &&
+      filter === last.filter &&
+      regex === last.regex
+    ) {
+      list.scrollTop += list.scrollHeight - last.scrollHeight;
     }
-  }, [visibleLines]);
+    lastViewRef.current = {
+      uuid,
+      firstKey,
+      scrollHeight: list.scrollHeight,
+      filter,
+      regex,
+    };
+  }, [visibleLines, filter, regex, uuid]);
+
+  // a list too short to scroll cannot ask for older lines by scrolling
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || loadingOlder || historyFailed) return;
+    if (list.scrollHeight <= list.clientHeight) showOlder();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleLines, hasOlder, loadingOlder, historyFailed]);
 
   const sendCommand = async (command: string) => {
     scrollToBottom();
@@ -255,7 +324,8 @@ export default function GameConsole() {
             {visibleLines.hiddenCount > 0 && (
               <li className="px-4 py-0.5 text-gray-500 italic">
                 {visibleLines.hiddenCount.toLocaleString()} older lines hidden
-                (showing the newest {maxRenderedLines.toLocaleString()})
+                (showing the newest {renderedLines.toLocaleString()}), scroll
+                up to show more
               </li>
             )}
             {visibleLines.lines.map((line) => (
@@ -267,6 +337,16 @@ export default function GameConsole() {
               />
             ))}
           </ol>
+        )}
+        {loadingOlder && (
+          <div className="pointer-events-none absolute top-1 left-3 z-10 rounded-md bg-gray-850 text-gray-300 shadow-md">
+            <LogLoading loadingText="Loading older lines..." />
+          </div>
+        )}
+        {historyFailed && (
+          <div className="pointer-events-none absolute top-1 left-3 z-10 rounded-md bg-gray-850 py-1 px-2 text-small text-red-200 italic shadow-md">
+            Failed to load older lines. Scroll up to try again.
+          </div>
         )}
         <div className="font-mono text-small">
           <form
