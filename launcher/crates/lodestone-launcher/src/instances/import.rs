@@ -446,7 +446,7 @@ impl ImportDialog {
         };
         let icon = match self.icons.get(&key) {
             Some(image) => img(image.clone()),
-            None => img("images/placeholder-cube.png"),
+            None => img("images/instance-icons/grass.png"),
         };
         let note = found.notes.first().cloned();
         let id = SharedString::from(format!("import-{key}"));

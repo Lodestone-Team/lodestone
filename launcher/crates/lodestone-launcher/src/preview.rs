@@ -73,7 +73,40 @@ pub const SCENES: &[&str] = &[
     "settings",
     "settings-accounts",
     "settings-developer",
+    "play-background",
+    "play-background-dark",
+    "icon-picker",
+    "icon-picker-emoji",
+    "background-picker",
 ];
+
+/// Scenes that show instance icons and Play backgrounds.
+fn is_appearance_scene(scene: &str) -> bool {
+    scene.starts_with("play-background")
+        || scene.starts_with("icon-picker")
+        || scene == "background-picker"
+}
+
+/// A made-up landscape for the background scenes: a pale sky over a snowfield (bright
+/// under the text), or a night sky over dark hills.
+fn background_image(bright: bool) -> image::RgbaImage {
+    image::RgbaImage::from_fn(1600, 900, |x, y| {
+        let (fx, fy) = (x as f32 / 1600.0, y as f32 / 900.0);
+        let hill = 0.55 + 0.08 * (fx * 7.0).sin() + 0.05 * (fx * 17.0 + 1.0).sin();
+        let ground = fy > hill;
+        let rgb = match (bright, ground) {
+            (true, true) => [236, 242, 248],
+            (true, false) => [(150.0 + 90.0 * fy) as u8, (200.0 + 50.0 * fy) as u8, 255],
+            (false, true) => [18, 30, 26],
+            (false, false) => [
+                (14.0 + 20.0 * fy) as u8,
+                (18.0 + 26.0 * fy) as u8,
+                (40.0 + 50.0 * fy) as u8,
+            ],
+        };
+        image::Rgba([rgb[0], rgb[1], rgb[2], 255])
+    })
+}
 
 /// Scenes of the Worlds tab.
 fn is_worlds_scene(scene: &str) -> bool {
@@ -94,6 +127,7 @@ fn has_instances(scene: &str) -> bool {
         || scene.starts_with("import")
         || servers::has_instances(scene)
         || scene == "instance-linked"
+        || is_appearance_scene(scene)
 }
 
 pub fn requested_scene() -> Option<String> {
@@ -219,6 +253,25 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 {
                     content::fill(&store.dir(&instance.id), scene);
                 }
+                if is_appearance_scene(scene) {
+                    let icon = match name {
+                        "Latest release" => Some("emoji:1D8EB2:🚀"),
+                        "All the mods" => Some("builtin:gold-ore"),
+                        "Old school" => Some("builtin:cobblestone"),
+                        _ => None,
+                    };
+                    let _ = store.set_icon_name(&instance.id, icon);
+                    if name == "Survival 1.20.1" {
+                        worlds::fill(&store.dir(&instance.id));
+                        if scene.starts_with("play-background") {
+                            let file = data_dir.root().join("background-preview.png");
+                            let bright = scene == "play-background";
+                            if background_image(bright).save(&file).is_ok() {
+                                let _ = store.set_background(&instance.id, &file);
+                            }
+                        }
+                    }
+                }
                 if name == "Survival 1.20.1" && is_worlds_scene(scene) {
                     worlds::fill(&store.dir(&instance.id));
                 }
@@ -258,6 +311,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
             "instance-shared-settings" | "instance-linked" => Some("Survival 1.20.1"),
+            scene if is_appearance_scene(scene) => Some("Survival 1.20.1"),
             scene
                 if scene.starts_with("content-")
                     || scene.starts_with("modpack-")
@@ -466,6 +520,15 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "import" | "import-progress" => import::apply(scene, shell, cx),
+        "icon-picker" | "icon-picker-emoji" | "background-picker" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if let Some(settings) = shell.settings_view().cloned() {
+                settings.update(cx, |settings, cx| match scene {
+                    "background-picker" => settings.preview_background_picker(cx),
+                    _ => settings.preview_icon_picker(scene == "icon-picker-emoji"),
+                });
+            }
+        }
         "settings" | "settings-accounts" | "settings-developer" => {
             let page = match scene {
                 "settings-accounts" => crate::shell::SettingsPage::Accounts,

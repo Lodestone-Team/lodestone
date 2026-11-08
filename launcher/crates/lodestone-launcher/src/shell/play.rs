@@ -9,6 +9,7 @@ use crate::{
     components::{
         Align, Button, ButtonSize, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs,
     },
+    instances::appearance::{Background, scrim_layers},
     instances::{PlayState, play_time},
     servers::InstanceLink,
     theme::{self, colors, fonts, leading, radius, text, weights},
@@ -91,7 +92,12 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .px_8()
                 .py_5()
                 .child(match (tab, &instance) {
-                    (InstanceTab::Play, _) => hero(instance.as_ref(), cx).into_any_element(),
+                    (InstanceTab::Play, _) => {
+                        let background = instance
+                            .as_ref()
+                            .and_then(|i| shell.instances.read(cx).background(&i.id).cloned());
+                        hero(instance.as_ref(), background, cx).into_any_element()
+                    }
                     (InstanceTab::Settings, Some(_)) => match shell.settings_view() {
                         Some(settings) => settings.clone().into_any_element(),
                         None => placeholder("Settings appear here once you have an instance.")
@@ -112,7 +118,11 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
 
 /// The banner: our own artwork in the dashboard's colours, with the instance's name,
 /// or an invitation to create one.
-fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+fn hero(
+    instance: Option<&Instance>,
+    background: Option<Background>,
+    cx: &mut Context<LauncherShell>,
+) -> impl IntoElement {
     let (title, body): (SharedString, SharedString) = match instance {
         Some(instance) => (
             instance.name.clone().into(),
@@ -146,13 +156,25 @@ fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl In
         .border_1()
         .border_color(colors::FADE_700)
         .bg(colors::GRAY_900)
-        .child(
-            img(crate::images::hero(cx))
-                .absolute()
-                .inset_0()
-                .size_full()
-                .object_fit(ObjectFit::Cover),
-        )
+        .map(|this| match &background {
+            // The instance's own image, with a scrim as dark as it needs under the text.
+            Some(background) => this
+                .child(
+                    img(background.image.clone())
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .object_fit(ObjectFit::Cover),
+                )
+                .children(scrim_layers(background.scrim)),
+            None => this.child(
+                img(crate::images::hero(cx))
+                    .absolute()
+                    .inset_0()
+                    .size_full()
+                    .object_fit(ObjectFit::Cover),
+            ),
+        })
         .child(
             div()
                 .relative()
@@ -174,7 +196,11 @@ fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl In
                     div()
                         .text_size(theme::text_size(text::H3))
                         .line_height(theme::line_height(text::H3, leading::NORMAL))
-                        .text_color(colors::GRAY_400)
+                        .text_color(if background.is_some() {
+                            colors::GRAY_300
+                        } else {
+                            colors::GRAY_400
+                        })
                         .child(body),
                 )
                 .when(instance.is_none(), |this| {

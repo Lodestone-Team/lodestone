@@ -85,6 +85,9 @@ pub struct Dialog {
     width: gpui::Pixels,
     /// No title, padding or footer: the body fills a panel of this height.
     frameless: Option<gpui::Pixels>,
+    /// Fills the window below `top` instead of floating: no rounding, border or
+    /// shadow, for a window too small for the dialog.
+    edge_to_edge: Option<gpui::Pixels>,
 }
 
 impl Dialog {
@@ -102,11 +105,19 @@ impl Dialog {
             on_close: None,
             width: layout::DIALOG_WIDTH,
             frameless: None,
+            edge_to_edge: None,
         }
     }
 
     /// A panel of `width` × `height` that its body fills, without the title, the
     /// padding or the footer, for a page such as Settings.
+    /// Fills the window from `top` down (leaving the top bar and the window buttons
+    /// clear), for a frameless dialog in a window too small for it to float.
+    pub fn edge_to_edge(mut self, top: gpui::Pixels) -> Self {
+        self.edge_to_edge = Some(top);
+        self
+    }
+
     pub fn frameless(mut self, width: gpui::Pixels, height: gpui::Pixels) -> Self {
         self.width = width;
         self.frameless = Some(height);
@@ -147,6 +158,7 @@ impl RenderOnce for Dialog {
         let scrim = Hsla::from(colors::GRAY_900.opacity(60));
 
         let frameless = self.frameless;
+        let edge_to_edge = self.edge_to_edge;
         let panel = div()
             .id("dialog-panel")
             .relative()
@@ -165,6 +177,9 @@ impl RenderOnce for Dialog {
                 spread_radius: px(0.),
                 inset: false,
             }])
+            .when(edge_to_edge.is_some(), |panel| {
+                panel.rounded_none().border_0().shadow(Vec::new())
+            })
             .map(|panel| match frameless {
                 Some(height) => panel
                     .flex_row()
@@ -211,8 +226,11 @@ impl RenderOnce for Dialog {
             .inset_0()
             .occlude()
             .flex()
-            .items_center()
             .justify_center()
+            .map(|this| match edge_to_edge {
+                Some(top) => this.items_start().pt(top),
+                None => this.items_center(),
+            })
             .when_some(on_dismiss, |this, on_close| {
                 this.on_action(move |_: &Dismiss, window, cx| on_close(window, cx))
             })
