@@ -1,7 +1,7 @@
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
-import { InstanceContext } from 'data/InstanceContext';
+import { InstanceContext, ModpackPreset } from 'data/InstanceContext';
 import { useInstanceList } from 'data/InstanceList';
 import { useUserLoggedIn } from 'data/UserInfo';
 import { Suspense, useContext, useEffect, useState } from 'react';
@@ -22,6 +22,9 @@ export const InstanceViewLayout = () => {
   const [instance, setInstanceState] = useState<InstanceInfo | null>(null);
 
   const [showCreateInstance, setShowCreateInstance] = useState(false);
+  const [modpackPreset, setModpackPreset] = useState<ModpackPreset | null>(
+    null
+  );
 
   const instances = userLoggedIn ? dataInstances : undefined;
 
@@ -59,6 +62,8 @@ export const InstanceViewLayout = () => {
         isReady: instanceIsFetched && userLoggedIn,
         showCreateInstance: showCreateInstance,
         setShowCreateInstance: setShowCreateInstance,
+        modpackPreset,
+        setModpackPreset,
       }}
     >
       <ResizePanel

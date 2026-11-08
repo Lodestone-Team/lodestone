@@ -1,6 +1,9 @@
 import { createContext } from 'react';
 import { InstanceInfo } from './../bindings/InstanceInfo';
 
+/** A Modrinth modpack to open the create-instance flow with. */
+export type ModpackPreset = { projectId: string; versionId: string | null };
+
 interface InstanceContextType {
   instanceList: { [uuid: string]: InstanceInfo };
   selectedInstance: InstanceInfo | null;
@@ -8,6 +11,9 @@ interface InstanceContextType {
   isReady: boolean;
   showCreateInstance: boolean;
   setShowCreateInstance: (show: boolean) => void;
+  /** set before showing the create flow to start it on this modpack */
+  modpackPreset: ModpackPreset | null;
+  setModpackPreset: (preset: ModpackPreset | null) => void;
 }
 
 export const InstanceContext = createContext<InstanceContextType>({
@@ -20,5 +26,9 @@ export const InstanceContext = createContext<InstanceContextType>({
   showCreateInstance: false,
   setShowCreateInstance: () => {
     throw new Error('InstanceContext not initialized');
-  }
+  },
+  modpackPreset: null,
+  setModpackPreset: () => {
+    throw new Error('InstanceContext not initialized');
+  },
 });
