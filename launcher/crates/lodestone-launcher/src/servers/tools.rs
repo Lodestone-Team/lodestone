@@ -464,7 +464,7 @@ impl Servers {
                     _ if server.has_pack() && self.notice.is_none() => {
                         // the dialog closes so any prompt about the mods can show
                         self.extras.tools.close(cx);
-                        self.notice = Some(Notice::new(|| {
+                        self.notice = Some(Notice::info(|| {
                             (
                                 t(M::CreatingMatching).into(),
                                 tr!(M::CreatingMatchingBody, more = t(M::More)),

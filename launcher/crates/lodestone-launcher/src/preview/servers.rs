@@ -28,6 +28,7 @@ use crate::{
 pub const SCENES: &[&str] = &[
     "servers-empty",
     "servers",
+    "servers-ready",
     "servers-add",
     "servers-update",
     "servers-signed-out",
@@ -203,7 +204,7 @@ fn friend() -> (SavedCore, CoreStatus, bool) {
 
 fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
     match scene {
-        "servers" => {
+        "servers" | "servers-ready" => {
             servers.preview(
                 vec![
                     home(true),
@@ -222,6 +223,9 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 vec![("home".into(), "smp".into(), "survival-smp".into())],
             );
             servers.preview_busy("home", "atm", Busy::Starting);
+            if scene == "servers-ready" {
+                servers.preview_ready("Cobblemon Official Modpack [Fabric]");
+            }
         }
         "servers-add" | "servers-update" => {
             servers.preview(
