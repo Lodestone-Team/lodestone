@@ -2,9 +2,11 @@
 
 members = [
     "core", # lodestone_core
+    "crates/lodestone-minecraft", # lodestone_minecraft, shared with launcher/
     "dashboard/src-tauri" #lodestone-client
 ]
-default-members = ["core"] # Build the client with `npm run tauri build` in dashboard/
+# Build the client with `npm run tauri build` in dashboard/
+default-members = ["core", "crates/lodestone-minecraft"]
 resolver = "2"
 
 [profile.github-release]

@@ -153,6 +153,27 @@ impl From<Report> for Error {
     }
 }
 
+/// The errors of the shared Minecraft crate, with the kinds and messages the core used
+/// before that code moved there.
+impl From<lodestone_minecraft::Error> for Error {
+    fn from(error: lodestone_minecraft::Error) -> Self {
+        use lodestone_minecraft::Error as E;
+        match error {
+            E::Invalid(message) => Self {
+                kind: ErrorKind::BadRequest,
+                source: Report::msg(message),
+            },
+            E::NotFound(message) => Self {
+                kind: ErrorKind::NotFound,
+                source: Report::msg(message),
+            },
+            E::Internal(message) => Report::msg(message).into(),
+            E::Io { context, source } => Report::new(source).wrap_err(context).into(),
+            E::Json { context, source } => Report::new(source).wrap_err(context).into(),
+        }
+    }
+}
+
 impl From<ErrorKind> for Error {
     fn from(kind: ErrorKind) -> Self {
         Self {

@@ -6783,6 +6783,7 @@ dependencies = [
  "indexmap 2.14.2",
  "jsonwebtoken",
  "local-ip-address",
+ "lodestone_minecraft",
  "playit-agent-core",
  "playit-api-client",
  "rand 0.10.3",
@@ -6823,6 +6824,23 @@ dependencies = [
  "walkdir",
  "which 8.0.6",
  "whoami 2.1.3",
+ "zip",
+]
+
+[[package]]
+name = "lodestone_minecraft"
+version = "0.5.1"
+dependencies = [
+ "indexmap 2.14.2",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml 1.1.8+spec-1.1.0",
+ "ts-rs",
+ "url",
  "zip",
 ]
 

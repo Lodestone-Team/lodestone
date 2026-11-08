@@ -1,0 +1,42 @@
+[package]
+name = "lodestone_minecraft"
+description = "Minecraft and Modrinth types, parsers and file formats shared by Lodestone Core and Lodestone Launcher"
+publish = false
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Network-free on purpose: no HTTP client, no async runtime. The HTTP calls, caches and
+# rate limiting stay in the crates that use this one.
+#
+# Lodestone Launcher (launcher/) also depends on this crate, and its dependencies must be
+# the crates and versions in Zed stable's Cargo.lock. So the version requirements below
+# are the lowest versions that both lockfiles have, not the newest ones.
+[dependencies]
+indexmap = { version = "2.14.0", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha1 = "0.10.6"
+sha2 = "0.10.9"
+thiserror = "2.0.17"
+# The core locks toml 1.x and Zed locks 0.9.x. Only `Table`, `Value` and `from_str` are
+# used, which are the same in both.
+toml = { version = ">=0.9.8, <2", default-features = false, features = ["std", "parse", "serde"] }
+url = "2.5.7"
+# Reading and writing `.mrpack` files and jars. Zed only locks zip 0.6, so the launcher
+# turns this feature off.
+zip = { version = "9.0.5", optional = true, default-features = false, features = ["deflate", "deflate64", "bzip2", "zstd", "time"] }
+# TypeScript bindings of the types the core sends to clients. The core exports them into
+# core/bindings.
+ts-rs = { version = "12.0.1", optional = true, features = ["no-serde-warnings"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[features]
+default = ["zip"]
+zip = ["dep:zip"]
+ts-rs = ["dep:ts-rs"]
