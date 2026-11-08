@@ -1,0 +1,26 @@
+[
+  {
+    "url": "https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.1.2/fabric-installer-1.1.2.jar",
+    "maven": "net.fabricmc:fabric-installer:1.1.2",
+    "version": "1.1.2",
+    "stable": true
+  },
+  {
+    "url": "https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.1.1/fabric-installer-1.1.1.jar",
+    "maven": "net.fabricmc:fabric-installer:1.1.1",
+    "version": "1.1.1",
+    "stable": false
+  },
+  {
+    "url": "https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.1.0/fabric-installer-1.1.0.jar",
+    "maven": "net.fabricmc:fabric-installer:1.1.0",
+    "version": "1.1.0",
+    "stable": false
+  },
+  {
+    "url": "https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.0.3/fabric-installer-1.0.3.jar",
+    "maven": "net.fabricmc:fabric-installer:1.0.3",
+    "version": "1.0.3",
+    "stable": false
+  }
+]

@@ -110,6 +110,24 @@ pub(crate) mod test_util {
     pub(crate) fn install_crypto_provider() {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     }
+
+    /// Polls `condition` every few milliseconds until it holds, and panics if it still does
+    /// not hold after 30 seconds. Use it instead of a fixed sleep to wait for work done by
+    /// another task or thread.
+    pub(crate) async fn wait_until<F, Fut>(what: &str, mut condition: F)
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !condition().await {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting until {what}"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
 }
 
 #[derive(Clone)]

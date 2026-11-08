@@ -1,28 +1,38 @@
+use super::util::MojangVersion;
 use crate::error::Error;
 
 /// All Minecraft versions, newest first.
 pub async fn get_vanilla_minecraft_versions() -> Result<Vec<String>, Error> {
-    Ok(super::util::mojang_versions()
-        .await?
-        .iter()
-        .map(|v| v.id.clone())
-        .collect())
+    Ok(version_ids(&super::util::mojang_versions().await?))
+}
+
+fn version_ids(versions: &[MojangVersion]) -> Vec<String> {
+    versions.iter().map(|v| v.id.clone()).collect()
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
-    #[tokio::test]
-    async fn test_get_vanilla_minecraft_versions() {
-        let versions = get_vanilla_minecraft_versions().await.unwrap();
-        for v in [
-            "1.16.5", "1.16.4", "1.16.3", "1.16.2", "1.16.1", "1.16", "1.15.2", "1.15.1", "1.15",
-            "1.14.4", "1.14.3", "1.14.2", "1.14.1", "1.14", "1.13.2", "1.13.1", "1.13", "1.12.2",
-            "1.12.1", "1.12", "1.11.2", "1.11.1", "1.11", "1.10.2", "1.10.1", "1.10", "1.9.4",
-            "1.9.3", "1.9.2",
-        ] {
-            assert!(versions.contains(&v.to_string()), "missing {v}");
+    #[test]
+    fn lists_manifest_versions_in_order() {
+        #[derive(serde::Deserialize)]
+        struct Manifest {
+            versions: Vec<MojangVersion>,
         }
+        let manifest: Manifest =
+            serde_json::from_str(include_str!("testdata/mojang_version_manifest.json")).unwrap();
+        assert_eq!(
+            version_ids(&manifest.versions),
+            [
+                "26.4-snapshot-7",
+                "1.18.2",
+                "21w44a",
+                "1.16.5",
+                "1.8.4",
+                "1.7.10-pre4",
+                "a1.0.16"
+            ]
+        );
     }
 }

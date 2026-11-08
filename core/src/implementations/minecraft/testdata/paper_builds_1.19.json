@@ -1,0 +1,71 @@
+[
+  {
+    "id": 81,
+    "time": "2022-07-25T17:26:58.726Z",
+    "channel": "STABLE",
+    "downloads": {
+      "server:mojang": {
+        "name": "paper-1.19-81-mojang.jar",
+        "checksums": {
+          "sha256": "944bb54712f794f4b356f265b464f6694ef17997960dd46cc5217346d7b8b2e9"
+        },
+        "size": 38071011,
+        "url": "https://fill-data.papermc.io/v1/objects/944bb54712f794f4b356f265b464f6694ef17997960dd46cc5217346d7b8b2e9/paper-1.19-81-mojang.jar"
+      },
+      "server:default": {
+        "name": "paper-1.19-81.jar",
+        "checksums": {
+          "sha256": "0d39cacc51a77b2b071e1ce862fcbf0b4a4bd668cc7e8b313598d84fa09fabac"
+        },
+        "size": 38158691,
+        "url": "https://fill-data.papermc.io/v1/objects/0d39cacc51a77b2b071e1ce862fcbf0b4a4bd668cc7e8b313598d84fa09fabac/paper-1.19-81.jar"
+      }
+    }
+  },
+  {
+    "id": 79,
+    "time": "2022-07-25T15:06:31.056Z",
+    "channel": "STABLE",
+    "downloads": {
+      "server:mojang": {
+        "name": "paper-1.19-79-mojang.jar",
+        "checksums": {
+          "sha256": "531f3cbdb1f968c35e67025bce7f160248ff1e5cd1a5bba96cd1ee65f2bd9fd2"
+        },
+        "size": 38071365,
+        "url": "https://fill-data.papermc.io/v1/objects/531f3cbdb1f968c35e67025bce7f160248ff1e5cd1a5bba96cd1ee65f2bd9fd2/paper-1.19-79-mojang.jar"
+      },
+      "server:default": {
+        "name": "paper-1.19-79.jar",
+        "checksums": {
+          "sha256": "9d536fec585e7bc6380f935a0a0e75354d28a0f0b6253a30aafffdb735b70da1"
+        },
+        "size": 38158795,
+        "url": "https://fill-data.papermc.io/v1/objects/9d536fec585e7bc6380f935a0a0e75354d28a0f0b6253a30aafffdb735b70da1/paper-1.19-79.jar"
+      }
+    }
+  },
+  {
+    "id": 5,
+    "time": "2022-06-12T17:35:04.387Z",
+    "channel": "ALPHA",
+    "downloads": {
+      "server:mojang": {
+        "name": "paper-1.19-5-mojang.jar",
+        "checksums": {
+          "sha256": "e85a7e0279fac514dcd40982e21d7489e65e0c9fe5a2ad8803c245bdc620405a"
+        },
+        "size": 36093297,
+        "url": "https://fill-data.papermc.io/v1/objects/e85a7e0279fac514dcd40982e21d7489e65e0c9fe5a2ad8803c245bdc620405a/paper-1.19-5-mojang.jar"
+      },
+      "server:default": {
+        "name": "paper-1.19-5.jar",
+        "checksums": {
+          "sha256": "c121d13dfe16fbbfb633a4349db06c547827138e68eed1af9f1267251b157953"
+        },
+        "size": 36180620,
+        "url": "https://fill-data.papermc.io/v1/objects/c121d13dfe16fbbfb633a4349db06c547827138e68eed1af9f1267251b157953/paper-1.19-5.jar"
+      }
+    }
+  }
+]

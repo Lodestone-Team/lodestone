@@ -674,8 +674,9 @@ impl MacroExecutor {
                         Ok(runtime) => runtime,
                         Err(_) => {
                             error!("Failed to create macro runtime");
-                            let _ = started_tx.send(Err("Failed to create macro runtime".into()));
+                            // record first, so spawn's error means the macro is gone
                             recorder.error("Failed to create macro runtime");
+                            let _ = started_tx.send(Err("Failed to create macro runtime".into()));
                             return;
                         }
                     };
@@ -720,15 +721,17 @@ impl MacroExecutor {
                             };
                             if let Err(reason) = start() {
                                 error!("Macro {pid} did not start: {reason}");
-                                let _ = started_tx.send(Err(reason.clone()));
+                                // record first, so that when spawn returns the error, the
+                                // macro has left the process table and its status is known
                                 recorder.record(if handle.is_killed() {
                                     ExitStatus::Killed { time: now() }
                                 } else {
                                     ExitStatus::Error {
                                         time: now(),
-                                        error_msg: reason,
+                                        error_msg: reason.clone(),
                                     }
                                 });
+                                let _ = started_tx.send(Err(reason));
                                 return;
                             }
 
@@ -1254,9 +1257,9 @@ mod tests {
     use std::{
         borrow::Cow,
         cell::RefCell,
+        collections::{HashMap, HashSet},
         rc::Rc,
-        sync::atomic::{AtomicBool, Ordering},
-        time::Duration,
+        sync::{Arc, LazyLock, Mutex},
     };
 
     use deno_core::{op2, OpState};
@@ -1291,21 +1294,65 @@ mod tests {
         Err(deno_core::anyhow::anyhow!("failure from rust").into())
     }
 
-    static SIDE_EFFECT_DONE: AtomicBool = AtomicBool::new(false);
-    static SPAWNED_TASK_DONE: AtomicBool = AtomicBool::new(false);
-    static ABORTABLE_WAIT_DROPPED: AtomicBool = AtomicBool::new(false);
+    /// Checkpoints that macros and ops reach, by name. Each test uses its own names, so
+    /// tests running at the same time do not see each other's checkpoints.
+    static REACHED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+    /// Gates that ops wait on until the test opens them, by name.
+    static GATES: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Notify>>>> =
+        LazyLock::new(Default::default);
 
-    /// Like `wait_till_rcon_available`: a wait that never finishes on its own.
+    fn mark(name: &str) {
+        REACHED.lock().unwrap().insert(name.to_string());
+    }
+
+    fn reached(name: &str) -> bool {
+        REACHED.lock().unwrap().contains(name)
+    }
+
+    async fn wait_reached(name: &str) {
+        crate::test_util::wait_until(&format!("{name} is reached"), || {
+            let reached = reached(name);
+            async move { reached }
+        })
+        .await;
+    }
+
+    fn gate(name: &str) -> Arc<tokio::sync::Notify> {
+        GATES
+            .lock()
+            .unwrap()
+            .entry(name.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// Opens a gate; an op that waits on it later passes at once.
+    fn open_gate(name: &str) {
+        gate(name).notify_one();
+    }
+
+    /// Lets a macro tell the test how far it got.
+    #[op2(fast)]
+    fn mark_reached(#[string] name: &str) {
+        mark(name);
+    }
+
+    /// Like `wait_till_rcon_available`: a wait that never finishes on its own. Reaches
+    /// `{name}:started`, and `{name}:dropped` once the wait is dropped.
     #[op2]
-    async fn abortable_wait(state: Rc<RefCell<OpState>>) -> Result<(), OpError> {
-        struct SetOnDrop;
+    async fn abortable_wait(
+        state: Rc<RefCell<OpState>>,
+        #[string] name: String,
+    ) -> Result<(), OpError> {
+        struct SetOnDrop(String);
         impl Drop for SetOnDrop {
             fn drop(&mut self) {
-                ABORTABLE_WAIT_DROPPED.store(true, Ordering::SeqCst);
+                mark(&format!("{}:dropped", self.0));
             }
         }
-        op_on_main_abortable(&state, async {
-            let _guard = SetOnDrop;
+        op_on_main_abortable(&state, async move {
+            let _guard = SetOnDrop(name.clone());
+            mark(&format!("{name}:started"));
             std::future::pending::<()>().await;
             Ok(())
         })
@@ -1313,23 +1360,32 @@ mod tests {
     }
 
     /// Like instance ops: a side effect run on the main runtime that takes a while.
+    /// Reaches `{name}:started`, then waits for the gate `name`, then reaches `{name}:done`.
     #[op2]
-    async fn slow_side_effect(state: Rc<RefCell<OpState>>) -> Result<(), OpError> {
-        op_on_main(&state, async {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            SIDE_EFFECT_DONE.store(true, Ordering::SeqCst);
+    async fn slow_side_effect(
+        state: Rc<RefCell<OpState>>,
+        #[string] name: String,
+    ) -> Result<(), OpError> {
+        op_on_main(&state, async move {
+            mark(&format!("{name}:started"));
+            gate(&name).notified().await;
+            mark(&format!("{name}:done"));
             Ok(())
         })
         .await
     }
 
-    /// Like `start_instance`: spawns a task that must outlive the macro.
+    /// Like `start_instance`: spawns a task that must outlive the macro. The task waits
+    /// for the gate `name`, then reaches `{name}:done`.
     #[op2]
-    async fn spawn_background_task(state: Rc<RefCell<OpState>>) -> Result<(), OpError> {
-        op_on_main(&state, async {
-            tokio::spawn(async {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                SPAWNED_TASK_DONE.store(true, Ordering::SeqCst);
+    async fn spawn_background_task(
+        state: Rc<RefCell<OpState>>,
+        #[string] name: String,
+    ) -> Result<(), OpError> {
+        op_on_main(&state, async move {
+            tokio::spawn(async move {
+                gate(&name).notified().await;
+                mark(&format!("{name}:done"));
             });
             Ok(())
         })
@@ -1347,6 +1403,7 @@ mod tests {
                     slow_side_effect(),
                     spawn_background_task(),
                     abortable_wait(),
+                    mark_reached(),
                 ]),
                 ..Default::default()
             };
@@ -1678,6 +1735,7 @@ mod tests {
                 "main.ts",
                 r#"
                 const core = Deno[Deno.internal].core;
+                core.ops.mark_reached("abort_waiting:running");
                 await core.opAsync("next_event");
                 throw new Error("unreachable");
                 "#,
@@ -1685,7 +1743,7 @@ mod tests {
             None,
         )
         .await;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        wait_reached("abort_waiting:running").await;
         executor.abort_macro(spawn_result.macro_pid).unwrap();
         let exit_status = exit_status_of(spawn_result).await;
         assert!(
@@ -1697,9 +1755,15 @@ mod tests {
     // multi-threaded like production: deno_core ops need the per-macro runtime
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_abort_busy_macro() {
-        let (executor, spawn_result, _) =
-            spawn_macro(&[("main.ts", "while (true) {}")], None).await;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let (executor, spawn_result, _) = spawn_macro(
+            &[(
+                "main.ts",
+                r#"Deno[Deno.internal].core.ops.mark_reached("abort_busy:running"); while (true) {}"#,
+            )],
+            None,
+        )
+        .await;
+        wait_reached("abort_busy:running").await;
         executor.abort_macro(spawn_result.macro_pid).unwrap();
         let exit_status = exit_status_of(spawn_result).await;
         assert!(
@@ -1728,7 +1792,7 @@ mod tests {
                     Array.from({ length: 20 }, () => core.opAsync("async_hello_world")),
                 );
                 if (values.some((v) => v !== "async Hello World")) throw new Error("bad op");
-                await core.opAsync("spawn_background_task");
+                await core.opAsync("spawn_background_task", "pending_ops_task");
                 "#,
             )],
             None,
@@ -1834,24 +1898,27 @@ mod tests {
                 "main.ts",
                 r#"
                 const core = Deno[Deno.internal].core;
-                await core.opAsync("spawn_background_task");
-                await core.opAsync("slow_side_effect");
+                await core.opAsync("spawn_background_task", "kill_task");
+                await core.opAsync("slow_side_effect", "kill_side_effect");
                 "#,
             )],
             None,
         )
         .await;
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        wait_reached("kill_side_effect:started").await;
         executor.abort_macro(spawn_result.macro_pid).unwrap();
         let exit_status = exit_status_of(spawn_result).await;
         assert!(
             matches!(exit_status, ExitStatus::Killed { .. }),
             "{exit_status:?}"
         );
-        assert!(!SIDE_EFFECT_DONE.load(Ordering::SeqCst));
-        tokio::time::sleep(Duration::from_millis(1000)).await;
-        assert!(SIDE_EFFECT_DONE.load(Ordering::SeqCst));
-        assert!(SPAWNED_TASK_DONE.load(Ordering::SeqCst));
+        // both are still waiting for their gates after the macro is gone
+        assert!(!reached("kill_side_effect:done"));
+        assert!(!reached("kill_task:done"));
+        open_gate("kill_side_effect");
+        open_gate("kill_task");
+        wait_reached("kill_side_effect:done").await;
+        wait_reached("kill_task:done").await;
     }
 
     /// Killing a macro aborts its abortable main-runtime waits, so they release what they hold.
@@ -1861,29 +1928,33 @@ mod tests {
         let (executor, spawn_result, _) = spawn_macro(
             &[(
                 "main.ts",
-                r#"await Deno[Deno.internal].core.opAsync("abortable_wait");"#,
+                r#"await Deno[Deno.internal].core.opAsync("abortable_wait", "kill_wait");"#,
             )],
             None,
         )
         .await;
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(!ABORTABLE_WAIT_DROPPED.load(Ordering::SeqCst));
+        wait_reached("kill_wait:started").await;
+        assert!(!reached("kill_wait:dropped"));
         executor.abort_macro(spawn_result.macro_pid).unwrap();
         let exit_status = exit_status_of(spawn_result).await;
         assert!(
             matches!(exit_status, ExitStatus::Killed { .. }),
             "{exit_status:?}"
         );
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(ABORTABLE_WAIT_DROPPED.load(Ordering::SeqCst));
+        wait_reached("kill_wait:dropped").await;
     }
 
     /// The exit future observes a macro that exited before it was first polled.
     // multi-threaded like production: deno_core ops need the per-macro runtime
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_exit_future_polled_late() {
-        let (_executor, spawn_result, _) = spawn_macro(&[("main.ts", "1 + 1;")], None).await;
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        let (executor, spawn_result, _) = spawn_macro(&[("main.ts", "1 + 1;")], None).await;
+        let pid = spawn_result.macro_pid;
+        crate::test_util::wait_until("the macro has exited", || {
+            let executor = executor.clone();
+            async move { executor.get_macro_status(pid).await.is_some() }
+        })
+        .await;
         let exit_status = exit_status_of(spawn_result).await;
         assert!(exit_status.is_success(), "{exit_status:?}");
     }
@@ -1952,29 +2023,34 @@ mod tests {
         let temp_dir = tempfile::TempDir::with_prefix("macro_test").unwrap();
         let path = temp_dir.path().join("main.ts");
         std::fs::write(&path, "1 + 1;").unwrap();
-        let started = std::time::Instant::now();
-        let result = executor
-            .spawn(
-                path,
-                Vec::new(),
-                CausedBy::Unknown,
-                Box::new(BasicMainWorkerGenerator),
-                Some("let config = { name: 'it's broken' };".to_string()),
-                None,
-                None,
-            )
-            .await;
-        let err = match result {
-            Ok(_) => panic!("spawn succeeded"),
-            Err(e) => format!("{:#}", e.source),
-        };
-        assert!(err.contains("config"), "{err}");
-        assert!(started.elapsed() < Duration::from_secs(5));
-        assert!(executor.macro_process_table.is_empty());
-        assert!(matches!(
-            executor.get_macro_status(super::MacroPID(0)).await,
-            Some(ExitStatus::Error { .. })
-        ));
+        // several times, since the macro thread used to report the failure before it had
+        // cleaned up, and this test saw the macro still in the process table now and then
+        for pid in 0..5 {
+            let result = executor
+                .spawn(
+                    path.clone(),
+                    Vec::new(),
+                    CausedBy::Unknown,
+                    Box::new(BasicMainWorkerGenerator),
+                    Some("let config = { name: 'it's broken' };".to_string()),
+                    None,
+                    None,
+                )
+                .await;
+            let err = match result {
+                Ok(_) => panic!("spawn succeeded"),
+                Err(e) => format!("{:#}", e.source),
+            };
+            assert!(err.contains("config"), "{err}");
+            // it failed with the reason, not after the start timeout
+            assert!(!err.contains("did not start within"), "{err}");
+            // when spawn returns, the macro is gone and its status is known
+            assert!(executor.macro_process_table.is_empty());
+            assert!(matches!(
+                executor.get_macro_status(super::MacroPID(pid)).await,
+                Some(ExitStatus::Error { .. })
+            ));
+        }
     }
 
     /// Restricted permissions passed to `spawn` are enforced.
@@ -2260,9 +2336,15 @@ mod tests {
     // multi-threaded like production: deno_core ops need the per-macro runtime
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_kill_switch_then_shutdown_kills_running_macros() {
-        let (executor, spawn_result, _) =
-            spawn_macro(&[("main.ts", "while (true) {}")], None).await;
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let (executor, spawn_result, _) = spawn_macro(
+            &[(
+                "main.ts",
+                r#"Deno[Deno.internal].core.ops.mark_reached("shutdown_busy:running"); while (true) {}"#,
+            )],
+            None,
+        )
+        .await;
+        wait_reached("shutdown_busy:running").await;
         executor.code_execution.set(false);
         executor.shutdown_all();
         let exit_status = exit_status_of(spawn_result).await;

@@ -309,41 +309,53 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn write_error_does_not_end_the_task() {
+        use crate::test_util::wait_until;
         let (_dir, pool) = temp_pool().await;
-        // make every insert fail, like a full disk would
+        // make inserts of one event fail, like a full disk would
         sqlx::query(
-            "CREATE TRIGGER fail_insert BEFORE INSERT ON ClientEvents BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+            "CREATE TRIGGER fail_insert BEFORE INSERT ON ClientEvents WHEN NEW.details = 'poison' \
+             BEGIN SELECT RAISE(ABORT, 'disk full'); END",
         )
         .execute(&pool)
         .await
         .unwrap();
         let (tx, rx) = tokio::sync::broadcast::channel(16);
         let task = tokio::spawn(write_event_to_db_task(rx, pool.clone()));
-        let event = || {
-            crate::events::new_fs_event(
+        let event = |details: &str| {
+            let mut event = crate::events::new_fs_event(
                 FSOperation::Read,
                 FSTarget::File(PathBuf::from("/a")),
                 CausedBy::System,
-            )
+            );
+            event.details = details.to_string();
+            event
         };
-        tx.send(event()).unwrap();
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        // the old code returned here, which shut down the whole core
-        assert!(!task.is_finished());
+        tx.send(event("poison")).unwrap();
+        // once the task has taken the event, a later one goes into the next batch
+        wait_until("the writer received the event", || {
+            let queued = tx.len();
+            async move { queued == 0 }
+        })
+        .await;
+        tx.send(event("fine")).unwrap();
 
-        // once the database works again, events are stored
-        sqlx::query("DROP TRIGGER fail_insert")
-            .execute(&pool)
-            .await
-            .unwrap();
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        tx.send(event()).unwrap();
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ClientEvents")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert!(count >= 1);
+        // the failing batch is retried and dropped; the old code ended the task instead,
+        // which shut down the whole core
+        let stored = |details: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM ClientEvents WHERE details = ?1")
+                    .bind(details)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap()
+            }
+        };
+        wait_until("the next event is stored", || async {
+            stored("fine").await == 1
+        })
+        .await;
+        assert_eq!(stored("poison").await, 0);
         assert!(!task.is_finished());
         task.abort();
     }

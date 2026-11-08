@@ -1,0 +1,144 @@
+[
+  {
+    "id": "4SHylIO9",
+    "project_id": "hvFnDODi",
+    "name": "0.1.3",
+    "version_number": "0.1.3",
+    "version_type": "release",
+    "game_versions": [
+      "1.19",
+      "1.19.1",
+      "1.19.2",
+      "1.19.3",
+      "1.19.4",
+      "1.20",
+      "1.20.1",
+      "1.20.2",
+      "1.20.3",
+      "1.20.4",
+      "1.20.5",
+      "1.20.6"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "date_published": "2022-06-08T01:13:20.410914Z",
+    "downloads": 12679190,
+    "files": [
+      {
+        "hashes": {
+          "sha1": "0dfa8b03ed408fb7fdada29e01cfebba02af1049",
+          "sha512": "dc3766352c645f6da92b13000dffa80584ee58093c925c2154eb3c125a2b2f9a3af298202e2658b039c6ee41e81ca9a2e9d4b942561f7085239dd4421e0cce0a"
+        },
+        "url": "https://cdn.modrinth.com/data/hvFnDODi/versions/0.1.3/lazydfu-0.1.3.jar",
+        "filename": "lazydfu-0.1.3.jar",
+        "primary": true,
+        "size": 14531
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "id": "C6e265zK",
+    "project_id": "hvFnDODi",
+    "name": "0.1.2",
+    "version_number": "0.1.2",
+    "version_type": "release",
+    "game_versions": [
+      "1.14",
+      "1.14.1",
+      "1.14.2",
+      "1.14.3",
+      "1.14.4",
+      "1.15",
+      "1.15.1",
+      "1.15.2",
+      "1.16",
+      "1.16.1",
+      "1.16.2",
+      "1.16.3",
+      "1.16.4",
+      "1.16.5",
+      "1.17",
+      "1.17.1",
+      "1.18",
+      "1.18.1",
+      "1.18.2"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "date_published": "2021-02-19T22:53:25.812236Z",
+    "downloads": 2473187,
+    "files": [
+      {
+        "hashes": {
+          "sha1": "2efec5781f1271bdcdae462eee402ccb97bff6fe",
+          "sha512": "20b1cd3e62051c7d7498ecdc49912acb918fc4748d469c67c078cc97197289760e64b9339a4d4a03d175f648c8be8601d131776a9a6bdb8832cecdda6fc46498"
+        },
+        "url": "https://cdn.modrinth.com/data/hvFnDODi/versions/0.1.2/lazydfu-0.1.2.jar",
+        "filename": "lazydfu-0.1.2.jar",
+        "primary": true,
+        "size": 15517
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "id": "aBDhdWUD",
+    "project_id": "hvFnDODi",
+    "name": "0.1.1",
+    "version_number": "0.1.1",
+    "version_type": "release",
+    "game_versions": [
+      "1.16.4",
+      "1.16.5"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "date_published": "2021-01-15T19:05:30.486786Z",
+    "downloads": 30312,
+    "files": [
+      {
+        "hashes": {
+          "sha1": "c5c2fe768a4839ab7ca27a13c03bdc8704fbe08d",
+          "sha512": "c677103437d2336dd15415b32f0260db424ad9636994abf586b6ec4fb05358cbf94268af4b6680aebe0b745d63227db166f1d4de2c2f04f15ad4608462d5b16b"
+        },
+        "url": "https://cdn.modrinth.com/data/hvFnDODi/versions/0.1.1/lazydfu-0.1.1.jar",
+        "filename": "lazydfu-0.1.1.jar",
+        "primary": false,
+        "size": 15520
+      }
+    ],
+    "dependencies": []
+  },
+  {
+    "id": "8tFjDrHf",
+    "project_id": "hvFnDODi",
+    "name": "0.1.0",
+    "version_number": "0.1.0",
+    "version_type": "release",
+    "game_versions": [
+      "1.16.4"
+    ],
+    "loaders": [
+      "fabric"
+    ],
+    "date_published": "2021-01-04T05:14:07.262636Z",
+    "downloads": 1294,
+    "files": [
+      {
+        "hashes": {
+          "sha1": "9794c68fb28cc8dcd8ca1e6d1b2c3cc86fc9d9f0",
+          "sha512": "9fc69ba377803b4047206f01e79f07151617eb3fbb2030e13cc87c496b95f5613a9c7f69c89850f149bba229fca22fa5de23c46b2a29af79919ed586c1c736a7"
+        },
+        "url": "https://cdn.modrinth.com/data/hvFnDODi/versions/0.1.0/lazydfu-0.1.0.jar",
+        "filename": "lazydfu-0.1.0.jar",
+        "primary": false,
+        "size": 15519
+      }
+    ],
+    "dependencies": []
+  }
+]
