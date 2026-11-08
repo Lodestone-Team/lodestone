@@ -15,19 +15,32 @@ import Button from './Atoms/Button';
 import { PlayitSignupData } from 'bindings/PlayitSignupData';
 import { PlayitTunnelInfo } from 'bindings/PlayitTunnelInfo';
 import IconButton from './Atoms/IconButton';
-import { faCarTunnel, faCircle, faCopy, faPowerOff, faRefresh } from '@fortawesome/free-solid-svg-icons';
+import {
+  faCarTunnel,
+  faCircle,
+  faCopy,
+  faPowerOff,
+  faRefresh,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { TunnelListCard, TunnelListItem } from './TunnelListCard';
 import Label, { LabelColor } from './Atoms/Label';
 import PlayitggSignupModal from './PlayitggSignupModal';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
+import { MessageKey, useI18n } from 'i18n';
 
 enum RunnerStatus {
-  Stopped = "Stopped",
-  Loading = "Loading",
-  Started = "Started"
+  Stopped = 'Stopped',
+  Loading = 'Loading',
+  Started = 'Started',
 }
+
+const runnerStatusLabels = {
+  [RunnerStatus.Stopped]: 'console.playit.runner.Stopped',
+  [RunnerStatus.Loading]: 'console.playit.runner.Loading',
+  [RunnerStatus.Started]: 'console.playit.runner.Started',
+} as const satisfies Record<RunnerStatus, MessageKey>;
 
 const RUNNER_STATUS_KEY = ['playitgg', 'status'];
 
@@ -48,9 +61,12 @@ const TunnelsSkeleton = () => (
 );
 
 export function PlayitggOverview() {
-  const [signupData, setSignupData] = React.useState<null | PlayitSignupData>(null);
+  const [signupData, setSignupData] = React.useState<null | PlayitSignupData>(
+    null
+  );
   const [showSignupModal, setShowSignupModal] = React.useState<boolean>(false);
   const queryClient = useQueryClient();
+  const { t, rich } = useI18n();
   // fetched when the page opens, then kept up to date by the event stream
   const runnerQuery = useQuery<RunnerStatus>({
     queryKey: RUNNER_STATUS_KEY,
@@ -95,7 +111,9 @@ export function PlayitggOverview() {
     try {
       setSignupData(await generatePlayitSignupLink());
     } catch (e) {
-      toast.error(`Failed to generate a signup link: ${errorToString(e)}`);
+      toast.error(
+        t('console.playit.signupFailed', { error: errorToString(e) })
+      );
     }
   };
 
@@ -106,7 +124,7 @@ export function PlayitggOverview() {
       void queryClient.invalidateQueries({ queryKey: TUNNELS_KEY });
     } catch (e) {
       toast.error(
-        `Failed to verify the playit.gg account: ${errorToString(e)}`
+        t('console.playit.verifyFailed', { error: errorToString(e) })
       );
     }
   };
@@ -114,57 +132,72 @@ export function PlayitggOverview() {
   const toggleRunner = async () => {
     if (runnerStatus === RunnerStatus.Stopped) {
       const error = await startCli();
-      if (error) toast.error(`Failed to start the playit.gg runner: ${error}`);
+      if (error) toast.error(t('console.playit.startFailed', { error }));
       else setRunnerStatus(RunnerStatus.Loading);
     } else {
       const error = await stopCli();
-      if (error) toast.error(`Failed to stop the playit.gg runner: ${error}`);
+      if (error) toast.error(t('console.playit.stopFailed', { error }));
       else setRunnerStatus(RunnerStatus.Stopped);
     }
   };
 
-  let statusColor = "text-gray-faded/30";
-  let labelColor = "gray";
+  let statusColor = 'text-gray-faded/30';
+  let labelColor = 'gray';
 
   switch (runnerStatus) {
     case RunnerStatus.Started:
-      statusColor = 'text-green-300'
-      labelColor = 'green'
+      statusColor = 'text-green-300';
+      labelColor = 'green';
       break;
     case RunnerStatus.Loading:
-      statusColor = 'text-yellow-300'
-      labelColor = "yellow"
+      statusColor = 'text-yellow-300';
+      labelColor = 'yellow';
       break;
   }
 
   return (
     <div>
-      <PlayitggSignupModal modalOpen={showSignupModal} setModalOpen={setShowSignupModal}>
+      <PlayitggSignupModal
+        modalOpen={showSignupModal}
+        setModalOpen={setShowSignupModal}
+      >
         <h2 className="text-h2 font-extrabold tracking-medium">
-          Set Up Playitgg
+          {t('console.playit.setupTitle')}
         </h2>
-        {
-          signupData === null ?
-            <>
-              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-                You need to sign up for Playitgg before you can use this feature. Generate a signup link with the button below!
-              </h3>
-              <Button className='mt-6' label="Generate Link" onClick={generateLink} />
-            </>
-            :
-            <>
-              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-                Follow the link below and make an account! After you make the account and get to the dashboard, press Verify below.
-              </h3>
-              <a target="_blank" href={signupData.url}>{signupData.url}</a>
-              <Button className="mt-6" label="Verify" onClick={() => { handleVerifySignup(); setShowSignupModal(false); }} />
-            </>
-        }
+        {signupData === null ? (
+          <>
+            <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
+              {t('console.playit.setupIntro')}
+            </h3>
+            <Button
+              className="mt-6"
+              label={t('console.playit.generateLink')}
+              onClick={generateLink}
+            />
+          </>
+        ) : (
+          <>
+            <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
+              {t('console.playit.setupFollowLink')}
+            </h3>
+            <a target="_blank" href={signupData.url}>
+              {signupData.url}
+            </a>
+            <Button
+              className="mt-6"
+              label={t('console.playit.verify')}
+              onClick={() => {
+                handleVerifySignup();
+                setShowSignupModal(false);
+              }}
+            />
+          </>
+        )}
       </PlayitggSignupModal>
-      {verified === null ?
+      {verified === null ? (
         verifyError === null ? (
           // the page's shape while the status loads (after a moment)
-          <SkeletonGroup label="Loading playit.gg">
+          <SkeletonGroup label={t('console.playit.loading')}>
             <div className="flex flex-row items-center gap-2">
               <Skeleton className="h-7 w-52" />
               <Skeleton className="size-8" />
@@ -177,25 +210,25 @@ export function PlayitggOverview() {
           </SkeletonGroup>
         ) : (
           <h2 className="text-h2 font-extrabold tracking-medium">
-            {`Failed to load playit.gg status: ${verifyError}`}
+            {t('console.playit.loadFailed', { error: verifyError })}
           </h2>
         )
-        :
+      ) : (
         <div>
-          <div className='flex flex-row'>
+          <div className="flex flex-row">
             <h2 className="text-h2 font-extrabold tracking-medium">
-              Playitgg Runner
+              {t('console.playit.runnerTitle')}
             </h2>
             <IconButton
               icon={faPowerOff}
               onClick={() => {
                 if (verified == false) {
-                  setShowSignupModal(true)
+                  setShowSignupModal(true);
                 } else {
                   toggleRunner();
                 }
               }}
-              className='ml-2'
+              className="ml-2"
               disabled={!verified}
             />
             {runnerQuery.isPending ? (
@@ -209,20 +242,30 @@ export function PlayitggOverview() {
                 color={labelColor as LabelColor}
                 className="mt-[6px] ml-2"
               >
-                {runnerStatus}
+                {t(runnerStatusLabels[runnerStatus])}
               </Label>
             )}
           </div>
-          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-            {verified === true ?
-              <>If you&apos;re having trouble, make sure your tunnel is set up correctly on the website
-                and that <b>your server is actually running</b>!</>
-              : <>You need to sign up for Playitgg before you can use this. <div className='font-bold hover:cursor-pointer hover:underline' onClick={() => setShowSignupModal(true)}>Press here to sign up.</div></>
-            }
+          <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
+            {verified === true ? (
+              rich('console.playit.trouble', {
+                running: <b>{t('console.playit.troubleRunning')}</b>,
+              })
+            ) : (
+              <>
+                {t('console.playit.signupRequired')}{' '}
+                <div
+                  className="font-bold hover:cursor-pointer hover:underline"
+                  onClick={() => setShowSignupModal(true)}
+                >
+                  {t('console.playit.signupLink')}
+                </div>
+              </>
+            )}
           </h3>
           <div className="flex flex-row">
             <h2 className="mt-9 text-h2 font-extrabold tracking-medium">
-              Tunnels
+              {t('console.playit.tunnels')}
             </h2>
             <FontAwesomeIcon
               icon={faRefresh}
@@ -231,31 +274,50 @@ export function PlayitggOverview() {
                 tunnelsQuery.isFetching && !loadingTunnels && 'animate-spin'
               )}
               onClick={() => loadTunnels()}
+              title={t('console.playit.refreshTunnels')}
             />
           </div>
-          <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-            Your tunnels are listed below. You can create more and change the settings on your dashboard on the <a target="_blank" className='underline' href="https://playit.gg/">playit.gg</a> website.
+          <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
+            {rich('console.playit.tunnelsIntro', {
+              link: (
+                <a
+                  target="_blank"
+                  className="underline"
+                  href="https://playit.gg/"
+                >
+                  playit.gg
+                </a>
+              ),
+            })}
           </h3>
           {loadingTunnels ? (
-            <SkeletonGroup label="Loading tunnels">
+            <SkeletonGroup label={t('console.playit.loadingTunnels')}>
               <TunnelsSkeleton />
             </SkeletonGroup>
-          ) : playitTunnels.length > 0 ?
-            <TunnelListCard className="mt-2">{playitTunnels.map(
-              tunnel => (
-                <TunnelListItem className='m-2' key={tunnel.server_address} >
-                  <div className='flex flex-row'>
-                    <h3 className="text-h3 font-bold tracking-medium text-white ">
+          ) : playitTunnels.length > 0 ? (
+            <TunnelListCard className="mt-2">
+              {playitTunnels.map((tunnel) => (
+                <TunnelListItem className="m-2" key={tunnel.server_address}>
+                  <div className="flex flex-row">
+                    <h3 className="text-h3 font-bold tracking-medium text-white">
                       {tunnel.name}
                     </h3>
                     <FontAwesomeIcon
                       icon={faCircle}
-                      className={clsx(`ml-2 mt-[9px] select-none text-[9px]`, (tunnel.active && runnerStatus === RunnerStatus.Started) ? 'text-green-300' : `text-gray-faded/30`)}
+                      className={clsx(
+                        `mt-[9px] ml-2 text-[9px] select-none`,
+                        tunnel.active && runnerStatus === RunnerStatus.Started
+                          ? 'text-green-300'
+                          : `text-gray-faded/30`
+                      )}
                     />
                   </div>
                   <h3
                     className="text-h3 font-bold tracking-medium text-white/50 hover:cursor-pointer hover:underline"
-                    onClick={() => { navigator.clipboard.writeText(tunnel.server_address) }}
+                    onClick={() => {
+                      navigator.clipboard.writeText(tunnel.server_address);
+                    }}
+                    title={t('console.playit.copyAddress')}
                   >
                     {tunnel.server_address}
                     <FontAwesomeIcon
@@ -265,30 +327,41 @@ export function PlayitggOverview() {
                   </h3>
                   <div className="flex flex-row">
                     <h3 className="text-h3 tracking-medium text-white/50 hover:cursor-pointer">
-                      <i>Local server at {tunnel.local_ip}:{tunnel.local_port}</i>
+                      <i>
+                        {t('console.playit.localServer', {
+                          address: `${tunnel.local_ip}:${tunnel.local_port}`,
+                        })}
+                      </i>
                     </h3>
                   </div>
                 </TunnelListItem>
-              )
-            )}</TunnelListCard>
-            :
+              ))}
+            </TunnelListCard>
+          ) : (
             <TunnelListCard className="mt-2 border-2 border-dashed p-5">
               <TunnelListItem key="not found">
-                <div className='flex flex-row'>
+                <div className="flex flex-row">
                   <FontAwesomeIcon
                     icon={faCarTunnel}
                     className="mx-1 h-4 w-4 text-white/50"
                   />
-                  <div className="mx-1 text-medium italic text-white/50">
-                    {verified === true ? "You haven't created any tunnels yet" : "You haven't signed up yet"}
+                  <div className="mx-1 text-medium text-white/50 italic">
+                    {verified === true
+                      ? t('console.playit.noTunnels')
+                      : t('console.playit.notSignedUp')}
                   </div>
                 </div>
               </TunnelListItem>
             </TunnelListCard>
-          }
-          <a className="mt-6 block text-h3 font-medium tracking-medium text-white/50 hover:cursor-pointer hover:underline" href="https://github.com/Lodestone-Team/lodestone/wiki/Playit.gg-Integration">Need help? </a>
+          )}
+          <a
+            className="mt-6 block text-h3 font-medium tracking-medium text-white/50 hover:cursor-pointer hover:underline"
+            href="https://github.com/Lodestone-Team/lodestone/wiki/Playit.gg-Integration"
+          >
+            {t('console.playit.help')}
+          </a>
         </div>
-      }
-    </div >
+      )}
+    </div>
   );
 }

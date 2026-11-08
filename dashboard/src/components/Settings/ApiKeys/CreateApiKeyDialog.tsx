@@ -12,7 +12,7 @@ import {
   addOwnApiKeyToCache,
   API_KEY_EXPIRY_CHOICES,
   apiKeyErrorMessage,
-  ApiKeyExpiryLabel,
+  ApiKeyExpiry,
   countPermissions,
   createApiKey,
   DEFAULT_API_KEY_EXPIRY,
@@ -23,17 +23,21 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 import { useInstanceList } from 'data/InstanceList';
 import { useUserInfo } from 'data/UserInfo';
 import { Form, Formik, FormikHelpers } from 'formik';
+import { t as translate, useT } from 'i18n';
 import { Fragment } from 'react';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import * as yup from 'yup';
 import ApiKeyScopeEditor from './ApiKeyScopeEditor';
 
-const FULL_ACCESS = 'Full access (everything you can do)';
-const CUSTOM_ACCESS = 'Custom';
+// the access choices (form values); their labels are translated at render
+const FULL_ACCESS = 'full';
+const CUSTOM_ACCESS = 'custom';
+
+const NAME_MAX_LENGTH = 64;
 
 type CreateApiKeyValues = {
   name: string;
-  expiry: ApiKeyExpiryLabel;
+  expiry: ApiKeyExpiry;
   access: typeof FULL_ACCESS | typeof CUSTOM_ACCESS;
   permissions: UserPermission;
 };
@@ -49,8 +53,10 @@ const validationSchema = yup.object({
   name: yup
     .string()
     .trim()
-    .required('Name is required')
-    .max(64, 'Name must be at most 64 characters'),
+    .required(() => translate('settings.apiKeys.nameRequired'))
+    .max(NAME_MAX_LENGTH, () =>
+      translate('settings.apiKeys.nameTooLong', { max: NAME_MAX_LENGTH })
+    ),
 });
 
 /**
@@ -66,6 +72,7 @@ export default function CreateApiKeyDialog({
   onClose: () => void;
   onCreated: (created: CreatedApiKey) => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const { data: user } = useUserInfo();
   const { data: instanceList } = useInstanceList();
@@ -74,6 +81,15 @@ export default function CreateApiKeyDialog({
     a.name.localeCompare(b.name)
   );
 
+  const expiryLabel = (id: string) => {
+    const choice = API_KEY_EXPIRY_CHOICES.find((c) => c.id === id);
+    return choice ? t(choice.labelKey) : id;
+  };
+  const accessLabel = (id: string) =>
+    id === CUSTOM_ACCESS
+      ? t('settings.apiKeys.access.custom')
+      : t('settings.apiKeys.access.full');
+
   const onSubmit = async (
     values: CreateApiKeyValues,
     actions: FormikHelpers<CreateApiKeyValues>
@@ -81,7 +97,7 @@ export default function CreateApiKeyDialog({
     let scope: ApiKeyScope;
     if (values.access === CUSTOM_ACCESS) {
       if (countPermissions(values.permissions).permissions === 0) {
-        actions.setStatus({ error: 'Choose at least one permission.' });
+        actions.setStatus({ error: t('settings.apiKeys.chooseOne') });
         return;
       }
       scope = { type: 'custom', permissions: values.permissions };
@@ -110,12 +126,10 @@ export default function CreateApiKeyDialog({
           <div className="flex min-h-full items-center justify-center p-4">
             <ModalPanel className="flex w-180 max-w-full flex-col items-stretch justify-center gap-4 rounded-xl bg-gray-850 p-6">
               <Dialog.Title className="text-h2 font-extrabold tracking-tight text-gray-300">
-                Create API key
+                {t('settings.apiKeys.create')}
               </Dialog.Title>
               <p className="text-medium font-medium tracking-medium text-white/50">
-                The CLI, scripts and agents can sign in with an API key instead
-                of your password. Give each key a name, a short expiry and only
-                the access it needs.
+                {t('settings.apiKeys.createLead')}
               </p>
               <Formik
                 initialValues={initialValues()}
@@ -128,26 +142,28 @@ export default function CreateApiKeyDialog({
                     autoComplete={DISABLE_AUTOFILL}
                     className="mt-6 flex flex-col gap-12 text-left"
                   >
-                    <InputField name="name" label="Name" />
+                    <InputField
+                      name="name"
+                      label={t('settings.apiKeys.name')}
+                    />
                     <RadioField
                       name="expiry"
-                      label="Expires in"
-                      options={API_KEY_EXPIRY_CHOICES.map((c) => c.label)}
+                      label={t('settings.apiKeys.expiresIn')}
+                      options={API_KEY_EXPIRY_CHOICES.map((c) => c.id)}
+                      optionLabel={expiryLabel}
                     />
-                    {values.expiry === 'Never' && (
+                    {values.expiry === 'never' && (
                       <div className="-mt-6">
                         <WarningAlert>
-                          <p>
-                            A key that never expires works until you revoke it.
-                            Choose an expiry unless you really need it.
-                          </p>
+                          <p>{t('settings.apiKeys.neverWarning')}</p>
                         </WarningAlert>
                       </div>
                     )}
                     <RadioField
                       name="access"
-                      label="Access"
+                      label={t('settings.apiKeys.access')}
                       options={[FULL_ACCESS, CUSTOM_ACCESS]}
+                      optionLabel={accessLabel}
                     />
                     {values.access === CUSTOM_ACCESS && user && (
                       <div className="-mt-4 rounded-lg border border-gray-faded/30 p-4">
@@ -167,15 +183,15 @@ export default function CreateApiKeyDialog({
                         <p>{status.error}</p>
                       </WarningAlert>
                     )}
-                    <div className="flex flex-row justify-end gap-2">
+                    <div className="flex flex-row flex-wrap justify-end gap-2">
                       <Button
-                        label="Cancel"
+                        label={t('common.cancel')}
                         onClick={onClose}
                         disabled={isSubmitting}
                       />
                       <Button
                         type="submit"
-                        label="Create key"
+                        label={t('settings.apiKeys.createKey')}
                         intention="primary"
                         loading={isSubmitting}
                       />

@@ -1,6 +1,7 @@
 import { useQuery, QueryClient } from '@tanstack/react-query';
 import axios, { AxiosError } from 'axios';
 import { InstanceInfo } from 'bindings/InstanceInfo';
+import { t } from 'i18n';
 
 export const updateInstance = (
   uuid: string,
@@ -55,10 +56,10 @@ export const useInstanceList = (enabled = true) =>
     queryFn: () => {
       return axios.get<InstanceInfo[]>('/instance/list').then((response) => {
         if (response.status !== 200) {
-          throw new Error('Invalid status code');
+          throw new Error(t('shell.error.invalidStatusCode'));
         }
         if (!response.data) {
-          throw new Error('Invalid response');
+          throw new Error(t('shell.error.invalidResponse'));
         }
         return response.data.reduce(
           (acc, instance) => ({

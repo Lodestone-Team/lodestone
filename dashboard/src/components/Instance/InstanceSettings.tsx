@@ -8,10 +8,7 @@ import Button from 'components/Atoms/Button';
 import { Toggle } from 'components/Atoms/Toggle';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useUserAuthorized } from 'data/UserInfo';
-import {
-  OWNER_ONLY_ATOM_MESSAGE,
-  useCanControlInstance,
-} from 'data/CodeExecution';
+import { useCanControlInstance } from 'data/CodeExecution';
 import { useQueryClient } from '@tanstack/react-query';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { toast } from 'react-toastify';
@@ -32,25 +29,27 @@ import {
 } from 'components/Settings/SettingsBlocks';
 import { SettingsWithToc } from 'components/Settings/SettingsToc';
 import { notifySaved } from 'components/Settings/savedToast';
+import { type MessageKey, useI18n, useT } from 'i18n';
 
 type StartupSetting = 'auto_start' | 'restart_on_crash';
 
-const STARTUP_SETTINGS: Array<{
-  key: StartupSetting;
-  label: string;
-  description: string;
-}> = [
+// the labels are message keys, translated when rendered
+const STARTUP_SETTINGS = [
   {
     key: 'auto_start',
-    label: 'Auto start',
-    description: 'Start this server when Lodestone Core starts',
+    labelKey: 'server.settings.autoStart',
+    descriptionKey: 'server.settings.autoStartHint',
   },
   {
     key: 'restart_on_crash',
-    label: 'Restart on crash',
-    description: 'Start this server again if it crashes',
+    labelKey: 'server.settings.restartOnCrash',
+    descriptionKey: 'server.settings.restartOnCrashHint',
   },
-];
+] as const satisfies ReadonlyArray<{
+  key: StartupSetting;
+  labelKey: MessageKey;
+  descriptionKey: MessageKey;
+}>;
 
 /** Toggles for auto start and restart on crash. */
 function StartupSettings({
@@ -62,6 +61,7 @@ function StartupSettings({
   canEdit: boolean;
   disabledReason: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   // the value being saved, shown until the instance list has the new value
   const [pending, setPending] = useState<
@@ -94,17 +94,17 @@ function StartupSettings({
   return (
     <SettingsSection
       id="server-settings-automation"
-      title="Automation"
-      lead="When Lodestone starts this server by itself."
+      title={t('server.settings.automation')}
+      lead={t('server.settings.automationLead')}
     >
       <SettingsCard>
-        {STARTUP_SETTINGS.map(({ key, label, description }) => (
+        {STARTUP_SETTINGS.map(({ key, labelKey, descriptionKey }) => (
           <SettingsRow
             key={key}
             className="group relative"
-            label={label}
+            label={t(labelKey)}
             labelId={`startup-setting-${key}`}
-            hint={canEdit ? description : disabledReason}
+            hint={canEdit ? t(descriptionKey) : disabledReason}
           >
             <Toggle
               value={pending[key] ?? instance[key]}
@@ -151,7 +151,10 @@ function InstanceSettingsSkeleton() {
 }
 
 export default function InstanceSetting() {
-  useDocumentTitle('Server Settings - Lodestone');
+  const { t, rich } = useI18n();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('server.settings.pageTitle') })
+  );
   const { selectedInstance: instance, selectInstance } =
     useContext(InstanceContext);
   if (!instance) throw new Error('No server selected');
@@ -188,7 +191,7 @@ export default function InstanceSetting() {
   return (
     <>
       <ConfirmDialog
-        title={`Delete "${instance.name}"`}
+        title={t('server.settings.deleteTitle', { name: instance.name })}
         type={'danger'}
         onClose={() => setShowDeleteDialog(false)}
         onConfirm={() => {
@@ -210,12 +213,16 @@ export default function InstanceSetting() {
               setShowDeleteDialog(false);
             });
         }}
-        confirmButtonText="I understand, delete this server"
+        confirmButtonText={t('server.settings.deleteConfirm')}
         isOpen={showDeleteDialog}
       >
-        <span className="font-bold">This action cannot be undone.</span> This
-        instance&#39;s settings, worlds and backups will be permanently deleted.
-        Please backup any important data before proceeding.
+        {rich('server.settings.deleteWarning', {
+          cannotUndo: (
+            <span className="font-bold">
+              {t('server.settings.deleteCannotUndo')}
+            </span>
+          ),
+        })}
       </ConfirmDialog>
 
       <SettingsWithToc>
@@ -249,9 +256,9 @@ export default function InstanceSetting() {
               ) : (
                 <SettingsEmptyRow>
                   <span className="block font-mediumbold text-gray-400">
-                    Not available at this moment
+                    {t('server.settings.notAvailable')}
                   </span>
-                  Try to start this server at least once
+                  {t('server.settings.notAvailableHint')}
                 </SettingsEmptyRow>
               )}
             </SettingsCard>
@@ -261,36 +268,38 @@ export default function InstanceSetting() {
           instance={instance}
           canEdit={can_access_instance_setting}
           disabledReason={
-            canControlInstance ? 'No permission' : OWNER_ONLY_ATOM_MESSAGE
+            canControlInstance
+              ? t('server.settings.noPermission')
+              : t('console.ownerOnlyAtom')
           }
         />
         <PublicListingSetting instance={instance} />
         <ResourcePackSetting
           instance={instance}
           canEdit={can_access_instance_setting}
-          disabledReason="No permission"
+          disabledReason={t('server.settings.noPermission')}
         />
         <SettingsSection
           id="server-settings-danger"
-          title="Danger zone"
-          lead="These settings can cause irreversible damage to your server."
+          title={t('server.settings.dangerZone')}
+          lead={t('server.settings.dangerZoneLead')}
           danger
         >
           <SettingsCard danger>
             <SettingsRow
               className="group relative"
-              label="Delete server"
+              label={t('server.settings.deleteServer')}
               danger
               hint={
                 can_delete_instance
-                  ? 'Permanently deletes this server and its data'
+                  ? t('server.settings.deleteServerHint')
                   : canControlInstance
-                    ? 'No permission'
-                    : OWNER_ONLY_ATOM_MESSAGE
+                    ? t('server.settings.noPermission')
+                    : t('console.ownerOnlyAtom')
               }
             >
               <Button
-                label="Delete"
+                label={t('common.delete')}
                 intention="danger"
                 disabled={!can_delete_instance}
                 onClick={() => {

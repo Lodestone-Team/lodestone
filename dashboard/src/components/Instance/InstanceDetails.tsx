@@ -9,6 +9,7 @@ import ClipboardTextfield from 'components/ClipboardTextfield';
 import { game_to_game_title } from 'data/GameTypeMappings';
 import { ReactNode, useState } from 'react';
 import { safeLinkUrl } from 'utils/markdown';
+import { useI18n } from 'i18n';
 
 // whether the section is open, remembered per browser
 const OPEN_KEY = 'instanceDetailsOpen';
@@ -29,8 +30,6 @@ const writeOpen = (open: boolean) => {
   }
 };
 
-const yesNo = (value: boolean) => (value ? 'Yes' : 'No');
-
 /** The loader name of a Minecraft Java instance, or null for vanilla. */
 const loaderName = (instance: InstanceInfo) => {
   if (instance.game_type.type !== 'MinecraftJava') return null;
@@ -45,13 +44,11 @@ const loaderName = (instance: InstanceInfo) => {
   }
 };
 
-const formatCreated = (seconds: InstanceInfo['creation_time']) => {
+/** The creation time as a Date, or null if the core doesn't know it */
+const createdDate = (seconds: InstanceInfo['creation_time']) => {
   const date = new Date(Number(seconds) * 1000);
   if (Number(seconds) <= 0 || isNaN(date.getTime())) return null;
-  return date.toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
+  return date;
 };
 
 const ModpackValue = ({
@@ -90,6 +87,8 @@ export default function InstanceDetails({
 }: {
   instance: InstanceInfo;
 }) {
+  const { t, formatDateTime, formatNumber } = useI18n();
+  const yesNo = (value: boolean) => t(value ? 'common.yes' : 'common.no');
   const [open, setOpen] = useState(readOpen);
   const toggle = () => {
     setOpen(!open);
@@ -100,19 +99,25 @@ export default function InstanceDetails({
     instance.game_type.type === 'MinecraftJava' ||
     instance.game_type.type === 'MinecraftBedrock';
   const loader = loaderName(instance);
-  const created = formatCreated(instance.creation_time);
+  const createdAt = createdDate(instance.creation_time);
+  const created = createdAt && formatDateTime(createdAt);
   const hasPlayers =
     instance.player_count !== null || instance.max_player_count !== null;
+  const ramValue = (mb: number | null) =>
+    mb === null ? '?' : formatNumber(mb);
   const ram =
     instance.min_ram !== null || instance.max_ram !== null
-      ? `${instance.min_ram ?? '?'} MB / ${instance.max_ram ?? '?'} MB`
+      ? t('server.details.ramValue', {
+          min: ramValue(instance.min_ram),
+          max: ramValue(instance.max_ram),
+        })
       : null;
 
   const rows: Array<[string, ReactNode | null]> = [
-    ['Name', instance.name],
-    ['Description', instance.description || null],
+    [t('server.details.name'), instance.name],
+    [t('server.details.description'), instance.description || null],
     [
-      'UUID',
+      t('server.details.uuid'),
       <ClipboardTextfield
         key="uuid"
         text={instance.uuid}
@@ -120,28 +125,35 @@ export default function InstanceDetails({
         className="justify-start! font-mono text-small"
       />,
     ],
-    ['Game', game_to_game_title(instance.game_type)],
-    [isMinecraft ? 'Minecraft version' : 'Version', instance.version || null],
+    [t('server.details.game'), game_to_game_title(instance.game_type)],
     [
-      'Loader',
+      t(
+        isMinecraft
+          ? 'server.details.minecraftVersion'
+          : 'server.details.version'
+      ),
+      instance.version || null,
+    ],
+    [
+      t('server.details.loader'),
       loader
         ? `${loader}${instance.loader_version ? ` ${instance.loader_version}` : ''}`
         : null,
     ],
-    ['Port', String(instance.port)],
-    ['State', instance.state],
+    [t('server.details.port'), String(instance.port)],
+    [t('server.details.state'), t(`common.state.${instance.state}`)],
     [
-      'Players',
+      t('server.details.players'),
       hasPlayers
         ? `${instance.player_count ?? '?'} / ${instance.max_player_count ?? '?'}`
         : null,
     ],
-    ['Created', created],
-    ['Auto start', yesNo(instance.auto_start)],
-    ['Restart on crash', yesNo(instance.restart_on_crash)],
-    ['Min / Max RAM', ram],
+    [t('server.details.created'), created],
+    [t('server.details.autoStart'), yesNo(instance.auto_start)],
+    [t('server.details.restartOnCrash'), yesNo(instance.restart_on_crash)],
+    [t('server.details.ram'), ram],
     [
-      'Folder',
+      t('server.details.folder'),
       <ClipboardTextfield
         key="path"
         text={instance.path}
@@ -150,7 +162,7 @@ export default function InstanceDetails({
       />,
     ],
     [
-      'Created from modpack',
+      t('server.details.modpack'),
       instance.modpack ? <ModpackValue modpack={instance.modpack} /> : null,
     ],
   ];
@@ -167,7 +179,7 @@ export default function InstanceDetails({
           icon={open ? faChevronDown : faChevronRight}
           className="w-3 text-small text-white/50"
         />
-        Details
+        {t('server.details.title')}
       </button>
       {open && (
         <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-6 gap-y-2 rounded-lg border border-gray-faded/30 bg-gray-800 p-4 text-medium">

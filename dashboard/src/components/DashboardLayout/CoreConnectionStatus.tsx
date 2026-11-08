@@ -14,36 +14,42 @@ import {
   LodestoneContext,
 } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
+import { useT, type MessageKey, type TFunction } from 'i18n';
 
-const statusDisplay: Record<
-  Status,
-  { label: string; detail: string; icon: IconDefinition; color: string }
-> = {
+const statusDisplay = {
   success: {
-    label: 'Connected',
-    detail: 'Receiving live updates',
+    labelKey: 'shell.connection.connected',
+    detailKey: 'shell.connection.connectedDetail',
     icon: faPlugCircleCheck,
     color: 'text-green-300',
   },
   loading: {
-    label: 'Connecting…',
-    detail: 'Waiting for the core to respond',
+    labelKey: 'shell.connection.connecting',
+    detailKey: 'shell.connection.connectingDetail',
     icon: faPlug,
     color: 'text-gray-400',
   },
   degraded: {
-    label: 'Degraded',
-    detail: 'Live updates unavailable, refresh to update',
+    labelKey: 'shell.connection.degraded',
+    detailKey: 'shell.connection.degradedDetail',
     icon: faPlugCircleExclamation,
     color: 'text-yellow-300',
   },
   error: {
-    label: 'Disconnected',
-    detail: 'Cannot reach the core',
+    labelKey: 'shell.connection.disconnected',
+    detailKey: 'shell.connection.disconnectedDetail',
     icon: faPlugCircleXmark,
     color: 'text-red-200',
   },
-};
+} as const satisfies Record<
+  Status,
+  {
+    labelKey: MessageKey;
+    detailKey: MessageKey;
+    icon: IconDefinition;
+    color: string;
+  }
+>;
 
 const osNames: Record<string, string> = {
   macos: 'macOS',
@@ -52,14 +58,14 @@ const osNames: Record<string, string> = {
 };
 const archNames: Record<string, string> = { aarch64: 'arm64' };
 
-const formatUptime = (upSince: number) => {
+const formatUptime = (t: TFunction, upSince: number) => {
   const seconds = Math.max(0, Math.floor(Date.now() / 1000 - upSince));
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
+  if (days > 0) return t('shell.connection.uptimeDays', { days, hours });
+  if (hours > 0) return t('shell.connection.uptimeHours', { hours, minutes });
+  return t('shell.connection.uptimeMinutes', { minutes });
 };
 
 /**
@@ -71,22 +77,27 @@ export default function CoreConnectionStatus({
 }: {
   className?: string;
 }) {
+  const t = useT();
   const { core, coreConnectionStatus } = useContext(LodestoneContext);
   const { data: coreInfo } = useCoreInfo();
   const status = statusDisplay[coreConnectionStatus];
+  const statusLabel = t(status.labelKey);
 
   const rows: [string, string][] = [
-    ['Address', `${core.protocol}://${core.address}:${core.port}`],
+    [
+      t('shell.connection.address'),
+      `${core.protocol}://${core.address}:${core.port}`,
+    ],
   ];
   if (coreInfo) {
     rows.push(
-      ['Version', coreInfo.version],
-      ['Host', coreInfo.host_name],
+      [t('shell.connection.version'), coreInfo.version],
+      [t('shell.connection.host'), coreInfo.host_name],
       [
-        'System',
+        t('shell.connection.system'),
         `${osNames[coreInfo.os] ?? coreInfo.os} ${archNames[coreInfo.arch] ?? coreInfo.arch}`,
       ],
-      ['Uptime', formatUptime(coreInfo.up_since)]
+      [t('shell.connection.uptime'), formatUptime(t, coreInfo.up_since)]
     );
   }
 
@@ -94,9 +105,9 @@ export default function CoreConnectionStatus({
     <div className="flex flex-col gap-1 py-1">
       <div className="flex flex-row items-center gap-1.5">
         <FontAwesomeIcon icon={status.icon} className={status.color} />
-        <span className={clsx('font-bold', status.color)}>{status.label}</span>
+        <span className={clsx('font-bold', status.color)}>{statusLabel}</span>
       </div>
-      <span className="text-gray-400">{status.detail}</span>
+      <span className="text-gray-400">{t(status.detailKey)}</span>
       <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
         {rows.map(([label, value]) => (
           <div key={label} className="contents">
@@ -118,7 +129,10 @@ export default function CoreConnectionStatus({
     >
       <div
         tabIndex={0}
-        aria-label={`${coreInfo?.core_name ?? 'Core'}: ${status.label}`}
+        aria-label={t('shell.connection.ariaLabel', {
+          core: coreInfo?.core_name ?? t('shell.connection.coreFallback'),
+          status: statusLabel,
+        })}
         className={clsx(
           'flex w-full cursor-default flex-row items-center gap-2 rounded-md px-2 py-1.5',
           'text-small font-medium text-white/50 hover:bg-gray-800',

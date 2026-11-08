@@ -20,6 +20,7 @@ import { forgetSettingsReturn, settingsReturnPath } from 'utils/settingsReturn';
 import { AccountSettingsTabList, CoreSettingsTabList } from '../../../pages';
 import SettingsLeftNav from './SettingsLeftNav';
 import { PageLoading } from './LayoutSkeletons';
+import { useT } from 'i18n';
 
 const pages = [...CoreSettingsTabList, ...AccountSettingsTabList];
 
@@ -38,6 +39,7 @@ export const SettingsLayout = ({
   /** the closing animation has finished */
   onClosed: () => void;
 }) => {
+  const t = useT();
   const { location, setPathname, setSearchParam } = useContext(
     BrowserLocationContext
   );
@@ -119,7 +121,7 @@ export const SettingsLayout = ({
                 <div className="hidden h-14 shrink-0 flex-row items-center gap-2 border-b border-fade-700 pr-14 pl-3 max-[760px]:flex">
                   <button
                     type="button"
-                    aria-label="Settings pages"
+                    aria-label={t('shell.settings.pagesButton')}
                     aria-expanded={navOpen}
                     onClick={() => setNavOpen(!navOpen)}
                     className="flex h-8 flex-row items-center gap-2 rounded-lg px-2.5 font-mediumbold text-gray-300 hover:bg-gray-800 focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden"
@@ -128,7 +130,7 @@ export const SettingsLayout = ({
                       icon={faBars}
                       className="size-3.5 text-gray-500"
                     />
-                    {page?.title}
+                    {page && t(page.titleKey)}
                   </button>
                 </div>
                 <Transition show={navOpen} as={Fragment}>
@@ -173,8 +175,8 @@ export const SettingsLayout = ({
               </div>
               <button
                 type="button"
-                aria-label="Close settings"
-                title="Close (Esc)"
+                aria-label={t('shell.settings.close')}
+                title={t('shell.settings.closeTooltip')}
                 onClick={close}
                 className="absolute top-3 right-3 flex size-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-800 hover:text-gray-300 focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden"
               >

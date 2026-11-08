@@ -21,6 +21,7 @@ import CoreConnectionHelp, {
   isRemoteNetworkError,
 } from 'components/CoreConnectionHelp';
 import Logo from 'components/Atoms/Logo';
+import { t as translate, useI18n } from 'i18n';
 type SelectCoreValue = {
   core: CoreConnectionInfo;
 };
@@ -28,16 +29,19 @@ type SelectCoreValue = {
 const validationSchema = yup.object({
   core: yup
     .object({
-      address: yup.string().required('Required'),
-      port: yup.number().required('Required'),
-      apiVersion: yup.string().required('Required'),
-      protocol: yup.string().required('Required'),
+      address: yup.string().required(() => translate('common.required')),
+      port: yup.number().required(() => translate('common.required')),
+      apiVersion: yup.string().required(() => translate('common.required')),
+      protocol: yup.string().required(() => translate('common.required')),
     })
-    .required('Required'),
+    .required(() => translate('common.required')),
 });
 
 const CoreSelectExisting = () => {
-  useDocumentTitle('Select Core - Lodestone');
+  const { t, rich } = useI18n();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('shell.coreSelect.pageTitle') })
+  );
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
   const { core, setCore, coreList } = useContext(LodestoneContext);
 
@@ -57,7 +61,7 @@ const CoreSelectExisting = () => {
       })
       .then((res) => {
         if (res.status !== 200)
-          throw new Error('Invalid response, setup may be invalid');
+          throw new Error(t('shell.login.invalidResponse'));
         setCore(core);
         if (res.data.is_setup === false) {
           setPathname('/login/core/first_setup');
@@ -78,11 +82,11 @@ const CoreSelectExisting = () => {
   };
 
   return (
-    <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
+    <div className="@container flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14">
       <div className="flex flex-col items-start">
-        <Logo alt="logo" className="h-8" />
+        <Logo alt="Lodestone" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
-          Select Lodestone Core
+          {t('shell.coreSelect.title')}
         </h1>
       </div>
       <Formik
@@ -103,8 +107,9 @@ const CoreSelectExisting = () => {
               <div className="flex flex-col gap-4">
                 <WarningAlert>
                   <p>
-                    <b>{status.error}</b>: Please ensure your fields are filled
-                    out correctly.
+                    {rich('shell.login.checkFields', {
+                      error: <b>{status.error}</b>,
+                    })}
                   </p>
                 </WarningAlert>
                 {status.helpCore && (
@@ -117,27 +122,27 @@ const CoreSelectExisting = () => {
                 name="core"
                 className="flex-1"
                 options={coreList}
-                label="Select Existing Core"
+                label={t('shell.coreSelect.existing')}
                 optionLabel={(option) => {
                   return `${option.address}:${option.port}`;
                 }}
               />
               <p className="text-medium font-medium tracking-medium text-white/50">
-                OR
+                {t('shell.login.or')}
               </p>
               <Button
                 type="button"
                 icon={faPlus}
-                label="Connect a new core"
+                label={t('shell.coreSelect.connectNew')}
                 className="flex-1"
                 onClick={() => setPathname('/login/core/new')}
               />
             </div>
-            <div className="flex w-full flex-row justify-end gap-4">
+            <div className="flex w-full flex-row flex-wrap justify-end gap-4">
               <Button
                 type="button"
                 iconRight={faDownload}
-                label="Download Lodestone Core"
+                label={t('shell.login.downloadCore')}
                 onClick={() => {
                   window.open(
                     'https://github.com/Lodestone-Team/dashboard/releases/',
@@ -148,7 +153,7 @@ const CoreSelectExisting = () => {
               <Button
                 type="submit"
                 intention="primary"
-                label="Continue"
+                label={t('shell.login.continue')}
                 iconRight={faArrowRight}
                 loading={isSubmitting} //TODO: fix button size changing when loading
               />

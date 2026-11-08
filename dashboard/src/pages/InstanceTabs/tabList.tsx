@@ -10,6 +10,7 @@ import {
   faServer,
 } from '@fortawesome/free-solid-svg-icons';
 import type { ReactNode } from 'react';
+import type { MessageKey } from 'i18n';
 
 // The instance tabs' names, paths and icons, without their content. The
 // sidebar (SelectedInstanceInfo) imports this; importing InstanceTabs there
@@ -26,10 +27,14 @@ export type InstanceTabPath =
   | 'logs'
   | 'playitgg';
 
+/** a tab's name, a message without placeholders */
+export type TabTitleKey = Extract<MessageKey, `server.tab.${string}`>;
+
 export interface InstanceTabInfo {
-  title: string;
+  /** the name in the sidebar, translated when rendered: t(tab.titleKey) */
+  titleKey: TabTitleKey;
   /** heading shown above the tab content, none if null */
-  displayTitle: string | null;
+  displayTitleKey: TabTitleKey | null;
   path: InstanceTabPath;
   /** max-width class of the tab content */
   width: string;
@@ -38,30 +43,30 @@ export interface InstanceTabInfo {
 
 export const tabs: InstanceTabInfo[] = [
   {
-    title: 'Overview',
-    displayTitle: null,
+    titleKey: 'server.tab.overview',
+    displayTitleKey: null,
     path: 'overview',
     width: 'max-w-4xl',
     icon: <FontAwesomeIcon icon={faChartLine} />,
   },
   {
-    title: 'Settings',
-    displayTitle: 'Settings',
+    titleKey: 'server.tab.settings',
+    displayTitleKey: 'server.tab.settings',
     path: 'settings',
     // the list of sections (11rem) and the content column (680px)
     width: 'max-w-4xl',
     icon: <FontAwesomeIcon icon={faCog} />,
   },
   {
-    title: 'Console',
-    displayTitle: 'Console',
+    titleKey: 'server.tab.console',
+    displayTitleKey: 'server.tab.console',
     path: 'console',
     width: 'max-w-6xl',
     icon: <FontAwesomeIcon icon={faServer} />,
   },
   {
-    title: 'Files',
-    displayTitle: 'Files',
+    titleKey: 'server.tab.files',
+    displayTitleKey: 'server.tab.files',
     path: 'files',
     width: 'max-w-6xl',
     icon: <FontAwesomeIcon icon={faFolder} />,
@@ -69,29 +74,29 @@ export const tabs: InstanceTabInfo[] = [
   {
     // "Plugins" on plugin instances, see utils/mods.ts; only shown on
     // instances with mod or plugin support
-    title: 'Mods',
-    displayTitle: 'Mods',
+    titleKey: 'server.tab.mods',
+    displayTitleKey: 'server.tab.mods',
     path: 'mods',
     width: 'max-w-4xl',
     icon: <FontAwesomeIcon icon={faPuzzlePiece} />,
   },
   {
-    title: 'Macros',
-    displayTitle: 'Macros',
+    titleKey: 'server.tab.macros',
+    displayTitleKey: 'server.tab.macros',
     path: 'macros',
     width: 'max-w-4xl',
     icon: <FontAwesomeIcon icon={faCodeCompare} />,
   },
   {
-    title: 'Event Logs',
-    displayTitle: 'Event Logs',
+    titleKey: 'server.tab.logs',
+    displayTitleKey: 'server.tab.logs',
     path: 'logs',
     width: 'max-w-4xl',
     icon: <FontAwesomeIcon icon={faInbox} />,
   },
   {
-    title: 'Playitgg',
-    displayTitle: 'Playitgg',
+    titleKey: 'server.tab.playitgg',
+    displayTitleKey: 'server.tab.playitgg',
     path: 'playitgg',
     width: 'max-w-4xl',
     icon: <FontAwesomeIcon icon={faCarTunnel} />,

@@ -11,6 +11,7 @@ import useAnalyticsEventTracker from 'utils/hooks';
 import { match, otherwise } from 'variant';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { SkeletonGroup, SkeletonRows } from 'components/Atoms/Skeleton';
+import { useT } from 'i18n';
 
 export default function InstanceList({
   className = '',
@@ -19,6 +20,7 @@ export default function InstanceList({
   className?: string;
   children?: React.ReactNode;
 }) {
+  const t = useT();
   const gaEventTracker = useAnalyticsEventTracker('Instance List');
   const {
     instanceList: instances,
@@ -58,12 +60,12 @@ export default function InstanceList({
       value={selectedInstance}
       onChange={selectInstance}
     >
-      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
-        ALL INSTANCES
+      <RadioGroup.Label className="text-small leading-snug font-bold text-gray-faded/30 uppercase light:text-ink-muted">
+        {t('shell.nav.allInstances')}
       </RadioGroup.Label>
       {userState === 'loading' || (userState === 'logged-in' && !instances) ? (
         // instance pills (icon, name, status dot) while the list loads
-        <SkeletonGroup label="Loading servers">
+        <SkeletonGroup label={t('shell.nav.loadingServers')}>
           <SkeletonRows
             rows={4}
             icon="square"
@@ -86,14 +88,14 @@ export default function InstanceList({
         ))
       ) : (
         <div
-          className={`mt-2 flex w-fit select-none flex-col items-stretch gap-4 rounded-xl border-2 border-dashed border-gray-faded/10 py-4 px-6 text-medium font-bold tracking-tight`}
+          className={`mt-2 flex w-fit flex-col items-stretch gap-4 rounded-xl border-2 border-dashed border-gray-faded/10 px-6 py-4 text-medium font-bold tracking-tight select-none`}
         >
           <FontAwesomeIcon
             icon={faExpand}
             className="text-h1 text-gray-faded/30"
           />
-          <p className="text-center text-medium italic text-gray-faded/30 light:text-ink-muted">
-            Log in to view your servers.
+          <p className="text-center text-medium text-gray-faded/30 italic light:text-ink-muted">
+            {t('shell.nav.logInToView')}
           </p>
         </div>
       )}

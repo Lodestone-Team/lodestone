@@ -17,6 +17,7 @@ import {
 } from 'utils/util';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { SettingsRow } from 'components/Settings/SettingsBlocks';
+import { useT } from 'i18n';
 
 const onChangeValidateTimeout = 100;
 
@@ -83,26 +84,28 @@ export default function InputBox({
   const [typeModified, setTypeModified] = useState<string>(type); //in case we have password field which can switch between "text" and "password"
   const formRef = useRef<HTMLFormElement>(null);
   const inputId = useId();
+  const t = useT();
 
   const validate = useCallback(
     async (value: string, submit: boolean) => {
-      if (required && !value && submit) throw new Error('Cannot be empty');
+      if (required && !value && submit)
+        throw new Error(t('common.input.cannotBeEmpty'));
       if (type === 'number' || isFloat) {
         if (!value && submit) {
-          throw new Error('Cannot be empty');
+          throw new Error(t('common.input.cannotBeEmpty'));
         }
         const numValue = isFloat
           ? parseFloatStrict(value)
           : parseintStrict(value);
-        if (isNaN(numValue)) throw new Error('Must be a number');
+        if (isNaN(numValue)) throw new Error(t('common.input.mustBeNumber'));
         if (min != null && numValue < min)
-          throw new Error(`Must be greater than ${min}`);
+          throw new Error(t('common.input.mustBeGreaterThan', { min }));
         if (max != null && numValue > max)
-          throw new Error(`Must be less than ${max}`);
+          throw new Error(t('common.input.mustBeLessThan', { max }));
       }
       if (validateProp) await validateProp(value);
     },
-    [max, min, type, validateProp, required, isFloat]
+    [max, min, type, validateProp, required, isFloat, t]
   );
 
   // we want to validate the input after the user stops typing for a while
@@ -174,7 +177,7 @@ export default function InputBox({
   disabled = disabled || !canRead || isLoadingProp;
   description = canRead
     ? (descriptionFunc?.(initialValue || value) ?? description)
-    : 'No permission';
+    : t('common.noPermission');
 
   let icons = [];
 

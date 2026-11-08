@@ -8,6 +8,7 @@ import {
   SkeletonGroup,
   SkeletonText,
 } from 'components/Atoms/Skeleton';
+import { useT } from 'i18n';
 
 const NotificationPanel = forwardRef(
   (
@@ -18,6 +19,7 @@ const NotificationPanel = forwardRef(
     },
     ref: React.Ref<HTMLDivElement>
   ) => {
+    const t = useT();
     const gaEventTracker = useAnalyticsEventTracker('Notification Panel');
     const { notifications, ongoingNotifications, historyLoaded } =
       useContext(NotificationContext);
@@ -27,15 +29,15 @@ const NotificationPanel = forwardRef(
     return (
       <div
         ref={ref}
-        className={`border-gray-faded/30 flex w-full flex-col border-l bg-gray-800 ${className}`}
+        className={`flex w-full flex-col border-l border-gray-faded/30 bg-gray-800 ${className}`}
       >
-        <div className="text-h2 px-4 py-3 font-sans font-extrabold tracking-tight">
-          Notifications
+        <div className="px-4 py-3 font-sans text-h2 font-extrabold tracking-tight">
+          {t('shell.notifications.title')}
         </div>
         {ongoingNotifications.length > 0 && (
           <>
-            <div className="border-gray-faded/30 text-medium border-y px-4 py-3 font-sans font-bold">
-              In progress
+            <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-medium font-bold">
+              {t('shell.notifications.inProgress')}
             </div>
             <div className="space-y-4 overflow-y-auto p-4">
               {ongoingNotifications
@@ -45,7 +47,7 @@ const NotificationPanel = forwardRef(
                     level={notification.level}
                     state={notification.state}
                     title={notification.title}
-                    message={notification.message ?? 'Loading...'}
+                    message={notification.message ?? t('common.loading')}
                     progress_percent={
                       notification.total
                         ? notification.progress / notification.total
@@ -58,13 +60,16 @@ const NotificationPanel = forwardRef(
             </div>
           </>
         )}
-        <div className="border-gray-faded/30 text-medium border-y px-4 py-3 font-sans font-bold">
-          All Notifications
+        <div className="border-y border-gray-faded/30 px-4 py-3 font-sans text-medium font-bold">
+          {t('shell.notifications.all')}
         </div>
         <div className="grow basis-1 space-y-2 overflow-y-auto p-4">
           {notifications.length === 0 && !historyLoaded ? (
             // notification cards while the past events load (after a moment)
-            <SkeletonGroup label="Loading notifications" className="space-y-2">
+            <SkeletonGroup
+              label={t('shell.notifications.loading')}
+              className="space-y-2"
+            >
               {Array.from({ length: 4 }, (_, i) => (
                 <div
                   key={i}
@@ -89,9 +94,9 @@ const NotificationPanel = forwardRef(
               .reverse()
           ) : (
             <div
-              className={`justify-stretch flex flex-col items-start px-4 py-3 text-gray-300`}
+              className={`flex flex-col items-start justify-stretch px-4 py-3 text-gray-300`}
             >
-              <p className="text-h3 w-full">No notifications at the moment!</p>
+              <p className="w-full text-h3">{t('shell.notifications.empty')}</p>
             </div>
           )}
         </div>

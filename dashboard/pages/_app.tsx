@@ -11,6 +11,7 @@ import ReactGA from 'react-ga4';
 import ClientOnly from 'components/ClientOnly';
 import { useEffect } from 'react';
 import { initTheme, useResolvedTheme } from 'utils/theme';
+import { I18nProvider } from 'i18n';
 
 // Font Awesome styles are imported (into a cascade layer) by globals.css
 config.autoAddCss = false;
@@ -25,7 +26,6 @@ const contextClass = {
   warning: '!bg-yellow',
   success: '!bg-green',
 };
-
 
 function MyApp({ Component, pageProps }: AppProps) {
   const theme = useResolvedTheme();
@@ -42,37 +42,39 @@ function MyApp({ Component, pageProps }: AppProps) {
       default:
         return <LoadingStatusIcon level={'Info'} bright={true} />;
     }
-  }
+  };
 
   return (
     <main>
       <ClientOnly>
-        <ToastContainer
-          // react-toastify 11 removed the toast body element (and bodyClassName),
-          // the message is now a direct child of the toast
-          toastClassName="!bg-gray-850 cursor-pointer text-medium font-medium tracking-medium"
-          progressClassName={(context) => {
-            const type = context?.type || 'info';
-            return (
-              contextClass[type] + ' relative ' + context?.defaultClassName
-            );
-          }}
-          icon={renderIcon}
-          position={'bottom-right'}
-          closeButton={false}
-          // the default was true before react-toastify 10
-          closeOnClick
-          pauseOnFocusLoss={false}
-          draggable={false}
-          pauseOnHover
-          theme={theme}
-          transition={Zoom}
-        />
-        <BrowserRouter>
-          <BrowserLocationContextProvider>
-            <Component {...pageProps} />
-          </BrowserLocationContextProvider>
-        </BrowserRouter>
+        <I18nProvider>
+          <ToastContainer
+            // react-toastify 11 removed the toast body element (and bodyClassName),
+            // the message is now a direct child of the toast
+            toastClassName="!bg-gray-850 cursor-pointer text-medium font-medium tracking-medium"
+            progressClassName={(context) => {
+              const type = context?.type || 'info';
+              return (
+                contextClass[type] + ' relative ' + context?.defaultClassName
+              );
+            }}
+            icon={renderIcon}
+            position={'bottom-right'}
+            closeButton={false}
+            // the default was true before react-toastify 10
+            closeOnClick
+            pauseOnFocusLoss={false}
+            draggable={false}
+            pauseOnHover
+            theme={theme}
+            transition={Zoom}
+          />
+          <BrowserRouter>
+            <BrowserLocationContextProvider>
+              <Component {...pageProps} />
+            </BrowserLocationContextProvider>
+          </BrowserRouter>
+        </I18nProvider>
       </ClientOnly>
     </main>
   );

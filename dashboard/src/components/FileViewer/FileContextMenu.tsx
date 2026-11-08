@@ -5,6 +5,7 @@ import { ClientFile } from 'bindings/ClientFile';
 import { UnzipOption } from 'bindings/UnzipOption';
 import { joinPath, supportedZip } from 'utils/util';
 import { useFileViewer } from './FileViewerContext';
+import { t as translate, useT } from 'i18n';
 
 function generateZipText(
   tickedFiles: ClientFile[] | undefined,
@@ -16,14 +17,22 @@ function generateZipText(
     (tickedFiles === undefined || tickedFiles.length === 0) &&
     hoverFile === null
   ) {
-    return 'Zip';
+    return translate('files.contextMenu.zip');
   } else if (tickedFiles === undefined || tickedFiles.length === 0) {
-    return `Zip to ${hoverFile?.name}.zip`;
+    return translate('files.contextMenu.zipTo', {
+      archive: `${hoverFile?.name}.zip`,
+    });
   } else if (tickedFiles.length === 1) {
-    return `Zip ${tickedFiles[0].name} to ${tickedFiles[0].name}.zip`;
+    return translate('files.contextMenu.zipFile', {
+      name: tickedFiles[0].name,
+      archive: `${tickedFiles[0].name}.zip`,
+    });
   } else {
-    const numFile = tickedFiles.length;
-    return `Zip ${numFile} file${numFile > 1 ? 's' : ''} to Archive.zip`;
+    return translate('files.contextMenu.zipFiles', {
+      count: tickedFiles.length,
+      // the archive's actual file name, see generateZipFileName
+      archive: 'Archive.zip',
+    });
   }
 }
 
@@ -55,6 +64,8 @@ const FileContextMenu = forwardRef(
     },
     ref: React.Ref<HTMLDivElement>
   ) => {
+    // re-render on a language change; generateZipText reads it too
+    const t = useT();
     const {
       path: currentPath,
       directorySeparator,
@@ -96,18 +107,17 @@ const FileContextMenu = forwardRef(
       setClipboard(files);
       setTickedFiles([]);
       setClipboardAction(action);
-      const fileCount = files.length;
       toast.info(
-        `${fileCount} item${fileCount > 1 ? 's' : ''} ${
-          action === 'copy' ? 'copied' : 'cut'
-        } to clipboard`
+        action === 'copy'
+          ? t('files.contextMenu.copiedToClipboard', { count: files.length })
+          : t('files.contextMenu.cutToClipboard', { count: files.length })
       );
     };
 
     const unzip = async (unzipOption: UnzipOption) => {
       if (!supportedZip.includes(file?.extension ?? '')) {
         // not supported zip
-        toast.error('Unsupported zip file type');
+        toast.error(t('files.contextMenu.unsupportedZip'));
         setShowContextMenu(false);
       } else {
         unzipFile(file as ClientFile, unzipOption);
@@ -117,7 +127,8 @@ const FileContextMenu = forwardRef(
 
     return (
       <div
-        className="fixed right-0 z-50 mt-1.5 w-44 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-900 drop-shadow-md focus:outline-hidden"
+        // as wide as its longest item, within limits; FileList measures it
+        className="fixed right-0 z-50 mt-1.5 w-max max-w-64 min-w-44 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-900 drop-shadow-md focus:outline-hidden"
         style={{
           top: coords.y + 'px',
           left: coords.x + 'px',
@@ -127,8 +138,8 @@ const FileContextMenu = forwardRef(
       >
         <div className="py-1">
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-            label="Copy"
+            className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
+            label={t('common.copy')}
             onClick={() => {
               copyOrCutFile('copy');
               setShowContextMenu(false);
@@ -136,8 +147,8 @@ const FileContextMenu = forwardRef(
             disabled={file === null}
           />
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-            label="Cut"
+            className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
+            label={t('files.contextMenu.cut')}
             onClick={() => {
               copyOrCutFile('cut');
               setShowContextMenu(false);
@@ -145,11 +156,11 @@ const FileContextMenu = forwardRef(
             disabled={file === null}
           />
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
+            className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
             label={
               file?.file_type !== 'Directory'
-                ? 'Paste'
-                : `Paste into ${file?.name}`
+                ? t('files.contextMenu.paste')
+                : t('files.contextMenu.pasteInto', { name: file.name })
             }
             onClick={() => {
               pasteFiles(targetDirectory);
@@ -160,8 +171,8 @@ const FileContextMenu = forwardRef(
         </div>
         <div className="py-1">
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-            label="Rename"
+            className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
+            label={t('common.rename')}
             onClick={() => {
               if (file) openRenameModal(file.path);
               setShowContextMenu(false);
@@ -169,8 +180,8 @@ const FileContextMenu = forwardRef(
             disabled={!file}
           />
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium text-red-200"
-            label="Delete"
+            className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap text-red-200"
+            label={t('common.delete')}
             onClick={() => {
               deleteFile();
               setShowContextMenu(false);
@@ -180,7 +191,7 @@ const FileContextMenu = forwardRef(
         </div>
         <div className="py-1">
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
+            className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
             label={generateZipText(tickedFiles, file)}
             // disable if no file is ticked and if there is no file
             disabled={tickedFiles.length === 0 && !file}
@@ -202,24 +213,24 @@ const FileContextMenu = forwardRef(
           file?.file_type === 'File' ? ( // if file name is null or file is not zip file
             <>
               <ContextMenuButton
-                className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-                label="Unzip here"
+                className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
+                label={t('files.contextMenu.unzipHere')}
                 onClick={() => {
                   unzip('Normal');
                 }}
                 disabled={!file}
               />
               <ContextMenuButton
-                className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-                label="Unzip here (smart)"
+                className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
+                label={t('files.contextMenu.unzipHereSmart')}
                 onClick={() => {
                   unzip('Smart');
                 }}
                 disabled={!file}
               />
               <ContextMenuButton
-                className="w-full truncate whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-                label={file ? 'Unzip to ' + file.file_stem : ''}
+                className="w-full truncate rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
+                label={t('files.contextMenu.unzipTo', { name: file.file_stem })}
                 onClick={() => {
                   unzip('ToDirectoryWithFileName');
                 }}
@@ -230,16 +241,16 @@ const FileContextMenu = forwardRef(
         </div>
         <div className="py-1">
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-            label="New folder"
+            className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
+            label={t('files.newFolder')}
             onClick={() => {
               openCreateFolderModal(targetDirectory);
               setShowContextMenu(false);
             }}
           />
           <ContextMenuButton
-            className="w-full whitespace-nowrap rounded-none bg-gray-900 px-2.5 text-small font-medium"
-            label="New file"
+            className="w-full rounded-none bg-gray-900 px-2.5 text-small font-medium whitespace-nowrap"
+            label={t('files.newFile')}
             onClick={() => {
               openCreateFileModal(targetDirectory);
               setShowContextMenu(false);
