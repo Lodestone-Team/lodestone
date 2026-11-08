@@ -413,6 +413,9 @@ fn route(state: &mut State, request: &Recorded) -> (u16, Vec<u8>) {
                 serde_json::from_value(body["loaders"].clone()).unwrap_or_default();
             let game_versions: Vec<String> =
                 serde_json::from_value(body["game_versions"].clone()).unwrap_or_default();
+            // Optional, as on Modrinth: without it any type counts.
+            let version_types: Option<Vec<String>> =
+                serde_json::from_value(body["version_types"].clone()).ok();
             let mut map = serde_json::Map::new();
             for installed in state.versions.iter().filter(|v| hashes.contains(&v.sha1())) {
                 let newest = state
@@ -421,6 +424,11 @@ fn route(state: &mut State, request: &Recorded) -> (u16, Vec<u8>) {
                     .filter(|v| v.project_id == installed.project_id)
                     .filter(|v| v.loaders.iter().any(|l| loaders.contains(l)))
                     .filter(|v| v.game_versions.iter().any(|g| game_versions.contains(g)))
+                    .filter(|v| {
+                        version_types
+                            .as_ref()
+                            .is_none_or(|types| types.contains(&v.version_type))
+                    })
                     .max_by(|a, b| a.date.cmp(&b.date));
                 if let Some(newest) = newest {
                     map.insert(installed.sha1(), newest.json());

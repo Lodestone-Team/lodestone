@@ -14,7 +14,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use lodestone_minecraft::modrinth::{ModrinthProject, RawVersion};
+use lodestone_minecraft::modrinth::{ModrinthProject, ModrinthVersionType, RawVersion};
 use serde::{Deserialize, Serialize};
 
 use super::{ContentKind, enabled_name, scan::ScannedFile};
@@ -44,6 +44,11 @@ pub struct ModrinthSource {
     pub client_side: String,
     #[serde(default)]
     pub server_side: String,
+    /// Whether the installed version is a release, beta or alpha. Updates are at
+    /// least as stable unless the instance asks for pre-releases. Records written
+    /// before this was kept count as releases.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_type: Option<ModrinthVersionType>,
 }
 
 impl ModrinthSource {
@@ -72,6 +77,7 @@ impl ModrinthSource {
             url: file.map(|f| f.url.clone()),
             client_side: project.map(|p| p.client_side.clone()).unwrap_or_default(),
             server_side: project.map(|p| p.server_side.clone()).unwrap_or_default(),
+            version_type: Some(version.version_type),
         }
     }
 }

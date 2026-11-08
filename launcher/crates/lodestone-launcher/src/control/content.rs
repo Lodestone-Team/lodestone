@@ -845,10 +845,11 @@ async fn find_updates(
     dirs: InstanceDirs,
     target: Target,
     kinds: Vec<ContentKind>,
+    prerelease: bool,
 ) -> Result<Vec<(ContentKind, String, RawVersion)>, ErrorObject> {
     let mut all = Vec::new();
     for kind in kinds {
-        let updates = listing::check_updates(&api, &dirs, &target, kind)
+        let updates = listing::check_updates(&api, &dirs, &target, kind, prerelease)
             .await
             .map_err(|err| api_error(codes::UNAVAILABLE, err.to_string()))?;
         let mut updates: Vec<(String, RawVersion)> = updates.into_iter().collect();
@@ -871,8 +872,9 @@ pub fn updates(call: Call, cx: &mut App) -> Reply {
     let api = tri!(modrinth(&control, cx));
     let (dirs, target) = tri!(context(&control, &instance, cx));
     let id = instance.id.clone();
+    let prerelease = instance.prerelease_updates;
     cx.background_spawn(async move {
-        let updates = find_updates(api, dirs, target, kinds).await?;
+        let updates = find_updates(api, dirs, target, kinds, prerelease).await?;
         Ok(json!({
             "instance": id,
             "updates": updates.iter().map(|(kind, file, version)| json!({
@@ -910,12 +912,13 @@ pub fn update(call: Call, cx: &mut App) -> Reply {
     };
     let wanted = params.items.clone();
     let refresh_kinds = kinds.clone();
+    let prerelease = instance.prerelease_updates;
     start_install(
         &call,
         &instance,
         label,
         async move |_cx| {
-            let updates = find_updates(api, dirs, target, kinds).await?;
+            let updates = find_updates(api, dirs, target, kinds, prerelease).await?;
             let chosen: Vec<_> = updates
                 .into_iter()
                 .filter(|(_, file, version)| {
