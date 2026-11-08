@@ -12,7 +12,9 @@ pub mod modpacks;
 pub mod new_instance;
 pub mod settings;
 pub mod shared_settings;
+mod undo;
 pub mod worlds;
+pub use undo::InstanceSnapshot;
 // Read access for the control API (`crate::control`).
 #[cfg(unix)]
 pub(crate) mod control;
@@ -446,11 +448,13 @@ impl Instances {
         change: impl FnOnce(&mut Settings),
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        let before = undo::LauncherValues::of(&self.settings);
         let result = launcher_settings::update(&self.data_dir.settings_file(), change);
         cx.notify();
         match result {
             Ok(settings) => {
                 self.settings = settings;
+                self.record_settings(before, cx);
                 Ok(())
             }
             Err(err) => Err(err.to_string()),
