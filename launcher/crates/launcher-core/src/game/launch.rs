@@ -100,6 +100,8 @@ pub struct GameSettings {
     /// The window size, if not the game's default.
     pub resolution: Option<(u32, u32)>,
     pub fullscreen: bool,
+    /// Environment variables for the game.
+    pub env: Vec<(String, String)>,
 }
 
 impl Default for GameSettings {
@@ -111,6 +113,7 @@ impl Default for GameSettings {
             game_args: Vec::new(),
             resolution: None,
             fullscreen: false,
+            env: Vec::new(),
         }
     }
 }
@@ -150,6 +153,8 @@ pub struct LaunchCommand {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub cwd: PathBuf,
+    /// Set on top of the launcher's own environment.
+    pub env: Vec<(String, String)>,
     secret: Secret,
 }
 
@@ -186,7 +191,10 @@ impl LaunchCommand {
     /// The process to spawn.
     pub fn to_command(&self) -> Command {
         let mut command = Command::new(&self.program);
-        command.args(&self.args).current_dir(&self.cwd);
+        command
+            .args(&self.args)
+            .current_dir(&self.cwd)
+            .envs(self.env.iter().map(|(key, value)| (key, value)));
         command
     }
 }
@@ -197,6 +205,11 @@ impl fmt::Debug for LaunchCommand {
             .field("program", &self.program)
             .field("args", &self.redacted())
             .field("cwd", &self.cwd)
+            // Only the names: the values are the user's and may be private.
+            .field(
+                "env",
+                &self.env.iter().map(|(key, _)| key).collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
@@ -437,6 +450,7 @@ pub fn build(
         program: paths.java.clone(),
         args,
         cwd: paths.game_dir.clone(),
+        env: settings.env.clone(),
         secret: account.access_token.clone(),
     })
 }
