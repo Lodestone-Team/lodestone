@@ -57,6 +57,36 @@ impl DataDir {
     pub fn avatar_cache_dir(&self) -> PathBuf {
         self.root.join("cache").join("avatars")
     }
+
+    /// Downloaded manifests, kept so the launcher works offline.
+    pub fn cache_dir(&self) -> PathBuf {
+        self.root.join("cache")
+    }
+
+    /// One folder per instance, each with `instance.json` and the game's `minecraft/`.
+    pub fn instances_dir(&self) -> PathBuf {
+        self.root.join("instances")
+    }
+
+    /// `<id>/<id>.json` and `<id>/<id>.jar` for each installed version.
+    pub fn versions_dir(&self) -> PathBuf {
+        self.root.join("versions")
+    }
+
+    /// Library jars, in Maven layout. Shared by every instance.
+    pub fn libraries_dir(&self) -> PathBuf {
+        self.root.join("libraries")
+    }
+
+    /// Asset indexes, objects, legacy copies and logging configs.
+    pub fn assets_dir(&self) -> PathBuf {
+        self.root.join("assets")
+    }
+
+    /// Java runtimes from Mojang, as `<component>/<platform>/`.
+    pub fn runtimes_dir(&self) -> PathBuf {
+        self.root.join("runtimes")
+    }
 }
 
 #[cfg(test)]
