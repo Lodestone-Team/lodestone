@@ -753,75 +753,87 @@ impl Instances {
         self.loader_switch.is_some()
     }
 
-    /// Makes a vanilla instance a Fabric one, with Fabric's newest stable loader for its
-    /// Minecraft version: the same change as picking Fabric in its Settings tab. Fabric
+    /// The mod loader to offer a vanilla instance on `game_version`: Fabric, or Forge
+    /// where Fabric doesn't run (Fabric starts at Minecraft 1.14), with the version to
+    /// use. `None` when neither has a build for it.
+    pub fn mod_loader_for(
+        &self,
+        game_version: &str,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<Option<(LoaderKind, LoaderVersion)>, InstallError>> {
+        let installer = self.installer.clone();
+        let game_version = game_version.to_string();
+        cx.background_spawn(async move {
+            for kind in [LoaderKind::Fabric, LoaderKind::Forge] {
+                let list = installer.loader_versions(kind, &game_version).await?;
+                let pick = list
+                    .iter()
+                    .find(|v| v.recommended)
+                    .or_else(|| list.iter().find(|v| v.stable))
+                    .or_else(|| list.first())
+                    .cloned();
+                if let Some(version) = pick {
+                    return Ok(Some((kind, version)));
+                }
+            }
+            Ok(None)
+        })
+    }
+
+    /// Makes a vanilla instance a modded one, with the loader [`Self::mod_loader_for`]
+    /// offers: the same change as picking that loader in its Settings tab. The loader
     /// installs the next time the game starts.
-    pub fn switch_to_fabric(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub fn switch_to_mod_loader(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.is_active(id) || self.loader_switch.is_some() {
             return;
         }
         let Ok(instance) = self.store.get(id) else {
             return;
         };
-        let installer = self.installer.clone();
-        let game_version = instance.game_version.clone();
-        let fetch = cx.background_spawn(async move {
-            installer
-                .loader_versions(LoaderKind::Fabric, &game_version)
-                .await
-        });
+        let fetch = self.mod_loader_for(&instance.game_version, cx);
         let id = id.to_string();
         self.loader_switch = Some(cx.spawn(async move |this, cx| {
             let result = fetch.await;
             this.update(cx, |this, cx| {
                 this.loader_switch = None;
-                let version = match result {
-                    Ok(list) => list
-                        .iter()
-                        .find(|v| v.recommended)
-                        .or_else(|| list.iter().find(|v| v.stable))
-                        .or_else(|| list.first())
-                        .cloned(),
-                    Err(err) => {
-                        cx.emit(InstancesEvent::LaunchFailed {
-                            title: "Couldn't switch to Fabric".into(),
-                            message: err.to_string().into(),
-                        });
-                        cx.notify();
-                        return;
-                    }
-                };
-                let Some(version) = version else {
+                let failed = |message: String, cx: &mut Context<Self>| {
                     cx.emit(InstancesEvent::LaunchFailed {
-                        title: "Couldn't switch to Fabric".into(),
-                        message: format!(
-                            "Fabric has no loader for Minecraft {}.",
-                            instance.game_version
-                        )
-                        .into(),
+                        title: "Couldn't switch to a mod loader".into(),
+                        message: message.into(),
                     });
                     cx.notify();
-                    return;
+                };
+                let (kind, version) = match result {
+                    Ok(Some(pick)) => pick,
+                    Ok(None) => {
+                        return failed(
+                            format!(
+                                "No mod loader Lodestone Launcher supports runs on Minecraft {}: Fabric starts at 1.14, and Forge has no build for it.",
+                                instance.game_version
+                            ),
+                            cx,
+                        );
+                    }
+                    Err(err) => return failed(err.to_string(), cx),
                 };
                 let mut changed = instance.clone();
-                changed.loader = launcher_core::instances::Loader::Fabric;
+                changed.loader = launcher_core::instances::Loader::from_kind(Some(kind));
                 changed.loader_version = Some(version.id.clone());
                 match this.save(&changed, cx) {
                     Ok(()) => {
                         cx.emit(InstancesEvent::LoaderChanged(id.clone()));
                         cx.emit(InstancesEvent::Notice {
-                            title: "Switched to Fabric".into(),
+                            title: format!("Switched to {}", kind.label()).into(),
                             message: format!(
-                                "{} now uses Fabric {}. It installs the next time you press Play.",
-                                changed.name, version.display
+                                "{} now uses {} {}. It installs the next time you press Play.",
+                                changed.name,
+                                kind.label(),
+                                version.display
                             )
                             .into(),
                         });
                     }
-                    Err(err) => cx.emit(InstancesEvent::LaunchFailed {
-                        title: "Couldn't switch to Fabric".into(),
-                        message: err.into(),
-                    }),
+                    Err(err) => failed(err, cx),
                 }
                 cx.notify();
             })

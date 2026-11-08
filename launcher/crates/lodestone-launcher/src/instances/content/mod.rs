@@ -21,7 +21,7 @@ use launcher_core::{
         packs::Compatibility,
         shaders::{self, ShaderModOffer},
     },
-    game::download::CancelToken,
+    game::{download::CancelToken, loaders::LoaderKind},
 };
 use lodestone_minecraft::modrinth::{
     ClientSearchParams, ModrinthProject, ModrinthSearchIndex, ModrinthSearchResponse, RawVersion,
@@ -192,6 +192,10 @@ pub struct ContentView {
     pub shaders: ShaderState,
     pub shader_offer: Load<ShaderModOffer>,
     shader_offer_task: Option<Task<()>>,
+    /// For a vanilla instance: the mod loader "Switch to …" would use (Fabric, or Forge
+    /// where Fabric doesn't run), or `None` when no loader supports its version.
+    pub mod_loader_offer: Load<Option<LoaderKind>>,
+    mod_loader_offer_task: Option<Task<()>>,
     pub job: Option<Job>,
     /// The last result or error.
     pub message: Option<(SharedString, bool)>,
@@ -233,6 +237,8 @@ impl ContentView {
             shaders: ShaderState::default(),
             shader_offer: Load::NotLoaded,
             shader_offer_task: None,
+            mod_loader_offer: Load::NotLoaded,
+            mod_loader_offer_task: None,
             job: None,
             message: None,
             confirm_delete: None,
@@ -304,6 +310,8 @@ impl ContentView {
         self.shaders = ShaderState::default();
         self.shader_offer = Load::NotLoaded;
         self.shader_offer_task = None;
+        self.mod_loader_offer = Load::NotLoaded;
+        self.mod_loader_offer_task = None;
         self.job = None;
         self.message = None;
         self.confirm_delete = None;
@@ -889,14 +897,42 @@ impl ContentView {
         }
     }
 
-    pub fn switch_to_fabric(&mut self, cx: &mut Context<Self>) {
+    pub fn switch_to_mod_loader(&mut self, cx: &mut Context<Self>) {
         if !self.can_change(cx) {
             return;
         }
         if let Some(id) = self.instance_id.clone() {
             self.instances
-                .update(cx, |instances, cx| instances.switch_to_fabric(&id, cx));
+                .update(cx, |instances, cx| instances.switch_to_mod_loader(&id, cx));
         }
+    }
+
+    /// Finds which mod loader a vanilla instance can switch to, once.
+    pub fn ensure_mod_loader_offer(&mut self, cx: &mut Context<Self>) {
+        if !matches!(self.mod_loader_offer, Load::NotLoaded) {
+            return;
+        }
+        let Some((id, _, target)) = self.context(cx) else {
+            return;
+        };
+        self.mod_loader_offer = Load::Loading;
+        let work = self.instances.update(cx, |instances, cx| {
+            instances.mod_loader_for(&target.game_version, cx)
+        });
+        self.mod_loader_offer_task = Some(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                if this.instance_id.as_deref() != Some(id.as_str()) {
+                    return;
+                }
+                this.mod_loader_offer = match result {
+                    Ok(pick) => Load::Ready(pick.map(|(kind, _)| kind)),
+                    Err(err) => Load::Failed(err.to_string().into()),
+                };
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
     pub fn new_fabric_instance(&mut self, cx: &mut Context<Self>) {

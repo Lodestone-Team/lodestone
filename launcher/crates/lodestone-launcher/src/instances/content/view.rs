@@ -745,38 +745,80 @@ impl ContentView {
     }
 
     /// The card for vanilla instances: content that needs a mod loader.
-    fn render_needs_loader(&self, what: &str, cx: &mut Context<Self>) -> AnyElement {
+    fn render_needs_loader(&mut self, what: &str, cx: &mut Context<Self>) -> AnyElement {
+        self.ensure_mod_loader_offer(cx);
         let switching = self.is_switching_loader(cx);
         let busy = self.locked(cx) || self.job.is_some();
+        let game_version = self
+            .context(cx)
+            .map(|(_, _, target)| target.game_version)
+            .unwrap_or_default();
+        let new_instance = Button::new("new-fabric-instance", "New Fabric instance…")
+            .variant(ButtonVariant::Secondary)
+            .icon(Icon::SquarePlus)
+            .on_click(cx.listener(|this, _, _, cx| this.new_fabric_instance(cx)));
+        let (text, buttons): (String, Option<AnyElement>) = match &self.mod_loader_offer {
+            Load::Ready(Some(kind)) => {
+                let label = kind.label();
+                (
+                    format!(
+                        "This instance is vanilla Minecraft. {what} run through a mod loader such as {label}; switching keeps your worlds and settings, and {label} installs the next time you press Play."
+                    ),
+                    Some(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_2()
+                            .child(
+                                Button::new("switch-to-mod-loader", format!("Switch to {label}"))
+                                    .variant(ButtonVariant::Primary)
+                                    .loading(switching)
+                                    .disabled(busy)
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.switch_to_mod_loader(cx)),
+                                    ),
+                            )
+                            .child(new_instance)
+                            .into_any_element(),
+                    ),
+                )
+            }
+            Load::Ready(None) => (
+                format!(
+                    "This instance is vanilla Minecraft {game_version}. {what} need a mod loader, and none that Lodestone Launcher supports runs on this version: Fabric starts at 1.14, and Forge has no build for it. A new instance on a newer version can use them."
+                ),
+                Some(new_instance.into_any_element()),
+            ),
+            Load::Failed(err) => (
+                format!(
+                    "This instance is vanilla Minecraft. {what} need a mod loader, but checking which one fits didn't work: {err}"
+                ),
+                Some(
+                    Button::new("retry-mod-loader", "Try again")
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.mod_loader_offer = Load::NotLoaded;
+                            this.ensure_mod_loader_offer(cx);
+                        }))
+                        .into_any_element(),
+                ),
+            ),
+            Load::NotLoaded | Load::Loading => (
+                format!(
+                    "This instance is vanilla Minecraft. {what} run through a mod loader; checking which one runs on Minecraft {game_version}…"
+                ),
+                None,
+            ),
+        };
         card()
             .child(heading(format!("{what} need a mod loader")))
             .child(
                 div()
                     .text_color(colors::GRAY_400)
                     .whitespace_normal()
-                    .child(format!(
-                        "This instance is vanilla Minecraft. {what} run through a mod loader such as Fabric; switching keeps your worlds and settings, and Fabric installs the next time you press Play."
-                    )),
+                    .child(text),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap_2()
-                    .child(
-                        Button::new("switch-to-fabric", "Switch to Fabric")
-                            .variant(ButtonVariant::Primary)
-                            .loading(switching)
-                            .disabled(busy)
-                            .on_click(cx.listener(|this, _, _, cx| this.switch_to_fabric(cx))),
-                    )
-                    .child(
-                        Button::new("new-fabric-instance", "New Fabric instance…")
-                            .variant(ButtonVariant::Secondary)
-                            .icon(Icon::SquarePlus)
-                            .on_click(cx.listener(|this, _, _, cx| this.new_fabric_instance(cx))),
-                    ),
-            )
+            .children(buttons)
             .into_any_element()
     }
 
