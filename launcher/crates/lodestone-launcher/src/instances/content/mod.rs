@@ -183,6 +183,9 @@ pub enum ContentEvent {
 pub struct ContentView {
     instances: Entity<Instances>,
     instance_id: Option<String>,
+    /// The selected instance's loader and loader version, which decide what fits it
+    /// (filters, compatibility, the shader mod offer).
+    loader: Option<(launcher_core::instances::Loader, Option<String>)>,
     pub kind: ContentKind,
     sections: [Section; 3],
     /// The shader mod and pack, from the last listing.
@@ -224,6 +227,7 @@ impl ContentView {
         let mut this = Self {
             instances,
             instance_id: None,
+            loader: None,
             kind: ContentKind::Mod,
             sections,
             shaders: ShaderState::default(),
@@ -253,19 +257,23 @@ impl ContentView {
         self.instance_id.as_deref()
     }
 
-    /// Follows the selected instance: a new one starts over; a game that stopped may have
+    /// Follows the selected instance: a new one, or a new loader for the same one ("Switch
+    /// to Fabric", or a change in Settings), starts over; a game that stopped may have
     /// changed its options, so the lists are read again.
     fn sync(&mut self, cx: &mut Context<Self>) {
-        let (selected, active) = {
+        let (selected, loader, active) = {
             let instances = self.instances.read(cx);
-            let selected = instances.selected().map(|i| i.id.clone());
+            let selected = instances.selected();
+            let loader = selected.map(|i| (i.loader, i.loader_version.clone()));
+            let selected = selected.map(|i| i.id.clone());
             let active = selected
                 .as_deref()
                 .is_some_and(|id| instances.is_active(id));
-            (selected, active)
+            (selected, loader, active)
         };
-        if selected != self.instance_id {
+        if selected != self.instance_id || loader != self.loader {
             self.instance_id = selected;
+            self.loader = loader;
             self.reset(cx);
         } else if self.was_active && !active {
             for kind in ContentKind::ALL {
