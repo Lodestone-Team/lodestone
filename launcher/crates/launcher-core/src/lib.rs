@@ -13,6 +13,7 @@ pub mod accounts;
 pub mod auth;
 pub mod game;
 pub mod http;
+pub mod instances;
 pub mod offline;
 pub mod paths;
 pub mod secret;
