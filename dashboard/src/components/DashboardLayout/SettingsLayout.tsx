@@ -1,5 +1,5 @@
 import { Dialog, Transition } from '@headlessui/react';
-import { faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faBars, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { PublicUser } from 'bindings/PublicUser';
 import { ModalBackdrop, ModalPanel } from 'components/Atoms/Modal';
@@ -18,7 +18,7 @@ import {
 import { useQueryParam } from 'utils/hooks';
 import { forgetSettingsReturn, settingsReturnPath } from 'utils/settingsReturn';
 import { AccountSettingsTabList, CoreSettingsTabList } from '../../../pages';
-import SettingsLeftNav, { SettingsPageStrip } from './SettingsLeftNav';
+import SettingsLeftNav from './SettingsLeftNav';
 import { PageLoading } from './LayoutSkeletons';
 
 const pages = [...CoreSettingsTabList, ...AccountSettingsTabList];
@@ -46,6 +46,9 @@ export const SettingsLayout = ({
   const { data: dataUserList, isPending: userListPending } =
     useAllUsers(canManageUsers);
   const [tabIndex, setTabIndex] = useState(0);
+  // the list of pages over the left of the page, in a window too narrow for
+  // the sidebar
+  const [navOpen, setNavOpen] = useState(false);
   /* Start userList */
   // not written to the URL while empty: the modal stays mounted while it
   // closes, and must not add `?user=` to the page it closes to
@@ -99,6 +102,8 @@ export const SettingsLayout = ({
         <Dialog
           onClose={() => {
             if (lastPointerDown.current?.closest('.Toastify')) return;
+            // Esc closes the list of pages first
+            if (navOpen) return setNavOpen(false);
             close();
           }}
           className="relative z-50"
@@ -110,11 +115,56 @@ export const SettingsLayout = ({
                 current={page?.path}
                 className="w-58 shrink-0 border-r border-fade-700 bg-gray-875 max-[760px]:hidden"
               />
-              <div className="flex min-w-0 grow flex-col">
-                <SettingsPageStrip
-                  current={page?.path}
-                  className="hidden shrink-0 border-b border-fade-700 bg-gray-875 pr-14 max-[760px]:flex"
-                />
+              <div className="relative flex min-w-0 grow flex-col">
+                <div className="hidden h-14 shrink-0 flex-row items-center gap-2 border-b border-fade-700 pr-14 pl-3 max-[760px]:flex">
+                  <button
+                    type="button"
+                    aria-label="Settings pages"
+                    aria-expanded={navOpen}
+                    onClick={() => setNavOpen(!navOpen)}
+                    className="flex h-8 flex-row items-center gap-2 rounded-lg px-2.5 font-mediumbold text-gray-300 hover:bg-gray-800 focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden"
+                  >
+                    <FontAwesomeIcon
+                      icon={faBars}
+                      className="size-3.5 text-gray-500"
+                    />
+                    {page?.title}
+                  </button>
+                </div>
+                <Transition show={navOpen} as={Fragment}>
+                  <div className="absolute inset-0 z-20 hidden max-[760px]:block">
+                    <Transition.Child
+                      as={Fragment}
+                      enter="ease-out duration-200"
+                      enterFrom="opacity-0"
+                      enterTo="opacity-100"
+                      leave="ease-in duration-150"
+                      leaveFrom="opacity-100"
+                      leaveTo="opacity-0"
+                    >
+                      <div
+                        className="absolute inset-0 bg-gray-900/60"
+                        onClick={() => setNavOpen(false)}
+                      />
+                    </Transition.Child>
+                    <Transition.Child
+                      as={Fragment}
+                      enter="ease-out duration-200 motion-reduce:duration-0"
+                      enterFrom="-translate-x-full"
+                      enterTo="translate-x-0"
+                      leave="ease-in duration-150 motion-reduce:duration-0"
+                      leaveFrom="translate-x-0"
+                      leaveTo="-translate-x-full"
+                    >
+                      <div className="absolute inset-y-0 left-0 w-64 max-w-[80%] border-r border-fade-700 bg-gray-875 drop-shadow-xl">
+                        <SettingsLeftNav
+                          current={page?.path}
+                          onNavigate={() => setNavOpen(false)}
+                        />
+                      </div>
+                    </Transition.Child>
+                  </div>
+                </Transition>
                 <div className="min-h-0 grow child:h-full">
                   <Suspense fallback={<PageLoading className="max-w-170" />}>
                     {page?.content}
