@@ -1011,7 +1011,7 @@ impl Servers {
         let Some(index) = self.core_index(core_uuid) else {
             return;
         };
-        if !server.has_client_pack {
+        if !server.has_pack() {
             return self.create_plain(core_uuid, &server, cx);
         }
         let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
@@ -1082,7 +1082,15 @@ impl Servers {
             instances.create(&server.name, &server.game_version, loader.as_ref(), cx)
         });
         match created {
-            Ok(instance) => self.link_instance(core_uuid, server, &instance.id, None, cx),
+            Ok(instance) => {
+                self.link_instance(core_uuid, server, &instance.id, None, cx);
+                if server.mods_hidden() {
+                    self.notice = Some((
+                        format!("Created {} without the server's mods", server.name).into(),
+                        "The owner hasn't shared this server's client mods, so the instance has only its Minecraft version and loader. Add any mods it needs yourself.".into(),
+                    ));
+                }
+            }
             Err(message) => self.fail("Couldn't create the instance", message, cx),
         }
     }
@@ -1285,7 +1293,7 @@ impl Servers {
             cx.emit(ServersEvent::OpenInstance(instance_id));
             return;
         }
-        if !server.has_client_pack {
+        if !server.has_pack() {
             return self.join(core_uuid, &server, &instance_id, cx);
         }
         let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
@@ -1573,7 +1581,11 @@ impl Servers {
         let Some(target) = join_target(&core.url, server) else {
             return self.fail(
                 format!("Couldn't join {}", server.name),
-                "The core doesn't share this server's address, or its port isn't one Minecraft can join.",
+                if server.address_shown() {
+                    "The server's address or port isn't one Minecraft can join."
+                } else {
+                    cores::models::ADDRESS_HIDDEN
+                },
                 cx,
             );
         };

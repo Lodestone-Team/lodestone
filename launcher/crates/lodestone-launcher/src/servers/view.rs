@@ -7,6 +7,7 @@ use gpui::{
 };
 use launcher_core::cores::{
     CoreError, ServerInstance, ServerLoader, ServerState, client::display_address,
+    models::ADDRESS_HIDDEN,
 };
 
 use super::{
@@ -23,7 +24,7 @@ fn state_color(state: ServerState) -> theme::Color {
         ServerState::Running => colors::GREEN_200,
         ServerState::Starting | ServerState::Stopping => colors::YELLOW,
         ServerState::Error => colors::RED_200,
-        ServerState::Stopped | ServerState::Unknown => colors::GRAY_500,
+        ServerState::Stopped | ServerState::Unknown | ServerState::Hidden => colors::GRAY_500,
     }
 }
 
@@ -154,8 +155,6 @@ impl Servers {
         let linked = self.linked_instance(&core_uuid, &server.uuid).is_some();
         let busy = self.busy.get(&(core_uuid.clone(), server.uuid.clone()));
         let running = server.state == ServerState::Running;
-        // the owner may hide the status: then Play is offered and tells if it isn't up
-        let joinable = running || server.state == ServerState::Unknown;
         let stopped = matches!(server.state, ServerState::Stopped | ServerState::Error);
         let signed_in = core.signed_in();
 
@@ -223,6 +222,16 @@ impl Servers {
                     .into_any_element(),
                 );
             } else {
+                // without the status, the server may be running
+                let joinable =
+                    server.address_shown() && (running || server.state == ServerState::Hidden);
+                if !server.address_shown() {
+                    actions.push(
+                        small(ADDRESS_HIDDEN)
+                            .text_color(colors::GRAY_500)
+                            .into_any_element(),
+                    );
+                }
                 let (c, s) = (core_uuid.clone(), server.clone());
                 actions.push(
                     Button::new(SharedString::from(format!("play-{row_id}")), "Play")
@@ -237,7 +246,6 @@ impl Servers {
 
         let status = match server.players_label() {
             Some(players) if running => format!("{} · {players}", server.state.label()),
-            _ if server.state == ServerState::Unknown => "Status not shown".to_string(),
             _ => server.state.label().to_string(),
         };
         div()
@@ -250,13 +258,15 @@ impl Servers {
             .py_2p5()
             .border_t_1()
             .border_color(colors::FADE_700)
-            .child(
-                div()
-                    .flex_none()
-                    .size(px(8.))
-                    .rounded_full()
-                    .bg(state_color(server.state)),
-            )
+            .when(server.state != ServerState::Hidden, |this| {
+                this.child(
+                    div()
+                        .flex_none()
+                        .size(px(8.))
+                        .rounded_full()
+                        .bg(state_color(server.state)),
+                )
+            })
             .child(
                 div()
                     .flex()

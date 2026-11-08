@@ -268,11 +268,7 @@ export default function InstanceSetting() {
           canControlInstance ? 'No permission' : OWNER_ONLY_ATOM_MESSAGE
         }
       />
-      <PublicListingSetting
-        instance={instance}
-        canEdit={can_access_instance_setting}
-        disabledReason="No permission"
-      />
+      <PublicListingSetting instance={instance} />
       <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
         <div className="w-full shrink-0">
           <h2 className="text-h2 font-extrabold tracking-medium">

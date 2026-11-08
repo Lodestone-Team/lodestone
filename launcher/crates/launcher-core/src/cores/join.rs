@@ -37,8 +37,8 @@ fn parse_host_port(address: &str) -> Option<JoinServer> {
     }
 }
 
-/// The address to join `server` at, on the core at `core_url`. `None` when the core
-/// doesn't share the server's address (or its port doesn't fit).
+/// The address to join `server` at, on the core at `core_url`. `None` when the address
+/// isn't shared or isn't one Minecraft can join.
 pub fn join_target(core_url: &Url, server: &ServerInstance) -> Option<JoinServer> {
     if let Some(target) = server.playit_address.as_deref().and_then(parse_host_port) {
         return Some(target);
@@ -59,19 +59,18 @@ mod tests {
     use super::*;
     use crate::cores::models::{ServerLoader, ServerState};
 
-    fn server(port: u32, playit: Option<&str>) -> ServerInstance {
-        let port = Some(port);
+    fn server(port: impl Into<Option<u32>>, playit: Option<&str>) -> ServerInstance {
         ServerInstance {
             uuid: "i".into(),
             name: "SMP".into(),
             game_version: "1.20.1".into(),
             loader: ServerLoader::Fabric,
             loader_version: None,
-            port,
+            port: port.into(),
             state: ServerState::Running,
             player_count: None,
             max_player_count: None,
-            has_client_pack: false,
+            has_client_pack: None,
             playit_address: playit.map(str::to_string),
             listed: true,
         }
@@ -113,10 +112,8 @@ mod tests {
         );
         // a port that doesn't fit
         assert_eq!(join_target(&named, &server(70000, None)), None);
-        // an address the owner doesn't show
-        let mut hidden = server(25565, None);
-        hidden.port = None;
-        assert_eq!(join_target(&named, &hidden), None);
+        // the address isn't shared
+        assert_eq!(join_target(&named, &server(None, None)), None);
     }
 
     #[test]
