@@ -160,6 +160,28 @@ impl Server {
     }
 }
 
+/// Refused connections held open at once while their clients finish sending.
+const MAX_REFUSING: usize = 8;
+
+/// Reads and drops what a refused client still sends, until it hangs up or for at most
+/// two seconds and 64 KiB.
+fn drain(stream: &mut UnixStream) {
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(250)));
+    let started = std::time::Instant::now();
+    let mut buf = [0u8; 4096];
+    let mut total = 0usize;
+    while started.elapsed() < std::time::Duration::from_secs(2) && total < 64 * 1024 {
+        match std::io::Read::read(stream, &mut buf) {
+            Ok(0) => break,
+            Ok(n) => total += n,
+            Err(err)
+                if err.kind() == io::ErrorKind::WouldBlock
+                    || err.kind() == io::ErrorKind::TimedOut => {}
+            Err(_) => break,
+        }
+    }
+}
+
 /// Creates `dir` with mode 0700, or checks that it is this user's and private.
 fn private_folder(dir: &Path) -> Result<(), BindError> {
     match fs::create_dir(dir) {
@@ -206,6 +228,7 @@ impl Drop for ServerHandle {
 
 fn accept_loop(server: Server, backend: Arc<dyn Backend>, stop: Arc<AtomicBool>) {
     let connections = Arc::new(AtomicUsize::new(0));
+    let refusing = Arc::new(AtomicUsize::new(0));
     let next_id = AtomicU64::new(1);
     for stream in server.listener.incoming() {
         if stop.load(Ordering::SeqCst) {
@@ -217,6 +240,28 @@ fn accept_loop(server: Server, backend: Arc<dyn Backend>, stop: Arc<AtomicBool>)
         let refuse = |stream: &mut UnixStream, code: &str, message: &str| {
             let line = Message::result(Value::Null, Err(ErrorObject::new(code, message))).to_line();
             let _ = stream.write_all(line.as_bytes());
+            // Closing at once can lose the refusal: the client's request then meets a
+            // closed socket (broken pipe) and its buffered answer is dropped. End the
+            // writing side and read until the client hangs up, for a short while, on a
+            // thread of its own so the accept loop never waits; at most a few at once.
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            if refusing.fetch_add(1, Ordering::SeqCst) < MAX_REFUSING
+                && let Ok(mut held) = stream.try_clone()
+            {
+                let count = refusing.clone();
+                let spawned =
+                    thread::Builder::new()
+                        .name("control-refuse".into())
+                        .spawn(move || {
+                            drain(&mut held);
+                            count.fetch_sub(1, Ordering::SeqCst);
+                        });
+                if spawned.is_err() {
+                    refusing.fetch_sub(1, Ordering::SeqCst);
+                }
+            } else {
+                refusing.fetch_sub(1, Ordering::SeqCst);
+            }
         };
         let mut stream = stream;
         match peer::peer_uid(&stream) {
