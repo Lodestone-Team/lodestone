@@ -564,6 +564,51 @@ fn mod_key_bindings_are_shared_only_where_they_exist() {
 }
 
 #[test]
+fn a_new_preferred_instance_fills_the_global_set_on_its_first_exit() {
+    let world = World::new();
+    let a = world.instance("a", None);
+    let jar = world.data.root().join("1.20.1.jar");
+    write_jar(&jar, 3465);
+    set_preferred(&world.data, Some("a"), Some(&a)).unwrap();
+    // Sound isn't shared and the instance overrides its FOV.
+    update_profile(&world.data, |profile| {
+        profile.disabled.insert(Category::Sound);
+    })
+    .unwrap();
+    set_overrides(&a, ["fov"], true).unwrap();
+    let outcome = before_launch(&world.data, "a", &a, "1.20.1", Some(&jar)).unwrap();
+    assert_eq!(outcome.written, 0);
+    assert!(!a.join("minecraft/options.txt").exists());
+    // The game writes its whole file when it first exits.
+    fs::write(a.join("minecraft/options.txt"), fixture("1.20.1")).unwrap();
+    let outcome = world.exit("a", "1.20.1");
+    let ExitOutcome::Emitted(keys) = outcome else {
+        panic!("{outcome:?}");
+    };
+    assert!(keys.contains(&"mouseSensitivity".to_string()), "{keys:?}");
+    let values = world.profile().values;
+    assert_eq!(values["mouseSensitivity"], "0.5");
+    assert_eq!(values["renderDistance"], "12");
+    assert_eq!(values["key_key.forward"], "key.keyboard.w");
+    assert_eq!(values["key_key.swapOffhand"], "key.keyboard.f");
+    assert_eq!(values["graphicsPreset"], "fancy");
+    assert!(!values.contains_key("fov"));
+    assert!(!values.contains_key("soundCategory_music"));
+    assert!(!values.contains_key("resourcePacks"));
+
+    // Another instance's first game adds nothing to the global set.
+    let b = world.instance("b", None);
+    before_launch(&world.data, "b", &b, "1.20.1", Some(&jar)).unwrap();
+    fs::write(
+        b.join("minecraft/options.txt"),
+        fixture("1.20.1").replace("chatScale:1.0", "chatScale:0.5"),
+    )
+    .unwrap();
+    world.exit("b", "1.20.1");
+    assert_eq!(world.profile().values, values);
+}
+
+#[test]
 fn a_game_the_launcher_didnt_see_exit_is_read_back_at_the_next_launch() {
     let world = World::new();
     let a = world.instance("a", Some(&fixture("1.21.11")));
