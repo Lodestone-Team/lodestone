@@ -30,6 +30,9 @@ export const InstanceViewLayout = () => {
 
   useEffect(() => {
     console.log(queryInstanceId);
+    // While the list loads, keep the URL: a link to an instance's tab (for
+    // example /dashboard/mods?instance=…&modrinth=…) must not be sent home.
+    if (queryInstanceId && !instances) return;
     if (queryInstanceId && instances && queryInstanceId in instances) {
       setInstanceState(instances[queryInstanceId]);
       if (!location.pathname.startsWith('/dashboard'))
