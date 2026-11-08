@@ -309,7 +309,15 @@ impl Render for SharedSettings {
                     }),
                 )
                 .when(self.picker == Some(Picker::SyncFrom), |this| {
-                    this.child(popover(self.picker_list(Picker::SyncFrom, cx)))
+                    let close = cx.listener(|this, _: &(), _, cx| {
+                        this.picker = None;
+                        cx.notify();
+                    });
+                    this.child(popover(
+                        "syncfrom-popover",
+                        self.picker_list(Picker::SyncFrom, cx),
+                        move |window, cx| close(&(), window, cx),
+                    ))
                 }),
         );
         let copy = SettingRow::new("Start from an instance")
@@ -329,7 +337,15 @@ impl Render for SharedSettings {
                             })),
                     )
                     .when(self.picker == Some(Picker::CopyFrom), |this| {
-                        this.child(popover(self.picker_list(Picker::CopyFrom, cx)))
+                        let close = cx.listener(|this, _: &(), _, cx| {
+                            this.picker = None;
+                            cx.notify();
+                        });
+                        this.child(popover(
+                            "copyfrom-popover",
+                            self.picker_list(Picker::CopyFrom, cx),
+                            move |window, cx| close(&(), window, cx),
+                        ))
                     }),
             );
         let reset = SettingRow::new("Clear the shared values")

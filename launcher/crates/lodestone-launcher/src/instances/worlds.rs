@@ -33,6 +33,7 @@ use super::{
         view::{badge, card, list_box, muted, pills, row_base, small},
     },
 };
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots, TextInput},
     theme::{self, colors, fonts, radius, text, weights},
@@ -1357,6 +1358,7 @@ impl WorldsView {
             grid = grid.child(
                 div()
                     .id(("shot", index))
+                    .keyboard_focus_outer()
                     .flex()
                     .flex_col()
                     .w(px(220.))

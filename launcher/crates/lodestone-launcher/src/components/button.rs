@@ -5,7 +5,7 @@ use gpui::{
     RenderOnce, SharedString, Styled, Window, div, prelude::*, px,
 };
 
-use super::{ClickHandler, Icon};
+use super::{ClickHandler, Icon, focus::KeyboardFocus};
 use crate::theme::{self, Color, colors, leading, radius, text, weights};
 
 /// The dashboard's button `intention`s, plus its `text` variant as [`ButtonVariant::Ghost`].
@@ -230,6 +230,10 @@ impl RenderOnce for Button {
 
         div()
             .id(self.id)
+            .when(!self.disabled, |this| match palette.bg {
+                Some(_) => this.keyboard_focus_outer(),
+                None => this.keyboard_focus(),
+            })
             .flex()
             .flex_row()
             .flex_none()
@@ -353,6 +357,7 @@ impl RenderOnce for IconButton {
         let color = colors::GRAY_FADED.opacity(30);
         div()
             .id(self.id.clone())
+            .when(!self.disabled, |this| this.keyboard_focus_outer())
             .group("icon-button")
             .flex()
             .flex_none()

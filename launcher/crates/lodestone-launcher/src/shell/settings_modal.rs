@@ -6,6 +6,7 @@ use gpui::{AnyElement, Context, FocusHandle, IntoElement, Window, div, prelude::
 use launcher_core::accounts::AccountKind;
 
 use super::{LauncherShell, account_box, developer};
+use crate::components::KeyboardFocus;
 use crate::{
     accounts::SessionState,
     components::{
@@ -378,6 +379,7 @@ impl LauncherShell {
                 sidebar = sidebar.child(
                     div()
                         .id(("settings-nav", page as usize))
+                        .keyboard_focus()
                         .flex()
                         .flex_row()
                         .items_center()

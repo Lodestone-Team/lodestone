@@ -1,7 +1,10 @@
 use gpui::{Context, IntoElement, MouseButton, WindowControlArea, div, img, prelude::*, px};
 
 use super::{LauncherShell, Page};
-use crate::theme::{colors, layout};
+use crate::{
+    components::KeyboardFocus,
+    theme::{colors, layout, radius},
+};
 
 /// The top bar's height without its bottom border: `py-2` around the dashboard's
 /// 26px notification button, which sets the row height there.
@@ -54,6 +57,8 @@ pub fn render(cx: &mut Context<LauncherShell>) -> impl IntoElement {
         .child(
             div()
                 .id("logo")
+                .keyboard_focus()
+                .rounded(radius::DEFAULT)
                 .flex_none()
                 .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

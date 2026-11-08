@@ -11,6 +11,7 @@ use super::{
     lan::{LanPicker, LanState},
     tools::ServerTools,
 };
+use crate::components::KeyboardFocus;
 use crate::{
     components::DialogSlot,
     theme::{self, colors, leading, radius, text, weights},
@@ -64,8 +65,7 @@ pub(super) fn pills<T: Clone + PartialEq + 'static>(
     selected: &T,
     on_pick: impl Fn(T, &mut App) + Clone + 'static,
 ) -> impl IntoElement {
-    div()
-        .id(id)
+    crate::components::ArrowGroup::new(id)
         .flex()
         .flex_row()
         .flex_wrap()
@@ -80,6 +80,7 @@ pub(super) fn pills<T: Clone + PartialEq + 'static>(
             let on_pick = on_pick.clone();
             div()
                 .id(SharedString::from(format!("{id}-{i}")))
+                .keyboard_focus()
                 .px_3()
                 .py_1()
                 .rounded(radius::MD)

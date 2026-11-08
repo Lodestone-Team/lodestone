@@ -12,7 +12,10 @@ use gpui::{
 };
 use launcher_core::markdown::{Block, Inline};
 
-use crate::theme::{self, colors, fonts, leading, radius, text, weights};
+use crate::{
+    components::KeyboardFocus,
+    theme::{self, colors, fonts, leading, radius, text, weights},
+};
 
 /// At most this many blocks are drawn; long descriptions end with a note.
 pub const MAX_BLOCKS: usize = 400;
@@ -157,6 +160,7 @@ impl Renderer<'_> {
                 let link = link.clone();
                 div()
                     .id(self.id())
+                    .keyboard_focus()
                     .cursor_pointer()
                     .on_click(move |_, _, cx| cx.open_url(&link))
                     .child(element)

@@ -22,6 +22,7 @@ use launcher_core::{
 };
 
 use super::Instances;
+use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonVariant, Dialog, Icon, IconButton, LoadingDots, Toggle},
     theme::{self, colors, leading, radius, text, weights},
@@ -452,6 +453,7 @@ impl ImportDialog {
         let id = SharedString::from(format!("import-{key}"));
         div()
             .id(id)
+            .keyboard_focus()
             .flex()
             .flex_row()
             .items_center()
