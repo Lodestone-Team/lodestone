@@ -8,7 +8,7 @@ import { Outlet } from 'react-router';
 import { useLocalStorage } from 'usehooks-ts';
 import { useQueryParam } from 'utils/hooks';
 import SettingsLeftNav from './SettingsLeftNav';
-import Spinner from './Spinner';
+import { PageLoading } from './LayoutSkeletons';
 
 export const SettingsLayout = () => {
   const { data: userInfo, isPending: userInfoPending } = useUserInfo();
@@ -53,7 +53,7 @@ export const SettingsLayout = () => {
         <SettingsLeftNav className="border-r border-fade-700 bg-gray-850" />
       </ResizePanel>
       <div className="h-full min-w-0 grow child:h-full">
-        <Suspense fallback={<Spinner />}>
+        <Suspense fallback={<PageLoading />}>
           <Outlet />
         </Suspense>
       </div>

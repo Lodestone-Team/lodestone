@@ -6,7 +6,7 @@ import { useUserState } from 'components/useUserState';
 import { PublicUser } from 'bindings/PublicUser';
 import { useUid } from 'data/UserInfo';
 import InputBox from 'components/Atoms/Config/InputBox';
-import Spinner from 'components/DashboardLayout/Spinner';
+import { PageLoading } from 'components/DashboardLayout/LayoutSkeletons';
 import { axiosPutSingleValue } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import ChangeSelfPasswordForm from 'components/Settings/ChangeSelfPasswordForm';
@@ -31,7 +31,7 @@ const ProfilePage = () => {
   }, [userState]);
 
   if (userState === 'loading') {
-    return <Spinner />;
+    return <PageLoading className="max-w-2xl" />;
   }
 
   const rename = async (value: string) => {

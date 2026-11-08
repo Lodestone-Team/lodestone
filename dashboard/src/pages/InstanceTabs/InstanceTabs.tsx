@@ -3,7 +3,7 @@ import { InstanceContext } from 'data/InstanceContext';
 import { useLocation } from 'react-router';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
-import Spinner from 'components/DashboardLayout/Spinner';
+import { PageLoading } from 'components/DashboardLayout/LayoutSkeletons';
 import { CommandHistoryContextProvider } from 'data/CommandHistoryContext';
 import InstanceOverview from 'components/Instance/InstanceOverview';
 import GameConsole from 'components/GameConsole';
@@ -62,7 +62,7 @@ const InstanceTabs = () => {
     // render later.
     const queryUuid = new URLSearchParams(location.search).get('instance');
     if (!isReady || (queryUuid && queryUuid in instanceList)) {
-      return <Spinner />;
+      return <PageLoading />;
     } else {
       return (
         <div

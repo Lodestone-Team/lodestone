@@ -86,8 +86,10 @@
   --placeholder: #a5a5ac;
   --selection: hwb(212.571 45% 30%);
   --scrollbar-thumb: hsla(0, 0%, 50%, 0.7);
-  --skeleton-base: #2B2D32;
-  --skeleton-highlight: #36393F;
+  /* gray-700 with a highlight between 700 and 600: gray-800 would vanish on
+     the gray-800 rows and cards the placeholders sit in */
+  --skeleton-base: #36393F;
+  --skeleton-highlight: #404349;
 }
 
 /* Light theme, "Daylight lodestone": cool slate surfaces with crisp 1px lines.
@@ -147,7 +149,8 @@
   --placeholder: #7D838E;
   --selection: #B9DCEC;
   --scrollbar-thumb: hsla(216, 10%, 45%, 0.55);
-  --skeleton-base: #E6E9EE;
+  /* a little darker than #E6E9EE, so placeholders also show on the canvas */
+  --skeleton-base: #DEE2E8;
   --skeleton-highlight: #F3F5F8;
 }
 
@@ -359,6 +362,43 @@
 
 @utility loading-delayed {
   animation: loading-appear 150ms ease-out 200ms both;
+}
+
+/* Skeleton placeholders: a soft highlight band sweeps left to right across the
+   block. The gradient is twice the block's width and slides from off the left
+   edge to off the right edge. With reduced motion there is no sweep, only a
+   slow fade. Colours per theme: --skeleton-base and --skeleton-highlight. */
+@keyframes skeleton-sweep {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+@keyframes skeleton-fade {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@utility skeleton {
+  background-color: var(--skeleton-base);
+  background-image: linear-gradient(
+    90deg,
+    transparent 25%,
+    var(--skeleton-highlight) 50%,
+    transparent 75%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-sweep 1.6s ease-in-out infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    background-image: none;
+    animation: skeleton-fade 2.4s ease-in-out infinite;
+  }
 }
 
 @utility generic-gametype-hover {
