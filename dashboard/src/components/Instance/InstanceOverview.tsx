@@ -90,7 +90,11 @@ const InstanceOverview = () => {
             />
           </div>
           <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
-            <GameIcon game_type={instance.game_type} className="h-6 w-6" />
+            <GameIcon
+              game_type={instance.game_type}
+              icon_url={instance.icon_url}
+              className="h-6 w-6"
+            />
             <Label size="large" color={labelColor}>
               {instance.state}
             </Label>

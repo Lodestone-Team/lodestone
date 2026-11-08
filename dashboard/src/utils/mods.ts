@@ -3,6 +3,7 @@ import { InstalledMod } from 'bindings/InstalledMod';
 import { InstalledModKind } from 'bindings/InstalledModKind';
 import { InstalledModLoader } from 'bindings/InstalledModLoader';
 import { ModrinthVersion } from 'bindings/ModrinthVersion';
+import { safeImageUrl } from 'utils/markdown';
 
 /** What kind of add-ons an instance supports, and its Modrinth loader. */
 export type ModSupport = { kind: InstalledModKind; loader: InstalledModLoader };
@@ -88,3 +89,12 @@ export const formatDate = (iso: string) => {
 /** The file the core downloads for a version: the primary one, or the first. */
 export const primaryFile = (version: ModrinthVersion) =>
   version.files.find((file) => file.primary) ?? version.files[0] ?? null;
+
+/**
+ * A modpack icon URL to show for an instance, or null: only https URLs on
+ * Modrinth's CDN, through the same filter as the Mods tab's images.
+ */
+export const modpackIconUrl = (url: string | null | undefined) => {
+  const safe = url ? safeImageUrl(url) : null;
+  return safe && safe.startsWith('https://cdn.modrinth.com/') ? safe : null;
+};
