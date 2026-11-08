@@ -109,16 +109,17 @@ fn update_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Opti
             .flex_none()
             .items_center()
             .gap_2()
-            .pl_2p5()
-            .pr_1()
-            .py_0p5()
+            // The button sits 3px inside the pill, so their ends follow each other.
+            .pl_3()
+            .pr(px(3.))
+            .py(px(3.))
             .rounded_full()
             .bg(colors::GRAY_850)
             .border_1()
             .border_color(colors::FADE_700)
             // Clicks here don't move the window.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(div().size(px(7.)).rounded_full().bg(colors::GREEN_400))
+            .child(div().size(px(6.)).rounded_full().bg(colors::GREEN_400))
             .child(
                 div()
                     .text_size(theme::text_size(text::SMALL))
@@ -130,6 +131,7 @@ fn update_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Opti
                 Button::new("update-action", action)
                     .variant(ButtonVariant::Primary)
                     .size(ButtonSize::Slim)
+                    .pill()
                     .disabled(!enabled)
                     .on_click(move |_, _, cx| {
                         updater.update(cx, |updater, cx| {

@@ -343,9 +343,12 @@ static EXE: OnceLock<Option<PathBuf>> = OnceLock::new();
 /// Notes the executable's path. Call it at startup, before anything is installed.
 pub fn remember_exe() {
     EXE.get_or_init(|| {
-        std::env::current_exe()
-            .ok()
-            .map(|exe| fs::canonicalize(&exe).unwrap_or(exe))
+        let exe = std::env::current_exe().ok()?;
+        // Through a symlink, the update replaces the file it points to. Not on
+        // Windows, where a canonical path starts with `\\?\`.
+        #[cfg(unix)]
+        let exe = fs::canonicalize(&exe).unwrap_or(exe);
+        Some(exe)
     });
 }
 

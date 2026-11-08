@@ -117,6 +117,7 @@ pub struct Button {
     disabled: bool,
     loading: bool,
     full_width: bool,
+    pill: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -133,6 +134,7 @@ impl Button {
             disabled: false,
             loading: false,
             full_width: false,
+            pill: false,
             on_click: None,
         }
     }
@@ -178,6 +180,12 @@ impl Button {
         self
     }
 
+    /// Fully rounded ends, with room for them, for a button inside a pill.
+    pub fn pill(mut self) -> Self {
+        self.pill = true;
+        self
+    }
+
     pub fn on_click(
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -200,6 +208,11 @@ impl RenderOnce for Button {
             ButtonSize::Slim => (text::SMALL, px(4.), px(4.), px(4.), radius::XS),
             ButtonSize::Medium => (text::MEDIUM, px(6.), px(8.), px(4.), radius::DEFAULT),
             ButtonSize::Large => (text::H3, px(6.), px(12.), px(6.), radius::DEFAULT),
+        };
+        let (px_x, rounding) = if self.pill {
+            (px_x + px(6.), gpui::rems(999.))
+        } else {
+            (px_x, rounding)
         };
         let icon_size = px(font_size.0 * 16.);
         let icon_color: Hsla = text_color.opacity(50).into();
