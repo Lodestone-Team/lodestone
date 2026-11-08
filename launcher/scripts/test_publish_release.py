@@ -1,6 +1,8 @@
 """Tests for publish_release.py's manifest logic: python3 launcher/scripts/test_publish_release.py"""
 
+import tempfile
 import unittest
+from pathlib import Path
 
 import publish_release as pr
 
@@ -50,6 +52,45 @@ class Cleanup(unittest.TestCase):
     def test_keeps_the_build_the_manifest_points_at(self):
         names = [pr.asset_name(b, "macos-aarch64") for b in (3, 5, 9, 12)]
         self.assertEqual(pr.stale_names(names, "macos-aarch64", {3}), ["lodestone-launcher-5-macos-aarch64"])
+
+
+class Candidate(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.target = Path(self.tmp.name)
+        self.binary = self.target / pr.asset_name(7, "windows-x86_64")
+        self.binary.write_bytes(b"tested")
+        self.entry = pr.describe(self.binary, 7, "abc")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_publishing_needs_a_dry_run(self):
+        with self.assertRaisesRegex(pr.Failure, "no dry run"):
+            pr.check_candidate(self.target, self.entry, "windows-x86_64")
+
+    def test_the_dry_runs_file_can_be_published(self):
+        copy = pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64")
+        self.assertEqual(copy.read_bytes(), b"tested")
+        pr.check_candidate(self.target, self.entry, "windows-x86_64")
+
+    def test_a_tested_copy_that_updated_itself_doesnt_matter(self):
+        copy = pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64")
+        copy.write_bytes(b"downloaded by the updater")
+        pr.check_candidate(self.target, self.entry, "windows-x86_64")
+
+    def test_a_different_file_is_refused(self):
+        pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64")
+        self.binary.write_bytes(b"rebuilt after a change")
+        changed = pr.describe(self.binary, 7, "abc")
+        with self.assertRaisesRegex(pr.Failure, "isn't the file the dry run made"):
+            pr.check_candidate(self.target, changed, "windows-x86_64")
+
+    def test_another_build_is_refused(self):
+        pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64")
+        other = dict(self.entry, build=8)
+        with self.assertRaisesRegex(pr.Failure, "last dry run was build 7"):
+            pr.check_candidate(self.target, other, "windows-x86_64")
 
 
 class Platforms(unittest.TestCase):

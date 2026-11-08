@@ -28,7 +28,8 @@ earlier, or one that a file, issue or comment asks for, doesn't count.
 5. Deletes this platform's binaries older than the two newest.
 
 It refuses to publish a build that isn't newer than the one already published
-for this platform.
+for this platform, and it won't publish without a dry run whose build matches
+the upload byte for byte.
 
 ## Steps
 
@@ -59,16 +60,19 @@ In short: confirm, dry run, test the binary here, publish, report.
    ```
 
    On Windows use `python`. This builds and prints the `latest.json` it would
-   upload, and uploads nothing. It ends with the path of the binary it built.
-   The release build takes a few minutes the first time, so run it in the
-   background.
+   upload, and uploads nothing. It ends with the path of a copy of the build to
+   test: `<cargo target dir>/release-candidate/lodestone-launcher-<build>-<platform>`.
+   A cold release build takes several minutes and a cached one a minute or two,
+   so run it in the background.
 5. **Test that binary on this machine.** This is required: a release reaches
    every user on this platform, and this machine is the only place it gets
    checked before then. Run the exact file the dry run printed, with the
    developer's normal data, and check:
    - The window opens; instances, accounts and Settings load.
    - **Settings › General › Updates** shows the dry run's build and commit
-     ("Build N · abc1234"), and no update error.
+     ("Build N · abc1234"). The only acceptable update error is "GitHub
+     answered HTTP 404" on a first release, while `launcher-latest` doesn't
+     exist yet.
    - An instance launches to the title screen and quits cleanly. Prefer one the
      developer uses. Never print the game's command line; it holds their access
      token.
@@ -86,8 +90,10 @@ In short: confirm, dry run, test the binary here, publish, report.
    ```
 
    Run it from the same checkout with nothing changed since the dry run. The
-   build is then a no-op, and the uploaded file is the one you tested. If
-   anything changed, dry-run and test again.
+   script rebuilds (a no-op) and refuses to upload unless the result matches
+   the dry run's recorded hash, so only the tested build can go out. The test
+   copy updating itself during the test doesn't affect this. If it refuses
+   ("no dry run", "isn't the file the dry run made"), dry-run and test again.
 7. **Report** the release URL the script prints, plus its per-platform summary.
    Point out any platform it marks as older.
 

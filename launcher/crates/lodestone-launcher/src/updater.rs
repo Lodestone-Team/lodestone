@@ -34,7 +34,8 @@ const PROGRESS_TICK: Duration = Duration::from_millis(250);
 /// Where updating stands.
 #[derive(Clone, Debug)]
 pub enum UpdateState {
-    /// A build CI didn't make (`cargo build`), which doesn't update itself.
+    /// A build the publish script didn't make (`cargo build`), which doesn't update
+    /// itself.
     Unavailable,
     /// Not checked yet.
     Idle,

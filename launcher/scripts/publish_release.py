@@ -202,7 +202,7 @@ def summary(manifest: dict, build: int) -> list[str]:
 
 
 def build_binary(build: int, commit: str, key: str, into: Path) -> tuple[Path, Path]:
-    """Builds the launcher; returns cargo's executable and its copy, named for upload."""
+    """Builds the launcher; returns the target directory and a copy named for upload."""
     env = dict(os.environ, LODESTONE_LAUNCHER_BUILD=str(build), LODESTONE_LAUNCHER_COMMIT=commit)
     run(["cargo", "build", "--release", "--locked", "-p", "lodestone-launcher"],
         cwd=LAUNCHER, env=env, quiet=False)
@@ -214,7 +214,53 @@ def build_binary(build: int, commit: str, key: str, into: Path) -> tuple[Path, P
         raise Failure(f"the build finished but {exe} is missing")
     target = into / asset_name(build, key)
     shutil.copyfile(exe, target)
-    return exe, target
+    return Path(metadata["target_directory"]), target
+
+
+# A dry run leaves a copy of its build to test, and a record of it. Publishing
+# checks that it uploads exactly that file, so what reaches users is what was
+# tested, even if the copy under test updated itself meanwhile.
+CANDIDATE_DIR = "release-candidate"
+CANDIDATE_RECORD = "candidate.json"
+
+
+def save_candidate(target_dir: Path, binary: Path, entry: dict, key: str) -> Path:
+    folder = target_dir / CANDIDATE_DIR
+    if folder.exists():
+        shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True, exist_ok=True)
+    copy = folder / binary.name
+    shutil.copyfile(binary, copy)
+    if not key.startswith("windows-"):
+        copy.chmod(0o755)
+    record = {"platform": key, "build": entry["build"], "commit": entry["commit"],
+              "sha256": entry["sha256"]}
+    (folder / CANDIDATE_RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    return copy
+
+
+def check_candidate(target_dir: Path, entry: dict, key: str) -> None:
+    """Refuses to publish anything but the build a dry run made for testing."""
+    file = target_dir / CANDIDATE_DIR / CANDIDATE_RECORD
+    if not file.exists():
+        raise Failure(
+            "no dry run to publish. Run with --dry-run first, test the build it prints on "
+            "this machine, then publish"
+        )
+    record = json.loads(file.read_text(encoding="utf-8"))
+    same = (record.get("platform"), record.get("build"), record.get("commit")) == (
+        key, entry["build"], entry["commit"])
+    if not same:
+        raise Failure(
+            f"the last dry run was build {record.get('build')} of {str(record.get('commit'))[:7]} "
+            f"for {record.get('platform')}, not build {entry['build']} of {entry['commit'][:7]}. "
+            "Dry-run and test this build first"
+        )
+    if record.get("sha256") != entry["sha256"]:
+        raise Failure(
+            "this build isn't the file the dry run made, so it isn't the one that was tested "
+            "(something changed in between). Dry-run and test again"
+        )
 
 
 def describe(path: Path, build: int, commit: str) -> dict:
@@ -386,7 +432,7 @@ def main(argv: list[str]) -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         step(f"Building the launcher for {key} (release)")
-        built, binary = build_binary(build, commit, key, Path(tmp))
+        target_dir, binary = build_binary(build, commit, key, Path(tmp))
         entry = describe(binary, build, commit)
         now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -395,10 +441,15 @@ def main(argv: list[str]) -> int:
             step("Dry run: nothing uploaded. latest.json would be:")
             print(json.dumps(manifest, indent=2))
             print(f"    The binary is {binary.name}, {entry['size']} bytes.")
+            candidate = save_candidate(target_dir, binary, entry, key)
             step("Test this build on this machine before publishing it:")
-            print(f"    {built}")
-            print("    Publishing from this checkout without changes rebuilds the same file.")
+            print(f"    {candidate}")
+            print("    Then publish from this checkout without changes; the script checks that it")
+            print("    uploads this exact file.")
             return 0
+
+        if not local and not test_tag:
+            check_candidate(target_dir, entry, key)
 
         target.ensure_release(commit)
         step(f"Uploading {binary.name}")

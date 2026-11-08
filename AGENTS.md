@@ -16,10 +16,11 @@ when a build is ready, and either they or their agent publishes it with
 - **The script builds only this machine's platform**, so each platform is
   published from its own machine. It needs a clean checkout of a commit on
   `main`, the Rust toolchain, and `gh` signed in with write access.
-- **Test the build on this machine before publishing it.** The dry run prints
-  the binary it built: run it and check it works (window, instances, Settings ›
-  General › Updates showing the new build, launching a game). Then publish from
-  the same unchanged checkout, so the uploaded file is the tested one.
+- **Test the build on this machine before publishing it.** The dry run leaves a
+  copy of its build to test and prints the path: run it and check it works
+  (window, instances, Settings › General › Updates showing the new build,
+  launching a game). Then publish from the same unchanged checkout. The script
+  refuses to upload anything but the file the dry run made.
 - **Build numbers are commit counts** (`git rev-list --count HEAD`). A build made
   with plain `cargo build` has no number and never updates itself.
 - **Never edit or delete the release's files by hand**; launchers read them.
