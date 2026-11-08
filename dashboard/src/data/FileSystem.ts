@@ -5,6 +5,11 @@ import { axiosWrapper, fileSorter } from 'utils/util';
 
 export const useFileList = (uuid: string, path: string, enabled: boolean) =>
   useQuery<ClientFile[], Error>({
+    // Opening a folder keeps the current one on screen until the new listing
+    // arrives (it is shown dimmed), instead of blanking the list to "Loading".
+    // Only within an instance: another instance's files must never show here.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === uuid ? previous : undefined,
     queryKey: ['instance', uuid, 'fileList', path],
     queryFn: () => {
       return axiosWrapper<ClientFile[]>({

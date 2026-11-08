@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the main window. The app's own commands (is_setup, setup_owner_account, get_owner_jwt, get_first_time_setup_key) need no permission. allow-start-dragging backs the data-tauri-drag-region top bar that replaces the native title bar on macOS. The updater and dialog plugins are only used from Rust, so they get no JS permissions.",
+  "description": "Permissions for the main window. The app's own commands (is_setup, setup_owner_account, get_owner_jwt, get_first_time_setup_key) need no permission. allow-start-dragging backs the data-tauri-drag-region top bar that replaces the native title bar on macOS. allow-set-theme lets the dashboard's light/dark setting set the window appearance (the macOS title bar buttons). The updater and dialog plugins are only used from Rust, so they get no JS permissions.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
+    "core:window:allow-set-theme",
     "opener:allow-open-url",
     "opener:allow-default-urls"
   ]

@@ -8,12 +8,17 @@ import { tauri } from 'utils/tauriUtil';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import { DASHBOARD_VERSION } from 'utils/version';
 import { DEFAULT_LOCAL_CORE } from 'utils/util';
+import Logo from 'components/Atoms/Logo';
 
 const FirstTime = () => {
   useDocumentTitle('Welcome to Lodestone');
   const { setPathname } = useContext(BrowserLocationContext);
   const { coreList, addCore, setCore } = useContext(LodestoneContext);
-  const [tauriIsSetup, setTauriIsSetup] = useState(false);
+  // null until the desktop app has said whether its core is set up
+  const [tauriIsSetup, setTauriIsSetup] = useState<boolean | null>(null);
+  // Cores known when the page opens: it only redirects (below), so don't
+  // flash it first. Read once: the desktop app adds its core further down.
+  const [redirecting] = useState(() => coreList.length > 0);
 
   useEffectOnce(() => {
     if (coreList.length > 0) {
@@ -30,14 +35,17 @@ const FirstTime = () => {
       })
       .catch((err: any) => {
         console.error('Tauri call failed is_setup', err);
+        setTauriIsSetup(false);
       });
   });
+
+  if (redirecting) return null;
 
   return (
     <div className="flex w-[680px] max-w-full flex-col items-stretch justify-center gap-16 transition-dimensions @container">
       <div className="flex flex-col items-start gap-4">
         <div className="flex w-full flex-row items-center gap-4">
-          <img src="/logo.svg" alt="logo" className="h-8" />
+          <Logo alt="logo" className="h-8" />
           {/* HACK HACK HACK HACK */}
           <a // solution to get tauri to open links in the browser
             href="https://github.com/Lodestone-Team/lodestone/wiki"
@@ -101,6 +109,16 @@ const FirstTime = () => {
               className="whitespace-nowrap"
             />
           </>
+        ) : tauriIsSetup === null ? (
+          // the button's place, until it is known which one it is (it used
+          // to show "Setup Lodestone Core" first, then switch to "Continue")
+          <Button
+            label="Setup Lodestone Core"
+            intention="primary"
+            size="large"
+            className="invisible whitespace-nowrap"
+            disabled
+          />
         ) : tauriIsSetup ? (
           <Button
             label="Continue"

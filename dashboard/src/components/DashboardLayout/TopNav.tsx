@@ -3,6 +3,7 @@ import { useContext } from 'react';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
 
 import TopBanner from 'components/Atoms/TopBanner';
+import Logo from 'components/Atoms/Logo';
 import clsx from 'clsx';
 import { isTauriMacOS, useIsDevBuild } from 'utils/tauriUtil';
 import { NotificationPopover } from './NotificationPopover';
@@ -46,15 +47,14 @@ export default function TopNav() {
         data-tauri-drag-region={dragRegion}
         // Equal side columns keep the logo centred in the window.
         className={clsx(
-          'grid w-full shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b bg-gray-800 px-4 py-2 select-none',
+          'grid w-full shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b bg-gray-800 px-4 py-2 select-none light:bg-gray-850',
           // An amber edge marks local development builds, matching the DEV badge and app icon.
           isDevBuild ? 'border-yellow-300/70' : 'border-gray-faded/30'
         )}
       >
         <div className="h-full" data-tauri-drag-region={dragRegion} />
         <div className="relative">
-          <img
-            src="/logo.svg"
+          <Logo
             alt="Lodestone"
             className="w-28 hover:cursor-pointer"
             onClick={() => {
@@ -67,7 +67,7 @@ export default function TopNav() {
             // Positioned outside the flow so the logo stays centred.
             <span
               title="Local development build"
-              className="absolute top-1/2 left-full ml-2 -translate-y-1/2 rounded-sm bg-yellow-300 px-1.5 py-px text-small font-bold tracking-wide text-gray-900"
+              className="absolute top-1/2 left-full ml-2 -translate-y-1/2 rounded-sm bg-yellow-300 px-1.5 py-px text-small font-bold tracking-wide text-on-accent-dark light:bg-pill-yellow light:ring-1 light:ring-yellow-300/40"
             >
               DEV
             </span>

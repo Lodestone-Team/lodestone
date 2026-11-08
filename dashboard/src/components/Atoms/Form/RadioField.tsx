@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { FieldHookConfig, useField } from 'formik';
 import { RadioGroup } from '@headlessui/react';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 export type RadioFieldProps = FieldHookConfig<string> & {
   label?: string;
@@ -66,17 +67,10 @@ export default function RadioField(props: RadioFieldProps) {
           }`}
         >
           {loadingVisual ? (
-            <div
-              className={`input-background input-outlines input-text-style disabled w-full overflow-clip rounded-none p-0 first:rounded-l-md last:rounded-r-md ui-disabled:text-white/50 ui-not-disabled:text-gray-300 ${
-                isError
-                  ? 'input-border-error ui-not-disabled:focus-visible:ring-red-faded/30'
-                  : 'input-border-normal ui-not-disabled:focus-visible:ring-blue-faded/50'
-              }`}
-            >
-              <span className="block h-full w-full select-none bg-gray-800 py-1.5 px-3 text-center text-white/50">
-                Loading...
-              </span>
-            </div>
+            // the options are loading: the buttons' shape (after a moment)
+            <SkeletonGroup className="w-full">
+              <Skeleton className="h-8.5 w-full rounded-md" />
+            </SkeletonGroup>
           ) : (
             options.map((option) => (
               <RadioGroup.Option
@@ -98,7 +92,7 @@ export default function RadioField(props: RadioFieldProps) {
                             ? 'bg-blue-faded/30 text-white/50'
                             : 'bg-gray-800 text-white/50'
                           : checked || selectedValue.toString() == option
-                          ? 'bg-[#2B4554] text-gray-300'
+                          ? 'bg-[#2B4554] text-gray-300 light:bg-fill-selected'
                           : 'text-white/75'
                       }`}
                     >

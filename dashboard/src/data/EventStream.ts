@@ -94,7 +94,8 @@ const setPermission = (permissions: UserPermission) => (user: PublicUser) => ({
  */
 export const useEventStream = () => {
   const queryClient = useQueryClient();
-  const { dispatch, ongoingDispatch } = useContext(NotificationContext);
+  const { dispatch, ongoingDispatch, setHistoryLoaded } =
+    useContext(NotificationContext);
   const selfUid = useUid();
   const { token, core, setCoreConnectionStatus, setToken } =
     useContext(LodestoneContext);
@@ -392,6 +393,7 @@ export const useEventStream = () => {
     dispatch({
       type: 'clear',
     });
+    setHistoryLoaded(false);
 
     axios
       .get<Array<ClientEvent>>('/events/all/buffer', {
@@ -402,9 +404,11 @@ export const useEventStream = () => {
         response.data.forEach((event) => {
           if (!isConsoleEvent(event)) handleEventRef.current(event, false);
         });
+        setHistoryLoaded(true);
       })
       .catch((error) => {
         if (cancelled) return;
+        setHistoryLoaded(true);
         // an expired token is handled by the 401 interceptor (pages/index.tsx)
         if (isAxiosError(error) && error.response?.status === 401) return;
         console.error('Failed to fetch the event buffer', error);
@@ -415,7 +419,7 @@ export const useEventStream = () => {
     return () => {
       cancelled = true;
     };
-  }, [dispatch, token, core]);
+  }, [dispatch, setHistoryLoaded, token, core]);
 
   // subscribe to new events
   useEffect(() => {

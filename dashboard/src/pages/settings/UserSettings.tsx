@@ -11,6 +11,12 @@ import UserBox from 'components/UserBox';
 import { useGlobalSettings } from 'data/GlobalSettings';
 import { useInstanceList } from 'data/InstanceList';
 import { SettingsContext } from 'data/SettingsContext';
+import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import {
+  Skeleton,
+  SkeletonGroup,
+  SkeletonRows,
+} from 'components/Atoms/Skeleton';
 import { useUid, useUserInfo } from 'data/UserInfo';
 import { Fragment, useContext, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
@@ -25,10 +31,30 @@ import {
 import UserApiKeys from 'components/Settings/ApiKeys/UserApiKeys';
 import { useDocumentTitle } from 'usehooks-ts';
 
+// a user's permission rows (title, description, toggle) while the user loads
+const PermissionsSkeleton = () => (
+  <SkeletonGroup label="Loading the user" className="flex flex-col gap-10">
+    {Array.from({ length: 6 }, (_, i) => (
+      <div key={i} className="flex flex-row items-center justify-between gap-4">
+        <div className="flex grow flex-col gap-2">
+          <Skeleton className="h-4 w-48 rounded-sm" />
+          <Skeleton className="h-3.5 w-72 max-w-full rounded-sm" />
+        </div>
+        <Skeleton className="h-6 w-11 shrink-0 rounded-full" />
+      </div>
+    ))}
+  </SkeletonGroup>
+);
+
 export const UserSettings = () => {
   useDocumentTitle('User Settings - Lodestone');
   const queryClient = useQueryClient();
-  const { userList, selectUser, selectedUser } = useContext(SettingsContext);
+  const { userList, userListLoading, selectUser, selectedUser } =
+    useContext(SettingsContext);
+  const { searchParams } = useContext(BrowserLocationContext);
+  // a link to a user: show nothing until the list (and the user) has loaded,
+  // instead of the list of all users first
+  const openingUser = userListLoading && !!searchParams.get('user');
   const { data: instanceList } = useInstanceList();
   const [showCreateUser, setShowCreateUser] = useState(false);
   const { data: userInfo } = useUserInfo();
@@ -91,12 +117,13 @@ export const UserSettings = () => {
     });
   };
 
-  const UserBoxes = !selectedUser && (
+  const UserBoxes = !selectedUser && !openingUser && (
     <div className="flex w-full flex-col gap-4 @4xl:flex-row">
       <div className="flex w-full flex-row flex-nowrap items-end justify-between gap-4 @4xl:w-[28rem] @4xl:flex-col @4xl:items-start @4xl:justify-start">
         <div>
           <h2 className="text-h2 font-bold tracking-tight text-gray-300">
-            All Members ({Object.keys(userList).length})
+            All Members
+            {!userListLoading && ` (${Object.keys(userList).length})`}
           </h2>
           <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
             A list of all users. Click into a user to manage
@@ -110,23 +137,36 @@ export const UserSettings = () => {
           }}
         />
       </div>
-      <div className="h-fit w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-        {Object.keys(userList)
-          .sort((a, b) =>
-            userList[a].uid === uid
-              ? -1
-              : userList[b].uid === uid
-                ? 1
-                : userList[a].username.localeCompare(userList[b].username)
-          )
-          .map((uid) => (
-            <UserBox
-              user={userList[uid]}
-              key={uid}
-              onClick={() => selectUser(userList[uid])}
-            />
-          ))}
-      </div>
+      {userListLoading ? (
+        // user rows: avatar, name and role
+        <SkeletonGroup label="Loading users" className="w-full min-w-0">
+          <SkeletonRows
+            rows={3}
+            icon="round"
+            secondLine
+            className="divide-y divide-gray-faded/30 overflow-hidden rounded-lg border border-gray-faded/30"
+            rowClassName="h-15 bg-gray-800 px-4"
+          />
+        </SkeletonGroup>
+      ) : (
+        <div className="h-fit w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
+          {Object.keys(userList)
+            .sort((a, b) =>
+              userList[a].uid === uid
+                ? -1
+                : userList[b].uid === uid
+                  ? 1
+                  : userList[a].username.localeCompare(userList[b].username)
+            )
+            .map((uid) => (
+              <UserBox
+                user={userList[uid]}
+                key={uid}
+                onClick={() => selectUser(userList[uid])}
+              />
+            ))}
+        </div>
+      )}
     </div>
   );
 
@@ -163,7 +203,21 @@ export const UserSettings = () => {
                   The user {permission.allows}
                 </div>
               </div>
-              {typeof currentSettings === 'object' && (
+              {typeof currentSettings === 'object' && !instanceList && (
+                // the instance checkboxes, while the instances load
+                <SkeletonGroup
+                  label="Loading instances"
+                  className="grid grid-cols-2 gap-4 rounded-lg border border-gray-faded/30 bg-gray-800 px-6 py-4"
+                >
+                  {Array.from({ length: 4 }, (_, i) => (
+                    <div key={i} className="flex flex-row items-center gap-3">
+                      <Skeleton className="size-4 rounded-sm" />
+                      <Skeleton className="h-3.5 w-28 rounded-sm" />
+                    </div>
+                  ))}
+                </SkeletonGroup>
+              )}
+              {typeof currentSettings === 'object' && instanceList && (
                 <MultiSelectGrid
                   className="rounded-lg border border-gray-faded/30 bg-gray-800 px-6 py-4"
                   options={
@@ -234,7 +288,7 @@ export const UserSettings = () => {
           onClose={() => setShowCreateUser(false)}
           className="relative z-10"
         >
-          <div className="fixed inset-0 bg-gray-900/60" />
+          <div className="fixed inset-0 bg-scrim" />
           <div className="fixed inset-0 overflow-y-auto">
             <div className="flex min-h-full items-center justify-center p-4">
               <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pt-16 pb-8">
@@ -258,6 +312,7 @@ export const UserSettings = () => {
         <div className="flex w-full flex-col gap-12 overflow-y-scroll px-4 pt-8">
           <h1 className="dashboard-instance-heading">User Settings</h1>
           {UserBoxes}
+          {openingUser && <PermissionsSkeleton />}
           {UserPermissions(NormalPermissions, false)}
           {selectedUser && (
             <>

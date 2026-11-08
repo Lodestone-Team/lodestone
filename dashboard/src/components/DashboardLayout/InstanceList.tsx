@@ -5,11 +5,12 @@ import InstanceLoadingPill from 'components/InstanceLoadingPill';
 import InstancePill from 'components/InstancePill';
 import { InstanceContext } from 'data/InstanceContext';
 import { NotificationContext } from 'data/NotificationContext';
-import { useUserLoggedIn } from 'data/UserInfo';
+import { useUserState } from 'components/useUserState';
 import { useContext, useEffect, useRef } from 'react';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { match, otherwise } from 'variant';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import { SkeletonGroup, SkeletonRows } from 'components/Atoms/Skeleton';
 
 export default function InstanceList({
   className = '',
@@ -26,7 +27,8 @@ export default function InstanceList({
     isReady,
   } = useContext(InstanceContext);
   const { ongoingNotifications } = useContext(NotificationContext);
-  const userLoggedIn = useUserLoggedIn();
+  // not "logged out" while the user info loads, or the sign-in hint flashes
+  const { userState } = useUserState();
   const {
     location: { pathname },
   } = useContext(BrowserLocationContext);
@@ -56,10 +58,22 @@ export default function InstanceList({
       value={selectedInstance}
       onChange={selectInstance}
     >
-      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
+      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
         ALL INSTANCES
       </RadioGroup.Label>
-      {userLoggedIn ? (
+      {userState === 'loading' || (userState === 'logged-in' && !instances) ? (
+        // instance pills (icon, name, status dot) while the list loads
+        <SkeletonGroup label="Loading instances">
+          <SkeletonRows
+            rows={4}
+            icon="square"
+            trailing
+            className="gap-y-1"
+            rowClassName="h-7 px-2"
+            trailingClassName="size-2 rounded-full"
+          />
+        </SkeletonGroup>
+      ) : userState === 'logged-in' ? (
         instances &&
         Object.values(instances).map((instance) => (
           <RadioGroup.Option
@@ -78,7 +92,7 @@ export default function InstanceList({
             icon={faExpand}
             className="text-h1 text-gray-faded/30"
           />
-          <p className="text-center text-medium italic text-gray-faded/30">
+          <p className="text-center text-medium italic text-gray-faded/30 light:text-ink-muted">
             Log in to view your server instances.
           </p>
         </div>

@@ -1,9 +1,9 @@
-import { ReactNode, useContext, useEffect, useState } from 'react';
+import { ReactNode, useContext } from 'react';
 import { InstanceContext } from 'data/InstanceContext';
 import { useLocation } from 'react-router';
 import Label from 'components/Atoms/Label';
 import { cn, stateToLabelColor } from 'utils/util';
-import Spinner from 'components/DashboardLayout/Spinner';
+import { PageLoading } from 'components/DashboardLayout/LayoutSkeletons';
 import { CommandHistoryContextProvider } from 'data/CommandHistoryContext';
 import InstanceOverview from 'components/Instance/InstanceOverview';
 import GameConsole from 'components/GameConsole';
@@ -46,23 +46,23 @@ const tabContent: Record<InstanceTabPath, ReactNode> = {
 
 const InstanceTabs = () => {
   const location = useLocation();
-  const [path, setPath] = useState(location.pathname.split('/')[2]);
+  // read from the URL on every render: a copy kept in state by an effect was a
+  // render behind, so switching tabs first rendered the old tab again
+  const path = location.pathname.split('/')[2];
   const {
     selectedInstance: instance,
     instanceList,
     isReady,
   } = useContext(InstanceContext);
   const uuid = instance?.uuid;
-  useEffect(() => {
-    setPath(location.pathname.split('/')[2]);
-  }, [location.pathname]);
 
   if (!instance || !uuid) {
-    // Wait for the instance list to load. Once it has, the instance named in
-    // the URL is selected an effect later, so keep waiting if it exists.
+    // Wait for the instance list to load. Keep waiting if the instance named
+    // in the URL exists: after back/forward the selection follows the URL a
+    // render later.
     const queryUuid = new URLSearchParams(location.search).get('instance');
     if (!isReady || (queryUuid && queryUuid in instanceList)) {
-      return <Spinner />;
+      return <PageLoading />;
     } else {
       return (
         <div

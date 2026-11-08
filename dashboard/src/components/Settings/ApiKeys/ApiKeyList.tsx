@@ -13,6 +13,7 @@ import {
 import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { ApiError, formatTimeAgo } from 'utils/util';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 const formatDate = (seconds: number) =>
   new Date(seconds * 1000).toLocaleDateString(undefined, {
@@ -54,10 +55,26 @@ export default function ApiKeyList({
     );
   }
   if (isLoading || !keys) {
+    // key rows: name and prefix, scopes, dates, and the revoke button
     return (
-      <div className="text-medium font-medium tracking-medium text-white/50 italic">
-        Loading API keys...
-      </div>
+      <SkeletonGroup
+        label="Loading API keys"
+        className="w-full min-w-0 divide-y divide-gray-faded/30 overflow-hidden rounded-lg border border-gray-faded/30"
+      >
+        {[0, 1].map((i) => (
+          <div
+            key={i}
+            className="flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3"
+          >
+            <div className="flex grow flex-col gap-2">
+              <Skeleton className="h-4 w-48 rounded-sm" />
+              <Skeleton className="h-3.5 w-64 max-w-full rounded-sm" />
+              <Skeleton className="h-3 w-56 max-w-full rounded-sm" />
+            </div>
+            <Skeleton className="h-7 w-20 shrink-0" />
+          </div>
+        ))}
+      </SkeletonGroup>
     );
   }
 

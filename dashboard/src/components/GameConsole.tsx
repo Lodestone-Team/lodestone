@@ -16,6 +16,7 @@ import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import ErrorGraphic from './ErrorGraphic';
 import { useDocumentTitle } from 'usehooks-ts';
 import Checkbox from './Atoms/Checkbox';
+import { SkeletonCode, SkeletonGroup } from './Atoms/Skeleton';
 import { toast } from 'react-toastify';
 
 const autoScrollThreshold = 10;
@@ -212,6 +213,21 @@ export default function GameConsole() {
             iconClassName="text-gray-400"
             messageClassName="text-white/50"
           />
+        ) : consoleLog.length === 0 && consoleStatus === 'loading' ? (
+          // the history is still loading: an empty console, not the "no
+          // messages" graphic that would flash before the lines appear
+          <div
+            aria-busy="true"
+            className="flex h-0 grow rounded-t-lg border-b border-gray-faded/30 bg-gray-900"
+          />
+        ) : consoleLog.length === 0 && consoleStatus === 'loading' ? (
+          // the history's lines, while it loads (after a moment)
+          <SkeletonGroup
+            label="Loading console"
+            className="flex h-0 grow overflow-hidden rounded-t-lg border-b border-gray-faded/30 bg-gray-900 px-4 py-3"
+          >
+            <SkeletonCode lines={18} className="w-full" />
+          </SkeletonGroup>
         ) : consoleLog.length === 0 ? (
           <ErrorGraphic
             icon={faServer}

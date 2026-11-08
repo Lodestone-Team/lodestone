@@ -7,6 +7,8 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useIsomorphicLayoutEffect } from 'usehooks-ts';
 import { saveInstanceFile } from 'utils/apis';
 import * as toml from 'utils/monaco-languages/toml';
+import { useResolvedTheme } from 'utils/theme';
+import { SkeletonCode, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 type Monaco = typeof monaco;
 
@@ -46,6 +48,7 @@ export function FileEditor({
   const monaco = useMonaco();
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const { selectedInstance: instance } = useContext(InstanceContext);
+  const theme = useResolvedTheme();
 
   function handleEditorDidMount(
     editor: monaco.editor.IStandaloneCodeEditor,
@@ -95,6 +98,17 @@ export function FileEditor({
           'editor.lineHighlightBackground': '#2c2e33',
         },
       });
+      // a white page with the light theme's hover gray for the current line
+      monaco.editor.defineTheme('lodestone-light', {
+        base: 'vs',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': '#FFFFFF',
+          'editor.lineHighlightBackground': '#F1F4F7',
+          'editorGutter.background': '#F3F5F8',
+        },
+      });
       // monaco 0.55 moved languages.typescript to the top level typescript namespace
       monaco.typescript.typescriptDefaults.setCompilerOptions({
         target: monaco.typescript.ScriptTarget.ES2016,
@@ -125,7 +139,7 @@ export function FileEditor({
       }}
       value={fileContent}
       defaultValue={originalFileContent}
-      theme="lodestone-dark"
+      theme={theme === 'light' ? 'lodestone-light' : 'lodestone-dark'}
       path={monacoPath}
       className="bg-gray-800"
       options={{
@@ -140,6 +154,13 @@ export function FileEditor({
       language={monacoLanguage}
       saveViewState={true}
       onMount={handleEditorDidMount}
+      // shown only if the editor takes a while to start (its first load):
+      // lines of code, appearing after a moment so a quick start shows nothing
+      loading={
+        <SkeletonGroup label="Loading editor" className="size-full p-4">
+          <SkeletonCode lines={16} />
+        </SkeletonGroup>
+      }
       // dispose the model when the file is closed instead of keeping it
       keepCurrentModel={false}
     />

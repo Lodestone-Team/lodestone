@@ -36,13 +36,13 @@ const buttonClasses = cva(
           'outline-gray-faded/30 enabled:hover:outline-white/50',
         ],
         danger: [
-          'text-red-200 active:text-white enabled:hover:text-white disabled:text-white/50 enabled:ui-active:text-white',
+          'text-red-200 active:text-on-accent enabled:hover:text-on-accent disabled:text-white/50 enabled:ui-active:text-on-accent',
           'font-bold',
           'bg-gray-800 enabled:hover:bg-red-300 enabled:active:bg-red-400 enabled:ui-active:bg-red-300',
           'outline-gray-faded/30 enabled:hover:outline-white/50',
         ],
         primary: [
-          'text-white disabled:text-white/50',
+          'text-on-accent disabled:text-white/50',
           'font-medium',
           'bg-blue enabled:hover:bg-blue-400 enabled:active:bg-blue-500 disabled:bg-blue-faded/50 enabled:ui-active:bg-blue-400',
           'outline-blue-faded/50 enabled:hover:outline-blue-200/75',

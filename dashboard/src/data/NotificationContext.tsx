@@ -7,6 +7,7 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useState,
 } from 'react';
 import { ProgressionEvent } from 'bindings/ProgressionEvent';
 import { fields, match, variant, VariantOf } from 'variant';
@@ -66,6 +67,9 @@ interface NotificationContext {
   ongoingNotifications: OngoingNotificationItem[];
   dispatch: React.Dispatch<NotificationAction>;
   ongoingDispatch: React.Dispatch<OngoingNotificationAction>;
+  /** false until the past events (the core's event buffer) have been fetched */
+  historyLoaded: boolean;
+  setHistoryLoaded: (loaded: boolean) => void;
 }
 
 export const NotificationContext = createContext<NotificationContext>({
@@ -77,6 +81,8 @@ export const NotificationContext = createContext<NotificationContext>({
   ongoingDispatch: () => {
     console.error('ongoingDispatch not implemented');
   },
+  historyLoaded: false,
+  setHistoryLoaded: () => {},
 });
 
 type NotificationState = {
@@ -225,6 +231,7 @@ export const NotificationContextProvider = ({
   children: React.ReactNode;
 }) => {
   const [state, rawDispatch] = useReducer(reducer, initialState);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const { token } = useContext(LodestoneContext);
 
   const dispatch = useMemo<React.Dispatch<NotificationAction>>(
@@ -237,7 +244,10 @@ export const NotificationContextProvider = ({
   );
 
   useEffect(() => {
-    if (!token) dispatch({ type: 'clear' });
+    if (token) return;
+    dispatch({ type: 'clear' });
+    // logged out: there are no past events to wait for
+    setHistoryLoaded(true);
   }, [token, dispatch]);
 
   const value = useMemo(
@@ -246,8 +256,10 @@ export const NotificationContextProvider = ({
       ongoingNotifications: state.ongoingNotifications,
       dispatch,
       ongoingDispatch,
+      historyLoaded,
+      setHistoryLoaded,
     }),
-    [state, dispatch, ongoingDispatch]
+    [state, dispatch, ongoingDispatch, historyLoaded]
   );
 
   return (

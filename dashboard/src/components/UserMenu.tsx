@@ -17,6 +17,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import IconButton from './Atoms/IconButton';
 import { useLocation } from 'react-router';
 import { useUserState } from './useUserState';
+import { Skeleton } from 'components/Atoms/Skeleton';
 
 /**
  * The signed-in user with the account menu (sign out, change core), and the settings
@@ -47,19 +48,21 @@ const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
             'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden'
           )}
         >
-          {loggedIn ? (
+          {userState === 'loading' ? (
+            // the avatar and the name, while the user loads
+            <Skeleton className="size-5 shrink-0 rounded-full" />
+          ) : loggedIn ? (
             <Avatar name={uid} />
           ) : (
-            <FontAwesomeIcon
-              icon={faUser}
-              className={clsx(
-                'w-4 opacity-50',
-                userState === 'loading' && 'animate-pulse'
-              )}
-            />
+            <FontAwesomeIcon icon={faUser} className="w-4 opacity-50" />
           )}
           <span className="min-w-0 flex-1 truncate text-left">
-            {accountLabel}
+            {/* not "Guest" while the user loads, that flashed before the name */}
+            {userState === 'loading' ? (
+              <Skeleton className="inline-block h-3 w-20 rounded-sm align-middle" />
+            ) : (
+              accountLabel
+            )}
           </span>
           <FontAwesomeIcon icon={faCaretUp} className="w-2.5 shrink-0" />
         </Menu.Button>

@@ -8,6 +8,7 @@ import FileContextMenu from './FileContextMenu';
 import React, { RefObject, useMemo, useRef, useState } from 'react';
 import { useOnClickOutside } from 'usehooks-ts';
 import { useFileViewer } from './FileViewerContext';
+import { SkeletonGroup, SkeletonRows } from 'components/Atoms/Skeleton';
 
 // a map from file extension to icon
 const iconMap: { [key: string]: string } = {
@@ -58,6 +59,7 @@ const iconMap: { [key: string]: string } = {
 export default function FileList({
   fileList,
   loading,
+  stale = false,
   error,
   atTopLevel,
   onParentClick,
@@ -66,6 +68,8 @@ export default function FileList({
 }: {
   fileList: ClientFile[] | undefined;
   loading: boolean;
+  /** fileList is the previous folder's, kept on screen while this one loads */
+  stale?: boolean;
   error: Error | null;
   atTopLevel: boolean;
   onParentClick: () => void;
@@ -219,9 +223,17 @@ export default function FileList({
         ) : null}
 
         {loading ? (
-          <div className={fileTreeEntryClassName}>
-            <p className="text-medium font-medium text-gray-400">Loading...</p>
-          </div>
+          // file rows (checkbox, icon, name, size); they appear after a
+          // moment, so a folder that opens quickly doesn't flash them
+          <SkeletonGroup label="Loading files">
+            <SkeletonRows
+              rows={8}
+              icon="square"
+              trailing
+              className="divide-y divide-gray-faded/30"
+              rowClassName={clsx(fileTreeEntryClassName, 'h-10 bg-gray-800')}
+            />
+          </SkeletonGroup>
         ) : error ? (
           <div className={fileTreeEntryClassName}>
             <p className="text-medium font-medium text-gray-400">
@@ -248,6 +260,9 @@ export default function FileList({
                 'bg-gray-900': isOpened,
                 'bg-gray-700': isTicked && !isOpened,
                 'bg-gray-800': !isTicked && !isOpened,
+                // the previous folder, until the new one has loaded
+                'pointer-events-none opacity-50 transition-opacity delay-150':
+                  stale,
               })}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -278,7 +293,7 @@ export default function FileList({
               </p>
               <div className="grow"></div>
 
-              <p className="hidden min-w-[8ch] text-left text-gray-500 @xs:inline">
+              <p className="hidden min-w-[8ch] text-right text-gray-500 @xs:inline">
                 {file.modification_time || file.creation_time
                   ? formatTimeAgo(
                       Number(file.modification_time ?? file.creation_time) *

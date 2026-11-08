@@ -13,6 +13,11 @@ import { InstalledModKind } from 'bindings/InstalledModKind';
 import { ModInstallResult } from 'bindings/ModInstallResult';
 import Button from 'components/Atoms/Button';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
+import {
+  Skeleton,
+  SkeletonGroup,
+  SkeletonRows,
+} from 'components/Atoms/Skeleton';
 import { Toggle } from 'components/Atoms/Toggle';
 import IconButton from 'components/Atoms/IconButton';
 import {
@@ -171,6 +176,18 @@ const ModRow = ({
 };
 
 /** The Installed sub-view of the mods tab. */
+// installed mod rows: icon, name and version, and the actions at the end
+const ModRowsSkeleton = () => (
+  <SkeletonRows
+    rows={4}
+    icon="large"
+    secondLine
+    trailing
+    className="divide-y divide-gray-faded/30 overflow-hidden rounded-lg border border-gray-faded/30"
+    rowClassName="h-16 bg-gray-800 px-4"
+  />
+);
+
 export default function InstalledMods({
   uuid,
   list,
@@ -276,6 +293,20 @@ export default function InstalledMods({
     }
   };
 
+  if (isLoading && !list && !error)
+    // First load only (the list is kept once loaded). One quiet outline for
+    // the whole view, so the toolbar doesn't show first and then get pushed
+    // down by the client modpack panel when the list arrives.
+    return (
+      <SkeletonGroup className="flex flex-col gap-4">
+        <div className="flex flex-row items-center justify-between gap-2">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-9 w-64" />
+        </div>
+        <ModRowsSkeleton />
+      </SkeletonGroup>
+    );
+
   return (
     <div className="flex flex-col gap-4">
       <ConfirmDialog
@@ -352,9 +383,9 @@ export default function InstalledMods({
           {errorToString(error)}
         </div>
       ) : isLoading || !list ? (
-        <div className="rounded-lg border border-gray-faded/30 bg-gray-800 p-4 text-medium text-white/50">
-          Loading...
-        </div>
+        <SkeletonGroup label="Loading mods">
+          <ModRowsSkeleton />
+        </SkeletonGroup>
       ) : list.mods.length === 0 ? (
         <div className="rounded-lg border border-gray-faded/30 bg-gray-800 p-6 text-center text-medium text-white/50">
           No {noun}s installed yet. Browse Modrinth or upload a .jar file.

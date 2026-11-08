@@ -169,11 +169,29 @@ export const useConsoleStream = (uuid: string) => {
     if (!token) return;
     setStatus('loading');
     let cancelled = false;
+    // The history and the live stream arrive in either order. The status only
+    // moves on once the history has been fetched (or failed): the socket
+    // usually opens first, and showing "live but failed to fetch history"
+    // until the history arrived made the status dot flash yellow every time.
+    let socketOpen = false;
+    let buffer: 'pending' | 'fetched' | 'failed' = 'pending';
+    const updateStatus = () => {
+      if (cancelled) return;
+      if (buffer === 'pending') {
+        setStatus('loading');
+      } else if (socketOpen) {
+        setStatus(buffer === 'fetched' ? 'live' : 'live-no-buffer');
+      } else if (buffer === 'fetched') {
+        setStatus('buffered');
+      }
+      // failed and not connected yet: stays loading until the socket opens
+    };
 
     fetchBuffer().then((ok) => {
-      if (cancelled || !ok) return;
-      if (statusRef.current === 'loading') setStatus('buffered');
-      if (statusRef.current === 'live-no-buffer') setStatus('live');
+      if (cancelled) return;
+      buffer = ok ? 'fetched' : 'failed';
+      // the socket may have dropped meanwhile; that status stays
+      if (socketOpen || statusRef.current === 'loading') updateStatus();
     });
 
     const websocket = openReconnectingWebSocket({
@@ -185,17 +203,19 @@ export const useConsoleStream = (uuid: string) => {
           )}`
         ),
       onOpen: (_, isReconnect) => {
+        socketOpen = true;
         if (isReconnect) {
           // fill in the lines sent while we were disconnected
-          setStatus('live-no-buffer');
+          buffer = 'pending';
+          updateStatus();
           fetchBuffer().then((ok) => {
-            if (!cancelled && ok && statusRef.current === 'live-no-buffer')
-              setStatus('live');
+            if (cancelled || !socketOpen) return;
+            buffer = ok ? 'fetched' : 'failed';
+            updateStatus();
           });
           return;
         }
-        if (statusRef.current === 'loading') setStatus('live-no-buffer');
-        if (statusRef.current === 'buffered') setStatus('live');
+        updateStatus();
       },
       onMessage: (messageEvent) => {
         let event: ClientEvent;
@@ -208,6 +228,7 @@ export const useConsoleStream = (uuid: string) => {
         mergeConsoleLog([event]);
       },
       onClose: (event) => {
+        socketOpen = false;
         if (event.code === 1000) {
           // closed by the server on purpose
           setStatus('closed');

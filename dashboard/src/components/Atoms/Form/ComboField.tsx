@@ -6,6 +6,7 @@ import BeatLoader from 'react-spinners/BeatLoader';
 import { faSort, IconDefinition } from '@fortawesome/free-solid-svg-icons';
 import clsx from 'clsx';
 import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 /**
  * A combo box field that allows the user to select from a list of options, or
@@ -101,7 +102,13 @@ export default function ComboField(props: ComboFieldProps) {
       <label className="absolute -top-6 text-medium font-medium tracking-medium text-gray-300">
         {label ? `${label}:` : ''}
       </label>
-      <div className="relative mt-1">
+      {loadingVisual && (
+          // the options are loading: the field's shape (after a moment)
+          <SkeletonGroup className="relative mt-1">
+            <Skeleton className="h-8.5 w-full rounded" />
+          </SkeletonGroup>
+        )}
+        <div className={clsx('relative mt-1', loadingVisual && 'hidden')}>
         <Combobox
           value={selectedValue ? selectedValue : ''}
           name={field.name}

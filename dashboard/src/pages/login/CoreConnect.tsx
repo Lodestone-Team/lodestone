@@ -29,6 +29,7 @@ import CoreConnectionHelp, {
   defaultProtocolFor,
   isRemoteNetworkError,
 } from 'components/CoreConnectionHelp';
+import Logo from 'components/Atoms/Logo';
 
 const validationSchema = yup.object({
   address: yup.string().required('Required'),
@@ -176,7 +177,7 @@ const CoreConnect = () => {
         </ConfirmDialog>
       )}
       <div className="flex flex-col items-start">
-        <img src="/logo.svg" alt="logo" className="h-8" />
+        <Logo alt="logo" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
           Add a new core
         </h1>

@@ -14,6 +14,7 @@ import { useGlobalSettings } from 'data/GlobalSettings';
 import { useCodeExecution } from 'data/CodeExecution';
 import { isUserAuthorized, useUserInfo } from 'data/UserInfo';
 import { getModSupport, modTabTitle } from 'utils/mods';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 export const SelectedInstanceInfo = ({
   className = '',
@@ -23,9 +24,9 @@ export const SelectedInstanceInfo = ({
   children?: React.ReactNode;
 }) => {
   // the "Instance List" view event is sent by InstanceList, once per mount
-  const { selectedInstance } = useContext(InstanceContext);
+  const { selectedInstance, isReady } = useContext(InstanceContext);
 
-  const { setPathname } = useContext(BrowserLocationContext);
+  const { setPathname, searchParams } = useContext(BrowserLocationContext);
   const setActive = useMemo(() => location.pathname.split('/')[2], [location.pathname]);
   const { data: globalSettings } = useGlobalSettings();
   // macros are owner only
@@ -39,14 +40,43 @@ export const SelectedInstanceInfo = ({
     !!selectedInstance &&
     isUserAuthorized(user, 'can_read_instance_file', selectedInstance.uuid);
 
+  const visibleTabs = tabs.filter(
+    (tab) =>
+      (tab.title !== 'Playitgg' || globalSettings?.playit_enabled) &&
+      (tab.path !== 'macros' || canManage) &&
+      (tab.path !== 'mods' || (modSupport && canReadFiles))
+  );
+
   const uuid = selectedInstance?.uuid;
+  if (
+    (!selectedInstance || !uuid) &&
+    !isReady &&
+    searchParams.get('instance')
+  ) {
+    // The URL names an instance but the list is still loading: hold its place
+    // instead of flashing the "no instance selected" box.
+    return (
+      <SkeletonGroup className="mx-1 flex flex-col gap-y-1 px-1 pb-1">
+        <div className="text-small leading-snug font-bold text-gray-faded/30 light:text-ink-muted">
+          SELECTED INSTANCE
+        </div>
+        <div className="my-2 flex flex-col gap-3 border-b-2 border-gray-faded/30 pb-2">
+          <Skeleton className="h-7 w-full" />
+          <Skeleton className="h-6 w-full" />
+        </div>
+        {visibleTabs.map((tab) => (
+          <Skeleton key={tab.path} className="h-7 w-full" />
+        ))}
+      </SkeletonGroup>
+    );
+  }
   if (!selectedInstance || !uuid) {
     return (
       <div className="mx-1 px-1 text-gray-faded/30">
-        <div className="text-small font-bold leading-snug text-gray-faded/30">
+        <div className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
           SELECTED INSTANCE
         </div>
-        <div className="mt-2 flex h-[17.625rem] justify-center rounded-md border border-dashed text-center text-gray-faded/30">
+        <div className="mt-2 flex h-[17.625rem] justify-center rounded-md border border-dashed text-center text-gray-faded/30 light:border-line-strong light:text-ink-muted">
           <div className="mt-20 w-[5.5rem]">
             <div className="text-h1">
               <FontAwesomeIcon icon={faExpand} />
@@ -65,17 +95,14 @@ export const SelectedInstanceInfo = ({
       className={`child:w-full mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 ${className}`}
       onChange={setPathname}
     >
-      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30">
+      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
         SELECTED INSTANCE
       </RadioGroup.Label>
 
       <InstanceCard {...selectedInstance} key={selectedInstance.uuid} />
 
       {selectedInstance &&
-        tabs.map((tab) => (
-          (tab.title !== 'Playitgg' || globalSettings?.playit_enabled) &&
-          (tab.path !== 'macros' || canManage) &&
-          (tab.path !== 'mods' || (modSupport && canReadFiles)) &&
+        visibleTabs.map((tab) => (
           <RadioGroup.Option
             key={tab.path}
             value={`/dashboard/${tab.path}`}
@@ -97,7 +124,7 @@ export const SelectedInstanceInfo = ({
               <div
                 className={clsx(
                   setActive === tab.path
-                    ? 'text-white/50'
+                    ? 'text-white/50 light:text-blue-200'
                     : 'text-gray-faded/30'
                 )}
               >

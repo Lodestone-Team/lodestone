@@ -1,7 +1,8 @@
 import SettingField from 'components/SettingField';
 import { InstanceContext } from 'data/InstanceContext';
 import { useInstanceManifest } from 'data/InstanceManifest';
-import { useContext, useState, useEffect } from 'react';
+import { useContext, useState, useEffect, useMemo } from 'react';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { Toggle } from 'components/Atoms/Toggle';
@@ -115,6 +116,37 @@ function StartupSettings({
   );
 }
 
+/** The settings sections' shape, while the settings load. */
+function InstanceSettingsSkeleton() {
+  return (
+    <SkeletonGroup className="flex flex-col">
+      {[4, 2].map((rows, i) => (
+        <div key={i} className="mb-16 flex flex-col gap-4 @4xl:flex-row">
+          <div className="flex w-full shrink-0 flex-col gap-2">
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-5 w-72 max-w-full" />
+          </div>
+          {/* setting rows: name and description, and the control */}
+          <div className="flex w-full min-w-0 flex-col divide-y divide-gray-faded/30 overflow-hidden rounded-lg border border-gray-faded/30">
+            {Array.from({ length: rows }, (_, row) => (
+              <div
+                key={row}
+                className="flex h-17 flex-row items-center justify-between gap-4 bg-gray-800 px-4"
+              >
+                <div className="flex grow flex-col gap-2">
+                  <Skeleton className="h-3.5 w-36 rounded-sm" />
+                  <Skeleton className="h-3 w-56 max-w-full rounded-sm" />
+                </div>
+                <Skeleton className="h-8 w-5/12 shrink-0" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </SkeletonGroup>
+  );
+}
+
 export default function InstanceSetting() {
   useDocumentTitle('Instance Settings - Lodestone');
   const { selectedInstance: instance, selectInstance } =
@@ -136,15 +168,18 @@ export default function InstanceSetting() {
     canControlInstance;
   const queryClient = useQueryClient();
 
-  const [sections, setSections] = useState<SectionFieldObject[]>([]);
-  useEffect(() => {
-    if (!manifest) return;
-    setSections(iterateSections(manifest));
-  }, [manifest]);
+  // computed during render: kept in state by an effect, the sections were
+  // empty for the first render with the manifest, so the page rendered
+  // without them and then jumped when they were inserted above the rest
+  const sections = useMemo<SectionFieldObject[]>(
+    () => (manifest ? iterateSections(manifest) : []),
+    [manifest]
+  );
 
   if (isLoading) {
-    return <div>Loading...</div>;
-    // TODO: show an unobtrusive loading screen, reduce UI flicker
+    // Only the first time: the settings are kept once loaded (see
+    // useInstanceManifest), so reopening the page shows them right away
+    return <InstanceSettingsSkeleton />;
   }
 
   return (

@@ -6,13 +6,13 @@ import {
 } from 'data/LodestoneContext';
 import { NotificationContextProvider } from 'data/NotificationContext';
 import {
-  lazy,
   Suspense,
   useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { Routes, Route } from 'react-router';
@@ -39,26 +39,56 @@ import RequireCore from 'utils/router/RequireCore';
 import RequireToken from 'utils/router/RequireToken';
 import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
-import Spinner from 'components/DashboardLayout/Spinner';
+import { AppShellSkeleton } from 'components/DashboardLayout/LayoutSkeletons';
+import { lazyWithPreload } from 'utils/lazyWithPreload';
 
 // The dashboard (and everything it pulls in: charts, the file editor, forms)
 // is loaded on demand, so the login screens don't wait for it.
-const DashboardLayout = lazy(() => import('components/DashboardLayout'));
-const InstanceViewLayout = lazy(() =>
+const DashboardLayout = lazyWithPreload(
+  () => import('components/DashboardLayout')
+);
+const InstanceViewLayout = lazyWithPreload(() =>
   import('components/DashboardLayout/InstanceViewLayout').then((m) => ({
     default: m.InstanceViewLayout,
   }))
 );
-const SettingsLayout = lazy(() =>
+const SettingsLayout = lazyWithPreload(() =>
   import('components/DashboardLayout/SettingsLayout').then((m) => ({
     default: m.SettingsLayout,
   }))
 );
-const Home = lazy(() => import('pages/home'));
-const InstanceTabs = lazy(() => import('pages/InstanceTabs/InstanceTabs'));
-const ProfilePage = lazy(() => import('pages/settings/profile'));
-const CoreSettings = lazy(() => import('pages/settings/CoreSettings'));
-const UserSettings = lazy(() => import('pages/settings/UserSettings'));
+const Home = lazyWithPreload(() => import('pages/home'));
+const InstanceTabs = lazyWithPreload(
+  () => import('pages/InstanceTabs/InstanceTabs')
+);
+const ProfilePage = lazyWithPreload(() => import('pages/settings/profile'));
+const CoreSettings = lazyWithPreload(
+  () => import('pages/settings/CoreSettings')
+);
+const UserSettings = lazyWithPreload(
+  () => import('pages/settings/UserSettings')
+);
+
+/**
+ * Loads every dashboard chunk at once. Without this they load one after the
+ * other (each layout only asks for the next when it renders), and every step
+ * shows a loading state; once loaded, they render without suspending.
+ */
+const preloadDashboard = () =>
+  Promise.all(
+    [
+      DashboardLayout,
+      InstanceViewLayout,
+      SettingsLayout,
+      Home,
+      InstanceTabs,
+      ProfilePage,
+      CoreSettings,
+      UserSettings,
+    ].map((component) => component.preload())
+  ).catch(() => {
+    // retried when the component renders, and its error shows there
+  });
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -257,6 +287,8 @@ export default function App() {
   const claims = useMemo(() => (token ? decodeToken(token) : null), [token]);
   // empty when logged out, so it can't outlive the token
   const uid = claims && !(claims instanceof Error) ? claims.uid : '';
+  // the token and core the query cache holds data for
+  const lastSession = useRef<string | null>(null);
   const setToken = useCallback(
     (token: string, coreSocket: string) => {
       // update from the latest map, not the one from this render
@@ -289,14 +321,28 @@ export default function App() {
         delete axios.defaults.headers.common['Authorization'];
       }
     }
-    queryClient.invalidateQueries();
-    queryClient.clear();
+    // Drop the data of the previous user or core. Not on the first run: the
+    // cache only holds queries the first render just made for this token, and
+    // clearing would orphan them, so the next component asking for the same
+    // data would load it again (showing its loading state a second time).
+    const session = `${token}@${socket}`;
+    if (lastSession.current !== null && lastSession.current !== session) {
+      queryClient.invalidateQueries();
+      queryClient.clear();
+    }
+    lastSession.current = session;
     return () => {
       if (logoutTimer !== undefined) clearTimeout(logoutTimer);
     };
     // token and socket only: claims derives from token and setToken is stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, socket]);
+
+  // Signed in: fetch the dashboard's chunks now, in parallel, so it doesn't
+  // load them one by one (with a loading state for each) when it opens.
+  useEffect(() => {
+    if (token) void preloadDashboard();
+  }, [token]);
 
   // Log out when the core rejects the token (expired, revoked, or the user was
   // deleted). The core also answers 401 for some requests that are not about
@@ -370,7 +416,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <LodestoneContext.Provider value={lodestoneContextValue}>
         <NotificationContextProvider>
-          <Suspense fallback={<Spinner />}>
+          <Suspense fallback={<AppShellSkeleton />}>
             <Routes>
               <Route element={<LoginLayout />}>
                 <Route path="/first_setup" element={<FirstTime />} />

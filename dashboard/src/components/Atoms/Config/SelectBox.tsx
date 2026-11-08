@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { useEffect, useState, Fragment } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { catchAsyncToString } from 'utils/util';
+import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
 /**
  * A self controlled dropdown meant to represent a single value of a config
@@ -71,7 +72,7 @@ export default function SelectBox({
     : 'No permission';
 
   const icon =
-    isLoading || isLoadingProp ? (
+    isLoading ? (
       <BeatLoader
         key="loading"
         size="0.25rem"
@@ -117,7 +118,13 @@ export default function SelectBox({
           </div>
         )}
       </div>
-      <div className="relative w-5/12 shrink-0" >
+      {isLoadingProp && (
+        // the value is still loading: the dropdown's shape (after a moment)
+        <SkeletonGroup className="w-5/12 shrink-0">
+          <Skeleton className="h-8 w-full rounded" />
+        </SkeletonGroup>
+      )}
+      <div className={clsx('relative w-5/12 shrink-0', isLoadingProp && 'hidden')}>
         <Listbox
           value={value}
           onChange={onChange}

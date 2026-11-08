@@ -2,6 +2,7 @@ import ButtonMenu from './ButtonMenu';
 import { ButtonMenuConfig } from './ButtonMenu';
 
 import clsx from 'clsx';
+import { Skeleton } from './Atoms/Skeleton';
 
 export interface TableColumn {
   field: string;
@@ -20,6 +21,8 @@ interface TableProps {
   alignment?: 'even' | 'left';
   menuOptions?: ButtonMenuConfig;
   className?: string;
+  /** the rows are still loading: no "No data" message meanwhile */
+  isLoading?: boolean;
 }
 
 export function Table({
@@ -28,6 +31,7 @@ export function Table({
   alignment = 'even',
   menuOptions,
   className,
+  isLoading = false,
 }: TableProps) {
   // If menuOptions is truthy, add an extra column for the menu buttons
   // Add a unique index for each ButtonMenu created to control respective rows
@@ -79,7 +83,35 @@ export function Table({
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody
+          className={clsx(
+            rows.length === 0 && isLoading && 'loading-delayed'
+          )}
+          aria-busy={rows.length === 0 && isLoading}
+        >
+          {rows.length === 0 &&
+            isLoading &&
+            // rows of the table's own shape while it loads (after a moment)
+            Array.from({ length: 5 }, (_, indexRow) => (
+              <tr
+                key={indexRow}
+                className={clsx(
+                  'border-b border-b-fade-700',
+                  indexRow % 2 === 1 && 'bg-gray-850'
+                )}
+              >
+                {modifiedColumns.map((_, indexColumn) => (
+                  <td key={indexColumn} className="p-4">
+                    <Skeleton
+                      className={clsx(
+                        'h-3.5 rounded-sm',
+                        ['w-3/4', 'w-1/2', 'w-2/3'][(indexRow + indexColumn) % 3]
+                      )}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
           {rows.map((row, indexRow) => (
             <tr
               key={indexRow}
@@ -105,7 +137,7 @@ export function Table({
           ))}
         </tbody>
       </table>
-      {rows.length === 0 && (
+      {rows.length === 0 && !isLoading && (
         <div>
           <div className="mt-8 flex flex-col items-center justify-center">
             <div className=" text-h2 font-bold text-gray-400">

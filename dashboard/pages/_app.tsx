@@ -9,6 +9,8 @@ import { ToastContainer, Zoom, IconProps } from 'react-toastify';
 import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
 import ReactGA from 'react-ga4';
 import ClientOnly from 'components/ClientOnly';
+import { useEffect } from 'react';
+import { initTheme, useResolvedTheme } from 'utils/theme';
 
 // Font Awesome styles are imported (into a cascade layer) by globals.css
 config.autoAddCss = false;
@@ -26,6 +28,10 @@ const contextClass = {
 
 
 function MyApp({ Component, pageProps }: AppProps) {
+  const theme = useResolvedTheme();
+  // follow OS theme changes (for the "system" preference) and other tabs
+  useEffect(initTheme, []);
+
   const renderIcon = (props: IconProps) => {
     // Cannot assign 'Success' to EventLevel, so I guess there won't be a success toast
     switch (props.type) {
@@ -59,7 +65,7 @@ function MyApp({ Component, pageProps }: AppProps) {
           pauseOnFocusLoss={false}
           draggable={false}
           pauseOnHover
-          theme="dark"
+          theme={theme}
           transition={Zoom}
         />
         <BrowserRouter>
