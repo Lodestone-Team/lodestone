@@ -226,14 +226,13 @@ impl User {
                 self.key_console.is_none_or(|console| console.write)
                     && self.has_console_permission(instance_id)
             }
-            UserAction::ReadConsole(instance_id) => match self.key_console {
-                // a launcher key: only with the read opt-in, and only where its user may
-                // use the console
-                Some(console) => console.read && self.has_console_permission(instance_id),
-                // otherwise the core's long-standing rule: whoever can view an instance
-                // can read its console
-                None => self.can_perform_action(&UserAction::ViewInstance(instance_id.clone())),
-            },
+            // Reading the console (its output, chat, and what was typed into it) needs the
+            // console permission, as the dashboard describes it ("read and send commands");
+            // viewing an instance is not enough. A launcher key also needs its read opt-in.
+            UserAction::ReadConsole(instance_id) => {
+                self.key_console.is_none_or(|console| console.read)
+                    && self.has_console_permission(instance_id)
+            }
             UserAction::AccessSetting(instance_id) => {
                 self.is_admin
                     || self
@@ -1463,6 +1462,61 @@ mod permission_tests {
         assert!(granted
             .try_action(&UserAction::WriteInstanceFile(uuid("b")), false)
             .is_err());
+    }
+
+    #[test]
+    fn reading_the_console_needs_the_console_permission_not_just_view() {
+        let (viewed, console) = (uuid("viewed"), uuid("console"));
+        let mut perms = UserPermission::default();
+        perms.can_view_instance.insert(viewed.clone());
+        perms.can_view_instance.insert(console.clone());
+        perms.can_access_instance_console.insert(console.clone());
+        let member = user(false, false, perms);
+        let admin = user(false, true, UserPermission::default());
+        let owner = user(true, false, UserPermission::default());
+
+        // viewing an instance no longer lets a user read its console
+        assert!(member.can_perform_action(&UserAction::ViewInstance(viewed.clone())));
+        assert!(!member.can_perform_action(&UserAction::ReadConsole(viewed.clone())));
+        assert!(member
+            .try_action(&UserAction::ReadConsole(viewed.clone()), false)
+            .is_err());
+        // the console permission does
+        assert!(member.can_perform_action(&UserAction::ReadConsole(console.clone())));
+        // admins and the owner read every console
+        assert!(admin.can_perform_action(&UserAction::ReadConsole(viewed.clone())));
+        assert!(owner
+            .try_action(&UserAction::ReadConsole(viewed.clone()), false)
+            .is_ok());
+
+        // the same rule filters the event stream: console output is hidden without the
+        // permission, while other events about the instance are still shown
+        let event = |uuid: &InstanceUuid, inner: InstanceEventInner| {
+            EventInner::InstanceEvent(crate::events::InstanceEvent {
+                instance_uuid: uuid.clone(),
+                instance_name: "server".into(),
+                instance_event_inner: inner,
+            })
+        };
+        let output = |uuid: &InstanceUuid| {
+            event(
+                uuid,
+                InstanceEventInner::InstanceOutput {
+                    message: "[Server] hi".into(),
+                },
+            )
+        };
+        let state = |uuid: &InstanceUuid| {
+            event(
+                uuid,
+                InstanceEventInner::StateTransition {
+                    to: crate::traits::t_server::State::Running,
+                },
+            )
+        };
+        assert!(!member.can_view_event_parts(&output(&viewed), &CausedBy::System));
+        assert!(member.can_view_event_parts(&state(&viewed), &CausedBy::System));
+        assert!(member.can_view_event_parts(&output(&console), &CausedBy::System));
     }
 
     #[test]

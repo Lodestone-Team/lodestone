@@ -372,8 +372,10 @@ async fn opt_ins_never_go_beyond_the_users_permissions() {
     assert_eq!(core.access(&key, OTHER).await.1["console_read"], false);
     // never start or stop: the viewer can't
     assert_eq!(core.access(&key, MINE).await.1["start"], false);
-    // the viewer's session keeps the core's rule that viewers read the console
-    assert_eq!(core.buffer(&session, OTHER).await, 1);
+    // a session needs the console permission too: viewing `other` isn't enough to read
+    // its console, while `mine` (with the permission) is readable
+    assert_eq!(core.buffer(&session, OTHER).await, 0);
+    assert_eq!(core.buffer(&session, MINE).await, 1);
 
     // losing the permission takes effect on the key at once
     core.state
