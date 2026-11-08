@@ -84,3 +84,7 @@ export const formatDate = (iso: string) => {
     year: 'numeric',
   });
 };
+
+/** The file the core downloads for a version: the primary one, or the first. */
+export const primaryFile = (version: ModrinthVersion) =>
+  version.files.find((file) => file.primary) ?? version.files[0] ?? null;
