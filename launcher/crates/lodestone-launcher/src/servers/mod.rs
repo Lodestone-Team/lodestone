@@ -541,7 +541,9 @@ impl Servers {
                 };
                 this.cores[index].refreshing = false;
                 match result {
-                    Ok(list) => this.listed(index, list),
+                    Ok(list) => {
+                        this.listed(index, list, cx);
+                    }
                     Err(CoreError::SignedOut) => this.signed_out(index, cx),
                     Err(err) => this.cores[index].status = CoreStatus::Failed(err),
                 }
@@ -551,29 +553,50 @@ impl Servers {
         }));
     }
 
-    /// A list arrived: keep the name, and end trust when another core answers.
-    fn listed(&mut self, index: usize, list: ServerList) {
+    /// A list arrived: keep the name, and when another id answers, end trust and move
+    /// the card (with its key and linked instances) to that id. Returns the core's id.
+    fn listed(&mut self, index: usize, list: ServerList, cx: &mut Context<Self>) -> String {
         let core = &mut self.cores[index];
         let mut changed = false;
         if core.saved.name != list.core_name {
             core.saved.name = list.core_name.clone();
             changed = true;
         }
-        if !list.core_uuid.is_empty() && core.saved.check_identity(&list.core_uuid) {
+        let renamed = core.saved.adopt_identity(&list.core_uuid);
+        let uuid = core.saved.uuid.clone();
+        if let Some((_, trust_ended)) = &renamed {
             changed = true;
-            self.notice = Some((
-                format!("{} is no longer trusted for mods", core.saved.name).into(),
-                format!(
-                    "Another core answers at {} now (its id changed). Trust it again on its card only if you trust its owner.",
-                    display_address(&core.url)
-                )
-                .into(),
-            ));
+            if *trust_ended {
+                self.notice = Some((
+                    format!("{} is no longer trusted for mods", core.saved.name).into(),
+                    format!(
+                        "Another core answers at {} now (its id changed). Trust it again on its card only if you trust its owner.",
+                        display_address(&core.url)
+                    )
+                    .into(),
+                ));
+            }
         }
         self.cores[index].status = CoreStatus::Online(list);
+        if let Some((old, _)) = renamed {
+            // the key this device had is saved under the old id
+            if let Some(key) = self.cores[index].key.clone() {
+                self.save_key(uuid.clone(), key, cx);
+            }
+            let mut merged = store::dedupe(&mut self.cores, |c| &c.saved, Some(index));
+            merged.insert(
+                0,
+                store::Merged {
+                    removed: old,
+                    into: uuid.clone(),
+                },
+            );
+            self.merged(merged, cx);
+        }
         if changed {
             self.save();
         }
+        uuid
     }
 
     /// The key stopped working: forget it, say so, and show the public list.
@@ -1585,7 +1608,8 @@ impl Servers {
                     .find(|s| s.uuid == link.server_uuid)
                     .cloned();
                 let signed_in = this.cores[index].signed_in();
-                this.listed(index, list);
+                // the core may have a new id now
+                let core_uuid = this.listed(index, list, cx);
                 let Some(server) = server else {
                     return this.fail(
                         format!("Couldn't join {}", link.server_name),
@@ -1595,14 +1619,14 @@ impl Servers {
                 };
                 match server.state {
                     ServerState::Stopped | ServerState::Error if signed_in => {
-                        this.start(&link.core_uuid, server, true, cx)
+                        this.start(&core_uuid, server, true, cx)
                     }
                     ServerState::Stopped | ServerState::Error => this.fail(
                         format!("{} isn't running", server.name),
                         "Ask its owner to start it, or sign in to the core on the Servers page to start it yourself.",
                         cx,
                     ),
-                    _ => this.play(&link.core_uuid, server, cx),
+                    _ => this.play(&core_uuid, server, cx),
                 }
                 cx.notify();
             })

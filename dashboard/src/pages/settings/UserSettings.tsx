@@ -30,7 +30,8 @@ import {
 import UserApiKeys from 'components/Settings/ApiKeys/UserApiKeys';
 import { UserMinecraftLinks } from 'components/Settings/MinecraftLinks';
 import { useDocumentTitle } from 'usehooks-ts';
-import { NO_SCRIPTING_MESSAGE, useCoreCapabilities } from 'data/SystemInfo';
+import { noScriptingMessage, useCoreCapabilities } from 'data/SystemInfo';
+import { useT } from 'i18n';
 import {
   SettingsCard,
   SettingsLink,
@@ -41,28 +42,34 @@ import {
 import { notifySaved } from 'components/Settings/savedToast';
 
 // a user's permission rows (title, description, toggle) while the user loads
-const PermissionsSkeleton = () => (
-  <SkeletonGroup
-    label="Loading the user"
-    className="flex flex-col divide-y divide-fade-700 rounded-xl border border-fade-700 bg-gray-850"
-  >
-    {Array.from({ length: 6 }, (_, i) => (
-      <div
-        key={i}
-        className="flex min-h-14 flex-row items-center justify-between gap-4 px-4 py-3"
-      >
-        <div className="flex grow flex-col gap-2">
-          <Skeleton className="h-3.5 w-48 rounded-sm" />
-          <Skeleton className="h-3 w-72 max-w-full rounded-sm" />
+const PermissionsSkeleton = () => {
+  const t = useT();
+  return (
+    <SkeletonGroup
+      label={t('settings.users.loadingUser')}
+      className="flex flex-col divide-y divide-fade-700 rounded-xl border border-fade-700 bg-gray-850"
+    >
+      {Array.from({ length: 6 }, (_, i) => (
+        <div
+          key={i}
+          className="flex min-h-14 flex-row items-center justify-between gap-4 px-4 py-3"
+        >
+          <div className="flex grow flex-col gap-2">
+            <Skeleton className="h-3.5 w-48 rounded-sm" />
+            <Skeleton className="h-3 w-72 max-w-full rounded-sm" />
+          </div>
+          <Skeleton className="h-6 w-11 shrink-0 rounded-full" />
         </div>
-        <Skeleton className="h-6 w-11 shrink-0 rounded-full" />
-      </div>
-    ))}
-  </SkeletonGroup>
-);
+      ))}
+    </SkeletonGroup>
+  );
+};
 
 export const UserSettings = () => {
-  useDocumentTitle('User Settings - Lodestone');
+  const t = useT();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('settings.users.documentTitle') })
+  );
   const queryClient = useQueryClient();
   const { userList, userListLoading, selectUser, selectedUser } =
     useContext(SettingsContext);
@@ -136,13 +143,17 @@ export const UserSettings = () => {
 
   const UserBoxes = !selectedUser && !openingUser && (
     <SettingsSection
-      title={`All members${
-        userListLoading ? '' : ` (${Object.keys(userList).length})`
-      }`}
-      lead="A list of all users. Click a user to manage them."
+      title={
+        userListLoading
+          ? t('settings.users.allMembers')
+          : t('settings.users.allMembersCount', {
+              count: Object.keys(userList).length,
+            })
+      }
+      lead={t('settings.users.allMembersLead')}
       action={
         <Button
-          label="Create new user"
+          label={t('settings.users.createUser')}
           className="whitespace-nowrap"
           onClick={() => {
             setShowCreateUser(true);
@@ -152,7 +163,10 @@ export const UserSettings = () => {
     >
       {userListLoading ? (
         // user rows: avatar, name and role
-        <SkeletonGroup label="Loading users" className="w-full min-w-0">
+        <SkeletonGroup
+          label={t('settings.users.loadingUsers')}
+          className="w-full min-w-0"
+        >
           <SkeletonRows
             rows={3}
             icon="round"
@@ -194,16 +208,16 @@ export const UserSettings = () => {
       return (
         <SettingsRow
           key={permission.permission}
-          label={permission.title}
+          label={t(permission.titleKey)}
           labelId={labelId}
           disabled={disabled}
-          hint={<>The user {permission.allows}</>}
+          hint={t(permission.userKey)}
           below={
             <>
               {typeof currentSettings === 'object' && !instanceList && (
                 // the instance checkboxes, while the instances load
                 <SkeletonGroup
-                  label="Loading servers"
+                  label={t('settings.users.loadingServers')}
                   className="grid grid-cols-2 gap-4 rounded-lg border border-fade-700 bg-gray-900 px-4 py-3"
                 >
                   {Array.from({ length: 4 }, (_, i) => (
@@ -282,12 +296,9 @@ export const UserSettings = () => {
             <div className="flex min-h-full items-center justify-center p-4">
               <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pt-16 pb-8">
                 <h1 className="text-h1 font-bold tracking-tight text-gray-300">
-                  Create a new user account
+                  {t('settings.users.createTitle')}
                 </h1>
-                <p>
-                  This user will start with no permissions. You can grant them
-                  permissions later.
-                </p>
+                <p>{t('settings.users.createLead')}</p>
                 <CreateUserForm
                   onSuccess={() => setShowCreateUser(false)}
                   onCancel={() => setShowCreateUser(false)}
@@ -298,17 +309,17 @@ export const UserSettings = () => {
         </Dialog>
       </Transition>
       <SettingsPage
-        title="Users"
+        title={t('settings.users.title')}
         description={
           selectedUser ? (
             <span className="flex flex-row flex-wrap items-baseline gap-x-2">
               <span className="truncate">{selectedUser.username}</span>
               <SettingsLink onClick={() => selectUser(null)}>
-                All users
+                {t('settings.users.allUsers')}
               </SettingsLink>
             </span>
           ) : (
-            'The accounts on this core and what each one can do.'
+            t('settings.users.description')
           )
         }
       >
@@ -317,16 +328,18 @@ export const UserSettings = () => {
         {selectedUser && (
           <>
             <SettingsSection
-              title="Permissions"
-              lead={`What ${selectedUser.username} can do on this core.`}
+              title={t('settings.users.permissions')}
+              lead={t('settings.users.permissionsLead', {
+                username: selectedUser.username,
+              })}
             >
               <SettingsCard>
                 {UserPermissions(NormalPermissions, false)}
               </SettingsCard>
             </SettingsSection>
             <SettingsSection
-              title="Unsafe permissions"
-              lead="Turn off safe mode in core settings to grant these permissions to non-owner users."
+              title={t('settings.users.unsafePermissions')}
+              lead={t('settings.users.unsafePermissionsLead')}
             >
               <SettingsCard danger>
                 {UserPermissions(
@@ -334,19 +347,12 @@ export const UserSettings = () => {
                   globalSettings?.safe_mode || false
                 )}
                 <SettingsRow
-                  label="Macros, extensions and atom servers"
+                  label={t('settings.users.ownerOnly')}
                   disabled
                   hint={
-                    macrosAvailable ? (
-                      <>
-                        Only the owner can use macros, install extensions, and
-                        create or control atom servers. These can&apos;t be
-                        granted to other users. Docker servers use the normal
-                        server permissions.
-                      </>
-                    ) : (
-                      NO_SCRIPTING_MESSAGE
-                    )
+                    macrosAvailable
+                      ? t('settings.users.ownerOnlyHint')
+                      : noScriptingMessage()
                   }
                 />
               </SettingsCard>

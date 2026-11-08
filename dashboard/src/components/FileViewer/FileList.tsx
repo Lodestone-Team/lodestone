@@ -3,12 +3,19 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { ClientFile } from 'bindings/ClientFile';
 import clsx from 'clsx';
 import Checkbox from 'components/Atoms/Checkbox';
-import { formatBytes, formatTimeAgo, supportedZip } from 'utils/util';
+import { formatBytes, formatTimeAgo } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
-import React, { RefObject, useMemo, useRef, useState } from 'react';
+import React, {
+  RefObject,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useOnClickOutside } from 'usehooks-ts';
 import { useFileViewer } from './FileViewerContext';
 import { SkeletonGroup, SkeletonRows } from 'components/Atoms/Skeleton';
+import { useT } from 'i18n';
 
 // a map from file extension to icon
 const iconMap: { [key: string]: string } = {
@@ -76,6 +83,7 @@ export default function FileList({
   onEmptyClick: () => void;
   onFileClick: (file: ClientFile) => void;
 }) {
+  const t = useT();
   const { tickedFiles, tickFile, openedFile, clipboard, clipboardAction } =
     useFileViewer();
 
@@ -90,11 +98,10 @@ export default function FileList({
   const boundingDivRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
+  // where the menu was opened, relative to boundingDivRef
+  const [contextMenuPointer, setContextMenuPointer] = useState({ x: 0, y: 0 });
   const [contextMenuCoords, setContextMenuCoords] = useState({ x: 0, y: 0 });
   const [contextMenuFile, setContextMenuFile] = useState<ClientFile | null>();
-
-  const contextMenuDimensionsWithoutUnzip = { height: 259, width: 176 }; // no unzip in menu (file name is null)
-  const contextMenuDimensionsWithUnzip = { height: 337, width: 176 };
 
   useOnClickOutside(contextMenuRef as RefObject<HTMLDivElement>, () =>
     setShowContextMenu(false)
@@ -103,14 +110,18 @@ export default function FileList({
   function fileToIcon(file: ClientFile) {
     if (file.file_type === 'Directory') {
       return (
-        <img src="/icons/folder-blue.svg" alt="folder icon" draggable="false" />
+        <img
+          src="/icons/folder-blue.svg"
+          alt={t('files.list.folderIcon')}
+          draggable="false"
+        />
       );
     } else if (file.file_type === 'File') {
       if (file.file_stem === '.lodestone_config') {
         return (
           <img
             src="/icons/lodestone.svg"
-            alt="file icon"
+            alt={t('files.list.fileIcon')}
             draggable="false"
             // because the lodestone icon is a bit bigger than the others
             // set between 4 and 5
@@ -123,7 +134,7 @@ export default function FileList({
         return (
           <img
             src={iconMap[fileExt]}
-            alt="file icon"
+            alt={t('files.list.fileIcon')}
             draggable="false"
             className="h-4 w-4"
           />
@@ -132,7 +143,7 @@ export default function FileList({
         return (
           <img
             src="/icons/file.svg"
-            alt="file icon"
+            alt={t('files.list.fileIcon')}
             draggable="false"
             className="h-4 w-4"
           />
@@ -145,35 +156,36 @@ export default function FileList({
     );
   }
 
-  // position the menu at the pointer, measured when the menu is opened
-  const calculateContextMenuCoords = (
-    e: React.MouseEvent,
-    file?: ClientFile
-  ) => {
+  // remember where the menu was opened; it is placed once it has rendered
+  const openContextMenu = (e: React.MouseEvent, file: ClientFile | null) => {
+    e.preventDefault();
     const boundingDiv = boundingDivRef.current;
     if (!boundingDiv) return;
     const rect = boundingDiv.getBoundingClientRect();
-    const mousePos = {
+    setContextMenuPointer({
       x: e.clientX - (rect.left + window.scrollX),
       y: e.clientY - (rect.top + window.scrollY),
-    };
+    });
+    setContextMenuFile(file);
+    setShowContextMenu(true);
+  };
+
+  // place the menu at the pointer, kept inside the list. Its size is measured
+  // (before it is painted): it depends on the items and the language.
+  useLayoutEffect(() => {
+    const boundingDiv = boundingDivRef.current;
+    const menu = contextMenuRef.current;
+    if (!showContextMenu || !boundingDiv || !menu) return;
+    const mousePos = contextMenuPointer;
     const boundingDivDimensions = {
       height: boundingDiv.offsetHeight,
       width: boundingDiv.offsetWidth,
     };
+    // the menu's top margin is part of its height here
+    const width = menu.offsetWidth;
+    const height = menu.offsetHeight + 6;
     let x = null;
     let y = null;
-    let width = 0;
-    let height = 0;
-    const fileExt = file?.extension ?? '';
-
-    if (supportedZip.includes(fileExt)) {
-      width = contextMenuDimensionsWithUnzip.width;
-      height = contextMenuDimensionsWithUnzip.height;
-    } else {
-      width = contextMenuDimensionsWithoutUnzip.width;
-      height = contextMenuDimensionsWithoutUnzip.height;
-    }
 
     if (mousePos.x + width > boundingDivDimensions.width) {
       x = mousePos.x - width;
@@ -193,14 +205,14 @@ export default function FileList({
     }
 
     setContextMenuCoords({ x, y });
-  };
+  }, [showContextMenu, contextMenuPointer, contextMenuFile]);
 
   const fileTreeEntryClassName =
     'flex flex-row items-center gap-4 py-2 px-4 text-medium font-medium tracking-medium whitespace-nowrap';
 
   return (
     <div
-      className="flex h-full w-full grow flex-col @container/file-tree"
+      className="@container/file-tree flex h-full w-full grow flex-col"
       ref={boundingDivRef}
     >
       {showContextMenu && (
@@ -211,21 +223,21 @@ export default function FileList({
           setShowContextMenu={setShowContextMenu}
         />
       )}
-      <div className="overflow-y-overlay flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-x-hidden">
+      <div className="flex h-0 grow flex-col divide-y divide-gray-faded/30 overflow-x-hidden overflow-y-overlay">
         {!atTopLevel ? (
           <div
             key={'..'}
-            className="group flex flex-row items-center gap-4 bg-gray-800 py-2 px-4 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-200 hover:underline"
+            className="group flex flex-row items-center gap-4 bg-gray-800 px-4 py-2 hover:cursor-pointer hover:bg-gray-700 hover:text-blue-200 hover:underline"
             onClick={onParentClick}
           >
-            <p className="select-none text-medium font-medium">..</p>
+            <p className="text-medium font-medium select-none">..</p>
           </div>
         ) : null}
 
         {loading ? (
           // file rows (checkbox, icon, name, size); they appear after a
           // moment, so a folder that opens quickly doesn't flash them
-          <SkeletonGroup label="Loading files">
+          <SkeletonGroup label={t('files.list.loading')}>
             <SkeletonRows
               rows={8}
               icon="square"
@@ -245,7 +257,7 @@ export default function FileList({
         {fileList?.length === 0 && (
           <div className={fileTreeEntryClassName}>
             <p className="text-medium font-medium text-gray-400">
-              No files here...
+              {t('files.list.empty')}
             </p>
           </div>
         )}
@@ -264,12 +276,7 @@ export default function FileList({
                 'pointer-events-none opacity-50 transition-opacity delay-150':
                   stale,
               })}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setContextMenuFile(file);
-                calculateContextMenuCoords(e, file);
-                setShowContextMenu(true);
-              }}
+              onContextMenu={(e) => openContextMenu(e, file)}
             >
               <Checkbox
                 checked={isTicked}
@@ -299,7 +306,7 @@ export default function FileList({
                       Number(file.modification_time ?? file.creation_time) *
                         1000
                     )
-                  : 'Unknown Creation Time'}
+                  : t('files.list.unknownTime')}
               </p>
 
               <p className="hidden min-w-[8ch] text-right text-gray-500 @sm:inline">
@@ -315,12 +322,7 @@ export default function FileList({
         <div
           onClick={onEmptyClick}
           className="min-h-[25%] grow"
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setContextMenuFile(null);
-            calculateContextMenuCoords(e);
-            setShowContextMenu(true);
-          }}
+          onContextMenu={(e) => openContextMenu(e, null)}
         ></div>
       </div>
     </div>

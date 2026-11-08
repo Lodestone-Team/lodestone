@@ -18,6 +18,7 @@ import ConfirmDialog from './Atoms/ConfirmDialog';
 import ChangeSelfPasswordForm from './Settings/ChangeSelfPasswordForm';
 import ChangeUserPasswordForm from './Settings/ChangeUserPasswordForm';
 import { SettingsTag } from './Settings/SettingsBlocks';
+import { useT } from 'i18n';
 
 export default function UserBox({
   className,
@@ -28,6 +29,7 @@ export default function UserBox({
   user: PublicUser;
   onClick: () => void;
 }) {
+  const t = useT();
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showDeleteUser, setShowDeleteUser] = useState(false);
   const queryClient = useQueryClient();
@@ -35,9 +37,9 @@ export default function UserBox({
   const isSelf = user.uid === uid;
 
   const userTags = [];
-  if (isSelf) userTags.push('You');
-  if (user.is_admin) userTags.push('Admin');
-  if (user.is_owner) userTags.push('Owner');
+  if (isSelf) userTags.push(t('common.you'));
+  if (user.is_admin) userTags.push(t('shell.userBox.admin'));
+  if (user.is_owner) userTags.push(t('shell.userBox.owner'));
 
   return (
     <div
@@ -57,7 +59,7 @@ export default function UserBox({
             <div className="flex min-h-full items-center justify-center p-4">
               <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-4 rounded-3xl bg-gray-800 px-8 pt-16 pb-8">
                 <h1 className="text-h1 font-bold tracking-tight text-gray-300">
-                  Change password
+                  {t('shell.userBox.changePassword')}
                 </h1>
                 {isSelf ? (
                   <ChangeSelfPasswordForm
@@ -77,7 +79,11 @@ export default function UserBox({
         </Dialog>
       </Transition>
       <ConfirmDialog
-        title={isSelf ? "You can't delete yourself" : 'Delete User'}
+        title={
+          isSelf
+            ? t('shell.userBox.cantDeleteSelfTitle')
+            : t('shell.userBox.deleteTitle')
+        }
         onConfirm={
           !isSelf
             ? () => {
@@ -97,16 +103,15 @@ export default function UserBox({
               }
             : undefined
         }
-        confirmButtonText={!isSelf ? 'Delete' : undefined}
+        confirmButtonText={!isSelf ? t('common.delete') : undefined}
         type="danger"
         isOpen={showDeleteUser}
         onClose={() => setShowDeleteUser(false)}
-        closeButtonText={!isSelf ? 'Cancel' : 'Ok'}
+        closeButtonText={!isSelf ? t('common.cancel') : t('common.ok')}
       >
         {!isSelf
-          ? `Are you sure you want to delete ${user.username}? This action cannot be
-        undone.`
-          : `You can't delete yourself.`}
+          ? t('shell.userBox.deleteConfirm', { name: user.username })
+          : t('shell.userBox.cantDeleteSelf')}
       </ConfirmDialog>
       <div className="flex min-w-0 flex-row items-center gap-3">
         <Avatar size={32} name={user.uid} />
@@ -135,7 +140,7 @@ export default function UserBox({
               {({ disabled }) => (
                 <Button
                   className="w-full flex-nowrap whitespace-nowrap"
-                  label={'Change password'}
+                  label={t('shell.userBox.changePassword')}
                   iconRight={faArrowRightArrowLeft}
                   onClick={() => setShowChangePassword(true)}
                   variant="text"
@@ -148,7 +153,7 @@ export default function UserBox({
               {({ disabled }) => (
                 <Button
                   className="w-full flex-nowrap whitespace-nowrap"
-                  label="Delete user"
+                  label={t('shell.userBox.deleteUser')}
                   iconRight={faTrashCan}
                   variant="text"
                   intention="danger"

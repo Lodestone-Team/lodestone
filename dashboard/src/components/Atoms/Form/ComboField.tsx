@@ -1,5 +1,6 @@
 import { useEffect, useState, Fragment, useMemo, useRef } from 'react';
 import { FieldHookConfig, useField } from 'formik';
+import { useT } from 'i18n';
 import { Combobox, Transition } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
@@ -44,6 +45,7 @@ export default function ComboField(props: ComboFieldProps) {
     filterOptions = defaultFilterOptions,
     ...rest
   } = props;
+  const t = useT();
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const [query, setQuery] = useState('');
@@ -100,15 +102,15 @@ export default function ComboField(props: ComboFieldProps) {
       className={`flex flex-col gap-1 ${className} group relative text-medium`}
     >
       <label className="absolute -top-6 text-medium font-medium tracking-medium text-gray-300">
-        {label ? `${label}:` : ''}
+        {label ? t('common.fieldLabel', { label }) : ''}
       </label>
       {loadingVisual && (
-          // the options are loading: the field's shape (after a moment)
-          <SkeletonGroup className="relative mt-1">
-            <Skeleton className="h-8.5 w-full rounded" />
-          </SkeletonGroup>
-        )}
-        <div className={clsx('relative mt-1', loadingVisual && 'hidden')}>
+        // the options are loading: the field's shape (after a moment)
+        <SkeletonGroup className="relative mt-1">
+          <Skeleton className="h-8.5 w-full rounded" />
+        </SkeletonGroup>
+      )}
+      <div className={clsx('relative mt-1', loadingVisual && 'hidden')}>
         <Combobox
           value={selectedValue ? selectedValue : ''}
           name={field.name}
@@ -131,10 +133,10 @@ export default function ComboField(props: ComboFieldProps) {
         >
           <Combobox.Input
             className={clsx(
-              'input-outlines input-text-style group min-h-[1em] w-full rounded py-1.5 px-3',
+              'input-outlines input-text-style group min-h-[1em] w-full rounded px-3 py-1.5',
               'enabled:hover:outline-white/30 enabled:ui-not-open:hover:bg-gray-700',
-              'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 ',
-              'enabled:ui-not-open:bg-gray-850  enabled:ui-not-open:active:bg-gray-850',
+              'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850',
+              'enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:active:bg-gray-850',
               'enabled:ui-not-open:active:outline-white/30',
               errorText ? 'input-border-error' : 'input-border-normal',
               selectedValue ? 'text-gray-300' : 'text-gray-500'
@@ -142,9 +144,7 @@ export default function ComboField(props: ComboFieldProps) {
             onChange={(event) => setQuery(event.target.value)}
             placeholder={placeholder}
           />
-          <Combobox.Button
-            className="group absolute inset-y-0 right-0 flex items-center pr-1.5"
-          >
+          <Combobox.Button className="group absolute inset-y-0 right-0 flex items-center pr-1.5">
             {icon}
           </Combobox.Button>
           <Transition
@@ -155,9 +155,7 @@ export default function ComboField(props: ComboFieldProps) {
             afterLeave={() => setQuery('')}
           >
             <Combobox.Options
-              className={clsx(
-                'absolute z-40 mt-2 w-full pb-4'
-              )}
+              className={clsx('absolute z-40 mt-2 w-full pb-4')}
             >
               <div
                 className={clsx(
@@ -170,7 +168,7 @@ export default function ComboField(props: ComboFieldProps) {
                     <Combobox.Option
                       value={query}
                       className={clsx(
-                        'relative cursor-default select-none rounded-md py-2 pl-3 pr-4 text-gray-300',
+                        'relative cursor-default rounded-md py-2 pr-4 pl-3 text-gray-300 select-none',
                         'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
                         'ui-selected:font-medium ui-not-selected:font-medium',
                         'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
@@ -179,13 +177,13 @@ export default function ComboField(props: ComboFieldProps) {
                     >
                       <div className="flex flex-row justify-between">
                         <span className="block truncate pr-1">
-                          Add &#34;{query}&#34;
+                          {t('common.combo.addCustom', { query })}
                         </span>
                       </div>
                     </Combobox.Option>
                   ) : (
-                    <div className="relative cursor-default select-none rounded-md bg-gray-800 py-2 pl-3 pr-4 text-gray-300">
-                      Nothing found.
+                    <div className="relative cursor-default rounded-md bg-gray-800 py-2 pr-4 pl-3 text-gray-300 select-none">
+                      {t('common.combo.nothingFound')}
                     </div>
                   )
                 ) : (
@@ -200,10 +198,9 @@ export default function ComboField(props: ComboFieldProps) {
         </Combobox>
         {errorText && (
           <div
-            className={`absolute -bottom-6 whitespace-nowrap text-right font-sans text-small not-italic text-red
-          `}
+            className={`absolute -bottom-6 text-right font-sans text-small whitespace-nowrap text-red not-italic`}
           >
-            {errorText || 'Unknown error'}
+            {errorText || t('common.unknownError')}
           </div>
         )}
       </div>
@@ -239,7 +236,7 @@ export function VirtualizedList({
   return (
     <div
       ref={parentRef}
-      className="overflow-y-overlay max-h-60 w-full overflow-auto rounded-md"
+      className="max-h-60 w-full overflow-auto overflow-y-overlay rounded-md"
     >
       <div
         className="relative z-40 w-full"
@@ -259,7 +256,7 @@ export function VirtualizedList({
               transform: `translateY(${virtualRow.start}px)`,
             }}
             className={clsx(
-              'relative cursor-default select-none py-2 pl-3 pr-4 text-gray-300',
+              'relative cursor-default py-2 pr-4 pl-3 text-gray-300 select-none',
               'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
               'ui-selected:font-medium ui-not-selected:font-medium',
               'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',

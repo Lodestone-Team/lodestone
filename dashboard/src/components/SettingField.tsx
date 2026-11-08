@@ -10,7 +10,6 @@ import {
   COMMAND_LINE_SETTINGS,
   useCanControlInstance,
   useCommandLineBlockedReason,
-  OWNER_ONLY_ATOM_MESSAGE,
 } from 'data/CodeExecution';
 import ToggleBox from './Atoms/Config/ToggleBox';
 import { ConfigurableValue } from 'bindings/ConfigurableValue';
@@ -20,6 +19,7 @@ import { SettingFieldObject } from './Instance/InstanceSettingsCreate/SettingObj
 import { useQueryClient } from '@tanstack/react-query';
 import { setCachedInstanceSetting } from 'data/InstanceManifest';
 import { notifySaved } from './Settings/savedToast';
+import { t } from 'i18n';
 
 export default function SettingField({
   instance,
@@ -44,7 +44,7 @@ export default function SettingField({
   // atom instances can only be changed by the owner; java_cmd and
   // cmd_args also need code execution to be enabled
   const readOnlyReason = !canControlInstance
-    ? `${OWNER_ONLY_ATOM_MESSAGE}.`
+    ? t('console.ownerOnlyAtomSentence')
     : COMMAND_LINE_SETTINGS.includes(settingId)
       ? commandLineBlockedReason
       : null;
@@ -100,7 +100,7 @@ export default function SettingField({
         case 'dropdown':
           return { type: 'Enum', value: value };
         default:
-          toast.error('Submission Error: Unknown value type.');
+          toast.error(t('server.settingField.unknownType'));
           return null;
       }
     };

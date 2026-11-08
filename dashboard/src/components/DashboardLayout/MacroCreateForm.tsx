@@ -5,6 +5,7 @@ import { Field, Form, Formik, FormikHelpers, FormikProps } from 'formik';
 import { useRef } from 'react';
 import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
 import * as yup from 'yup';
+import { t as translate, useT } from 'i18n';
 
 export default function CreateMacro({
   onComplete,
@@ -15,6 +16,7 @@ export default function CreateMacro({
 }) {
   const gaEventTracker = useAnalyticsEventTracker('Create Macro');
   const formikRef = useRef<FormikProps<Record<string, string>>>(null);
+  const t = useT();
 
   useEffectOnce(() => {
     gaEventTracker('Create Macro Start');
@@ -25,7 +27,9 @@ export default function CreateMacro({
     args: '',
   };
   const validationSchema = yup.object().shape({
-    macro_name: yup.string().required(),
+    macro_name: yup
+      .string()
+      .required(() => translate('console.macros.create.nameRequired')),
     args: yup.array().of(yup.string()),
   });
 
@@ -53,26 +57,26 @@ export default function CreateMacro({
           <div className="flex w-[632px] flex-col p-9">
             <div className="flex flex-row justify-between pt-9">
               <div className="flex flex-col">
-                <label className="text-medium font-medium leading-5 tracking-medium text-white/50">
-                  Macro Name
+                <label className="text-medium leading-5 font-medium tracking-medium text-white/50">
+                  {t('console.macros.create.name')}
                 </label>
                 <Field
                   name="macro_name"
                   type="text"
-                  className="h-[40px] w-[300px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 text-medium font-medium leading-5 tracking-medium text-white/50"
+                  className="h-[40px] w-[300px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 text-medium leading-5 font-medium tracking-medium text-white/50"
                 />
-                <label className="text-medium font-medium leading-5 tracking-medium text-white/50">
-                  Arguments
+                <label className="text-medium leading-5 font-medium tracking-medium text-white/50">
+                  {t('console.macros.create.args')}
                 </label>
                 <Field
                   name="args"
                   type="text"
-                  className="h-[40px] w-[300px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 text-medium font-medium leading-5 tracking-medium text-white/50"
+                  className="h-[40px] w-[300px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 text-medium leading-5 font-medium tracking-medium text-white/50"
                 />
               </div>
               <Button
                 type="submit"
-                label={'Create Macro'}
+                label={t('console.macros.create.submit')}
                 loading={isSubmitting}
               />
             </div>

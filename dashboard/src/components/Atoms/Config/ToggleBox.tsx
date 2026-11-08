@@ -4,6 +4,7 @@ import { catchAsyncToString, cn } from 'utils/util';
 import { Toggle } from '../Toggle';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { SettingsRow } from 'components/Settings/SettingsBlocks';
+import { useT } from 'i18n';
 
 /**
  * A self controlled toggle component meant to represent a single value of a config
@@ -41,6 +42,7 @@ export default function ToggleBox({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const labelId = useId();
+  const t = useT();
 
   // set value to initialValue when initialValue changes
   useEffect(() => {
@@ -62,7 +64,7 @@ export default function ToggleBox({
   disabled = disabled || !canRead || isLoadingProp;
   description = canRead
     ? (descriptionFunc?.(initialValue || value) ?? description)
-    : 'No permission';
+    : t('common.noPermission');
 
   return (
     <SettingsRow

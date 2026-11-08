@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { InstalledModList } from 'bindings/InstalledModList';
 import Button from 'components/Atoms/Button';
 import { downloadClientPack } from 'data/Mods';
+import { t as translate, useI18n } from 'i18n';
 import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { installedModName, installedModVersion } from 'utils/mods';
@@ -21,17 +22,20 @@ export default function ClientPackPanel({
   uuid: string;
   list: InstalledModList;
 }) {
+  const { t, formatList } = useI18n();
   const [downloading, setDownloading] = useState(false);
   if (list.loader !== 'fabric' || list.mods.length === 0) return null;
 
   const loader = list.loader_version
-    ? `Fabric loader ${list.loader_version}`
-    : 'Fabric loader';
+    ? t('mods.clientPack.loader', { version: list.loader_version })
+    : t('mods.clientPack.loaderNoVersion');
   if (list.client_required_count === 0)
     return (
       <div className="text-medium text-white/50">
-        Players can join with plain Fabric (Minecraft {list.game_version},{' '}
-        {loader}).
+        {t('mods.clientPack.plainFabric', {
+          gameVersion: list.game_version,
+          loader,
+        })}
       </div>
     );
 
@@ -49,7 +53,9 @@ export default function ClientPackPanel({
       await downloadClientPack(uuid);
     } catch (error) {
       toast.error(
-        `Failed to download the client modpack: ${errorToString(error)}`
+        translate('mods.clientPack.downloadFailed', {
+          error: errorToString(error),
+        })
       );
     } finally {
       setDownloading(false);
@@ -61,15 +67,18 @@ export default function ClientPackPanel({
       <div className="flex flex-row flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex flex-row items-center gap-2 text-h3 font-bold text-gray-300">
-            <FontAwesomeIcon icon={faUsers} className="text-blue-200" />
-            Players need {count} {count === 1 ? 'mod' : 'mods'} to join
+            <FontAwesomeIcon
+              icon={faUsers}
+              className="shrink-0 text-blue-200"
+            />
+            {t('mods.clientPack.title', { count })}
           </div>
           <div className="text-medium text-white/50">
             Minecraft {list.game_version} · {loader}
           </div>
         </div>
         <Button
-          label="Download client modpack (.mrpack)"
+          label={t('mods.clientPack.download')}
           icon={faDownload}
           intention="primary"
           loading={downloading}
@@ -85,7 +94,9 @@ export default function ClientPackPanel({
               className="flex max-w-full flex-row items-center gap-1.5 rounded-md bg-gray-900 py-1 pr-2 pl-1 text-small text-gray-300"
               title={
                 mod.required_by.length > 0
-                  ? `Needed by ${mod.required_by.join(', ')}`
+                  ? t('mods.clientRequirement.neededBy', {
+                      mods: formatList(mod.required_by),
+                    })
                   : undefined
               }
             >
@@ -99,14 +110,9 @@ export default function ClientPackPanel({
         })}
       </div>
       <div className="text-small text-white/50">
-        Import it into Prism Launcher, the Modrinth App or ATLauncher to get
-        everything at the right versions.
-        {includedJars > 0 &&
-          ` ${includedJars} ${
-            includedJars === 1 ? "mod isn't" : "mods aren't"
-          } on Modrinth, so ${
-            includedJars === 1 ? 'its file is' : 'their files are'
-          } included in the pack.`}
+        {includedJars > 0
+          ? t('mods.clientPack.importHintWithJars', { count: includedJars })
+          : t('mods.clientPack.importHint')}
       </div>
     </div>
   );

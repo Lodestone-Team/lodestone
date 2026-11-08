@@ -1,5 +1,6 @@
 import React, { useEffect, Fragment } from 'react';
 import { FieldHookConfig, useField } from 'formik';
+import { useT } from 'i18n';
 import { Listbox, Transition } from '@headlessui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import BeatLoader from 'react-spinners/BeatLoader';
@@ -43,6 +44,7 @@ export default function SelectField<T extends string | object>(
     },
     ...rest
   } = props;
+  const t = useT();
   const [field, meta] = useField(props);
   const { value: selectedValue } = field;
   const error = meta.error;
@@ -102,15 +104,15 @@ export default function SelectField<T extends string | object>(
       className={`flex flex-col gap-1 ${className} group relative text-medium`}
     >
       <label className="absolute -top-6 text-medium font-medium tracking-medium text-gray-300">
-        {label ? `${label}:` : ''}
+        {label ? t('common.fieldLabel', { label }) : ''}
       </label>
       {loadingVisual && (
-          // the options are loading: the field's shape (after a moment)
-          <SkeletonGroup className="relative mt-1">
-            <Skeleton className="h-8.5 w-full rounded" />
-          </SkeletonGroup>
-        )}
-        <div className={clsx('relative mt-1', loadingVisual && 'hidden')}>
+        // the options are loading: the field's shape (after a moment)
+        <SkeletonGroup className="relative mt-1">
+          <Skeleton className="h-8.5 w-full rounded" />
+        </SkeletonGroup>
+      )}
+      <div className={clsx('relative mt-1', loadingVisual && 'hidden')}>
         <Listbox
           value={selectedValue ? selectedValue : ''}
           name={field.name}
@@ -128,10 +130,10 @@ export default function SelectField<T extends string | object>(
         >
           <Listbox.Button
             className={clsx(
-              'input-outlines input-text-style group min-h-[1em] w-full rounded py-1.5 px-3',
+              'input-outlines input-text-style group min-h-[1em] w-full rounded px-3 py-1.5',
               'enabled:hover:outline-white/30 enabled:ui-not-open:hover:bg-gray-700',
-              'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850 ',
-              'enabled:ui-not-open:bg-gray-850  enabled:ui-not-open:active:bg-gray-850',
+              'enabled:ui-open:bg-gray-700 enabled:ui-open:active:bg-gray-850',
+              'enabled:ui-not-open:bg-gray-850 enabled:ui-not-open:active:bg-gray-850',
               'enabled:ui-not-open:active:outline-white/30',
               errorText ? 'input-border-error' : 'input-border-normal',
               selectedValue ? 'text-gray-300' : 'text-gray-500'
@@ -140,12 +142,12 @@ export default function SelectField<T extends string | object>(
             <>
               {selectedValue
                 ? optionLabel(selectedValue)
-                : placeholder || 'Select...'}
-              <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
+                : placeholder || t('common.select')}
+              <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end px-3 py-1.5">
                 <div className="flex flex-row gap-2">{icon}</div>
               </div>
             </>
-            <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3">
+            <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end px-3 py-1.5">
               <div className="flex flex-row gap-2">{icon}</div>
             </div>
           </Listbox.Button>
@@ -167,7 +169,7 @@ export default function SelectField<T extends string | object>(
                   key={optionLabel(option)}
                   value={option}
                   className={clsx(
-                    'relative cursor-pointer select-none py-2 pl-3 pr-4 text-gray-300',
+                    'relative cursor-pointer py-2 pr-4 pl-3 text-gray-300 select-none',
                     'border-t border-gray-faded/30 last:border-b ui-active:z-50 ui-active:mb-[-1px] ui-active:border-y ui-active:border-white/50 ui-active:last:mb-0',
                     'ui-selected:font-medium ui-not-selected:font-medium',
                     'ui-selected:ui-active:bg-gray-600 ui-not-selected:ui-active:bg-gray-800',
@@ -200,10 +202,9 @@ export default function SelectField<T extends string | object>(
         </Listbox>
         {errorText && (
           <div
-            className={`absolute -bottom-6 whitespace-nowrap text-right font-sans text-small not-italic text-red
-          `}
+            className={`absolute -bottom-6 text-right font-sans text-small whitespace-nowrap text-red not-italic`}
           >
-            {errorText || 'Unknown error'}
+            {errorText || t('common.unknownError')}
           </div>
         )}
       </div>

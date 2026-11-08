@@ -10,7 +10,8 @@ import {
   UnsafePermissions,
 } from 'components/Settings/permissionDescriptions';
 import { canGrantToApiKey } from 'data/ApiKeys';
-import { NO_SCRIPTING_MESSAGE, useCoreCapabilities } from 'data/SystemInfo';
+import { noScriptingMessage, useCoreCapabilities } from 'data/SystemInfo';
+import { useT } from 'i18n';
 
 /**
  * The permissions of an API key with a custom scope. The same controls and
@@ -31,6 +32,7 @@ export default function ApiKeyScopeEditor({
   instances: InstanceInfo[];
   safeMode: boolean;
 }) {
+  const t = useT();
   const { macros: macrosAvailable } = useCoreCapabilities();
   const instanceUuids = instances.map((instance) => instance.uuid);
   const instanceName = (uuid: string) =>
@@ -38,7 +40,7 @@ export default function ApiKeyScopeEditor({
 
   const permissionList = (list: PermissionDescription[]) => (
     <div className="flex w-full flex-col gap-8">
-      {list.map(({ permission, title, allows }) => {
+      {list.map(({ permission, titleKey, keyKey }) => {
         const current = value[permission];
         const grantable = Array.isArray(current)
           ? instanceUuids.some((uuid) =>
@@ -55,24 +57,24 @@ export default function ApiKeyScopeEditor({
               Array.isArray(current) && 'flex-col'
             )}
           >
-            <div>
+            <div className="min-w-0">
               <div
                 className={clsx(
                   'text-h3 leading-tight font-bold tracking-medium',
                   grantable ? 'text-gray-300' : 'text-white/50'
                 )}
               >
-                {title}
+                {t(titleKey)}
               </div>
               <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50 italic">
-                The key {allows}
-                {!grantable && " You don't have this permission."}
+                {t(keyKey)}
+                {!grantable && ` ${t('settings.apiKeys.notYours')}`}
               </div>
             </div>
             {Array.isArray(current) &&
               (instanceUuids.length === 0 ? (
                 <div className="text-medium font-medium tracking-medium text-white/50 italic">
-                  There are no servers you can see.
+                  {t('settings.apiKeys.noServers')}
                 </div>
               ) : (
                 <MultiSelectGrid
@@ -109,37 +111,29 @@ export default function ApiKeyScopeEditor({
     <div className="@container flex flex-col gap-8">
       {!user.is_owner && (
         <div className="text-medium font-medium tracking-medium text-white/50">
-          A key can only have permissions you have yourself. The permissions and
-          servers you don&apos;t have are grayed out.
+          {t('settings.apiKeys.onlyYours')}
         </div>
       )}
       {permissionList(NormalPermissions)}
       <div className="flex flex-col gap-1">
         <div className="text-h3 leading-tight font-bold tracking-medium text-red-200">
-          Unsafe Settings
+          {t('settings.apiKeys.unsafe')}
         </div>
         {safeMode && (
           <div className="text-medium font-medium tracking-medium text-red-200">
-            Safe mode is on, so the core refuses these to keys with custom
-            access until safe mode is turned off in core settings.
+            {t('settings.apiKeys.unsafeSafeMode')}
           </div>
         )}
       </div>
       {permissionList(UnsafePermissions)}
       <div>
         <div className="text-h3 leading-tight font-bold tracking-medium text-white/50">
-          Macros, Extensions and Atom Servers
+          {t('settings.apiKeys.ownerOnly')}
         </div>
         <div className="text-medium font-medium tracking-medium text-white/50 italic">
-          {macrosAvailable ? (
-            <>
-              Keys with custom access can&apos;t use macros, install extensions,
-              or create or control atom servers, even if they belong to the
-              owner. A key with full access can, if you can.
-            </>
-          ) : (
-            NO_SCRIPTING_MESSAGE
-          )}
+          {macrosAvailable
+            ? t('settings.apiKeys.ownerOnlyHint')
+            : noScriptingMessage()}
         </div>
       </div>
     </div>

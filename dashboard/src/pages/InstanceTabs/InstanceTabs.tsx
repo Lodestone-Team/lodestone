@@ -15,6 +15,25 @@ import { PlayitggOverview } from 'components/PlayitggOverview';
 import ModsTab from 'components/Mods/ModsTab';
 import { getModSupport, modTabTitle } from 'utils/mods';
 import { InstanceTabPath, tabs } from './tabList';
+import { useT } from 'i18n';
+
+/** The Event Logs tab, not made yet */
+const LogsPlaceholder = () => {
+  const t = useT();
+  return (
+    <DashboardCard className="grow justify-center gap-4">
+      <img
+        src="/assets/placeholder-cube.png"
+        alt=""
+        className="mx-auto w-20"
+        style={{ imageRendering: 'pixelated' }}
+      />
+      <p className="text-center font-medium text-white/50">
+        {t('server.logs.comingSoon')}
+      </p>
+    </DashboardCard>
+  );
+};
 
 // The content of each tab; their names, paths and icons are in tabList.
 const tabContent: Record<InstanceTabPath, ReactNode> = {
@@ -28,23 +47,12 @@ const tabContent: Record<InstanceTabPath, ReactNode> = {
   files: <FileViewer />,
   mods: <ModsTab />,
   macros: <Macros />,
-  logs: (
-    <DashboardCard className="grow justify-center gap-4">
-      <img
-        src="/assets/placeholder-cube.png"
-        alt="placeholder"
-        className="mx-auto w-20"
-        style={{ imageRendering: 'pixelated' }}
-      />
-      <p className="text-center font-medium text-white/50">
-        Coming soon to a dashboard near you!
-      </p>
-    </DashboardCard>
-  ),
+  logs: <LogsPlaceholder />,
   playitgg: <PlayitggOverview />,
 };
 
 const InstanceTabs = () => {
+  const t = useT();
   const location = useLocation();
   // read from the URL on every render: a copy kept in state by an effect was a
   // render behind, so switching tabs first rendered the old tab again
@@ -66,13 +74,13 @@ const InstanceTabs = () => {
     } else {
       return (
         <div
-          className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
+          className="@container relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10"
           key={uuid}
         >
           <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
             <div className="flex min-w-0 flex-row items-center gap-4">
               <h1 className="dashboard-instance-heading truncate whitespace-pre">
-                Server not found
+                {t('server.notFound')}
               </h1>
             </div>
           </div>
@@ -86,17 +94,17 @@ const InstanceTabs = () => {
   const displayTitle =
     tab?.path === 'mods' && modSupport
       ? modTabTitle(modSupport.kind)
-      : tab?.displayTitle;
+      : tab?.displayTitleKey && t(tab.displayTitleKey);
   if (!tab) {
     return (
       <div
-        className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
+        className="@container relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10"
         key={uuid}
       >
         <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
           <div className="flex min-w-0 flex-row items-center gap-4">
             <h1 className="dashboard-instance-heading truncate whitespace-pre">
-              {path} not found
+              {t('server.tabNotFound', { path })}
             </h1>
           </div>
         </div>
@@ -108,28 +116,28 @@ const InstanceTabs = () => {
     <CommandHistoryContextProvider>
       <div
         className={cn(
-          'relative mx-auto flex h-full w-full flex-row justify-center @container',
+          '@container relative mx-auto flex h-full w-full flex-row justify-center',
           tab.width
         )}
         key={uuid}
       >
         <div
-          className="gutter-stable -mx-3 flex grow flex-row items-stretch overflow-y-auto pl-4 pr-2"
+          className="-mx-3 flex grow gutter-stable flex-row items-stretch overflow-y-auto pr-2 pl-4"
           // not keyed by name: renaming must not remount the tab (and e.g.
           // reconnect the performance stream)
           key={`${uuid}-${tab.path}`}
         >
           <div className="flex h-fit min-h-full w-full flex-col gap-2 pt-6 pb-10 focus:outline-hidden">
             {displayTitle && (
-              <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
+              <div className="flex min-w-0 flex-wrap font-title text-h1 leading-tight font-bold text-gray-300">
                 {displayTitle}
-                {tab.displayTitle === 'Console' && (
+                {tab.path === 'console' && (
                   <Label
                     size="medium"
-                    className="ml-2 mt-[6px]"
+                    className="mt-[6px] ml-2"
                     color={stateToLabelColor[instance.state]}
                   >
-                    {instance.state}
+                    {t(`common.state.${instance.state}`)}
                   </Label>
                 )}
               </div>

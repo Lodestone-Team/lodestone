@@ -14,15 +14,21 @@ import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import useAnalyticsEventTracker from 'utils/hooks';
 import Logo from 'components/Atoms/Logo';
+import { t as translate, useT } from 'i18n';
 export type { LoginValues };
 
 const validationSchema = yup.object({
-  username: yup.string().required('Username is required'),
-  password: yup.string().required('Password is required'),
+  username: yup
+    .string()
+    .required(() => translate('shell.login.usernameRequired')),
+  password: yup
+    .string()
+    .required(() => translate('shell.login.passwordRequired')),
 });
 
 const UserLogin = () => {
-  useDocumentTitle('Sign in - Lodestone');
+  const t = useT();
+  useDocumentTitle(t('common.pageTitle', { page: t('shell.login.signIn') }));
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
   const { setToken, core } = useContext(LodestoneContext);
   const { address, port } = core;
@@ -55,11 +61,11 @@ const UserLogin = () => {
   };
 
   return (
-    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 transition-dimensions @container">
+    <div className="@container flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 transition-dimensions">
       <div className="flex flex-col items-start">
-        <Logo alt="logo" className="h-8" />
+        <Logo alt="Lodestone" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
-          Sign in
+          {t('shell.login.signIn')}
         </h1>
         <h2 className="text-medium font-medium tracking-medium text-white/50">
           {core_name} ({socket})
@@ -83,9 +89,17 @@ const UserLogin = () => {
                 <p>{status.error}</p>
               </WarningAlert>
             )}
-            <div className="grid grid-cols-1 gap-y-14 gap-x-8 ">
-              <InputField type="text" name="username" label="Username" />
-              <InputField type="password" name="password" label="Password" />
+            <div className="grid grid-cols-1 gap-x-8 gap-y-14">
+              <InputField
+                type="text"
+                name="username"
+                label={t('shell.login.username')}
+              />
+              <InputField
+                type="password"
+                name="password"
+                label={t('shell.login.password')}
+              />
             </div>
             <div className="flex w-full flex-row justify-between gap-4">
               <div className="flex flex-row justify-between gap-4">
@@ -93,14 +107,14 @@ const UserLogin = () => {
                   <Button
                     type="button"
                     icon={faArrowLeft}
-                    label="Switch Account"
+                    label={t('shell.userLogin.switchAccount')}
                     onClick={navigateBack}
                   />
                 ) : (
                   <Button
                     type="button"
                     icon={faArrowLeft}
-                    label="Change Core"
+                    label={t('shell.login.changeCore')}
                     onClick={() => setPathname('/login/core/select')}
                   />
                 )}
@@ -109,7 +123,7 @@ const UserLogin = () => {
                 type="submit"
                 intention="primary"
                 iconRight={faArrowRight}
-                label="Sign in"
+                label={t('shell.login.signIn')}
                 loading={isSubmitting}
               />
             </div>

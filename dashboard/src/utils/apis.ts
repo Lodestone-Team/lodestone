@@ -27,6 +27,7 @@ import { GetConfigResponse } from 'bindings/GetConfigResponse';
 import { SettingManifest } from 'bindings/SettingManifest';
 import { PlayitSignupData } from 'bindings/PlayitSignupData';
 import { PlayitTunnelInfo } from 'bindings/PlayitTunnelInfo';
+import { t } from 'i18n';
 
 /*
  * Error convention
@@ -109,7 +110,7 @@ export const deleteInstanceFile = async (
     toast.error(error);
     return;
   } else {
-    toast.success(`Deleted file: ${file.name}`);
+    toast.success(t('server.api.deletedFile', { name: file.name }));
   }
 
   const fileListKey = ['instance', uuid, 'fileList', directory];
@@ -138,7 +139,7 @@ export const deleteInstanceDirectory = async (
     toast.error(error);
     return;
   } else {
-    toast.success(`Deleted directory: ${directory}`);
+    toast.success(t('server.api.deletedDirectory', { path: directory }));
   }
   const fileListKey = ['instance', uuid, 'fileList', parentDirectory];
   const fileList = queryClient.getQueryData<ClientFile[]>(fileListKey);
@@ -160,7 +161,7 @@ export const fileDownloadUrl = (key: string) =>
 export const requestInstanceFileUrl = async (
   uuid: string,
   file: ClientFile,
-  timeout = 5000,
+  timeout = 5000
 ): Promise<string> => {
   const tokenResponse = await axiosWrapper<string>({
     method: 'get',
@@ -180,7 +181,12 @@ export const downloadInstanceFile = async (
   try {
     url = await requestInstanceFileUrl(uuid, file, timeout);
   } catch (error) {
-    toast.error(`Failed to download ${file.name}: ${errorToString(error)}`);
+    toast.error(
+      t('server.api.downloadFailed', {
+        name: file.name,
+        error: errorToString(error),
+      })
+    );
     return;
   }
   window.open(url, '_blank');
@@ -198,7 +204,7 @@ export const uploadInstanceFiles = async (
   file.forEach((f) => {
     formData.append('file', f);
   });
-  toast.info(`Uploading ${file.length} ${file.length > 1 ? 'files' : 'file'}`);
+  toast.info(t('server.api.uploading', { count: file.length }));
   const error = await catchAsyncToString(
     axiosWrapper<null>({
       method: 'put',
@@ -310,7 +316,10 @@ export const moveInstanceFileOrDirectory = async (
 
   if (error) {
     toast.error(
-      `Failed to move ${getFileName(source, direcotrySeparator)}: ${error}`
+      t('server.api.moveFailed', {
+        name: getFileName(source, direcotrySeparator),
+        error,
+      })
     );
     return error;
   }
@@ -350,12 +359,13 @@ export const zipInstanceFiles = async (
     })
   );
   if (error) {
-    toast.error(`Failed to initiate zip: ${error}`);
+    toast.error(t('server.api.zipFailed', { error }));
     return;
   } else {
     toast.info(
-      `Zipping ${zipRequest.target_relative_paths.length} item${zipRequest.target_relative_paths.length > 1 ? 's' : ''
-      }...`
+      t('server.api.zipping', {
+        count: zipRequest.target_relative_paths.length,
+      })
     );
   }
 };
@@ -378,10 +388,10 @@ export const unzipInstanceFile = async (
   );
 
   if (error) {
-    toast.error(`Failed to unzip ${file.name}: ${error}`);
+    toast.error(t('server.api.unzipFailed', { name: file.name, error }));
     return;
   } else {
-    toast.info(`Unzipping ${file.name}...`);
+    toast.info(t('server.api.unzipping', { name: file.name }));
   }
 };
 
@@ -397,13 +407,13 @@ export const unzipInstanceFile = async (
 function tooManyLoginAttemptsMessage(retryAfter: unknown): string {
   // Retry-After is a number of seconds (or an HTTP date, not used here)
   const seconds = Number(retryAfter);
-  const wait =
-    Number.isFinite(seconds) && seconds > 0
-      ? seconds < 120
-        ? `${Math.ceil(seconds)} seconds`
-        : `${Math.ceil(seconds / 60)} minutes`
-      : 'a few minutes';
-  return `Too many failed sign-in attempts. Wait ${wait}, then try again.`;
+  if (!Number.isFinite(seconds) || seconds <= 0)
+    return t('server.api.tooManyAttempts');
+  return seconds < 120
+    ? t('server.api.tooManyAttemptsSeconds', { count: Math.ceil(seconds) })
+    : t('server.api.tooManyAttemptsMinutes', {
+        count: Math.ceil(seconds / 60),
+      });
 }
 
 /**
@@ -435,9 +445,11 @@ export async function loginToCore(
         apiError.kind
       );
     if (apiError.status === undefined)
-      throw new ApiError(`Login failed: ${apiError.message}`);
+      throw new ApiError(
+        t('server.api.loginFailed', { message: apiError.message })
+      );
     throw new ApiError(
-      `Error: ${apiError.message}`,
+      t('server.api.loginError', { message: apiError.message }),
       apiError.status,
       apiError.kind
     );
@@ -543,23 +555,24 @@ export const getMacros = async (uuid: string) => {
 export const getMacroConfig = async (uuid: string, macro_name: string) => {
   const macroConfig = await axiosWrapper<GetConfigResponse>({
     method: 'get',
-    url: `/instance/${uuid}/macro/config/get/${macro_name}`
-  })
-  return macroConfig
-}
+    url: `/instance/${uuid}/macro/config/get/${macro_name}`,
+  });
+  return macroConfig;
+};
 
 // write macro local config
 export const storeMacroConfig = async (
-  uuid: string, 
-  macro_name: string, 
-  config: Record<string, SettingManifest>) => {
-    const serverResponse = await axiosWrapper<unknown>({
-      method: 'post',
-      url: `/instance/${uuid}/macro/config/store/${macro_name}`,
-      data: config
-    })
-    return serverResponse;
-}
+  uuid: string,
+  macro_name: string,
+  config: Record<string, SettingManifest>
+) => {
+  const serverResponse = await axiosWrapper<unknown>({
+    method: 'post',
+    url: `/instance/${uuid}/macro/config/store/${macro_name}`,
+    data: config,
+  });
+  return serverResponse;
+};
 
 export const getInstanceHistory = async (uuid: string) => {
   const historyList = await axiosWrapper<HistoryEntry[]>({

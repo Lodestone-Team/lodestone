@@ -17,6 +17,7 @@ import {
   toHex,
   xterm256,
 } from 'utils/consoleFormat';
+import { useT } from 'i18n';
 
 // Marks the console's own text and background colour after an inverse swap
 const DEFAULT_FG = -1;
@@ -105,6 +106,7 @@ export const ConsoleLine = memo(function ConsoleLine({
   /** The Lodestone user of the linked player the line is about */
   linkedUser?: string;
 }) {
+  const t = useT();
   return (
     <li
       className="px-4 py-[0.125rem] hover:bg-gray-800"
@@ -128,7 +130,7 @@ export const ConsoleLine = memo(function ConsoleLine({
       {linkedUser && (
         <span
           className="ml-2 rounded bg-gray-800 px-1 text-white/50 select-none"
-          title="The Lodestone user who linked this Minecraft account"
+          title={t('console.line.linkedUser')}
         >
           {linkedUser}
         </span>

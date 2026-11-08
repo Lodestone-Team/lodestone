@@ -7,8 +7,10 @@ import Logo from 'components/Atoms/Logo';
 import clsx from 'clsx';
 import { isTauriMacOS, useIsDevBuild } from 'utils/tauriUtil';
 import { NotificationPopover } from './NotificationPopover';
+import { useI18n } from 'i18n';
 
 export default function TopNav() {
+  const { t, rich } = useI18n();
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
   const { coreConnectionStatus } = useContext(LodestoneContext);
 
@@ -22,23 +24,26 @@ export default function TopNav() {
       {coreConnectionStatus === 'degraded' && (
         <TopBanner intention="warning">
           <p>
-            <a
-              href="#"
-              className="font-bold hover:underline"
-              onClick={() => {
-                window.location.reload();
-              }}
-            >
-              Refresh
-            </a>{' '}
-            to get the latest data on Firefox.{' '}
+            {rich('shell.topNav.degraded', {
+              refresh: (
+                <a
+                  href="#"
+                  className="font-bold hover:underline"
+                  onClick={() => {
+                    window.location.reload();
+                  }}
+                >
+                  {t('shell.topNav.refresh')}
+                </a>
+              ),
+            })}{' '}
             <a
               href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#firefox"
               target="_blank"
               rel="noreferrer"
               className="hover:underline"
             >
-              Learn more
+              {t('common.learnMore')}
             </a>
           </p>
         </TopBanner>
@@ -66,7 +71,7 @@ export default function TopNav() {
           {isDevBuild && (
             // Positioned outside the flow so the logo stays centred.
             <span
-              title="Local development build"
+              title={t('shell.topNav.devBuild')}
               className="absolute top-1/2 left-full ml-2 -translate-y-1/2 rounded-sm bg-yellow-300 px-1.5 py-px text-small font-bold tracking-wide text-on-accent-dark light:bg-pill-yellow light:ring-1 light:ring-yellow-300/40"
             >
               DEV

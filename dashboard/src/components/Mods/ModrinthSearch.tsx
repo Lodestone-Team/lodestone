@@ -22,6 +22,7 @@ import {
   useModrinthResolve,
   useModrinthSearch,
 } from 'data/Mods';
+import { useT } from 'i18n';
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { useDebounceCallback, useDebounceValue } from 'usehooks-ts';
 import { looksLikeModrinthLink } from 'utils/mods';
@@ -43,12 +44,14 @@ export type ModrinthPick = {
   hit?: ModrinthSearchHit;
 };
 
-const SORT_OPTIONS: Array<[ModrinthSearchIndex, string]> = [
-  ['relevance', 'Relevance'],
-  ['downloads', 'Downloads'],
-  ['follows', 'Follows'],
-  ['newest', 'Newest'],
-  ['updated', 'Recently updated'],
+const SORT_OPTIONS: Array<
+  [ModrinthSearchIndex, `mods.sort.${ModrinthSearchIndex}`]
+> = [
+  ['relevance', 'mods.sort.relevance'],
+  ['downloads', 'mods.sort.downloads'],
+  ['follows', 'mods.sort.follows'],
+  ['newest', 'mods.sort.newest'],
+  ['updated', 'mods.sort.updated'],
 ];
 
 // the dashboard's input style, from globals.css
@@ -67,17 +70,19 @@ export const SortSelect = ({
   value: ModrinthSearchIndex;
   onChange: (index: ModrinthSearchIndex) => void;
 }) => {
-  const current = SORT_OPTIONS.find(([index]) => index === value)?.[1] ?? value;
+  const t = useT();
+  const currentKey = SORT_OPTIONS.find(([index]) => index === value)?.[1];
+  const current = currentKey ? t(currentKey) : value;
   return (
     <Listbox value={value} onChange={onChange}>
       <div className="flex flex-row items-center gap-2">
-        <Label className="text-medium font-medium tracking-medium text-white/50">
-          Sort by
+        <Label className="text-medium font-medium tracking-medium whitespace-nowrap text-white/50">
+          {t('mods.sort.label')}
         </Label>
         <ListboxButton
           className={cn(
             'input-outlines input-text-style input-border-normal group relative',
-            'min-w-44 rounded py-1.5 pr-9 pl-3 text-left font-medium',
+            'min-w-44 rounded py-1.5 pr-9 pl-3 text-left font-medium whitespace-nowrap',
             'cursor-pointer hover:outline-white/30',
             'ui-open:bg-gray-700 ui-not-open:bg-gray-850 ui-not-open:hover:bg-gray-700'
           )}
@@ -92,21 +97,22 @@ export const SortSelect = ({
           anchor={{ to: 'bottom end', gap: 8 }}
           transition
           className={cn(
-            'input-text-style z-40 w-(--button-width) overflow-auto rounded py-1',
+            // at least the button's width; wider if a translated option is
+            'input-text-style z-40 min-w-(--button-width) overflow-auto rounded py-1',
             'bg-gray-850 outline-1 outline-gray-550 drop-shadow-md outline-solid',
             'transition duration-150 ease-in data-leave:data-closed:opacity-0'
           )}
         >
-          {SORT_OPTIONS.map(([index, label]) => (
+          {SORT_OPTIONS.map(([index, labelKey]) => (
             <ListboxOption
               key={index}
               value={index}
               className={cn(
-                'cursor-pointer py-2 pr-4 pl-3 font-medium text-gray-300 select-none',
+                'cursor-pointer py-2 pr-4 pl-3 font-medium whitespace-nowrap text-gray-300 select-none',
                 'data-focus:bg-gray-800 data-selected:bg-gray-700 data-selected:data-focus:bg-gray-600'
               )}
             >
-              {label}
+              {t(labelKey)}
             </ListboxOption>
           ))}
         </ListboxOptions>
@@ -160,6 +166,7 @@ export default function ModrinthSearch({
   showClientSide?: boolean;
   onPick: (pick: ModrinthPick) => void;
 }) {
+  const t = useT();
   const initialIsLink = looksLikeModrinthLink(initialText.trim());
   const [text, setText] = useState(initialText);
   // The last text that was not a link: what the results are for.
@@ -232,7 +239,7 @@ export default function ModrinthSearch({
 
   const linkStatus = !isLink ? null : linkReady && resolve.error ? (
     <div className="text-medium text-red-200">
-      Couldn&apos;t open the link: {errorToString(resolve.error)}
+      {t('mods.search.linkFailed', { error: errorToString(resolve.error) })}
     </div>
   ) : resolved ? (
     <button
@@ -240,7 +247,7 @@ export default function ModrinthSearch({
       className="self-start text-medium text-blue-200 hover:underline"
       onClick={() => onPick(pickFromTarget(resolved))}
     >
-      Open {resolved.slug}
+      {t('mods.search.openLink', { slug: resolved.slug })}
     </button>
   ) : null;
   // shown inside the search box, so the results below don't move
@@ -263,14 +270,14 @@ export default function ModrinthSearch({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           autoComplete={DISABLE_AUTOFILL}
-          aria-label="Search Modrinth"
+          aria-label={t('mods.search.ariaLabel')}
         />
         {opening && (
           <span
-            className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-small text-white/50"
+            className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-small whitespace-nowrap text-white/50"
             role="status"
           >
-            Opening the link...
+            {t('mods.search.opening')}
           </span>
         )}
       </div>
@@ -279,16 +286,21 @@ export default function ModrinthSearch({
 
       {search.error ? (
         <div className="text-medium text-red-200">
-          Search failed: {errorToString(search.error)}
+          {t('mods.search.failed', { error: errorToString(search.error) })}
         </div>
       ) : !search.data ? (
-        <SkeletonGroup label="Loading results" className="flex flex-col gap-2">
+        <SkeletonGroup
+          label={t('mods.search.loading')}
+          className="flex flex-col gap-2"
+        >
           {Array.from({ length: 5 }, (_, i) => (
             <HitCardSkeleton key={i} />
           ))}
         </SkeletonGroup>
       ) : search.data.hits.length === 0 ? (
-        <div className="text-medium text-white/50">No results.</div>
+        <div className="text-medium text-white/50">
+          {t('mods.search.noResults')}
+        </div>
       ) : (
         <>
           <div className="flex flex-col gap-2">
@@ -313,14 +325,16 @@ export default function ModrinthSearch({
           <div className="flex flex-row items-center justify-center gap-3 text-medium text-white/50">
             <IconButton
               icon={faChevronLeft}
+              aria-label={t('mods.search.previousPage')}
               disabled={page === 0 || search.isFetching}
               onClick={() => setPage(page - 1)}
             />
             <span>
-              Page {page + 1} of {totalPages}
+              {t('mods.search.page', { page: page + 1, total: totalPages })}
             </span>
             <IconButton
               icon={faChevronRight}
+              aria-label={t('mods.search.nextPage')}
               disabled={page + 1 >= totalPages || search.isFetching}
               onClick={() => setPage(page + 1)}
             />

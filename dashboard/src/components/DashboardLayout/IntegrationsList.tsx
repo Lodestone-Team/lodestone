@@ -10,6 +10,7 @@ import { useContext, useEffect } from 'react';
 import useAnalyticsEventTracker from 'utils/hooks';
 import { match, otherwise } from 'variant';
 import { BrowserLocationContext } from 'data/BrowserLocationContext';
+import { useT } from 'i18n';
 
 export default function IntegrationsList({
   className = '',
@@ -18,6 +19,7 @@ export default function IntegrationsList({
   className?: string;
   children?: React.ReactNode;
 }) {
+  const t = useT();
   const gaEventTracker = useAnalyticsEventTracker('Integrations List');
   const { ongoingNotifications } = useContext(NotificationContext);
   const userLoggedIn = useUserLoggedIn();
@@ -31,15 +33,14 @@ export default function IntegrationsList({
       value="test"
     >
       {userLoggedIn ? (
-          <>
-            <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
-              INTEGRATIONS
-            </RadioGroup.Label>
-          </>
-        ) : (
-          <></>
-        )
-      }
+        <>
+          <RadioGroup.Label className="text-small leading-snug font-bold text-gray-faded/30 uppercase light:text-ink-muted">
+            {t('shell.nav.integrations')}
+          </RadioGroup.Label>
+        </>
+      ) : (
+        <></>
+      )}
     </RadioGroup>
   );
 }

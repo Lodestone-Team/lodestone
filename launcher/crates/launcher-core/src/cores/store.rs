@@ -121,6 +121,20 @@ impl SavedCore {
         self.set_trusted(false);
         was_trusted
     }
+
+    /// The core at this address now says its id is `uuid`: trust given under the old id
+    /// ends (as in [`check_identity`](Self::check_identity)) and the entry takes the new
+    /// id, so trusting it again lasts. Returns the entry as it was and whether trust
+    /// ended, or `None` when the id is the same.
+    pub fn adopt_identity(&mut self, uuid: &str) -> Option<(SavedCore, bool)> {
+        if uuid.is_empty() || uuid == self.uuid {
+            return None;
+        }
+        let old = self.clone();
+        let trust_ended = self.check_identity(uuid);
+        self.uuid = uuid.to_string();
+        Some((old, trust_ended))
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -324,6 +338,43 @@ mod tests {
         );
         block_on(delete_key(&store, "c1")).unwrap();
         assert!(store.keys().is_empty());
+    }
+
+    #[test]
+    fn a_new_id_ends_trust_and_trusting_again_lasts() {
+        let mut core = SavedCore {
+            uuid: "old".into(),
+            url: "http://127.0.0.1:16662".into(),
+            ..SavedCore::default()
+        };
+        core.set_trusted(true);
+        assert!(core.adopt_identity("old").is_none());
+        assert!(core.is_trusted());
+
+        let (before, trust_ended) = core.adopt_identity("new").unwrap();
+        assert_eq!(before.uuid, "old");
+        assert!(trust_ended);
+        assert_eq!(core.uuid, "new");
+        assert!(!core.is_trusted());
+
+        // trusting the core under its new id survives the next refresh
+        core.set_trusted(true);
+        assert!(core.adopt_identity("new").is_none());
+        assert!(core.is_trusted());
+        assert!(!core.check_identity("new"));
+        assert!(core.is_trusted());
+    }
+
+    #[test]
+    fn an_untrusted_entry_takes_the_new_id_quietly() {
+        let mut core = SavedCore {
+            uuid: "old".into(),
+            ..SavedCore::default()
+        };
+        let (_, trust_ended) = core.adopt_identity("new").unwrap();
+        assert!(!trust_ended);
+        assert_eq!(core.uuid, "new");
+        assert!(core.adopt_identity("").is_none());
     }
 
     #[test]

@@ -1,3 +1,4 @@
+import { useT } from 'i18n';
 import { cn } from 'utils/util';
 
 /**
@@ -141,18 +142,20 @@ export function SkeletonCode({
 export function SkeletonGroup({
   className,
   children,
-  label = 'Loading',
+  label,
 }: {
   className?: string;
   children: React.ReactNode;
+  /** the screen reader label, "Loading…" by default */
   label?: string;
 }) {
+  const t = useT();
   return (
     <div
       className={cn('loading-delayed', className)}
       role="status"
       aria-busy="true"
-      aria-label={label}
+      aria-label={label ?? t('common.loading')}
     >
       {children}
     </div>
