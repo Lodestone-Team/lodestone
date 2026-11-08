@@ -109,7 +109,7 @@ export function PublicScopeRow({
         : 'Not shown without signing in.';
 
   return (
-    <div className="group relative flex h-full flex-col gap-2 bg-gray-800 px-4 py-3 text-h3">
+    <div className="group relative flex flex-col gap-2 bg-gray-800 px-4 py-3 text-h3">
       <div className="flex flex-row items-center justify-between gap-4">
         <div className="flex min-w-0 grow flex-col">
           <label className="truncate text-medium font-medium text-gray-300">
