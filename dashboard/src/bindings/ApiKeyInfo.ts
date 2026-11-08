@@ -2,4 +2,11 @@
 import type { ApiKeyScope } from "./ApiKeyScope";
 import type { UserId } from "./UserId";
 
-export type ApiKeyInfo = { id: string, name: string, display: string, uid: UserId, created_at: number, expires_at: number | null, last_used_at: number | null, scope: ApiKeyScope, };
+/**
+ * A key as clients see it: never the secret or its hash.
+ */
+export type ApiKeyInfo = { id: string, name: string, 
+/**
+ * `lsk_<id>_…`
+ */
+display: string, uid: UserId, created_at: number, expires_at: number | null, last_used_at: number | null, scope: ApiKeyScope, };
