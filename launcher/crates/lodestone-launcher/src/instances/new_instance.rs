@@ -1,6 +1,7 @@
-//! "New instance": a name, a Minecraft version from Mojang's version list (with a
-//! releases / snapshots / old versions filter and search), and a mod loader with its
-//! version.
+//! "New instance": a short form. A name, a Minecraft version in a dropdown (with a
+//! search and releases / snapshots / old versions filters), the mod loaders as cards
+//! that say what each is for, and the chosen loader's version. The Modpack tab
+//! installs a Modrinth modpack instead.
 
 use crate::theme::px;
 use gpui::{
@@ -10,12 +11,17 @@ use gpui::{
 };
 use lodestone_minecraft::versions::mojang::{MojangVersion, MojangVersionType};
 
+use launcher_core::game::loaders::LoaderKind;
+
 use super::{Instances, Versions, loader_picker::LoaderPicker, modpack_browser::ModpackBrowser};
 use crate::components::KeyboardFocus;
 use crate::{
-    components::{Button, ButtonVariant, Dialog, LoadingDots, TextInput, Toggle},
+    components::{
+        Button, ButtonVariant, Dialog, Icon, IconButton, LoadingDots, TextInput,
+        settings::{popover, popover_panel, select_button},
+    },
     i18n::{CommonMsg, InstanceSettingsMsg as M, format, t, tr},
-    theme::{self, colors, leading, radius, text, weights},
+    theme::{self, Color, colors, leading, radius, text, weights},
 };
 
 /// Which kinds of versions the list shows.
@@ -84,6 +90,8 @@ pub struct NewInstanceDialog {
     loader: Entity<LoaderPicker>,
     error: Option<SharedString>,
     scroll: UniformListScrollHandle,
+    /// The Minecraft version dropdown is open.
+    versions_open: bool,
     /// The dialog's own focus, which the name field is inside.
     focus: FocusHandle,
     _observe: Vec<Subscription>,
@@ -118,8 +126,9 @@ impl NewInstanceDialog {
         observe.push(cx.observe(&modpacks, |_, _, cx| cx.notify()));
         let loader = {
             let instances = instances.clone();
-            cx.new(|cx| LoaderPicker::new(instances, None, None, 220., cx))
+            cx.new(|cx| LoaderPicker::new(instances, None, None, cx))
         };
+        observe.push(cx.observe(&loader, |_, _, cx| cx.notify()));
         let mut this = Self {
             mode: Mode::Version,
             modpacks,
@@ -132,6 +141,7 @@ impl NewInstanceDialog {
             loader,
             error: None,
             scroll: UniformListScrollHandle::new(),
+            versions_open: false,
             focus: cx.focus_handle(),
             _observe: observe,
         };
@@ -176,6 +186,12 @@ impl NewInstanceDialog {
     ) {
         self.loader
             .update(cx, |picker, cx| picker.set_kind(Some(kind), cx));
+    }
+
+    /// Opens the Minecraft version dropdown, for the offscreen screenshots.
+    pub fn open_versions(&mut self, cx: &mut Context<Self>) {
+        self.versions_open = true;
+        cx.notify();
     }
 
     /// The loader picker, for the offscreen screenshots.
@@ -322,6 +338,7 @@ impl NewInstanceDialog {
                                         move |this, _, _, cx| {
                                             this.selected = Some(id.clone());
                                             this.error = None;
+                                            this.versions_open = false;
                                             this.sync_loader(cx);
                                             cx.notify();
                                         },
@@ -336,15 +353,20 @@ impl NewInstanceDialog {
                 }
             }
         };
-        div()
-            .h(px(220.))
-            .w_full()
-            .p_1()
-            .rounded(radius::LG)
-            .border_1()
-            .border_color(colors::GRAY_FADED.opacity(30))
-            .bg(colors::GRAY_900)
-            .child(body)
+        // As tall as its rows, up to a screenful of them.
+        let rows = match self.instances.read(cx).versions() {
+            Versions::Ready(all) => {
+                let search = self.search.read(cx).text().to_string();
+                filter_versions(all, self.filter, &search).len()
+            }
+            _ => 0,
+        };
+        let height = if rows == 0 {
+            96.
+        } else {
+            (rows as f32 * 30.).min(240.)
+        };
+        div().h(px(height)).w_full().child(body)
     }
 }
 
@@ -369,6 +391,7 @@ fn release_date(time: Option<&str>) -> String {
     }
 }
 
+/// A row of the version list: the version, its kind and its day in columns.
 fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::Stateful<gpui::Div> {
     let date: SharedString = release_date(version.release_time.as_deref()).into();
     div()
@@ -378,6 +401,7 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
         .flex_row()
         .items_center()
         .gap_3()
+        .w_full()
         .h(px(30.))
         .px_2()
         .rounded(radius::MD)
@@ -387,7 +411,7 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
                 this.bg(colors::BLUE.opacity(35)).text_color(colors::WHITE)
             } else {
                 this.text_color(colors::GRAY_300)
-                    .hover(|style| style.bg(colors::GRAY_800))
+                    .hover(|style| style.bg(colors::GRAY_700))
             }
         })
         .child(
@@ -401,7 +425,7 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
         .child(
             div()
                 .flex_none()
-                .w(px(72.))
+                .w(px(76.))
                 .truncate()
                 .text_size(theme::text_size(text::SMALL))
                 .text_color(colors::GRAY_500)
@@ -411,62 +435,175 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
             div()
                 .flex_none()
                 .w(px(96.))
-                .truncate()
+                .flex()
+                .justify_end()
                 .text_size(theme::text_size(text::SMALL))
                 .text_color(colors::GRAY_500)
                 .child(date),
         )
 }
 
-fn label(text_: &'static str) -> impl IntoElement {
-    div()
-        .text_size(theme::text_size(text::SMALL))
-        .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-        .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_400)
-        .child(text_)
-}
-
-fn filter_toggle(
-    id: &'static str,
-    caption: &'static str,
-    value: bool,
-    on_change: impl Fn(&bool, &mut Window, &mut App) + 'static,
-) -> impl IntoElement {
+/// A row of the form: its name in a column on the left, then the control.
+fn form_row(name: impl Into<SharedString>, control: impl IntoElement) -> impl IntoElement {
     div()
         .flex()
         .flex_row()
         .items_center()
+        .gap_4()
+        .child(
+            div()
+                .flex_none()
+                .w(px(132.))
+                .font_weight(weights::MEDIUM.into())
+                .text_color(colors::GRAY_400)
+                .child(name.into()),
+        )
+        .child(div().flex_1().min_w_0().child(control))
+}
+
+/// A filter of the version list: on or off.
+fn filter_chip(id: &'static str, caption: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .keyboard_focus()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .px_2p5()
+        .py_0p5()
+        .rounded_full()
+        .border_1()
+        .cursor_pointer()
+        .text_size(theme::text_size(text::SMALL))
+        .font_weight(weights::BOLD.into())
+        .map(|this| {
+            if on {
+                this.bg(colors::BLUE.opacity(25))
+                    .border_color(colors::BLUE_200.opacity(60))
+                    .text_color(colors::WHITE)
+            } else {
+                this.border_color(colors::FADE_700)
+                    .text_color(colors::GRAY_400)
+                    .hover(|style| style.text_color(colors::GRAY_300).bg(colors::GRAY_750))
+            }
+        })
+        .when(on, |this| {
+            this.child(Icon::Check.render(px(10.), colors::WHITE))
+        })
+        .child(caption)
+}
+
+/// How a loader's card looks: its letter, the letter's tile and ink, and what the
+/// loader is for.
+fn loader_look(kind: Option<LoaderKind>) -> (&'static str, &'static str, Color, Color, M) {
+    match kind {
+        None => (
+            t(M::Vanilla),
+            "V",
+            Color::rgb(0x4CAF50),
+            colors::WHITE,
+            M::AboutVanilla,
+        ),
+        Some(LoaderKind::Fabric) => (
+            LoaderKind::Fabric.label(),
+            "F",
+            Color::rgb(0xDBD0B4),
+            colors::GRAY_900,
+            M::AboutFabric,
+        ),
+        Some(LoaderKind::Quilt) => (
+            LoaderKind::Quilt.label(),
+            "Q",
+            Color::rgb(0x8E55D9),
+            colors::WHITE,
+            M::AboutQuilt,
+        ),
+        Some(LoaderKind::Forge) => (
+            LoaderKind::Forge.label(),
+            "F",
+            Color::rgb(0x2E3A57),
+            colors::WHITE,
+            M::AboutForge,
+        ),
+        Some(LoaderKind::NeoForge) => (
+            LoaderKind::NeoForge.label(),
+            "N",
+            Color::rgb(0xE07B2E),
+            colors::WHITE,
+            M::AboutNeoForge,
+        ),
+    }
+}
+
+fn loader_card(
+    index: usize,
+    kind: Option<LoaderKind>,
+    selected: bool,
+) -> gpui::Stateful<gpui::Div> {
+    let (name, letter, tile, ink, about) = loader_look(kind);
+    div()
+        .id(("loader-card", index))
+        .keyboard_focus()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
         .gap_2()
-        .child(Toggle::new(id, value).on_change(on_change))
+        .p_3()
+        .rounded(radius::LG)
+        .border_1()
+        .cursor_pointer()
+        .map(|this| {
+            if selected {
+                this.bg(colors::BLUE.opacity(15))
+                    .border_color(colors::BLUE_200.opacity(70))
+            } else {
+                this.bg(colors::GRAY_800)
+                    .border_color(colors::FADE_700)
+                    .hover(|style| style.bg(colors::GRAY_750))
+            }
+        })
+        .child(
+            div()
+                .size(px(26.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(radius::MD)
+                .bg(tile)
+                .text_color(ink)
+                .font_weight(weights::BOLD.into())
+                .text_size(theme::text_size(text::SMALL))
+                .child(letter),
+        )
+        .child(
+            div()
+                .font_weight(weights::BOLD.into())
+                .text_color(if selected {
+                    colors::WHITE
+                } else {
+                    colors::GRAY_300
+                })
+                .child(name),
+        )
         .child(
             div()
                 .text_size(theme::text_size(text::SMALL))
-                .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_400)
-                .child(caption),
+                .line_height(theme::line_height(text::SMALL, leading::NORMAL))
+                .text_color(colors::GRAY_500)
+                .child(t(about)),
         )
 }
 
 impl Render for NewInstanceDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
-        let filter = self.filter;
-        let selected: SharedString = self
-            .selected
-            .clone()
-            .map(|id| match self.loader.read(cx).choice() {
-                Ok(Some(loader)) => tr!(
-                    M::GameWithLoader,
-                    version = id,
-                    loader = loader.kind.label(),
-                    loader_version = loader.version
-                ),
-                _ => format!("Minecraft {id}"),
-            })
-            .unwrap_or_else(|| t(M::NoVersionSelected).into())
-            .into();
         let mode = self.mode;
+        // The name it gets if the field stays empty.
+        let default_name = self.default_name(cx);
+        self.name
+            .update(cx, |input, cx| input.set_placeholder(default_name, cx));
         let switch = crate::instances::content::view::pills(
             "new-instance-mode",
             vec![t(M::MinecraftVersion).into(), t(M::Modpack).into()],
@@ -487,50 +624,53 @@ impl Render for NewInstanceDialog {
             },
         );
         let modpack_selection = self.modpacks.read(cx).selection();
-        let footer_status: SharedString = match (&self.error, mode, &modpack_selection) {
-            (Some(error), _, _) => error.clone(),
-            (None, Mode::Version, _) => selected.clone(),
-            (None, Mode::Modpack, Some((project, version))) => format!(
-                "{} {} · Minecraft {} · {}",
-                project.title,
-                version.version_number,
-                version.game_versions.first().cloned().unwrap_or_default(),
-                version.loaders.first().cloned().unwrap_or_default()
-            )
-            .into(),
-            (None, Mode::Modpack, None) => t(M::NoModpackPicked).into(),
-        };
         let body = match mode {
-            Mode::Modpack => self.modpacks.clone().into_any_element(),
-            Mode::Version => self.version_body(&entity, filter, cx).into_any_element(),
+            Mode::Modpack => div()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .child(form_row(t(M::Name), self.name.clone()))
+                .child(self.modpacks.clone())
+                .into_any_element(),
+            Mode::Version => self.version_form(cx).into_any_element(),
         };
         Dialog::new("new-instance", t(M::NewInstance), self.focus.clone())
-            .width(px(860.))
+            .width(px(820.))
             .on_close({
                 let entity = entity.clone();
                 move |_, cx| entity.update(cx, |_, cx| cx.emit(NewInstanceDismissed))
             })
+            .header_end(switch)
+            .header_end(
+                IconButton::new("close-new-instance", Icon::Xmark)
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(NewInstanceDismissed))),
+            )
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap_3()
+                    .gap_4()
                     .text_size(theme::text_size(text::MEDIUM))
-                    .child(div().flex().child(switch))
-                    .child(label(t(M::NameLabel)))
-                    .child(self.name.clone())
                     .child(body)
-                    .child(
-                        div()
-                            .text_size(theme::text_size(text::SMALL))
-                            .font_weight(weights::BOLD.into())
-                            .text_color(if self.error.is_some() {
-                                colors::RED_200
-                            } else {
-                                colors::GRAY_500
-                            })
-                            .child(footer_status),
-                    ),
+                    .when_some(self.error.clone(), |this, error| {
+                        this.child(
+                            div()
+                                .text_size(theme::text_size(text::SMALL))
+                                .text_color(colors::RED_200)
+                                .child(error),
+                        )
+                    }),
+            )
+            .footer_start(
+                Button::new("import-mrpack", t(M::ImportMrpack))
+                    .variant(ButtonVariant::Ghost)
+                    .icon(Icon::Download)
+                    .on_click(cx.listener(|this, _, _, cx| this.pick_mrpack(cx))),
+            )
+            .footer(
+                Button::new("cancel-new-instance", t(CommonMsg::Cancel))
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(NewInstanceDismissed))),
             )
             .map(|dialog| match mode {
                 Mode::Version => dialog.footer(
@@ -546,86 +686,200 @@ impl Render for NewInstanceDialog {
                         .on_click(cx.listener(|this, _, _, cx| this.install_modpack(cx))),
                 ),
             })
-            .footer(
-                Button::new("import-mrpack", t(M::ImportMrpack))
-                    .variant(ButtonVariant::Secondary)
-                    .on_click(cx.listener(|this, _, _, cx| this.pick_mrpack(cx))),
-            )
-            .footer(
-                Button::new("cancel-new-instance", t(CommonMsg::Cancel))
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(NewInstanceDismissed))),
-            )
     }
 }
 
 impl NewInstanceDialog {
-    /// The Minecraft version list and the loader picker.
-    fn version_body(
-        &mut self,
-        entity: &Entity<Self>,
-        filter: VersionFilter,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let toggle = |field: fn(&mut VersionFilter) -> &mut bool| {
-            let entity = entity.clone();
-            move |value: &bool, _: &mut Window, cx: &mut App| {
-                let mut filter = filter;
-                *field(&mut filter) = *value;
-                entity.update(cx, |this, cx| this.set_filter(filter, cx));
-            }
+    /// The name an instance gets when the field is left empty, as `create` names it.
+    fn default_name(&self, cx: &App) -> String {
+        match self.mode {
+            Mode::Modpack => self
+                .modpacks
+                .read(cx)
+                .selection()
+                .map(|(project, _)| project.title)
+                .unwrap_or_else(|| t(M::MyInstance).to_string()),
+            Mode::Version => match (&self.selected, self.loader.read(cx).kind()) {
+                (Some(version), Some(kind)) => format!("{version} {}", kind.label()),
+                (Some(version), None) => version.clone(),
+                (None, _) => t(M::MyInstance).to_string(),
+            },
+        }
+    }
+
+    /// Name, Minecraft version, the loaders as cards, and the loader's version.
+    fn version_form(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let kind = self.loader.read(cx).kind();
+        let cards = std::iter::once(None)
+            .chain(LoaderKind::ALL.map(Some))
+            .enumerate()
+            .map(|(index, option)| {
+                loader_card(index, option, option == kind)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.loader
+                            .update(cx, |picker, cx| picker.set_kind(option, cx));
+                        this.error = None;
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+        div()
+            .flex()
+            .flex_col()
+            .gap_4()
+            .child(form_row(t(M::Name), self.name.clone()))
+            .child(form_row("Minecraft", self.version_select(cx)))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .font_weight(weights::MEDIUM.into())
+                            .text_color(colors::GRAY_400)
+                            .child(t(M::ModLoader)),
+                    )
+                    .child(div().flex().flex_row().gap_2().children(cards)),
+            )
+            .when(kind.is_some(), |this| {
+                this.child(form_row(t(M::LoaderVersion), self.loader.clone()))
+            })
+    }
+
+    /// The chosen Minecraft version in a dropdown, which opens on a search, the
+    /// filters and the list.
+    fn version_select(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let versions = self.instances.read(cx).versions().clone();
+        let chosen = match &versions {
+            Versions::Ready(all) => self
+                .selected
+                .as_ref()
+                .and_then(|id| all.iter().find(|v| &v.id == id))
+                .cloned(),
+            _ => None,
+        };
+        let label = match (&versions, chosen) {
+            (_, Some(version)) => div()
+                .flex()
+                .flex_row()
+                .items_baseline()
+                .gap_2()
+                .child(
+                    div()
+                        .font_weight(weights::BOLD.into())
+                        .child(version.id.clone()),
+                )
+                .child(
+                    div()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(colors::GRAY_500)
+                        .child(format!(
+                            "{} · {}",
+                            kind_label(version.kind),
+                            release_date(version.release_time.as_deref())
+                        )),
+                )
+                .into_any_element(),
+            (Versions::Failed(_), None) => div()
+                .text_color(colors::RED_200)
+                .child(t(M::ChooseGameVersion))
+                .into_any_element(),
+            (Versions::Ready(_), None) => div().child(t(M::ChooseVersion)).into_any_element(),
+            _ => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .text_color(colors::GRAY_500)
+                .child(LoadingDots)
+                .child(t(M::LoadingVersionList))
+                .into_any_element(),
         };
         div()
             .flex()
-            .flex_row()
-            .gap_6()
+            .flex_col()
+            .items_start()
+            .child(
+                select_button("game-version-select", label)
+                    .w(px(300.))
+                    .justify_between()
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.versions_open = !this.versions_open;
+                        if this.versions_open {
+                            // Type to search straight away.
+                            this.search.focus_handle(cx).focus(window, cx);
+                        }
+                        cx.notify();
+                    })),
+            )
+            .when(self.versions_open, |this| {
+                let close = cx.listener(|this, _: &(), _, cx| {
+                    this.versions_open = false;
+                    cx.notify();
+                });
+                // In a box of its own under the button: the popover starts where
+                // its parent does.
+                this.child(div().child(popover(
+                    "game-version-popover",
+                    self.version_panel(cx),
+                    move |window, cx| close(&(), window, cx),
+                )))
+            })
+    }
+
+    fn version_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let filter = self.filter;
+        let chip = |id: &'static str,
+                    caption: &'static str,
+                    on: bool,
+                    flip: fn(&mut VersionFilter),
+                    cx: &mut Context<Self>| {
+            filter_chip(id, caption, on).on_click(cx.listener(move |this, _, _, cx| {
+                let mut filter = this.filter;
+                flip(&mut filter);
+                this.set_filter(filter, cx);
+            }))
+        };
+        popover_panel("game-version-list")
+            .w(px(420.))
+            .gap_2()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.versions_open = false;
+                cx.notify();
+            }))
+            .child(self.search.clone())
             .child(
                 div()
                     .flex()
-                    .flex_col()
-                    .gap_3()
-                    .flex_1()
-                    .min_w_0()
-                    .child(div().pt_1().child(label(t(M::MinecraftVersionLabel))))
-                    .child(self.search.clone())
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .flex_wrap()
-                            .gap_x_4()
-                            .gap_y_2()
-                            .child(filter_toggle(
-                                "filter-releases",
-                                t(M::Releases),
-                                filter.releases,
-                                toggle(|f| &mut f.releases),
-                            ))
-                            .child(filter_toggle(
-                                "filter-snapshots",
-                                t(M::Snapshots),
-                                filter.snapshots,
-                                toggle(|f| &mut f.snapshots),
-                            ))
-                            .child(filter_toggle(
-                                "filter-old",
-                                t(M::OldVersions),
-                                filter.old,
-                                toggle(|f| &mut f.old),
-                            )),
-                    )
-                    .child(self.version_list(cx)),
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_1p5()
+                    .px_1()
+                    .child(chip(
+                        "filter-releases",
+                        t(M::Releases),
+                        filter.releases,
+                        |f| f.releases = !f.releases,
+                        cx,
+                    ))
+                    .child(chip(
+                        "filter-snapshots",
+                        t(M::Snapshots),
+                        filter.snapshots,
+                        |f| f.snapshots = !f.snapshots,
+                        cx,
+                    ))
+                    .child(chip(
+                        "filter-old",
+                        t(M::OldVersions),
+                        filter.old,
+                        |f| f.old = !f.old,
+                        cx,
+                    )),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .flex_1()
-                    .min_w_0()
-                    .child(div().pt_1().child(label(t(M::ModLoaderLabel))))
-                    .child(self.loader.clone()),
-            )
+            .child(self.version_list(cx))
     }
 }
 

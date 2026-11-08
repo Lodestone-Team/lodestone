@@ -233,7 +233,7 @@ impl InstanceSettings {
             let instances = instances.clone();
             let game = instance.game_version.clone();
             let choice = instance.loader_choice();
-            cx.new(|cx| LoaderPicker::new(instances, Some(game), choice, 150., cx).compact())
+            cx.new(|cx| LoaderPicker::new(instances, Some(game), choice, cx).compact())
         };
         let modpack = instances.read(cx).modpack(&instance.id);
         let server = launcher_core::cores::link::load_link(

@@ -66,6 +66,11 @@ pub fn text(message: M) -> &'static str {
 
         M::Vanilla => "Vanilla",
         M::ModLoader => "Chargeur de mods",
+        M::AboutVanilla => "Minecraft tel que Mojang le publie.",
+        M::AboutFabric => "Léger et vite à jour. La plupart des mods de performance.",
+        M::AboutQuilt => "Compatible avec Fabric, avec ses propres extras.",
+        M::AboutForge => "Le classique. Gros mods de contenu et anciens modpacks.",
+        M::AboutNeoForge => "Le successeur de Forge, pour les versions récentes.",
         M::PrereleaseUpdates => "Mises à jour bêta et alpha",
         M::PrereleaseUpdatesHint => "Désactivé, un mod déjà en bêta reçoit encore des bêtas.",
         M::LoaderVersion => "Version du chargeur",
@@ -73,13 +78,7 @@ pub fn text(message: M) -> &'static str {
         M::ChooseVersion => "Choisir une version",
         M::LoadingLoaderVersions => "Chargement des versions de {loader}",
         M::CouldntLoadVersions => "Impossible de charger les versions\u{a0}: {error}",
-        M::CouldntLoadLoaderVersions => {
-            "Impossible de charger les versions de {loader}\u{a0}: {error}"
-        }
         M::NoVersionsFor => "Aucune version pour Minecraft {game}.",
-        M::LoaderHasNoVersions => "{loader} n’a aucune version pour Minecraft {game}.",
-        M::PlainMinecraft => "Minecraft tel quel, sans mods.",
-        M::ChooseGameVersionFirst => "Choisissez d’abord une version de Minecraft.",
         M::Recommended => "Recommandée",
         M::Beta => "Bêta",
 
@@ -194,9 +193,6 @@ pub fn text(message: M) -> &'static str {
 
         M::NewInstance => "Nouvelle instance",
         M::MinecraftVersion => "Version de Minecraft",
-        M::NameLabel => "NOM",
-        M::MinecraftVersionLabel => "VERSION DE MINECRAFT",
-        M::ModLoaderLabel => "CHARGEUR DE MODS",
         M::MyInstance => "Mon instance",
         M::SearchVersions => "Rechercher une version",
         M::Releases => "Versions stables",
@@ -209,9 +205,6 @@ pub fn text(message: M) -> &'static str {
         M::KindOther => "Autre",
         M::LoadingVersionList => "Chargement de la liste des versions de Mojang",
         M::NoVersionsMatch => "Aucune version ne correspond.",
-        M::GameWithLoader => "Minecraft {version} avec {loader} {loader_version}",
-        M::NoVersionSelected => "Aucune version choisie",
-        M::NoModpackPicked => "Aucun modpack choisi",
         M::PickModpack => "Choisissez un modpack et une version.",
         M::ChooseGameVersion => "Choisissez une version de Minecraft.",
         M::CreateInstance => "Créer l’instance",
