@@ -12,7 +12,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use super::{
-    platform::{Arch, Platform},
+    platform::{Arch, Os, Platform},
     rules::{self, Features},
     version::{Artifact, Library, VersionJson},
 };
@@ -122,7 +122,90 @@ pub fn select(
             selection.classpath.push(file);
         }
     }
+    if platform.os == Os::MacOs {
+        newer_macos_lwjgl(&mut selection)?;
+    }
     Ok(selection)
+}
+
+/// The LWJGL 2 build Mojang ships for macOS from 1.8 on, with the hashes and sizes
+/// from Mojang's own version files: `(artifact, file name suffix, sha1, size)`.
+const MACOS_LWJGL: &str = "2.9.2-nightly-20140822";
+const MACOS_LWJGL_FILES: [(&str, &str, &str, u64); 3] = [
+    (
+        "lwjgl",
+        "",
+        "7707204c9ffa5d91662de95f0a224e2f721b22af",
+        1_045_632,
+    ),
+    (
+        "lwjgl_util",
+        "",
+        "f0e612c840a7639c1f77f68d72a28dae2f0c8490",
+        173_887,
+    ),
+    (
+        "lwjgl-platform",
+        "-natives-osx",
+        "79f5ce2fea02e77fe47a3c745219167a542121d7",
+        468_116,
+    ),
+];
+
+/// Versions before 1.8 (and loaders built on them) use LWJGL 2.9.1 or older on every
+/// OS, and on current macOS those abort in AppKit as the window opens. Like Prism
+/// and MultiMC, use the macOS build Mojang switched to in 1.8 instead.
+fn newer_macos_lwjgl(selection: &mut Selection) -> Result<(), LibraryError> {
+    let replacement = |name: &str| -> Option<Result<LibraryFile, LibraryError>> {
+        let mut parts = name.split(':');
+        let (Some("org.lwjgl.lwjgl"), Some(artifact), Some(version)) =
+            (parts.next(), parts.next(), parts.next())
+        else {
+            return None;
+        };
+        if !older_than_2_9_2(version) {
+            return None;
+        }
+        let (_, suffix, sha1, size) = MACOS_LWJGL_FILES
+            .iter()
+            .find(|(known, ..)| *known == artifact)?;
+        let path = format!(
+            "org/lwjgl/lwjgl/{artifact}/{MACOS_LWJGL}/{artifact}-{MACOS_LWJGL}{suffix}.jar"
+        );
+        Some(safe_relative_path(&path).map(|relative| LibraryFile {
+            name: format!("org.lwjgl.lwjgl:{artifact}:{MACOS_LWJGL}"),
+            path: relative,
+            remote: Some(Remote {
+                url: format!("https://libraries.minecraft.net/{path}"),
+                sha1: (*sha1).to_string(),
+                size: Some(*size),
+            }),
+            sha1: None,
+        }))
+    };
+    for file in &mut selection.classpath {
+        if let Some(newer) = replacement(&file.name) {
+            *file = newer?;
+        }
+    }
+    for native in &mut selection.natives {
+        if let Some(newer) = replacement(&native.file.name) {
+            native.file = newer?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether an LWJGL version such as `2.9.1` or `2.9.1-nightly-20131120` is a 2.x
+/// release before 2.9.2.
+fn older_than_2_9_2(version: &str) -> bool {
+    let mut numbers = version
+        .split(['.', '-'])
+        .map(|part| part.parse::<u32>().ok());
+    match (numbers.next(), numbers.next(), numbers.next()) {
+        (Some(Some(2)), Some(Some(minor)), patch) => (minor, patch.flatten().unwrap_or(0)) < (9, 2),
+        _ => false,
+    }
 }
 
 /// The old-style natives classifier of `library` on `platform`, if it has one.
@@ -237,6 +320,83 @@ pub fn java_arch(version: &VersionJson, platform: &Platform) -> Arch {
 mod tests {
     use super::*;
     use crate::game::{platform::Os, version::tests::fixture};
+
+    #[test]
+    fn old_lwjgl_is_replaced_by_mojangs_macos_build_on_macos_only() {
+        for id in ["1.7.10", "1.5.2"] {
+            let version = fixture(id);
+            let on_mac = select(&version, &mac(Arch::X86_64), &Features::default()).unwrap();
+            let lwjgl: Vec<&str> = names(&on_mac.classpath)
+                .into_iter()
+                .filter(|name| name.starts_with("org.lwjgl.lwjgl:"))
+                .collect();
+            assert_eq!(
+                lwjgl,
+                [
+                    "org.lwjgl.lwjgl:lwjgl:2.9.2-nightly-20140822",
+                    "org.lwjgl.lwjgl:lwjgl_util:2.9.2-nightly-20140822",
+                ],
+                "{id}"
+            );
+            let natives = native_paths(&on_mac);
+            assert!(
+                natives.iter().any(|path| path
+                    == "org/lwjgl/lwjgl/lwjgl-platform/2.9.2-nightly-20140822/lwjgl-platform-2.9.2-nightly-20140822-natives-osx.jar"),
+                "{id}: {natives:?}"
+            );
+            assert!(
+                !natives
+                    .iter()
+                    .any(|path| path.contains("/2.9.1/") || path.contains("/2.9.0/"))
+            );
+            let remote = on_mac
+                .classpath
+                .iter()
+                .find(|f| f.name.ends_with(":lwjgl:2.9.2-nightly-20140822"))
+                .unwrap()
+                .remote
+                .clone()
+                .unwrap();
+            assert_eq!(remote.sha1, "7707204c9ffa5d91662de95f0a224e2f721b22af");
+            assert_eq!(
+                remote.url,
+                "https://libraries.minecraft.net/org/lwjgl/lwjgl/lwjgl/2.9.2-nightly-20140822/lwjgl-2.9.2-nightly-20140822.jar"
+            );
+
+            let on_windows = select(
+                &version,
+                &Platform::new(Os::Windows, Arch::X86_64, "10.0"),
+                &Features::default(),
+            )
+            .unwrap();
+            assert!(
+                names(&on_windows.classpath)
+                    .iter()
+                    .all(|name| !name.contains("2.9.2-nightly")),
+                "{id}"
+            );
+        }
+        // 1.8.9 already lists the macOS build, and keeps it.
+        let version = fixture("1.8.9");
+        let on_mac = select(&version, &mac(Arch::X86_64), &Features::default()).unwrap();
+        assert!(names(&on_mac.classpath).contains(&"org.lwjgl.lwjgl:lwjgl:2.9.2-nightly-20140822"));
+    }
+
+    #[test]
+    fn lwjgl_versions_before_2_9_2() {
+        for old in ["2.9.1", "2.9.0", "2.9.1-nightly-20131120", "2.8.5"] {
+            assert!(older_than_2_9_2(old), "{old}");
+        }
+        for new in [
+            "2.9.2-nightly-20140822",
+            "2.9.4-nightly-20150209",
+            "3.3.1",
+            "2.10.0",
+            "nightly",
+        ] {
+            assert!(!older_than_2_9_2(new), "{new}");
+        }
+    }
 
     fn mac(arch: Arch) -> Platform {
         Platform::new(Os::MacOs, arch, "14.6.1")
