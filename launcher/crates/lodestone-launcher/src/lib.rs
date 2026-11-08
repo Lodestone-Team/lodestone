@@ -145,6 +145,58 @@ mod screenshot {
 
     use gpui::{AnyWindowHandle, App};
 
+    fn arg_after(flag: &str) -> Option<String> {
+        let mut args = std::env::args().skip_while(|arg| arg != flag);
+        args.next()?;
+        args.next()
+    }
+
+    /// `--bench-scroll N [--bench-at X,Y]`: scrolls N steps over the point (the
+    /// middle of the window by default), down then up, and prints how long each
+    /// frame took to build, lay out and paint.
+    fn bench_scroll(window: AnyWindowHandle, steps: usize, cx: &mut gpui::AsyncApp) {
+        use gpui::{PlatformInput, ScrollDelta, ScrollEvent, point, px};
+        let at = arg_after("--bench-at")
+            .and_then(|text| {
+                let (x, y) = text.split_once(',')?;
+                Some(point(px(x.parse().ok()?), px(y.parse().ok()?)))
+            })
+            .unwrap_or(point(px(700.), px(450.)));
+        let mut frames = Vec::with_capacity(steps);
+        for step in 0..steps {
+            let down = (step / 40) % 2 == 0;
+            window
+                .update(cx, |_, window, cx| {
+                    let event = ScrollEvent {
+                        position: at,
+                        delta: ScrollDelta::Pixels(point(
+                            px(0.),
+                            px(if down { -24. } else { 24. }),
+                        )),
+                        ..Default::default()
+                    };
+                    window.dispatch_event(PlatformInput::Scroll(event), cx);
+                    let start = std::time::Instant::now();
+                    window.draw(cx).clear(cx);
+                    frames.push(start.elapsed().as_secs_f64() * 1000.0);
+                })
+                .ok();
+        }
+        frames.sort_by(f64::total_cmp);
+        if frames.is_empty() {
+            return;
+        }
+        let pick = |q: f64| frames[((frames.len() - 1) as f64 * q) as usize];
+        let mean = frames.iter().sum::<f64>() / frames.len() as f64;
+        eprintln!(
+            "bench-scroll: {} frames, mean {mean:.2} ms, p50 {:.2} ms, p95 {:.2} ms, max {:.2} ms",
+            frames.len(),
+            pick(0.5),
+            pick(0.95),
+            pick(1.0)
+        );
+    }
+
     pub fn requested_path() -> Option<PathBuf> {
         let mut args = std::env::args().skip_while(|arg| arg != "--screenshot");
         args.next()?;
@@ -182,6 +234,9 @@ mod screenshot {
                 cx.background_executor()
                     .timer(Duration::from_millis(150))
                     .await;
+            }
+            if let Some(steps) = arg_after("--bench-scroll").and_then(|n| n.parse().ok()) {
+                bench_scroll(window, steps, cx);
             }
             let result = window.update(cx, |_, window, _| {
                 window.refresh();

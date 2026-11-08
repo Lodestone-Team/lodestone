@@ -219,6 +219,18 @@ pub enum Instances {
         #[arg(long, conflicts_with = "group")]
         none: bool,
     },
+    /// Whether an instance's mods, packs and shaders may update to beta and alpha
+    /// versions. Off, each only updates to a version at least as stable as the one
+    /// installed.
+    #[command(
+        name = "prerelease-updates",
+        after_help = "Examples:\n  lodestone-launcher-cli instances prerelease-updates Survival on\n  lodestone-launcher-cli instances prerelease-updates Survival off"
+    )]
+    PrereleaseUpdates {
+        instance: String,
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
     /// Sets an instance's icon: an image, a library icon, an emoji, or the default.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli instances icon Survival --image ./icon.png\n  lodestone-launcher-cli instances icon Survival --library grass\n  lodestone-launcher-cli instances icon Survival --emoji 🗡 --tile 3A6EA5\n  lodestone-launcher-cli instances icon Survival --clear"

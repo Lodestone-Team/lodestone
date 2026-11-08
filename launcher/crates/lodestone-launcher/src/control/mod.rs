@@ -190,6 +190,11 @@ pub const METHODS: &[Method] = &[
         instances::set_group,
     ),
     method(
+        "instances.set_prerelease_updates",
+        "Lets an instance's content update to beta and alpha versions (on), or only to versions at least as stable as installed (off).",
+        instances::set_prerelease_updates,
+    ),
+    method(
         "instances.set_icon",
         "Sets an instance's icon: an image, a library icon, an emoji, or none.",
         instances::set_icon,

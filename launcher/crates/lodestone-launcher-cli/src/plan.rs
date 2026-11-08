@@ -205,6 +205,10 @@ pub fn plan(
                     vec![("instance", json!(instance)), ("group", json!(group))],
                 )
             }
+            Instances::PrereleaseUpdates { instance, state } => call(
+                "instances.set_prerelease_updates",
+                vec![("instance", json!(instance)), ("on", json!(state == "on"))],
+            ),
             Instances::Icon {
                 instance,
                 image,
@@ -819,6 +823,14 @@ mod tests {
         let (method, params, _) = call_of(&["instances", "group", "Survival", "--none"]);
         assert_eq!(method, "instances.set_group");
         assert_eq!(params, json!({ "instance": "Survival" }));
+        assert_eq!(
+            call_of(&["instances", "prerelease-updates", "Survival", "on"]),
+            (
+                "instances.set_prerelease_updates",
+                json!({ "instance": "Survival", "on": true }),
+                false
+            )
+        );
         let (_, params, _) = call_of(&["play", "launch", "Smp", "--skip-update"]);
         assert_eq!(params["update_mods"], json!(false));
         let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);

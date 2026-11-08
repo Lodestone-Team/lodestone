@@ -114,6 +114,9 @@ pub struct Section {
     auto_checked: bool,
     pub view: SubView,
     pub browse: Browse,
+    /// The Installed list's scroll state and the entries it was last told about.
+    rows: gpui::ListState,
+    plan: Vec<view::Entry>,
     load_task: Option<Task<()>>,
     updates_task: Option<Task<()>>,
 }
@@ -144,6 +147,8 @@ impl Section {
                 project: None,
                 task: None,
             },
+            rows: gpui::ListState::new(0, gpui::ListAlignment::Top, crate::theme::px(400.)),
+            plan: Vec::new(),
             load_task: None,
             updates_task: None,
         }
@@ -216,6 +221,8 @@ pub struct ContentView {
     descriptions: HashMap<String, Arc<Vec<launcher_core::markdown::Block>>>,
     /// Whether the game was running at the last check, to reload when it stops.
     was_active: bool,
+    /// The instance's "Beta and alpha updates" at the last check.
+    prerelease: bool,
     _prompt: Option<Task<()>>,
     _observe: Vec<Subscription>,
 }
@@ -258,6 +265,7 @@ impl ContentView {
             description_images: HashMap::new(),
             descriptions: HashMap::new(),
             was_active: false,
+            prerelease: false,
             _prompt: None,
             _observe: observe,
         };
@@ -281,20 +289,33 @@ impl ContentView {
     /// to Fabric", or a change in Settings), starts over; a game that stopped may have
     /// changed its options, so the lists are read again.
     fn sync(&mut self, cx: &mut Context<Self>) {
-        let (selected, loader, active) = {
+        let (selected, loader, active, prerelease) = {
             let instances = self.instances.read(cx);
             let selected = instances.selected();
+            let prerelease = selected.is_some_and(|i| i.prerelease_updates);
             let loader = selected.map(|i| (i.loader, i.loader_version.clone()));
             let selected = selected.map(|i| i.id.clone());
             let active = selected
                 .as_deref()
                 .is_some_and(|id| instances.is_active(id));
-            (selected, loader, active)
+            (selected, loader, active, prerelease)
         };
         if selected != self.instance_id || loader != self.loader {
             self.instance_id = selected;
             self.loader = loader;
+            self.prerelease = prerelease;
             self.reset(cx);
+        } else if prerelease != self.prerelease {
+            // "Beta and alpha updates" changed: the updates found no longer apply.
+            self.prerelease = prerelease;
+            for kind in ContentKind::ALL {
+                let checked =
+                    !self.section(kind).updates.is_empty() || self.section(kind).auto_checked;
+                self.section_mut(kind).updates.clear();
+                if checked {
+                    self.look_for_updates(kind, true, cx);
+                }
+            }
         } else if self.was_active && !active {
             for kind in ContentKind::ALL {
                 if !matches!(self.section(kind).listing, Load::NotLoaded) {
@@ -338,6 +359,17 @@ impl ContentView {
         let mut target = instances.content_target(&id)?;
         target.shader_loader = self.shaders.loader;
         Some((id.clone(), instances.content_dirs(&id), target))
+    }
+
+    /// The instance's "Beta and alpha updates".
+    fn prerelease_updates(&self, cx: &gpui::App) -> bool {
+        let id = self.instance_id.as_deref();
+        self.instances
+            .read(cx)
+            .list()
+            .iter()
+            .find(|i| Some(i.id.as_str()) == id)
+            .is_some_and(|i| i.prerelease_updates)
     }
 
     fn modrinth(&self, cx: &gpui::App) -> Option<Arc<Modrinth>> {
@@ -501,11 +533,11 @@ impl ContentView {
         let (Some((id, dirs, target)), Some(api)) = (self.context(cx), self.modrinth(cx)) else {
             return;
         };
+        let prerelease = self.prerelease_updates(cx);
         self.section_mut(kind).checking_updates = true;
-        let work =
-            cx.background_spawn(
-                async move { listing::check_updates(&api, &dirs, &target, kind).await },
-            );
+        let work = cx.background_spawn(async move {
+            listing::check_updates(&api, &dirs, &target, kind, prerelease).await
+        });
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {

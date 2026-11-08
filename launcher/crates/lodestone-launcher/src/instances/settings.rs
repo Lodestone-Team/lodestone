@@ -151,6 +151,8 @@ pub struct InstanceSettings {
     /// The "Shared game settings" section.
     shared: Entity<InstanceSharedSettings>,
     overrides: Overrides,
+    /// "Beta and alpha updates", as edited here.
+    prerelease_updates: bool,
     java_check: JavaCheck,
     /// The pack the instance was made from, if any.
     modpack: Option<ModpackRecord>,
@@ -287,6 +289,7 @@ impl InstanceSettings {
                 window: instance.window.is_some(),
                 env: instance.env.is_some(),
             },
+            prerelease_updates: instance.prerelease_updates,
             instances,
             servers,
             instance_id: instance.id.clone(),
@@ -433,6 +436,7 @@ impl InstanceSettings {
             window: instance.window.is_some(),
             env: instance.env.is_some(),
         };
+        self.prerelease_updates = instance.prerelease_updates;
         self.java_check = JavaCheck::None;
         self.sync_loader(cx);
         cx.notify();
@@ -574,6 +578,7 @@ impl InstanceSettings {
         instance.group = (!group.is_empty()).then_some(group);
         let java = self.text(&self.java, cx);
         instance.name = name;
+        instance.prerelease_updates = self.prerelease_updates;
         instance.java_override = (overrides.java && !java.is_empty()).then(|| PathBuf::from(java));
         Ok(instance)
     }
@@ -1588,6 +1593,17 @@ impl Render for InstanceSettings {
                 .child(value(self.game_version.clone(), false))
                 .into_any_element(),
             self.loader.clone().into_any_element(),
+            SettingRow::new(t(M::PrereleaseUpdates))
+                .hint(t(M::PrereleaseUpdatesHint))
+                .child(
+                    Toggle::new("prerelease-updates", self.prerelease_updates).on_change(
+                        cx.listener(|this, value: &bool, _, cx| {
+                            this.prerelease_updates = *value;
+                            cx.notify();
+                        }),
+                    ),
+                )
+                .into_any_element(),
         ]);
         sections.push((
             t(M::GameAndLoader).into(),

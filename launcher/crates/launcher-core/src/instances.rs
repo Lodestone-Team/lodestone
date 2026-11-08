@@ -155,6 +155,10 @@ pub struct Instance {
     /// Environment variables for the game; they replace the global ones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<BTreeMap<String, String>>,
+    /// "Beta and alpha updates": Modrinth content may update to pre-release
+    /// versions. Off, a file only updates to one at least as stable as it is.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub prerelease_updates: bool,
 }
 
 impl Default for Instance {
@@ -178,6 +182,7 @@ impl Default for Instance {
             game_args: None,
             window: None,
             env: None,
+            prerelease_updates: false,
         }
     }
 }

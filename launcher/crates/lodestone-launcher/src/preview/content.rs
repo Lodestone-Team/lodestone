@@ -105,6 +105,7 @@ fn source(project: &str, slug: &str, title: &str, version: &str, icon: bool) -> 
         )),
         client_side: "required".into(),
         server_side: "optional".into(),
+        version_type: None,
     }
 }
 
@@ -149,6 +150,23 @@ pub fn fill(instance_dir: &Path, scene: &str) {
     let packs = dirs.content_dir(ContentKind::ResourcePack);
     let shaders = dirs.content_dir(ContentKind::ShaderPack);
     let mut provenance = Provenance::default();
+
+    // `--mods N`: N more mods, for timing long lists (`--bench-scroll`).
+    let extra = std::env::args()
+        .skip_while(|arg| arg != "--mods")
+        .nth(1)
+        .and_then(|n| n.parse::<usize>().ok())
+        .unwrap_or(0);
+    for i in 0..extra {
+        let shade = (i * 37 % 200) as u8;
+        fabric_mod(
+            &mods.join(format!("extra-mod-{i:04}-1.0.{i}.jar")),
+            &format!("extra{i}"),
+            &format!("Extra mod {i}"),
+            &format!("1.0.{i}"),
+            Some([40 + shade / 2, 90 + shade / 3, 160 - shade / 2]),
+        );
+    }
 
     fabric_mod(
         &mods.join("sodium-fabric-0.5.13+mc1.20.1.jar"),

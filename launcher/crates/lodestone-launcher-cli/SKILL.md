@@ -109,6 +109,7 @@ lodestone-launcher-cli instances loader-versions fabric 1.21.1
 lodestone-launcher-cli instances create --version 1.21.1 --loader fabric --name Survival --group Friends
 lodestone-launcher-cli instances rename Survival "Survival 2"
 lodestone-launcher-cli instances group Survival Friends    # or --none
+lodestone-launcher-cli instances prerelease-updates Survival on   # betas/alphas as updates
 lodestone-launcher-cli instances icon Survival --library grass   # --image FILE, --emoji ⛏ --tile 3A6EA5, --clear
 lodestone-launcher-cli instances background Survival --image ./castle.jpg
 lodestone-launcher-cli instances duplicate Survival

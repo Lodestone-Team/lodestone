@@ -417,16 +417,29 @@ fn matches_unknown_files_by_sha1_in_one_batch() {
             .any(|i| i.file.file_name == "fabric-api.jar" && i.modrinth.is_some())
     );
 
-    // updates: Fabric API has a newer release for 1.20.1; Sodium is the newest
+    // updates: Fabric API's newest for 1.20.1 is a beta, offered only with
+    // pre-releases on; Sodium is the newest
     let updates = block_on(listing::check_updates(
         &api,
         &dirs,
         &target,
         ContentKind::Mod,
+        true,
     ))
     .unwrap();
     assert_eq!(updates.len(), 1);
     assert_eq!(updates["fabric-api.jar"].id, "fapi-beta");
+    // with them off, the installed release (0.90.0) updates to the newest release
+    let stable = block_on(listing::check_updates(
+        &api,
+        &dirs,
+        &target,
+        ContentKind::Mod,
+        false,
+    ))
+    .unwrap();
+    assert_eq!(stable.len(), 1);
+    assert_eq!(stable["fabric-api.jar"].id, "fapi-rel");
 }
 
 #[test]
