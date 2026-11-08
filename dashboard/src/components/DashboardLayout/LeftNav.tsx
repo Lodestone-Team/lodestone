@@ -1,20 +1,19 @@
 import InstanceList from './InstanceList';
-import { Fragment, lazy, Suspense, useContext } from 'react';
+import { Fragment, Suspense, useContext } from 'react';
 import Button from 'components/Atoms/Button';
 import { faSquarePlus } from '@fortawesome/free-solid-svg-icons';
 import { Dialog, Transition } from '@headlessui/react';
-import Spinner from './Spinner';
+import {
+  CreateInstanceFlow,
+  CreateInstanceFlowSkeleton,
+  preloadCreateInstanceProps,
+} from './CreateInstanceFlow';
 import { useUserAuthorized, useUserLoggedIn } from 'data/UserInfo';
 import clsx from 'clsx';
 import { SelectedInstanceInfo } from './SelectedInstanceInfo';
 import { InstanceContext } from 'data/InstanceContext';
 import IntegrationsList from './IntegrationsList';
 import SidebarFooter from './SidebarFooter';
-
-// the create form (formik, yup, setup manifests) loads when it is first opened
-const CreateInstanceFlow = lazy(
-  () => import('components/Instance/InstanceCreateForm')
-);
 
 export default function LeftNav({ className }: { className?: string }) {
   const {
@@ -52,7 +51,11 @@ export default function LeftNav({ className }: { className?: string }) {
             <div className="fixed inset-0">
               <div className="overflow-y-overlay flex min-h-full items-center justify-center p-4 text-center">
                 <Dialog.Panel>
-                  <Suspense fallback={<Spinner />}>
+                  <Suspense
+                    fallback={
+                      <CreateInstanceFlowSkeleton modpack={!!modpackPreset} />
+                    }
+                  >
                     <CreateInstanceFlow
                       onComplete={closeCreateInstance}
                       modpackPreset={modpackPreset}
@@ -69,7 +72,10 @@ export default function LeftNav({ className }: { className?: string }) {
 
           <InstanceList className="mt-6">
             {userLoggedIn && (
-              <div className="flex w-full flex-row items-center justify-center gap-4 pb-8">
+              <div
+                className="flex w-full flex-row items-center justify-center gap-4 pb-8"
+                {...preloadCreateInstanceProps}
+              >
                 <Button
                   label={canCreateInstance ? "New instance..." : "No permission"}
                   className={clsx(
