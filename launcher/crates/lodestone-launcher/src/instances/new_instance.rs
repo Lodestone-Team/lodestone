@@ -139,6 +139,16 @@ impl NewInstanceDialog {
             .update(cx, |picker, cx| picker.set_game_version(version, cx));
     }
 
+    /// Chooses a loader, as clicking it would.
+    pub fn choose_loader(
+        &mut self,
+        kind: launcher_core::game::loaders::LoaderKind,
+        cx: &mut Context<Self>,
+    ) {
+        self.loader
+            .update(cx, |picker, cx| picker.set_kind(Some(kind), cx));
+    }
+
     /// The loader picker, for the offscreen screenshots.
     pub fn loader_picker(&self) -> &Entity<LoaderPicker> {
         &self.loader

@@ -16,7 +16,7 @@ default = ["runtime-shaders"]
 runtime-shaders = ["gpui_platform/runtime_shaders"]
 # Adds `--screenshot <file.png>` to the app and the components example, rendering
 # the window offscreen. Needs GPUI's test support, so it is for development only.
-screenshot = ["gpui_platform/test-support"]
+screenshot = ["gpui_platform/test-support", "dep:zip"]
 
 [dependencies]
 anyhow.workspace = true
@@ -29,6 +29,8 @@ launcher-core.workspace = true
 url.workspace = true
 lodestone_minecraft.workspace = true
 serde_json.workspace = true
+# Writes the sample mods and packs of the offscreen screenshots.
+zip = { workspace = true, optional = true }
 
 [[example]]
 name = "components"

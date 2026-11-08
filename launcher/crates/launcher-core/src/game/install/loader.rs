@@ -82,7 +82,18 @@ impl Installer {
             LoaderKind::Fabric | LoaderKind::Quilt => {
                 let name = format!("{}-{}.json", kind.label().to_lowercase(), safe.display());
                 let url = self.urls.resolve(&meta::versions_url(kind, game_version))?;
-                let body = self.fetch_cached(&url, &cache(&name)).await?;
+                // Fabric's meta answers 400 and Quilt's 404 for a Minecraft version
+                // they don't support (Fabric starts at 1.14): no versions, not a failure.
+                let unsupported: &[u16] = match kind {
+                    LoaderKind::Fabric => &[400],
+                    _ => &[404],
+                };
+                let Some(body) = self
+                    .fetch_cached_or_missing(&url, &cache(&name), unsupported)
+                    .await?
+                else {
+                    return Ok(Vec::new());
+                };
                 match kind {
                     LoaderKind::Fabric => meta::parse_fabric_versions(&body, game_version)?,
                     _ => meta::parse_quilt_versions(&body)?,

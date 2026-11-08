@@ -521,6 +521,63 @@ pub fn parse_plugin_yml(text: &str) -> ModFileMetadata {
     }
 }
 
+/// The icon a metadata file names, as a path inside the jar: `icon` in `fabric.mod.json`,
+/// `quilt_loader.metadata.icon` in `quilt.mod.json` (a path, or a map of sizes to paths,
+/// of which the largest is taken), or `logoFile` in `mods.toml`, `neoforge.mods.toml`
+/// (on the first mod, or the file) and `mcmod.info`. `file` is the metadata file's name in
+/// the jar, as in [`metadata_files`].
+pub fn metadata_icon(file: &str, text: &str) -> Option<String> {
+    fn icon_value(value: &serde_json::Value) -> Option<String> {
+        match value {
+            serde_json::Value::String(path) => Some(path.clone()),
+            serde_json::Value::Object(sizes) => sizes
+                .iter()
+                .filter_map(|(size, path)| Some((size.parse::<u32>().ok()?, path.as_str()?)))
+                .max_by_key(|(size, _)| *size)
+                .map(|(_, path)| path.to_string()),
+            _ => None,
+        }
+    }
+    let path = match file {
+        "fabric.mod.json" => {
+            let json: serde_json::Value = parse_json_leniently(text)?;
+            icon_value(json.get("icon")?)
+        }
+        "quilt.mod.json" => {
+            let json: serde_json::Value = parse_json_leniently(text)?;
+            icon_value(json.get("quilt_loader")?.get("metadata")?.get("icon")?)
+        }
+        "META-INF/mods.toml" | "META-INF/neoforge.mods.toml" => {
+            let table: toml::Table = toml::from_str(text).ok()?;
+            let first_mod = table
+                .get("mods")
+                .and_then(|m| m.as_array())
+                .and_then(|m| m.first())
+                .and_then(|m| m.as_table());
+            first_mod
+                .and_then(|m| m.get("logoFile"))
+                .or_else(|| table.get("logoFile"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        }
+        "mcmod.info" => {
+            let json: serde_json::Value = parse_json_leniently(text)?;
+            let entry = match &json {
+                serde_json::Value::Array(list) => list.first()?,
+                serde_json::Value::Object(o) => o.get("modList")?.as_array()?.first()?,
+                _ => return None,
+            };
+            entry
+                .get("logoFile")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        }
+        _ => None,
+    }?;
+    let path = path.trim().trim_start_matches('/').to_string();
+    (!path.is_empty()).then_some(path)
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "zip")]
@@ -757,5 +814,53 @@ Item viewer
             read_jar_info(&not_zip, InstalledModLoader::Fabric).metadata,
             None
         );
+    }
+    #[test]
+    fn metadata_icons() {
+        assert_eq!(
+            metadata_icon(
+                "fabric.mod.json",
+                r#"{"id": "a", "icon": "assets/a/icon.png"}"#
+            ),
+            Some("assets/a/icon.png".into())
+        );
+        assert_eq!(
+            metadata_icon(
+                "fabric.mod.json",
+                r#"{"icon": {"16": "small.png", "128": "big.png", "64": "mid.png"}}"#
+            ),
+            Some("big.png".into())
+        );
+        assert_eq!(
+            metadata_icon(
+                "quilt.mod.json",
+                r#"{"quilt_loader": {"metadata": {"icon": "q.png"}}}"#
+            ),
+            Some("q.png".into())
+        );
+        assert_eq!(
+            metadata_icon(
+                "META-INF/mods.toml",
+                "modLoader=\"javafml\"\n[[mods]]\nmodId=\"x\"\nlogoFile=\"logo.png\"\n"
+            ),
+            Some("logo.png".into())
+        );
+        assert_eq!(
+            metadata_icon(
+                "META-INF/neoforge.mods.toml",
+                "logoFile=\"top.png\"\n[[mods]]\nmodId=\"x\"\n"
+            ),
+            Some("top.png".into())
+        );
+        assert_eq!(
+            metadata_icon(
+                "mcmod.info",
+                r#"[{"modid": "x", "logoFile": "/assets/x/logo.png"}]"#
+            ),
+            Some("assets/x/logo.png".into())
+        );
+        assert_eq!(metadata_icon("fabric.mod.json", r#"{"icon": ""}"#), None);
+        assert_eq!(metadata_icon("fabric.mod.json", "not json"), None);
+        assert_eq!(metadata_icon("plugin.yml", "name: x"), None);
     }
 }

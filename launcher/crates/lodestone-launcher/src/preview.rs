@@ -48,6 +48,14 @@ pub const SCENES: &[&str] = &[
     "instance-settings",
     "crash",
     "rosetta",
+    "content-mods",
+    "content-browse",
+    "content-project",
+    "content-resourcepacks",
+    "content-shaders",
+    "content-shaders-missing",
+    "content-shaders-vanilla",
+    "loader-change",
 ];
 
 /// Scenes that show made-up instances.
@@ -55,7 +63,8 @@ fn has_instances(scene: &str) -> bool {
     matches!(
         scene,
         "play-progress" | "playing" | "logs" | "instance-settings" | "crash" | "rosetta"
-    )
+    ) || scene.starts_with("content-")
+        || scene == "loader-change"
 }
 
 pub fn requested_scene() -> Option<String> {
@@ -169,6 +178,11 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
             if let Ok(mut instance) = store.create(name, version, choice.as_ref()) {
                 instance.group = group.map(str::to_string);
                 let _ = store.save(&instance);
+                if name == "Survival 1.20.1"
+                    && (scene.starts_with("content-") || scene == "loader-change")
+                {
+                    content::fill(&store.dir(&instance.id), scene);
+                }
                 if played > 0 {
                     let _ = store.record_play(&instance.id, 1_762_500_000, played);
                 }
@@ -179,6 +193,8 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
     let scene = scene.to_string();
     cx.new(|cx| {
         let mut instances = Instances::new(data_dir, accounts, cx);
+        // The screenshots never touch the network.
+        instances.preview_offline();
         let manifest: MojangVersionManifest = serde_json::from_str(include_str!(
             "../../launcher-core/testdata/version_manifest_v2.json"
         ))
@@ -194,10 +210,20 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
             "1.20.1",
             crate::instances::LoaderVersions::Ready(Arc::new(fabric)),
         );
+        let wanted = match scene.as_str() {
+            "content-shaders-vanilla" => Some("Latest release"),
+            scene if scene.starts_with("content-") || scene == "loader-change" => {
+                Some("Survival 1.20.1")
+            }
+            _ => None,
+        };
         let Some(first) = instances
             .list()
             .iter()
-            .find(|i| i.game_version == "1.20.1")
+            .find(|i| match wanted {
+                Some(name) => i.name == name,
+                None => i.game_version == "1.20.1",
+            })
             .cloned()
         else {
             return instances;
@@ -307,6 +333,8 @@ fn sample_log() -> Vec<LogLine> {
     lines
 }
 
+mod content;
+
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     match scene {
         "new-instance" => shell.open_new_instance_with(Some(("Survival", "1.")), None, cx),
@@ -336,6 +364,24 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             launcher_core::game::platform::ROSETTA_MISSING,
             cx,
         ),
+        scene if scene.starts_with("content-") => {
+            shell.select_tab(InstanceTab::Content, cx);
+            let view = shell.content().clone();
+            view.update(cx, |view, cx| content::apply(scene, view, cx));
+        }
+        "loader-change" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            let prompt = shell.settings_view().and_then(|settings| {
+                settings.read(cx).preview_loader_change(
+                    launcher_core::instances::Loader::Forge,
+                    "1.20.1-47.4.28",
+                    cx,
+                )
+            });
+            if let Some(prompt) = prompt {
+                shell.show_loader_change(prompt, cx);
+            }
+        }
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),

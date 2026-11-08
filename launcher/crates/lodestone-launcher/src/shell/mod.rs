@@ -14,7 +14,7 @@ pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
     AnyElement, ClipboardItem, Context, Entity, FocusHandle, Focusable as _, IntoElement, Render,
-    SharedString, Subscription, Window, div, prelude::*,
+    SharedString, Subscription, Window, div, prelude::*, px,
 };
 
 use crate::{
@@ -23,12 +23,13 @@ use crate::{
         offline_dialog::{OfflineDialog, OfflineDialogDismissed},
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
-    components::{Button, ButtonVariant, Dialog},
+    components::{Button, ButtonVariant, Dialog, Icon},
     instances::{
         CrashInfo, Instances, InstancesEvent,
         console::Console,
+        content::{ContentEvent, ContentView},
         new_instance::{NewInstanceDialog, NewInstanceDismissed},
-        settings::{DeleteRequested, InstanceSettings},
+        settings::{DeleteRequested, InstanceSettings, LoaderChangePrompt},
     },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
@@ -46,7 +47,7 @@ pub enum Page {
 pub enum InstanceTab {
     #[default]
     Play,
-    Mods,
+    Content,
     Worlds,
     Settings,
     Logs,
@@ -55,7 +56,7 @@ pub enum InstanceTab {
 impl InstanceTab {
     pub const ALL: [InstanceTab; 5] = [
         InstanceTab::Play,
-        InstanceTab::Mods,
+        InstanceTab::Content,
         InstanceTab::Worlds,
         InstanceTab::Settings,
         InstanceTab::Logs,
@@ -64,7 +65,7 @@ impl InstanceTab {
     pub fn label(self) -> &'static str {
         match self {
             InstanceTab::Play => "Play",
-            InstanceTab::Mods => "Mods",
+            InstanceTab::Content => "Content",
             InstanceTab::Worlds => "Worlds",
             InstanceTab::Settings => "Settings",
             InstanceTab::Logs => "Logs",
@@ -107,6 +108,11 @@ enum Modal {
         username: String,
         focus: FocusHandle,
     },
+    /// Saving a loader change that leaves mods behind or puts worlds at risk.
+    LoaderChange {
+        prompt: Box<LoaderChangePrompt>,
+        focus: FocusHandle,
+    },
     /// The disclosure before "Sign in as the Minecraft Launcher" is turned on.
     EnableLauncherIdentity { focus: FocusHandle },
     /// Turning it off, with the accounts that used it.
@@ -121,10 +127,12 @@ pub struct LauncherShell {
     accounts: Entity<Accounts>,
     instances: Entity<Instances>,
     console: Entity<Console>,
+    /// The Content tab: mods, resource packs and shader packs.
+    content: Entity<ContentView>,
     /// The launcher's Settings page.
     launcher_settings: Entity<LauncherSettings>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
-    settings: Option<(Entity<InstanceSettings>, Subscription)>,
+    settings: Option<(Entity<InstanceSettings>, [Subscription; 2])>,
     page: Page,
     tab: InstanceTab,
     modal: Option<Modal>,
@@ -157,9 +165,20 @@ impl LauncherShell {
                     });
                     cx.notify();
                 }
+                InstancesEvent::LoaderChanged(_) => {
+                    // The Settings tab shows the loader it was built with; build it again.
+                    this.settings = None;
+                    this.sync_settings(cx);
+                    cx.notify();
+                }
             }),
         ];
         let console = cx.new(|cx| Console::new(instances.clone(), cx));
+        let content = cx.new(|cx| ContentView::new(instances.clone(), cx));
+        let mut observe = observe;
+        observe.push(cx.subscribe(&content, |this, _, event, cx| match event {
+            ContentEvent::NewFabricInstance => this.open_new_instance_with_loader(cx),
+        }));
         let launcher_settings = {
             let instances = instances.clone();
             cx.new(|cx| LauncherSettings::new(instances, cx))
@@ -168,6 +187,7 @@ impl LauncherShell {
             accounts,
             instances,
             console,
+            content,
             launcher_settings,
             settings: None,
             page: Page::default(),
@@ -189,6 +209,10 @@ impl LauncherShell {
         &self.console
     }
 
+    pub fn content(&self) -> &Entity<ContentView> {
+        &self.content
+    }
+
     /// Rebuilds the Settings tab when another instance is selected.
     fn sync_settings(&mut self, cx: &mut Context<Self>) {
         let selected = self.instances.read(cx).selected().cloned();
@@ -201,10 +225,15 @@ impl LauncherShell {
             Some(instance) if current.as_deref() != Some(instance.id.as_str()) => {
                 let instances = self.instances.clone();
                 let settings = cx.new(|cx| InstanceSettings::new(instances, &instance, cx));
-                let subscription = cx.subscribe(&settings, |this, _, DeleteRequested(id), cx| {
-                    this.confirm_delete_instance(id, cx)
-                });
-                self.settings = Some((settings, subscription));
+                let subscriptions = [
+                    cx.subscribe(&settings, |this, _, DeleteRequested(id), cx| {
+                        this.confirm_delete_instance(id, cx)
+                    }),
+                    cx.subscribe(&settings, |this, _, prompt: &LoaderChangePrompt, cx| {
+                        this.show_loader_change(prompt.clone(), cx)
+                    }),
+                ];
+                self.settings = Some((settings, subscriptions));
             }
             Some(_) => {}
         }
@@ -232,6 +261,140 @@ impl LauncherShell {
             copied: false,
         });
         cx.notify();
+    }
+
+    /// Asks before saving a loader change (from the Settings tab).
+    pub fn show_loader_change(&mut self, prompt: LoaderChangePrompt, cx: &mut Context<Self>) {
+        self.modal = Some(Modal::LoaderChange {
+            prompt: Box::new(prompt),
+            focus: cx.focus_handle(),
+        });
+        cx.notify();
+    }
+
+    /// Saves the change the dialog asked about, turning the mismatched mods off first if
+    /// `turn_off`.
+    fn finish_loader_change(&mut self, turn_off: bool, cx: &mut Context<Self>) {
+        let Some(Modal::LoaderChange { prompt, .. }) = self.modal.take() else {
+            return;
+        };
+        let disable: Vec<String> = if turn_off {
+            prompt
+                .check
+                .mismatched
+                .iter()
+                .map(|m| m.file_name.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if let Some(settings) = self.settings_view().cloned() {
+            settings.update(cx, |settings, cx| {
+                settings.commit(prompt.instance, &disable, cx)
+            });
+        }
+        cx.notify();
+    }
+
+    fn render_loader_change(
+        &self,
+        prompt: &LoaderChangePrompt,
+        focus: FocusHandle,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        const SHOWN: usize = 8;
+        let to = prompt.instance.loader.label();
+        let check = &prompt.check;
+        let title = match prompt.instance.loader.kind() {
+            Some(_) => format!("Switch to {to}?"),
+            None => "Switch to vanilla?".to_string(),
+        };
+        let mods_text = match prompt.instance.loader.kind() {
+            Some(_) => {
+                format!("These enabled mods are made for another loader and won't load on {to}:")
+            }
+            None => {
+                "Vanilla Minecraft loads no mods, so these enabled mods won't load:".to_string()
+            }
+        };
+        let has_mods = !check.mismatched.is_empty();
+        let entity = cx.entity();
+        Dialog::new("loader-change", title, focus)
+            .on_close(move |_, cx| entity.update(cx, |this, cx| this.close_modal(cx)))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .text_color(colors::GRAY_400)
+                    .when(has_mods, |this| {
+                        let more = check.mismatched.len().saturating_sub(SHOWN);
+                        this.child(div().whitespace_normal().child(mods_text))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .px_3()
+                                    .py_2()
+                                    .rounded(radius::LG)
+                                    .bg(colors::GRAY_900)
+                                    .children(check.mismatched.iter().take(SHOWN).map(|m| {
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .gap_2()
+                                            .child(div().text_color(colors::GRAY_300).child(m.name.clone()))
+                                            .child(div().text_color(colors::GRAY_500).child(format!("{} mod", m.made_for)))
+                                    }))
+                                    .when(more > 0, |this| {
+                                        this.child(div().text_color(colors::GRAY_500).child(format!("and {more} more")))
+                                    }),
+                            )
+                            .child(div().whitespace_normal().child(
+                                "Turning them off renames them to .disabled, so you can turn them back on in Content.",
+                            ))
+                    })
+                    .when(check.worlds > 0 && check.worlds_at_risk, |this| {
+                        this.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .gap_2()
+                                .px_3()
+                                .py_2()
+                                .rounded(radius::LG)
+                                .border_1()
+                                .border_color(colors::YELLOW_300.opacity(50))
+                                .bg(colors::YELLOW_FADED.opacity(15))
+                                .text_color(colors::GRAY_300)
+                                .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW_300))
+                                .child(div().flex_1().min_w_0().whitespace_normal().child(
+                                    "Worlds that used blocks or items from these mods can lose them. Back up your worlds first.",
+                                )),
+                        )
+                    }),
+            )
+            .when(has_mods, |this| {
+                this.footer(
+                    Button::new("loader-change-disable", "Turn them off and save")
+                        .variant(ButtonVariant::Primary)
+                        .on_click(cx.listener(|this, _, _, cx| this.finish_loader_change(true, cx))),
+                )
+            })
+            .footer(
+                Button::new(
+                    "loader-change-keep",
+                    if has_mods { "Save and keep them" } else { "Save" },
+                )
+                .variant(if has_mods { ButtonVariant::Secondary } else { ButtonVariant::Primary })
+                .on_click(cx.listener(|this, _, _, cx| this.finish_loader_change(false, cx))),
+            )
+            .footer(
+                Button::new("loader-change-cancel", "Cancel")
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+            )
+            .into_any_element()
     }
 
     fn confirm_delete_instance(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -282,6 +445,17 @@ impl LauncherShell {
 
     fn open_new_instance(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_new_instance_with(None, Some(window), cx);
+    }
+
+    /// Opens "New instance" with Fabric chosen, from the Content tab of a vanilla
+    /// instance.
+    fn open_new_instance_with_loader(&mut self, cx: &mut Context<Self>) {
+        self.open_new_instance_with(None, None, cx);
+        if let Some(Modal::NewInstance { dialog, .. }) = &self.modal {
+            dialog.update(cx, |dialog, cx| {
+                dialog.choose_loader(launcher_core::game::loaders::LoaderKind::Fabric, cx)
+            });
+        }
     }
 
     /// Opens "New instance", with the fields filled in for screenshots.
@@ -500,6 +674,9 @@ impl LauncherShell {
                             .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
                     )
                     .into_any_element()
+            }
+            Modal::LoaderChange { prompt, focus } => {
+                self.render_loader_change(prompt, focus.clone(), cx)
             }
             Modal::EnableLauncherIdentity { focus } => {
                 self.render_enable_launcher_identity(focus.clone(), cx)

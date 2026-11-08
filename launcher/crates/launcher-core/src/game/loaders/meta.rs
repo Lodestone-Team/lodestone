@@ -72,8 +72,12 @@ struct QuiltLoader {
 /// Quilt's loader versions, newest first. Quilt marks pre-releases in the version
 /// (`0.30.0-beta.3`); the recommended one is the newest without.
 pub fn parse_quilt_versions(bytes: &[u8]) -> Result<Vec<LoaderVersion>, LoaderError> {
-    let entries: Vec<QuiltEntry> = serde_json::from_slice(bytes)
+    let mut entries: Vec<QuiltEntry> = serde_json::from_slice(bytes)
         .map_err(|err| LoaderError::Invalid(format!("Quilt's version list is invalid: {err}")))?;
+    // Unlike Fabric's, Quilt's list for a Minecraft version is not newest first
+    // (`0.20.0-beta.9, 0.20.0-beta.7, …, 0.24.0, …`), so the first stable entry is
+    // not the newest one. Sort it, newest first.
+    entries.sort_by(|a, b| compare_versions(&b.loader.version, &a.loader.version));
     let recommended = entries
         .iter()
         .map(|entry| &entry.loader.version)
@@ -91,6 +95,40 @@ pub fn parse_quilt_versions(bytes: &[u8]) -> Result<Vec<LoaderVersion>, LoaderEr
             }
         })
         .collect())
+}
+
+/// Orders loader versions such as `0.30.2`, `0.31.0-beta.6` and `0.20.0-beta.10`:
+/// numerically by release, a release after its own pre-releases, and pre-releases by
+/// their parts (numbers as numbers).
+pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    fn parts(text: &str) -> Vec<Result<u64, &str>> {
+        text.split(['.', '-', '+'])
+            .map(|part| part.parse::<u64>().map_err(|_| part))
+            .collect()
+    }
+    fn compare_parts(a: &[Result<u64, &str>], b: &[Result<u64, &str>]) -> Ordering {
+        for (x, y) in a.iter().zip(b) {
+            let order = match (x, y) {
+                (Ok(x), Ok(y)) => x.cmp(y),
+                (Ok(_), Err(_)) => Ordering::Greater,
+                (Err(_), Ok(_)) => Ordering::Less,
+                (Err(x), Err(y)) => x.cmp(y),
+            };
+            if order != Ordering::Equal {
+                return order;
+            }
+        }
+        a.len().cmp(&b.len())
+    }
+    let (a_release, a_pre) = a.split_once('-').map_or((a, None), |(r, p)| (r, Some(p)));
+    let (b_release, b_pre) = b.split_once('-').map_or((b, None), |(r, p)| (r, Some(p)));
+    compare_parts(&parts(a_release), &parts(b_release)).then_with(|| match (a_pre, b_pre) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(a), Some(b)) => compare_parts(&parts(a), &parts(b)),
+    })
 }
 
 /// A library of a meta profile.
@@ -235,12 +273,54 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn quilt_recommends_its_newest_stable_loader_whatever_the_order() {
+        // The order Quilt's meta gives for Minecraft 26.1.1: picking the first stable
+        // entry chose 0.24.0, which can't read Java 25 classes.
+        let list = serde_json::json!([
+            "0.20.0-beta.9",
+            "0.20.0-beta.7",
+            "0.24.0",
+            "0.20.2-beta.1",
+            "0.30.2",
+            "0.31.0-beta.6",
+            "0.31.0-beta.10",
+            "0.29.2",
+            "0.30.0-beta.1"
+        ])
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| serde_json::json!({"loader": {"version": v}}))
+        .collect::<Vec<_>>();
+        let versions = parse_quilt_versions(&serde_json::to_vec(&list).unwrap()).unwrap();
+        let ids: Vec<&str> = versions.iter().map(|v| v.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "0.31.0-beta.10",
+                "0.31.0-beta.6",
+                "0.30.2",
+                "0.30.0-beta.1",
+                "0.29.2",
+                "0.24.0",
+                "0.20.2-beta.1",
+                "0.20.0-beta.9",
+                "0.20.0-beta.7"
+            ]
+        );
+        let recommended: Vec<_> = versions.iter().filter(|v| v.recommended).collect();
+        assert_eq!(recommended.len(), 1);
+        assert_eq!(recommended[0].id, "0.30.2");
+    }
+
+    #[test]
     fn quilt_versions_skip_betas_for_the_recommendation() {
         let versions = parse_quilt_versions(&loader_fixture("quilt/loaders-1.20.1.json")).unwrap();
         let recommended: Vec<_> = versions.iter().filter(|v| v.recommended).collect();
         assert_eq!(recommended.len(), 1);
-        assert!(!recommended[0].id.contains('-'));
-        assert!(versions.iter().any(|v| v.id == "0.29.2"));
+        assert_eq!(recommended[0].id, "0.29.2");
+        // Newest first, although Quilt's file lists the old betas first.
+        assert_eq!(versions[0].id, "0.29.2");
         for version in &versions {
             assert_eq!(version.stable, !version.id.contains('-'));
         }
