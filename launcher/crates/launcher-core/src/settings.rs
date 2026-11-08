@@ -18,16 +18,59 @@ use crate::{
 };
 
 /// The launcher's settings.
+///
+/// Fields are added with serde defaults, so an older file loads unchanged. Keys
+/// this build does not know are kept, so a file edited by a newer build at the same
+/// version survives a round trip.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
-    /// What every instance uses unless its own Settings tab overrides it.
-    #[serde(default)]
+    /// Developer options, off by default. Left out of the file while untouched.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub developer: DeveloperSettings,
+    /// What every instance uses unless its own Settings tab overrides it. Left out
+    /// of the file while untouched.
+    #[serde(default, skip_serializing_if = "is_default")]
     pub instance_defaults: InstanceDefaults,
     /// Sidebar groups that are folded away.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub collapsed_groups: BTreeSet<String>,
     #[serde(flatten)]
     pub other: Map<String, Value>,
+}
+
+/// Settings > Developer.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeveloperSettings {
+    /// "Sign in as the Minecraft Launcher": new Microsoft sign-ins use the official
+    /// launcher's client ([`ClientIdentity::MinecraftLauncher`]) instead of
+    /// Lodestone's app.
+    ///
+    /// [`ClientIdentity::MinecraftLauncher`]: crate::auth::ClientIdentity::MinecraftLauncher
+    #[serde(default)]
+    pub sign_in_as_minecraft_launcher: bool,
+}
+
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
+
+/// Loads the settings, or the defaults if the file is missing or unreadable.
+pub fn load_or_default(path: &Path) -> Settings {
+    storage::load::<Settings>(path)
+        .map(|loaded| loaded.document)
+        .unwrap_or_default()
+}
+
+/// Changes the settings on disk: reads the file as it is now, applies `change` and
+/// writes it back, so changes saved by other parts of the app are kept.
+///
+/// A file this build cannot read (a newer version, or not valid JSON) is left alone
+/// and the error returned, rather than replaced with defaults.
+pub fn update(path: &Path, change: impl FnOnce(&mut Settings)) -> Result<Settings, StorageError> {
+    let mut settings = storage::load::<Settings>(path)?.document;
+    change(&mut settings);
+    storage::save(path, &settings)?;
+    Ok(settings)
 }
 
 impl Document for Settings {
@@ -95,13 +138,10 @@ impl InstanceDefaults {
     }
 }
 
-/// Loads the settings, or the defaults if there is no file.
+/// Loads the settings, or the defaults if there is no file. Changes go through
+/// [`update`], so the parts of the app that each own a section keep each other's.
 pub fn load(path: &Path) -> Result<Settings, StorageError> {
     Ok(storage::load::<Settings>(path)?.document)
-}
-
-pub fn save(path: &Path, settings: &Settings) -> Result<(), StorageError> {
-    storage::save(path, settings)
 }
 
 #[cfg(test)]
@@ -134,6 +174,63 @@ mod tests {
     }
 
     #[test]
+    fn developer_options_are_off_by_default() {
+        assert!(!Settings::default().developer.sign_in_as_minecraft_launcher);
+        let dir = tempfile::tempdir().unwrap();
+        // No file, an empty file at version 1, and a file from before the field.
+        let missing = dir.path().join("missing.json");
+        assert!(
+            !load_or_default(&missing)
+                .developer
+                .sign_in_as_minecraft_launcher
+        );
+        for raw in [
+            r#"{"version": 1}"#,
+            r#"{"version": 1, "developer": {}}"#,
+            "{}",
+        ] {
+            let path = dir.path().join("settings.json");
+            std::fs::write(&path, raw).unwrap();
+            let loaded = load_or_default(&path);
+            assert!(!loaded.developer.sign_in_as_minecraft_launcher, "{raw}");
+        }
+    }
+
+    #[test]
+    fn update_keeps_other_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"version": 1, "memory": {"max_mb": 4096}}"#).unwrap();
+        let settings = update(&path, |settings| {
+            settings.developer.sign_in_as_minecraft_launcher = true;
+        })
+        .unwrap();
+        assert!(settings.developer.sign_in_as_minecraft_launcher);
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            raw,
+            json!({
+                "version": 1,
+                "memory": {"max_mb": 4096},
+                "developer": {"sign_in_as_minecraft_launcher": true},
+            })
+        );
+        assert!(
+            load_or_default(&path)
+                .developer
+                .sign_in_as_minecraft_launcher
+        );
+
+        // A file from a newer build is not overwritten.
+        std::fs::write(&path, r#"{"version": 99}"#).unwrap();
+        assert!(update(&path, |_| {}).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            r#"{"version": 99}"#
+        );
+    }
+
+    #[test]
     fn migrates_an_unversioned_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
@@ -144,6 +241,34 @@ mod tests {
         assert_eq!(
             loaded.document.instance_defaults,
             InstanceDefaults::default()
+        );
+    }
+
+    /// The Developer section (saved by the accounts) and the instance defaults (saved
+    /// by the instances) each change only their own part of the file.
+    #[test]
+    fn sections_saved_separately_keep_each_other() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        update(&path, |s| s.developer.sign_in_as_minecraft_launcher = true).unwrap();
+        update(&path, |s| {
+            s.instance_defaults.max_ram = Some(6144);
+            s.collapsed_groups.insert("Modded".into());
+        })
+        .unwrap();
+        update(&path, |s| s.developer.sign_in_as_minecraft_launcher = false).unwrap();
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.instance_defaults.max_ram, Some(6144));
+        assert!(loaded.collapsed_groups.contains("Modded"));
+        assert!(!loaded.developer.sign_in_as_minecraft_launcher);
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            raw,
+            json!({
+                "version": 1,
+                "instance_defaults": {"max_ram": 6144, "jvm_args": "", "game_args": "", "fullscreen": false},
+                "collapsed_groups": ["Modded"],
+            })
         );
     }
 

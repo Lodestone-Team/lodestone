@@ -16,7 +16,10 @@ use std::{
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use launcher_core::{
-    auth::{Endpoints, MsaConfig},
+    auth::{
+        Endpoints, MINECRAFT_LAUNCHER_CLIENT_ID, MINECRAFT_LAUNCHER_SCOPE, MsaConfig,
+        live::REDIRECT_URI,
+    },
     skin,
 };
 use serde_json::{Value, json};
@@ -33,6 +36,10 @@ pub const XSTS_TOKEN: &str = "xsts-token-SECRET";
 pub const MC_TOKEN: &str = "mc-token-SECRET";
 pub const USER_HASH: &str = "user-hash-1";
 pub const DEVICE_CODE: &str = "device-code-SECRET";
+/// What login.live.com hands the Minecraft Launcher's client.
+pub const LIVE_ACCESS: &str = "live-access-SECRET";
+pub const LIVE_AUTH_CODE: &str = "M.C-live-code-SECRET";
+pub const LIVE_DEVICE_CODE: &str = "live-device-code-SECRET";
 
 /// How the login endpoint answers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +75,9 @@ pub struct State {
     pub has_profile: bool,
     /// Refresh tokens the token endpoint accepts.
     pub valid_refresh_tokens: HashSet<String>,
+    /// Refresh tokens login.live.com accepts for the Minecraft Launcher's client.
+    /// Each client only accepts its own.
+    pub valid_live_refresh_tokens: HashSet<String>,
     /// Whether a refresh hands out a new refresh token and revokes the old one.
     pub rotate: bool,
     /// The S256 challenge the authorization code was issued for.
@@ -98,6 +108,7 @@ impl MockServer {
             entitlements: vec!["product_minecraft", "game_minecraft"],
             has_profile: true,
             valid_refresh_tokens: HashSet::new(),
+            valid_live_refresh_tokens: HashSet::new(),
             rotate: true,
             expected_challenge: None,
             expected_redirect_uri: None,
@@ -213,6 +224,28 @@ fn route(state: &mut State, request: &tiny_http::Request, body: &str) -> (u16, R
 
     match (method.as_str(), path.as_str()) {
         ("POST", "/login/token") => token(state, &form(body)),
+        ("POST", "/live/oauth20_token.srf") => live_token(state, &form(body)),
+        ("POST", "/live/oauth20_connect.srf") => {
+            let fields = form(body);
+            if field(&fields, "client_id") != Some(MINECRAFT_LAUNCHER_CLIENT_ID) {
+                return oauth_error("unauthorized_client");
+            }
+            if field(&fields, "scope") != Some(MINECRAFT_LAUNCHER_SCOPE)
+                || field(&fields, "response_type") != Some("device_code")
+            {
+                return oauth_error("invalid_request");
+            }
+            (
+                200,
+                Response::Json(json!({
+                    "user_code": "LIVE1234",
+                    "device_code": LIVE_DEVICE_CODE,
+                    "verification_uri": "https://www.microsoft.com/link",
+                    "interval": 5,
+                    "expires_in": 900,
+                })),
+            )
+        }
         ("POST", "/login/devicecode") => {
             let fields = form(body);
             if field(&fields, "client_id") != Some(CLIENT_ID) {
@@ -236,8 +269,12 @@ fn route(state: &mut State, request: &tiny_http::Request, body: &str) -> (u16, R
             )
         }
         ("POST", "/xbl/user/authenticate") => {
+            // Xbox Live takes an Azure app's token as `d=` and a title client's
+            // token as `t=`, and nothing else.
             let ticket = json_body["Properties"]["RpsTicket"].as_str();
-            if !ticket.is_some_and(|t| t.starts_with(&format!("d={MS_ACCESS}"))) {
+            let lodestone = format!("d={MS_ACCESS}");
+            let launcher = format!("t={LIVE_ACCESS}");
+            if ticket != Some(lodestone.as_str()) && ticket != Some(launcher.as_str()) {
                 return (401, Response::Json(json!({})));
             }
             assert_eq!(json_body["RelyingParty"], "http://auth.xboxlive.com");
@@ -412,6 +449,74 @@ fn token(state: &mut State, fields: &[(String, String)]) -> (u16, Response) {
                 Poll::Granted => {
                     let refresh = "refresh-SECRET-device".to_string();
                     state.valid_refresh_tokens.insert(refresh.clone());
+                    granted(refresh)
+                }
+            }
+        }
+        _ => oauth_error("unsupported_grant_type"),
+    }
+}
+
+/// login.live.com's token endpoint, for the Minecraft Launcher's client only.
+fn live_token(state: &mut State, fields: &[(String, String)]) -> (u16, Response) {
+    if field(fields, "client_id") != Some(MINECRAFT_LAUNCHER_CLIENT_ID) {
+        return oauth_error("unauthorized_client");
+    }
+    let granted = |refresh: String| {
+        (
+            200,
+            Response::Json(json!({
+                "token_type": "bearer",
+                "expires_in": 86400,
+                "scope": MINECRAFT_LAUNCHER_SCOPE,
+                "access_token": LIVE_ACCESS,
+                "refresh_token": refresh,
+                "user_id": "abc",
+            })),
+        )
+    };
+    let scope_ok = field(fields, "scope") == Some(MINECRAFT_LAUNCHER_SCOPE);
+    match field(fields, "grant_type") {
+        Some("authorization_code") => {
+            if !scope_ok || field(fields, "redirect_uri") != Some(REDIRECT_URI) {
+                return oauth_error("invalid_request");
+            }
+            if field(fields, "code") != Some(LIVE_AUTH_CODE) {
+                return oauth_error("invalid_grant");
+            }
+            let refresh = "live-refresh-SECRET-0".to_string();
+            state.valid_live_refresh_tokens.insert(refresh.clone());
+            granted(refresh)
+        }
+        Some("refresh_token") => {
+            if !scope_ok {
+                return oauth_error("invalid_scope");
+            }
+            let presented = field(fields, "refresh_token")
+                .unwrap_or_default()
+                .to_string();
+            if !state.valid_live_refresh_tokens.remove(&presented) {
+                return oauth_error("invalid_grant");
+            }
+            state.refresh_counter += 1;
+            let next = format!("live-refresh-SECRET-{}", state.refresh_counter);
+            state.valid_live_refresh_tokens.insert(next.clone());
+            granted(next)
+        }
+        Some("urn:ietf:params:oauth:grant-type:device_code") => {
+            if field(fields, "device_code") != Some(LIVE_DEVICE_CODE) {
+                return oauth_error("invalid_grant");
+            }
+            let poll = state.polls[state.poll_index.min(state.polls.len() - 1)];
+            state.poll_index += 1;
+            match poll {
+                Poll::Pending => oauth_error("authorization_pending"),
+                Poll::SlowDown => oauth_error("slow_down"),
+                Poll::Declined => oauth_error("access_denied"),
+                Poll::Expired => oauth_error("expired_token"),
+                Poll::Granted => {
+                    let refresh = "live-refresh-SECRET-device".to_string();
+                    state.valid_live_refresh_tokens.insert(refresh.clone());
                     granted(refresh)
                 }
             }

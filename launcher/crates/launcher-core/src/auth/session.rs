@@ -9,7 +9,8 @@ use http_client::HttpClient;
 use url::Url;
 
 use super::{
-    AuthError, MsaConfig,
+    AuthError, ClientIdentity, MsaConfig,
+    live::{self, LinkSignIn},
     loopback::{CancelHandle, Loopback},
     microsoft::{self, DeviceCode, MsTokens, Sleep},
     minecraft::{self, Profile},
@@ -106,8 +107,13 @@ impl Authenticator {
         microsoft::exchange_code(&*self.http, &self.config, &code, &redirect_uri, &pkce).await
     }
 
-    pub async fn start_device_code(&self) -> Result<DeviceCode, AuthError> {
-        microsoft::start_device_code(&*self.http, &self.config).await
+    /// Asks `identity`'s client for a device code. Polling with
+    /// [`Authenticator::complete_device_code`] uses the same client.
+    pub async fn start_device_code(
+        &self,
+        identity: ClientIdentity,
+    ) -> Result<DeviceCode, AuthError> {
+        microsoft::start_device_code(&*self.http, &self.config, identity).await
     }
 
     pub async fn complete_device_code(
@@ -118,14 +124,37 @@ impl Authenticator {
         microsoft::poll_device_code(&*self.http, &self.config, code, sleep).await
     }
 
-    /// Runs the Xbox Live, XSTS and Minecraft steps with a Microsoft access token.
+    /// Starts a sign-in as the Minecraft Launcher by pasted link: open
+    /// [`LinkSignIn::url`] in the browser, then pass the address the user copies
+    /// from the final page to [`Authenticator::complete_link_sign_in`].
+    pub fn start_link_sign_in(&self) -> LinkSignIn {
+        LinkSignIn::new(&self.config)
+    }
+
+    /// Checks the pasted address strictly and exchanges its code for tokens.
+    pub async fn complete_link_sign_in(
+        &self,
+        sign_in: &LinkSignIn,
+        pasted: &str,
+    ) -> Result<MsTokens, AuthError> {
+        live::complete(&*self.http, &self.config, sign_in, pasted).await
+    }
+
+    /// Exchanges a code from [`LinkSignIn::check`] for tokens.
+    pub async fn exchange_link_code(&self, code: &Secret) -> Result<MsTokens, AuthError> {
+        live::exchange_code(&*self.http, &self.config, code).await
+    }
+
+    /// Runs the Xbox Live, XSTS and Minecraft steps with a Microsoft access token
+    /// from `identity`'s client.
     pub async fn minecraft_session(
         &self,
         ms_access_token: &Secret,
+        identity: ClientIdentity,
     ) -> Result<MinecraftSession, AuthError> {
         let http = &*self.http;
         let endpoints = &self.config.endpoints;
-        let xbox = minecraft::xbox_live(http, endpoints, ms_access_token).await?;
+        let xbox = minecraft::xbox_live(http, endpoints, ms_access_token, identity).await?;
         let xsts = minecraft::xsts(http, endpoints, &xbox).await?;
         let token = minecraft::login(http, endpoints, &xsts).await?;
         let owned = minecraft::owns_minecraft(http, endpoints, &token).await?;
@@ -150,8 +179,10 @@ impl Authenticator {
         tokens: MsTokens,
         secrets: &dyn SecretStore,
     ) -> Result<SignedIn, AuthError> {
-        let session = self.minecraft_session(&tokens.access_token).await?;
-        let account = account_for(&session.profile);
+        let session = self
+            .minecraft_session(&tokens.access_token, tokens.identity)
+            .await?;
+        let account = account_for(&session.profile, tokens.identity);
         let refresh_token = tokens.refresh_token.ok_or(AuthError::Microsoft {
             code: "no_refresh_token".into(),
         })?;
@@ -164,6 +195,7 @@ impl Authenticator {
     }
 
     /// Signs a saved account in again with its refresh token, without the browser.
+    /// The refresh goes to the client the account was signed in with.
     ///
     /// Microsoft rotates refresh tokens: the new one is saved before the rest of
     /// the chain runs, so it is kept even if a later step fails. If the refresh
@@ -180,7 +212,8 @@ impl Authenticator {
             .await
             .map_err(|err| AuthError::Keychain(format!("{err:#}")))?
             .ok_or(AuthError::NoSavedSignIn)?;
-        let tokens = microsoft::refresh(&*self.http, &self.config, &refresh_token).await?;
+        let tokens =
+            microsoft::refresh(&*self.http, &self.config, account.client, &refresh_token).await?;
         if let Some(rotated) = &tokens.refresh_token
             && *rotated != refresh_token
         {
@@ -189,20 +222,23 @@ impl Authenticator {
                 .await
                 .map_err(|err| AuthError::Keychain(format!("{err:#}")))?;
         }
-        let session = self.minecraft_session(&tokens.access_token).await?;
+        let session = self
+            .minecraft_session(&tokens.access_token, account.client)
+            .await?;
         if session.profile.id != account.uuid {
             // The saved sign-in belongs to another Minecraft profile.
             return Err(AuthError::SignInExpired);
         }
         Ok(SignedIn {
-            account: account_for(&session.profile),
+            account: account_for(&session.profile, account.client),
             session,
         })
     }
 }
 
-fn account_for(profile: &Profile) -> Account {
+fn account_for(profile: &Profile, client: ClientIdentity) -> Account {
     Account::microsoft(profile.id, profile.name.clone(), profile.skin_url.clone())
+        .with_client(client)
 }
 
 #[cfg(test)]

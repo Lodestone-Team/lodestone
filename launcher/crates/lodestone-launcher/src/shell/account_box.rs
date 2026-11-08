@@ -7,7 +7,7 @@ use gpui::{
 };
 use launcher_core::accounts::{Account, AccountKind};
 
-use super::LauncherShell;
+use super::{LauncherShell, developer};
 use crate::{
     accounts::{Accounts, SessionState, offline_dialog::OFFLINE_NOTE},
     components::{Icon, LoadingDots},
@@ -44,8 +44,27 @@ fn status(accounts: &Accounts, account: &Account) -> (SharedString, theme::Color
         Some(SessionState::Refreshing) => ("Signing in…".into(), colors::GRAY_500),
         Some(SessionState::NeedsSignIn) => ("Sign in again".into(), colors::RED_200),
         Some(SessionState::Failed(_)) => ("Offline – couldn't connect".into(), colors::YELLOW),
+        Some(SessionState::Ready(_)) | None if account.uses_launcher_identity() => {
+            (developer::BADGE.into(), colors::YELLOW)
+        }
         Some(SessionState::Ready(_)) | None => ("Microsoft account".into(), colors::GRAY_500),
     }
+}
+
+/// The small badge on accounts signed in as the Minecraft Launcher.
+fn launcher_identity_badge() -> impl IntoElement {
+    div()
+        .flex_none()
+        .px_1()
+        .rounded(radius::DEFAULT)
+        .bg(colors::YELLOW_FADED.opacity(10))
+        .border_1()
+        .border_color(colors::YELLOW_FADED.opacity(50))
+        .text_size(theme::text_size(text::CAPTION))
+        .line_height(theme::line_height(text::CAPTION, leading::SNUG))
+        .font_weight(weights::BOLD.into())
+        .text_color(colors::YELLOW)
+        .child(developer::BADGE)
 }
 
 /// The status in the menu, where space is short.
@@ -190,16 +209,26 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 account.username.clone(),
                 colors::GRAY_300,
             )
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(theme::text_size(text::CAPTION))
-                    .text_color(colors::GRAY_500)
-                    .child(match account.kind {
-                        AccountKind::Offline => SharedString::from("Offline"),
-                        AccountKind::Microsoft => short_status(accounts, account),
-                    }),
-            )
+            .map(|row| {
+                let needs_sign_in = matches!(
+                    accounts.session(&account.id),
+                    Some(SessionState::NeedsSignIn)
+                );
+                if account.uses_launcher_identity() && !needs_sign_in {
+                    row.child(launcher_identity_badge())
+                } else {
+                    row.child(
+                        div()
+                            .flex_none()
+                            .text_size(theme::text_size(text::CAPTION))
+                            .text_color(colors::GRAY_500)
+                            .child(match account.kind {
+                                AccountKind::Offline => SharedString::from("Offline"),
+                                AccountKind::Microsoft => short_status(accounts, account),
+                            }),
+                    )
+                }
+            })
             .child(div().flex_none().w(px(12.)).when(is_active, |this| {
                 this.child(Icon::Check.render(px(12.), colors::BLUE_200))
             }))

@@ -386,11 +386,22 @@ impl Instances {
         &self.settings.instance_defaults
     }
 
-    fn save_settings(&mut self, cx: &mut Context<Self>) -> Result<(), String> {
-        let result = launcher_settings::save(&self.data_dir.settings_file(), &self.settings)
-            .map_err(|err| err.to_string());
+    /// Changes the settings file: read as it is now (the accounts save their own
+    /// section of it), changed, and written back.
+    fn update_settings(
+        &mut self,
+        change: impl FnOnce(&mut Settings),
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let result = launcher_settings::update(&self.data_dir.settings_file(), change);
         cx.notify();
-        result
+        match result {
+            Ok(settings) => {
+                self.settings = settings;
+                Ok(())
+            }
+            Err(err) => Err(err.to_string()),
+        }
     }
 
     /// Saves the global instance settings.
@@ -399,8 +410,7 @@ impl Instances {
         defaults: InstanceDefaults,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        self.settings.instance_defaults = defaults;
-        self.save_settings(cx)
+        self.update_settings(|settings| settings.instance_defaults = defaults, cx)
     }
 
     pub fn is_group_collapsed(&self, group: &str) -> bool {
@@ -409,10 +419,19 @@ impl Instances {
 
     /// Folds or unfolds a sidebar group, and remembers it.
     pub fn toggle_group(&mut self, group: &str, cx: &mut Context<Self>) {
-        if !self.settings.collapsed_groups.remove(group) {
-            self.settings.collapsed_groups.insert(group.to_string());
-        }
-        if let Err(err) = self.save_settings(cx) {
+        let collapse = !self.settings.collapsed_groups.contains(group);
+        let group = group.to_string();
+        let result = self.update_settings(
+            |settings| {
+                if collapse {
+                    settings.collapsed_groups.insert(group);
+                } else {
+                    settings.collapsed_groups.remove(&group);
+                }
+            },
+            cx,
+        );
+        if let Err(err) = result {
             self.notice = Some(err.into());
         }
     }

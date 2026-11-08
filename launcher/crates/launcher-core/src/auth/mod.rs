@@ -7,17 +7,24 @@
 //!
 //! [`Authenticator`] runs it. Every URL comes from [`Endpoints`], so tests point the
 //! whole chain at a loopback mock server.
+//!
+//! The Microsoft token comes from one of two app identities ([`ClientIdentity`]):
+//! Lodestone's own Azure app, or, as a developer option, the official Minecraft
+//! Launcher's public client on login.live.com (see [`live`]).
 
 mod error;
+pub mod live;
 pub mod loopback;
 pub mod microsoft;
 pub mod minecraft;
 pub mod pkce;
 mod session;
 
+use serde::{Deserialize, Serialize};
 use url::Url;
 
-pub use error::{AuthError, Step, XboxError};
+pub use error::{AuthError, LinkProblem, Step, XboxError};
+pub use live::LinkSignIn;
 pub use microsoft::{DeviceCode, MsTokens};
 pub use minecraft::Profile;
 pub use session::{Authenticator, BrowserSignIn, MinecraftSession, SignedIn};
@@ -38,11 +45,50 @@ pub const SCOPES: &str = "XboxLive.signin offline_access";
 /// Where the user enters a device code. Shown and opened by the device code flow.
 pub const DEVICE_LOGIN_URL: &str = "https://www.microsoft.com/link";
 
+/// The official Minecraft Launcher's public client ID on login.live.com (the Java
+/// Edition "title ID"). Only used when the developer option is on.
+pub const MINECRAFT_LAUNCHER_CLIENT_ID: &str = "00000000402b5328";
+
+/// The scope the Minecraft Launcher's client asks for: an Xbox Live user ticket.
+pub const MINECRAFT_LAUNCHER_SCOPE: &str = "service::user.auth.xboxlive.com::MBI_SSL";
+
+/// Which app the launcher says it is when it asks Microsoft for a token.
+///
+/// A refresh token only works with the client that issued it, so every Microsoft
+/// account records the identity it was signed in with.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClientIdentity {
+    /// Lodestone Launcher's own Azure app registration, [`CLIENT_ID`].
+    #[default]
+    Lodestone,
+    /// The official Minecraft Launcher's client, [`MINECRAFT_LAUNCHER_CLIENT_ID`].
+    /// A developer option until Mojang approves Lodestone's app.
+    MinecraftLauncher,
+}
+
+impl ClientIdentity {
+    pub fn is_lodestone(&self) -> bool {
+        *self == Self::Lodestone
+    }
+
+    /// The prefix of the Microsoft token in the Xbox Live `RpsTicket`: `d=` for a
+    /// token from an Azure app, `t=` for one from a title's live.com client.
+    pub fn rps_ticket_prefix(self) -> &'static str {
+        match self {
+            Self::Lodestone => "d=",
+            Self::MinecraftLauncher => "t=",
+        }
+    }
+}
+
 /// The base URLs of every service the sign-in talks to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Endpoints {
     /// The Microsoft identity platform's OAuth 2.0 endpoints for [`TENANT`].
     pub login: Url,
+    /// login.live.com, for the [`ClientIdentity::MinecraftLauncher`] client.
+    pub live: Url,
     pub xbox_user: Url,
     pub xsts: Url,
     pub minecraft: Url,
@@ -57,6 +103,7 @@ impl Endpoints {
             login: url(&format!(
                 "https://login.microsoftonline.com/{TENANT}/oauth2/v2.0"
             )),
+            live: url(live::LIVE_BASE),
             xbox_user: url("https://user.auth.xboxlive.com"),
             xsts: url("https://xsts.auth.xboxlive.com"),
             minecraft: url("https://api.minecraftservices.com"),
@@ -64,12 +111,13 @@ impl Endpoints {
         }
     }
 
-    /// Every service under one base URL, at `/login`, `/xbl`, `/xsts`, `/mc` and
-    /// `/textures`. For tests against a mock server.
+    /// Every service under one base URL, at `/login`, `/live`, `/xbl`, `/xsts`, `/mc`
+    /// and `/textures`. For tests against a mock server.
     pub fn all_at(base: &Url) -> Self {
         let at = |path: &str| base.join(path).expect("a valid path");
         Self {
             login: at("login"),
+            live: at("live"),
             xbox_user: at("xbl"),
             xsts: at("xsts"),
             minecraft: at("mc"),
@@ -130,6 +178,25 @@ mod tests {
         assert_eq!(
             endpoints.textures.host_str(),
             Some("textures.minecraft.net")
+        );
+        assert_eq!(
+            crate::http::join(&endpoints.live, "oauth20_token.srf"),
+            "https://login.live.com/oauth20_token.srf"
+        );
+    }
+
+    #[test]
+    fn identities_and_ticket_prefixes() {
+        assert_eq!(ClientIdentity::default(), ClientIdentity::Lodestone);
+        assert_eq!(ClientIdentity::Lodestone.rps_ticket_prefix(), "d=");
+        assert_eq!(ClientIdentity::MinecraftLauncher.rps_ticket_prefix(), "t=");
+        assert_eq!(
+            serde_json::to_value(ClientIdentity::MinecraftLauncher).unwrap(),
+            "minecraft_launcher"
+        );
+        assert_eq!(
+            serde_json::to_value(ClientIdentity::Lodestone).unwrap(),
+            "lodestone"
         );
     }
 

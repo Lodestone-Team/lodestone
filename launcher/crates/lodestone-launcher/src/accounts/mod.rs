@@ -18,10 +18,12 @@ use http_client::HttpClient;
 use launcher_core::{
     MemorySecretStore, SecretStore,
     accounts::{Account, AccountStore, OpenProblem},
-    auth::{AuthError, Authenticator, MinecraftSession, MsaConfig, SignedIn, minecraft},
+    auth::{
+        AuthError, Authenticator, ClientIdentity, MinecraftSession, MsaConfig, SignedIn, minecraft,
+    },
     game::launch::LaunchAccount,
     paths::DataDir,
-    skin,
+    settings, skin,
 };
 
 pub use keychain::KeychainStore;
@@ -70,6 +72,9 @@ pub struct Accounts {
     /// A problem with `accounts.json` to show the user.
     notice: Option<SharedString>,
     offline_enabled: bool,
+    /// Settings > Developer > "Sign in as the Minecraft Launcher". New Microsoft
+    /// sign-ins use the official launcher's client while it is on.
+    launcher_identity: bool,
     /// Refreshes and scheduled refreshes, by account id. Dropping one cancels it.
     tasks: HashMap<String, Task<()>>,
     avatar_tasks: HashMap<String, Task<()>>,
@@ -101,6 +106,9 @@ impl Accounts {
                 OpenProblem::Unreadable(err) => format!("Couldn't read your accounts: {err}"),
             })
         });
+        let launcher_identity = settings::load_or_default(&data_dir.settings_file())
+            .developer
+            .sign_in_as_minecraft_launcher;
         let mut this = Self {
             store,
             data_dir,
@@ -111,6 +119,7 @@ impl Accounts {
             avatars: HashMap::new(),
             notice,
             offline_enabled,
+            launcher_identity,
             tasks: HashMap::new(),
             avatar_tasks: HashMap::new(),
         };
@@ -145,6 +154,53 @@ impl Accounts {
 
     pub fn offline_enabled(&self) -> bool {
         self.offline_enabled
+    }
+
+    /// Whether "Sign in as the Minecraft Launcher" is on.
+    pub fn launcher_identity_enabled(&self) -> bool {
+        self.launcher_identity
+    }
+
+    /// The client a new Microsoft sign-in uses. Refreshes always use the client
+    /// each account was signed in with.
+    pub fn sign_in_identity(&self) -> ClientIdentity {
+        if self.launcher_identity {
+            ClientIdentity::MinecraftLauncher
+        } else {
+            ClientIdentity::Lodestone
+        }
+    }
+
+    /// The accounts signed in as the Minecraft Launcher.
+    pub fn launcher_identity_accounts(&self) -> Vec<Account> {
+        self.store
+            .launcher_identity_accounts()
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Turns "Sign in as the Minecraft Launcher" on or off and saves it in
+    /// `settings.json`. Accounts already signed in are not changed.
+    pub fn set_launcher_identity(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let result = settings::update(&self.data_dir.settings_file(), |settings| {
+            settings.developer.sign_in_as_minecraft_launcher = enabled;
+        });
+        match result {
+            Ok(_) => self.launcher_identity = enabled,
+            Err(err) => {
+                self.notice = Some(format!("Couldn't save your settings: {err}").into());
+            }
+        }
+        cx.notify();
+    }
+
+    /// Signs out (removes) every account signed in as the Minecraft Launcher,
+    /// deleting their saved sign-ins from the Keychain.
+    pub fn sign_out_launcher_identity_accounts(&mut self, cx: &mut Context<Self>) {
+        for account in self.launcher_identity_accounts() {
+            self.remove(&account.id, cx);
+        }
     }
 
     pub fn authenticator(&self) -> &Authenticator {
@@ -438,6 +494,12 @@ impl Accounts {
         if let Some(image) = decode_cached(&path) {
             self.avatars.insert(id.to_string(), image);
         }
+    }
+
+    /// Turns the developer option on or off without saving it, for the offscreen
+    /// screenshots.
+    pub fn preview_launcher_identity(&mut self, enabled: bool) {
+        self.launcher_identity = enabled;
     }
 
     /// Replaces the session state, for the offscreen screenshots.

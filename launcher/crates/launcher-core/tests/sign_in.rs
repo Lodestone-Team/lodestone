@@ -16,7 +16,9 @@ use futures::{FutureExt as _, executor::block_on};
 use launcher_core::{
     MemorySecretStore, Secret, SecretStore as _, USER_AGENT,
     accounts::{Account, AccountStore},
-    auth::{AuthError, Authenticator, DEVICE_LOGIN_URL, MsTokens, SignedIn, XboxError},
+    auth::{
+        AuthError, Authenticator, ClientIdentity, DEVICE_LOGIN_URL, MsTokens, SignedIn, XboxError,
+    },
     http, settings, skin, storage,
 };
 use support::{Login, MockServer, Poll};
@@ -361,7 +363,7 @@ fn device_code_flow_waits_and_slows_down() {
     let mock = MockServer::start();
     mock.state().polls = vec![Poll::Pending, Poll::SlowDown, Poll::Pending, Poll::Granted];
     let auth = authenticator(&mock);
-    let code = block_on(auth.start_device_code()).unwrap();
+    let code = block_on(auth.start_device_code(ClientIdentity::Lodestone)).unwrap();
     assert_eq!(code.user_code, "ABCD-EFGH");
     // The mock suggests a URL on a host the launcher does not trust.
     assert_eq!(code.verification_uri, DEVICE_LOGIN_URL);
@@ -394,7 +396,7 @@ fn device_code_flow_reports_declines_and_expiry() {
         let mock = MockServer::start();
         mock.state().polls = polls;
         let auth = authenticator(&mock);
-        let code = block_on(auth.start_device_code()).unwrap();
+        let code = block_on(auth.start_device_code(ClientIdentity::Lodestone)).unwrap();
         let (slept, sleep) = recording_sleep();
         let err = block_on(auth.complete_device_code(&code, &sleep)).unwrap_err();
         assert_eq!(err, expected);
@@ -416,7 +418,7 @@ fn reports_network_errors() {
         endpoints: launcher_core::auth::Endpoints::all_at(&base),
     };
     let auth = Authenticator::new(http::default_client().unwrap(), config);
-    let err = block_on(auth.start_device_code()).unwrap_err();
+    let err = block_on(auth.start_device_code(ClientIdentity::Lodestone)).unwrap_err();
     assert!(matches!(err, AuthError::Network(_)), "{err:?}");
 }
 

@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     SecretStore,
+    auth::ClientIdentity,
     offline::{self, UsernameError},
     storage::{self, Document, Migration, StorageError},
 };
@@ -38,6 +39,11 @@ pub struct Account {
     /// The active skin's texture URL, from the Minecraft profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skin_url: Option<String>,
+    /// Which client issued a Microsoft account's refresh token, and so which one
+    /// refreshes it. Files from before the developer option have no `client`; those
+    /// accounts were all signed in with Lodestone's app, the default.
+    #[serde(default)]
+    pub client: ClientIdentity,
 }
 
 impl Account {
@@ -49,7 +55,20 @@ impl Account {
             uuid,
             username: username.into(),
             skin_url,
+            client: ClientIdentity::Lodestone,
         }
+    }
+
+    /// The account, recorded as signed in with `client`.
+    pub fn with_client(mut self, client: ClientIdentity) -> Self {
+        self.client = client;
+        self
+    }
+
+    /// Whether the account was signed in as the Minecraft Launcher (the developer
+    /// option) rather than with Lodestone's app.
+    pub fn uses_launcher_identity(&self) -> bool {
+        self.kind == AccountKind::Microsoft && self.client == ClientIdentity::MinecraftLauncher
     }
 
     /// An offline account, after checking the username.
@@ -62,6 +81,7 @@ impl Account {
             uuid,
             username: username.to_string(),
             skin_url: None,
+            client: ClientIdentity::Lodestone,
         })
     }
 
@@ -171,6 +191,15 @@ impl AccountStore {
 
     pub fn accounts(&self) -> &[Account] {
         &self.file.accounts
+    }
+
+    /// The accounts signed in as the Minecraft Launcher.
+    pub fn launcher_identity_accounts(&self) -> Vec<&Account> {
+        self.file
+            .accounts
+            .iter()
+            .filter(|account| account.uses_launcher_identity())
+            .collect()
     }
 
     pub fn get(&self, id: &str) -> Option<&Account> {
@@ -439,6 +468,70 @@ mod tests {
             raw["active"],
             json!("offline:b50ad385829d3141a2167e7d7539ba7f")
         );
+    }
+
+    #[test]
+    fn records_the_client_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("accounts.json");
+        let (mut store, _) = AccountStore::open(&path);
+        let launcher = Account::microsoft(Uuid::from_u128(7), "Jeb", None)
+            .with_client(ClientIdentity::MinecraftLauncher);
+        store.upsert_and_activate(steve()).unwrap();
+        store.upsert_and_activate(launcher.clone()).unwrap();
+        store
+            .upsert_and_activate(Account::offline("Dev_1").unwrap())
+            .unwrap();
+
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(raw["version"], json!(1));
+        assert_eq!(raw["accounts"][0]["client"], json!("lodestone"));
+        assert_eq!(raw["accounts"][1]["client"], json!("minecraft_launcher"));
+
+        let (reopened, problem) = AccountStore::open(&path);
+        assert!(problem.is_none());
+        assert_eq!(reopened.get(&launcher.id), Some(&launcher));
+        assert!(reopened.get(&launcher.id).unwrap().uses_launcher_identity());
+        assert!(!reopened.get(&steve().id).unwrap().uses_launcher_identity());
+        assert_eq!(reopened.launcher_identity_accounts(), vec![&launcher]);
+        // The secret key does not depend on the identity.
+        assert_eq!(launcher.secret_key(), Some(secret_key(&launcher.id)));
+    }
+
+    #[test]
+    fn accounts_from_before_the_identity_use_lodestones_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("accounts.json");
+        // A version 1 file as milestone 2 wrote it, and an unversioned one.
+        for file in [
+            json!({
+                "version": 1,
+                "active": "microsoft:069a79f444e94726a5befca90e38aaf5",
+                "accounts": [{
+                    "id": "microsoft:069a79f444e94726a5befca90e38aaf5",
+                    "kind": "microsoft",
+                    "uuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5",
+                    "username": "Notch",
+                    "skin_url": "https://textures.minecraft.net/texture/abc123"
+                }]
+            }),
+            json!({
+                "accounts": [{
+                    "id": "microsoft:069a79f444e94726a5befca90e38aaf5",
+                    "kind": "microsoft",
+                    "uuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5",
+                    "username": "Notch",
+                    "skin_url": "https://textures.minecraft.net/texture/abc123"
+                }]
+            }),
+        ] {
+            std::fs::write(&path, file.to_string()).unwrap();
+            let (store, problem) = AccountStore::open(&path);
+            assert!(problem.is_none());
+            assert_eq!(store.accounts(), [steve()]);
+            assert_eq!(store.accounts()[0].client, ClientIdentity::Lodestone);
+            assert!(store.launcher_identity_accounts().is_empty());
+        }
     }
 
     #[test]

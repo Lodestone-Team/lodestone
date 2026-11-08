@@ -143,11 +143,9 @@ impl Render for LauncherSettings {
             .flex()
             .flex_col()
             .gap_6()
-            .size_full()
-            .overflow_y_scroll()
+            .w_full()
             .px_8()
             .pt_6()
-            .pb_8()
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
             .child(
                 div()

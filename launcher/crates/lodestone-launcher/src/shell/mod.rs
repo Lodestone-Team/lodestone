@@ -3,6 +3,7 @@
 //! selected instance with its tabs and a large Play button.
 
 mod account_box;
+mod developer;
 mod launcher_settings;
 mod play;
 mod sidebar;
@@ -105,6 +106,13 @@ enum Modal {
         id: String,
         username: String,
         focus: FocusHandle,
+    },
+    /// The disclosure before "Sign in as the Minecraft Launcher" is turned on.
+    EnableLauncherIdentity { focus: FocusHandle },
+    /// Turning it off, with the accounts that used it.
+    DisableLauncherIdentity {
+        focus: FocusHandle,
+        usernames: Vec<String>,
     },
 }
 
@@ -493,6 +501,12 @@ impl LauncherShell {
                     )
                     .into_any_element()
             }
+            Modal::EnableLauncherIdentity { focus } => {
+                self.render_enable_launcher_identity(focus.clone(), cx)
+            }
+            Modal::DisableLauncherIdentity { focus, usernames } => {
+                self.render_disable_launcher_identity(focus.clone(), usernames, cx)
+            }
             Modal::SignIn { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Offline { dialog, .. } => dialog.clone().into_any_element(),
             Modal::RemoveAccount {
@@ -620,7 +634,17 @@ impl Render for LauncherShell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
-            Page::Settings => self.launcher_settings.clone().into_any_element(),
+            // The global game settings, then Developer.
+            Page::Settings => div()
+                .id("settings-page")
+                .flex()
+                .flex_col()
+                .size_full()
+                .overflow_y_scroll()
+                .pb_8()
+                .child(self.launcher_settings.clone())
+                .child(developer::render(self, cx))
+                .into_any_element(),
         };
         let modal = self.render_modal(cx);
 
