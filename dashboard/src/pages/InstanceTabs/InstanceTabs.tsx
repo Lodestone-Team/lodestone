@@ -12,6 +12,8 @@ import DashboardCard from 'components/DashboardCard';
 import { InstanceSettingCard } from 'components/Instance';
 import Macros from 'pages/macros';
 import { PlayitggOverview } from 'components/PlayitggOverview';
+import ModsTab from 'components/Mods/ModsTab';
+import { getModSupport, modTabTitle } from 'utils/mods';
 import { InstanceTabPath, tabs } from './tabList';
 
 // The content of each tab; their names, paths and icons are in tabList.
@@ -24,6 +26,7 @@ const tabContent: Record<InstanceTabPath, ReactNode> = {
   ),
   console: <GameConsole />,
   files: <FileViewer />,
+  mods: <ModsTab />,
   macros: <Macros />,
   logs: (
     <DashboardCard className="grow justify-center gap-4">
@@ -79,6 +82,11 @@ const InstanceTabs = () => {
   }
 
   const tab = tabs.find((tab) => tab.path === path);
+  const modSupport = getModSupport(instance.game_type);
+  const displayTitle =
+    tab?.path === 'mods' && modSupport
+      ? modTabTitle(modSupport.kind)
+      : tab?.displayTitle;
   if (!tab) {
     return (
       <div
@@ -112,9 +120,9 @@ const InstanceTabs = () => {
           key={`${uuid}-${tab.path}`}
         >
           <div className="flex h-fit min-h-full w-full flex-col gap-2 pt-6 pb-10 focus:outline-hidden">
-            {tab.displayTitle && (
+            {displayTitle && (
               <div className="flex font-title text-h1 font-bold leading-tight text-gray-300">
-                {tab.displayTitle}
+                {displayTitle}
                 {tab.displayTitle === 'Console' && (
                   <Label
                     size="medium"

@@ -13,10 +13,13 @@ import { useContext } from 'react';
 export default function GameTypeSelectForm({
   manifestLoading,
   manifestError,
+  onSelectModpack,
   className,
 }: {
   manifestLoading: boolean;
   manifestError: boolean;
+  /** opens the "create from a Modrinth modpack" flow */
+  onSelectModpack: () => void;
   className?: string;
 }) {
   const { gameType: selectedGameType, setGameType } =
@@ -66,6 +69,13 @@ export default function GameTypeSelectForm({
             />
           );
         })}
+        <SelectGameCard
+          key="modrinth-modpack"
+          title="Modrinth modpack"
+          description="Create a Fabric server from a Modrinth modpack"
+          game_type={HandlerGameType_to_Game['MinecraftFabric']}
+          onClick={onSelectModpack}
+        />
       </div>
     </div>
   );

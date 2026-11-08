@@ -1,0 +1,331 @@
+//! The mods (or plugins) of an instance: `/instance/{uuid}/mods`.
+//!
+//! Listing needs `ReadInstanceFile`; changes need `WriteInstanceFile`. A jar that Modrinth
+//! does not know is arbitrary code, so uploading or enabling one also needs
+//! `WriteGlobalFile`, the permission the file API needs to create `.jar` files.
+
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::routing::{delete, get, post, put};
+use axum::{Json, Router};
+use color_eyre::eyre::{eyre, Context};
+use serde::Deserialize;
+use tokio::io::AsyncWriteExt;
+
+use super::global_fs::multipart_error;
+use super::util::{get_instance, AuthedUser};
+use crate::auth::user::UserAction;
+use crate::error::{Error, ErrorKind};
+use crate::events::{Event, ProgressionEndValue};
+use crate::modrinth::links::check_api_segment;
+use crate::mods::install::{self, ModInstallRequest, ModInstallResult};
+use crate::mods::scan::{scan_file, scan_folder, sha512_of};
+use crate::mods::{
+    bad_request, build_list, match_files_or_none, safe_jar_name, save_uploads, InstalledMod,
+    InstalledModList, ModFolder, MAX_MOD_BYTES,
+};
+use crate::prelude::GameInstance;
+use crate::traits::t_configurable::TConfigurable;
+use crate::traits::t_server::TServer;
+use crate::types::InstanceUuid;
+use crate::AppState;
+
+/// The instance and its mods folder. Fails for instances without mods or plugins.
+async fn mod_folder(
+    state: &AppState,
+    uuid: &InstanceUuid,
+) -> Result<(GameInstance, ModFolder), Error> {
+    let instance = get_instance(state, uuid)?;
+    let folder = ModFolder::new(
+        &instance.game_type().await,
+        instance.version().await,
+        &instance.path().await,
+    )?;
+    Ok((instance, folder))
+}
+
+/// Remembers that the instance needs a restart if it is running.
+async fn note_change(state: &AppState, uuid: &InstanceUuid, instance: &GameInstance) {
+    state.mods.restart.note_change(uuid, instance.state().await);
+}
+
+fn not_on_modrinth(file_name: &str) -> Error {
+    Error {
+        kind: ErrorKind::PermissionDenied,
+        source: eyre!(
+            "{file_name} is not on Modrinth. Only users who can write global files can add jars that are not on Modrinth"
+        ),
+    }
+}
+
+/// For users without `WriteGlobalFile`: checks that every hash belongs to a Modrinth
+/// version, failing with the first file that does not.
+async fn require_known_jars(
+    state: &AppState,
+    requester: &AuthedUser,
+    files: &[(String, String)],
+) -> Result<(), Error> {
+    if requester.can_perform_action(&UserAction::WriteGlobalFile) {
+        return Ok(());
+    }
+    let hashes: Vec<String> = files.iter().map(|(_, hash)| hash.clone()).collect();
+    let known = state.mods.modrinth.versions_by_hash(&hashes).await?;
+    match files.iter().find(|(_, hash)| !known.contains_key(hash)) {
+        Some((name, _)) => Err(not_on_modrinth(name)),
+        None => Ok(()),
+    }
+}
+
+#[derive(Deserialize)]
+struct ListQuery {
+    check_updates: Option<bool>,
+}
+
+async fn list_mods(
+    State(state): State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    requester: AuthedUser,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<InstalledModList>, Error> {
+    requester
+        .require(&state, UserAction::ReadInstanceFile(uuid.clone()))
+        .await?;
+    let (_, folder) = mod_folder(&state, &uuid).await?;
+    let files = scan_folder(&folder).await?;
+    let list = build_list(
+        state.mods.modrinth.as_ref(),
+        &folder,
+        files,
+        query.check_updates.unwrap_or(false),
+        state.mods.restart.is_required(&uuid),
+    )
+    .await?;
+    Ok(Json(list))
+}
+
+async fn install_mod(
+    State(state): State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    requester: AuthedUser,
+    Json(request): Json<ModInstallRequest>,
+) -> Result<Json<ModInstallResult>, Error> {
+    requester
+        .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
+        .await?;
+    let version_id = check_api_segment(&request.version_id, "version id")?;
+    let (instance, folder) = mod_folder(&state, &uuid).await?;
+    let api = state.mods.modrinth.clone();
+    let version = api.version(version_id).await?;
+    let project = api.project(&version.project_id).await?;
+
+    let lock = state.mods.lock_for(&uuid);
+    let _guard = lock.lock().await;
+    let (start, event_id) = Event::new_progression_event_start(
+        format!("Installing {}", project.title),
+        None,
+        None,
+        requester.caused_by(),
+    );
+    state.event_broadcaster.send(start);
+    let result =
+        install::install(api.as_ref(), &folder, version, &project, (&request).into()).await;
+    let (success, message) = match &result {
+        Ok(r) => (
+            true,
+            format!(
+                "Installed {} file(s){}",
+                r.installed.len(),
+                if r.skipped.is_empty() {
+                    String::new()
+                } else {
+                    format!(", skipped {}", r.skipped.len())
+                }
+            ),
+        ),
+        Err(e) => (
+            false,
+            format!("Installing {} failed: {}", project.title, e.source),
+        ),
+    };
+    state
+        .event_broadcaster
+        .send(Event::new_progression_event_end(
+            event_id,
+            success,
+            Some(&message),
+            Some(ProgressionEndValue::FSOperationCompleted {
+                instance_uuid: uuid.clone(),
+                success,
+                message: message.clone(),
+            }),
+        ));
+    if success {
+        note_change(&state, &uuid, &instance).await;
+    }
+    result.map(Json)
+}
+
+#[derive(Deserialize)]
+struct UploadQuery {
+    overwrite: Option<bool>,
+}
+
+async fn upload_mods(
+    State(state): State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    requester: AuthedUser,
+    Query(query): Query<UploadQuery>,
+    mut multipart: Multipart,
+) -> Result<Json<Vec<InstalledMod>>, Error> {
+    requester
+        .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
+        .await?;
+    let (instance, folder) = mod_folder(&state, &uuid).await?;
+    tokio::fs::create_dir_all(&folder.dir)
+        .await
+        .context(format!(
+            "Failed to create the {} folder",
+            folder.directory()
+        ))?;
+
+    // stream every file to a temporary file first; nothing is in place until all are checked
+    let mut uploads: Vec<(tempfile::TempPath, String)> = Vec::new();
+    while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let raw_name = field.file_name().unwrap_or_default().to_string();
+        let name = safe_jar_name(&raw_name)
+            .ok_or_else(|| bad_request(format!("{raw_name:?} is not a .jar file")))?;
+        let temp = tempfile::Builder::new()
+            .prefix(".lodestone-upload-")
+            .suffix(".tmp")
+            .tempfile_in(&folder.dir)
+            .context("Failed to create a temporary file")?
+            .into_temp_path();
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&temp)
+            .await
+            .context("Failed to open a temporary file")?;
+        let mut size = 0_u64;
+        while let Some(chunk) = field.chunk().await.map_err(multipart_error)? {
+            size += chunk.len() as u64;
+            if size > MAX_MOD_BYTES {
+                return Err(crate::modrinth::client::too_large(MAX_MOD_BYTES));
+            }
+            file.write_all(&chunk)
+                .await
+                .context(format!("Failed to write {name}"))?;
+        }
+        file.flush()
+            .await
+            .context(format!("Failed to write {name}"))?;
+        uploads.push((temp, name));
+    }
+    if uploads.is_empty() {
+        return Err(bad_request("No file was uploaded"));
+    }
+
+    if !requester.can_perform_action(&UserAction::WriteGlobalFile) {
+        let paths: Vec<(String, std::path::PathBuf)> = uploads
+            .iter()
+            .map(|(temp, name)| (name.clone(), temp.to_path_buf()))
+            .collect();
+        let hashes = tokio::task::spawn_blocking(move || {
+            paths
+                .into_iter()
+                .map(|(name, path)| sha512_of(&path).map(|hash| (name, hash)))
+                .collect::<std::io::Result<Vec<_>>>()
+        })
+        .await
+        .map_err(|e| eyre!("The upload task failed: {e}"))?
+        .context("Failed to read an uploaded file")?;
+        require_known_jars(&state, &requester, &hashes).await?;
+    }
+
+    let lock = state.mods.lock_for(&uuid);
+    let _guard = lock.lock().await;
+    let files = save_uploads(&folder, uploads, query.overwrite.unwrap_or(false)).await?;
+    note_change(&state, &uuid, &instance).await;
+    Ok(Json(
+        match_files_or_none(state.mods.modrinth.as_ref(), files).await,
+    ))
+}
+
+async fn set_enabled(
+    state: AppState,
+    uuid: InstanceUuid,
+    file_name: String,
+    requester: AuthedUser,
+    enabled: bool,
+) -> Result<Json<InstalledMod>, Error> {
+    requester
+        .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
+        .await?;
+    let (instance, folder) = mod_folder(&state, &uuid).await?;
+    let lock = state.mods.lock_for(&uuid);
+    let _guard = lock.lock().await;
+    if enabled && crate::mods::is_disabled_name(&file_name) {
+        let path = crate::mods::existing_mod_path(&folder, &file_name).await?;
+        let file = scan_file(&path, folder.loader).await?;
+        require_known_jars(&state, &requester, &[(file.file_name, file.sha512)]).await?;
+    }
+    let (file, changed) = crate::mods::set_enabled(&folder, &file_name, enabled).await?;
+    if changed {
+        note_change(&state, &uuid, &instance).await;
+    }
+    let mut mods = match_files_or_none(state.mods.modrinth.as_ref(), vec![file]).await;
+    mods.pop()
+        .map(Json)
+        .ok_or_else(|| eyre!("The mod disappeared while it was changed").into())
+}
+
+async fn enable_mod(
+    State(state): State<AppState>,
+    Path((uuid, file_name)): Path<(InstanceUuid, String)>,
+    requester: AuthedUser,
+) -> Result<Json<InstalledMod>, Error> {
+    set_enabled(state, uuid, file_name, requester, true).await
+}
+
+async fn disable_mod(
+    State(state): State<AppState>,
+    Path((uuid, file_name)): Path<(InstanceUuid, String)>,
+    requester: AuthedUser,
+) -> Result<Json<InstalledMod>, Error> {
+    set_enabled(state, uuid, file_name, requester, false).await
+}
+
+async fn delete_mod(
+    State(state): State<AppState>,
+    Path((uuid, file_name)): Path<(InstanceUuid, String)>,
+    requester: AuthedUser,
+) -> Result<Json<()>, Error> {
+    requester
+        .require(&state, UserAction::WriteInstanceFile(uuid.clone()))
+        .await?;
+    let (instance, folder) = mod_folder(&state, &uuid).await?;
+    let lock = state.mods.lock_for(&uuid);
+    let _guard = lock.lock().await;
+    crate::mods::delete(&folder, &file_name).await?;
+    note_change(&state, &uuid, &instance).await;
+    Ok(Json(()))
+}
+
+pub fn get_instance_mods_routes(state: AppState) -> Router {
+    Router::new()
+        .route("/instance/{uuid}/mods", get(list_mods))
+        .route("/instance/{uuid}/mods/install", post(install_mod))
+        .route(
+            "/instance/{uuid}/mods/upload",
+            post(upload_mods).layer(DefaultBodyLimit::disable()),
+        )
+        .route("/instance/{uuid}/mods/{file_name}", delete(delete_mod))
+        .route("/instance/{uuid}/mods/{file_name}/enable", put(enable_mod))
+        .route(
+            "/instance/{uuid}/mods/{file_name}/disable",
+            put(disable_mod),
+        )
+        .with_state(state)
+}

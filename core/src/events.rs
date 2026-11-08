@@ -282,7 +282,7 @@ pub fn new_fs_event(operation: FSOperation, target: FSTarget, caused_by: CausedB
     }
 }
 
-#[derive(Serialize, Deserialize, TS)]
+#[derive(Clone, Serialize, Deserialize, TS)]
 #[serde(transparent)]
 #[ts(export)]
 pub struct ProgressionEventID(Snowflake);

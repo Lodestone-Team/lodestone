@@ -108,6 +108,34 @@ pub async fn set_instance_description(
     Ok(Json(()))
 }
 
+pub async fn set_instance_auto_start(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    AuthBearer(token): AuthBearer,
+    Json(auto_start): Json<bool>,
+) -> Result<Json<()>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
+    let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
+    instance.set_auto_start(auto_start).await?;
+    Ok(Json(()))
+}
+
+pub async fn set_instance_restart_on_crash(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    AuthBearer(token): AuthBearer,
+    Json(restart_on_crash): Json<bool>,
+) -> Result<Json<()>, Error> {
+    let requester = state.users_manager.read().await.try_auth_or_err(&token)?;
+    requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
+    let instance = get_instance(&state, &uuid)?;
+    require_owner_for_atom(&requester, &instance)?;
+    instance.set_restart_on_crash(restart_on_crash).await?;
+    Ok(Json(()))
+}
+
 pub async fn change_version(
     axum::extract::State(state): axum::extract::State<AppState>,
     Path((uuid, new_version)): Path<(InstanceUuid, String)>,
@@ -140,6 +168,11 @@ pub fn get_instance_config_routes(state: AppState) -> Router {
         .route(
             "/instance/{uuid}/description",
             put(set_instance_description),
+        )
+        .route("/instance/{uuid}/auto_start", put(set_instance_auto_start))
+        .route(
+            "/instance/{uuid}/restart_on_crash",
+            put(set_instance_restart_on_crash),
         )
         .with_state(state)
 }

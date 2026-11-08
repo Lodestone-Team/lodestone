@@ -64,6 +64,8 @@ semver = { version = "1.0.28", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde-aux = { version = "4.7.0", default-features = false }
 serde_json = "1.0.154"
+sha1 = "0.10.7"
+sha2 = "0.10.9"
 # Pinned to a launchbadge/sqlx main commit: the latest release (0.9.0) caps libsqlite3-sys <0.38,
 # but deno_runtime >=0.261 links libsqlite3-sys 0.38 (only one crate may link sqlite3).
 # Switch back to a crates.io release once one ships with the relaxed bound.

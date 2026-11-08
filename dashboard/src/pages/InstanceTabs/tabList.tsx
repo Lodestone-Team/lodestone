@@ -6,6 +6,7 @@ import {
   faCog,
   faFolder,
   faInbox,
+  faPuzzlePiece,
   faServer,
 } from '@fortawesome/free-solid-svg-icons';
 import type { ReactNode } from 'react';
@@ -20,6 +21,7 @@ export type InstanceTabPath =
   | 'settings'
   | 'console'
   | 'files'
+  | 'mods'
   | 'macros'
   | 'logs'
   | 'playitgg';
@@ -62,6 +64,15 @@ export const tabs: InstanceTabInfo[] = [
     path: 'files',
     width: 'max-w-6xl',
     icon: <FontAwesomeIcon icon={faFolder} />,
+  },
+  {
+    // "Plugins" on plugin instances, see utils/mods.ts; only shown on
+    // instances with mod or plugin support
+    title: 'Mods',
+    displayTitle: 'Mods',
+    path: 'mods',
+    width: 'max-w-4xl',
+    icon: <FontAwesomeIcon icon={faPuzzlePiece} />,
   },
   {
     title: 'Macros',
