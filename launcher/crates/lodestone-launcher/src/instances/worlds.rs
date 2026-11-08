@@ -5,6 +5,7 @@
 //! Deleting a world and replacing it with a backup ask the window for a confirmation
 //! ([`WorldsEvent`]).
 
+use crate::theme::px;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -15,7 +16,7 @@ use std::{
 use gpui::{
     AnyElement, AppContext as _, ClipboardItem, Context, Entity, EventEmitter, ExternalPaths,
     Image, ImageFormat, IntoElement, ObjectFit, PathPromptOptions, Render, RenderImage,
-    SharedString, Subscription, Task, Window, div, img, prelude::*, px,
+    SharedString, Subscription, Task, Window, div, img, prelude::*,
 };
 use launcher_core::{
     content::InstanceDirs,

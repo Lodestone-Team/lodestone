@@ -3,6 +3,7 @@
 //! turned off.
 
 use super::{LauncherShell, Modal};
+use crate::theme::px;
 use crate::{
     components::{
         Button, ButtonVariant, Dialog, Toggle,
@@ -11,9 +12,7 @@ use crate::{
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     theme::{self, colors, leading, text, weights},
 };
-use gpui::{
-    AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*, px,
-};
+use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
 
 /// The disclosure shown before the option is turned on, as (heading, paragraph).
 pub fn disclosure() -> Vec<(&'static str, SharedString)> {

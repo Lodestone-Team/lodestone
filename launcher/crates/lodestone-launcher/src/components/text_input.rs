@@ -5,6 +5,7 @@
 //! needs. Cursor movement steps over `char`s, not grapheme clusters, which avoids a
 //! dependency on `unicode-segmentation`.
 
+use crate::theme::px;
 use std::ops::Range;
 
 use gpui::{
@@ -12,12 +13,12 @@ use gpui::{
     Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hsla, KeyBinding,
     LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
     ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
-    fill, point, prelude::*, px, relative, size,
+    fill, point, prelude::*, relative, size,
 };
 
 use crate::{
     i18n::Text,
-    theme::{self, FOCUS_RING_WIDTH, colors, leading, radius, text, weights},
+    theme::{self, colors, focus_ring_width, leading, radius, text, weights},
 };
 
 actions!(
@@ -606,7 +607,7 @@ impl Render for TextInput {
                     color: colors::BLUE_FADED.opacity(50).into(),
                     offset: point(px(0.), px(0.)),
                     blur_radius: px(0.),
-                    spread_radius: FOCUS_RING_WIDTH,
+                    spread_radius: focus_ring_width(),
                     inset: false,
                 }])
             })

@@ -12,6 +12,7 @@ mod sidebar;
 mod top_bar;
 mod unsaved;
 
+use crate::theme::px;
 pub use launcher_settings::LauncherSettings;
 use settings_modal::SettingsModal;
 pub use settings_modal::SettingsPage;
@@ -20,7 +21,7 @@ pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
     AnyElement, ClipboardItem, Context, Entity, EntityId, FocusHandle, Focusable as _, IntoElement,
-    Render, SharedString, Subscription, Task, Window, div, prelude::*, px,
+    Render, SharedString, Subscription, Task, Window, div, prelude::*,
 };
 use launcher_core::{
     game::crash::Cause,
@@ -1498,11 +1499,22 @@ fn render_crash(
     .into_any_element()
 }
 
+impl LauncherShell {
+    /// One zoom level up or down, as Ctrl/⌘ + and − do.
+    pub(crate) fn zoom_by(&mut self, up: bool, cx: &mut Context<Self>) {
+        let zoom = theme::zoom::step(theme::zoom::get(), up);
+        self.instances
+            .update(cx, |instances, cx| instances.set_zoom(zoom, cx));
+    }
+}
+
 impl Render for LauncherShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self._focus_lost.is_none() {
             self._focus_lost = Some(focus::install(&self.root_focus, window, cx));
         }
+        // Text and spacing are in rems: zoom them with everything else.
+        window.set_rem_size(theme::zoom::rem_size());
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
             Page::Servers => self.servers.clone().into_any_element(),
@@ -1519,6 +1531,12 @@ impl Render for LauncherShell {
             .track_focus(&self.root_focus)
             .on_action(|_: &focus::FocusNext, window, cx| focus::step(true, window, cx))
             .on_action(|_: &focus::FocusPrev, window, cx| focus::step(false, window, cx))
+            .on_action(cx.listener(|this, _: &crate::ZoomIn, _, cx| this.zoom_by(true, cx)))
+            .on_action(cx.listener(|this, _: &crate::ZoomOut, _, cx| this.zoom_by(false, cx)))
+            .on_action(cx.listener(|this, _: &crate::ResetZoom, _, cx| {
+                this.instances
+                    .update(cx, |instances, cx| instances.set_zoom(1.0, cx))
+            }))
             .relative()
             .flex()
             .flex_col()

@@ -1,7 +1,8 @@
+use crate::theme::px;
 use std::rc::Rc;
 
 use gpui::{
-    App, ElementId, FocusHandle, IntoElement, RenderOnce, SharedString, Window, div, prelude::*, px,
+    App, ElementId, FocusHandle, IntoElement, RenderOnce, SharedString, Window, div, prelude::*,
 };
 
 use super::focus::{self, SelectNext, SelectPrev};

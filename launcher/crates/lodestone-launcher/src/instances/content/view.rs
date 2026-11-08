@@ -1,11 +1,12 @@
 //! How the Content tab looks: the section and sub-view switches, the installed lists,
 //! the Shaders section's shader mod card, Browse, and a project's page.
 
+use crate::theme::px;
 use std::sync::Arc;
 
 use gpui::{
     AnyElement, Context, ExternalPaths, IntoElement, ObjectFit, Render, RenderImage, SharedString,
-    Window, div, img, prelude::*, px,
+    Window, div, img, prelude::*,
 };
 use launcher_core::{
     content::{

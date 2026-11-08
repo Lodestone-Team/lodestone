@@ -1,6 +1,7 @@
+use crate::theme::px;
 use gpui::{
     AnyElement, Context, ExternalPaths, IntoElement, Render, SharedString, Transformation, Window,
-    div, prelude::*, px, radians,
+    div, prelude::*, radians,
 };
 use launcher_core::instances::{AutoGroup, Instance, last_played};
 
@@ -21,7 +22,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .flex()
         .flex_col()
         .flex_none()
-        .w(layout::SIDEBAR_WIDTH)
+        .w(layout::sidebar_width())
         .h_full()
         .bg(colors::GRAY_850)
         .border_r_1()

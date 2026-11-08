@@ -2,9 +2,8 @@
 //! pages listed on the left and the open page on the right. Other dialogs, such as
 //! signing in, open over it.
 
-use gpui::{
-    AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*, px,
-};
+use crate::theme::px;
+use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
 use launcher_core::accounts::AccountKind;
 
 use super::{LauncherShell, account_box, developer};
@@ -14,7 +13,7 @@ use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, ListRow, Toggle,
         settings::{
-            CONTENT_WIDTH, SettingRow, card, left_overlay, link, muted_link, popover,
+            SettingRow, card, content_width, left_overlay, link, muted_link, popover,
             popover_panel, section, select_button, tag, unsaved_bar,
         },
     },
@@ -133,7 +132,7 @@ impl LauncherShell {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let viewport = window.viewport_size();
-        let top = px(super::top_bar::TOP_BAR_HEIGHT + 1.0);
+        let top = gpui::px(super::top_bar::TOP_BAR_HEIGHT + 1.0);
         // A window too small for the dialog to float gets it edge to edge, under the
         // top bar.
         let small = viewport.width < px(760.) || viewport.height < px(560.);
@@ -249,7 +248,7 @@ impl LauncherShell {
                                     .flex_col()
                                     .flex_1()
                                     .min_w_0()
-                                    .max_w(CONTENT_WIDTH)
+                                    .max_w(content_width())
                                     .gap_1()
                                     .child(
                                         div()
@@ -293,7 +292,7 @@ impl LauncherShell {
                                     .overflow_y_scroll()
                                     .map(|this| if small { this.px_6() } else { this.px_10() })
                                     .pb_24()
-                                    .child(div().w_full().max_w(CONTENT_WIDTH).child(content)),
+                                    .child(div().w_full().max_w(content_width()).child(content)),
                             )
                             .children(toast),
                     )
@@ -467,8 +466,50 @@ impl LauncherShell {
                     ))
                 }),
         );
+        let zoom = theme::zoom::get();
+        let levels = theme::zoom::LEVELS;
+        let key = if cfg!(target_os = "macos") {
+            "⌘"
+        } else {
+            "Ctrl "
+        };
+        let zoom_row = SettingRow::new(t(ShellMsg::Zoom))
+            .hint(format!("{key}+  {key}−  {key}0"))
+            .child(
+                Button::new("zoom-out", "−")
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .disabled(zoom <= levels[0])
+                    .on_click(cx.listener(|this, _, _, cx| this.zoom_by(false, cx))),
+            )
+            .child(
+                div()
+                    .w(px(52.))
+                    .flex()
+                    .justify_center()
+                    .font_weight(weights::BOLD.into())
+                    .child(i18n::format::percent((zoom * 100.0).round() as u64)),
+            )
+            .child(
+                Button::new("zoom-in", "+")
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .disabled(zoom >= levels[levels.len() - 1])
+                    .on_click(cx.listener(|this, _, _, cx| this.zoom_by(true, cx))),
+            )
+            .when(zoom != 1.0, |row| {
+                row.child(
+                    muted_link("zoom-reset", t(CommonMsg::Reset)).on_click(cx.listener(
+                        |this, _, _, cx| {
+                            this.instances
+                                .update(cx, |instances, cx| instances.set_zoom(1.0, cx))
+                        },
+                    )),
+                )
+            });
         let general = card([
             language_row.into_any_element(),
+            zoom_row.into_any_element(),
             SettingRow::new(t(M::GroupAutomatically))
                 .hint(t(M::GroupAutomaticallyHint))
                 .child(

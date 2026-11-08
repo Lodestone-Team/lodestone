@@ -8,6 +8,7 @@
 //!   ([`server_worlds::import`]). The device key can't read files, so this signs in
 //!   once with the password; the session token is dropped after.
 
+use crate::theme::px;
 use std::{sync::Arc, time::Duration};
 
 use gpui::{
@@ -274,7 +275,7 @@ impl Render for ServerTools {
                         .flex_row()
                         .items_center()
                         .gap_2()
-                        .child(Icon::Cube.render(gpui::px(14.), colors::GRAY_400))
+                        .child(Icon::Cube.render(px(14.), colors::GRAY_400))
                         .child(
                             div()
                                 .flex_1()
@@ -330,7 +331,7 @@ impl Render for ServerTools {
             self.server.name.clone(),
             self.focus_handle.clone(),
         )
-        .width(layout::DIALOG_WIDTH + gpui::px(80.))
+        .width(layout::dialog_width() + px(80.))
         .on_close({
             let entity = entity.clone();
             move |_, cx| entity.update(cx, |_, cx| cx.emit(ToolsEvent::Dismissed))

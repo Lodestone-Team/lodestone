@@ -1,8 +1,9 @@
+use crate::theme::px;
 use std::time::Duration;
 
 use gpui::{
     Animation, AnimationExt as _, App, ClickEvent, ElementId, Hsla, IntoElement, ParentElement,
-    RenderOnce, SharedString, Styled, Window, div, prelude::*, px,
+    RenderOnce, SharedString, Styled, Window, div, prelude::*,
 };
 
 use super::{ClickHandler, Icon, focus::KeyboardFocus};

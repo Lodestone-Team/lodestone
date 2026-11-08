@@ -16,6 +16,7 @@
 //! - [`install`] makes the root of the window take focus whenever focus is lost, so
 //!   the keys always reach the window's handlers.
 
+use crate::theme::px;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -24,10 +25,10 @@ use std::{
 use gpui::{
     AnyElement, App, BoxShadow, Context, Div, ElementId, FocusHandle, InteractiveElement,
     IntoElement, KeyBinding, ParentElement, RenderOnce, Stateful, StyleRefinement, Styled,
-    Subscription, WeakFocusHandle, Window, actions, div, point, prelude::FluentBuilder as _, px,
+    Subscription, WeakFocusHandle, Window, actions, div, point, prelude::FluentBuilder as _,
 };
 
-use crate::theme::{FOCUS_RING_WIDTH, colors};
+use crate::theme::{colors, focus_ring_width};
 
 actions!(
     focus,
@@ -69,7 +70,7 @@ pub fn ring(style: StyleRefinement) -> StyleRefinement {
         color: colors::BLUE_FADED.opacity(50).into(),
         offset: point(px(0.), px(0.)),
         blur_radius: px(0.),
-        spread_radius: FOCUS_RING_WIDTH,
+        spread_radius: focus_ring_width(),
         inset: false,
     }])
 }
@@ -82,7 +83,7 @@ pub fn inner_ring(style: StyleRefinement) -> StyleRefinement {
         color: colors::BLUE_FADED.into(),
         offset: point(px(0.), px(0.)),
         blur_radius: px(0.),
-        spread_radius: FOCUS_RING_WIDTH / 2.,
+        spread_radius: focus_ring_width() / 2.,
         inset: true,
     }])
 }

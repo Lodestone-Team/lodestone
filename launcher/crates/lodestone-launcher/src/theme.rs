@@ -7,7 +7,9 @@
 //!
 //! Tailwind's letter spacing (`tracking-*`) has no GPUI equivalent and is not carried over.
 
-use gpui::{AbsoluteLength, Background, Fill, FontWeight, Hsla, Pixels, Rems, Rgba, px, rems};
+use gpui::{AbsoluteLength, Background, Fill, FontWeight, Hsla, Pixels, Rems, Rgba, rems};
+
+pub use zoom::px;
 
 /// An sRGB colour stored as `0xRRGGBBAA`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -219,20 +221,100 @@ pub mod shadow {
     pub const COLOR: Color = Color::rgb(0x111114);
 }
 
+/// The interface's zoom (Ctrl/⌘ + and −).
+///
+/// Every size in the launcher goes through [`px`], which multiplies by the zoom, and
+/// the window's rem follows it too (see [`zoom::rem_size`]), so text, spacing and
+/// fixed sizes grow together, as a browser zooms a page. Sizes the platform owns,
+/// such as the window's own size and the title bar's height under the traffic
+/// lights, use `gpui::px` and stay as they are.
+pub mod zoom {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use gpui::Pixels;
+
+    /// The levels + and − step through, as in browsers.
+    pub const LEVELS: [f32; 10] = [0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+
+    /// The zoom as f32 bits: 1.0 to start with.
+    static ZOOM: AtomicU32 = AtomicU32::new(0x3f80_0000);
+
+    /// The current zoom, 1.0 for 100%.
+    pub fn get() -> f32 {
+        f32::from_bits(ZOOM.load(Ordering::Relaxed))
+    }
+
+    /// Sets the zoom, kept within [`LEVELS`], and returns it. Windows need a refresh
+    /// to show it.
+    pub fn set(zoom: f32) -> f32 {
+        let zoom = clamp(zoom);
+        ZOOM.store(zoom.to_bits(), Ordering::Relaxed);
+        zoom
+    }
+
+    /// `zoom` within the first and last levels (100% if it isn't a number).
+    pub fn clamp(zoom: f32) -> f32 {
+        if zoom.is_finite() {
+            zoom.clamp(LEVELS[0], LEVELS[LEVELS.len() - 1])
+        } else {
+            1.0
+        }
+    }
+
+    /// The next level up from `current` (`up`), or down.
+    pub fn step(current: f32, up: bool) -> f32 {
+        if up {
+            LEVELS
+                .into_iter()
+                .find(|level| *level > current + 1e-3)
+                .unwrap_or(current)
+        } else {
+            LEVELS
+                .into_iter()
+                .rev()
+                .find(|level| *level < current - 1e-3)
+                .unwrap_or(current)
+        }
+    }
+
+    /// `value` logical pixels at the current zoom. Use this, not `gpui::px`, for
+    /// sizes in the interface.
+    pub fn px(value: f32) -> Pixels {
+        gpui::px(value * get())
+    }
+
+    /// The window's rem at the current zoom: 16px at 100%, as in browsers.
+    pub fn rem_size() -> Pixels {
+        gpui::px(16.0 * get())
+    }
+}
+
 /// Sizes of the dashboard's layout that are not on the spacing scale.
 pub mod layout {
-    use gpui::{Pixels, px};
+    use gpui::Pixels;
+
+    use super::px;
 
     /// The left sidebar's default width (`leftNavSize`).
-    pub const SIDEBAR_WIDTH: Pixels = px(220.0);
-    /// The logo in the top bar (`w-28`).
-    pub const LOGO_WIDTH: Pixels = px(112.0);
+    pub fn sidebar_width() -> Pixels {
+        px(220.0)
+    }
+
+    /// The logo in the top bar (`w-28`). It doesn't zoom, like the bar it sits in.
+    pub fn logo_width() -> Pixels {
+        gpui::px(112.0)
+    }
+
     /// Dialog panels (`w-[500px]`).
-    pub const DIALOG_WIDTH: Pixels = px(500.0);
+    pub fn dialog_width() -> Pixels {
+        px(500.0)
+    }
 }
 
 /// Width of the focus ring (`focus-visible:ring-4`).
-pub const FOCUS_RING_WIDTH: Pixels = px(4.0);
+pub fn focus_ring_width() -> Pixels {
+    px(4.0)
+}
 
 /// A text size as the absolute length GPUI's `text_size` takes.
 pub fn text_size(size: Rems) -> AbsoluteLength {
@@ -247,6 +329,17 @@ pub fn line_height(size: Rems, leading: f32) -> Rems {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zoom_steps_through_the_levels_and_stops_at_the_ends() {
+        assert_eq!(zoom::step(1.0, true), 1.1);
+        assert_eq!(zoom::step(1.0, false), 0.9);
+        assert_eq!(zoom::step(2.0, true), 2.0);
+        assert_eq!(zoom::step(0.67, false), 0.67);
+        assert_eq!(zoom::step(1.05, true), 1.1);
+        assert_eq!(zoom::clamp(5.0), 2.0);
+        assert_eq!(zoom::clamp(f32::NAN), 1.0);
+    }
     use std::{collections::BTreeMap, fs, path::Path};
 
     /// The dashboard's Tailwind config, read from the monorepo checkout.

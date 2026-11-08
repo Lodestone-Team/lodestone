@@ -10,6 +10,14 @@ crate::i18n::messages! {
         LanguageSystem = "System",
         /// The setting's button while it is System: {language} is the language it uses.
         LanguageSystemIs = "System ({language})",
+        /// Settings > General: the interface's size.
+        Zoom = "Zoom",
+        /// The menu bar's View menu.
+        ViewMenu = "View",
+        ZoomIn = "Zoom In",
+        ZoomOut = "Zoom Out",
+        /// Back to 100% zoom.
+        ActualSize = "Actual Size",
 
         // The instance's tabs, and the Play button.
         /// The Play tab, and the large Play button (shown in capitals there).

@@ -43,6 +43,9 @@ fn main() {
                 };
                 let accounts = lodestone_launcher::preview::accounts(&scene, cx);
                 let instances = lodestone_launcher::preview::instances(&scene, &accounts, cx);
+                if let Some(zoom) = lodestone_launcher::preview::requested_zoom() {
+                    lodestone_launcher::theme::zoom::set(zoom);
+                }
                 cx.spawn(async move |cx| {
                     let decoded = decoding.await;
                     cx.update(|cx| {

@@ -6,6 +6,11 @@ pub fn text(message: M) -> &'static str {
         M::Language => "语言",
         M::LanguageSystem => "系统",
         M::LanguageSystemIs => "系统（{language}）",
+        M::Zoom => "缩放",
+        M::ViewMenu => "显示",
+        M::ZoomIn => "放大",
+        M::ZoomOut => "缩小",
+        M::ActualSize => "实际大小",
 
         M::Play => "开始游戏",
         M::Playing => "游戏中",
