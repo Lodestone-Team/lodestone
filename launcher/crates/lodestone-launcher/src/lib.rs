@@ -10,6 +10,7 @@ pub mod images;
 pub mod instances;
 #[cfg(feature = "screenshot")]
 pub mod preview;
+pub mod servers;
 pub mod shell;
 pub mod theme;
 

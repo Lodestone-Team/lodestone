@@ -71,8 +71,11 @@ pub fn requested_scene() -> Option<String> {
     let mut args = std::env::args().skip_while(|arg| arg != "--scene");
     args.next()?;
     let scene = args.next()?;
-    if !SCENES.contains(&scene.as_str()) {
-        eprintln!("unknown scene {scene:?}; expected one of {SCENES:?}");
+    if !SCENES.contains(&scene.as_str()) && !servers::SCENES.contains(&scene.as_str()) {
+        eprintln!(
+            "unknown scene {scene:?}; expected one of {SCENES:?} or {:?}",
+            servers::SCENES
+        );
         std::process::exit(2);
     }
     Some(scene)
@@ -334,6 +337,7 @@ fn sample_log() -> Vec<LogLine> {
 }
 
 mod content;
+mod servers;
 
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     match scene {
@@ -400,6 +404,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.open_sign_in_at(Stage::Failed(AuthError::AppNotApproved), None, cx)
         }
         "offline" => shell.open_offline(Some("Alex_Dev"), None, cx),
+        scene if scene.starts_with("servers") => servers::apply(scene, shell, cx),
         "remove" => {
             let id = microsoft_account().id;
             shell.confirm_remove(&id, None, cx);
