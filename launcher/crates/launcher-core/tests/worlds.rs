@@ -87,6 +87,109 @@ fn progress() -> (Progress, CancelToken) {
 }
 
 #[test]
+fn world_zips_with_colliding_names_are_rejected() {
+    let (temp, dirs) = instance();
+    make_world(&dirs, "World", LEVEL_DAT);
+    let (progress, cancel) = progress();
+
+    let check = |name: &str, entries: &[(&str, &[u8])], expected: &str| {
+        let path = temp.path().join(name);
+        write_zip(&path, entries);
+        let before = tree(&worlds::saves_dir(&dirs));
+        let err = worlds::import_zip(&dirs, &path, &progress, &cancel).unwrap_err();
+        assert!(matches!(err, WorldError::Conflict(_)), "{name}: {err:?}");
+        assert!(err.to_string().contains(expected), "{name}: {err}");
+        assert_eq!(tree(&worlds::saves_dir(&dirs)), before, "{name} left files");
+    };
+    // the case from the Windows report: only one region file survived, silently
+    check(
+        "Collide World.zip",
+        &[
+            ("Collide World/level.dat", LEVEL_DAT),
+            ("Collide World/region/r.0.0.mca", b"AAAA"),
+            ("Collide World/REGION/r.0.0.mca", b"BBBB"),
+        ],
+        "Collide World/region/r.0.0.mca and Collide World/REGION/r.0.0.mca",
+    );
+    check(
+        "file case.zip",
+        &[
+            ("level.dat", LEVEL_DAT),
+            ("data/raids.dat", b"a"),
+            ("data/Raids.dat", b"b"),
+        ],
+        "differ only in case",
+    );
+    check(
+        "level case.zip",
+        &[("level.dat", LEVEL_DAT), ("LEVEL.DAT", b"not nbt")],
+        "differ only in case",
+    );
+    check(
+        "unicode case.zip",
+        &[
+            ("level.dat", LEVEL_DAT),
+            ("datapacks/Ünï/pack.mcmeta", b"a"),
+            ("datapacks/üNÏ/pack.mcmeta", b"b"),
+        ],
+        "differ only in case",
+    );
+    check(
+        "file and folder.zip",
+        &[
+            ("level.dat", LEVEL_DAT),
+            ("stats", b"a file"),
+            ("STATS/p.json", b"{}"),
+        ],
+        "differ only in case",
+    );
+    check(
+        "same file and folder.zip",
+        &[
+            ("level.dat", LEVEL_DAT),
+            ("stats", b"a file"),
+            ("stats/p.json", b"{}"),
+        ],
+        "more than once",
+    );
+    check(
+        "twice.zip",
+        &[
+            ("level.dat", LEVEL_DAT),
+            ("region/r.0.0.mca", b"AAAA"),
+            ("region/r.0.0.mca", b"BBBB"),
+        ],
+        "region/r.0.0.mca more than once",
+    );
+
+    // Folders may repeat, and names that differ by more than case are fine.
+    let fine = temp.path().join("Fine.zip");
+    write_zip(
+        &fine,
+        &[
+            ("Fine/", b""),
+            ("Fine/level.dat", LEVEL_DAT),
+            ("Fine/region/", b""),
+            ("Fine/region/r.0.0.mca", b"AAAA"),
+            ("Fine/region/r.0.1.mca", b"BBBB"),
+            ("Fine/region/", b""),
+            ("Fine/DIM-1/region/r.0.0.mca", b"CCCC"),
+        ],
+    );
+    assert_eq!(
+        worlds::import_zip(&dirs, &fine, &progress, &cancel).unwrap(),
+        "Fine"
+    );
+    let dir = worlds::saves_dir(&dirs).join("Fine");
+    assert_eq!(fs::read(dir.join("region/r.0.0.mca")).unwrap(), b"AAAA");
+    assert_eq!(fs::read(dir.join("region/r.0.1.mca")).unwrap(), b"BBBB");
+    assert_eq!(
+        fs::read(dir.join("DIM-1/region/r.0.0.mca")).unwrap(),
+        b"CCCC"
+    );
+}
+
+#[test]
 fn lists_worlds_from_level_dat() {
     let (_temp, dirs) = instance();
     assert!(worlds::list(&dirs).is_empty());
