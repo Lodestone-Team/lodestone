@@ -8,6 +8,7 @@ pub mod assets;
 pub mod components;
 pub mod images;
 pub mod instances;
+pub mod markdown;
 #[cfg(feature = "screenshot")]
 pub mod preview;
 pub mod shell;

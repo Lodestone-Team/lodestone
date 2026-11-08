@@ -81,6 +81,27 @@ pub fn render_image(mut image: image::RgbaImage) -> Arc<RenderImage> {
     Arc::new(RenderImage::new([image::Frame::new(image)]))
 }
 
+/// Decodes a downloaded image (PNG, JPEG, WebP or GIF's first frame) for a project
+/// description, at most 1280 pixels on a side.
+pub fn decode_large(bytes: &[u8]) -> Option<image::RgbaImage> {
+    const MAX: u32 = 1280;
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(8192);
+    limits.max_image_height = Some(8192);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader.decode().ok()?;
+    let image = if image.width() > MAX || image.height() > MAX {
+        image.thumbnail(MAX, MAX)
+    } else {
+        image
+    };
+    Some(image.to_rgba8())
+}
+
 /// Decodes a small PNG, such as a cached skin head.
 pub fn decode_png(bytes: &[u8]) -> anyhow::Result<Arc<RenderImage>> {
     let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)?;
