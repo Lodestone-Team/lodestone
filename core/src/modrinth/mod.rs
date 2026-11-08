@@ -4,13 +4,16 @@
 //! Browsers and the CLI never call Modrinth themselves; the core proxies every call (see
 //! `handlers/modrinth.rs`). The [`ModrinthApi`] trait lets the install and modpack logic run
 //! against a fake in tests.
+//!
+//! The API types, link parsing and search facets are in [`lodestone_minecraft::modrinth`],
+//! which Lodestone Launcher shares.
 
 mod cache;
 pub mod client;
 #[cfg(test)]
 pub mod fake;
 pub mod links;
-pub mod search;
+pub use lodestone_minecraft::modrinth::search;
 pub mod types;
 
 use std::collections::HashMap;
@@ -33,8 +36,7 @@ pub const USER_AGENT: &str = concat!(
     " (https://github.com/Lodestone-Team/lodestone)"
 );
 
-/// The only host that version files (mods, plugins and modpacks) are downloaded from.
-pub const CDN_HOST: &str = "cdn.modrinth.com";
+pub use lodestone_minecraft::modrinth::CDN_HOST;
 
 /// The size and hashes of a downloaded file, as lowercase hex.
 #[derive(Debug, Clone, PartialEq, Eq)]

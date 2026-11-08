@@ -1,13 +1,13 @@
 use gpui::{Context, IntoElement, div, prelude::*, px};
 
-use super::{LauncherShell, Page};
+use super::{LauncherShell, Page, account_box};
 use crate::{
-    components::{Align, Button, ButtonVariant, Icon, IconButton},
+    components::{Align, Button, ButtonVariant, Icon},
     theme::{self, colors, layout, leading, radius, text, weights},
 };
 
-/// The left sidebar, after the dashboard's `LeftNav`: the account box and settings
-/// gear, the instance list and the "New instance" button, and a status footer.
+/// The left sidebar: the account box at the top, the instance list and "New
+/// instance" in the middle, and Settings pinned at the bottom.
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     div()
         .id("sidebar")
@@ -21,6 +21,14 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .border_color(colors::FADE_700)
         .child(
             div()
+                .flex_none()
+                .px_2()
+                .pt_3()
+                .pb_4()
+                .child(account_box::render(shell, cx)),
+        )
+        .child(
+            div()
                 .id("sidebar-scroll")
                 .flex()
                 .flex_col()
@@ -28,46 +36,12 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .min_h_0()
                 .overflow_y_scroll()
                 .px_2()
-                .pt_10()
-                .child(account_box(shell, cx))
                 .child(instance_list(cx)),
         )
-        .child(footer())
+        .child(footer(shell, cx))
 }
 
-/// The dashboard's `UserMenu` row: an account button and the settings gear.
-fn account_box(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
-    let settings_open = shell.page == Page::Settings;
-    div()
-        .flex()
-        .flex_row()
-        .gap_2()
-        .w_full()
-        .mb_6()
-        .px_2()
-        .child(
-            div().flex_1().min_w_0().child(
-                // Accounts come in a later milestone; this is a placeholder.
-                Button::new("sign-in", "Sign in")
-                    .icon(Icon::User)
-                    .align(Align::Between)
-                    .full_width()
-                    .disabled(true),
-            ),
-        )
-        .child(
-            IconButton::new("settings", Icon::Gear).on_click(cx.listener(move |this, _, _, cx| {
-                let page = if settings_open {
-                    Page::Home
-                } else {
-                    Page::Settings
-                };
-                this.show(page, cx);
-            })),
-        )
-}
-
-/// The dashboard's `InstanceList`, empty until instances exist.
+/// The instances, each a row with its icon, name and version; empty for now.
 fn instance_list(cx: &mut Context<LauncherShell>) -> impl IntoElement {
     div()
         .flex()
@@ -123,20 +97,56 @@ fn section_label(label: &'static str) -> impl IntoElement {
         .child(label)
 }
 
-/// The bar at the bottom of the sidebar, where the dashboard shows the core's status.
-fn footer() -> impl IntoElement {
+/// Settings, pinned to the bottom, and the version.
+fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let settings_open = shell.page == Page::Settings;
     div()
         .flex()
+        .flex_col()
         .flex_none()
-        .items_center()
+        .gap_1()
         .w_full()
-        .px_4()
+        .px_2()
         .py_2()
         .border_t_1()
         .border_color(colors::FADE_700)
-        .bg(colors::GRAY_850)
-        .text_size(theme::text_size(text::SMALL))
-        .font_weight(weights::MEDIUM.into())
-        .text_color(colors::GRAY_FADED.opacity(30))
-        .child(concat!("Lodestone Launcher v", env!("CARGO_PKG_VERSION")))
+        .child(
+            div()
+                .id("settings")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .px_2()
+                .py_1p5()
+                .rounded(radius::MD)
+                .cursor_pointer()
+                .font_weight(weights::BOLD.into())
+                .map(|this| {
+                    if settings_open {
+                        this.bg(colors::GRAY_800).text_color(colors::GRAY_300)
+                    } else {
+                        this.text_color(colors::GRAY_400)
+                            .hover(|style| style.bg(colors::GRAY_800).text_color(colors::GRAY_300))
+                    }
+                })
+                .child(Icon::Gear.render(px(14.), colors::GRAY_FADED.opacity(50)))
+                .child("Settings")
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let page = if settings_open {
+                        Page::Instance
+                    } else {
+                        Page::Settings
+                    };
+                    this.show(page, cx);
+                })),
+        )
+        .child(
+            div()
+                .px_2()
+                .text_size(theme::text_size(text::CAPTION))
+                .font_weight(weights::MEDIUM.into())
+                .text_color(colors::GRAY_FADED.opacity(30))
+                .child(concat!("Lodestone Launcher v", env!("CARGO_PKG_VERSION"))),
+        )
 }

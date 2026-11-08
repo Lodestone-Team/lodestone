@@ -1,13 +1,11 @@
 //! Scans a mods folder: the jars in it, their SHA-512 hashes and their metadata.
 
 use std::collections::HashMap;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use std::time::SystemTime;
 
 use color_eyre::eyre::{eyre, Context};
-use sha2::Digest;
 
 use super::metadata::{JarEnvironment, JarInfo};
 use super::{
@@ -43,20 +41,7 @@ static SCAN_CACHE: LazyLock<Mutex<HashMap<(PathBuf, InstalledModLoader), CachedS
     LazyLock::new(Default::default);
 const SCAN_CACHE_MAX_ENTRIES: usize = 4096;
 
-/// The SHA-512 of a file, as lowercase hex.
-pub fn sha512_of(path: &Path) -> std::io::Result<String> {
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = sha2::Sha512::new();
-    let mut buffer = vec![0_u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hex::encode(hasher.finalize()))
-}
+pub use lodestone_minecraft::hash::sha512_of;
 
 fn scan_file_blocking(path: &Path, loader: InstalledModLoader) -> Result<ScannedFile, Error> {
     let file_name = path
@@ -149,6 +134,8 @@ pub async fn scan_folder(folder: &ModFolder) -> Result<Vec<ScannedFile>, Error> 
 
 #[cfg(test)]
 mod tests {
+    use sha2::Digest;
+
     use super::*;
     use crate::mods::metadata::tests::make_zip;
 

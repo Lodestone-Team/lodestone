@@ -57,9 +57,9 @@ pub fn render(cx: &mut Context<LauncherShell>) -> impl IntoElement {
                 .flex_none()
                 .cursor_pointer()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_click(cx.listener(|this, _, _, cx| this.show(Page::Home, cx)))
+                .on_click(cx.listener(|this, _, _, cx| this.show(Page::Instance, cx)))
                 .child(
-                    img("images/logo.svg")
+                    img(crate::images::logo(cx))
                         .w(layout::LOGO_WIDTH)
                         // The logo's viewBox is 106 by 22.
                         .h(layout::LOGO_WIDTH * (22.0 / 106.0)),

@@ -4,6 +4,7 @@ import { game_to_game_icon, game_to_game_title } from 'data/GameTypeMappings';
 import { useState } from 'react';
 import { modpackIconUrl } from 'utils/mods';
 import { cn } from 'utils/util';
+import RemoteIcon from './RemoteIcon';
 
 /**
  * An instance's game icon, or its modpack's icon when it has one
@@ -33,11 +34,10 @@ export default function GameIcon({
       mouseEnterDelay={0.2}
     >
       {showModpack ? (
-        <img
+        <RemoteIcon
           key="modpack"
           src={modpackIcon}
           alt={game_title}
-          referrerPolicy="no-referrer"
           // same size as the game icon, as a rounded square
           className={cn(className, 'rounded-xs object-cover')}
           onError={() => setFailedIcon(modpackIcon)}
