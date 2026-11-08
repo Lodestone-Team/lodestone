@@ -40,6 +40,7 @@ import {
   NO_WRITE_PERMISSION,
   pickFiles,
 } from './common';
+import ClientPackPanel from './ClientPackPanel';
 
 const ModRow = ({
   uuid,
@@ -306,6 +307,7 @@ export default function InstalledMods({
         Replace it with the uploaded file?
       </ConfirmDialog>
 
+      {list && !error && <ClientPackPanel uuid={uuid} list={list} />}
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
         <div className="text-medium text-white/50">
           {list
