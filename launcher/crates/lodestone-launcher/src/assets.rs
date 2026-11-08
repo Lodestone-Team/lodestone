@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn embeds_each_font_family() {
         let files: Vec<_> = font_files().collect();
-        for family in ["jetbrains-mono/"] {
+        for family in ["satoshi/", "chillax/", "clash-grotesk/", "jetbrains-mono/"] {
             for face in ["Regular", "Medium", "Bold"] {
                 assert!(
                     files
