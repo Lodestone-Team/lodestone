@@ -1186,11 +1186,8 @@ export const en = {
   // GameTypeSelectForm: the first step, picking a game
   'create.gameType.title': 'Select a game',
   'create.gameType.subtitle': 'What will your server be used for?',
-  /** the Docker card's title, a link to its wiki page */
-  'create.gameType.docker': 'Learn about Docker Server (beta)',
-  /** a badge next to the Docker card's title */
-  'create.gameType.new': 'NEW!',
-  'create.gameType.fetchFailed': 'Error fetching the server',
+  /** a badge next to the Modrinth modpack card's title */
+  'create.gameType.new': 'New',
   'create.gameType.modpack': 'Modrinth modpack',
   'create.gameType.modpackDescription':
     'Create a Fabric server from a Modrinth modpack',

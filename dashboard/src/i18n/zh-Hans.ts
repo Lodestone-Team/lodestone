@@ -926,9 +926,7 @@ export const zhHans: Messages = {
   // GameTypeSelectForm: the first step, picking a game
   'create.gameType.title': '选择游戏',
   'create.gameType.subtitle': '你的服务器将用于什么？',
-  'create.gameType.docker': '了解 Docker 服务器（测试版）',
   'create.gameType.new': '新功能',
-  'create.gameType.fetchFailed': '获取服务器出错',
   'create.gameType.modpack': 'Modrinth 整合包',
   'create.gameType.modpackDescription': '从 Modrinth 整合包创建 Fabric 服务器',
 
