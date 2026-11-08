@@ -1,14 +1,15 @@
 //! GDLauncher: the old Electron app and the newer Carbon.
 //!
 //! - **Legacy** (gorilla-devs/GDLauncher, v1.1.30): data in
-//!   `~/Library/Application Support/gdlauncher_next`, moved to the path written in its
+//!   `~/Library/Application Support/gdlauncher_next` (Electron's `userData`, so
+//!   `%APPDATA%\gdlauncher_next` on Windows), moved to the path written in its
 //!   `override.data` (`public/electron.js`). `instances/<name>/config.json` (the name is
 //!   the folder's) with `loader.{loaderType vanilla|forge|fabric, loaderVersion (Forge's
 //!   full `1.16.5-36.2.39`), mcVersion}`, `javaArgs`, `javaMemory` (MB), `customJavaPath`,
 //!   `background` (an image in the folder) (`src/common/reducers/actions.js`,
 //!   `src/common/utils/index.js`). The game runs in the instance folder.
 //! - **Carbon** (gorilla-devs/GDLauncher-Carbon): data in
-//!   `~/Library/Application Support/gdlauncher_carbon`, runtime folder `data/` unless
+//!   `~/Library/Application Support/gdlauncher_carbon` (`%APPDATA%` on Windows), runtime folder `data/` unless
 //!   `runtime_path_override` names another; `instances/<folder>/instance.json` (`_version`
 //!   `"1"`, `name`, `icon`, `game_configuration.{version.{release, modloaders[{type
 //!   Forge|Neoforge|Fabric|Quilt, version}]}, memory.{min_mb, max_mb}, extra_java_args,

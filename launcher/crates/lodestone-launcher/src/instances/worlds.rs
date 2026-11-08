@@ -906,7 +906,7 @@ impl WorldsView {
                 .rounded(radius::MD)
                 .object_fit(ObjectFit::Cover)
                 .into_any_element(),
-            None => img("images/placeholder-cube.png")
+            None => img("images/instance-icons/grass.png")
                 .flex_none()
                 .size(px(48.))
                 .rounded(radius::MD)

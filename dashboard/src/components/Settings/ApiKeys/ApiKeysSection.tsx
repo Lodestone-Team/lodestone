@@ -7,6 +7,7 @@ import { toast } from 'react-toastify';
 import ApiKeyList from './ApiKeyList';
 import CreateApiKeyDialog from './CreateApiKeyDialog';
 import CreatedApiKeyDialog from './CreatedApiKeyDialog';
+import { SettingsSection } from '../SettingsBlocks';
 
 /**
  * The current user's API keys, on the profile page: the list, revoking, and
@@ -37,24 +38,24 @@ export default function ApiKeysSection({ enabled }: { enabled: boolean }) {
         onClose={() => setShowCreated(false)}
         afterLeave={() => setCreated(null)}
       />
-      <div className="mt-8 flex flex-row items-end justify-between gap-4">
-        <div>
-          <div className="text-h3 font-extrabold text-gray-300">API keys</div>
-          <p className="text-medium font-medium tracking-medium text-white/50">
+      <SettingsSection
+        title="API keys"
+        lead={
+          <>
             Keys let the CLI, scripts and agents use Lodestone as you, without
             your password. Revoking a key doesn&apos;t sign you out anywhere
             else.
-          </p>
-        </div>
-        <Button
-          label="Create API key"
-          icon={faPlus}
-          className="shrink-0"
-          disabled={!enabled}
-          onClick={() => setShowCreate(true)}
-        />
-      </div>
-      <div className="mt-4">
+          </>
+        }
+        action={
+          <Button
+            label="Create API key"
+            icon={faPlus}
+            disabled={!enabled}
+            onClick={() => setShowCreate(true)}
+          />
+        }
+      >
         <ApiKeyList
           keys={keys}
           isLoading={isLoading}
@@ -63,7 +64,7 @@ export default function ApiKeysSection({ enabled }: { enabled: boolean }) {
           revoke={(key) => revokeOwnApiKey(key.id)}
           emptyText="You have no API keys."
         />
-      </div>
+      </SettingsSection>
     </>
   );
 }

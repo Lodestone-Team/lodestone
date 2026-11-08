@@ -104,7 +104,7 @@ export default function CreateApiKeyDialog({
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
-      <Dialog onClose={onClose} className="relative z-10">
+      <Dialog onClose={onClose} className="relative z-60">
         <ModalBackdrop />
         <div className="fixed inset-0 overflow-y-auto">
           <div className="flex min-h-full items-center justify-center p-4">

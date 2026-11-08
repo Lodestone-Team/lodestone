@@ -36,6 +36,7 @@ use crate::{
     game::{
         download::CancelToken,
         install::{InstallError, Installer},
+        launch::split_args,
         loaders::{LoaderChoice, LoaderKind},
     },
     instances::{CUSTOM_ICON, ICON_FILE, Instance, InstanceError, InstanceStore, Loader, Memory},
@@ -199,9 +200,18 @@ impl Found {
         });
     }
 
+    /// Takes JVM arguments as text that [`split_args`] reads, with runs of whitespace
+    /// between them made single spaces (but not those inside quotes).
     pub(crate) fn set_jvm_args(&mut self, args: Option<&str>) {
         self.jvm_args = args
-            .map(|a| a.split_whitespace().collect::<Vec<_>>().join(" "))
+            .map(|a| {
+                let tidy = a.split_whitespace().collect::<Vec<_>>().join(" ");
+                if split_args(&tidy) == split_args(a) {
+                    tidy
+                } else {
+                    a.trim().to_string()
+                }
+            })
             .filter(|a| !a.is_empty());
     }
 }
@@ -546,5 +556,24 @@ mod tests {
             (None, Some(2048), String::new())
         );
         assert_eq!(split_memory_args(""), (None, None, String::new()));
+    }
+
+    #[test]
+    fn jvm_args_keep_quoted_whitespace() {
+        let mut found = Found::new(
+            Source::Prism,
+            "x",
+            PathBuf::from("x"),
+            WantedVersion::Exact("1.21.10".into()),
+        );
+        found.set_jvm_args(Some("  -Xss2m\n\t-Dx=y  "));
+        assert_eq!(found.jvm_args.as_deref(), Some("-Xss2m -Dx=y"));
+        found.set_jvm_args(Some(r#" -Dfoo="C:\Two  Spaces" -Xss2m "#));
+        assert_eq!(
+            found.jvm_args.as_deref(),
+            Some(r#"-Dfoo="C:\Two  Spaces" -Xss2m"#)
+        );
+        found.set_jvm_args(Some("   "));
+        assert_eq!(found.jvm_args, None);
     }
 }
