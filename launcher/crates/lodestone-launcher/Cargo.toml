@@ -21,3 +21,6 @@ screenshot = ["gpui_platform/test-support"]
 [dependencies]
 gpui.workspace = true
 gpui_platform = { workspace = true, features = ["font-kit"] }
+
+[[example]]
+name = "components"
