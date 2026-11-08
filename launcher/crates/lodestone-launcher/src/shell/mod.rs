@@ -6,10 +6,12 @@ mod account_box;
 mod developer;
 mod launcher_settings;
 mod play;
+mod shared_settings;
 mod sidebar;
 mod top_bar;
 
 pub use launcher_settings::LauncherSettings;
+pub use shared_settings::SharedSettings;
 pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
@@ -137,6 +139,8 @@ pub struct LauncherShell {
     /// The Servers page, and its dialogs over the window.
     servers: Entity<Servers>,
     servers_overlay: Entity<ServersOverlay>,
+    /// Settings > Shared game settings.
+    shared_settings: Entity<SharedSettings>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
     settings: Option<(Entity<InstanceSettings>, [Subscription; 2])>,
     page: Page,
@@ -194,6 +198,10 @@ impl LauncherShell {
         observe.push(cx.subscribe(&servers, |this, _, event, cx| match event {
             ServersEvent::OpenInstance(id) => this.select_instance(id, cx),
         }));
+        let shared_settings = {
+            let instances = instances.clone();
+            cx.new(|cx| SharedSettings::new(instances, cx))
+        };
         let mut this = Self {
             accounts,
             instances,
@@ -202,6 +210,7 @@ impl LauncherShell {
             launcher_settings,
             servers,
             servers_overlay,
+            shared_settings,
             settings: None,
             page: Page::default(),
             tab: InstanceTab::default(),
@@ -250,6 +259,10 @@ impl LauncherShell {
             }
             Some(_) => {}
         }
+    }
+
+    pub fn shared_settings(&self) -> &Entity<SharedSettings> {
+        &self.shared_settings
     }
 
     pub fn settings_view(&self) -> Option<&Entity<InstanceSettings>> {
@@ -841,6 +854,7 @@ impl Render for LauncherShell {
                 .overflow_y_scroll()
                 .pb_8()
                 .child(self.launcher_settings.clone())
+                .child(self.shared_settings.clone())
                 .child(developer::render(self, cx))
                 .into_any_element(),
             Page::Servers => self.servers.clone().into_any_element(),
