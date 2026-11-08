@@ -93,7 +93,8 @@ impl fmt::Display for Arch {
 pub struct Platform {
     pub os: Os,
     pub arch: Arch,
-    /// What Java reports as `os.version`, such as `14.6.1` on macOS.
+    /// The OS version, such as `14.6.1` on macOS or `10.0.22631` on Windows 11. Mojang's
+    /// `os.version` patterns and `versionRange`s are matched against it.
     pub os_version: String,
 }
 
@@ -145,9 +146,38 @@ pub fn os_version() -> Option<String> {
     sysctl_string(c"kern.osproductversion")
 }
 
-#[cfg(not(target_os = "macos"))]
+/// The Windows version as `major.minor.build` (`10.0.22631`), the form the official
+/// launcher matches Mojang's rules against: `^10\.` patterns and `versionRange`s such
+/// as `min 10.0.17134`. Windows 11 still reports 10.0.
+///
+/// This uses `RtlGetVersion`, because `GetVersionEx` reports Windows 8 (6.2) to
+/// programs without a compatibility manifest.
+#[cfg(windows)]
+pub fn os_version() -> Option<String> {
+    use windows_sys::{
+        Wdk::System::SystemServices::RtlGetVersion,
+        Win32::System::SystemInformation::OSVERSIONINFOW,
+    };
+    let mut info = OSVERSIONINFOW {
+        dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `info` is a writable OSVERSIONINFOW whose size field is set, as
+    // RtlGetVersion requires.
+    let status = unsafe { RtlGetVersion(&mut info) };
+    (status == 0)
+        .then(|| windows_version(info.dwMajorVersion, info.dwMinorVersion, info.dwBuildNumber))
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn os_version() -> Option<String> {
     None
+}
+
+/// A Windows version as the official launcher reports it.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn windows_version(major: u32, minor: u32, build: u32) -> String {
+    format!("{major}.{minor}.{build}")
 }
 
 /// The total physical memory in bytes.
@@ -169,7 +199,30 @@ pub fn total_memory() -> Option<u64> {
     (result == 0 && size == std::mem::size_of::<u64>()).then_some(value)
 }
 
-#[cfg(not(target_os = "macos"))]
+/// The total physical memory in bytes: the installed RAM, as Windows Settings shows
+/// it. What Windows can use is a little less (hardware reserves some), and would read
+/// as "15 GB" on a 16 GB PC; that is the fallback when the firmware doesn't say.
+#[cfg(windows)]
+pub fn total_memory() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::{
+        GetPhysicallyInstalledSystemMemory, GlobalMemoryStatusEx, MEMORYSTATUSEX,
+    };
+    let mut kilobytes: u64 = 0;
+    // SAFETY: `kilobytes` is a writable u64, which is all the call writes.
+    if unsafe { GetPhysicallyInstalledSystemMemory(&mut kilobytes) } != 0 && kilobytes > 0 {
+        return Some(kilobytes.saturating_mul(1024));
+    }
+    let mut status = MEMORYSTATUSEX {
+        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `status` is a writable MEMORYSTATUSEX whose length field is set, as
+    // GlobalMemoryStatusEx requires.
+    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
+    (ok != 0 && status.ullTotalPhys > 0).then_some(status.ullTotalPhys)
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn total_memory() -> Option<u64> {
     None
 }
@@ -245,6 +298,42 @@ mod tests {
         assert_eq!(Arch::X86.rule_name(), "x86");
         assert_eq!(Arch::Arm64.bits(), "64");
         assert_eq!(Arch::X86.bits(), "32");
+    }
+
+    #[test]
+    fn windows_versions_match_mojang_rules() {
+        use crate::game::rules::{Features, Rule, allows};
+        let version = windows_version(10, 0, 22631);
+        assert_eq!(version, "10.0.22631");
+        let windows = Platform::new(Os::Windows, Arch::X86_64, version);
+        let rules = |value| serde_json::from_value::<Vec<Rule>>(value).unwrap();
+        let f = Features::default();
+        // 1.13 to 1.21's `-Dos.name=Windows 10 -Dos.version=10.0` arguments.
+        let windows_10 = rules(serde_json::json!([
+            {"action": "allow", "os": {"name": "windows", "version": "^10\\."}}
+        ]));
+        assert!(allows(&windows_10, &windows, &f));
+        // 26.3's ZGC arguments, for Windows 10 1803 and later.
+        let zgc = rules(serde_json::json!([
+            {"action": "allow", "os": {"name": "windows", "versionRange": {"min": "10.0.17134"}}}
+        ]));
+        assert!(allows(&zgc, &windows, &f));
+        assert!(!allows(
+            &zgc,
+            &Platform::new(Os::Windows, Arch::X86_64, windows_version(10, 0, 16299)),
+            &f
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reads_the_windows_version_and_memory() {
+        let version = os_version().unwrap();
+        let parts: Vec<u32> = version.split('.').map(|p| p.parse().unwrap()).collect();
+        assert_eq!(parts.len(), 3, "{version}");
+        // Not the 6.2 that GetVersionEx reports without a manifest.
+        assert!(parts[0] >= 10, "{version}");
+        assert!(total_memory().unwrap() >= 1024 * 1024 * 1024);
     }
 
     #[test]
