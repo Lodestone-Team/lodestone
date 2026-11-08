@@ -48,3 +48,20 @@ calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee
 async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
 khronos-egl = { git = "https://github.com/zed-industries/khronos-egl", rev = "42214b36347b108fd9630ca6254b96dde59e04fe" }
 windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }
+
+# Optimise the dependencies that do heavy work at runtime even in debug builds. The
+# list follows Zed's own `[profile.dev.package]` (resvg, taffy, serde_json and the
+# proc-macro crates), plus usvg and tiny-skia: unoptimised, they take about four
+# seconds to rasterize the Play tab's artwork.
+[profile.dev.package]
+gpui_macros = { opt-level = 3 }
+derive_refineable = { opt-level = 3 }
+quote = { opt-level = 3 }
+syn = { opt-level = 3 }
+proc-macro2 = { opt-level = 3 }
+taffy = { opt-level = 3 }
+resvg = { opt-level = 3 }
+usvg = { opt-level = 3 }
+tiny-skia = { opt-level = 3 }
+tiny-skia-path = { opt-level = 3 }
+serde_json = { opt-level = 3 }
