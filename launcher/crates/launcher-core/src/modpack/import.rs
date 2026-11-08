@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use futures::TryStreamExt as _;
+use futures::{StreamExt as _, TryStreamExt as _};
 use lodestone_minecraft::{hash, mrpack::PackDownload};
 
 use super::{
@@ -81,51 +81,71 @@ pub(crate) async fn download_files(
         bytes_total: downloads.iter().map(|(d, _)| d.size).sum(),
         ..ProgressSnapshot::default()
     });
-    futures::stream::iter(downloads.iter().map(Ok::<_, ModpackError>))
-        .map_ok(|(download, dest)| async move {
-            prepare_parent(root, dest)?;
-            let mut last_error = None;
-            for url in &download.urls {
-                if cancel.is_cancelled() {
-                    return Err(ModpackError::Cancelled);
-                }
-                let item = DownloadItem {
-                    url: api.pack_file_url(url)?,
-                    dest: dest.clone(),
-                    sha1: download.sha1.clone(),
-                    size: (download.size > 0).then_some(download.size),
-                    executable: false,
-                };
-                match downloader.fetch(&item, &progress.downloads, cancel).await {
-                    Ok(()) => {}
-                    Err(crate::game::download::DownloadError::Cancelled) => {
-                        return Err(ModpackError::Cancelled);
-                    }
-                    Err(err) => {
-                        last_error = Some(err.to_string());
-                        continue;
-                    }
-                }
-                let sha512 = hash::sha512_of(dest).map_err(io_error(dest))?;
-                if sha512.eq_ignore_ascii_case(&download.sha512) {
-                    return Ok(());
-                }
-                let _ = fs::remove_file(dest);
-                last_error = Some(format!(
-                    "the download from {} is damaged: its SHA-512 hash doesn't match",
-                    url.host_str().unwrap_or_default()
-                ));
-            }
-            Err(ModpackError::Invalid(format!(
-                "Couldn't download {}: {}",
-                slash_path(&download.path),
-                last_error.unwrap_or_else(|| "it has no download URL".into())
-            )))
+    // Boxed, so the future stays `Send` for any lifetime (a closure over the borrowed
+    // slice trips the compiler's higher-ranked `Send` check).
+    let fetches: Vec<futures::future::BoxFuture<'_, Result<(), ModpackError>>> = downloads
+        .iter()
+        .map(|(download, dest)| {
+            Box::pin(fetch_one(
+                api, downloader, root, download, dest, progress, cancel,
+            )) as futures::future::BoxFuture<'_, _>
         })
-        .try_buffer_unordered(PARALLEL_DOWNLOADS)
+        .collect();
+    futures::stream::iter(fetches)
+        .buffer_unordered(PARALLEL_DOWNLOADS)
         .try_collect::<Vec<()>>()
         .await?;
     Ok(())
+}
+
+/// Downloads one file of a pack, trying its URLs in order.
+async fn fetch_one(
+    api: &Modrinth,
+    downloader: &Downloader,
+    root: &Path,
+    download: &PackDownload,
+    dest: &Path,
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<(), ModpackError> {
+    prepare_parent(root, dest)?;
+    let mut last_error = None;
+    for url in &download.urls {
+        if cancel.is_cancelled() {
+            return Err(ModpackError::Cancelled);
+        }
+        let item = DownloadItem {
+            url: api.pack_file_url(url)?,
+            dest: dest.to_path_buf(),
+            sha1: download.sha1.clone(),
+            size: (download.size > 0).then_some(download.size),
+            executable: false,
+        };
+        match downloader.fetch(&item, &progress.downloads, cancel).await {
+            Ok(()) => {}
+            Err(crate::game::download::DownloadError::Cancelled) => {
+                return Err(ModpackError::Cancelled);
+            }
+            Err(err) => {
+                last_error = Some(err.to_string());
+                continue;
+            }
+        }
+        let sha512 = hash::sha512_of(dest).map_err(io_error(dest))?;
+        if sha512.eq_ignore_ascii_case(&download.sha512) {
+            return Ok(());
+        }
+        let _ = fs::remove_file(dest);
+        last_error = Some(format!(
+            "the download from {} is damaged: its SHA-512 hash doesn't match",
+            url.host_str().unwrap_or_default()
+        ));
+    }
+    Err(ModpackError::Invalid(format!(
+        "Couldn't download {}: {}",
+        slash_path(&download.path),
+        last_error.unwrap_or_else(|| "it has no download URL".into())
+    )))
 }
 
 /// Copies the override files `files` from the pack at `pack_path` to the paths `dest`
@@ -224,6 +244,87 @@ pub(crate) async fn content_entries(
         .collect()
 }
 
+/// The `.mrpack` file of a Modrinth version: the primary `.mrpack`, or the first one.
+pub fn pack_file(
+    version: &lodestone_minecraft::modrinth::RawVersion,
+) -> Option<&lodestone_minecraft::modrinth::RawVersionFile> {
+    let is_mrpack = |name: &str| name.to_ascii_lowercase().ends_with(".mrpack");
+    version
+        .files
+        .iter()
+        .find(|f| f.primary && is_mrpack(&f.filename))
+        .or_else(|| version.files.iter().find(|f| is_mrpack(&f.filename)))
+}
+
+/// Downloads the `.mrpack` of a Modrinth version into `dir` (under a hidden name), from
+/// Modrinth's CDN only, with its SHA-1, size and SHA-512 checked. The caller removes the
+/// file when done.
+pub async fn download_pack(
+    api: &Modrinth,
+    downloader: &Downloader,
+    version: &lodestone_minecraft::modrinth::RawVersion,
+    dir: &Path,
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<PathBuf, ModpackError> {
+    let file = pack_file(version)
+        .ok_or_else(|| ModpackError::Invalid(format!("{} has no .mrpack file.", version.name)))?;
+    if file.size > lodestone_minecraft::mrpack::MAX_PACK_FILE_BYTES {
+        return Err(ModpackError::Invalid(format!(
+            "{} is larger than 1 GB.",
+            file.filename
+        )));
+    }
+    let hex = |value: &Option<String>, len: usize| {
+        value
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .filter(|h| h.len() == len && h.chars().all(|c| c.is_ascii_hexdigit()))
+    };
+    let (Some(sha1), Some(sha512)) = (hex(&file.hashes.sha1, 40), hex(&file.hashes.sha512, 128))
+    else {
+        return Err(ModpackError::Invalid(format!(
+            "Modrinth sent no hashes for {}, so it can't be checked.",
+            file.filename
+        )));
+    };
+    fs::create_dir_all(dir).map_err(io_error(dir))?;
+    let dest = dir.join(format!(".lodestone-pack-{sha1}.mrpack"));
+    let item = DownloadItem {
+        url: api.cdn_url(&file.url)?,
+        dest: dest.clone(),
+        sha1,
+        size: Some(file.size),
+        executable: false,
+    };
+    progress.set_label(format!("Downloading {}", file.filename));
+    progress.downloads.set(ProgressSnapshot {
+        files_total: 1,
+        bytes_total: file.size,
+        ..ProgressSnapshot::default()
+    });
+    match downloader.fetch(&item, &progress.downloads, cancel).await {
+        Ok(()) => {}
+        Err(crate::game::download::DownloadError::Cancelled) => {
+            let _ = fs::remove_file(&dest);
+            return Err(ModpackError::Cancelled);
+        }
+        Err(err) => {
+            let _ = fs::remove_file(&dest);
+            return Err(err.into());
+        }
+    }
+    let actual = hash::sha512_of(&dest).map_err(io_error(&dest))?;
+    if !actual.eq_ignore_ascii_case(&sha512) {
+        let _ = fs::remove_file(&dest);
+        return Err(ModpackError::Invalid(format!(
+            "The download of {} is damaged: its SHA-512 hash doesn't match.",
+            file.filename
+        )));
+    }
+    Ok(dest)
+}
+
 /// The record of a pack's files, as the pack has them.
 pub(crate) fn record_files(pack: &PackInfo) -> std::collections::BTreeMap<String, PackFile> {
     let mut files = std::collections::BTreeMap::new();
@@ -295,7 +396,7 @@ async fn build(
         let api = api.ok_or_else(|| {
             ModpackError::Invalid("Modrinth can't be reached to download the pack's files.".into())
         })?;
-        progress.set_label(format!("Downloading {}", pack.name));
+        progress.set_label(format!("Downloading {} files", pack.downloads.len()));
         let downloads: Vec<(PackDownload, PathBuf)> = pack
             .downloads
             .iter()
@@ -303,7 +404,7 @@ async fn build(
             .collect();
         download_files(api, downloader, &game, &downloads, progress, cancel).await?;
     }
-    progress.set_label(format!("Copying {}'s files", pack.name));
+    progress.set_label("Copying the pack's configs");
     let overrides: Vec<(OverrideFile, PathBuf)> = pack
         .overrides
         .iter()

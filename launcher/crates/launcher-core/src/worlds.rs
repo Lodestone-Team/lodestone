@@ -554,6 +554,13 @@ fn check_backup(dirs: &InstanceDirs, path: &Path) -> Result<(), WorldError> {
 }
 
 /// Moves a backup to the Trash.
+pub fn delete_backup(dirs: &InstanceDirs, path: &Path) -> Result<(), WorldError> {
+    delete_backup_with(dirs, path, |path| {
+        trash::delete(path).map_err(|e| e.to_string())
+    })
+}
+
+/// Like [`delete_backup`], with `remove` doing the removal.
 pub fn delete_backup_with(
     dirs: &InstanceDirs,
     path: &Path,
@@ -801,6 +808,26 @@ pub struct Restored {
     pub folder: String,
     /// The backup of the replaced world.
     pub safety_backup: Option<Backup>,
+}
+
+/// Restores a backup of the world `folder`; a replaced world goes to the Trash.
+pub fn restore(
+    dirs: &InstanceDirs,
+    folder: &str,
+    backup_path: &Path,
+    mode: RestoreMode,
+    progress: &Progress,
+    cancel: &CancelToken,
+) -> Result<Restored, WorldError> {
+    restore_with(
+        dirs,
+        folder,
+        backup_path,
+        mode,
+        |path| trash::delete(path).map_err(|e| e.to_string()),
+        progress,
+        cancel,
+    )
 }
 
 /// Restores a backup of the world `folder`. `remove` moves the replaced world to the

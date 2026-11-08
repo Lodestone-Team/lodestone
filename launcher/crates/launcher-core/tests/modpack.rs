@@ -698,3 +698,50 @@ fn an_update_keeps_the_users_files() {
     let again = update::plan(&dirs, &record, &pack, record.clone(), None);
     assert!(!again.changes_files(), "{again:?}");
 }
+
+#[test]
+fn downloads_a_versions_pack_from_the_cdn_only() {
+    let fixture = fixture();
+    let source = sample_pack(&fixture);
+    let bytes = fs::read(&source).unwrap();
+    let good = FakeVersion::new("pv1", "PACK", "1.0", &["fabric"], &["1.20.1"], "2025-01-01")
+        .file("Sample.mrpack", &bytes);
+    let mut damaged =
+        FakeVersion::new("pv2", "PACK", "1.1", &["fabric"], &["1.20.1"], "2025-02-01")
+            .file("Sample.mrpack", &bytes);
+    damaged.wrong_sha512 = true;
+    let mut elsewhere =
+        FakeVersion::new("pv3", "PACK", "1.2", &["fabric"], &["1.20.1"], "2025-03-01")
+            .file("Sample.mrpack", &bytes);
+    elsewhere.url_override = Some("https://github.com/x/Sample.mrpack".into());
+    fixture
+        .mock
+        .project("PACK", "sample", "modpack")
+        .version(good)
+        .version(damaged)
+        .version(elsewhere);
+    let api = fixture.mock.client();
+    let download = |id: &str| {
+        let version = block_on(api.version(id)).unwrap();
+        block_on(import::download_pack(
+            &api,
+            &downloader(),
+            &version,
+            &fixture.packs.join("downloads"),
+            &InstallProgress::default(),
+            &CancelToken::new(),
+        ))
+    };
+    let path = download("pv1").unwrap();
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert!(modpack::read_pack(&path).is_ok());
+    fs::remove_file(&path).unwrap();
+    assert!(download("pv2").unwrap_err().to_string().contains("SHA-512"));
+    assert!(
+        download("pv3")
+            .unwrap_err()
+            .to_string()
+            .contains("cdn.modrinth.com")
+    );
+    assert_eq!(tree(&fixture.packs.join("downloads")), Vec::<String>::new());
+}
