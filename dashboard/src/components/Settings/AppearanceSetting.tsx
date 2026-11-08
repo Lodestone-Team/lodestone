@@ -30,7 +30,7 @@ export default function AppearanceSetting() {
         >
           Theme
         </label>
-        <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+        <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
           {descriptions[preference]}
         </div>
       </div>
@@ -53,7 +53,7 @@ export default function AppearanceSetting() {
             {({ checked }) => (
               <span
                 className={clsx(
-                  'block h-full w-full py-1.5 px-3 text-center select-none',
+                  'block size-full px-3 py-1.5 text-center select-none',
                   checked
                     ? 'bg-blue-faded/30 text-gray-300'
                     : 'text-white/75 hover:bg-gray-700'
