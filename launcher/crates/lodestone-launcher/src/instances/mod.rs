@@ -450,6 +450,12 @@ impl Instances {
         cx.notify();
         match result {
             Ok(settings) => {
+                launcher_core::trace::settings_changed(
+                    "launcher",
+                    &self.settings,
+                    &settings,
+                    serde_json::Value::Null,
+                );
                 self.settings = settings;
                 Ok(())
             }
@@ -793,7 +799,16 @@ impl Instances {
     }
 
     pub fn save(&mut self, instance: &Instance, cx: &mut Context<Self>) -> Result<(), String> {
+        let before = self.store.get(&instance.id).ok();
         self.store.save(instance).map_err(|err| err.to_string())?;
+        if let Some(before) = before {
+            launcher_core::trace::settings_changed(
+                "instance",
+                &before,
+                instance,
+                serde_json::json!({ "instance": instance.id }),
+            );
+        }
         self.reload(cx);
         Ok(())
     }
@@ -1038,6 +1053,15 @@ impl Instances {
             cancel: cancel.clone(),
         };
         run.ticker = Some(ticker(id.to_string(), cx));
+        launcher_core::trace::emit("game.prepare", || {
+            serde_json::json!({
+                "instance": id,
+                "name": instance.name,
+                "version": instance.game_version,
+                "loader": loader_label(&instance),
+                "join": join.as_ref().map(|j| j.address()),
+            })
+        });
         cx.notify();
 
         let account = self
@@ -1238,6 +1262,10 @@ impl Instances {
     }
 
     fn set_idle(&mut self, id: &str, cx: &mut Context<Self>) {
+        launcher_core::trace::emit(
+            "game.state",
+            || serde_json::json!({ "instance": id, "state": "idle" }),
+        );
         self.take_notes(id);
         if let Some(run) = self.runs.get_mut(id) {
             run.state = RunState::Idle;
@@ -1260,6 +1288,10 @@ impl Instances {
                 tr!(M::TitleAndMessage, title = title, message = message),
             );
         }
+        launcher_core::trace::emit(
+            "game.failed",
+            || serde_json::json!({ "instance": id, "title": title.to_string(), "message": message.to_string() }),
+        );
         self.set_idle(id, cx);
         cx.emit(InstancesEvent::LaunchFailed { title, message });
     }
@@ -1302,6 +1334,11 @@ impl Instances {
         };
         let started = Instant::now();
         let started_unix = launcher_core::instances::now();
+        let pid = process.pid();
+        launcher_core::trace::emit(
+            "game.launch",
+            || serde_json::json!({ "instance": id, "pid": pid }),
+        );
         run.state = RunState::Running {
             process: Arc::new(process),
             started,
@@ -1317,7 +1354,18 @@ impl Instances {
                     if let Some(run) = this.runs.get_mut(&id) {
                         for event in batch {
                             match event {
-                                GameEvent::Line(line) => run.log.push(line),
+                                GameEvent::Line(line) => {
+                                    launcher_core::trace::emit("game.log", || {
+                                        serde_json::json!({
+                                            "instance": id,
+                                            "level": line.level.to_string(),
+                                            "thread": line.thread,
+                                            "logger": line.logger,
+                                            "text": line.message,
+                                        })
+                                    });
+                                    run.log.push(line)
+                                }
                                 GameEvent::Exited { code, stopped } => {
                                     exited = Some((code, stopped))
                                 }
@@ -1361,6 +1409,15 @@ impl Instances {
         let game_dir = self.store.game_dir(id);
         let report = crash::new_crash_report(&game_dir, before);
         let outcome = crash::outcome(code, stopped, report);
+        launcher_core::trace::emit("game.exit", || {
+            serde_json::json!({
+                "instance": id,
+                "code": code,
+                "stopped": stopped,
+                "crashed": matches!(outcome, Outcome::Crashed { .. }),
+                "secs": started.elapsed().as_secs(),
+            })
+        });
         if let Err(err) = self
             .store
             .record_play(id, started_unix, started.elapsed().as_secs())

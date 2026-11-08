@@ -28,6 +28,7 @@ pub mod settings;
 pub mod shared_options;
 pub mod skin;
 pub mod storage;
+pub mod trace;
 pub mod update;
 pub mod wording;
 pub mod worlds;

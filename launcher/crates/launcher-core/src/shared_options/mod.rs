@@ -215,8 +215,10 @@ fn change_profile(
     change: impl FnOnce(&mut Profile),
 ) -> Result<Profile, SharedError> {
     let mut profile = read_profile(data)?;
+    let before = profile.clone();
     change(&mut profile);
     storage::save(&profile_path(data), &profile)?;
+    crate::trace::settings_changed("shared", &before, &profile, serde_json::Value::Null);
     Ok(profile)
 }
 

@@ -40,11 +40,20 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
                         .text_color(colors::GRAY_500)
                         .hover(|s| s.text_color(colors::GRAY_300)),
                 })
-                .child(name)
+                .child(name.clone())
                 .when(!disabled, |this| {
-                    this.keyboard_focus()
-                        .cursor_pointer()
-                        .on_click(move |_, window, cx| on_pick(value.clone(), window, cx))
+                    this.keyboard_focus().cursor_pointer().on_click({
+                        let (id, name) = (id.clone(), name.clone());
+                        move |_, window, cx| {
+                            super::trace_ui(
+                                "ui.select",
+                                "segmented",
+                                &gpui::ElementId::Name(id.clone()),
+                                serde_json::json!({ "index": i, "label": name.as_ref() }),
+                            );
+                            on_pick(value.clone(), window, cx)
+                        }
+                    })
                 })
         }))
 }
