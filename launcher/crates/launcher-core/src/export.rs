@@ -2,11 +2,10 @@
 //!
 //! The pack is `modrinth.index.json` (format 1: the Minecraft version and the loader
 //! as `dependencies`) and an `overrides/` folder with the instance's mods, configs,
-//! resource packs, shader packs and options. A mod that is known to be on Modrinth
-//! (its SHA-512 is in the map the caller passes, with its CDN URL) is listed in the
-//! index instead, so the pack downloads it. Content management, which knows where
-//! mods came from, is a later milestone; until then the map is empty and every mod
-//! goes into the overrides.
+//! resource packs, shader packs and options. A mod, resource pack or shader pack that
+//! came from Modrinth (its SHA-512 is in the map the caller passes, from the instance's
+//! `content.json`) is listed in the index with its CDN URL instead, so the pack
+//! downloads it rather than carrying a copy.
 //!
 //! See <https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack>.
 
@@ -23,6 +22,7 @@ use lodestone_minecraft::mrpack::{
 };
 
 use crate::{
+    content::{ContentKind, provenance::Provenance},
     game::loaders::{LoaderKind, forge::forge_display},
     instances::Instance,
 };
@@ -76,12 +76,54 @@ pub fn dependency_version(kind: LoaderKind, version: &str, game_version: &str) -
     }
 }
 
-/// Plans the pack of `instance`, whose game folder is `game_dir`. `on_modrinth` maps
-/// a mod's SHA-512 to its Modrinth CDN URL.
+/// A file on Modrinth's CDN.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModrinthFile {
+    pub url: String,
+    /// The project's `server_side`: `required`, `optional`, `unsupported` or `unknown`.
+    pub server_side: String,
+}
+
+/// The files of an instance that came from Modrinth, by SHA-512, from its
+/// `content.json`.
+pub fn modrinth_files(instance_dir: &Path) -> HashMap<String, ModrinthFile> {
+    Provenance::load(instance_dir)
+        .download_urls()
+        .into_iter()
+        .map(|(sha512, (url, source))| {
+            (
+                sha512,
+                ModrinthFile {
+                    url,
+                    server_side: source.server_side,
+                },
+            )
+        })
+        .collect()
+}
+
+/// Whether a file at `relative` can be an index entry: a mod jar, or a resource or
+/// shader pack zip, directly in its folder.
+fn index_candidate(relative: &str) -> Option<ContentKind> {
+    let (dir, name) = relative.split_once('/')?;
+    if name.contains('/') {
+        return None;
+    }
+    let lower = name.to_ascii_lowercase();
+    match dir {
+        "mods" if lower.ends_with(".jar") => Some(ContentKind::Mod),
+        "resourcepacks" if lower.ends_with(".zip") => Some(ContentKind::ResourcePack),
+        "shaderpacks" if lower.ends_with(".zip") => Some(ContentKind::ShaderPack),
+        _ => None,
+    }
+}
+
+/// Plans the pack of `instance`, whose game folder is `game_dir`. `on_modrinth` maps a
+/// file's SHA-512 to where it is on Modrinth.
 pub fn plan(
     instance: &Instance,
     game_dir: &Path,
-    on_modrinth: &HashMap<String, String>,
+    on_modrinth: &HashMap<String, ModrinthFile>,
 ) -> Result<ExportPlan, ExportError> {
     let mut files = Vec::new();
     let mut overrides = Vec::new();
@@ -105,22 +147,28 @@ pub fn plan(
                     continue;
                 }
             }
-            let is_mod = relative.starts_with("mods/") && relative.ends_with(".jar");
-            if is_mod {
+            if let Some(kind) = index_candidate(&relative) {
                 let sha512 =
                     lodestone_minecraft::hash::sha512_of(&path).map_err(io_error(&path))?;
-                if let Some(url) = on_modrinth.get(&sha512) {
+                if let Some(file) = on_modrinth.get(&sha512) {
                     let sha1 =
                         lodestone_minecraft::hash::sha1_of(&path).map_err(io_error(&path))?;
                     let size = fs::metadata(&path).map_err(io_error(&path))?.len();
+                    let server = match (kind, file.server_side.as_str()) {
+                        (ContentKind::Mod, "unsupported") => "unsupported",
+                        (ContentKind::Mod, "optional") => "optional",
+                        (ContentKind::Mod, _) => "required",
+                        // Servers have no resource or shader packs.
+                        _ => "unsupported",
+                    };
                     files.push(PackIndexFile {
                         path: relative,
                         hashes: PackFileHashes { sha1, sha512 },
                         env: PackFileEnv {
                             client: "required".into(),
-                            server: "required".into(),
+                            server: server.into(),
                         },
-                        downloads: vec![url.clone()],
+                        downloads: vec![file.url.clone()],
                         file_size: size,
                     });
                     continue;
@@ -264,7 +312,10 @@ mod tests {
             lodestone_minecraft::hash::sha512_of(&game.join("mods/known.jar")).unwrap();
         let on_modrinth = HashMap::from([(
             known_sha512.clone(),
-            "https://cdn.modrinth.com/data/abc/versions/def/known.jar".to_string(),
+            ModrinthFile {
+                url: "https://cdn.modrinth.com/data/abc/versions/def/known.jar".to_string(),
+                server_side: "required".into(),
+            },
         )]);
         let plan = plan(&instance(), &game, &on_modrinth).unwrap();
         assert_eq!(plan.index.dependencies["minecraft"], "1.20.1");
@@ -306,6 +357,119 @@ mod tests {
             .unwrap();
         assert_eq!(local, b"local mod");
         assert!(zip.by_name("overrides/saves/World/level.dat").is_err());
+    }
+
+    #[test]
+    fn modrinth_files_come_from_provenance() {
+        use crate::content::provenance::{Entry, ModrinthSource};
+        let dir = tempfile::tempdir().unwrap();
+        let game = dir.path().join("minecraft");
+        for (path, body) in [
+            ("mods/sodium.jar", &b"sodium"[..]),
+            ("mods/modmenu.jar", b"client only"),
+            ("mods/changed.jar", b"edited by hand"),
+            ("resourcepacks/Faithful.zip", b"pack"),
+            ("shaderpacks/BSL.zip", b"shader"),
+            ("shaderpacks/Mine.zip", b"my own"),
+        ] {
+            fs::create_dir_all(game.join(path).parent().unwrap()).unwrap();
+            fs::write(game.join(path), body).unwrap();
+        }
+        let mut provenance = Provenance::default();
+        let mut add = |kind, name: &str, body: &[u8], server_side: &str| {
+            let tmp = dir.path().join("hash-me");
+            fs::write(&tmp, body).unwrap();
+            provenance.insert(
+                kind,
+                name,
+                Entry {
+                    sha512: lodestone_minecraft::hash::sha512_of(&tmp).unwrap(),
+                    modrinth: Some(ModrinthSource {
+                        project_id: name.into(),
+                        url: Some(format!("https://cdn.modrinth.com/data/{name}")),
+                        server_side: server_side.into(),
+                        ..ModrinthSource::default()
+                    }),
+                    ..Entry::default()
+                },
+            );
+        };
+        add(ContentKind::Mod, "sodium.jar", b"sodium", "optional");
+        add(
+            ContentKind::Mod,
+            "modmenu.jar",
+            b"client only",
+            "unsupported",
+        );
+        // the entry is for the file as it was downloaded, not as it is now
+        add(
+            ContentKind::Mod,
+            "changed.jar",
+            b"as downloaded",
+            "required",
+        );
+        add(
+            ContentKind::ResourcePack,
+            "Faithful.zip",
+            b"pack",
+            "unsupported",
+        );
+        add(ContentKind::ShaderPack, "BSL.zip", b"shader", "unknown");
+        provenance.save(dir.path()).unwrap();
+
+        let plan = plan(&instance(), &game, &modrinth_files(dir.path())).unwrap();
+        let index: Vec<(&str, &str, &str)> = plan
+            .index
+            .files
+            .iter()
+            .map(|f| {
+                (
+                    f.path.as_str(),
+                    f.env.server.as_str(),
+                    f.downloads[0].as_str(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            index,
+            [
+                (
+                    "mods/modmenu.jar",
+                    "unsupported",
+                    "https://cdn.modrinth.com/data/modmenu.jar"
+                ),
+                (
+                    "mods/sodium.jar",
+                    "optional",
+                    "https://cdn.modrinth.com/data/sodium.jar"
+                ),
+                (
+                    "resourcepacks/Faithful.zip",
+                    "unsupported",
+                    "https://cdn.modrinth.com/data/Faithful.zip"
+                ),
+                (
+                    "shaderpacks/BSL.zip",
+                    "unsupported",
+                    "https://cdn.modrinth.com/data/BSL.zip"
+                ),
+            ]
+        );
+        assert!(plan.index.files.iter().all(|f| f.env.client == "required"));
+        let overrides: Vec<&str> = plan.overrides.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            overrides,
+            [
+                "overrides/mods/changed.jar",
+                "overrides/shaderpacks/Mine.zip"
+            ]
+        );
+        // the index's hashes are the files' own
+        let sodium = &plan.index.files[1];
+        assert_eq!(
+            sodium.hashes.sha1,
+            lodestone_minecraft::hash::sha1_of(&game.join("mods/sodium.jar")).unwrap()
+        );
     }
 
     #[test]

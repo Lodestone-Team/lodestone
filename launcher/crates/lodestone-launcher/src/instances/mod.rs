@@ -629,10 +629,11 @@ impl Instances {
             return;
         };
         let game_dir = self.store.game_dir(id);
+        let instance_dir = self.store.dir(id);
         let write = cx.background_spawn(async move {
-            // Content management (a later milestone) will know which mods are on
-            // Modrinth; until then every mod goes into the overrides.
-            let plan = export::plan(&instance, &game_dir, &HashMap::new())?;
+            // Files that came from Modrinth are listed by URL; the rest are copied.
+            let on_modrinth = export::modrinth_files(&instance_dir);
+            let plan = export::plan(&instance, &game_dir, &on_modrinth)?;
             export::write(&plan, &out)?;
             Ok::<_, export::ExportError>((plan, out))
         });
