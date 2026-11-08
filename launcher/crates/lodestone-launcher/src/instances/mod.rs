@@ -452,6 +452,22 @@ impl Instances {
         self.update_settings(|settings| settings.instance_defaults = defaults, cx)
     }
 
+    /// "Group instances automatically".
+    pub fn auto_groups(&self) -> bool {
+        self.settings.auto_groups
+    }
+
+    pub fn set_auto_groups(&mut self, on: bool, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.auto_groups = on, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// The instances by sidebar group, as the sidebar lists them.
+    pub fn grouped(&self) -> Vec<(Option<String>, Vec<&Instance>)> {
+        launcher_core::instances::grouped(&self.list, self.settings.auto_groups)
+    }
+
     pub fn is_group_collapsed(&self, group: &str) -> bool {
         self.settings.collapsed_groups.contains(group)
     }
@@ -477,7 +493,7 @@ impl Instances {
 
     /// The group names in use, for suggestions.
     pub fn groups(&self) -> Vec<String> {
-        launcher_core::instances::grouped(&self.list)
+        launcher_core::instances::grouped(&self.list, false)
             .into_iter()
             .filter_map(|(name, _)| name)
             .collect()
@@ -1229,6 +1245,7 @@ impl Instances {
             started,
         };
         run.ticker = None;
+        let started_id = id.to_string();
         let id = id.to_string();
         run.task = Some(cx.spawn(async move |this, cx| {
             let mut events = events.ready_chunks(256);
@@ -1259,6 +1276,14 @@ impl Instances {
                 }
             }
         }));
+        // Played as of now, so a game that crashes (or a launcher that quits) before
+        // it exits still counts; the play time is added when it exits.
+        match self.store.record_start(&started_id, started_unix) {
+            Ok(_) => self.reload(cx),
+            Err(err) => {
+                self.notice = Some(format!("Couldn't save when it was played: {err}").into())
+            }
+        }
         cx.notify();
     }
 
@@ -1435,9 +1460,138 @@ pub fn play_time(seconds: u64) -> String {
     }
 }
 
+/// When something happened, relative to now, for "Last played".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ago {
+    JustNow,
+    Minutes(u64),
+    Hours(u64),
+    Yesterday,
+    Days(u64),
+    /// Longer ago: the date, "Mar 12", with the year when it isn't this year's.
+    On(String),
+}
+
+impl Ago {
+    /// How long ago `then` (Unix seconds) was, in this Mac's time zone.
+    pub fn since(then: u64) -> Self {
+        Self::between(then, launcher_core::instances::now(), &chrono::Local)
+    }
+
+    /// How long before `now` `then` was, by the calendar of `zone`. A time after
+    /// `now` (a clock that moved back) is "just now".
+    pub fn between<Tz: chrono::TimeZone>(then: u64, now: u64, zone: &Tz) -> Self {
+        let elapsed = now.saturating_sub(then);
+        let day = |unix: u64| {
+            zone.timestamp_opt(unix.min(i64::MAX as u64) as i64, 0)
+                .earliest()
+                .map(|time| time.date_naive())
+        };
+        let (Some(then_day), Some(today)) = (day(then), day(now)) else {
+            return Ago::JustNow;
+        };
+        let days = (today - then_day).num_days();
+        match elapsed {
+            0..60 => Ago::JustNow,
+            60..3600 => Ago::Minutes(elapsed / 60),
+            // Late last night is still "3 hours ago" in the morning.
+            _ if days <= 0 || elapsed < 6 * 3600 => Ago::Hours(elapsed / 3600),
+            _ if days == 1 => Ago::Yesterday,
+            _ if days < 7 => Ago::Days(days as u64),
+            _ if chrono::Datelike::year(&then_day) == chrono::Datelike::year(&today) => {
+                Ago::On(then_day.format("%b %-d").to_string())
+            }
+            _ => Ago::On(then_day.format("%b %-d, %Y").to_string()),
+        }
+    }
+
+    /// "Just now", "5 minutes ago", "2 hours ago", "Yesterday", "3 days ago" or
+    /// "Mar 12".
+    pub fn label(&self) -> String {
+        let plural = |n: u64, unit: &str| match n {
+            1 => format!("1 {unit} ago"),
+            n => format!("{n} {unit}s ago"),
+        };
+        match self {
+            Ago::JustNow => "Just now".into(),
+            Ago::Minutes(n) => plural(*n, "minute"),
+            Ago::Hours(n) => plural(*n, "hour"),
+            Ago::Yesterday => "Yesterday".into(),
+            Ago::Days(n) => plural(*n, "day"),
+            Ago::On(date) => date.clone(),
+        }
+    }
+
+    /// "Played just now", "Played 2 hours ago", "Played yesterday" or "Played on
+    /// Mar 12".
+    pub fn played(&self) -> String {
+        match self {
+            Ago::JustNow => "Played just now".into(),
+            Ago::Yesterday => "Played yesterday".into(),
+            Ago::On(date) => format!("Played on {date}"),
+            other => format!("Played {}", other.label()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn says_how_long_ago() {
+        use chrono::TimeZone;
+        let utc = chrono::Utc;
+        let at = |y, mo, d, h, mi| {
+            utc.with_ymd_and_hms(y, mo, d, h, mi, 0)
+                .unwrap()
+                .timestamp() as u64
+        };
+        let now = at(2026, 11, 8, 15, 0);
+        let ago = |then: u64| Ago::between(then, now, &utc);
+        let label = |then: u64| ago(then).label();
+        assert_eq!(label(now), "Just now");
+        assert_eq!(label(now - 59), "Just now");
+        assert_eq!(label(now + 300), "Just now", "a clock that moved back");
+        assert_eq!(label(now - 60), "1 minute ago");
+        assert_eq!(label(now - 5 * 60), "5 minutes ago");
+        assert_eq!(label(now - 3599), "59 minutes ago");
+        assert_eq!(label(now - 3600), "1 hour ago");
+        assert_eq!(label(at(2026, 11, 8, 0, 30)), "14 hours ago");
+        // Before midnight, but only a few hours ago.
+        let morning = at(2026, 11, 8, 2, 0);
+        assert_eq!(
+            Ago::between(at(2026, 11, 7, 23, 0), morning, &utc).label(),
+            "3 hours ago"
+        );
+        assert_eq!(
+            Ago::between(at(2026, 11, 7, 18, 0), morning, &utc).label(),
+            "Yesterday"
+        );
+        assert_eq!(label(at(2026, 11, 7, 20, 0)), "Yesterday");
+        assert_eq!(label(at(2026, 11, 7, 0, 5)), "Yesterday");
+        assert_eq!(label(at(2026, 11, 6, 23, 0)), "2 days ago");
+        assert_eq!(label(at(2026, 11, 2, 12, 0)), "6 days ago");
+        assert_eq!(label(at(2026, 11, 1, 12, 0)), "Nov 1");
+        assert_eq!(label(at(2026, 3, 12, 9, 0)), "Mar 12");
+        assert_eq!(label(at(2025, 12, 31, 9, 0)), "Dec 31, 2025");
+        // The calendar is the given zone's: 01:00 UTC on the 7th is still the 6th in
+        // New York.
+        let new_york = chrono::FixedOffset::west_opt(5 * 3600).unwrap();
+        assert_eq!(
+            Ago::between(at(2026, 11, 7, 1, 0), now, &utc).label(),
+            "Yesterday"
+        );
+        assert_eq!(
+            Ago::between(at(2026, 11, 7, 1, 0), now, &new_york).label(),
+            "2 days ago"
+        );
+
+        assert_eq!(ago(now).played(), "Played just now");
+        assert_eq!(ago(now - 7200).played(), "Played 2 hours ago");
+        assert_eq!(ago(at(2026, 11, 7, 20, 0)).played(), "Played yesterday");
+        assert_eq!(ago(at(2026, 3, 12, 9, 0)).played(), "Played on Mar 12");
+    }
 
     #[test]
     fn formats_progress() {

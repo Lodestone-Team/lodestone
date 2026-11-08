@@ -9,7 +9,7 @@ use super::{LauncherShell, account_box, developer};
 use crate::{
     accounts::SessionState,
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton,
+        Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, Toggle,
         settings::{
             CONTENT_WIDTH, SettingRow, card, left_overlay, link, muted_link, tag, unsaved_bar,
         },
@@ -23,6 +23,7 @@ pub enum SettingsPage {
     #[default]
     Defaults,
     Shared,
+    General,
     Accounts,
     Developer,
 }
@@ -33,7 +34,11 @@ impl SettingsPage {
         ("Instances", &[SettingsPage::Defaults, SettingsPage::Shared]),
         (
             "Launcher",
-            &[SettingsPage::Accounts, SettingsPage::Developer],
+            &[
+                SettingsPage::General,
+                SettingsPage::Accounts,
+                SettingsPage::Developer,
+            ],
         ),
     ];
 
@@ -41,6 +46,7 @@ impl SettingsPage {
         match self {
             SettingsPage::Defaults => "Instance defaults",
             SettingsPage::Shared => "Shared game settings",
+            SettingsPage::General => "General",
             SettingsPage::Accounts => "Accounts",
             SettingsPage::Developer => "Developer",
         }
@@ -54,6 +60,7 @@ impl SettingsPage {
             SettingsPage::Shared => {
                 "One set of options.txt settings for every instance: mouse, key bindings, video, sound and more. An instance can override single values in its Settings tab."
             }
+            SettingsPage::General => "How the launcher lists your instances.",
             SettingsPage::Accounts => "Play signs in with the account in use.",
             SettingsPage::Developer => "Options for testing Lodestone Launcher.",
         }
@@ -63,6 +70,7 @@ impl SettingsPage {
         match self {
             SettingsPage::Defaults => Icon::Cube,
             SettingsPage::Shared => Icon::Copy,
+            SettingsPage::General => Icon::Bars,
             SettingsPage::Accounts => Icon::User,
             SettingsPage::Developer => Icon::Gear,
         }
@@ -187,6 +195,7 @@ impl LauncherShell {
         let content: AnyElement = match page {
             SettingsPage::Defaults => self.launcher_settings.clone().into_any_element(),
             SettingsPage::Shared => self.shared_settings.clone().into_any_element(),
+            SettingsPage::General => self.render_general_page(cx).into_any_element(),
             SettingsPage::Accounts => self.render_accounts_page(cx).into_any_element(),
             SettingsPage::Developer => developer::render(self, cx).into_any_element(),
         };
@@ -414,6 +423,23 @@ impl LauncherShell {
     }
 
     /// Settings > Accounts: each account, and adding one.
+    /// Settings > General: "Group instances automatically", which applies at once.
+    fn render_general_page(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let auto_groups = self.instances.read(cx).auto_groups();
+        card([SettingRow::new("Group instances automatically")
+            .hint("The sidebar lists instances without a group of their own by loader, such as Fabric (modded) or Vanilla, and those imported from other launchers under Imported.")
+            .child(
+                Toggle::new("auto-groups", auto_groups).on_change(cx.listener(
+                    |this, value: &bool, _, cx| {
+                        let on = *value;
+                        this.instances
+                            .update(cx, |instances, cx| instances.set_auto_groups(on, cx));
+                    },
+                )),
+            )
+            .into_any_element()])
+    }
+
     fn render_accounts_page(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let accounts = self.accounts.read(cx);
         let active_id = accounts.active().map(|a| a.id.clone());

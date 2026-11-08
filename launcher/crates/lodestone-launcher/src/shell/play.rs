@@ -10,7 +10,7 @@ use crate::{
         Align, Button, ButtonSize, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs,
     },
     instances::appearance::{Background, scrim_layers},
-    instances::{PlayState, play_time},
+    instances::{Ago, PlayState, play_time},
     servers::InstanceLink,
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
@@ -25,12 +25,19 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
     let (title, subtitle): (SharedString, SharedString) = match &instance {
         Some(instance) => (
             instance.name.clone().into(),
-            format!(
-                "Minecraft {} · {} · {}",
-                instance.game_version,
-                instance.loader_label(),
-                play_time(instance.play_time)
-            )
+            {
+                let mut parts = vec![
+                    format!("Minecraft {}", instance.game_version),
+                    instance.loader_label(),
+                ];
+                // A game that is running for the first time has been played, but has
+                // no play time yet.
+                if instance.play_time > 0 || instance.last_played.is_none() {
+                    parts.push(play_time(instance.play_time));
+                }
+                parts.extend(instance.last_played.map(|when| Ago::since(when).played()));
+                parts.join(" · ")
+            }
             .into(),
         ),
         None => (
@@ -126,7 +133,7 @@ fn hero(
     let (title, body): (SharedString, SharedString) = match instance {
         Some(instance) => (
             instance.name.clone().into(),
-            match instance.last_played {
+            match instance.last_played.filter(|_| instance.play_time > 0) {
                 Some(_) => format!(
                     "{}. Played for {}.",
                     described(instance),

@@ -20,7 +20,7 @@ pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
     AnyElement, ClipboardItem, Context, Entity, EntityId, FocusHandle, Focusable as _, IntoElement,
-    Render, SharedString, Subscription, Window, div, prelude::*, px,
+    Render, SharedString, Subscription, Task, Window, div, prelude::*, px,
 };
 
 use crate::{
@@ -193,6 +193,8 @@ pub struct LauncherShell {
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
     top_bar_drag_pending: bool,
     _observe: Vec<Subscription>,
+    /// Draws the window again every minute, so "5 minutes ago" stays true.
+    _clock: Task<()>,
 }
 
 impl LauncherShell {
@@ -306,6 +308,16 @@ impl LauncherShell {
             account_menu_open: false,
             top_bar_drag_pending: false,
             _observe: observe,
+            _clock: cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_secs(60))
+                        .await;
+                    if this.update(cx, |_, cx| cx.notify()).is_err() {
+                        return;
+                    }
+                }
+            }),
         };
         this.sync_settings(cx);
         this

@@ -71,6 +71,7 @@ pub const SCENES: &[&str] = &[
     "import-progress",
     "instance-linked",
     "settings",
+    "settings-general",
     "settings-accounts",
     "settings-developer",
     "play-background",
@@ -144,11 +145,13 @@ pub fn requested_scene() -> Option<String> {
     args.next()?;
     let scene = args.next()?;
     if !SCENES.contains(&scene.as_str())
+        && !groups::is_scene(&scene)
         && !servers::SCENES.contains(&scene.as_str())
         && !server_detail::is_scene(&scene)
     {
         eprintln!(
-            "unknown scene {scene:?}; expected one of {SCENES:?}, {:?} or {:?}",
+            "unknown scene {scene:?}; expected one of {SCENES:?}, {:?}, {:?} or {:?}",
+            groups::SCENES,
             servers::SCENES,
             server_detail::SCENES
         );
@@ -296,6 +299,10 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
             shared::fill(&data_dir, &store);
         }
     }
+    if groups::is_scene(scene) {
+        let store = InstanceStore::new(data_dir.instances_dir());
+        groups::fill(&data_dir, &store, scene);
+    }
     let accounts = accounts.clone();
     let scene = scene.to_string();
     cx.new(|cx| {
@@ -320,6 +327,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
         let wanted = match scene.as_str() {
             "content-shaders-vanilla" => Some("Latest release"),
             "instance-shared-settings" | "instance-linked" => Some("Survival 1.20.1"),
+            scene if groups::is_scene(scene) => Some(groups::SELECTED),
             scene if is_appearance_scene(scene) => Some("Survival 1.20.1"),
             scene
                 if scene.starts_with("content-")
@@ -449,6 +457,7 @@ fn sample_log() -> Vec<LogLine> {
 }
 
 mod content;
+mod groups;
 mod import;
 mod modpacks;
 mod server_detail;
@@ -462,6 +471,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
     match scene {
         "new-instance" => shell.open_new_instance_with(Some(("Survival", "1.")), None, cx),
         "logs" => shell.select_tab(InstanceTab::Logs, cx),
+        "sidebar-groups-settings" => shell.select_tab(InstanceTab::Settings, cx),
         "instance-settings" => {
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view() {
@@ -565,8 +575,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 shell.preview_settings_nav_open();
             }
         }
-        "settings" | "settings-accounts" | "settings-developer" => {
+        "settings" | "settings-general" | "settings-accounts" | "settings-developer" => {
             let page = match scene {
+                "settings-general" => crate::shell::SettingsPage::General,
                 "settings-accounts" => crate::shell::SettingsPage::Accounts,
                 "settings-developer" => crate::shell::SettingsPage::Developer,
                 _ => crate::shell::SettingsPage::Defaults,
