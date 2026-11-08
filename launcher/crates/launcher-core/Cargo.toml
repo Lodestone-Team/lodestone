@@ -18,6 +18,7 @@ http_client_tls.workspace = true
 image.workspace = true
 libc.workspace = true
 lodestone_minecraft.workspace = true
+lodestone_trace.workspace = true
 md-5.workspace = true
 pulldown-cmark.workspace = true
 rand.workspace = true

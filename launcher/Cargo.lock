@@ -2796,6 +2796,7 @@ dependencies = [
  "image",
  "libc",
  "lodestone_minecraft",
+ "lodestone_trace",
  "md-5",
  "pulldown-cmark",
  "rand 0.9.4",
@@ -2937,6 +2938,8 @@ dependencies = [
  "launcher-control",
  "launcher-core",
  "lodestone_minecraft",
+ "lodestone_trace",
+ "log",
  "serde",
  "serde_json",
  "url",
@@ -2966,6 +2969,13 @@ dependencies = [
  "thiserror 2.0.17",
  "toml 0.9.8",
  "url",
+]
+
+[[package]]
+name = "lodestone_trace"
+version = "0.5.1"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

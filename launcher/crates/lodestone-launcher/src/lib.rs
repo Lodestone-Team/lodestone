@@ -19,6 +19,8 @@ pub mod preview;
 pub mod servers;
 pub mod shell;
 pub mod theme;
+mod trace_hooks;
+pub mod undo;
 pub mod updater;
 
 use gpui::{
@@ -26,7 +28,7 @@ use gpui::{
     WindowOptions, actions, px, size,
 };
 
-actions!(launcher, [Quit, ZoomIn, ZoomOut, ResetZoom]);
+actions!(launcher, [Quit, ZoomIn, ZoomOut, ResetZoom, Undo, Redo]);
 
 /// The window title, also used for the app menu.
 pub const APP_NAME: &str = "Lodestone Launcher";
@@ -38,6 +40,7 @@ pub fn init(cx: &mut App) {
         eprintln!("lodestone-launcher: could not load the bundled fonts: {err:#}");
     }
     components::init(cx);
+    trace_hooks::install(cx);
 
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
@@ -58,6 +61,19 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd--", ZoomOut, None),
         KeyBinding::new("cmd-0", ResetZoom, None),
     ]);
+    // Undo and Redo of settings (see the undo module). A focused text field takes
+    // them first, for its text.
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("cmd-z", Undo, None),
+        KeyBinding::new("cmd-shift-z", Redo, None),
+    ]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([
+        KeyBinding::new("ctrl-z", Undo, None),
+        KeyBinding::new("ctrl-shift-z", Redo, None),
+        KeyBinding::new("ctrl-y", Redo, None),
+    ]);
     set_menus(cx);
     // The launcher has one window; closing it quits, as in the dashboard app.
     cx.on_window_closed(|cx, _| {
@@ -74,6 +90,10 @@ pub fn set_menus(cx: &mut App) {
     use i18n::{ShellMsg, t};
     cx.set_menus([
         Menu::new(APP_NAME).items([MenuItem::action(quit, Quit)]),
+        Menu::new(t(ShellMsg::EditMenu)).items([
+            MenuItem::action(t(ShellMsg::Undo), Undo),
+            MenuItem::action(t(ShellMsg::Redo), Redo),
+        ]),
         Menu::new(t(ShellMsg::ViewMenu)).items([
             MenuItem::action(t(ShellMsg::ActualSize), ResetZoom),
             MenuItem::action(t(ShellMsg::ZoomIn), ZoomIn),

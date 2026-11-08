@@ -6847,6 +6847,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lodestone_trace"
+version = "0.5.1"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"

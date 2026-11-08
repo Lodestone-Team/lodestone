@@ -93,6 +93,10 @@ zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
 # The Minecraft and Modrinth logic shared with Lodestone Core. Its `zip` feature (reading
 # and writing .mrpack files and jars) is off: it needs zip 9, and Zed only locks zip 0.6.
 lodestone_minecraft = { path = "../crates/lodestone-minecraft", default-features = false }
+# Debug traces (local only), shared with the core.
+lodestone_trace = { path = "../crates/lodestone-trace" }
+# Already in GPUI's tree: the launcher forwards log records to its debug traces.
+log = "0.4.29"
 
 # The same patches Zed applies at v1.27.0, limited to crates in GPUI's tree.
 [patch.crates-io]
