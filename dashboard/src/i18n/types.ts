@@ -41,6 +41,19 @@ export type MessageArgs<K extends MessageKey, V> = [ParamNames<K>] extends [
     : [params?: undefined]
   : [params: MessageParams<K, V>];
 
+/**
+ * The keys of messages without placeholders or plural forms. Type a stored
+ * key (e.g. a tab's title in a module-level list) with it, so `t(key)` needs
+ * no params; a plain `MessageKey` also covers keys that need them.
+ */
+export type PlainMessageKey = {
+  [K in MessageKey]: [ParamNames<K>] extends [never]
+    ? IsPlural<K> extends true
+      ? never
+      : K
+    : never;
+}[MessageKey];
+
 export type TFunction = <K extends MessageKey>(
   key: K,
   ...args: MessageArgs<K, string | number>

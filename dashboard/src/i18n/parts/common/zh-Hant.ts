@@ -53,4 +53,23 @@ export default {
   'common.state.Stopping': '停止中',
   'common.state.Stopped': '已停止',
   'common.state.Error': '錯誤',
+  // Form fields and settings rows (Atoms/Form, Atoms/Config)
+  'common.fieldLabel': '{label}：',
+  'common.select': '請選擇…',
+  'common.noPermission': '無權限',
+  'common.input.cannotBeEmpty': '不可空白',
+  'common.input.mustBeNumber': '必須是數字',
+  'common.input.mustBeGreaterThan': '必須大於 {min}',
+  'common.input.mustBeLessThan': '必須小於 {max}',
+  'common.combo.addCustom': '新增「{query}」',
+  'common.combo.nothingFound': '找不到結果。',
+  // Table
+  'common.table.noData': '目前沒有資料',
+  // ClipboardTextfield: text that copies itself when clicked
+  'common.clipboard.copyToClipboard': '複製到剪貼簿',
+  'common.clipboard.copiedText': '已複製「{text}」',
+  // The server resource pack URL check (utils/resourcePack.ts)
+  'common.resourcePack.urlSpaces': 'URL 不可包含空格。',
+  'common.resourcePack.notAUrl': '這不是有效的 URL。',
+  'common.resourcePack.urlScheme': 'URL 必須以 http:// 或 https:// 開頭。',
 } satisfies CatalogOf<typeof en>;

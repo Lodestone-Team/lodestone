@@ -53,4 +53,34 @@ export default {
   'common.state.Stopping': 'Stopping',
   'common.state.Stopped': 'Stopped',
   'common.state.Error': 'Error',
+  // Form fields and settings rows (Atoms/Form, Atoms/Config)
+  /** a form field’s label above the field, e.g. "Name:" */
+  'common.fieldLabel': '{label}:',
+  /** a dropdown with no value chosen yet */
+  'common.select': 'Select…',
+  /** shown under a setting the user isn’t allowed to see */
+  'common.noPermission': 'No permission',
+  'common.input.cannotBeEmpty': 'Cannot be empty',
+  'common.input.mustBeNumber': 'Must be a number',
+  /** {min} is the smallest allowed value */
+  'common.input.mustBeGreaterThan': 'Must be greater than {min}',
+  /** {max} is the largest allowed value */
+  'common.input.mustBeLessThan': 'Must be less than {max}',
+  /** a combo box option that adds what the user typed, {query} */
+  'common.combo.addCustom': 'Add “{query}”',
+  /** a combo box search that matches no option */
+  'common.combo.nothingFound': 'Nothing found.',
+  // Table
+  /** an empty table */
+  'common.table.noData': 'No data currently available',
+  // ClipboardTextfield: text that copies itself when clicked
+  /** tooltip */
+  'common.clipboard.copyToClipboard': 'Copy to clipboard',
+  /** a toast; {text} is what was copied, e.g. an address */
+  'common.clipboard.copiedText': 'Copied “{text}”',
+  // The server resource pack URL check (utils/resourcePack.ts)
+  'common.resourcePack.urlSpaces': 'The URL cannot contain spaces.',
+  'common.resourcePack.notAUrl': 'That is not a URL.',
+  'common.resourcePack.urlScheme':
+    'The URL must start with http:// or https://.',
 } as const;

@@ -7,6 +7,7 @@ import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { TlsInfo } from 'bindings/TlsInfo';
 import { CoreCapabilities } from 'bindings/CoreCapabilities';
+import { t } from 'i18n';
 
 // The /system routes require login; axios sends the token by default
 // (set in pages/index.tsx).
@@ -94,8 +95,7 @@ export const useCoreInfo = (refetchInterval: number | false = false) => {
 };
 
 /** Shown instead of the macro features on a core built without Deno. */
-export const NO_SCRIPTING_MESSAGE =
-  "This core was built without scripting support (Deno), so macros aren't available.";
+export const noScriptingMessage = () => t('shell.noScripting');
 
 /**
  * The optional features of the core, from /info. A feature the core doesn't

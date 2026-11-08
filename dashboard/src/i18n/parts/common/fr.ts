@@ -54,4 +54,24 @@ export default {
   'common.state.Stopping': 'Arrêt en cours',
   'common.state.Stopped': 'Arrêté',
   'common.state.Error': 'Erreur',
+  // Form fields and settings rows (Atoms/Form, Atoms/Config)
+  'common.fieldLabel': '{label} :',
+  'common.select': 'Sélectionner…',
+  'common.noPermission': 'Aucune autorisation',
+  'common.input.cannotBeEmpty': 'Ne peut pas être vide',
+  'common.input.mustBeNumber': 'Doit être un nombre',
+  'common.input.mustBeGreaterThan': 'Doit être supérieur à {min}',
+  'common.input.mustBeLessThan': 'Doit être inférieur à {max}',
+  'common.combo.addCustom': 'Ajouter « {query} »',
+  'common.combo.nothingFound': 'Aucun résultat.',
+  // Table
+  'common.table.noData': 'Aucune donnée disponible pour le moment',
+  // ClipboardTextfield: text that copies itself when clicked
+  'common.clipboard.copyToClipboard': 'Copier dans le presse-papiers',
+  'common.clipboard.copiedText': '« {text} » copié',
+  // The server resource pack URL check (utils/resourcePack.ts)
+  'common.resourcePack.urlSpaces': 'L’URL ne peut pas contenir d’espaces.',
+  'common.resourcePack.notAUrl': 'Ce n’est pas une URL.',
+  'common.resourcePack.urlScheme':
+    'L’URL doit commencer par http:// ou https://.',
 } satisfies CatalogOf<typeof en>;

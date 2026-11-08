@@ -6,6 +6,7 @@ import {
   useAllMinecraftLinks,
   useOwnMinecraftLinks,
 } from 'data/MinecraftLinks';
+import { TFunction, useT } from 'i18n';
 import { useState } from 'react';
 import { toast } from 'react-toastify';
 import { ApiError, errorToString } from 'utils/util';
@@ -18,10 +19,8 @@ import {
 
 type Link = { minecraft_uuid: string; minecraft_name: string; uid: string };
 
-const linkErrorMessage = (error: ApiError | null) =>
-  error?.status === 404
-    ? 'This core is too old to link Minecraft accounts.'
-    : errorToString(error);
+const linkErrorMessage = (t: TFunction, error: ApiError | null) =>
+  error?.status === 404 ? t('settings.minecraft.tooOld') : errorToString(error);
 
 /** A list of linked accounts, each with a Remove button that confirms first */
 function LinkList({
@@ -36,12 +35,13 @@ function LinkList({
   /** Remove through the owner's route, which removes anyone's links */
   anyUser: boolean;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [toRemove, setToRemove] = useState<Link | null>(null);
   if (error) {
     return (
       <SettingsCard>
-        <SettingsEmptyRow>{linkErrorMessage(error)}</SettingsEmptyRow>
+        <SettingsEmptyRow>{linkErrorMessage(t, error)}</SettingsEmptyRow>
       </SettingsCard>
     );
   }
@@ -49,9 +49,10 @@ function LinkList({
   return (
     <>
       <ConfirmDialog
-        title="Remove Minecraft account"
+        title={t('settings.minecraft.removeTitle')}
         type="danger"
-        confirmButtonText="Remove"
+        confirmButtonText={t('common.remove')}
+        closeButtonText={t('common.cancel')}
         isOpen={toRemove !== null}
         onClose={() => setToRemove(null)}
         onConfirm={async () => {
@@ -65,16 +66,16 @@ function LinkList({
           await queryClient.invalidateQueries({
             queryKey: ['minecraft_links'],
           });
-          toast.success(`Removed ${toRemove.minecraft_name}`);
+          toast.success(
+            t('settings.minecraft.removed', { name: toRemove.minecraft_name })
+          );
           setToRemove(null);
         }}
       >
-        {toRemove && (
-          <>
-            Remove the link to {toRemove.minecraft_name}? It can be linked again
-            from Lodestone Launcher.
-          </>
-        )}
+        {toRemove &&
+          t('settings.minecraft.removeBody', {
+            name: toRemove.minecraft_name,
+          })}
       </ConfirmDialog>
       <SettingsCard>
         {links.length === 0 ? (
@@ -86,11 +87,16 @@ function LinkList({
               label={
                 <span className="block truncate">{link.minecraft_name}</span>
               }
-              hint={<span className="font-mono">{link.minecraft_uuid}</span>}
+              hint={
+                <span className="font-mono break-all">
+                  {link.minecraft_uuid}
+                </span>
+              }
             >
               <Button
-                label="Remove"
+                label={t('common.remove')}
                 intention="danger"
+                className="whitespace-nowrap"
                 onClick={() => setToRemove(link)}
               />
             </SettingsRow>
@@ -103,17 +109,18 @@ function LinkList({
 
 /** The current user's linked Minecraft accounts, on the profile page */
 export function OwnMinecraftLinks({ enabled }: { enabled: boolean }) {
+  const t = useT();
   const { data, error } = useOwnMinecraftLinks(enabled);
   return (
     <SettingsSection
-      title="Minecraft accounts"
-      lead="Accounts you linked from Lodestone Launcher, which checks with Microsoft that they are yours. The dashboard shows your name next to them."
+      title={t('settings.minecraft.title')}
+      lead={t('settings.minecraft.ownLead')}
     >
       <LinkList
         links={data}
         error={error}
         anyUser={false}
-        emptyText="No Minecraft account is linked. Sign in to this core in Lodestone Launcher to link one."
+        emptyText={t('settings.minecraft.ownEmpty')}
       />
     </SettingsSection>
   );
@@ -127,17 +134,18 @@ export function UserMinecraftLinks({
   uid: string;
   username: string;
 }) {
+  const t = useT();
   const { data, error } = useAllMinecraftLinks();
   return (
     <SettingsSection
-      title="Minecraft accounts"
-      lead={`The Minecraft accounts ${username} linked from Lodestone Launcher.`}
+      title={t('settings.minecraft.title')}
+      lead={t('settings.minecraft.userLead', { username })}
     >
       <LinkList
         links={data?.filter((link) => link.uid === uid)}
         error={error}
         anyUser
-        emptyText={`${username} has no linked Minecraft accounts.`}
+        emptyText={t('settings.minecraft.userEmpty', { username })}
       />
     </SettingsSection>
   );

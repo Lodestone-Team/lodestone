@@ -1,6 +1,7 @@
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useGlobalSettings } from './GlobalSettings';
 import { useUserInfo } from './UserInfo';
+import { t as translate, useT } from 'i18n';
 
 /** The message the core sends with a 403 when code execution is disabled. */
 export const CODE_EXECUTION_DISABLED_MESSAGE =
@@ -9,8 +10,8 @@ export const CODE_EXECUTION_DISABLED_MESSAGE =
 export const isCodeExecutionDisabledError = (message: string) =>
   message.includes(CODE_EXECUTION_DISABLED_MESSAGE);
 
-export const OWNER_ONLY_ATOM_MESSAGE =
-  'Only the owner can control atom servers';
+/** Why a user who isn't the owner can't control an atom server */
+export const ownerOnlyAtomMessage = () => translate('console.ownerOnlyAtom');
 
 /**
  * The core's code execution kill switch and whether the current user may use
@@ -79,14 +80,14 @@ export const useCommandLineBlockedReason = (): string | null => {
   const { data: user } = useUserInfo();
   const { data: globalSettings } = useGlobalSettings();
   const { enabled } = useCodeExecution();
-  if (!enabled)
-    return 'Read-only while code execution is disabled on this core.';
-  if (!user) return 'Only the owner can change this setting.';
+  const t = useT();
+  if (!enabled) return t('console.commandLine.readOnly');
+  if (!user) return t('console.commandLine.ownerOnly');
   if (user.is_owner) return null;
   if (
     user.permissions.can_write_global_file &&
     globalSettings?.safe_mode === false
   )
     return null;
-  return 'Only the owner can change this setting.';
+  return t('console.commandLine.ownerOnly');
 };

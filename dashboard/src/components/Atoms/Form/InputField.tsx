@@ -1,5 +1,6 @@
 import React from 'react';
 import { FieldHookConfig, useField } from 'formik';
+import { useT } from 'i18n';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import { faEye, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -15,6 +16,7 @@ export type InputFieldProps = FieldHookConfig<string> & {
  */
 export default function InputField(props: InputFieldProps) {
   const { className, label, type, disabled, ...rest } = props;
+  const t = useT();
   const [field, meta] = useField(props);
   const isError = meta.touched && meta.error && true;
   const errorText = isError ? meta.error : '';
@@ -26,12 +28,12 @@ export default function InputField(props: InputFieldProps) {
     >
       {label && (
         <label className="absolute -top-6 text-medium font-medium tracking-medium text-gray-300">
-          {label}:
+          {t('common.fieldLabel', { label })}
         </label>
       )}
       {type === 'password' && (
         <div
-          className={`pointer-events-none absolute right-0 flex h-full flex-row items-center justify-end py-5 px-3`}
+          className={`pointer-events-none absolute right-0 flex h-full flex-row items-center justify-end px-3 py-5`}
         >
           <div className="pointer-events-auto flex flex-row gap-2">
             <FontAwesomeIcon
@@ -63,10 +65,9 @@ export default function InputField(props: InputFieldProps) {
         />
         {errorText && (
           <div
-            className={`absolute -bottom-6 whitespace-nowrap text-right font-sans text-small not-italic text-red
-        `}
+            className={`absolute -bottom-6 text-right font-sans text-small whitespace-nowrap text-red not-italic`}
           >
-            {errorText || 'Unknown error'}
+            {errorText || t('common.unknownError')}
           </div>
         )}
       </div>

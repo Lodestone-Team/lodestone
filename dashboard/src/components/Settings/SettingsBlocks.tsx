@@ -242,7 +242,7 @@ export function SettingsTag({
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center rounded-[5px] border px-1.5 text-[0.6875rem] leading-4 font-mediumbold',
+        'inline-flex shrink-0 items-center rounded-[5px] border px-1.5 text-[0.6875rem] leading-4 font-mediumbold whitespace-nowrap',
         tone === 'recommended'
           ? 'border-green/30 text-green'
           : 'border-gray-700 text-gray-500 light:border-gray-550'

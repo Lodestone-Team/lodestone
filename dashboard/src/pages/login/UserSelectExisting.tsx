@@ -19,9 +19,13 @@ import { JwtToken } from 'bindings/JwtToken';
 import { isLocalCore } from 'utils/util';
 import Logo from 'components/Atoms/Logo';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
+import { useT } from 'i18n';
 
 const UserSelectExisting = () => {
-  useDocumentTitle('Select user - Lodestone');
+  const t = useT();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('shell.userSelect.pageTitle') })
+  );
   const { setPathname, navigateBack } = useContext(BrowserLocationContext);
   const { setToken, token, core } = useContext(LodestoneContext);
   const { address, port } = core;
@@ -58,11 +62,11 @@ const UserSelectExisting = () => {
   if (redirecting) return null;
 
   return (
-    <div className="flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 transition-dimensions @container">
+    <div className="@container flex w-[640px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl bg-gray-850 px-12 py-14 transition-dimensions">
       <div className="flex flex-col items-start">
-        <Logo alt="logo" className="h-8" />
+        <Logo alt="Lodestone" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
-          Sign in
+          {t('shell.login.signIn')}
         </h1>
         <h2 className="text-h3 font-medium tracking-medium text-white/50">
           {core_name} ({socket})
@@ -71,7 +75,10 @@ const UserSelectExisting = () => {
       <div className="flex flex-row items-baseline gap-8">
         {token && isUserInfoLoading ? (
           // the button's shape until the user's name is known
-          <SkeletonGroup label="Loading the user" className="flex-1">
+          <SkeletonGroup
+            label={t('shell.userSelect.loadingUser')}
+            className="flex-1"
+          >
             <Skeleton className="h-8 w-full rounded" />
           </SkeletonGroup>
         ) : token ? (
@@ -79,7 +86,11 @@ const UserSelectExisting = () => {
             type="button"
             iconComponent={<Avatar name={uid} />}
             className="flex-1"
-            label={`Continue as ${userInfo?.username ?? 'current user'}`}
+            label={
+              userInfo
+                ? t('shell.userSelect.continueAs', { name: userInfo.username })
+                : t('shell.userSelect.continueAsCurrent')
+            }
             onClick={() => setPathname('/')}
           />
         ) : (
@@ -88,18 +99,20 @@ const UserSelectExisting = () => {
             type="button"
             icon={faUser}
             className="flex-1"
-            label={`Continue as Current User`}
+            label={t('shell.userSelect.continueAsCurrent')}
             disabled={true}
           />
         )}
         <p className="text-medium font-medium tracking-medium text-white/50">
-          OR
+          {t('shell.login.or')}
         </p>
         <Button
           type="button"
           icon={token ? faArrowRightArrowLeft : faRightFromBracket}
           intention={token ? 'info' : 'primary'}
-          label={token ? 'Switch user' : 'Sign in'}
+          label={
+            token ? t('shell.userSelect.switchUser') : t('shell.login.signIn')
+          }
           className="flex-1"
           onClick={() => setPathname('/login/user')}
         />
@@ -108,7 +121,7 @@ const UserSelectExisting = () => {
         <Button
           type="button"
           icon={faArrowLeft}
-          label="Change Core"
+          label={t('shell.login.changeCore')}
           onClick={() => setPathname('/login/core/select')}
         />
       </div>

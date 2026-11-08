@@ -4,6 +4,7 @@ import { RadioGroup } from '@headlessui/react';
 import { Toggle } from 'components/Atoms/Toggle';
 import { faAsterisk } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { useT } from 'i18n';
 
 export type RadioFieldProps = FieldHookConfig<string> & {
   label?: string;
@@ -27,6 +28,7 @@ export default function FormRadioField(props: RadioFieldProps) {
     optional,
     ...rest
   } = props;
+  const t = useT();
   const [field, meta] = useField(props);
   const { value } = field;
   if (value === undefined) {
@@ -74,10 +76,10 @@ export default function FormRadioField(props: RadioFieldProps) {
           )}
           {errorText ? (
             <div className="text-medium font-medium tracking-medium text-red-200">
-              {errorText || 'Unknown error'}
+              {errorText || t('common.unknownError')}
             </div>
           ) : (
-            <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
+            <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
               {description}
             </div>
           )}

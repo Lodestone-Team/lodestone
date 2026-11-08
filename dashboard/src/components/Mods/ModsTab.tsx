@@ -6,15 +6,21 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { InstanceContext } from 'data/InstanceContext';
 import { useInstalledMods } from 'data/Mods';
 import { useUserAuthorized } from 'data/UserInfo';
+import { useT } from 'i18n';
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { useDocumentTitle } from 'usehooks-ts';
-import { getModSupport, modNoun, modTabTitle } from 'utils/mods';
+import { getModSupport } from 'utils/mods';
 import { cn } from 'utils/util';
 import InstalledMods from './InstalledMods';
 import ModrinthProjectView, { InstallTarget } from './ModrinthProjectView';
 import ModrinthSearch, { ModrinthPick, SortSelect } from './ModrinthSearch';
 
 type SubView = 'installed' | 'browse';
+
+const SUB_VIEWS: Array<[SubView, `mods.view.${SubView}`]> = [
+  ['installed', 'mods.view.installed'],
+  ['browse', 'mods.view.browse'],
+];
 
 /** The Browse sub-view: search, and the project view of a pick. */
 const Browse = ({
@@ -27,6 +33,7 @@ const Browse = ({
   onCreateFromModpack:
     ((projectId: string, versionId: string | null) => void) | null;
 }) => {
+  const t = useT();
   const [onlyCompatible, setOnlyCompatible] = useState(true);
   const [index, setIndex] = useState<ModrinthSearchIndex>('relevance');
   const [picked, setPicked] = useState<ModrinthPick | null>(null);
@@ -39,7 +46,7 @@ const Browse = ({
       ),
     [target.installed]
   );
-  const noun = modNoun(target.kind);
+  const isPlugin = target.kind === 'plugin';
 
   return (
     <>
@@ -51,14 +58,21 @@ const Browse = ({
           loader={onlyCompatible ? target.loader : undefined}
           index={index}
           initialText={initialLink}
-          placeholder={`Search ${noun}s on Modrinth, or paste a Modrinth link`}
+          placeholder={
+            isPlugin
+              ? t('mods.browse.placeholder.plugin')
+              : t('mods.browse.placeholder.mod')
+          }
           installedProjectIds={installedProjectIds}
           showClientSide={target.kind === 'mod'}
           onPick={setPicked}
           toolbar={
             <div className="flex flex-row flex-wrap items-center justify-between gap-3">
               <Checkbox
-                label={`Only show versions for ${target.gameVersion} / ${target.loader}`}
+                label={t('mods.browse.onlyCompatible', {
+                  gameVersion: target.gameVersion,
+                  loader: target.loader,
+                })}
                 checked={onlyCompatible}
                 onChange={setOnlyCompatible}
               />
@@ -87,6 +101,7 @@ const Browse = ({
  * browsing. `?modrinth=<link>` opens Browse with that link.
  */
 export default function ModsTab() {
+  const t = useT();
   const {
     selectedInstance: instance,
     setShowCreateInstance,
@@ -96,7 +111,12 @@ export default function ModsTab() {
   const uuid = instance.uuid;
   const support = getModSupport(instance.game_type);
   useDocumentTitle(
-    `Server ${support ? modTabTitle(support.kind) : 'Mods'} - Lodestone`
+    t('common.pageTitle', {
+      page:
+        support?.kind === 'plugin'
+          ? t('mods.pageTitle.plugin')
+          : t('mods.pageTitle.mod'),
+    })
   );
   const canRead = useUserAuthorized('can_read_instance_file', uuid);
   const canWrite = useUserAuthorized('can_write_instance_file', uuid);
@@ -126,15 +146,12 @@ export default function ModsTab() {
 
   if (!support)
     return (
-      <div className="text-medium text-white/50">
-        This server does not support mods or plugins. Fabric, Forge, Paper and
-        Spigot servers do.
-      </div>
+      <div className="text-medium text-white/50">{t('mods.unsupported')}</div>
     );
   if (!canRead)
     return (
       <div className="text-medium text-white/50">
-        You don&apos;t have permission to read this instance&apos;s files.
+        {t('mods.noReadPermission')}
       </div>
     );
 
@@ -154,29 +171,26 @@ export default function ModsTab() {
       }
     : null;
 
-  const subViews: Array<[SubView, string]> = [
-    ['installed', 'Installed'],
-    ['browse', 'Browse'],
-  ];
-
   return (
     <div className="flex flex-col gap-4">
       {list?.restart_required && (
         <div className="flex flex-row items-center gap-2 rounded-md border border-yellow-300 bg-yellow-faded/25 p-2 text-medium font-medium text-white">
           <FontAwesomeIcon
             icon={faTriangleExclamation}
-            className="text-yellow-300"
+            className="shrink-0 text-yellow-300"
           />
-          Restart the server to apply {modNoun(target.kind)} changes
+          {target.kind === 'plugin'
+            ? t('mods.restartRequired.plugin')
+            : t('mods.restartRequired.mod')}
         </div>
       )}
       <div className="flex flex-row justify-start border-b border-gray-400">
-        {subViews.map(([id, label]) => (
+        {SUB_VIEWS.map(([id, labelKey]) => (
           <button
             key={id}
             className={cn(
               view === id && 'border-b-2 border-blue-200 text-blue-200',
-              'mr-4 font-mediumbold hover:cursor-pointer',
+              'mr-4 font-mediumbold whitespace-nowrap hover:cursor-pointer',
               'focus-visible:outline-hidden enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
             )}
             onClick={() => {
@@ -184,7 +198,7 @@ export default function ModsTab() {
               if (id === 'browse') setBrowseOpened(true);
             }}
           >
-            {label}
+            {t(labelKey)}
           </button>
         ))}
       </div>

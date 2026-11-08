@@ -19,6 +19,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import { Game } from 'bindings/Game';
+import { t } from 'i18n';
 
 type InstanceTab = {
   title: string;
@@ -48,6 +49,8 @@ export const game_to_game_icon = (game: Game) =>
     Generic: () => '/assets/GenericIcon.svg',
   });
 
+// Titles and descriptions in the current language (call them at render).
+// Product names (Minecraft, Forge, Fabric, Paper, Spigot) are not translated.
 export const game_to_game_title = (game: Game) =>
   match(game, {
     MinecraftJava: ({ variant }) =>
@@ -60,25 +63,24 @@ export const game_to_game_title = (game: Game) =>
         Other: ({ name }) => `${name} (Minecraft)`,
       }),
     MinecraftBedrock: () => 'Minecraft Bedrock',
-    Generic: ({ game_name }) => `${game_name} (Generic)`,
+    Generic: ({ game_name }) =>
+      t('create.game.genericTitle', { name: game_name }),
   });
 
 export const game_to_description = (game: Game) =>
   match(game, {
     MinecraftJava: ({ variant }) =>
       match(variant, {
-        Vanilla: () => 'Standard vanilla Minecraft server from Mojang.',
-        Forge: () =>
-          'Modding framework that allows you to install mods and customize your Minecraft experience.',
-        Fabric: () => 'Lightweight modding toolchain for Minecraft.',
-        Paper: () =>
-          'High-performance Spigot fork that aims to fix gameplay and mechanics inconsistencies.',
-        Spigot: () =>
-          'Modified Minecraft server software that supports plugins, offering enhanced performance and customization options.',
-        Other: ({ name }) => `Unknown Minecraft variant: ${name}`,
+        Vanilla: () => t('create.game.vanillaDescription'),
+        Forge: () => t('create.game.forgeDescription'),
+        Fabric: () => t('create.game.fabricDescription'),
+        Paper: () => t('create.game.paperDescription'),
+        Spigot: () => t('create.game.spigotDescription'),
+        Other: ({ name }) => t('create.game.otherDescription', { name }),
       }),
-    MinecraftBedrock: () => 'Minecraft Bedrock Edition server.',
-    Generic: ({ game_name }) => `Unknown game: ${game_name}`,
+    MinecraftBedrock: () => t('create.game.bedrockDescription'),
+    Generic: ({ game_name }) =>
+      t('create.game.genericDescription', { name: game_name }),
   });
 
 export const HandlerGameType_to_Game: Record<HandlerGameType, Game> = {

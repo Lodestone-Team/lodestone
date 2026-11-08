@@ -28,7 +28,7 @@ import * as format from './format.ts';
 import { getLanguage, initLanguage, useLanguage } from './language.ts';
 import type { MessageArgs, MessageKey, Messages, TFunction } from './types.ts';
 
-export type { MessageKey, TFunction } from './types.ts';
+export type { MessageKey, PlainMessageKey, TFunction } from './types.ts';
 export type { Language } from './core.ts';
 export { LANGUAGES, LANGUAGE_NAMES } from './core.ts';
 export { useLanguagePreference, type LanguagePreference } from './language.ts';

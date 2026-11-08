@@ -10,17 +10,18 @@ import InstancePerformance from 'components/Instance/InstancePerformance';
 import { InstanceContext } from 'data/InstanceContext';
 import GameIcon from 'components/Atoms/GameIcon';
 import { useGlobalSettings } from 'data/GlobalSettings';
-import {
-  OWNER_ONLY_ATOM_MESSAGE,
-  useCanControlInstance,
-} from 'data/CodeExecution';
+import { useCanControlInstance } from 'data/CodeExecution';
 
 import { useDocumentTitle } from 'usehooks-ts';
 import InstancePlayerList from './InstancePlayerList';
 import InstanceDetails from './InstanceDetails';
+import { useT } from 'i18n';
 
 const InstanceOverview = () => {
-  useDocumentTitle('Server Overview - Lodestone');
+  const t = useT();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('server.overview.pageTitle') })
+  );
   const { core } = useContext(LodestoneContext);
   const { address } = core;
   const { selectedInstance: instance } = useContext(InstanceContext);
@@ -34,13 +35,13 @@ const InstanceOverview = () => {
   if (!instance || !uuid) {
     return (
       <div
-        className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
+        className="@container relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10"
         key={uuid}
       >
         <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
           <div className="flex min-w-0 flex-row items-center gap-4">
             <h1 className="dashboard-instance-heading truncate whitespace-pre">
-              Server not found
+              {t('server.notFound')}
             </h1>
           </div>
         </div>
@@ -74,20 +75,20 @@ const InstanceOverview = () => {
   return (
     <>
       <div
-        className="relative flex h-full w-full max-w-2xl flex-col justify-center @container"
+        className="@container relative flex h-full w-full max-w-2xl flex-col justify-center"
         key={uuid}
       >
         {/* main content container */}
-        <div className="flex w-full grow flex-col items-stretch gap-2 ">
+        <div className="flex w-full grow flex-col items-stretch gap-2">
           <div className="flex w-full min-w-0 flex-row items-center gap-4">
             <EditableTextfield
               initialText={instance.name}
               type={'heading'}
               onSubmit={setInstanceName}
-              placeholder="No name"
+              placeholder={t('server.overview.noName')}
               containerClassName="min-w-0"
               disabled={!canControlInstance}
-              disabledTooltip={OWNER_ONLY_ATOM_MESSAGE}
+              disabledTooltip={t('console.ownerOnlyAtom')}
             />
           </div>
           <div className="-mt-2 flex flex-row flex-wrap items-center gap-4">
@@ -97,13 +98,16 @@ const InstanceOverview = () => {
               className="h-6 w-6"
             />
             <Label size="large" color={labelColor}>
-              {instance.state}
+              {t(`common.state.${instance.state}`)}
             </Label>
             <Label size="large" color={'blue'}>
-              Version {instance.version}
+              {t('server.overview.version', { version: instance.version })}
             </Label>
             <Label size="large" color={'blue'}>
-              Player Count {instance.player_count}/{instance.max_player_count}
+              {t('server.overview.playerCount', {
+                players: instance.player_count ?? '',
+                max: instance.max_player_count ?? '',
+              })}
             </Label>
             <Label size="large" color={'blue'}>
               <ClipboardTextfield
@@ -118,10 +122,10 @@ const InstanceOverview = () => {
               initialText={instance.description}
               type={'description'}
               onSubmit={setInstanceDescription}
-              placeholder="No description"
+              placeholder={t('server.overview.noDescription')}
               containerClassName="min-w-0"
               disabled={!canControlInstance}
-              disabledTooltip={OWNER_ONLY_ATOM_MESSAGE}
+              disabledTooltip={t('console.ownerOnlyAtom')}
             />
           </div>
         </div>

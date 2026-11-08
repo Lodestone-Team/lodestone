@@ -1,3 +1,4 @@
+import { useT } from 'i18n';
 import { ReactNode, useEffect, useRef, useState } from 'react';
 import { cn } from 'utils/util';
 
@@ -47,6 +48,7 @@ const sections = (content: HTMLElement) => [
  * list is hidden when there is no room for it.
  */
 export function SettingsWithToc({ children }: { children: ReactNode }) {
+  const t = useT();
   const contentRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<TocItem[]>([]);
   const [active, setActive] = useState<string | null>(null);
@@ -148,7 +150,7 @@ export function SettingsWithToc({ children }: { children: ReactNode }) {
   return (
     <div className="flex w-full flex-row items-start gap-7">
       <nav
-        aria-label="Sections"
+        aria-label={t('settings.toc.label')}
         className={cn(
           'sticky top-4 hidden w-44 shrink-0 flex-col gap-0.5',
           items.length > 1 && '@3xl:flex'
@@ -165,7 +167,9 @@ export function SettingsWithToc({ children }: { children: ReactNode }) {
             })}
             onClick={() => scrollTo(item.id)}
           >
-            <span className="truncate">{item.title}</span>
+            <span className="min-w-0 truncate" title={item.title}>
+              {item.title}
+            </span>
           </button>
         ))}
       </nav>

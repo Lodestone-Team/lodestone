@@ -6,7 +6,9 @@ import Button from 'components/Atoms/Button';
 import { Toggle } from 'components/Atoms/Toggle';
 import { useState } from 'react';
 import { toast } from 'react-toastify';
-import { formatPackSize, isSha1, packUrlError } from 'utils/resourcePack';
+import { isSha1, packUrlErrorKey } from 'utils/resourcePack';
+import { useI18n } from 'i18n';
+
 import { axiosWrapper, DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import {
   SettingsCard,
@@ -38,6 +40,7 @@ export function ResourcePackSetting({
   canEdit: boolean;
   disabledReason: string;
 }) {
+  const { t, formatBytes } = useI18n();
   const queryClient = useQueryClient();
   const queryKey = ['instances', instance.uuid, 'resource_pack'];
   const { data: saved } = useQuery({
@@ -57,10 +60,11 @@ export function ResourcePackSetting({
   if (!saved) return null;
   const draft = edited ?? saved;
 
-  const urlError = packUrlError(draft.url);
+  const urlErrorKey = packUrlErrorKey(draft.url);
+  const urlError = urlErrorKey && t(urlErrorKey);
   const sha1Error = isSha1(draft.sha1)
     ? null
-    : 'The SHA-1 is 40 hexadecimal characters.';
+    : t('server.resourcePack.sha1Error');
   const changed =
     draft.url.trim() !== saved.url ||
     draft.sha1.trim().toLowerCase() !== saved.sha1 ||
@@ -80,8 +84,8 @@ export function ResourcePackSetting({
       setDraft(null);
       toast.success(
         instance.state === 'Stopped'
-          ? 'Resource pack saved'
-          : 'Resource pack saved. Restart the server to use it.'
+          ? t('server.resourcePack.saved')
+          : t('server.resourcePack.savedRestart')
       );
     } catch (err) {
       toast.error(errorToString(err));
@@ -100,7 +104,11 @@ export function ResourcePackSetting({
         data: { url: draft.url.trim() },
       });
       setDraft({ ...draft, sha1: hash.sha1 });
-      setHashNote(`Downloaded ${formatPackSize(hash.size)}.`);
+      setHashNote(
+        t('server.resourcePack.downloaded', {
+          size: formatBytes(hash.size, 1),
+        })
+      );
     } catch (err) {
       toast.error(errorToString(err));
     } finally {
@@ -111,18 +119,14 @@ export function ResourcePackSetting({
   return (
     <SettingsSection
       id="server-settings-resource-pack"
-      title="Resource pack"
-      lead="A pack players are asked to download when they join."
+      title={t('server.resourcePack.title')}
+      lead={t('server.resourcePack.lead')}
     >
       <SettingsCard>
         <SettingsRow
-          label="URL"
+          label={t('server.resourcePack.url')}
           htmlFor="resource-pack-url"
-          hint={
-            canEdit
-              ? 'A direct link to the pack zip. Leave it empty for none.'
-              : disabledReason
-          }
+          hint={canEdit ? t('server.resourcePack.urlHint') : disabledReason}
           error={canEdit ? urlError : null}
           controlClassName="w-5/12"
         >
@@ -143,9 +147,7 @@ export function ResourcePackSetting({
         <SettingsRow
           label="SHA-1"
           htmlFor="resource-pack-sha1"
-          hint={
-            hashNote ?? 'Lets players check the download and cache the pack.'
-          }
+          hint={hashNote ?? t('server.resourcePack.sha1Hint')}
           error={sha1Error}
           controlClassName="w-5/12"
         >
@@ -159,7 +161,7 @@ export function ResourcePackSetting({
             onChange={(e) => setDraft({ ...draft, sha1: e.target.value })}
           />
           <Button
-            label="Compute"
+            label={t('server.resourcePack.compute')}
             className="shrink-0"
             loading={busy === 'hashing'}
             disabled={disabled || !draft.url.trim() || urlError !== null}
@@ -167,9 +169,9 @@ export function ResourcePackSetting({
           />
         </SettingsRow>
         <SettingsRow
-          label="Require the pack"
+          label={t('server.resourcePack.required')}
           labelId="resource-pack-required"
-          hint="Players who decline it are disconnected."
+          hint={t('server.resourcePack.requiredHint')}
         >
           <Toggle
             value={draft.required}
@@ -179,9 +181,9 @@ export function ResourcePackSetting({
           />
         </SettingsRow>
         <SettingsRow
-          label="Prompt"
+          label={t('server.resourcePack.prompt')}
           htmlFor="resource-pack-prompt"
-          hint="The message shown when players are asked. Plain text, or a JSON text component."
+          hint={t('server.resourcePack.promptHint')}
           controlClassName="w-5/12"
         >
           <input
@@ -197,12 +199,12 @@ export function ResourcePackSetting({
         {/* changes here are kept until saved, so the pack is set at once */}
         <div className="flex flex-row justify-end gap-2 px-4 py-3">
           <Button
-            label="Remove pack"
+            label={t('server.resourcePack.remove')}
             disabled={disabled || !saved.url}
             onClick={() => void save(EMPTY)}
           />
           <Button
-            label="Save"
+            label={t('common.save')}
             intention="primary"
             loading={busy === 'saving'}
             disabled={

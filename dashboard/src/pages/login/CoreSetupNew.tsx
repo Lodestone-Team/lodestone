@@ -16,6 +16,7 @@ import { LoginReply } from 'bindings/LoginReply';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
 import Logo from 'components/Atoms/Logo';
+import { t as translate, useI18n } from 'i18n';
 
 type SetupOwnerFormValues = {
   username: string;
@@ -25,20 +26,28 @@ type SetupOwnerFormValues = {
 };
 
 const validationSchema = yup.object({
-  username: yup.string().required('Username is required'),
-  password: yup.string().required('Password is required'),
+  username: yup
+    .string()
+    .required(() => translate('shell.login.usernameRequired')),
+  password: yup
+    .string()
+    .required(() => translate('shell.login.passwordRequired')),
   passwordConfirm: yup
     .string()
-    .required('Password confirmation is required')
-    .oneOf(
-      [yup.ref('password')],
-      'Password confirmation must match password'
+    .required(() => translate('shell.coreSetup.passwordConfirmRequired'))
+    .oneOf([yup.ref('password')], () =>
+      translate('shell.coreSetup.passwordMismatch')
     ),
-  setupKey: yup.string().required('Setup key is required'),
+  setupKey: yup
+    .string()
+    .required(() => translate('shell.coreSetup.setupKeyRequired')),
 });
 
 const CoreSetupNew = () => {
-  useDocumentTitle('Setup new core - Lodestone');
+  const { t, rich } = useI18n();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('shell.coreSetup.pageTitle') })
+  );
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { data: coreInfo } = useCoreInfo(3000);
   const { setToken, core } = useContext(LodestoneContext);
@@ -87,8 +96,7 @@ const CoreSetupNew = () => {
         password: values.password,
       })
       .then((res) => {
-        if (res.status !== 200)
-          throw new Error('Something went wrong while setting up the core');
+        if (res.status !== 200) throw new Error(t('shell.coreSetup.failed'));
         return res.data;
       })
       .then((res) => {
@@ -107,19 +115,18 @@ const CoreSetupNew = () => {
   };
 
   return (
-    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
+    <div className="@container flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14">
       <div className="text flex flex-col items-start">
-        <Logo alt="logo" className="h-8" />
+        <Logo alt="Lodestone" className="h-8" />
         <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
-          Create an owner&#39;s account
+          {t('shell.coreSetup.title')}
         </h1>
         <h2 className="text-medium font-medium tracking-medium text-white/50">
           {core_name} ({socket})
         </h2>
         {keyPrefilled ? null : (
           <h2 className="text-medium font-medium tracking-medium text-white/50">
-            Check the console output of the core to find the &quot;First time
-            setup key&quot;
+            {t('shell.coreSetup.findKey')}
           </h2>
         )}
       </div>
@@ -140,24 +147,37 @@ const CoreSetupNew = () => {
             {status && (
               <WarningAlert>
                 <p>
-                  <b>{status.error}</b>: Please ensure your fields are filled
-                  out correctly.
+                  {rich('shell.login.checkFields', {
+                    error: <b>{status.error}</b>,
+                  })}
                 </p>
               </WarningAlert>
             )}
-            <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
-              <InputField type="text" name="username" label="Username" />
+            <div className="grid grid-cols-1 gap-x-8 gap-y-14 @lg:grid-cols-2">
+              <InputField
+                type="text"
+                name="username"
+                label={t('shell.login.username')}
+              />
               <InputField
                 type="password"
                 name="setupKey"
-                label={keyPrefilled ? 'Setup key (prefilled)' : 'Setup key'}
+                label={
+                  keyPrefilled
+                    ? t('shell.coreSetup.setupKeyPrefilled')
+                    : t('shell.coreSetup.setupKey')
+                }
                 disabled={keyPrefilled}
               />
-              <InputField type="password" name="password" label="Password" />
+              <InputField
+                type="password"
+                name="password"
+                label={t('shell.login.password')}
+              />
               <InputField
                 type="password"
                 name="passwordConfirm"
-                label="Confirm Password"
+                label={t('shell.coreSetup.confirmPassword')}
               />
             </div>
             <div className="flex w-full flex-row justify-end gap-4">
@@ -170,7 +190,7 @@ const CoreSetupNew = () => {
               <Button
                 type="submit"
                 intention="primary"
-                label="Submit"
+                label={t('shell.coreSetup.submit')}
                 iconRight={faArrowRight}
                 loading={isSubmitting}
               />

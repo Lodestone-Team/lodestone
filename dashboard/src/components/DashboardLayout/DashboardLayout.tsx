@@ -20,8 +20,10 @@ import { major, minor, patch, valid, eq } from 'semver';
 import { toast } from 'react-toastify';
 import { useLocalStorage } from 'usehooks-ts';
 import { DASHBOARD_VERSION } from 'utils/version';
+import { useI18n } from 'i18n';
 
 export default function DashboardLayout() {
+  const { t, rich } = useI18n();
   const { data: userInfo } = useUserInfo();
   const { setPathname } = useContext(BrowserLocationContext);
   useEventStream();
@@ -38,69 +40,70 @@ export default function DashboardLayout() {
   );
   const [showVersionMismatchModal, setShowVersionMismatchModal] =
     useState(false);
-  const [showThankYouModal, setShowThankYouModal] =
-    useState(false);
+  const [showThankYouModal, setShowThankYouModal] = useState(false);
   const [showCoreErrorModal, setShowCoreErrorModal] = useState(false);
-  const [latestVersion, setLatestVersion] = useLocalStorage('latestVersion', '0.0.0');
+  const [latestVersion, setLatestVersion] = useLocalStorage(
+    'latestVersion',
+    '0.0.0'
+  );
   const dashboardVersion = DASHBOARD_VERSION;
 
   // open the error modal is coreConnectionStatus is error for more than 3 seconds
   useEffect(() => {
-    setShowCoreErrorModal(coreConnectionStatus === 'error')
+    setShowCoreErrorModal(coreConnectionStatus === 'error');
   }, [coreConnectionStatus]);
 
   useEffect(() => {
-    if (latestVersion === coreInfo?.version || !coreInfo?.version)
-      return;
-    
-    if ((coreInfo.version !== latestVersion || latestVersion === '0.0.0') 
-        && coreInfo.version.includes("beta"))
+    if (latestVersion === coreInfo?.version || !coreInfo?.version) return;
+
+    if (
+      (coreInfo.version !== latestVersion || latestVersion === '0.0.0') &&
+      coreInfo.version.includes('beta')
+    )
       setShowThankYouModal(true);
-     
+
     setLatestVersion(coreInfo.version);
-    
-  }, [coreInfo])
+  }, [coreInfo]);
 
-
-  const thankYouModal =  (
+  const thankYouModal = (
     <ConfirmDialog
-      title={`Thanks for using Lodestone beta!`}
+      title={t('shell.beta.title')}
       type={'info'}
       isOpen={showThankYouModal}
       onClose={() => setShowThankYouModal(false)}
-      closeButtonText={'Close'}
+      closeButtonText={t('common.close')}
     >
-      Thanks for using Lodestone beta! If you find any issues please let us 
-      know on our Discord server or on Github.
+      {t('shell.beta.body')}
     </ConfirmDialog>
-  )
+  );
 
   const versionMismatchModal = !coreInfoLoading && (
     <ConfirmDialog
-      title={`Update Required!`}
+      title={t('shell.versionMismatch.title')}
       type={'danger'}
       isOpen={showVersionMismatchModal}
       onClose={() => setShowVersionMismatchModal(false)}
-      closeButtonText={'I understand, continue without updating'}
+      closeButtonText={t('shell.versionMismatch.continue')}
     >
       <div>
-        <b>Core Version: </b>
+        <b>{t('shell.versionMismatch.coreVersion')} </b>
         {coreInfo?.version}
         <br />
-        <b>Dashboard Version: </b>
+        <b>{t('shell.versionMismatch.dashboardVersion')} </b>
         {dashboardVersion}
       </div>
       <br />
-      <p className="text-red-200">Your dashboard and core is incompatible!</p>
-      This can cause unexpected behavior. Please update your core to the latest
-      version. Visit{' '}
-      <a
-        href="https://github.com/Lodestone-Team/lodestone/wiki/Updating"
-        className="text-blue-200"
-      >
-        the wiki
-      </a>{' '}
-      for more information.
+      <p className="text-red-200">{t('shell.versionMismatch.incompatible')}</p>
+      {rich('shell.versionMismatch.body', {
+        link: (
+          <a
+            href="https://github.com/Lodestone-Team/lodestone/wiki/Updating"
+            className="text-blue-200"
+          >
+            {t('shell.versionMismatch.wiki')}
+          </a>
+        ),
+      })}
     </ConfirmDialog>
   );
 
@@ -140,7 +143,10 @@ export default function DashboardLayout() {
         setShowVersionMismatchModal(true);
       else if (patch(clientVersion) !== patch(dashboardVersion))
         toast.warn(
-          `Version mismatch! Is your core out of date? Core: ${clientVersion}, Dashboard: ${dashboardVersion}`,
+          t('shell.versionMismatch.toast', {
+            core: clientVersion,
+            dashboard: dashboardVersion,
+          }),
           {
             toastId: 'patchVersionMismatch',
             autoClose: 10000,
@@ -154,58 +160,56 @@ export default function DashboardLayout() {
     <>
       <ConfirmDialog
         isOpen={showLocalSetupPrompt}
-        title="New Local Core Detected"
+        title={t('shell.localCore.title')}
         type="info"
-        confirmButtonText="Setup"
+        confirmButtonText={t('shell.localCore.setup')}
         onConfirm={() => {
           setCore(DEFAULT_LOCAL_CORE);
           setPathname('/login/core/first_setup');
           setShowLocalSetupPrompt(false);
         }}
-        closeButtonText="Skip"
+        closeButtonText={t('shell.localCore.skip')}
         onClose={() => {
           setShowLocalSetupPrompt(false);
         }}
       >
-        Detected a local core that is not setup yet. Would you like to setup{' '}
-        {localCoreInfo?.core_name}?
+        {t('shell.localCore.body', { name: localCoreInfo?.core_name ?? '' })}
       </ConfirmDialog>
       <ConfirmDialog
         isOpen={showSetupPrompt}
-        title="Setup Required"
+        title={t('shell.setupRequired.title')}
         type="info"
         z-index="20"
-        confirmButtonText="Setup"
+        confirmButtonText={t('shell.localCore.setup')}
         onConfirm={() => {
           setPathname('/login/core/first_setup');
           setShowSetupPrompt(false);
         }}
-        closeButtonText="Change Core"
+        closeButtonText={t('shell.setupRequired.changeCore')}
         onClose={() => {
           setPathname('/login/core/select');
           setShowSetupPrompt(false);
         }}
       >
-        {coreInfo?.core_name} is not setup yet. Please complete the setup
-        process.
+        {t('shell.setupRequired.body', { name: coreInfo?.core_name ?? '' })}
       </ConfirmDialog>
       <ConfirmDialog
         isOpen={showCoreErrorModal}
-        title="Core Connection Error"
+        title={t('shell.coreError.title')}
         type="info"
         z-index="20"
-        confirmButtonText="Back to Core selection"
+        confirmButtonText={t('shell.coreError.back')}
         onConfirm={() => {
           setPathname('/login/core/select');
         }}
-        closeButtonText="Continue with current Core"
+        closeButtonText={t('shell.coreError.continue')}
         onClose={() => {
           window.location.reload();
         }}
       >
-        There was an error connecting to {core.address}:{core.port}. Please
-        select a different core, refresh the page, or simply wait for the core
-        to come back online.
+        {t('shell.coreError.body', {
+          address: `${core.address}:${core.port}`,
+        })}
       </ConfirmDialog>
       <div className="flex h-screen flex-col">
         <TopNav />

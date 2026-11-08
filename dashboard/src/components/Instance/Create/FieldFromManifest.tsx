@@ -7,12 +7,14 @@ import {
   COMMAND_LINE_SETTINGS,
   useCommandLineBlockedReason,
 } from 'data/CodeExecution';
+import { useT } from 'i18n';
 
 export const FieldFromManifest = ({
   setting,
 }: {
   setting: SettingManifest;
 }) => {
+  const t = useT();
   const commandLineBlockedReason = useCommandLineBlockedReason();
   // the core refuses a custom java command or arguments from this user
   const commandLineReadOnly =
@@ -78,7 +80,7 @@ export const FieldFromManifest = ({
         />
       );
     default:
-      toast.error('Error generating form: Unknown value type.');
+      toast.error(t('create.unknownValueType'));
       return <></>;
   }
 };

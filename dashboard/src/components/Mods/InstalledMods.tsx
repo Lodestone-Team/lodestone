@@ -27,22 +27,20 @@ import {
   setModEnabled,
   uploadMods,
 } from 'data/Mods';
+import { t as translate, useI18n, useT } from 'i18n';
 import { useState } from 'react';
 import { toast } from 'react-toastify';
 import {
   installedModName,
   installedModVersion,
-  modNoun,
   modrinthProjectUrl,
-  modTabTitle,
 } from 'utils/mods';
-import { ApiError, errorToString, formatBytes } from 'utils/util';
+import { ApiError, errorToString } from 'utils/util';
 import {
   ClientRequirementLabel,
   DisabledTooltip,
   InstallResultMessage,
   ModIcon,
-  NO_WRITE_PERMISSION,
   pickFiles,
 } from './common';
 import ClientPackPanel from './ClientPackPanel';
@@ -60,6 +58,7 @@ const ModRow = ({
   canWrite: boolean;
   onDelete: (mod: InstalledMod) => void;
 }) => {
+  const { t, formatBytes } = useI18n();
   const queryClient = useQueryClient();
   const [toggling, setToggling] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -72,8 +71,11 @@ const ModRow = ({
     try {
       await setModEnabled(uuid, mod.file_name, enabled);
     } catch (error) {
+      const params = { name, error: errorToString(error) };
       toast.error(
-        `Failed to ${enabled ? 'enable' : 'disable'} ${name}: ${errorToString(error)}`
+        enabled
+          ? translate('mods.installed.enableFailed', params)
+          : translate('mods.installed.disableFailed', params)
       );
     } finally {
       await invalidateInstalledMods(queryClient, uuid);
@@ -91,12 +93,20 @@ const ModRow = ({
       });
       toast.success(
         <InstallResultMessage
-          title={`Updated ${name} to ${update.version_number}`}
+          title={translate('mods.installed.updated', {
+            name,
+            version: update.version_number,
+          })}
           result={result}
         />
       );
     } catch (error) {
-      toast.error(`Failed to update ${name}: ${errorToString(error)}`);
+      toast.error(
+        translate('mods.installed.updateFailed', {
+          name,
+          error: errorToString(error),
+        })
+      );
     } finally {
       await invalidateInstalledMods(queryClient, uuid);
       setUpdating(false);
@@ -131,9 +141,14 @@ const ModRow = ({
       </div>
       <div className="flex shrink-0 flex-row items-center gap-2">
         {update && (
-          <DisabledTooltip show={!canWrite} message={NO_WRITE_PERMISSION}>
+          <DisabledTooltip
+            show={!canWrite}
+            message={t('mods.noWritePermission')}
+          >
             <Button
-              label={`Update to ${update.version_number}`}
+              label={t('mods.installed.updateTo', {
+                version: update.version_number,
+              })}
               icon={faCircleUp}
               intention="primary"
               size="slim"
@@ -149,23 +164,25 @@ const ModRow = ({
             href={modrinthProjectUrl(kind, mod.modrinth.slug)}
             target="_blank"
             rel="noreferrer noopener"
-            title="View on Modrinth"
-            aria-label="View on Modrinth"
+            title={t('mods.installed.viewOnModrinth')}
+            aria-label={t('mods.installed.viewOnModrinth')}
             className="rounded-sm p-1.5 text-white/50 hover:text-white/75 focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden"
           >
             <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
           </a>
         )}
-        <DisabledTooltip show={!canWrite} message={NO_WRITE_PERMISSION}>
+        <DisabledTooltip show={!canWrite} message={t('mods.noWritePermission')}>
           <Toggle
+            aria-label={name}
             value={mod.enabled}
             onChange={toggle}
             disabled={!canWrite || toggling}
           />
         </DisabledTooltip>
-        <DisabledTooltip show={!canWrite} message={NO_WRITE_PERMISSION}>
+        <DisabledTooltip show={!canWrite} message={t('mods.noWritePermission')}>
           <IconButton
             icon={faTrashCan}
+            aria-label={t('mods.installed.deleteLabel', { name })}
             disabled={!canWrite}
             onClick={() => onDelete(mod)}
           />
@@ -205,6 +222,7 @@ export default function InstalledMods({
   checkingUpdates: boolean;
   onCheckUpdates: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [toDelete, setToDelete] = useState<InstalledMod | null>(null);
   // files whose upload hit an existing file, waiting for "Overwrite"
@@ -213,7 +231,7 @@ export default function InstalledMods({
   const [uploading, setUploading] = useState(false);
   const [updatingAll, setUpdatingAll] = useState(false);
   const kind = list?.kind ?? 'mod';
-  const noun = modNoun(kind);
+  const isPlugin = kind === 'plugin';
   const updates = (list?.mods ?? []).filter((mod) => mod.modrinth?.update);
 
   const upload = async (files: File[], overwrite: boolean) => {
@@ -221,7 +239,9 @@ export default function InstalledMods({
     try {
       const uploaded = await uploadMods(uuid, files, overwrite);
       toast.success(
-        `Uploaded ${uploaded.map((mod) => installedModName(mod)).join(', ')}`
+        translate('mods.installed.uploaded', {
+          names: uploaded.map((mod) => installedModName(mod)).join(', '),
+        })
       );
       setOverwriteFiles(null);
     } catch (error) {
@@ -229,7 +249,11 @@ export default function InstalledMods({
         setOverwriteMessage(error.message);
         setOverwriteFiles(files);
       } else {
-        toast.error(`Upload failed: ${errorToString(error)}`);
+        toast.error(
+          translate('mods.installed.uploadFailed', {
+            error: errorToString(error),
+          })
+        );
         setOverwriteFiles(null);
       }
     } finally {
@@ -244,7 +268,9 @@ export default function InstalledMods({
     const notJars = files.filter((f) => !f.name.toLowerCase().endsWith('.jar'));
     if (notJars.length > 0) {
       toast.error(
-        `Only .jar files can be uploaded: ${notJars.map((f) => f.name).join(', ')}`
+        translate('mods.installed.onlyJars', {
+          names: notJars.map((f) => f.name).join(', '),
+        })
       );
       return;
     }
@@ -273,10 +299,17 @@ export default function InstalledMods({
     await invalidateInstalledMods(queryClient, uuid);
     if (total.installed.length > 0 || total.removed.length > 0)
       toast.success(
-        <InstallResultMessage title="Updates installed" result={total} />
+        <InstallResultMessage
+          title={translate('mods.installed.updatesInstalled')}
+          result={total}
+        />
       );
     if (failures.length > 0)
-      toast.error(`Some updates failed: ${failures.join('; ')}`);
+      toast.error(
+        translate('mods.installed.someUpdatesFailed', {
+          failures: failures.join('; '),
+        })
+      );
     setUpdatingAll(false);
   };
 
@@ -284,10 +317,16 @@ export default function InstalledMods({
     if (!toDelete) return;
     try {
       await deleteMod(uuid, toDelete.file_name);
-      toast.success(`Deleted ${toDelete.file_name}`);
+      toast.success(
+        translate('mods.installed.deleted', { name: toDelete.file_name })
+      );
       setToDelete(null);
     } catch (error) {
-      toast.error(`Failed to delete: ${errorToString(error)}`);
+      toast.error(
+        translate('mods.installed.deleteFailed', {
+          error: errorToString(error),
+        })
+      );
     } finally {
       await invalidateInstalledMods(queryClient, uuid);
     }
@@ -310,46 +349,64 @@ export default function InstalledMods({
   return (
     <div className="flex flex-col gap-4">
       <ConfirmDialog
-        title={`Delete ${noun}?`}
+        title={
+          isPlugin
+            ? t('mods.installed.deleteTitle.plugin')
+            : t('mods.installed.deleteTitle.mod')
+        }
         type="danger"
         isOpen={toDelete !== null}
         onClose={() => setToDelete(null)}
-        confirmButtonText="Delete"
+        confirmButtonText={t('common.delete')}
         onConfirm={confirmDelete}
       >
-        {toDelete && (
-          <>
-            {installedModName(toDelete)} ({toDelete.file_name}) will be deleted
-            from the server. This can&apos;t be undone.
-          </>
-        )}
+        {toDelete &&
+          t('mods.installed.deleteBody', {
+            name: installedModName(toDelete),
+            fileName: toDelete.file_name,
+          })}
       </ConfirmDialog>
       <ConfirmDialog
-        title="Overwrite existing files?"
+        title={t('mods.installed.overwriteTitle')}
         type="danger"
         isOpen={overwriteFiles !== null}
         onClose={() => setOverwriteFiles(null)}
-        confirmButtonText="Overwrite"
+        confirmButtonText={t('mods.installed.overwrite')}
         onConfirm={async () => {
           if (overwriteFiles) await upload(overwriteFiles, true);
         }}
       >
-        {overwriteMessage || 'A file with the same name is already installed.'}{' '}
-        Replace it with the uploaded file?
+        {/* the message comes from the core */}
+        {t('mods.installed.overwriteBody', {
+          message: overwriteMessage || t('mods.installed.overwriteDefault'),
+        })}
       </ConfirmDialog>
 
       {list && !error && <ClientPackPanel uuid={uuid} list={list} />}
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
         <div className="text-medium text-white/50">
           {list
-            ? `${list.mods.length} ${list.mods.length === 1 ? noun : `${noun}s`} in ${list.directory}/`
+            ? isPlugin
+              ? t('mods.installed.count.plugin', {
+                  count: list.mods.length,
+                  directory: list.directory,
+                })
+              : t('mods.installed.count.mod', {
+                  count: list.mods.length,
+                  directory: list.directory,
+                })
             : ' '}
         </div>
         <div className="flex flex-row flex-wrap items-center gap-2">
           {updates.length > 0 && (
-            <DisabledTooltip show={!canWrite} message={NO_WRITE_PERMISSION}>
+            <DisabledTooltip
+              show={!canWrite}
+              message={t('mods.noWritePermission')}
+            >
               <Button
-                label={`Update all (${updates.length})`}
+                label={t('mods.installed.updateAll', {
+                  count: updates.length,
+                })}
                 icon={faCircleUp}
                 intention="primary"
                 loading={updatingAll}
@@ -359,15 +416,18 @@ export default function InstalledMods({
             </DisabledTooltip>
           )}
           <Button
-            label="Check for updates"
+            label={t('mods.installed.checkUpdates')}
             icon={faArrowsRotate}
             loading={checkingUpdates}
             disabled={!list}
             onClick={onCheckUpdates}
           />
-          <DisabledTooltip show={!canWrite} message={NO_WRITE_PERMISSION}>
+          <DisabledTooltip
+            show={!canWrite}
+            message={t('mods.noWritePermission')}
+          >
             <Button
-              label="Upload"
+              label={t('mods.installed.upload')}
               icon={faUpload}
               loading={uploading}
               disabled={!canWrite || !list}
@@ -379,16 +439,23 @@ export default function InstalledMods({
 
       {error ? (
         <div className="rounded-lg border border-gray-faded/30 bg-gray-800 p-4 text-medium text-red-200">
-          Failed to load {modTabTitle(kind).toLowerCase()}:{' '}
-          {errorToString(error)}
+          {isPlugin
+            ? t('mods.installed.loadFailed.plugin', {
+                error: errorToString(error),
+              })
+            : t('mods.installed.loadFailed.mod', {
+                error: errorToString(error),
+              })}
         </div>
       ) : isLoading || !list ? (
-        <SkeletonGroup label="Loading mods">
+        <SkeletonGroup label={t('mods.installed.loading')}>
           <ModRowsSkeleton />
         </SkeletonGroup>
       ) : list.mods.length === 0 ? (
         <div className="rounded-lg border border-gray-faded/30 bg-gray-800 p-6 text-center text-medium text-white/50">
-          No {noun}s installed yet. Browse Modrinth or upload a .jar file.
+          {isPlugin
+            ? t('mods.installed.empty.plugin')
+            : t('mods.installed.empty.mod')}
         </div>
       ) : (
         <div className="flex flex-col overflow-hidden rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 child:last:border-b-0">
