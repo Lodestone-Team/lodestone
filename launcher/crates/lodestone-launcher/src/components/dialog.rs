@@ -177,8 +177,9 @@ impl RenderOnce for Dialog {
                 spread_radius: px(0.),
                 inset: false,
             }])
+            // (An empty shadow list here would also drop the background.)
             .when(edge_to_edge.is_some(), |panel| {
-                panel.rounded_none().border_0().shadow(Vec::new())
+                panel.rounded_none().border_0()
             })
             .map(|panel| match frameless {
                 Some(height) => panel

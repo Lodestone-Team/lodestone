@@ -179,6 +179,8 @@ pub struct LauncherShell {
     /// The launcher's Settings, a large dialog under the other dialogs.
     settings_modal: DialogSlot<LauncherShell, SettingsModal>,
     settings_page: SettingsPage,
+    /// The Settings pages are open over the page, in a narrow window.
+    settings_nav_open: bool,
     /// The dialog over the window, and those still fading out.
     modal: DialogSlot<LauncherShell, Modal>,
     account_menu_open: bool,
@@ -293,6 +295,7 @@ impl LauncherShell {
             tab: InstanceTab::default(),
             settings_modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.settings_modal),
             settings_page: SettingsPage::default(),
+            settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
             top_bar_drag_pending: false,
