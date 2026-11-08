@@ -31,6 +31,8 @@ pub struct LoaderPicker {
     compact: bool,
     /// The compact form's version list is open.
     open: bool,
+    /// A loader or a version was picked since the choice was last set.
+    touched: bool,
     _observe: Subscription,
 }
 
@@ -55,6 +57,7 @@ impl LoaderPicker {
             scroll: UniformListScrollHandle::new(),
             compact: false,
             open: false,
+            touched: false,
             _observe: observe,
         };
         this.load(cx);
@@ -77,6 +80,7 @@ impl LoaderPicker {
         self.kind = kind;
         self.selected = selected;
         self.open = false;
+        self.touched = false;
         self.load(cx);
         cx.notify();
     }
@@ -97,6 +101,7 @@ impl LoaderPicker {
         if self.kind == kind {
             return;
         }
+        self.touched = true;
         self.kind = kind;
         self.selected = None;
         self.load(cx);
@@ -150,6 +155,12 @@ impl LoaderPicker {
             })),
             None => Err(format!("Choose a {} version.", kind.label())),
         }
+    }
+
+    /// Whether a loader or a version was picked by hand, rather than the recommended
+    /// version being picked when the list loaded.
+    pub fn touched(&self) -> bool {
+        self.touched
     }
 
     pub fn kind(&self) -> Option<LoaderKind> {
@@ -360,6 +371,7 @@ impl LoaderPicker {
                                             version_row(index, version, selected).on_click(
                                                 cx.listener(move |this, _, _, cx| {
                                                     this.selected = Some(id.clone());
+                                                    this.touched = true;
                                                     this.open = false;
                                                     cx.notify();
                                                 }),

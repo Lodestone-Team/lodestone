@@ -471,8 +471,11 @@ impl InstanceSettings {
         } else {
             None
         };
-        // While the loader's versions load (or can't), the loader stays as it is.
-        if let Ok(loader) = self.loader.read(cx).choice() {
+        // The loader changes only when one was picked here, and not while its versions
+        // load (or can't): the recommended version picked when the list loads isn't a
+        // change.
+        let picker = self.loader.read(cx);
+        if let (true, Ok(loader)) = (picker.touched(), picker.choice()) {
             instance.loader = Loader::from_kind(loader.as_ref().map(|l| l.kind));
             instance.loader_version = loader.map(|l| l.version);
         }
