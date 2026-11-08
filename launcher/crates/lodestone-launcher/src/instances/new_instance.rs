@@ -3,12 +3,13 @@
 //! version.
 
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render, SharedString,
-    Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
+    App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, PathPromptOptions,
+    Render, SharedString, Subscription, Task, UniformListScrollHandle, Window, div, prelude::*, px,
+    uniform_list,
 };
 use lodestone_minecraft::versions::mojang::{MojangVersion, MojangVersionType};
 
-use super::{Instances, Versions, loader_picker::LoaderPicker};
+use super::{Instances, Versions, loader_picker::LoaderPicker, modpack_browser::ModpackBrowser};
 use crate::{
     components::{Button, ButtonVariant, Dialog, LoadingDots, TextInput, Toggle},
     theme::{self, colors, leading, radius, text, weights},
@@ -58,7 +59,20 @@ pub fn filter_versions<'a>(
 
 pub struct NewInstanceDismissed;
 
+/// What the dialog makes the instance from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mode {
+    /// A Minecraft version and a loader.
+    #[default]
+    Version,
+    /// A Modrinth modpack.
+    Modpack,
+}
+
 pub struct NewInstanceDialog {
+    mode: Mode,
+    modpacks: Entity<ModpackBrowser>,
+    _prompt: Option<Task<()>>,
     instances: Entity<Instances>,
     name: Entity<TextInput>,
     search: Entity<TextInput>,
@@ -91,11 +105,20 @@ impl NewInstanceDialog {
             cx.observe(&search, |_, _, cx| cx.notify()),
             cx.observe(&name, |_, _, cx| cx.notify()),
         ];
+        let modpacks = {
+            let instances = instances.clone();
+            cx.new(|cx| ModpackBrowser::new(instances, cx))
+        };
+        let mut observe = observe;
+        observe.push(cx.observe(&modpacks, |_, _, cx| cx.notify()));
         let loader = {
             let instances = instances.clone();
             cx.new(|cx| LoaderPicker::new(instances, None, None, 220., cx))
         };
         let mut this = Self {
+            mode: Mode::Version,
+            modpacks,
+            _prompt: None,
             instances,
             name,
             search,
@@ -152,6 +175,53 @@ impl NewInstanceDialog {
     /// The loader picker, for the offscreen screenshots.
     pub fn loader_picker(&self) -> &Entity<LoaderPicker> {
         &self.loader
+    }
+
+    pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
+        self.mode = mode;
+        self.error = None;
+        cx.notify();
+    }
+
+    /// The modpack browser, for the offscreen screenshots.
+    pub fn modpack_browser(&self) -> &Entity<ModpackBrowser> {
+        &self.modpacks
+    }
+
+    /// Installs the picked modpack version as a new instance.
+    fn install_modpack(&mut self, cx: &mut Context<Self>) {
+        let Some((project, version)) = self.modpacks.read(cx).selection() else {
+            self.error = Some("Pick a modpack and a version.".into());
+            cx.notify();
+            return;
+        };
+        let typed = self.name.read(cx).text().trim().to_string();
+        let name = (!typed.is_empty()).then_some(typed);
+        self.instances.update(cx, |instances, cx| {
+            instances.import_modrinth(project, version, name, cx)
+        });
+        cx.emit(NewInstanceDismissed);
+    }
+
+    /// "Import .mrpack…": the system's file dialog.
+    fn pick_mrpack(&mut self, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Import".into()),
+        });
+        self._prompt = Some(cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = picked.await else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                this.instances
+                    .update(cx, |instances, cx| instances.import_files(paths, cx));
+                cx.emit(NewInstanceDismissed);
+            })
+            .ok();
+        }));
     }
 
     fn set_filter(&mut self, filter: VersionFilter, cx: &mut Context<Self>) {
@@ -366,14 +436,6 @@ impl Render for NewInstanceDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let filter = self.filter;
-        let toggle = |field: fn(&mut VersionFilter) -> &mut bool| {
-            let entity = entity.clone();
-            move |value: &bool, _: &mut Window, cx: &mut App| {
-                let mut filter = filter;
-                *field(&mut filter) = *value;
-                entity.update(cx, |this, cx| this.set_filter(filter, cx));
-            }
-        };
         let selected: SharedString = self
             .selected
             .clone()
@@ -387,8 +449,46 @@ impl Render for NewInstanceDialog {
             })
             .unwrap_or_else(|| "No version selected".into())
             .into();
+        let mode = self.mode;
+        let switch = crate::instances::content::view::pills(
+            "new-instance-mode",
+            vec!["Minecraft version".into(), "Modpack".into()],
+            match mode {
+                Mode::Version => 0,
+                Mode::Modpack => 1,
+            },
+            {
+                let entity = entity.clone();
+                move |index, _, cx| {
+                    let mode = if index == 0 {
+                        Mode::Version
+                    } else {
+                        Mode::Modpack
+                    };
+                    entity.update(cx, |this, cx| this.set_mode(mode, cx));
+                }
+            },
+        );
+        let modpack_selection = self.modpacks.read(cx).selection();
+        let footer_status: SharedString = match (&self.error, mode, &modpack_selection) {
+            (Some(error), _, _) => error.clone(),
+            (None, Mode::Version, _) => selected.clone(),
+            (None, Mode::Modpack, Some((project, version))) => format!(
+                "{} {} · Minecraft {} · {}",
+                project.title,
+                version.version_number,
+                version.game_versions.first().cloned().unwrap_or_default(),
+                version.loaders.first().cloned().unwrap_or_default()
+            )
+            .into(),
+            (None, Mode::Modpack, None) => "No modpack picked".into(),
+        };
+        let body = match mode {
+            Mode::Modpack => self.modpacks.clone().into_any_element(),
+            Mode::Version => self.version_body(&entity, filter, cx).into_any_element(),
+        };
         Dialog::new("new-instance", "New instance", self.name.focus_handle(cx))
-            .width(px(820.))
+            .width(px(860.))
             .on_close({
                 let entity = entity.clone();
                 move |_, cx| entity.update(cx, |_, cx| cx.emit(NewInstanceDismissed))
@@ -399,81 +499,113 @@ impl Render for NewInstanceDialog {
                     .flex_col()
                     .gap_3()
                     .text_size(theme::text_size(text::MEDIUM))
+                    .child(div().flex().child(switch))
                     .child(label("NAME"))
                     .child(self.name.clone())
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .gap_6()
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_3()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(div().pt_1().child(label("MINECRAFT VERSION")))
-                                    .child(self.search.clone())
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .gap_4()
-                                            .child(filter_toggle(
-                                                "filter-releases",
-                                                "Releases",
-                                                filter.releases,
-                                                toggle(|f| &mut f.releases),
-                                            ))
-                                            .child(filter_toggle(
-                                                "filter-snapshots",
-                                                "Snapshots",
-                                                filter.snapshots,
-                                                toggle(|f| &mut f.snapshots),
-                                            ))
-                                            .child(filter_toggle(
-                                                "filter-old",
-                                                "Old versions",
-                                                filter.old,
-                                                toggle(|f| &mut f.old),
-                                            )),
-                                    )
-                                    .child(self.version_list(cx)),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_3()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(div().pt_1().child(label("MOD LOADER")))
-                                    .child(self.loader.clone()),
-                            ),
-                    )
+                    .child(body)
                     .child(
                         div()
                             .text_size(theme::text_size(text::SMALL))
                             .font_weight(weights::BOLD.into())
-                            .map(|this| match &self.error {
-                                Some(error) => {
-                                    this.text_color(colors::RED_200).child(error.clone())
-                                }
-                                None => this.text_color(colors::GRAY_500).child(selected),
-                            }),
+                            .text_color(if self.error.is_some() {
+                                colors::RED_200
+                            } else {
+                                colors::GRAY_500
+                            })
+                            .child(footer_status),
                     ),
             )
+            .map(|dialog| match mode {
+                Mode::Version => dialog.footer(
+                    Button::new("create-instance", "Create instance")
+                        .variant(ButtonVariant::Primary)
+                        .disabled(self.selected.is_none())
+                        .on_click(cx.listener(|this, _, _, cx| this.create(cx))),
+                ),
+                Mode::Modpack => dialog.footer(
+                    Button::new("install-modpack", "Install modpack")
+                        .variant(ButtonVariant::Primary)
+                        .disabled(modpack_selection.is_none())
+                        .on_click(cx.listener(|this, _, _, cx| this.install_modpack(cx))),
+                ),
+            })
             .footer(
-                Button::new("create-instance", "Create instance")
-                    .variant(ButtonVariant::Primary)
-                    .disabled(self.selected.is_none())
-                    .on_click(cx.listener(|this, _, _, cx| this.create(cx))),
+                Button::new("import-mrpack", "Import .mrpack…")
+                    .variant(ButtonVariant::Secondary)
+                    .on_click(cx.listener(|this, _, _, cx| this.pick_mrpack(cx))),
             )
             .footer(
                 Button::new("cancel-new-instance", "Cancel")
-                    .variant(ButtonVariant::Secondary)
+                    .variant(ButtonVariant::Ghost)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(NewInstanceDismissed))),
+            )
+    }
+}
+
+impl NewInstanceDialog {
+    /// The Minecraft version list and the loader picker.
+    fn version_body(
+        &mut self,
+        entity: &Entity<Self>,
+        filter: VersionFilter,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let toggle = |field: fn(&mut VersionFilter) -> &mut bool| {
+            let entity = entity.clone();
+            move |value: &bool, _: &mut Window, cx: &mut App| {
+                let mut filter = filter;
+                *field(&mut filter) = *value;
+                entity.update(cx, |this, cx| this.set_filter(filter, cx));
+            }
+        };
+        div()
+            .flex()
+            .flex_row()
+            .gap_6()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().pt_1().child(label("MINECRAFT VERSION")))
+                    .child(self.search.clone())
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_4()
+                            .child(filter_toggle(
+                                "filter-releases",
+                                "Releases",
+                                filter.releases,
+                                toggle(|f| &mut f.releases),
+                            ))
+                            .child(filter_toggle(
+                                "filter-snapshots",
+                                "Snapshots",
+                                filter.snapshots,
+                                toggle(|f| &mut f.snapshots),
+                            ))
+                            .child(filter_toggle(
+                                "filter-old",
+                                "Old versions",
+                                filter.old,
+                                toggle(|f| &mut f.old),
+                            )),
+                    )
+                    .child(self.version_list(cx)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().pt_1().child(label("MOD LOADER")))
+                    .child(self.loader.clone()),
             )
     }
 }

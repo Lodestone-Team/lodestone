@@ -12,15 +12,19 @@ use launcher_core::{
     content::loader_change::{self, LoaderChangeCheck},
     game::runtime::{self, JavaInfo},
     instances::{Instance, Loader, Memory},
+    modpack::ModpackRecord,
 };
+use lodestone_minecraft::modrinth::{ModrinthVersionType, RawVersion};
 
 use super::{
     Instances,
+    content::Load,
     fields::{self, Fields, Values, field, inherited, section, status},
     loader_picker::LoaderPicker,
+    modpacks::UpdatePrompt,
 };
 use crate::{
-    components::{Button, ButtonVariant, TextInput},
+    components::{Button, ButtonVariant, LoadingDots, TextInput},
     theme::{self, colors, leading, radius, text, weights},
 };
 
@@ -68,6 +72,13 @@ pub struct InstanceSettings {
     overrides: Overrides,
     message: Option<(SharedString, bool)>,
     java_check: JavaCheck,
+    /// The pack the instance was made from, if any.
+    modpack: Option<ModpackRecord>,
+    /// The pack's versions on Modrinth, after "Check for updates".
+    modpack_versions: Load<Vec<RawVersion>>,
+    /// Downloading and planning an update.
+    preparing_update: bool,
+    _modpack_task: Option<Task<()>>,
     _check: Option<Task<()>>,
     _prompt: Option<Task<()>>,
     _observe: Vec<Subscription>,
@@ -75,6 +86,23 @@ pub struct InstanceSettings {
 
 impl EventEmitter<DeleteRequested> for InstanceSettings {}
 impl EventEmitter<LoaderChangePrompt> for InstanceSettings {}
+impl EventEmitter<UpdatePrompt> for InstanceSettings {}
+
+/// The version to offer as an update: the newest release, else the newest version,
+/// if it is newer than `current`.
+pub fn update_candidate(versions: &[RawVersion], current: &ModpackRecord) -> Option<RawVersion> {
+    let newest = versions
+        .iter()
+        .filter(|v| v.version_type == ModrinthVersionType::Release)
+        .max_by(|a, b| a.date_published.cmp(&b.date_published))
+        .or_else(|| {
+            versions
+                .iter()
+                .max_by(|a, b| a.date_published.cmp(&b.date_published))
+        })?;
+    (newest.id != current.version_id && newest.date_published > current.date_published)
+        .then(|| newest.clone())
+}
 
 impl InstanceSettings {
     pub fn new(instances: Entity<Instances>, instance: &Instance, cx: &mut Context<Self>) -> Self {
@@ -101,6 +129,7 @@ impl InstanceSettings {
             let choice = instance.loader_choice();
             cx.new(|cx| LoaderPicker::new(instances, Some(game), choice, 150., cx))
         };
+        let modpack = instances.read(cx).modpack(&instance.id);
         let observe = vec![
             cx.observe(&fields.min_ram, |_, _, cx| cx.notify()),
             cx.observe(&fields.max_ram, |_, _, cx| cx.notify()),
@@ -131,6 +160,10 @@ impl InstanceSettings {
             game_version: instance.game_version.clone(),
             message: None,
             java_check: JavaCheck::None,
+            modpack,
+            modpack_versions: Load::NotLoaded,
+            preparing_update: false,
+            _modpack_task: None,
             _check: None,
             _prompt: None,
             _observe: observe,
@@ -415,6 +448,216 @@ impl InstanceSettings {
         }));
     }
 
+    fn check_modpack(&mut self, cx: &mut Context<Self>) {
+        let Some(record) = self.modpack.clone().filter(ModpackRecord::on_modrinth) else {
+            return;
+        };
+        let Some(task) = self.instances.update(cx, |instances, cx| {
+            instances.modpack_versions(&record.project_id, cx)
+        }) else {
+            return self.set_message("Modrinth can't be reached.", true, cx);
+        };
+        self.modpack_versions = Load::Loading;
+        self._modpack_task = Some(cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                this.modpack_versions = match result {
+                    Ok(versions) => Load::Ready(versions),
+                    Err(err) => Load::Failed(err.into()),
+                };
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// Downloads the version and plans the update, then asks the window to confirm it.
+    fn prepare_update(&mut self, version: RawVersion, cx: &mut Context<Self>) {
+        let id = self.instance_id.clone();
+        let Some(task) = self.instances.update(cx, |instances, cx| {
+            instances.plan_modpack_update(&id, version, cx)
+        }) else {
+            return self.set_message(
+                "Stop the game first, or wait for the update to finish.",
+                true,
+                cx,
+            );
+        };
+        self.preparing_update = true;
+        self.message = None;
+        self._modpack_task = Some(cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                this.preparing_update = false;
+                match result {
+                    Ok(prompt) => cx.emit(prompt),
+                    Err(err) => {
+                        this.set_message(format!("Couldn't prepare the update: {err}"), true, cx)
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// Shows the pack and an available update, for the offscreen screenshots.
+    pub fn preview_modpack(&mut self, record: ModpackRecord, versions: Vec<RawVersion>) {
+        self.modpack = Some(record);
+        self.modpack_versions = Load::Ready(versions);
+    }
+
+    fn render_modpack(&self, busy: bool, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let record = self.modpack.clone()?;
+        let update_job = self
+            .instances
+            .read(cx)
+            .modpack_update(&self.instance_id)
+            .map(|job| (job.progress.label(), job.progress.downloads.snapshot()));
+        let candidate = self
+            .modpack_versions
+            .ready()
+            .and_then(|versions| update_candidate(versions, &record));
+        let origin = if record.on_modrinth() {
+            "From Modrinth"
+        } else {
+            "From a .mrpack file that isn't on Modrinth, so it can't be updated here"
+        };
+        let version = if record.version_number.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", record.version_number)
+        };
+        let page = (!record.slug.is_empty())
+            .then(|| format!("https://modrinth.com/modpack/{}", record.slug));
+        let status_row: gpui::AnyElement = if let Some((label, snapshot)) = update_job {
+            let percent = if snapshot.bytes_total > 0 {
+                format!(
+                    " · {:.0}%",
+                    snapshot.bytes_done as f64 * 100.0 / snapshot.bytes_total as f64
+                )
+            } else {
+                String::new()
+            };
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(LoadingDots)
+                .child(status(format!("{label}{percent}"), colors::BLUE_200))
+                .into_any_element()
+        } else if self.preparing_update {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(LoadingDots)
+                .child(status(
+                    "Downloading the new version to see what changes…",
+                    colors::GRAY_400,
+                ))
+                .into_any_element()
+        } else {
+            match (&self.modpack_versions, candidate) {
+                (Load::Loading, _) => div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(LoadingDots)
+                    .child(status("Checking Modrinth…", colors::GRAY_400))
+                    .into_any_element(),
+                (Load::Failed(err), _) => status(err.clone(), colors::RED_200).into_any_element(),
+                (Load::Ready(_), Some(newer)) => {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .child(status(
+                            format!(
+                                "Version {} is available ({}).",
+                                newer.version_number,
+                                newer.date_published.get(..10).unwrap_or_default()
+                            ),
+                            colors::GREEN_300,
+                        ))
+                        .child(
+                            Button::new(
+                                "update-modpack",
+                                format!("Update to {}…", newer.version_number),
+                            )
+                            .variant(ButtonVariant::Primary)
+                            .disabled(busy)
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| this.prepare_update(newer.clone(), cx),
+                            )),
+                        )
+                        .into_any_element()
+                }
+                (Load::Ready(_), None) => {
+                    status("Up to date.", colors::GREEN_300).into_any_element()
+                }
+                (Load::NotLoaded, _) if record.on_modrinth() => {
+                    Button::new("check-modpack", "Check for updates")
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(cx.listener(|this, _, _, cx| this.check_modpack(cx)))
+                        .into_any_element()
+                }
+                (Load::NotLoaded, _) => div().into_any_element(),
+            }
+        };
+        Some(
+            section("Modpack", None)
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .px_3()
+                        .py_2()
+                        .rounded(radius::LG)
+                        .border_1()
+                        .border_color(colors::FADE_700)
+                        .bg(colors::GRAY_850)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .font_weight(weights::BOLD.into())
+                                        .text_color(colors::GRAY_300)
+                                        .child(format!("{}{version}", record.title)),
+                                )
+                                .child(status(origin, colors::GRAY_500)),
+                        )
+                        .when_some(page, |this, page| {
+                            this.child(
+                                Button::new("modpack-page", "View on Modrinth")
+                                    .variant(ButtonVariant::Ghost)
+                                    .on_click(move |_, _, cx| cx.open_url(&page)),
+                            )
+                        }),
+                )
+                .child(status_row)
+                .when(record.on_modrinth(), |this| {
+                    this.child(status(
+                        "Updating replaces the pack's own files and keeps your mods, configs and worlds; you see what changes first.",
+                        colors::GRAY_500,
+                    ))
+                })
+                .into_any_element(),
+        )
+    }
+
     /// Shows a Java check result, for the offscreen screenshots.
     pub fn preview_java(&mut self, version: &str, major: u32) {
         self.java_check = JavaCheck::Found(JavaInfo {
@@ -444,7 +687,7 @@ impl InstanceSettings {
 }
 
 /// `~/Downloads`, where exports are offered first.
-fn dirs_downloads() -> PathBuf {
+pub(crate) fn dirs_downloads() -> PathBuf {
     std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join("Downloads"))
         .filter(|dir| dir.is_dir())
@@ -657,6 +900,7 @@ impl Render for InstanceSettings {
             inherited(text_).into_any_element()
         });
 
+        let modpack = self.render_modpack(busy, cx);
         div()
             .id("instance-settings")
             .flex()
@@ -666,6 +910,7 @@ impl Render for InstanceSettings {
             .overflow_y_scroll()
             .pr_2()
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
+            .children(modpack)
             .child(
                 div()
                     .flex()
@@ -769,5 +1014,40 @@ impl Render for InstanceSettings {
                         )
                     }),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn version(id: &str, kind: &str, date: &str) -> RawVersion {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "project_id": "p", "name": id, "version_number": id,
+            "version_type": kind, "loaders": ["fabric"], "game_versions": ["1.20.1"],
+            "date_published": date,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn offers_the_newest_release_after_the_current_version() {
+        let current = ModpackRecord {
+            version_id: "v2".into(),
+            date_published: "2025-02-01".into(),
+            ..ModpackRecord::default()
+        };
+        let mut versions = vec![
+            version("v1", "release", "2025-01-01"),
+            version("v2", "release", "2025-02-01"),
+        ];
+        assert!(update_candidate(&versions, &current).is_none());
+        versions.push(version("v3-beta", "beta", "2025-04-01"));
+        assert!(update_candidate(&versions, &current).is_none());
+        versions.push(version("v3", "release", "2025-03-01"));
+        assert_eq!(update_candidate(&versions, &current).unwrap().id, "v3");
+        // A pack with only betas offers the newest beta.
+        let betas = [version("b1", "beta", "2025-05-01")];
+        assert_eq!(update_candidate(&betas, &current).unwrap().id, "b1");
     }
 }
