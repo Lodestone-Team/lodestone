@@ -579,3 +579,51 @@ fn skipped_message_is_short() {
     assert!(message.contains("and 5 more"));
     assert_eq!(describe_skipped(&[]), None);
 }
+
+#[tokio::test]
+async fn origin_from_a_modrinth_pack_keeps_cdn_icons_only() {
+    use crate::modrinth::fake::FakeVersion;
+    let fake = FakeModrinth::default();
+    fake.add(FakeVersion::new("pack", "pv1", "pack.mrpack"));
+    fake.set_icon_url("pack", "https://cdn.modrinth.com/data/pack/icon.png");
+    let origin = ModpackOrigin::from_modrinth(&fake, "pv1").await.unwrap();
+    assert_eq!(
+        origin,
+        ModpackOrigin {
+            project_id: "pack".into(),
+            version_id: "pv1".into(),
+            name: "Title of pack".into(),
+            version_number: Some("pv1-number".into()),
+            icon_url: Some("https://cdn.modrinth.com/data/pack/icon.png".into()),
+        }
+    );
+
+    for icon in [
+        "https://example.com/icon.png",
+        "http://cdn.modrinth.com/data/pack/icon.png",
+        "https://cdn.modrinth.com.evil.com/icon.png",
+        "https://cdn.modrinth.com:8443/icon.png",
+        "https://user@cdn.modrinth.com/icon.png",
+        "javascript:alert(1)",
+        "",
+    ] {
+        fake.set_icon_url("pack", icon);
+        let origin = ModpackOrigin::from_modrinth(&fake, "pv1").await.unwrap();
+        assert_eq!(origin.icon_url, None, "{icon}");
+    }
+    assert!(ModpackOrigin::from_modrinth(&fake, "missing")
+        .await
+        .is_err());
+}
+
+#[test]
+fn origin_from_an_uploaded_pack() {
+    let p = pack(index(vec![], fabric()), &[]);
+    let info = read_pack(&p.path, false).unwrap().info;
+    let origin = ModpackOrigin::from_upload(&info);
+    assert_eq!(origin.project_id, "");
+    assert_eq!(origin.version_id, "");
+    assert_eq!(origin.name, "Test Pack");
+    assert_eq!(origin.version_number.as_deref(), Some("1.2.3"));
+    assert_eq!(origin.icon_url, None);
+}

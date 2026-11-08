@@ -328,6 +328,7 @@ pub async fn install(
         result.installed.push(InstalledMod::new(
             new_file,
             Some(ModrinthMatch::new(&planned.version, project)),
+            folder.loader,
         ));
     }
     Ok(result)

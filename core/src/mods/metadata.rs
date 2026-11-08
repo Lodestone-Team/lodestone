@@ -68,37 +68,133 @@ pub fn jar_has_metadata(path: &Path, loader: InstalledModLoader) -> Result<bool,
         .any(|f| names.iter().any(|n| n == f)))
 }
 
-/// The metadata of the jar at `path`, from the first metadata file of the loader that can
-/// be read. `None` if the jar has none or is not a zip file.
-pub fn read_jar_metadata(path: &Path, loader: InstalledModLoader) -> Option<ModFileMetadata> {
-    let mut archive = open_jar(path).ok()?;
-    read_archive_metadata(&mut archive, loader)
+/// Where a mod says it runs, from `fabric.mod.json` `environment` or the Quilt equivalent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JarEnvironment {
+    /// Only on the client.
+    Client,
+    /// Only on the (dedicated) server.
+    Server,
 }
 
-pub fn read_archive_metadata<R: Read + Seek>(
+/// What Lodestone reads from a jar: the metadata shown to users, plus the environment and
+/// dependencies that decide whether players need the mod. Only Fabric and Quilt mods have
+/// the last two.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct JarInfo {
+    pub metadata: Option<ModFileMetadata>,
+    pub environment: Option<JarEnvironment>,
+    /// Ids of the mods this one depends on.
+    pub depends: Vec<String>,
+}
+
+/// What Lodestone reads from the jar at `path`, from the first metadata file of the loader
+/// that can be read. Empty if the jar has none or is not a zip file.
+pub fn read_jar_info(path: &Path, loader: InstalledModLoader) -> JarInfo {
+    match open_jar(path) {
+        Ok(mut archive) => read_archive_info(&mut archive, loader),
+        Err(_) => JarInfo::default(),
+    }
+}
+
+pub fn read_archive_info<R: Read + Seek>(
     archive: &mut zip::ZipArchive<R>,
     loader: InstalledModLoader,
-) -> Option<ModFileMetadata> {
+) -> JarInfo {
     for name in metadata_files(loader) {
         let Some(text) = read_entry(archive, name) else {
             continue;
         };
-        let parsed = match *name {
-            "fabric.mod.json" => parse_fabric_mod_json(&text),
-            "quilt.mod.json" => parse_quilt_mod_json(&text),
+        let (parsed, environment, depends) = match *name {
+            "fabric.mod.json" => {
+                let (environment, depends) = fabric_environment_and_depends(&text);
+                (parse_fabric_mod_json(&text), environment, depends)
+            }
+            "quilt.mod.json" => {
+                let (environment, depends) = quilt_environment_and_depends(&text);
+                (parse_quilt_mod_json(&text), environment, depends)
+            }
             "META-INF/mods.toml" | "META-INF/neoforge.mods.toml" => {
                 let manifest_version = read_entry(archive, "META-INF/MANIFEST.MF")
                     .and_then(|m| manifest_attribute(&m, "Implementation-Version"));
-                parse_mods_toml(&text, manifest_version)
+                (parse_mods_toml(&text, manifest_version), None, Vec::new())
             }
-            "mcmod.info" => parse_mcmod_info(&text),
-            _ => Some(parse_plugin_yml(&text)),
+            "mcmod.info" => (parse_mcmod_info(&text), None, Vec::new()),
+            _ => (Some(parse_plugin_yml(&text)), None, Vec::new()),
         };
         if let Some(metadata) = parsed {
-            return Some(metadata);
+            return JarInfo {
+                metadata: Some(metadata),
+                environment,
+                depends,
+            };
         }
     }
-    None
+    JarInfo::default()
+}
+
+/// `environment` and the `depends` keys of a `fabric.mod.json`.
+pub(crate) fn fabric_environment_and_depends(text: &str) -> (Option<JarEnvironment>, Vec<String>) {
+    #[derive(Deserialize)]
+    struct FabricModJson {
+        #[serde(default)]
+        environment: Option<String>,
+        #[serde(default)]
+        depends: serde_json::Map<String, serde_json::Value>,
+    }
+    let Some(parsed) = parse_json_leniently::<FabricModJson>(text) else {
+        return (None, Vec::new());
+    };
+    let environment = match parsed.environment.as_deref().map(str::trim) {
+        Some("client") => Some(JarEnvironment::Client),
+        Some("server") => Some(JarEnvironment::Server),
+        _ => None,
+    };
+    (
+        environment,
+        clean_list(parsed.depends.into_iter().map(|(id, _)| id)),
+    )
+}
+
+/// `minecraft.environment` and the `quilt_loader.depends` ids of a `quilt.mod.json`.
+/// A dependency is a string, or an object with an `id`; `group:id` is reduced to the id.
+pub(crate) fn quilt_environment_and_depends(text: &str) -> (Option<JarEnvironment>, Vec<String>) {
+    #[derive(Deserialize, Default)]
+    struct QuiltMinecraft {
+        #[serde(default)]
+        environment: Option<String>,
+    }
+    #[derive(Deserialize, Default)]
+    struct QuiltLoader {
+        #[serde(default)]
+        depends: Vec<serde_json::Value>,
+    }
+    #[derive(Deserialize)]
+    struct QuiltModJson {
+        #[serde(default)]
+        quilt_loader: QuiltLoader,
+        #[serde(default)]
+        minecraft: QuiltMinecraft,
+    }
+    let Some(parsed) = parse_json_leniently::<QuiltModJson>(text) else {
+        return (None, Vec::new());
+    };
+    let environment = match parsed.minecraft.environment.as_deref().map(str::trim) {
+        Some("client") => Some(JarEnvironment::Client),
+        Some("dedicated_server") => Some(JarEnvironment::Server),
+        _ => None,
+    };
+    let depends = parsed
+        .quilt_loader
+        .depends
+        .iter()
+        .filter_map(|d| match d {
+            serde_json::Value::String(id) => Some(id.clone()),
+            serde_json::Value::Object(o) => o.get("id").and_then(|i| i.as_str()).map(String::from),
+            _ => None,
+        })
+        .map(|id| id.rsplit(':').next().unwrap_or_default().to_string());
+    (environment, clean_list(depends))
 }
 
 fn clean(value: Option<String>) -> Option<String> {
@@ -394,7 +490,7 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.jar");
         make_zip(&path, entries);
-        read_jar_metadata(&path, loader)
+        read_jar_info(&path, loader).metadata
     }
 
     #[test]
@@ -493,6 +589,49 @@ Item viewer
     }
 
     #[test]
+    fn fabric_and_quilt_environment_and_depends() {
+        let dir = tempfile::tempdir().unwrap();
+        let jar = dir.path().join("a.jar");
+        make_zip(
+            &jar,
+            &[(
+                "fabric.mod.json",
+                r#"{"id": "a", "environment": "server", "depends": {"fabricloader": ">=0.15", "fabric-api": "*", "minecraft": "1.20.1"}}"#,
+            )],
+        );
+        let info = read_jar_info(&jar, InstalledModLoader::Fabric);
+        assert_eq!(info.metadata.unwrap().id.as_deref(), Some("a"));
+        assert_eq!(info.environment, Some(JarEnvironment::Server));
+        let mut depends = info.depends;
+        depends.sort();
+        assert_eq!(depends, vec!["fabric-api", "fabricloader", "minecraft"]);
+
+        assert_eq!(
+            fabric_environment_and_depends(r#"{"environment": "client"}"#).0,
+            Some(JarEnvironment::Client)
+        );
+        assert_eq!(
+            fabric_environment_and_depends(r#"{"environment": "*"}"#).0,
+            None
+        );
+        assert_eq!(fabric_environment_and_depends("{}"), (None, vec![]));
+
+        let quilt = r#"{"quilt_loader": {"id": "q", "depends": ["quilt_loader", {"id": "org.quiltmc:qsl"}, 3]},
+            "minecraft": {"environment": "dedicated_server"}}"#;
+        let (environment, depends) = quilt_environment_and_depends(quilt);
+        assert_eq!(environment, Some(JarEnvironment::Server));
+        assert_eq!(depends, vec!["quilt_loader", "qsl"]);
+
+        // other loaders have neither
+        let forge = dir.path().join("f.jar");
+        make_zip(&forge, &[("META-INF/mods.toml", "[[mods]]\nmodId=\"f\"\n")]);
+        let info = read_jar_info(&forge, InstalledModLoader::Forge);
+        assert!(info.metadata.is_some());
+        assert_eq!(info.environment, None);
+        assert!(info.depends.is_empty());
+    }
+
+    #[test]
     fn plugin_yml() {
         let yml = "# comment\nname: LuckPerms\nversion: '5.4.102'\nmain: me.lucko.Main\ndescription: \"A permissions plugin\"\nauthor: Luck\nauthors: [Alice, \"Bob\"]\ncommands:\n  lp:\n    description: nested, ignored\n    name: nested\n";
         let metadata = metadata_of(&[("plugin.yml", yml)], InstalledModLoader::Spigot).unwrap();
@@ -537,14 +676,17 @@ Item viewer
         assert!(!jar_has_metadata(&jar, InstalledModLoader::Forge).unwrap());
         assert!(!jar_has_metadata(&jar, InstalledModLoader::Paper).unwrap());
         // the wrong loader's file gives no metadata
-        assert_eq!(read_jar_metadata(&jar, InstalledModLoader::Spigot), None);
+        assert_eq!(
+            read_jar_info(&jar, InstalledModLoader::Spigot).metadata,
+            None
+        );
 
         let not_zip = dir.path().join("b.jar");
         std::fs::write(&not_zip, "not a zip").unwrap();
         let err = jar_has_metadata(&not_zip, InstalledModLoader::Fabric).unwrap_err();
         assert!(matches!(err.kind, ErrorKind::BadRequest));
         assert_eq!(
-            read_jar_metadata(&not_zip, InstalledModLoader::Fabric),
+            read_jar_info(&not_zip, InstalledModLoader::Fabric).metadata,
             None
         );
     }

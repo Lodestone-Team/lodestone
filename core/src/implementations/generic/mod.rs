@@ -368,6 +368,11 @@ impl TInstance for GenericInstance {
             player_count: player_count.ok(),
             max_player_count: max_player_count.ok(),
             player_list: player_list.ok(),
+            icon_url: None,
+            modpack: None,
+            loader_version: None,
+            min_ram: None,
+            max_ram: None,
         }
     }
 }

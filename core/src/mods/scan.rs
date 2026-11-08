@@ -9,6 +9,7 @@ use std::time::SystemTime;
 use color_eyre::eyre::{eyre, Context};
 use sha2::Digest;
 
+use super::metadata::{JarEnvironment, JarInfo};
 use super::{
     is_disabled_name, is_mod_file_name, metadata, InstalledModLoader, ModFileMetadata, ModFolder,
 };
@@ -22,6 +23,10 @@ pub struct ScannedFile {
     pub size: u64,
     pub sha512: String,
     pub metadata: Option<ModFileMetadata>,
+    /// Where the jar says it runs (Fabric and Quilt only).
+    pub environment: Option<JarEnvironment>,
+    /// The mod ids the jar depends on (Fabric and Quilt only).
+    pub depends: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -29,7 +34,7 @@ struct CachedScan {
     size: u64,
     modified: Option<SystemTime>,
     sha512: String,
-    metadata: Option<ModFileMetadata>,
+    info: JarInfo,
 }
 
 /// Hashing every jar on each listing is slow for large folders, so results are kept for
@@ -77,7 +82,7 @@ fn scan_file_blocking(path: &Path, loader: InstalledModLoader) -> Result<Scanned
                 size,
                 modified,
                 sha512: sha512_of(path).with_context(|| format!("Failed to read {file_name}"))?,
-                metadata: metadata::read_jar_metadata(path, loader),
+                info: metadata::read_jar_info(path, loader),
             };
             let mut cache = SCAN_CACHE.lock().unwrap_or_else(|e| e.into_inner());
             if cache.len() >= SCAN_CACHE_MAX_ENTRIES {
@@ -92,7 +97,9 @@ fn scan_file_blocking(path: &Path, loader: InstalledModLoader) -> Result<Scanned
         file_name,
         size: scan.size,
         sha512: scan.sha512,
-        metadata: scan.metadata,
+        metadata: scan.info.metadata,
+        environment: scan.info.environment,
+        depends: scan.info.depends,
     })
 }
 

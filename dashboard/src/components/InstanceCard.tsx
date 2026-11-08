@@ -72,6 +72,7 @@ export default function InstanceCard({
   uuid,
   name,
   game_type,
+  icon_url,
   state,
   player_count,
   max_player_count,
@@ -203,7 +204,11 @@ export default function InstanceCard({
           'ui-checked:bg-gray-800 ui-checked:outline-solid ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800'
         )}
       >
-        <GameIcon game_type={game_type} className="h-4 w-4" />
+        <GameIcon
+          game_type={game_type}
+          icon_url={icon_url}
+          className="h-4 w-4"
+        />
         <p className="grow truncate">{name}</p>
         <Tooltip
           showArrow={false}

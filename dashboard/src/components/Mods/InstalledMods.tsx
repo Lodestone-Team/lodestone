@@ -33,12 +33,14 @@ import {
 } from 'utils/mods';
 import { ApiError, errorToString, formatBytes } from 'utils/util';
 import {
+  ClientRequirementLabel,
   DisabledTooltip,
   InstallResultMessage,
   ModIcon,
   NO_WRITE_PERMISSION,
   pickFiles,
 } from './common';
+import ClientPackPanel from './ClientPackPanel';
 
 const ModRow = ({
   uuid,
@@ -115,6 +117,8 @@ const ModRow = ({
               {version}
             </span>
           )}
+          {/* players never install plugins, so plugins show nothing */}
+          {kind === 'mod' && <ClientRequirementLabel mod={mod} />}
         </div>
         <div className="truncate text-small text-white/30">
           {mod.file_name} · {formatBytes(mod.size)}
@@ -303,6 +307,7 @@ export default function InstalledMods({
         Replace it with the uploaded file?
       </ConfirmDialog>
 
+      {list && !error && <ClientPackPanel uuid={uuid} list={list} />}
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
         <div className="text-medium text-white/50">
           {list
