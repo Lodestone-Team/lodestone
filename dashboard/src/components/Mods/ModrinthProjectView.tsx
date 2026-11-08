@@ -179,17 +179,20 @@ const VersionRow = ({
           {version.loaders.join(', ')} · {formatDate(version.date_published)}
         </div>
       </div>
-      <DisabledTooltip show={!target.canWrite} message={NO_WRITE_PERMISSION}>
-        <Button
-          label={installedHere ? 'Reinstall' : 'Install'}
-          icon={faDownload}
-          intention={compatible ? 'primary' : 'info'}
-          size="slim"
-          loading={installing}
-          disabled={!target.canWrite}
-          onClick={() => onInstall(version)}
-        />
-      </DisabledTooltip>
+      {/* this exact version is installed already: nothing to install */}
+      {!installedHere && (
+        <DisabledTooltip show={!target.canWrite} message={NO_WRITE_PERMISSION}>
+          <Button
+            label="Install"
+            icon={faDownload}
+            intention={compatible ? 'primary' : 'info'}
+            size="slim"
+            loading={installing}
+            disabled={!target.canWrite}
+            onClick={() => onInstall(version)}
+          />
+        </DisabledTooltip>
+      )}
     </div>
   );
 };
