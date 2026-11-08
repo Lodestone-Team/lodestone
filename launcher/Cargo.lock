@@ -2782,6 +2782,7 @@ dependencies = [
  "rand 0.9.4",
  "regex",
  "reqwest_client",
+ "rustls",
  "serde",
  "serde_json",
  "sha1",
@@ -2792,6 +2793,7 @@ dependencies = [
  "trash",
  "url",
  "uuid",
+ "zed-reqwest",
  "zip",
 ]
 

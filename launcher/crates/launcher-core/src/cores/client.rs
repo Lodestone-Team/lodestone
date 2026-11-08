@@ -12,8 +12,11 @@ use futures::AsyncReadExt as _;
 use http_client::{AsyncBody, HttpClient, HttpRequestExt as _, Method, RedirectPolicy, Request};
 use url::Url;
 
-use super::models::{
-    CoreInfo, CreatedKeyReply, ErrorBody, KeyInfo, LoginReply, ServerInstance, ServerList,
+use super::{
+    models::{
+        CoreInfo, CreatedKeyReply, ErrorBody, KeyInfo, LoginReply, ServerInstance, ServerList,
+    },
+    tls::{PinnedHttp, normalize_host, same_fingerprint},
 };
 use crate::{Secret, USER_AGENT};
 
@@ -36,10 +39,24 @@ pub enum CoreError {
     InvalidAddress(String),
     #[error("Couldn't reach the core. Check the address and that the core is running. ({0})")]
     Unreachable(String),
+    /// macOS doesn't trust the certificate, and no pin accepts it. `fingerprint` is the
+    /// presented certificate's, when it could be read.
     #[error(
-        "The core's HTTPS certificate isn't trusted by this Mac. Lodestone Launcher can't use a core's built-in self-signed certificate yet: connect over http:// on the core's own machine, or give the core a trusted certificate."
+        "The HTTPS certificate of {host} isn't trusted by this Mac. Check its fingerprint, then trust it to connect."
     )]
-    Untrusted,
+    Untrusted {
+        host: String,
+        fingerprint: Option<String>,
+    },
+    /// The core presents another certificate than the one the user trusted.
+    #[error(
+        "The HTTPS certificate of {host} changed since you trusted it, so Lodestone Launcher refuses to connect. Check the new fingerprint before you trust it."
+    )]
+    CertificateChanged {
+        host: String,
+        pinned: String,
+        presented: String,
+    },
     #[error("Signed out: this device's key was revoked or has expired. Sign in again.")]
     SignedOut,
     #[error("Wrong username or password.")]
@@ -63,7 +80,15 @@ pub enum CoreError {
 impl CoreError {
     /// Errors that mean "not reachable right now", as opposed to a refusal.
     pub fn is_offline(&self) -> bool {
-        matches!(self, CoreError::Unreachable(_) | CoreError::Untrusted)
+        matches!(self, CoreError::Unreachable(_))
+    }
+
+    /// A certificate that needs the user's decision.
+    pub fn is_certificate(&self) -> bool {
+        matches!(
+            self,
+            CoreError::Untrusted { .. } | CoreError::CertificateChanged { .. }
+        )
     }
 }
 
@@ -170,12 +195,29 @@ struct RawResponse {
 pub struct CoreClient {
     http: Arc<dyn HttpClient>,
     base: Url,
+    /// The client that accepts the core's pinned certificate, tried first.
+    pinned: Option<Arc<PinnedHttp>>,
 }
 
 impl CoreClient {
-    /// `base` is the core's address from [`parse_address`].
+    /// `base` is the core's address from [`parse_address`]. `http` verifies certificates
+    /// as macOS does.
     pub fn new(http: Arc<dyn HttpClient>, base: Url) -> Self {
-        Self { http, base }
+        Self {
+            http,
+            base,
+            pinned: None,
+        }
+    }
+
+    /// Also accepts the certificate `pinned` was made for (see [`super::tls`]).
+    pub fn with_pinned(mut self, pinned: Arc<PinnedHttp>) -> Self {
+        self.pinned = Some(pinned);
+        self
+    }
+
+    fn host(&self) -> String {
+        normalize_host(self.base.host_str().unwrap_or_default())
     }
 
     pub fn base(&self) -> &Url {
@@ -201,39 +243,37 @@ impl CoreClient {
         limit: u64,
         timeout: Duration,
     ) -> Result<RawResponse, CoreError> {
-        let mut builder = Request::builder()
-            .method(method)
-            .uri(self.url(path))
-            .header("User-Agent", USER_AGENT)
-            .header("Accept", "application/json")
-            .follow_redirects(RedirectPolicy::NoFollow)
-            .timeout(timeout);
-        match auth {
-            Auth::None => {}
-            Auth::Bearer(token) => {
-                builder = builder.header("Authorization", format!("Bearer {}", token.expose()));
+        let request = || {
+            let mut builder = Request::builder()
+                .method(method.clone())
+                .uri(self.url(path))
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .follow_redirects(RedirectPolicy::NoFollow)
+                .timeout(timeout);
+            match auth {
+                Auth::None => {}
+                Auth::Bearer(token) => {
+                    builder = builder.header("Authorization", format!("Bearer {}", token.expose()));
+                }
+                Auth::Basic(username, password) => {
+                    let encoded = base64::engine::general_purpose::STANDARD
+                        .encode(format!("{username}:{}", password.expose()));
+                    builder = builder.header("Authorization", format!("Basic {encoded}"));
+                }
             }
-            Auth::Basic(username, password) => {
-                let encoded = base64::engine::general_purpose::STANDARD
-                    .encode(format!("{username}:{}", password.expose()));
-                builder = builder.header("Authorization", format!("Basic {encoded}"));
+            if let Some(etag) = if_none_match {
+                builder = builder.header("If-None-Match", etag);
             }
-        }
-        if let Some(etag) = if_none_match {
-            builder = builder.header("If-None-Match", etag);
-        }
-        let request = match body {
-            Some(body) => builder
-                .header("Content-Type", "application/json")
-                .body(AsyncBody::from(body)),
-            None => builder.body(AsyncBody::empty()),
-        }
-        .map_err(|err| CoreError::InvalidAddress(err.to_string()))?;
-        let response = self
-            .http
-            .send(request)
-            .await
-            .map_err(|err| transport_error(&err))?;
+            match body.clone() {
+                Some(body) => builder
+                    .header("Content-Type", "application/json")
+                    .body(AsyncBody::from(body)),
+                None => builder.body(AsyncBody::empty()),
+            }
+            .map_err(|err| CoreError::InvalidAddress(err.to_string()))
+        };
+        let response = self.send_checked(request).await?;
         let status = response.status().as_u16();
         let etag = response
             .headers()
@@ -254,6 +294,76 @@ impl CoreClient {
             )));
         }
         Ok(RawResponse { status, etag, body })
+    }
+
+    /// Sends a request (made by `request`, which may be called more than once) the way
+    /// the core's certificate allows:
+    ///
+    /// - with a pin, through the pinned client first; when that refuses the certificate,
+    ///   through the platform verifier (a certificate macOS trusts now still works), and
+    ///   otherwise [`CoreError::CertificateChanged`] (or [`CoreError::Untrusted`] when the
+    ///   pinned certificate is presented for another host);
+    /// - without one, through the platform verifier; when that refuses the certificate,
+    ///   a probe connection reads the presented fingerprint for
+    ///   [`CoreError::Untrusted`]. The probe accepts nothing, so no request is answered.
+    async fn send_checked(
+        &self,
+        request: impl Fn() -> Result<Request<AsyncBody>, CoreError>,
+    ) -> Result<http_client::Response<AsyncBody>, CoreError> {
+        let untrusted = |fingerprint: Option<String>| CoreError::Untrusted {
+            host: self.host(),
+            fingerprint,
+        };
+        if let Some(pinned) = &self.pinned {
+            pinned.take_presented();
+            let err = match pinned.http().send(request()?).await {
+                Ok(response) => return Ok(response),
+                Err(err) => err,
+            };
+            let Some(presented) = pinned.take_presented() else {
+                // the handshake never got to the certificate
+                return Err(CoreError::Unreachable(format!("{err:#}")));
+            };
+            match self.http.send(request()?).await {
+                Ok(response) => return Ok(response),
+                Err(err) if !is_certificate_error(&err) => {
+                    return Err(CoreError::Unreachable(format!("{err:#}")));
+                }
+                Err(_) => {}
+            }
+            return Err(match pinned.pin() {
+                Some(pin) if !same_fingerprint(&pin.sha256, &presented.sha256) => {
+                    CoreError::CertificateChanged {
+                        host: presented.host,
+                        pinned: pin.sha256.clone(),
+                        presented: presented.sha256,
+                    }
+                }
+                _ => untrusted(Some(presented.sha256)),
+            });
+        }
+        match self.http.send(request()?).await {
+            Ok(response) => Ok(response),
+            Err(err) if is_certificate_error(&err) => {
+                Err(untrusted(self.probe_fingerprint().await))
+            }
+            Err(err) => Err(CoreError::Unreachable(format!("{err:#}"))),
+        }
+    }
+
+    /// The fingerprint of the certificate the core presents, read by a connection that
+    /// accepts no certificate: its handshake fails before anything is sent.
+    pub async fn probe_fingerprint(&self) -> Option<String> {
+        let probe = PinnedHttp::new(None).ok()?;
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(self.url("info"))
+            .follow_redirects(RedirectPolicy::NoFollow)
+            .timeout(REQUEST_TIMEOUT)
+            .body(AsyncBody::empty())
+            .ok()?;
+        let _ = probe.http().send(request).await;
+        probe.take_presented().map(|p| p.sha256)
     }
 
     async fn json<T: serde::de::DeserializeOwned>(
@@ -476,14 +586,11 @@ fn check(response: &RawResponse, auth: Auth<'_>) -> Result<(), CoreError> {
     })
 }
 
-fn transport_error(err: &anyhow::Error) -> CoreError {
-    let text = format!("{err:#}");
-    let lower = text.to_ascii_lowercase();
-    if lower.contains("certificate") || lower.contains("unknownissuer") {
-        CoreError::Untrusted
-    } else {
-        CoreError::Unreachable(text)
-    }
+/// Whether a request failed on the server's certificate (rustls' and reqwest's
+/// messages say so).
+fn is_certificate_error(err: &anyhow::Error) -> bool {
+    let lower = format!("{err:#}").to_ascii_lowercase();
+    lower.contains("certificate") || lower.contains("unknownissuer")
 }
 
 #[cfg(test)]
@@ -531,14 +638,12 @@ mod tests {
     }
 
     #[test]
-    fn certificate_errors_are_untrusted() {
-        assert_eq!(
-            transport_error(&anyhow::anyhow!("invalid peer certificate: UnknownIssuer")),
-            CoreError::Untrusted
-        );
-        assert!(matches!(
-            transport_error(&anyhow::anyhow!("connection refused")),
-            CoreError::Unreachable(_)
-        ));
+    fn certificate_errors_are_recognised() {
+        assert!(is_certificate_error(&anyhow::anyhow!(
+            "invalid peer certificate: UnknownIssuer"
+        )));
+        assert!(!is_certificate_error(&anyhow::anyhow!(
+            "connection refused"
+        )));
     }
 }

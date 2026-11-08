@@ -37,7 +37,8 @@ fn parse_host_port(address: &str) -> Option<JoinServer> {
     }
 }
 
-/// The address to join `server` at, on the core at `core_url`.
+/// The address to join `server` at, on the core at `core_url`. `None` when the core
+/// doesn't share the server's address (or its port doesn't fit).
 pub fn join_target(core_url: &Url, server: &ServerInstance) -> Option<JoinServer> {
     if let Some(target) = server.playit_address.as_deref().and_then(parse_host_port) {
         return Some(target);
@@ -49,7 +50,7 @@ pub fn join_target(core_url: &Url, server: &ServerInstance) -> Option<JoinServer
     };
     Some(JoinServer {
         host,
-        port: u16::try_from(server.port).ok()?,
+        port: u16::try_from(server.port?).ok()?,
     })
 }
 
@@ -59,6 +60,7 @@ mod tests {
     use crate::cores::models::{ServerLoader, ServerState};
 
     fn server(port: u32, playit: Option<&str>) -> ServerInstance {
+        let port = Some(port);
         ServerInstance {
             uuid: "i".into(),
             name: "SMP".into(),
@@ -111,6 +113,10 @@ mod tests {
         );
         // a port that doesn't fit
         assert_eq!(join_target(&named, &server(70000, None)), None);
+        // an address the owner doesn't show
+        let mut hidden = server(25565, None);
+        hidden.port = None;
+        assert_eq!(join_target(&named, &hidden), None);
     }
 
     #[test]

@@ -40,8 +40,9 @@ impl ServerLoader {
     }
 }
 
-/// Whether a server runs.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+/// Whether a server runs. `Unknown` also when the owner doesn't show the status
+/// publicly.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 pub enum ServerState {
     Starting,
     Running,
@@ -49,6 +50,7 @@ pub enum ServerState {
     Stopped,
     Error,
     #[serde(other)]
+    #[default]
     Unknown,
 }
 
@@ -66,7 +68,9 @@ impl ServerState {
 }
 
 /// A server (a core's instance) as `GET /public/instances` and
-/// `GET /launcher/instances` describe it.
+/// `GET /launcher/instances` describe it. The owner can leave the status, the address
+/// (port and playit.gg address) and the client pack out of the public list; those fields
+/// are then missing.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct ServerInstance {
     pub uuid: String,
@@ -75,7 +79,9 @@ pub struct ServerInstance {
     pub loader: ServerLoader,
     #[serde(default)]
     pub loader_version: Option<String>,
-    pub port: u32,
+    #[serde(default)]
+    pub port: Option<u32>,
+    #[serde(default)]
     pub state: ServerState,
     #[serde(default)]
     pub player_count: Option<u32>,
@@ -154,6 +160,9 @@ mod tests {
             }, {
                 "uuid": "i2", "name": "New", "game_version": "26.3", "loader": "quilt",
                 "loader_version": null, "port": 25566, "state": "Hibernating"
+            }, {
+                "uuid": "i3", "name": "Scoped", "game_version": "1.21.1", "loader": "vanilla",
+                "loader_version": null, "listed": true
             }]
         }))
         .unwrap();
@@ -165,5 +174,9 @@ mod tests {
         assert_eq!(list.instances[1].loader, ServerLoader::Other);
         assert_eq!(list.instances[1].state, ServerState::Unknown);
         assert_eq!(list.instances[1].players_label(), None);
+        // the owner hid the status, address and client pack
+        assert_eq!(list.instances[2].state, ServerState::Unknown);
+        assert_eq!(list.instances[2].port, None);
+        assert!(!list.instances[2].has_client_pack);
     }
 }
