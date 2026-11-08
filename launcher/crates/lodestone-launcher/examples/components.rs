@@ -9,8 +9,8 @@ use gpui::{
 use lodestone_launcher::{
     assets::Assets,
     components::{
-        Align, Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, ListRow, Tabs,
-        TextInput, Toggle,
+        Align, Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, ListRow,
+        Tabs, TextInput, Toggle,
     },
     theme::{self, colors, fonts, leading, text, weights},
 };
@@ -23,12 +23,16 @@ struct Gallery {
     auto_update: bool,
     tab: usize,
     selected_row: usize,
-    dialog_open: bool,
-    dialog_focus: FocusHandle,
+    /// The dialog, by its focus handle; it fades out when it closes.
+    dialog: DialogSlot<Gallery, FocusHandle>,
 }
 
 impl Gallery {
     fn new(cx: &mut Context<Self>) -> Self {
+        let mut dialog = DialogSlot::new(|this: &mut Gallery| &mut this.dialog);
+        if std::env::args().any(|arg| arg == "--dialog") {
+            dialog.open(cx.focus_handle(), cx);
+        }
         Self {
             name: cx.new(|cx| TextInput::new(cx).with_placeholder("Instance name")),
             filled: cx.new(|cx| TextInput::new(cx).with_text("Survival with friends")),
@@ -41,8 +45,7 @@ impl Gallery {
             auto_update: false,
             tab: 0,
             selected_row: 0,
-            dialog_open: std::env::args().any(|arg| arg == "--dialog"),
-            dialog_focus: cx.focus_handle(),
+            dialog,
         }
     }
 }
@@ -85,8 +88,7 @@ fn caption(label: impl Into<SharedString>) -> impl IntoElement {
 
 impl Gallery {
     fn close_dialog(&mut self, cx: &mut Context<Self>) {
-        self.dialog_open = false;
-        cx.notify();
+        self.dialog.close(cx);
     }
 
     fn buttons(&self) -> impl IntoElement {
@@ -260,9 +262,9 @@ impl Gallery {
             "Dialog",
             row([Button::new("open-dialog", "Open dialog")
                 .on_click(cx.listener(|this, _, window, cx| {
-                    this.dialog_open = true;
-                    window.focus(&this.dialog_focus, cx);
-                    cx.notify();
+                    let focus = cx.focus_handle();
+                    window.focus(&focus, cx);
+                    this.dialog.open(focus, cx);
                 }))
                 .into_any_element()]),
         )
@@ -270,8 +272,26 @@ impl Gallery {
 }
 
 impl Render for Gallery {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
+        let dialog = self.dialog.render(window, |focus| {
+            let entity = entity.clone();
+            Some(
+                Dialog::new("dialog", "Delete instance?", focus.clone())
+                    .on_close(move |_, cx| entity.update(cx, Self::close_dialog))
+                    .child("This removes the instance and its worlds. It cannot be undone.")
+                    .footer(
+                        Button::new("cancel", "Cancel")
+                            .on_click(cx.listener(|this, _, _, cx| this.close_dialog(cx))),
+                    )
+                    .footer(
+                        Button::new("confirm", "Delete")
+                            .variant(ButtonVariant::Danger)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_dialog(cx))),
+                    )
+                    .into_any_element(),
+            )
+        });
         div()
             .relative()
             .size_full()
@@ -299,22 +319,7 @@ impl Render for Gallery {
                     .child(self.list(cx))
                     .child(self.dialog(cx)),
             )
-            .when(self.dialog_open, |this| {
-                this.child(
-                    Dialog::new("dialog", "Delete instance?", self.dialog_focus.clone())
-                        .on_close(move |_, cx| entity.update(cx, Self::close_dialog))
-                        .child("This removes the instance and its worlds. It cannot be undone.")
-                        .footer(
-                            Button::new("cancel", "Cancel")
-                                .on_click(cx.listener(|this, _, _, cx| this.close_dialog(cx))),
-                        )
-                        .footer(
-                            Button::new("confirm", "Delete")
-                                .variant(ButtonVariant::Danger)
-                                .on_click(cx.listener(|this, _, _, cx| this.close_dialog(cx))),
-                        ),
-                )
-            })
+            .children(dialog)
     }
 }
 
