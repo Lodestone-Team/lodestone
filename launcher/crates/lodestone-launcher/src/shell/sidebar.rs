@@ -406,7 +406,7 @@ fn page_link(
 
 /// Servers and Settings, pinned to the bottom, and the version.
 fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
-    let settings_open = shell.page == Page::Settings;
+    let settings_open = shell.settings_open();
     let servers_open = shell.page == Page::Servers;
     div()
         .flex()
@@ -448,14 +448,9 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 })
                 .child(Icon::Gear.render(px(14.), colors::GRAY_FADED.opacity(50)))
                 .child("Settings")
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    let page = if settings_open {
-                        Page::Instance
-                    } else {
-                        Page::Settings
-                    };
-                    this.show(page, cx);
-                })),
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
+                ),
         )
         .child(
             div()

@@ -83,6 +83,8 @@ pub struct Dialog {
     footer: Vec<AnyElement>,
     on_close: Option<CloseHandler>,
     width: gpui::Pixels,
+    /// No title, padding or footer: the body fills a panel of this height.
+    frameless: Option<gpui::Pixels>,
 }
 
 impl Dialog {
@@ -99,7 +101,16 @@ impl Dialog {
             footer: Vec::new(),
             on_close: None,
             width: layout::DIALOG_WIDTH,
+            frameless: None,
         }
+    }
+
+    /// A panel of `width` × `height` that its body fills, without the title, the
+    /// padding or the footer, for a page such as Settings.
+    pub fn frameless(mut self, width: gpui::Pixels, height: gpui::Pixels) -> Self {
+        self.width = width;
+        self.frameless = Some(height);
+        self
     }
 
     /// A wider dialog than the dashboard's 500 px, for two columns.
@@ -135,15 +146,13 @@ impl RenderOnce for Dialog {
             .with_easing(ease_out_cubic);
         let scrim = Hsla::from(colors::GRAY_900.opacity(60));
 
+        let frameless = self.frameless;
         let panel = div()
             .id("dialog-panel")
             .relative()
             .occlude()
             .flex()
-            .flex_col()
-            .gap_6()
             .w(self.width)
-            .p_12()
             .rounded(radius::XL_2)
             .border_1()
             .border_color(colors::GRAY_FADED.opacity(30))
@@ -156,23 +165,34 @@ impl RenderOnce for Dialog {
                 spread_radius: px(0.),
                 inset: false,
             }])
-            .child(
-                div()
-                    .text_size(theme::text_size(text::H1))
-                    .line_height(theme::line_height(text::H1, leading::TIGHT))
-                    .font_weight(weights::EXTRABOLD.into())
-                    .text_color(colors::GRAY_300)
-                    .child(self.title),
-            )
-            .child(
-                div()
-                    .text_size(theme::text_size(text::H3))
-                    .line_height(theme::line_height(text::H3, leading::NORMAL))
-                    .text_color(colors::GRAY_300)
+            .map(|panel| match frameless {
+                Some(height) => panel
+                    .flex_row()
+                    .h(height)
+                    .overflow_hidden()
                     .children(self.body),
-            )
-            .when(!self.footer.is_empty(), |this| {
-                this.child(div().flex().flex_row().gap_2().children(self.footer))
+                None => panel
+                    .flex_col()
+                    .gap_6()
+                    .p_12()
+                    .child(
+                        div()
+                            .text_size(theme::text_size(text::H1))
+                            .line_height(theme::line_height(text::H1, leading::TIGHT))
+                            .font_weight(weights::EXTRABOLD.into())
+                            .text_color(colors::GRAY_300)
+                            .child(self.title),
+                    )
+                    .child(
+                        div()
+                            .text_size(theme::text_size(text::H3))
+                            .line_height(theme::line_height(text::H3, leading::NORMAL))
+                            .text_color(colors::GRAY_300)
+                            .children(self.body),
+                    )
+                    .when(!self.footer.is_empty(), |this| {
+                        this.child(div().flex().flex_row().gap_2().children(self.footer))
+                    }),
             })
             .with_animation(
                 ElementId::from((self.id.clone(), "panel-enter")),

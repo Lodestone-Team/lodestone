@@ -70,6 +70,9 @@ pub const SCENES: &[&str] = &[
     "import",
     "import-progress",
     "instance-linked",
+    "settings",
+    "settings-accounts",
+    "settings-developer",
 ];
 
 /// Scenes of the Worlds tab.
@@ -448,7 +451,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "shared-settings" => {
-            shell.show(crate::shell::Page::Settings, cx);
+            shell.open_settings(Some(crate::shell::SettingsPage::Shared), None, cx);
             shell.shared_settings().clone().update(cx, |shared, cx| {
                 shared.preview_expand(&[launcher_core::shared_options::Category::Video], cx)
             });
@@ -463,6 +466,14 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "import" | "import-progress" => import::apply(scene, shell, cx),
+        "settings" | "settings-accounts" | "settings-developer" => {
+            let page = match scene {
+                "settings-accounts" => crate::shell::SettingsPage::Accounts,
+                "settings-developer" => crate::shell::SettingsPage::Developer,
+                _ => crate::shell::SettingsPage::Defaults,
+            };
+            shell.open_settings(Some(page), None, cx);
+        }
         "instance-linked" => servers::apply_linked_instance(shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),
