@@ -18,11 +18,14 @@ use launcher_core::{
     game::{download::CancelToken, loaders::LoaderKind},
     import::{
         self, CopyOptions, Found, IconSource, ImportError, ImportProgress, ImportRequest,
-        Locations, Resolved, Source, WantedLoader, WantedVersion, copy, detect,
+        Locations, Resolved, Source, WantedLoader, WantedVersion, detect,
     },
     instances::{CUSTOM_ICON, InstanceStore, Loader, Memory},
 };
 use modrinth::{FakeVersion, ModrinthMock};
+// Only the Unix-only test below copies with symbolic links.
+#[cfg(unix)]
+use launcher_core::import::copy;
 
 fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/import")

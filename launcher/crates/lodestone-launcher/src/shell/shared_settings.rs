@@ -2,7 +2,7 @@
 //! from, "Copy from instance…", "Reset", and the shared values themselves.
 
 use crate::theme::px;
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, path::PathBuf};
 
 use gpui::{
     AnyElement, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
@@ -19,7 +19,7 @@ use crate::{
         },
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, t, tr, trn},
-    instances::{Instances, shared_settings::value_control},
+    instances::{Instances, shared_options_i18n, shared_settings::value_control},
     theme::{self, colors, text, weights},
 };
 
@@ -61,16 +61,17 @@ pub struct SharedSettings {
     editing: Option<(String, Entity<TextInput>)>,
     confirm_reset: bool,
     toast: Toast,
-    /// The instances and how many are running at the last look, to reload when a game
-    /// stops or an instance is added or deleted.
-    signature: (Vec<String>, usize),
+    /// The instances and how many are running at the last look, and
+    /// [`Instances::shared_revision`], to reload when a game stops, an instance is
+    /// added or deleted, or Undo puts the shared settings back.
+    signature: (Vec<String>, usize, u64),
     _observe: Subscription,
 }
 
-fn signature(instances: &Instances) -> (Vec<String>, usize) {
+fn signature(instances: &Instances) -> (Vec<String>, usize, u64) {
     let ids: Vec<String> = instances.list().iter().map(|i| i.id.clone()).collect();
     let active = ids.iter().filter(|id| instances.is_active(id)).count();
-    (ids, active)
+    (ids, active, instances.shared_revision())
 }
 
 impl SharedSettings {
@@ -112,6 +113,20 @@ impl SharedSettings {
         cx.notify();
     }
 
+    /// The shared settings as they are now (and `instance`'s sharing state), for Undo.
+    fn undo_files(&self, instance: Option<PathBuf>, cx: &Context<Self>) -> crate::undo::Files {
+        let data = self.instances.read(cx).data_dir().clone();
+        let mut paths = vec![shared_options::profile_path(&data)];
+        paths.extend(instance.map(|dir| shared_options::instance_path(&dir)));
+        crate::undo::Files::read(&paths)
+    }
+
+    fn record_undo(&mut self, before: crate::undo::Files, cx: &mut Context<Self>) {
+        self.instances.update(cx, |instances, cx| {
+            instances.record_shared(before, None, cx)
+        });
+    }
+
     fn say(&mut self, message: impl Into<SharedString>, error: bool, cx: &mut Context<Self>) {
         self.toast
             .show(message, error, |this: &mut Self| &mut this.toast, cx);
@@ -138,6 +153,7 @@ impl SharedSettings {
     }
 
     fn set_category(&mut self, category: Category, shared: bool, cx: &mut Context<Self>) {
+        let before = self.undo_files(None, cx);
         let data = self.instances.read(cx).data_dir().clone();
         let result = shared_options::update_profile(&data, |profile| {
             if shared {
@@ -146,6 +162,7 @@ impl SharedSettings {
                 profile.disabled.insert(category);
             }
         });
+        self.record_undo(before, cx);
         self.done(result, None, cx);
     }
 
@@ -158,11 +175,14 @@ impl SharedSettings {
             Some(name) => tr!(M::SyncedFrom, name = name),
             None => t(M::SyncedFromNone).into(),
         };
+        let before = self.undo_files(dir.clone(), cx);
         let result = shared_options::set_preferred(&data, id.as_deref(), dir.as_deref());
+        self.record_undo(before, cx);
         self.done(result, Some(message), cx);
     }
 
     fn copy_from(&mut self, id: String, cx: &mut Context<Self>) {
+        let before = self.undo_files(None, cx);
         self.picker = None;
         let instances = self.instances.read(cx);
         let data = instances.data_dir().clone();
@@ -177,6 +197,7 @@ impl SharedSettings {
         let jar = instances.client_jar(&version);
         match shared_options::copy_from_instance(&data, &dir, &version, Some(&jar)) {
             Ok(count) => {
+                self.record_undo(before, cx);
                 self.say(trn!(P::CopiedValues, count, name = name), false, cx);
                 self.reload(cx);
             }
@@ -185,9 +206,11 @@ impl SharedSettings {
     }
 
     fn reset(&mut self, cx: &mut Context<Self>) {
+        let before = self.undo_files(None, cx);
         self.confirm_reset = false;
         let data = self.instances.read(cx).data_dir().clone();
         let result = shared_options::reset(&data);
+        self.record_undo(before, cx);
         self.done(result, Some(t(M::SharedCleared).into()), cx);
     }
 
@@ -197,14 +220,17 @@ impl SharedSettings {
         };
         let text = input.read(cx).text().to_string();
         let data = self.instances.read(cx).data_dir().clone();
+        let before = self.undo_files(None, cx);
         let result = shared_options::set_value(&data, &key, &text);
         if result.is_err() {
             self.editing = Some((key, input));
         }
+        self.record_undo(before, cx);
         self.done(result, None, cx);
     }
 
     fn set_narrator_off(&mut self, off: bool, cx: &mut Context<Self>) {
+        let before = self.undo_files(None, cx);
         let data = self.instances.read(cx).data_dir().clone();
         let result = shared_options::set_narrator_off(&data, off);
         let message = if off {
@@ -212,13 +238,16 @@ impl SharedSettings {
         } else {
             t(M::NarratorPerInstance)
         };
+        self.record_undo(before, cx);
         self.done(result, Some(message.into()), cx);
     }
 
     /// Saves a value picked with a switch, choice or slider straight away.
     fn set_now(&mut self, key: &str, text: &str, cx: &mut Context<Self>) {
+        let before = self.undo_files(None, cx);
         let data = self.instances.read(cx).data_dir().clone();
         let result = shared_options::set_value(&data, key, text);
+        self.record_undo(before, cx);
         self.done(result, None, cx);
     }
 
@@ -278,9 +307,9 @@ impl SharedSettings {
         let shown = row
             .shared
             .as_deref()
-            .map(|v| row.show(v))
+            .map(|v| shared_options_i18n::show(row, v))
             .unwrap_or_default();
-        let line = SettingRow::new(row.label.clone()).indent();
+        let line = SettingRow::new(shared_options_i18n::label(row)).indent();
         if editing.is_none()
             && let Some(control) = value_control(
                 ("shared-value", index),

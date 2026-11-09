@@ -9,7 +9,10 @@ mod play;
 mod settings_modal;
 mod shared_settings;
 mod sidebar;
+pub(crate) mod skin_settings;
+mod storage_settings;
 mod top_bar;
+mod trace_state;
 mod unsaved;
 
 use crate::theme::px;
@@ -17,11 +20,13 @@ pub use launcher_settings::LauncherSettings;
 use settings_modal::SettingsModal;
 pub use settings_modal::SettingsPage;
 pub use shared_settings::SharedSettings;
+pub use skin_settings::SkinSettings;
+pub use storage_settings::{StorageEvent, StorageSettings};
 pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, EntityId, FocusHandle, Focusable as _, IntoElement,
-    Render, SharedString, Subscription, Task, Window, div, prelude::*,
+    AnyElement, App, ClipboardItem, Context, Entity, EntityId, FocusHandle, Focusable as _,
+    IntoElement, Render, SharedString, Subscription, Task, Window, div, prelude::*,
 };
 use launcher_core::{
     game::crash::Cause,
@@ -34,7 +39,7 @@ use crate::{
         offline_dialog::{OfflineDialog, OfflineDialogDismissed},
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
-    components::{Button, ButtonVariant, Dialog, DialogSlot, Icon, focus},
+    components::{Button, ButtonVariant, Dialog, DialogSlot, Icon, focus, settings::Toast},
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::{
         CrashInfo, Instances, InstancesEvent,
@@ -184,6 +189,12 @@ enum Modal {
         focus: FocusHandle,
         target: unsaved::UnsavedTarget,
     },
+    /// Removing files from Settings > Storage.
+    StorageClean {
+        what: launcher_core::disk::Clean,
+        bytes: u64,
+        focus: FocusHandle,
+    },
 }
 
 /// The root view of the launcher window.
@@ -200,8 +211,14 @@ pub struct LauncherShell {
     /// The Servers page, and its dialogs over the window.
     servers: Entity<Servers>,
     servers_overlay: Entity<ServersOverlay>,
+    /// The Play tab's slideshow, for an instance that shows one.
+    slideshow: Entity<crate::instances::slideshow::Slideshow>,
     /// Settings > Shared game settings.
     shared_settings: Entity<SharedSettings>,
+    /// Settings > Storage.
+    storage: Entity<StorageSettings>,
+    /// Settings > Skin.
+    skin: Entity<SkinSettings>,
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
@@ -211,11 +228,16 @@ pub struct LauncherShell {
     /// The launcher's Settings, a large dialog under the other dialogs.
     settings_modal: DialogSlot<LauncherShell, SettingsModal>,
     settings_page: SettingsPage,
+    /// What the debug traces last recorded of the window.
+    trace: trace_state::TraceState,
     /// The Settings pages are open over the page, in a narrow window.
     settings_nav_open: bool,
     /// The dialog over the window, and those still fading out.
     modal: DialogSlot<LauncherShell, Modal>,
     account_menu_open: bool,
+    /// While the sidebar's edge is dragged: its width and whether it is folded, as
+    /// drawn. Saved when the drag ends.
+    sidebar_drag: Option<(f32, bool)>,
     /// Settings > General: the Language list is open.
     language_menu_open: bool,
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
@@ -224,6 +246,8 @@ pub struct LauncherShell {
     /// still reach the window's handlers.
     root_focus: FocusHandle,
     _focus_lost: Option<Subscription>,
+    /// Says what Undo or Redo changed, with the way back.
+    undo_toast: Toast,
     _observe: Vec<Subscription>,
     /// Draws the window again every minute, so "5 minutes ago" stays true.
     _clock: Task<()>,
@@ -320,12 +344,41 @@ impl LauncherShell {
         // The Settings dialog draws their "Saved" notices.
         observe.push(cx.observe(&launcher_settings, |_, _, cx| cx.notify()));
         observe.push(cx.observe(&shared_settings, |_, _, cx| cx.notify()));
+        let storage = {
+            let instances = instances.clone();
+            cx.new(|_| StorageSettings::new(instances))
+        };
+        observe.push(cx.observe(&storage, |_, _, cx| cx.notify()));
+        let skin = {
+            let instances = instances.clone();
+            cx.new(|cx| SkinSettings::new(instances, cx))
+        };
+        observe.push(cx.observe(&skin, |_, _, cx| cx.notify()));
+        observe.push(cx.subscribe(&storage, |this, _, event, cx| match event {
+            StorageEvent::DeleteInstance(id) => this.confirm_delete_instance(id, cx),
+            StorageEvent::Confirm { what, bytes } => {
+                let focus = cx.focus_handle();
+                this.modal.open(
+                    Modal::StorageClean {
+                        what: *what,
+                        bytes: *bytes,
+                        focus,
+                    },
+                    cx,
+                );
+            }
+        }));
         let updater = {
             let instances = instances.clone();
             cx.new(|cx| Updater::new(instances, cx))
         };
         observe.push(cx.observe(&updater, |_, _, cx| cx.notify()));
+        let slideshow = {
+            let instances = instances.clone();
+            cx.new(|_| crate::instances::slideshow::Slideshow::new(instances))
+        };
         let mut this = Self {
+            slideshow,
             accounts,
             instances,
             console,
@@ -335,19 +388,24 @@ impl LauncherShell {
             servers,
             servers_overlay,
             shared_settings,
+            storage,
+            skin,
             updater,
             settings: None,
             page: Page::default(),
             tab: InstanceTab::default(),
             settings_modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.settings_modal),
             settings_page: SettingsPage::default(),
+            trace: Default::default(),
             settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
+            sidebar_drag: None,
             language_menu_open: false,
             top_bar_drag_pending: false,
             root_focus: cx.focus_handle(),
             _focus_lost: None,
+            undo_toast: Toast::default(),
             _observe: observe,
             _clock: cx.spawn(async move |this, cx| {
                 loop {
@@ -362,6 +420,70 @@ impl LauncherShell {
         };
         this.sync_settings(cx);
         this
+    }
+
+    /// The sidebar's width (logical pixels at 100% zoom) and fold, as drawn now: the
+    /// one being dragged, or the saved one.
+    pub(crate) fn sidebar_state(&self, cx: &App) -> (f32, bool) {
+        self.sidebar_drag
+            .unwrap_or_else(|| self.instances.read(cx).sidebar())
+    }
+
+    /// Whether the sidebar's edge is being dragged.
+    pub(crate) fn sidebar_dragging(&self) -> bool {
+        self.sidebar_drag.is_some()
+    }
+
+    /// A mouse down on the sidebar's edge.
+    pub(crate) fn start_sidebar_drag(&mut self, cx: &mut Context<Self>) {
+        self.sidebar_drag = Some(self.sidebar_state(cx));
+        cx.notify();
+    }
+
+    /// The pointer moved during a drag: the edge follows it. A move without the
+    /// button held (released outside the window) ends the drag.
+    fn drag_sidebar(
+        &mut self,
+        event: &gpui::MouseMoveEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.pressed_button != Some(gpui::MouseButton::Left) {
+            return self.end_sidebar_drag(cx);
+        }
+        let zoom = theme::zoom::get();
+        let x = f32::from(event.position.x) / zoom;
+        let width = f32::from(window.viewport_size().width) / zoom;
+        let next = theme::layout::sidebar_drag(x, width);
+        if self.sidebar_drag != Some(next) {
+            self.sidebar_drag = Some(next);
+            cx.notify();
+        }
+    }
+
+    /// The drag ended: keep the width.
+    fn end_sidebar_drag(&mut self, cx: &mut Context<Self>) {
+        if let Some((width, collapsed)) = self.sidebar_drag.take() {
+            self.instances.update(cx, |instances, cx| {
+                instances.set_sidebar(width, collapsed, cx)
+            });
+            crate::components::trace_ui(
+                "ui.sidebar",
+                "sidebar",
+                &gpui::ElementId::Name("sidebar".into()),
+                serde_json::json!({ "width": width, "collapsed": collapsed }),
+            );
+            cx.notify();
+        }
+    }
+
+    /// A double click on the edge: back to the default width, unfolded.
+    pub(crate) fn reset_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.sidebar_drag = None;
+        self.instances.update(cx, |instances, cx| {
+            instances.set_sidebar(theme::layout::SIDEBAR_DEFAULT, false, cx)
+        });
+        cx.notify();
     }
 
     pub fn instances(&self) -> &Entity<Instances> {
@@ -477,7 +599,7 @@ impl LauncherShell {
                         }
                     })
                     .collect(),
-                colors::BLUE_200,
+                crate::theme::accent::light(),
             ));
         }
         if !plan.added.is_empty() {
@@ -1313,6 +1435,11 @@ impl LauncherShell {
                                 Ok(()) => {
                                     this.tab = InstanceTab::Play;
                                     this.close_modal(cx);
+                                    if this.settings_open()
+                                        && this.settings_page == SettingsPage::Storage
+                                    {
+                                        this.storage.update(cx, |storage, cx| storage.rescan(cx));
+                                    }
                                 }
                                 Err(err) => {
                                     if let Some(Modal::DeleteInstance { error, .. }) =
@@ -1334,6 +1461,9 @@ impl LauncherShell {
             }
             Modal::LoaderChange { prompt, focus } => {
                 self.render_loader_change(prompt, focus.clone(), cx)
+            }
+            Modal::StorageClean { what, bytes, focus } => {
+                self.render_storage_clean(*what, *bytes, focus.clone(), cx)
             }
             Modal::DeleteWorld { .. } | Modal::ReplaceWorld { .. } => {
                 self.render_world_dialog(modal, cx)?
@@ -1500,6 +1630,46 @@ fn render_crash(
 }
 
 impl LauncherShell {
+    /// Undo (`undo` true) or Redo of a setting, with a toast that says what changed
+    /// and offers the way back.
+    fn undo_step(&mut self, undo: bool, cx: &mut Context<Self>) {
+        let outcome = if undo {
+            crate::undo::undo(cx)
+        } else {
+            crate::undo::redo(cx)
+        };
+        let (message, error, back): (String, bool, Option<bool>) = match outcome {
+            crate::undo::Outcome::Undid(change) => {
+                (tr!(M::Undid, change = change), false, Some(false))
+            }
+            crate::undo::Outcome::Redid(change) => {
+                (tr!(M::Redid, change = change), false, Some(true))
+            }
+            crate::undo::Outcome::Refused(reason) => (reason, true, None),
+            crate::undo::Outcome::Nothing => return,
+        };
+        let action = back.map(|undo_again| {
+            let label: SharedString = t(if undo_again { M::Undo } else { M::Redo }).into();
+            let action: crate::components::settings::ToastAction =
+                std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                    if undo_again {
+                        window.dispatch_action(Box::new(crate::Undo), cx);
+                    } else {
+                        window.dispatch_action(Box::new(crate::Redo), cx);
+                    }
+                });
+            (label, action)
+        });
+        self.undo_toast.show_with(
+            message,
+            error,
+            action,
+            |this: &mut Self| &mut this.undo_toast,
+            cx,
+        );
+        cx.refresh_windows();
+    }
+
     /// One zoom level up or down, as Ctrl/⌘ + and − do.
     pub(crate) fn zoom_by(&mut self, up: bool, cx: &mut Context<Self>) {
         let zoom = theme::zoom::step(theme::zoom::get(), up);
@@ -1508,13 +1678,46 @@ impl LauncherShell {
     }
 }
 
+impl LauncherShell {
+    /// Points the slideshow at the selected instance, and runs it only while the Play
+    /// tab is on screen.
+    fn sync_slideshow(&mut self, cx: &mut Context<Self>) {
+        use launcher_core::instances::BackgroundMode;
+        let target = self.instances.read(cx).selected().and_then(|instance| {
+            match instance.background_mode() {
+                BackgroundMode::Slideshow(source) => Some((instance.id.clone(), source)),
+                _ => None,
+            }
+        });
+        let shown = self.page == Page::Instance && self.tab == InstanceTab::Play;
+        self.slideshow
+            .update(cx, |slideshow, cx| slideshow.sync(target, shown, cx));
+    }
+
+    /// The Play tab's slideshow, for the offscreen screenshots.
+    pub fn slideshow(&self) -> &Entity<crate::instances::slideshow::Slideshow> {
+        &self.slideshow
+    }
+}
+
 impl Render for LauncherShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.trace_frame(window, cx);
         if self._focus_lost.is_none() {
             self._focus_lost = Some(focus::install(&self.root_focus, window, cx));
         }
         // Text and spacing are in rems: zoom them with everything else.
         window.set_rem_size(theme::zoom::rem_size());
+        // The skin's accent, or the selected instance's own.
+        let look = crate::skin::look(cx);
+        let resolved = crate::skin::resolve(&look.spec, self.instances.read(cx).selected());
+        theme::accent::set(resolved.accent);
+        crate::skin::set_sidebar_inks(&look);
+        if look.spec.banner.in_sidebar {
+            self.instances
+                .update(cx, |instances, cx| instances.load_sidebar_banners(cx));
+        }
+        self.sync_slideshow(cx);
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
             Page::Servers => self.servers.clone().into_any_element(),
@@ -1529,14 +1732,39 @@ impl Render for LauncherShell {
         div()
             .id("launcher-shell")
             .track_focus(&self.root_focus)
+            // For the debug traces: where the pointer went down, to place clicks on
+            // elements that aren't shared controls.
+            .capture_any_mouse_down(|event, _, _| {
+                let (x, y) = (f32::from(event.position.x), f32::from(event.position.y));
+                launcher_core::trace::emit("ui.pointer", || {
+                    serde_json::json!({
+                        "x": x.round(),
+                        "y": y.round(),
+                        "button": format!("{:?}", event.button).to_lowercase(),
+                        "clicks": event.click_count,
+                    })
+                });
+            })
             .on_action(|_: &focus::FocusNext, window, cx| focus::step(true, window, cx))
             .on_action(|_: &focus::FocusPrev, window, cx| focus::step(false, window, cx))
             .on_action(cx.listener(|this, _: &crate::ZoomIn, _, cx| this.zoom_by(true, cx)))
             .on_action(cx.listener(|this, _: &crate::ZoomOut, _, cx| this.zoom_by(false, cx)))
+            .on_action(cx.listener(|this, _: &crate::Undo, _, cx| this.undo_step(true, cx)))
+            .on_action(cx.listener(|this, _: &crate::Redo, _, cx| this.undo_step(false, cx)))
             .on_action(cx.listener(|this, _: &crate::ResetZoom, _, cx| {
                 this.instances
                     .update(cx, |instances, cx| instances.set_zoom(1.0, cx))
             }))
+            // While the sidebar's edge is dragged, the whole window follows the
+            // pointer; otherwise nothing listens to it moving.
+            .when(self.sidebar_drag.is_some(), |this| {
+                this.cursor(gpui::CursorStyle::ResizeLeftRight)
+                    .on_mouse_move(cx.listener(Self::drag_sidebar))
+                    .on_mouse_up(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.end_sidebar_drag(cx)),
+                    )
+            })
             .relative()
             .flex()
             .flex_col()
@@ -1561,6 +1789,8 @@ impl Render for LauncherShell {
             .children(settings)
             .children(modal)
             .child(self.servers_overlay.clone())
+            .children(self.undo_toast.render())
+            .children(top_bar::window_controls(window, cx))
     }
 }
 

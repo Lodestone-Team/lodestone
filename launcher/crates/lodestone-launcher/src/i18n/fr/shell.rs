@@ -11,6 +11,13 @@ pub fn text(message: M) -> &'static str {
         M::ZoomIn => "Zoom avant",
         M::ZoomOut => "Zoom arrière",
         M::ActualSize => "Taille réelle",
+        M::EditMenu => "Édition",
+        M::Undo => "Annuler",
+        M::Redo => "Rétablir",
+        M::Undid => "Annulé\u{a0}: {change}",
+        M::Redid => "Rétabli\u{a0}: {change}",
+        M::ChangeTo => "{setting} → {value}",
+        M::SettingsOf => "Paramètres de {name}",
 
         M::Play => "Jouer",
         M::Playing => "En jeu",
@@ -478,6 +485,119 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAvailableBadge => "Mise à jour disponible",
 
         M::RestOnModrinth => "La suite de la description est sur Modrinth.",
+        M::Storage => "Stockage",
+        M::Skin => "Thème",
+        M::SkinGallery => "Thèmes",
+        M::SkinImport => "Importer…",
+        M::SkinImportButton => "Importer",
+        M::SkinExport => "Exporter…",
+        M::SkinNew => "Nouveau thème…",
+        M::SkinDelete => "Supprimer",
+        M::SkinDeleteConfirm => "Supprimer {name}",
+        M::SkinCopyName => "Copie de {name}",
+        M::SkinCopied => "Copie de {name} créée pour la modifier.",
+        M::SkinImported => "{name} importé.",
+        M::SkinExported => "Exporté dans {path}.",
+        M::SkinSafeMode => "Démarré sans thème (--no-skin).",
+        M::SkinCouldntLoad => "Impossible de charger le thème\u{a0}: {error}",
+        M::SkinSidebar => "Barre latérale",
+        M::SkinImage => "Image",
+        M::SkinChoose => "Choisir…",
+        M::SkinUseImage => "Utiliser l’image",
+        M::SkinRemove => "Retirer",
+        M::SkinFit => "Ajustement",
+        M::SkinFitCover => "Remplir",
+        M::SkinFitTile => "Mosaïque",
+        M::SkinTint => "Teinte",
+        M::SkinTintStrength => "Intensité de la teinte",
+        M::SkinBlur => "Flou",
+        M::SkinBanner => "Bannière d’instance",
+        M::SkinBannerInSidebar => "Afficher derrière les lignes de la barre latérale",
+        M::SkinHero => "Bannière Jouer",
+        M::SkinHeroHint => "Pour les instances qui n’en ont pas.",
+        M::SkinPlayButton => "Bouton Jouer",
+        M::SkinColor => "Couleur",
+        M::SkinFadeTo => "Dégradé vers",
+        M::SkinShape => "Forme",
+        M::SkinShapeRounded => "Arrondi",
+        M::SkinShapePill => "Pilule",
+        M::SkinShapePixel => "Pixel",
+        M::SkinLabel => "Texte",
+        M::SkinGlow => "Halo",
+        M::SkinColors => "Couleurs",
+        M::SkinAccent => "Accent",
+        M::SkinProgress => "Barre de progression",
+        M::SkinDefault => "Par défaut",
+        M::SkinNone => "Aucune",
+        M::SkinReadable => "Le texte reste lisible.",
+        M::SkinAdjusted => "L’accent a été ajusté pour rester lisible.",
+        M::SkinReset => "Revenir au thème par défaut",
+        M::SkinContrastSidebar => "Texte de la barre latérale {ratio}:1",
+        M::SkinContrastHero => "Bannière Jouer {ratio}:1",
+        M::SkinFixReadability => "Corriger la lisibilité",
+        M::SkinPlayColor => "Couleur du bouton Jouer",
+        M::SkinUseSkins => "Du thème",
+        M::StorageInstances => "Instances",
+        M::StorageGameFiles => "Fichiers du jeu",
+        M::StorageRuntimes => "Environnements Java",
+        M::StorageCache => "Cache",
+        M::StorageLeftovers => "Téléchargements et importations inachevés",
+        M::StorageCleanLeftoversTitle => "Supprimer les téléchargements inachevés\u{a0}?",
+        M::StorageCleanLeftoversBody => {
+            "Cela libère {size}. Ce sont les fichiers de téléchargements et d’importations de modpacks qui n’ont pas abouti."
+        }
+        M::StorageOther => "Réglages et autres fichiers",
+        M::StorageCacheAndLogs => "Cache et journaux",
+        M::StorageLogs => "Journaux et rapports de plantage",
+        M::StorageOldLogs => "{size} de plus de 30\u{a0}jours",
+        M::StorageVersions => "Versions",
+        M::StorageLibraries => "Bibliothèques",
+        M::StorageAssets => "Ressources",
+        M::StorageUnused => "Utilisé par aucune instance",
+        M::StorageUnusedTag => "Inutilisé",
+        M::StorageJava => "Java {major}",
+        M::StorageWorlds => "Mondes {size}",
+        M::StorageContent => "Mods et packs {size}",
+        M::StorageOtherFiles => "Autres {size}",
+        M::StorageNoInstances => "Aucune instance",
+        M::StorageNoRuntimes => "Aucun environnement Java",
+        M::StorageCounting => "Calcul…",
+        M::StorageCouldntCount => "Impossible de compter les fichiers\u{a0}: {error}",
+        M::StorageStopGame => {
+            "Arrêtez le jeu pour supprimer des fichiers du jeu, des environnements Java ou le cache."
+        }
+        M::StorageOpenFolder => "Ouvrir le dossier",
+        M::StorageOpen => "Ouvrir",
+        M::StorageDelete => "Supprimer…",
+        M::StorageRemoveEllipsis => "Supprimer…",
+        M::StorageClearEllipsis => "Vider…",
+        M::StorageRemove => "Supprimer",
+        M::StorageClear => "Vider",
+        M::StorageDeleteOld => "Supprimer les anciens…",
+        M::StorageDeleteAll => "Tout supprimer…",
+        M::StorageDeleteConfirm => "Supprimer",
+        M::StorageFreed => "{size} libérés",
+        M::StorageCouldntRemove => "Impossible de tout supprimer\u{a0}: {error}",
+        M::StorageCleanGameFilesTitle => "Supprimer les fichiers du jeu inutilisés\u{a0}?",
+        M::StorageCleanGameFilesBody => {
+            "Cela libère {size}. Les versions, bibliothèques et ressources qu’aucune instance n’utilise sont supprimées, et se retéléchargent si une instance en a besoin."
+        }
+        M::StorageCleanRuntimesTitle => "Supprimer les environnements Java inutilisés\u{a0}?",
+        M::StorageCleanRuntimesBody => {
+            "Cela libère {size}. Ils se retéléchargent quand une version de Minecraft en a besoin."
+        }
+        M::StorageClearCacheTitle => "Vider le cache\u{a0}?",
+        M::StorageClearCacheBody => {
+            "Cela libère {size}. Le launcher retélécharge ce dont il a besoin."
+        }
+        M::StorageDeleteOldLogsTitle => "Supprimer les anciens journaux\u{a0}?",
+        M::StorageDeleteOldLogsBody => {
+            "Cela libère {size}. Les journaux et rapports de plantage de plus de 30\u{a0}jours sont supprimés définitivement."
+        }
+        M::StorageDeleteAllLogsTitle => "Supprimer tous les journaux\u{a0}?",
+        M::StorageDeleteAllLogsBody => {
+            "Cela libère {size}. Tous les journaux et rapports de plantage sont supprimés définitivement, sauf ceux d’un jeu en cours."
+        }
     }
 }
 

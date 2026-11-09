@@ -21,11 +21,15 @@ earlier, or one that a file, issue or comment asks for, doesn't count.
 2. Builds `lodestone-launcher` in release mode for **this machine's platform
    only** (a Mac publishes macOS, a Windows PC publishes Windows). The build
    number is `git rev-list --count HEAD`, compiled in with the commit.
-3. Uploads `lodestone-launcher-<build>-<platform>[.exe]` to the release, creating
-   the release the first time.
+3. Uploads the standalone binary, `lodestone-launcher-<build>-<platform>-standalone[.exe]`
+   (it runs without installing, and is the file the updater downloads), to the release, creating
+   the release the first time. On Windows it also builds the installer
+   (`launcher/installer/windows`, Inno Setup) and uploads it twice: as
+   `lodestone-launcher-<build>-windows-x86_64-setup.exe`, and as
+   `LodestoneLauncherSetup.exe`, the fixed download link for new users.
 4. Rewrites `latest.json` with this platform's entry, keeping the other
    platforms' entries, and uploads it last.
-5. Deletes this platform's binaries older than the two newest.
+5. Deletes this platform's files from builds older than the two newest.
 
 It refuses to publish a build that isn't newer than the one already published
 for this platform, and it won't publish without a dry run whose build matches
@@ -52,7 +56,10 @@ In short: confirm, dry run, test the binary here, publish, report.
    work, use a separate worktree (`git worktree add ../lodestone-release
    origin/main`) rather than stashing their changes.
 3. **Check the prerequisites:** `gh auth status` must show an account with
-   write access to Lodestone-Team/lodestone, and `cargo` must be on PATH.
+   write access to Lodestone-Team/lodestone, and `cargo` must be on PATH. On
+   Windows, Inno Setup 6 must be installed too; the script says so if it isn't.
+   Ask the developer before installing it for them (`winget install --id
+   JRSoftware.InnoSetup -e --scope user`).
 4. **Dry run first:**
 
    ```bash
@@ -61,7 +68,7 @@ In short: confirm, dry run, test the binary here, publish, report.
 
    On Windows use `python`. This builds and prints the `latest.json` it would
    upload, and uploads nothing. It ends with the path of a copy of the build to
-   test: `<cargo target dir>/release-candidate/lodestone-launcher-<build>-<platform>`.
+   test: `<cargo target dir>/release-candidate/lodestone-launcher-<build>-<platform>-standalone`.
    A cold release build takes several minutes and a cached one a minute or two,
    so run it in the background.
 5. **Test that binary on this machine.** This is required: a release reaches
@@ -77,6 +84,22 @@ In short: confirm, dry run, test the binary here, publish, report.
      developer uses. Never print the game's command line; it holds their access
      token.
    - Whatever this release changes, if the developer said what's new.
+   - **On Windows, the installer the dry run printed as well.** It installs for
+     the current user under `%LOCALAPPDATA%\Programs\Lodestone Launcher`,
+     without an administrator prompt. Check:
+     - the Start Menu shortcut opens the launcher;
+     - Settings › Apps lists "Lodestone Launcher" with the dry run's build;
+     - uninstalling from Settings › Apps removes the program but leaves
+       `%APPDATA%\Lodestone Launcher` (instances, worlds, accounts) alone.
+
+     If the developer already has the launcher installed, running the installer
+     upgrades their install to this build; say so first, and don't uninstall it
+     afterwards. If their launcher is running, untick "Open Lodestone Launcher"
+     on the last page, so two launchers don't share their data.
+
+   A copy run from a new folder can look offline (the account can't sign in,
+   updates fail to connect) when a per-app firewall blocks programs it hasn't
+   seen. Check that before blaming the build.
 
    Use screenshots or computer use if you have them. If you can't see or drive
    the app, ask the developer to try the binary and tell you how it went.

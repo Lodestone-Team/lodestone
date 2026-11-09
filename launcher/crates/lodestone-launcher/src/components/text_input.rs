@@ -6,7 +6,10 @@
 //! dependency on `unicode-segmentation`.
 
 use crate::theme::px;
-use std::ops::Range;
+use std::{
+    ops::Range,
+    time::{Duration, Instant},
+};
 
 use gpui::{
     App, Bounds, BoxShadow, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler,
@@ -94,6 +97,43 @@ pub struct TextInput {
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
+    history: TextHistory,
+    /// Shown before the text.
+    leading_icon: Option<crate::components::Icon>,
+}
+
+/// The field's own Undo and Redo: its text before each burst of typing or deleting.
+/// Undo and Redo go to the focused field first, so they change its text, not a
+/// setting (see `crate::undo`).
+#[derive(Default)]
+struct TextHistory {
+    undo: Vec<(SharedString, Range<usize>)>,
+    redo: Vec<(SharedString, Range<usize>)>,
+    /// When the last edit was, and whether it inserted text: typing on within a moment
+    /// is the same step.
+    last: Option<(Instant, bool)>,
+}
+
+/// How many steps a field keeps.
+const TEXT_HISTORY: usize = 100;
+/// Edits closer together than this are one step.
+const TEXT_STEP: Duration = Duration::from_millis(1000);
+
+impl TextHistory {
+    fn remember(&mut self, text: &SharedString, selection: &Range<usize>, inserting: bool) {
+        let now = Instant::now();
+        let same_step = self
+            .last
+            .is_some_and(|(at, kind)| kind == inserting && now.duration_since(at) < TEXT_STEP);
+        if !same_step {
+            self.undo.push((text.clone(), selection.clone()));
+            if self.undo.len() > TEXT_HISTORY {
+                self.undo.remove(0);
+            }
+        }
+        self.redo.clear();
+        self.last = Some((now, inserting));
+    }
 }
 
 impl TextInput {
@@ -110,7 +150,15 @@ impl TextInput {
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
+            history: TextHistory::default(),
+            leading_icon: None,
         }
+    }
+
+    /// An icon at the start of the field, such as a magnifying glass for a search.
+    pub fn with_leading_icon(mut self, icon: crate::components::Icon) -> Self {
+        self.leading_icon = Some(icon);
+        self
     }
 
     /// The text shown while the field is empty: a message (`InstancesMsg::SearchLog`),
@@ -170,6 +218,7 @@ impl TextInput {
 
     /// Replaces the text and puts the cursor at its end.
     pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
+        self.history = TextHistory::default();
         self.content = text.into();
         self.selected_range = self.content.len()..self.content.len();
         self.marked_range = None;
@@ -211,6 +260,40 @@ impl TextInput {
 
     fn end(&mut self, _: &End, window: &mut Window, cx: &mut Context<Self>) {
         self.move_to(self.content.len(), window, cx);
+    }
+
+    /// Undo while the field has the focus: its text before the last edit.
+    fn undo(&mut self, _: &crate::Undo, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((text, selection)) = self.history.undo.pop() {
+            let now = (self.content.clone(), self.selected_range.clone());
+            self.history.redo.push(now);
+            self.restore(text, selection, window, cx);
+        }
+    }
+
+    fn redo(&mut self, _: &crate::Redo, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((text, selection)) = self.history.redo.pop() {
+            let now = (self.content.clone(), self.selected_range.clone());
+            self.history.undo.push(now);
+            self.restore(text, selection, window, cx);
+        }
+    }
+
+    fn restore(
+        &mut self,
+        text: SharedString,
+        selection: Range<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.content = text;
+        self.selected_range =
+            selection.start.min(self.content.len())..selection.end.min(self.content.len());
+        self.selection_reversed = false;
+        self.marked_range = None;
+        self.history.last = None;
+        window.notify_text_input_changed(&self.focus_handle);
+        cx.notify();
     }
 
     fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
@@ -346,6 +429,11 @@ impl TextInput {
     }
 
     fn replace(&mut self, range: Range<usize>, new_text: &str) {
+        if range.is_empty() && new_text.is_empty() {
+            return;
+        }
+        self.history
+            .remember(&self.content, &self.selected_range, !new_text.is_empty());
         self.content =
             (self.content[..range.start].to_owned() + new_text + &self.content[range.end..]).into();
     }
@@ -589,6 +677,8 @@ impl Render for TextInput {
                         .on_action(cx.listener(Self::paste))
                         .on_action(cx.listener(Self::cut))
                         .on_action(cx.listener(Self::copy))
+                        .on_action(cx.listener(Self::undo))
+                        .on_action(cx.listener(Self::redo))
                         .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
                         // A click anywhere else takes the focus away, as in a browser.
                         .on_mouse_down_out(cx.listener(|this, _, window, cx| {
@@ -604,12 +694,15 @@ impl Render for TextInput {
             // `focus-visible:ring-4 ring-blue-faded/50`
             .when(focused && !self.disabled, |this| {
                 this.shadow(vec![BoxShadow {
-                    color: colors::BLUE_FADED.opacity(50).into(),
+                    color: crate::theme::accent::faded().opacity(50).into(),
                     offset: point(px(0.), px(0.)),
                     blur_radius: px(0.),
                     spread_radius: focus_ring_width(),
                     inset: false,
                 }])
+            })
+            .when_some(self.leading_icon, |this, icon| {
+                this.gap_2().child(icon.render(px(13.), colors::GRAY_500))
             })
             .child(TextElement { input: cx.entity() })
     }
@@ -744,7 +837,7 @@ impl Element for TextElement {
                         bounds.bottom(),
                     ),
                 ),
-                colors::BLUE_FADED.opacity(50),
+                crate::theme::accent::faded().opacity(50),
             );
             (Some(selection), None)
         };
@@ -834,6 +927,25 @@ mod tests {
         assert_eq!(previous_char_boundary(text, 7), 5);
         assert_eq!(previous_char_boundary(text, 5), 1);
         assert_eq!(previous_char_boundary(text, 0), 0);
+    }
+
+    #[test]
+    fn typing_is_one_step_and_deleting_another() {
+        let mut history = TextHistory::default();
+        let text = |s: &str| SharedString::from(s.to_string());
+        history.remember(&text(""), &(0..0), true);
+        history.remember(&text("a"), &(1..1), true);
+        history.remember(&text("ab"), &(2..2), true);
+        assert_eq!(history.undo.len(), 1);
+        history.remember(&text("abc"), &(3..3), false);
+        assert_eq!(history.undo.len(), 2);
+        assert_eq!(history.undo[1].0.as_ref(), "abc");
+        history.redo.push((text("x"), 0..0));
+        history.remember(&text("ab"), &(2..2), false);
+        assert!(
+            history.redo.is_empty(),
+            "a new edit forgets what was undone"
+        );
     }
 
     #[test]
