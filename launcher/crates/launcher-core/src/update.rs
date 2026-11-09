@@ -332,7 +332,7 @@ pub async fn download(
     .await;
     drop(file);
     match result {
-        Ok(()) => fs::rename(&part, dest).map_err(|err| {
+        Ok(()) => crate::fsx::rename(&part, dest).map_err(|err| {
             let _ = fs::remove_file(&part);
             UpdateError::io(dest, err)
         }),
@@ -396,12 +396,16 @@ pub fn install(staged: &Path, exe: &Path) -> Result<(), UpdateError> {
     {
         let old = old_path(exe);
         // Left by an update a restart hasn't cleaned up; gone unless that build runs.
-        if old.exists() {
-            fs::remove_file(&old).map_err(|err| UpdateError::io(&old, err))?;
+        if old.exists()
+            && let Err(err) = crate::fsx::remove_file(&old)
+        {
+            // It is this process: a second update before a restart. Then `exe` is
+            // the first update's build, which nothing runs, so it can just be replaced.
+            return crate::fsx::rename(staged, exe).map_err(|_| UpdateError::io(&old, err));
         }
-        fs::rename(exe, &old).map_err(|err| UpdateError::io(exe, err))?;
-        if let Err(err) = fs::rename(staged, exe) {
-            let _ = fs::rename(&old, exe);
+        crate::fsx::rename(exe, &old).map_err(|err| UpdateError::io(exe, err))?;
+        if let Err(err) = crate::fsx::rename(staged, exe) {
+            let _ = crate::fsx::rename(&old, exe);
             return Err(UpdateError::io(exe, err));
         }
         Ok(())

@@ -470,9 +470,19 @@ impl Downloader {
                 true,
             ));
         }
-        file.sync_all().map_err(Attempt::Io)?;
-        drop(file);
-        fs::rename(&tmp_path, &item.dest).map_err(Attempt::Io)?;
+        // Flushing to disk blocks for milliseconds per file (tens on a slow disk), and
+        // a fresh install has thousands of files. On a blocking thread, so the other
+        // downloads in this future keep going meanwhile.
+        let dest = item.dest.clone();
+        reqwest_client::runtime()
+            .spawn_blocking(move || {
+                file.sync_all()?;
+                drop(file);
+                crate::fsx::rename(&tmp_path, &dest)
+            })
+            .await
+            .map_err(|err| Attempt::Io(io::Error::other(err)))?
+            .map_err(Attempt::Io)?;
         set_executable(item).map_err(Attempt::Io)?;
         Ok(())
     }

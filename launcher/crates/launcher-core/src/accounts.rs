@@ -312,7 +312,11 @@ fn move_aside(path: &Path) -> Option<PathBuf> {
     (1..100)
         .map(|n| path.with_file_name(format!("{name}.corrupt-{n}")))
         .find(|candidate| !candidate.exists())
-        .and_then(|candidate| std::fs::rename(path, &candidate).ok().map(|()| candidate))
+        .and_then(|candidate| {
+            crate::fsx::rename(path, &candidate)
+                .ok()
+                .map(|()| candidate)
+        })
 }
 
 #[cfg(test)]

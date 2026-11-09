@@ -74,6 +74,11 @@ fn keys(keystroke: &Keystroke) -> String {
 
 /// Installs the logger and the keystroke observer. Call once, at start.
 pub fn install(cx: &mut App) {
+    // Only the control socket reads the traces, and it is Unix only for now (see
+    // `crate::control`). Elsewhere, recording them would format every log record,
+    // keystroke and frame's state for no reader, so the bus stays off.
+    #[cfg(not(unix))]
+    trace::bus().set_enabled(false);
     if log::set_logger(&TraceLogger).is_ok() {
         log::set_max_level(log::LevelFilter::Trace);
     }

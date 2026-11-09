@@ -301,8 +301,21 @@ pub fn run(
         .collect();
         for pipe in pipes {
             scope.spawn(move || {
-                for line in BufReader::new(pipe).lines().map_while(Result::ok) {
-                    on_line(line);
+                // Read to the end whatever the bytes are: on Windows Java writes in the
+                // ANSI code page, and stopping at a line that isn't UTF-8 (a user name
+                // with an accent in a path) would leave the pipe full and the
+                // processor stuck writing to it.
+                let mut reader = BufReader::new(pipe);
+                let mut buffer = Vec::new();
+                loop {
+                    buffer.clear();
+                    match reader.read_until(b'\n', &mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            let line = String::from_utf8_lossy(&buffer);
+                            on_line(line.trim_end_matches(['\n', '\r']).to_string());
+                        }
+                    }
                 }
             });
         }

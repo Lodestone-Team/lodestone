@@ -315,8 +315,11 @@ pub fn scan(data: &DataDir, instances: &[Instance], cancel: &Cancel) -> Result<R
     let used = Used::find(data, instances);
 
     // Java runtimes.
+    // Files loose in the runtimes folder count as "other".
+    let mut runtime_files = 0;
     for entry in read_dir(&data.runtimes_dir()) {
         if !entry.path().is_dir() {
+            runtime_files += sizer.size(&entry.path())?;
             continue;
         }
         let component = entry.file_name().to_string_lossy().into_owned();
@@ -334,7 +337,6 @@ pub fn scan(data: &DataDir, instances: &[Instance], cancel: &Cancel) -> Result<R
     report
         .runtimes
         .sort_by(|a, b| b.bytes.cmp(&a.bytes).then(a.component.cmp(&b.component)));
-    let runtime_files = sizer.size(&data.runtimes_dir())? - report.runtimes_total();
 
     // Game files.
     report.game_files.versions = sizer.size(&data.versions_dir())?;
@@ -429,15 +431,13 @@ pub fn clean(
                 }
                 let game = data.instances_dir().join(&instance.id).join("minecraft");
                 for folder in ["logs", "crash-reports"] {
-                    for file in files_under(&game.join(folder)) {
+                    for (file, meta) in files_under(&game.join(folder)) {
                         if cancel.is_cancelled() {
                             return Err(DiskError::Cancelled);
                         }
                         let old_enough = match cutoff {
                             None => true,
-                            Some(cutoff) => fs::symlink_metadata(&file)
-                                .and_then(|m| m.modified())
-                                .is_ok_and(|modified| modified < cutoff),
+                            Some(cutoff) => meta.modified().is_ok_and(|modified| modified < cutoff),
                         };
                         if old_enough {
                             remove(&file, &mut cleaned, cancel)?;
@@ -617,7 +617,9 @@ impl UnusedPlan {
                     return Err(DiskError::Cancelled);
                 }
                 let name = object.file_name().to_string_lossy().to_ascii_lowercase();
-                if object.path().is_file() && !keep.contains(&name) {
+                // The entry's own type: free, where `path().is_file()` opens each file
+                // on Windows, and there are thousands.
+                if object.file_type().is_ok_and(|kind| kind.is_file()) && !keep.contains(&name) {
                     plan.asset_files.push(object.path());
                 }
             }
@@ -774,13 +776,10 @@ fn logs_in(
     let cutoff = now - OLD_LOGS;
     let (mut bytes, mut files, mut old_bytes, mut old_files) = (0, 0, 0, 0);
     for folder in ["logs", "crash-reports"] {
-        for file in files_under(&game.join(folder)) {
+        for (_, meta) in files_under(&game.join(folder)) {
             if cancel.is_cancelled() {
                 return Err(DiskError::Cancelled);
             }
-            let Ok(meta) = fs::symlink_metadata(&file) else {
-                continue;
-            };
             bytes += meta.len();
             files += 1;
             if meta.modified().is_ok_and(|m| m < cutoff) {
@@ -801,6 +800,8 @@ struct Sizer<'a> {
     #[cfg(unix)]
     seen: HashSet<(u64, u64)>,
     checked: u32,
+    /// Files sized so far, hard links included.
+    files: usize,
 }
 
 impl<'a> Sizer<'a> {
@@ -810,6 +811,7 @@ impl<'a> Sizer<'a> {
             #[cfg(unix)]
             seen: HashSet::new(),
             checked: 0,
+            files: 0,
         }
     }
 
@@ -817,6 +819,13 @@ impl<'a> Sizer<'a> {
         let Ok(meta) = fs::symlink_metadata(path) else {
             return Ok(0);
         };
+        self.size_of(path, &meta)
+    }
+
+    /// The size of `path`, whose `meta` is known. A folder's entries are sized from
+    /// what reading the folder returned: on Windows that costs nothing more, where
+    /// asking for each path again opens each file.
+    fn size_of(&mut self, path: &Path, meta: &fs::Metadata) -> Result<u64, DiskError> {
         self.checked = self.checked.wrapping_add(1);
         if self.checked.is_multiple_of(256) && self.cancel.is_cancelled() {
             return Err(DiskError::Cancelled);
@@ -824,15 +833,15 @@ impl<'a> Sizer<'a> {
         if meta.is_dir() {
             let mut total = 0;
             for entry in read_dir(path) {
-                total += self.size(&entry.path())?;
+                // Like `symlink_metadata`: a link is not followed.
+                if let Ok(meta) = entry.metadata() {
+                    total += self.size_of(&entry.path(), &meta)?;
+                }
             }
             Ok(total)
         } else if meta.is_file() {
-            Ok(if self.first_time(&meta) {
-                meta.len()
-            } else {
-                0
-            })
+            self.files += 1;
+            Ok(if self.first_time(meta) { meta.len() } else { 0 })
         } else {
             Ok(0)
         }
@@ -857,15 +866,16 @@ fn read_dir(dir: &Path) -> Vec<fs::DirEntry> {
         .unwrap_or_default()
 }
 
-/// The files under `dir`, at any depth, without following symbolic links.
-fn files_under(dir: &Path) -> Vec<PathBuf> {
+/// The files under `dir`, at any depth, without following symbolic links, with their
+/// metadata as reading the folder returned it (free on Windows).
+fn files_under(dir: &Path) -> Vec<(PathBuf, fs::Metadata)> {
     let mut files = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(dir) = stack.pop() {
         for entry in read_dir(&dir) {
-            match entry.file_type() {
-                Ok(kind) if kind.is_dir() => stack.push(entry.path()),
-                Ok(kind) if kind.is_file() => files.push(entry.path()),
+            match entry.metadata() {
+                Ok(meta) if meta.is_dir() => stack.push(entry.path()),
+                Ok(meta) if meta.is_file() => files.push((entry.path(), meta)),
                 _ => {}
             }
         }
@@ -887,11 +897,10 @@ fn remove(path: &Path, cleaned: &mut Cleaned, cancel: &Cancel) -> Result<(), Dis
     };
     if meta.is_dir() {
         let mut sizer = Sizer::new(cancel);
-        let bytes = sizer.size(path)?;
-        let files = files_under(path).len();
+        let bytes = sizer.size_of(path, &meta)?;
         fs::remove_dir_all(path).map_err(error)?;
         cleaned.bytes += bytes;
-        cleaned.files += files;
+        cleaned.files += sizer.files;
     } else {
         fs::remove_file(path).map_err(error)?;
         cleaned.bytes += meta.len();

@@ -117,6 +117,17 @@ async-process = { git = "https://github.com/zed-industries/async-process.git", r
 khronos-egl = { git = "https://github.com/zed-industries/khronos-egl", rev = "42214b36347b108fd9630ca6254b96dde59e04fe" }
 windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }
 
+# Release builds take the repository's profile (`.cargo/config.toml`: optimised for
+# size, thin LTO). Size optimisation turns off loop vectorisation, which the SVG
+# rasterizer depends on: at opt-level "s" the Play tab's artwork takes about 300 ms to
+# rasterize, most of the time before the window opens. These few crates are
+# optimised for speed instead, for a small cost in size.
+[profile.release.package]
+resvg = { opt-level = 3 }
+usvg = { opt-level = 3 }
+tiny-skia = { opt-level = 3 }
+tiny-skia-path = { opt-level = 3 }
+
 # Optimise the dependencies that do heavy work at runtime even in debug builds. The
 # list follows Zed's own `[profile.dev.package]` (resvg, taffy, serde_json and the
 # proc-macro crates), plus usvg and tiny-skia: unoptimised, they take about four

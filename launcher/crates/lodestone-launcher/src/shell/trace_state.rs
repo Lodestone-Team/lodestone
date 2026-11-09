@@ -85,6 +85,11 @@ impl LauncherShell {
                 || json!({ "since_last_ms": (gap * 10.0).round() / 10.0 }),
             );
         }
+        // Nothing records the state (traces off): don't build it on every frame.
+        if !trace::bus().is_enabled() {
+            self.trace.last = None;
+            return;
+        }
         let size = window.viewport_size();
         let instance = self
             .instances

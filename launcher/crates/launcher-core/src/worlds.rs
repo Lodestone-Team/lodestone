@@ -16,7 +16,7 @@
 use std::{
     collections::HashMap,
     fs::{self, File},
-    io::{self, Read, Write},
+    io::{self, Read},
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -274,7 +274,7 @@ fn random_suffix() -> String {
 /// backups always have somewhere to go. If moving the backups or writing `level.dat`
 /// fails, the world is moved back and the error returned.
 pub fn rename(dirs: &InstanceDirs, folder: &str, name: &str) -> Result<String, WorldError> {
-    rename_with(dirs, folder, name, |from, to| fs::rename(from, to))
+    rename_with(dirs, folder, name, |from, to| crate::fsx::rename(from, to))
 }
 
 /// Like [`rename`], with `move_dir` moving the world's folder and its backups folder
@@ -467,7 +467,8 @@ pub fn write_zip(
     ));
     let result = (|| {
         let file = File::create(&tmp).map_err(io_error(&tmp))?;
-        let mut zip = zip::ZipWriter::new(file);
+        // Buffered: the zip writer's own writes (headers, stored entries) are small.
+        let mut zip = zip::ZipWriter::new(io::BufWriter::with_capacity(1 << 20, file));
         let base =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         let zip_err = |err: zip::result::ZipError| {
@@ -493,17 +494,21 @@ pub fn write_zip(
             }
             zip.start_file(format!("{prefix}/{relative}"), options)
                 .map_err(zip_err)?;
-            let mut source = File::open(path).map_err(io_error(path))?;
+            let mut source =
+                io::BufReader::with_capacity(256 * 1024, File::open(path).map_err(io_error(path))?);
             let copied = io::copy(&mut source, &mut zip).map_err(io_error(path))?;
             done.files_done += 1;
             done.bytes_done += copied;
             progress.set(done);
         }
-        let mut file = zip.finish().map_err(zip_err)?;
-        file.flush().map_err(io_error(&tmp))?;
+        let file = zip
+            .finish()
+            .map_err(zip_err)?
+            .into_inner()
+            .map_err(|err| io_error(&tmp)(err.into_error()))?;
         file.sync_all().map_err(io_error(&tmp))?;
         drop(file);
-        fs::rename(&tmp, out).map_err(io_error(out))?;
+        crate::fsx::rename(&tmp, out).map_err(io_error(out))?;
         Ok(fs::metadata(out).map_or(0, |m| m.len()))
     })();
     if result.is_err() {
@@ -821,7 +826,7 @@ pub fn extract_mapped(
                 "The zip's level.dat is missing.".into(),
             ));
         }
-        fs::rename(&staging, &target).map_err(io_error(&target))?;
+        crate::fsx::rename(&staging, &target).map_err(io_error(&target))?;
         Ok(target.clone())
     })();
     if result.is_err() {
@@ -1048,19 +1053,19 @@ pub fn restore_with(
             let staged = format!(".lodestone-restore-{}", random_suffix());
             let staged_dir = extract(backup_path, &world, &saves, &staged, progress, cancel)?;
             if !current.is_dir() {
-                fs::rename(&staged_dir, &current).map_err(io_error(&current))?;
+                crate::fsx::rename(&staged_dir, &current).map_err(io_error(&current))?;
                 return Ok(Restored {
                     folder: folder.to_string(),
                     safety_backup,
                 });
             }
             let replaced = saves.join(format!(".lodestone-replaced-{}", random_suffix()));
-            if let Err(err) = fs::rename(&current, &replaced) {
+            if let Err(err) = crate::fsx::rename(&current, &replaced) {
                 let _ = fs::remove_dir_all(&staged_dir);
                 return Err(io_error(&current)(err));
             }
-            if let Err(err) = fs::rename(&staged_dir, &current) {
-                let _ = fs::rename(&replaced, &current);
+            if let Err(err) = crate::fsx::rename(&staged_dir, &current) {
+                let _ = crate::fsx::rename(&replaced, &current);
                 let _ = fs::remove_dir_all(&staged_dir);
                 return Err(io_error(&current)(err));
             }
@@ -1069,7 +1074,7 @@ pub fn restore_with(
                     &saves,
                     &folder_name(&format!("{folder} (replaced {today})")),
                 );
-                let _ = fs::rename(&replaced, saves.join(keep));
+                let _ = crate::fsx::rename(&replaced, saves.join(keep));
             }
             Ok(Restored {
                 folder: folder.to_string(),

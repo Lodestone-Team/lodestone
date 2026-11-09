@@ -323,7 +323,7 @@ impl Instances {
         self.store
             .save(&instance)
             .map_err(|err| UndoError::Refused(err.to_string()))?;
-        self.backgrounds.remove(id);
+        self.forget_background(id, cx);
         self.reload(cx);
         Ok(())
     }

@@ -505,6 +505,22 @@ pub fn build_joining(
                 .map(|arg| values.substitute(&arg)),
         );
     }
+    if platform.os == Os::Windows {
+        // On Windows, Java writes System.out and System.err to a pipe in the ANSI code
+        // page, so anything outside it (a user name in a path, non-Latin chat or mod
+        // output) reached the console as U+FFFD. Ask for UTF-8, which the log reader
+        // expects: `stdout.encoding` from Java 19, `sun.stdout.encoding` before. Before
+        // the instance's own arguments, so those can still set something else.
+        args.extend(
+            [
+                "-Dstdout.encoding=UTF-8",
+                "-Dstderr.encoding=UTF-8",
+                "-Dsun.stdout.encoding=UTF-8",
+                "-Dsun.stderr.encoding=UTF-8",
+            ]
+            .map(str::to_string),
+        );
+    }
     args.extend(settings.jvm_args.iter().cloned());
     if let (Some(logging), Some(config)) = (logging, &paths.logging_config) {
         args.push(logging.argument.replace("${path}", &utf8(config)?));

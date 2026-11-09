@@ -376,7 +376,22 @@ pub(crate) fn prefers_reduced_motion() -> bool {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Whether Windows' "Animation effects" (Settings > Accessibility > Visual effects)
+/// is off, which is how Windows asks apps to reduce motion.
+#[cfg(windows)]
+pub(crate) fn prefers_reduced_motion() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW,
+    };
+    let mut animate: i32 = 1;
+    // SAFETY: SPI_GETCLIENTAREAANIMATION writes one BOOL to the pointer it is given.
+    let ok = unsafe {
+        SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, (&raw mut animate).cast(), 0)
+    };
+    ok != 0 && animate == 0
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub(crate) fn prefers_reduced_motion() -> bool {
     false
 }

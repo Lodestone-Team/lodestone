@@ -546,8 +546,28 @@ impl Store {
                 )));
             }
             set_read_only(&tmp);
-            fs::rename(&tmp, &object).map_err(io_error(&object))?;
-            added = metadata.len();
+            // The first try is plain, so a lost race doesn't wait out the retries.
+            let renamed = fs::rename(&tmp, &object).or_else(|err| {
+                if object.is_file() {
+                    Err(err)
+                } else {
+                    crate::fsx::rename(&tmp, &object)
+                }
+            });
+            match renamed {
+                Ok(()) => added = metadata.len(),
+                // Another thread stored the same contents first. Windows won't rename
+                // over that read-only object (Unix would), and it has the same bytes.
+                Err(_) if object.is_file() => {
+                    set_mode(&tmp, 0o644);
+                    let _ = fs::remove_file(&tmp);
+                }
+                Err(err) => {
+                    set_mode(&tmp, 0o644);
+                    let _ = fs::remove_file(&tmp);
+                    return Err(io_error(&object)(err));
+                }
+            }
         }
         let (category, world) = classify(rel).expect("classified");
         Ok((
@@ -816,7 +836,7 @@ impl Store {
                 .map_err(zip_error)?
                 .flush()
                 .map_err(io_error(&tmp))?;
-            fs::rename(&tmp, to).map_err(io_error(to))
+            crate::fsx::rename(&tmp, to).map_err(io_error(to))
         })();
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
@@ -887,7 +907,7 @@ impl Store {
                     return Err(err);
                 }
                 set_read_only(&tmp);
-                fs::rename(&tmp, &object).map_err(io_error(&object))?;
+                crate::fsx::rename(&tmp, &object).map_err(io_error(&object))?;
             }
             done += size;
             progress(done, total);
@@ -1048,7 +1068,28 @@ fn free_space(dir: &Path) -> Option<u64> {
     Some(stat.f_bavail as u64 * stat.f_frsize as u64)
 }
 
-#[cfg(not(unix))]
+/// The bytes free to this user on `dir`'s volume (quotas included), like `statvfs`'s
+/// `f_bavail`.
+#[cfg(windows)]
+fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let path: Vec<u16> = dir.as_os_str().encode_wide().chain([0]).collect();
+    let mut available = 0u64;
+    // SAFETY: `path` is NUL-terminated; the call writes only the one counter it is
+    // given, and leaves the other two out.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            path.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(available)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn free_space(_: &Path) -> Option<u64> {
     None
 }
@@ -1121,7 +1162,7 @@ fn swap_in(
                 if let Some(dir) = aside.parent() {
                     fs::create_dir_all(dir).map_err(io_error(dir))?;
                 }
-                fs::rename(&current, &aside).map_err(io_error(&current))?;
+                crate::fsx::rename(&current, &aside).map_err(io_error(&current))?;
                 moved_aside.push(entry);
             }
         }
@@ -1132,7 +1173,7 @@ fn swap_in(
                 if let Some(dir) = target.parent() {
                     fs::create_dir_all(dir).map_err(io_error(dir))?;
                 }
-                fs::rename(&staged, &target).map_err(io_error(&staged))?;
+                crate::fsx::rename(&staged, &target).map_err(io_error(&staged))?;
                 moved_in.push(entry);
             }
         }
@@ -1140,10 +1181,10 @@ fn swap_in(
     })();
     if result.is_err() {
         for entry in moved_in {
-            let _ = fs::rename(root.join(entry), staging.join(entry));
+            let _ = crate::fsx::rename(root.join(entry), staging.join(entry));
         }
         for entry in moved_aside {
-            let _ = fs::rename(old.join(entry), root.join(entry));
+            let _ = crate::fsx::rename(old.join(entry), root.join(entry));
         }
     }
     result
@@ -1202,7 +1243,7 @@ fn relative_is_prefix(relative: &str) -> bool {
 }
 
 pub fn sha256_of(path: &Path) -> Result<String, SnapshotError> {
-    let mut file = BufReader::new(File::open(path).map_err(io_error(path))?);
+    let mut file = BufReader::with_capacity(256 * 1024, File::open(path).map_err(io_error(path))?);
     let mut hasher = Sha256::new();
     io::copy(&mut file, &mut hasher).map_err(io_error(path))?;
     Ok(hex(&hasher.finalize()))

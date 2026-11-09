@@ -57,6 +57,9 @@ use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
 /// The console keeps this many rows; older ones are dropped.
 pub const MAX_LOG_ROWS: usize = 10_000;
 
+/// The shortest time between two redraws for game output.
+const LOG_BATCH_INTERVAL: Duration = Duration::from_millis(66);
+
 /// One row of the console. A multi-line message or a stack trace is several rows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogRow {
@@ -291,6 +294,17 @@ pub struct Instances {
         ),
     >,
     sidebar_banner_tasks: HashMap<String, Task<()>>,
+    /// The instance list and skin the sidebar banners were last checked against
+    /// ([`Self::load_sidebar_banners`] runs every frame; checking stats files and
+    /// reads skins).
+    sidebar_banners_checked: Option<(u64, u64)>,
+    /// Goes up with each [`Self::reload`].
+    list_generation: u64,
+    /// [`Self::required_java`]'s answers by game version: the instance Settings tab
+    /// asks on every frame, and each answer reads and parses a version file. An
+    /// installed version's answer never changes; a missing one is asked again after
+    /// a reload (the reload generation it was found at).
+    required_java: std::cell::RefCell<HashMap<String, (Option<u32>, u64)>>,
     /// Goes up when an instance's slideshow changes, so the Play tab lists it again.
     slideshow_revision: u64,
     /// The instance whose background is decoded for the Play tab, and the one before,
@@ -421,6 +435,9 @@ impl Instances {
             background_tasks: HashMap::new(),
             sidebar_banners: HashMap::new(),
             sidebar_banner_tasks: HashMap::new(),
+            sidebar_banners_checked: None,
+            list_generation: 0,
+            required_java: Default::default(),
             slideshow_revision: 0,
             background_shown: None,
             background_previous: None,
@@ -456,6 +473,7 @@ impl Instances {
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let (list, broken) = self.store.list();
         self.list = list;
+        self.list_generation += 1;
         self.notice = (!broken.is_empty()).then(|| {
             trn!(
                 P::BrokenFolders,
@@ -677,6 +695,13 @@ impl Instances {
     /// changed, in the background; forgets those that are gone. Only while the skin
     /// shows them.
     pub fn load_sidebar_banners(&mut self, cx: &mut Context<Self>) {
+        // Called on every frame: look again only when the instances or the skin
+        // changed (which a reload or an apply follows).
+        let checked = (self.list_generation, crate::skin::generation(cx));
+        if self.sidebar_banners_checked == Some(checked) {
+            return;
+        }
+        self.sidebar_banners_checked = Some(checked);
         let wanted: Vec<(
             String,
             appearance::BackgroundSource,
@@ -689,11 +714,17 @@ impl Instances {
                 Some((instance.id.clone(), source, modified))
             })
             .collect();
-        self.sidebar_banners.retain(|id, (time, source, _, _)| {
-            wanted
+        let mut gone = Vec::new();
+        self.sidebar_banners.retain(|id, (time, source, image, _)| {
+            let keep = wanted
                 .iter()
-                .any(|(w, s, m)| w == id && m == time && s == source)
+                .any(|(w, s, m)| w == id && m == time && s == source);
+            if !keep {
+                gone.push(image.clone());
+            }
+            keep
         });
+        crate::images::release(gone, cx);
         for (id, source, modified) in wanted {
             if self.sidebar_banners.contains_key(&id) || self.sidebar_banner_tasks.contains_key(&id)
             {
@@ -744,8 +775,13 @@ impl Instances {
     }
 
     /// Forgets the sidebar rows' copies, when the skin stops showing them.
-    pub fn forget_sidebar_banners(&mut self) {
-        self.sidebar_banners.clear();
+    pub fn forget_sidebar_banners(&mut self, cx: &mut App) {
+        let gone = self
+            .sidebar_banners
+            .drain()
+            .map(|(_, (_, _, image, _))| image);
+        crate::images::release(gone.collect::<Vec<_>>(), cx);
+        self.sidebar_banners_checked = None;
         self.sidebar_banner_tasks.clear();
     }
 
@@ -1107,15 +1143,25 @@ impl Instances {
         {
             return None;
         }
+        if let Some((java, generation)) = self.required_java.borrow().get(game_version)
+            && (java.is_some() || *generation == self.list_generation)
+        {
+            return *java;
+        }
         let path = self
             .data_dir
             .versions_dir()
             .join(game_version)
             .join(format!("{game_version}.json"));
-        let bytes = std::fs::read(path).ok()?;
-        launcher_core::game::version::VersionJson::parse(&bytes)
-            .ok()
-            .map(|version| version.java_major())
+        let java = std::fs::read(path).ok().and_then(|bytes| {
+            launcher_core::game::version::VersionJson::parse(&bytes)
+                .ok()
+                .map(|version| version.java_major())
+        });
+        self.required_java
+            .borrow_mut()
+            .insert(game_version.to_string(), (java, self.list_generation));
+        java
     }
 
     pub fn game_dir(&self, id: &str) -> PathBuf {
@@ -1640,7 +1686,7 @@ impl Instances {
         let started_id = id.to_string();
         let id = id.to_string();
         run.task = Some(cx.spawn(async move |this, cx| {
-            let mut events = events.ready_chunks(256);
+            let mut events = events.ready_chunks(4096);
             while let Some(batch) = events.next().await {
                 let mut exited = None;
                 let alive = this.update(cx, |this, cx| {
@@ -1677,6 +1723,11 @@ impl Instances {
                     .ok();
                     return;
                 }
+                // Each batch redraws the window. A modded game prints thousands of
+                // lines as it starts: let what arrives meanwhile gather into the next
+                // batch (the channel is unbounded, so the game never waits), so the
+                // log redraws at most about 15 times a second.
+                cx.background_executor().timer(LOG_BATCH_INTERVAL).await;
             }
         }));
         // Played as of now, so a game that crashes (or a launcher that quits) before

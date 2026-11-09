@@ -190,7 +190,7 @@ pub(crate) fn controls_room(
 /// dialog is open, as macOS's traffic lights do.
 pub fn window_controls(window: &Window, cx: &App) -> Vec<AnyElement> {
     if cfg!(target_os = "windows") {
-        return vec![caption_buttons(window, cx)];
+        return vec![caption_buttons(window)];
     }
     [Side::Left, Side::Right]
         .into_iter()
@@ -220,7 +220,7 @@ pub fn window_controls(window: &Window, cx: &App) -> Vec<AnyElement> {
 ///
 /// They are marked as the window's caption buttons, so Windows handles them as its
 /// own: their clicks, and the snap layouts shown on hovering maximize.
-fn caption_buttons(window: &Window, cx: &App) -> AnyElement {
+fn caption_buttons(window: &Window) -> AnyElement {
     let maximize = if window.is_maximized() {
         CaptionButton::Restore
     } else {
@@ -236,7 +236,7 @@ fn caption_buttons(window: &Window, cx: &App) -> AnyElement {
         .flex_row()
         // The buttons fill the bar above its bottom border, at any zoom.
         .h(gpui::px(TOP_BAR_HEIGHT))
-        .font_family(caption_font(cx))
+        .font_family(caption_font())
         .children(
             [CaptionButton::Minimize, maximize, CaptionButton::Close]
                 .map(|button| button.render(active)),
@@ -246,12 +246,21 @@ fn caption_buttons(window: &Window, cx: &App) -> AnyElement {
 
 /// The icon font of Windows' own caption buttons: Segoe Fluent Icons on Windows 11,
 /// or Segoe MDL2 Assets on Windows 10, which has the same glyphs.
-fn caption_font(cx: &App) -> &'static str {
+fn caption_font() -> &'static str {
     static FONT: OnceLock<&'static str> = OnceLock::new();
     FONT.get_or_init(|| {
         const FLUENT: &str = "Segoe Fluent Icons";
-        let names = cx.text_system().all_font_names();
-        if names.iter().any(|name| name == FLUENT) {
+        // Its file, rather than listing every installed font family, which takes a
+        // while and happens during the first frame. Either font has the glyphs.
+        let installed = std::env::var_os("SystemRoot")
+            .or_else(|| std::env::var_os("WINDIR"))
+            .map(|dir| {
+                std::path::Path::new(&dir)
+                    .join("Fonts")
+                    .join("SegoeIcons.ttf")
+            })
+            .is_some_and(|file| file.is_file());
+        if installed {
             FLUENT
         } else {
             "Segoe MDL2 Assets"

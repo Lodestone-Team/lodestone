@@ -1692,10 +1692,8 @@ impl InstanceSettings {
             .instance(cx)
             .map(|i| i.name)
             .unwrap_or_else(|| "Instance".into());
-        let file_name: String = name
-            .chars()
-            .map(|c| if "/\\:".contains(c) { '-' } else { c })
-            .collect();
+        // A name Windows takes too: no reserved characters, trailing dot or device name.
+        let file_name = launcher_core::worlds::folder_name(&name);
         let folder = dirs_downloads();
         let picked = cx.prompt_for_new_path(&folder, Some(&format!("{file_name}.mrpack")));
         let id = self.instance_id.clone();
@@ -2055,10 +2053,11 @@ impl InstanceSettings {
     }
 }
 
-/// `~/Downloads`, where exports are offered first.
+/// The Downloads folder, where exports are offered first: the system's (Windows has
+/// no `HOME`, and may have moved it), else `~/Downloads`.
 pub(crate) fn dirs_downloads() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(|home| PathBuf::from(home).join("Downloads"))
+    launcher_core::content::curseforge_install::downloads_folder()
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join("Downloads")))
         .filter(|dir| dir.is_dir())
         .unwrap_or_else(std::env::temp_dir)
 }

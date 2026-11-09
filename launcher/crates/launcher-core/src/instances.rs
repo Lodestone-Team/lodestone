@@ -715,7 +715,7 @@ impl InstanceStore {
                 ..original.clone()
             };
             storage::save(&staging.join("instance.json"), &copy)?;
-            fs::rename(&staging, self.dir(&new_id)).map_err(io_error(&staging))?;
+            crate::fsx::rename(&staging, self.dir(&new_id)).map_err(io_error(&staging))?;
             Ok(copy)
         })();
         if result.is_err() {
@@ -747,7 +747,7 @@ impl InstanceStore {
         instance.id = self.unused_id(&instance.name);
         storage::save(&staging.join("instance.json"), &instance)?;
         let dir = self.dir(&instance.id);
-        fs::rename(staging, &dir).map_err(io_error(staging))?;
+        crate::fsx::rename(staging, &dir).map_err(io_error(staging))?;
         Ok(instance)
     }
 

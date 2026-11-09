@@ -260,10 +260,75 @@ fn reusable_udp_socket(addr: SocketAddrV4) -> io::Result<UdpSocket> {
     }
 }
 
-#[cfg(not(unix))]
+/// Windows: with `SO_REUSEADDR`, so it shares the port with the game's own LAN
+/// listener (Java's multicast socket sets it too); a plain bind fails while the game
+/// is on its multiplayer screen.
+#[cfg(windows)]
+fn reusable_udp_socket(addr: SocketAddrV4) -> io::Result<UdpSocket> {
+    use std::os::windows::io::FromRawSocket as _;
+    use windows_sys::Win32::Networking::WinSock::{
+        AF_INET, IN_ADDR, IN_ADDR_0, INVALID_SOCKET, IPPROTO_UDP, SO_REUSEADDR, SOCK_DGRAM,
+        SOCKADDR, SOCKADDR_IN, SOL_SOCKET, WSADATA, WSAGetLastError, WSAStartup, bind, closesocket,
+        setsockopt, socket,
+    };
+    // SAFETY: plain Winsock calls on a socket this function owns; it is closed on
+    // every error path, and handed to `UdpSocket` (which then owns it) on success.
+    // WSAStartup only counts up (std calls it too before its own sockets).
+    unsafe {
+        let mut data: WSADATA = std::mem::zeroed();
+        let started = WSAStartup(0x0202, &mut data);
+        if started != 0 {
+            return Err(io::Error::from_raw_os_error(started));
+        }
+        let sock = socket(AF_INET as i32, SOCK_DGRAM, IPPROTO_UDP);
+        if sock == INVALID_SOCKET {
+            return Err(io::Error::from_raw_os_error(WSAGetLastError()));
+        }
+        let fail = |sock| {
+            let err = io::Error::from_raw_os_error(WSAGetLastError());
+            closesocket(sock);
+            err
+        };
+        let one: i32 = 1;
+        if setsockopt(
+            sock,
+            SOL_SOCKET,
+            SO_REUSEADDR,
+            (&raw const one).cast(),
+            std::mem::size_of::<i32>() as i32,
+        ) != 0
+        {
+            return Err(fail(sock));
+        }
+        let sockaddr = SOCKADDR_IN {
+            sin_family: AF_INET,
+            sin_port: addr.port().to_be(),
+            sin_addr: IN_ADDR {
+                S_un: IN_ADDR_0 {
+                    S_addr: u32::from(*addr.ip()).to_be(),
+                },
+            },
+            sin_zero: [0; 8],
+        };
+        if bind(
+            sock,
+            (&raw const sockaddr).cast::<SOCKADDR>(),
+            std::mem::size_of::<SOCKADDR_IN>() as i32,
+        ) != 0
+        {
+            return Err(fail(sock));
+        }
+        Ok(UdpSocket::from_raw_socket(sock as _))
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 fn reusable_udp_socket(addr: SocketAddrV4) -> io::Result<UdpSocket> {
     UdpSocket::bind(addr)
 }
+
+/// Winsock's "message too long".
+const WSAEMSGSIZE: i32 = 10040;
 
 /// Listens on `socket` on a new thread, calling `on_announcement` with each sender and
 /// announcement, until the returned listener is dropped (or `on_announcement` returns
@@ -303,6 +368,9 @@ pub fn listen(
                                 | io::ErrorKind::TimedOut
                                 | io::ErrorKind::Interrupted
                         ) => {}
+                    // Windows: a packet longer than the buffer (too long to be an
+                    // announcement), which Unix would truncate instead.
+                    Err(err) if cfg!(windows) && err.raw_os_error() == Some(WSAEMSGSIZE) => {}
                     // a refused or unreachable network (macOS without the local network
                     // permission) is retried slowly rather than ending the thread
                     Err(_) => thread::sleep(Duration::from_millis(500)),

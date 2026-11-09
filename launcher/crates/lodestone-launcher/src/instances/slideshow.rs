@@ -135,8 +135,10 @@ impl Slideshow {
             self.key = key;
             self.paths.clear();
             self.index = 0;
-            self.current = None;
-            self.next = None;
+            self.set_current(None, cx);
+            if let Some((next, _)) = self.next.take() {
+                crate::images::release([next.image], cx);
+            }
             self.timer = None;
             self._load = None;
             if self.key.is_some() {
@@ -152,7 +154,7 @@ impl Slideshow {
                 // Off screen: no timer, and a fade under way just ends.
                 self.timer = None;
                 if let Some((next, _)) = self.next.take() {
-                    self.current = Some(next);
+                    self.set_current(Some(next), cx);
                     self.index = next_index(self.index, self.paths.len());
                 }
             }
@@ -198,7 +200,10 @@ impl Slideshow {
                 this.paths = paths;
                 if first {
                     this.index = 0;
-                    this.current = decoded.map(|(image, scrim)| Background { image, scrim });
+                    this.set_current(
+                        decoded.map(|(image, scrim)| Background { image, scrim }),
+                        cx,
+                    );
                 } else if this.index >= this.paths.len() {
                     this.index = 0;
                 }
@@ -244,7 +249,7 @@ impl Slideshow {
                 };
                 let next = Background { image, scrim };
                 if reduced {
-                    this.current = Some(next);
+                    this.set_current(Some(next), cx);
                     this.advance(index, cx);
                 } else {
                     this.next = Some((next, Instant::now()));
@@ -253,6 +258,15 @@ impl Slideshow {
             })
             .ok();
         }));
+    }
+
+    /// Shows `image`, or none, and frees the GPU copy of the image it replaces: a
+    /// slideshow left on screen would otherwise add a full-size image to GPU memory
+    /// with each change.
+    fn set_current(&mut self, image: Option<Background>, cx: &mut gpui::App) {
+        if let Some(old) = std::mem::replace(&mut self.current, image) {
+            crate::images::release([old.image], cx);
+        }
     }
 
     /// The image at `index` is now the one shown: wait for the next, and list the
@@ -306,7 +320,7 @@ impl Render for Slideshow {
                 .unwrap_or_else(|| start.elapsed().as_secs_f32() / FADE.as_secs_f32());
             if t >= 1.0 {
                 let (next, _) = self.next.take().expect("checked");
-                self.current = Some(next);
+                self.set_current(Some(next), cx);
                 let index = next_index(self.index, self.paths.len());
                 self.advance(index, cx);
             } else {

@@ -12,6 +12,12 @@ fn main() {
     launcher_core::update::remember_exe();
     // Started by an update's restart: let the old launcher finish quitting first.
     launcher_core::update::wait_for_previous();
+    // Windows: a launcher already running is brought forward instead. The offscreen
+    // screenshots use made-up data, so they may run beside it.
+    #[cfg(not(feature = "screenshot"))]
+    if !lodestone_launcher::single_instance::acquire(APP_NAME) {
+        return;
+    }
     let trace = StartupTrace::start();
     gpui_platform::application()
         .with_assets(Assets)

@@ -239,7 +239,14 @@ fn walk(
             ancestors.pop();
             walked?;
         } else {
-            let size = fs::metadata(&target).map_err(io_error(&target))?.len();
+            // A plain file's size comes with its folder entry, which is free on
+            // Windows; a link's is asked of what it points to.
+            let meta = if kind.is_symlink() {
+                fs::metadata(&target)
+            } else {
+                entry.metadata()
+            };
+            let size = meta.map_err(io_error(&target))?.len();
             plan.files.push(PlannedFile {
                 from: target,
                 relative,
@@ -274,17 +281,27 @@ pub fn copy(
         fs::create_dir_all(&path).map_err(io_error(&path))?;
     }
     let mut buffer = vec![0u8; 1024 * 1024];
+    // Folders already checked: resolving a path opens it, slow on Windows, and many
+    // files share a folder. Copying files adds no links.
+    let mut checked = std::collections::HashSet::new();
     for file in &plan.files {
         if cancel.is_cancelled() {
             return Err(ImportError::Cancelled);
         }
         let target = dest_root.join(&file.relative);
         let parent = target.parent().unwrap_or(&dest_root);
-        fs::create_dir_all(parent).map_err(io_error(parent))?;
         // The folders were made here, but check: nothing is written outside the new
         // instance.
-        let canonical_parent = fs::canonicalize(parent).map_err(io_error(parent))?;
-        if !canonical_parent.starts_with(&dest_root) || fs::symlink_metadata(&target).is_ok() {
+        let parent_inside = checked.contains(parent) || {
+            fs::create_dir_all(parent).map_err(io_error(parent))?;
+            let canonical_parent = fs::canonicalize(parent).map_err(io_error(parent))?;
+            let inside = canonical_parent.starts_with(&dest_root);
+            if inside {
+                checked.insert(parent.to_path_buf());
+            }
+            inside
+        };
+        if !parent_inside || fs::symlink_metadata(&target).is_ok() {
             return Err(ImportError::Invalid(format!(
                 "{} would be written outside the new instance",
                 file.relative.display()
@@ -304,14 +321,12 @@ pub fn copy(
             progress.bytes_done.fetch_add(n as u64, Ordering::Relaxed);
         }
         writer.flush().map_err(io_error(&target))?;
-        drop(writer);
         // Keep the modification time, so the game and the Content tab see the same file.
-        if let Ok(modified) = fs::metadata(&file.from).and_then(|m| m.modified()) {
-            let _ = File::options()
-                .write(true)
-                .open(&target)
-                .and_then(|f| f.set_modified(modified));
+        // Through the open handles, rather than opening both files again by path.
+        if let Ok(modified) = reader.metadata().and_then(|m| m.modified()) {
+            let _ = writer.set_modified(modified);
         }
+        drop(writer);
         progress.files_done.fetch_add(1, Ordering::Relaxed);
     }
     Ok(())
