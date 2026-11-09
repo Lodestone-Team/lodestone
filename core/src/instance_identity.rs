@@ -34,7 +34,25 @@ pub(crate) async fn load_unique_configs(
             ),
         }
     }
-    deduplicate(configs).await
+    configs.sort_by(|(a, _), (b, _)| a.cmp(b));
+    let mut directories = HashSet::new();
+    let mut unique = Vec::new();
+    for (path, config) in configs {
+        match tokio::fs::canonicalize(&path).await {
+            Ok(canonical) => {
+                if directories.insert(canonical) {
+                    unique.push((path, config));
+                } else {
+                    warn!("Skipping duplicate path to instance {}", path.display());
+                }
+            }
+            Err(error) => error!(
+                "Skipping instance {}: cannot resolve path: {error}",
+                path.display()
+            ),
+        }
+    }
+    deduplicate(unique).await
 }
 
 async fn deduplicate(
@@ -68,7 +86,7 @@ async fn deduplicate(
                 error!("Skipping duplicate instance {} (UUID {}): failed to persist replacement identity: {error}", path.display(), original);
                 continue;
             }
-            warn!("Duplicate instance {}: UUID {} replaced with {}. Per-instance permissions and other UUID-linked references remain with the original instance; no grants are transferred", path.display(), original, config.uuid());
+            warn!("Duplicate instance {}: UUID {} replaced with {}. UUID-linked permissions and references remain with the selected survivor; verify that it is the intended instance", path.display(), original, config.uuid());
         }
         ready.push((path, config));
     }
@@ -122,6 +140,30 @@ mod tests {
         expected["uuid"] = serde_json::to_value(updated.uuid()).unwrap();
         assert_eq!(serde_json::to_value(updated).unwrap(), expected);
         assert_eq!(load_unique_configs(dir.path()).await.unwrap(), first);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn directory_junction_does_not_regenerate_same_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let uuid = InstanceUuid::default();
+        let real = dir.path().join("a");
+        let alias = dir.path().join("b");
+        save(&real, &config(&uuid, 10));
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&alias)
+            .arg(&real)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let ready = load_unique_configs(dir.path()).await.unwrap();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].1.uuid(), &uuid);
+        let on_disk: DotLodestoneConfig =
+            serde_json::from_slice(&std::fs::read(real.join(".lodestone_config")).unwrap())
+                .unwrap();
+        assert_eq!(on_disk.uuid(), &uuid);
     }
 
     #[tokio::test]
