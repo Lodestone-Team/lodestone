@@ -198,15 +198,21 @@ impl Servers {
                 .border_t_1()
                 .border_color(crate::theme::ink::border())
                 .when(!quiet, |this| this.child(LoadingDots))
-                .child(note(t(if !quiet {
-                    M::LanLooking
-                } else if cfg!(target_os = "macos") {
-                    M::LanNoneMac
-                } else if cfg!(windows) {
-                    M::LanNoneWindows
-                } else {
-                    M::LanNoneOther
-                })))
+                .child(
+                    // Without flex_1 + min_w_0 the text keeps its unwrapped
+                    // width in this row and runs past the card's edge.
+                    note(t(if !quiet {
+                        M::LanLooking
+                    } else if cfg!(target_os = "macos") {
+                        M::LanNoneMac
+                    } else if cfg!(windows) {
+                        M::LanNoneWindows
+                    } else {
+                        M::LanNoneOther
+                    }))
+                    .flex_1()
+                    .min_w_0(),
+                )
                 .into_any_element()
         } else {
             div()
