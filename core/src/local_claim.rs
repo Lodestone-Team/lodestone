@@ -7,7 +7,12 @@
 //!
 //! 1. `POST /local_claim/start` creates `local_claim/<id>/` (0700) with an empty `claim`
 //!    file and returns the id, the folder (relative to the data folder, since a core in
-//!    Docker sees another path than its host) and a value.
+//!    Docker sees another path than its host) and a value. To a program on this
+//!    computer (a loopback address) it also says where its data folder is, so a core
+//!    kept somewhere other than the default needn't be looked for. Nobody else gets the
+//!    path: it names the user's folders, and it would be wrong on the other side of
+//!    Docker anyway. The path is only a hint: the program still has to find the claim
+//!    there, in a folder only its user can open.
 //! 2. The program writes the value into `claim`, a random value of its own into `reply`
 //!    and, for a core without an owner yet, `owner.json` (`{"username", "password"}`).
 //! 3. `POST /local_claim/finish` checks `claim`, creates the owner if asked, mints an
@@ -98,6 +103,10 @@ pub struct StartReply {
     pub launched_by: crate::product::LaunchedBy,
     /// Seconds the claim waits for `finish`.
     pub expires_in: u64,
+    /// The core's data folder, absolute, for a program on this computer only (a
+    /// loopback address). Where the program should look for `dir` first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_folder: Option<String>,
 }
 
 /// The body of `POST /local_claim/finish`.
@@ -347,6 +356,9 @@ impl LocalClaims {
             }
         });
         info!("A program on this computer started claiming owner access");
+        let data_folder = (origin == Origin::Loopback)
+            .then(|| self.absolute_root())
+            .flatten();
         Ok(StartReply {
             dir: format!("{CLAIM_DIR}/{id}"),
             id,
@@ -355,7 +367,16 @@ impl LocalClaims {
             product,
             launched_by,
             expires_in: CLAIM_TTL.as_secs(),
+            data_folder,
         })
+    }
+
+    /// The data folder as an absolute path, when it is one (not every path is text).
+    fn absolute_root(&self) -> Option<String> {
+        let path = std::fs::canonicalize(&self.root)
+            .or_else(|_| std::path::absolute(&self.root))
+            .ok()?;
+        path.to_str().map(str::to_string)
     }
 
     /// Checks the claim `id` from the client at `ip` and, when it holds, writes the owner
@@ -1200,6 +1221,22 @@ mod tests {
         );
         core.answer(&start, &start.value);
         assert_eq!(core.finish(&start.id).await.0, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn only_this_computer_is_told_the_data_folder() {
+        let core = core(true).await;
+        let local = core.start().await;
+        let folder = PathBuf::from(local.data_folder.expect("told to this computer"));
+        assert!(folder.is_absolute());
+        assert!(folder.join(&local.dir).join("claim").is_file());
+        for ip in ["192.168.1.20", "172.17.0.1", "203.0.113.9"] {
+            let start = core.start_from(ip.parse().unwrap()).await.unwrap();
+            assert_eq!(start.data_folder, None, "{ip}");
+        }
+        // and the JSON leaves it out rather than sending null
+        let lan = core.start_from("10.0.0.2".parse().unwrap()).await.unwrap();
+        assert!(!serde_json::to_string(&lan).unwrap().contains("data_folder"));
     }
 
     #[tokio::test]

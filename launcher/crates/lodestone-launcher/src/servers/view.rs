@@ -848,6 +848,7 @@ impl Servers {
                             .flex()
                             .flex_col()
                             .flex_1()
+                            .min_w_0()
                             .child(
                                 div()
                                     .id("local-cores-title")
@@ -927,6 +928,7 @@ fn direct_note(index: usize) -> gpui::Div {
         .child(
             small(t(M::DirectNote))
                 .flex_1()
+                .min_w_0()
                 .text_color(crate::theme::ink::secondary()),
         )
         .child(
@@ -985,6 +987,7 @@ impl Render for Servers {
                             .flex()
                             .flex_col()
                             .flex_1()
+                            .min_w_0()
                             .child(
                                 div()
                                     .id("servers-title")
@@ -1033,6 +1036,7 @@ impl Render for Servers {
                             .flex()
                             .flex_col()
                             .flex_1()
+                            .min_w_0()
                             .child(
                                 div()
                                     .font_weight(weights::BOLD.into())
