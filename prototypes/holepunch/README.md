@@ -30,24 +30,21 @@ No Minecraft on that side? Check the tunnel with `nc`: `nc -l 25565` on the host
 
 ## With the introduction service (version 3)
 
-Instead of swapping tickets, run the introduction service somewhere both sides can
-reach over TCP (it only passes addresses along, never game traffic):
+Instead of swapping tickets, the host registers with the introduction service, which
+only passes addresses along (never game traffic), and gets an invite link to send to any
+number of friends. It runs on Cloudflare Workers (`rendezvous-worker/`), over HTTPS:
 
 ```sh
-holepunch rendezvous --listen 0.0.0.0:8080
+holepunch host --target 127.0.0.1:25565 --via https://lodestone-rendezvous.wenwei-jiang2002.workers.dev
+holepunch join "lhp2://lodestone-rendezvous.wenwei-jiang2002.workers.dev/<code>#<fingerprint>.<token>"
 ```
 
-Then the host registers with it and gets an invite link to send to any number of
-friends:
-
-```sh
-holepunch host --target 127.0.0.1:25565 --via <service ip>:8080
-holepunch join "lhp2://<service ip>:8080/<code>#<fingerprint>.<token>"
-```
+`holepunch rendezvous --listen 0.0.0.0:8080` runs the same service locally, over plain
+HTTP (`--via <ip>:8080`), for tests. Deploy the Worker with `cf deploy` in
+`rendezvous-worker/` (after `npm install`); `npx wrangler dev` runs it locally.
 
 The part after `#` (the host's certificate fingerprint and the token) is never sent to
-the service, so the service can't pretend to be the host or join itself. The prototype
-service speaks plain HTTP; a real one would be behind HTTPS.
+the service, so the service can't pretend to be the host or join itself.
 
 ## Try it (tickets by hand)
 

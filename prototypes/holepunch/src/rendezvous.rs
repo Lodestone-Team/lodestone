@@ -301,38 +301,153 @@ fn secret_matches(given: Option<&String>, secret: &str) -> bool {
 // ---------------------------------------------------------------------------
 // The client side
 
-/// One plain-HTTP request to the service; returns the JSON body of a 2xx answer.
+/// Where the introduction service is: `ip:port` over plain HTTP (a test service), or a
+/// domain over HTTPS (the Cloudflare Worker).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Service {
+    pub host: String,
+    pub port: u16,
+    pub tls: bool,
+}
+
+impl Service {
+    /// `http://1.2.3.4:8080`, `https://name.example`, `1.2.3.4:8080` or `name.example`.
+    pub fn parse(text: &str) -> Option<Self> {
+        let text = text.trim().trim_end_matches('/');
+        if let Some(rest) = text.strip_prefix("https://") {
+            return Self::host_port(rest, 443, true);
+        }
+        if let Some(rest) = text.strip_prefix("http://") {
+            return Self::host_port(rest, 80, false);
+        }
+        Self::from_link(text)
+    }
+
+    /// The service as an invite link carries it: an `ip:port` is plain HTTP, a name is HTTPS.
+    pub fn from_link(text: &str) -> Option<Self> {
+        match text.parse::<SocketAddr>() {
+            Ok(addr) => Some(Self {
+                host: addr.ip().to_string(),
+                port: addr.port(),
+                tls: false,
+            }),
+            Err(_) => Self::host_port(text, 443, true),
+        }
+    }
+
+    fn host_port(text: &str, default_port: u16, tls: bool) -> Option<Self> {
+        if text.is_empty() || text.contains('/') || text.contains('@') {
+            return None;
+        }
+        let (host, port) = match text.rsplit_once(':') {
+            Some((host, port)) if !host.contains(':') || host.ends_with(']') => {
+                (host.to_string(), port.parse().ok()?)
+            }
+            _ => (text.to_string(), default_port),
+        };
+        Some(Self {
+            host: host.trim_matches(['[', ']']).to_string(),
+            port,
+            tls,
+        })
+    }
+
+    /// How an invite link writes it.
+    pub fn link(&self) -> String {
+        let host = if self.host.contains(':') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+        match (self.tls, self.port) {
+            (true, 443) => host,
+            _ => format!("{host}:{}", self.port),
+        }
+    }
+}
+
+/// One request to the service; returns the JSON body of a 2xx answer.
 pub async fn call(
-    service: SocketAddr,
+    service: &Service,
     method: &str,
     path: &str,
     body: Option<Value>,
 ) -> Result<Value, Error> {
     let body = body.map(|b| b.to_string()).unwrap_or_default();
-    let mut stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(service))
-        .await
-        .map_err(|_| "the introduction service didn't answer")??;
-    let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {service}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    stream.write_all(request.as_bytes()).await?;
-    let mut response = Vec::new();
-    tokio::time::timeout(
-        LONG_POLL + Duration::from_secs(10),
-        stream.read_to_end(&mut response),
+    let tcp = tokio::time::timeout(
+        Duration::from_secs(5),
+        TcpStream::connect((service.host.as_str(), service.port)),
     )
     .await
-    .map_err(|_| "the introduction service took too long")??;
+    .map_err(|_| "the introduction service didn't answer")??;
+    let host_header = if service.tls && service.port == 443 {
+        service.host.clone()
+    } else {
+        format!("{}:{}", service.host, service.port)
+    };
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: {host_header}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let wait = LONG_POLL + Duration::from_secs(10);
+    let response = if service.tls {
+        let mut roots = rustls::RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let config = rustls::ClientConfig::builder_with_provider(crate::provider())
+            .with_safe_default_protocol_versions()?
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let name = rustls::pki_types::ServerName::try_from(service.host.clone())?;
+        let mut tls = tokio_rustls::TlsConnector::from(Arc::new(config))
+            .connect(name, tcp)
+            .await?;
+        tls.write_all(request.as_bytes()).await?;
+        let mut response = Vec::new();
+        // Some servers end TLS without a close_notify; what arrived before still counts.
+        let _ = tokio::time::timeout(wait, tls.read_to_end(&mut response)).await;
+        response
+    } else {
+        let mut tcp = tcp;
+        tcp.write_all(request.as_bytes()).await?;
+        let mut response = Vec::new();
+        tokio::time::timeout(wait, tcp.read_to_end(&mut response))
+            .await
+            .map_err(|_| "the introduction service took too long")??;
+        response
+    };
     let text = String::from_utf8_lossy(&response);
-    let (head, body) = text.split_once("\r\n\r\n").ok_or("a garbled answer")?;
+    let (head, rest) = text.split_once("\r\n\r\n").ok_or("a garbled answer")?;
+    let chunked = head.lines().any(|line| {
+        line.to_ascii_lowercase()
+            .starts_with("transfer-encoding: chunked")
+    });
+    let body = if chunked {
+        dechunk(rest)
+    } else {
+        rest.to_string()
+    };
     let status = head.lines().next().unwrap_or_default();
-    let value: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let value: Value = serde_json::from_str(body.trim()).unwrap_or(Value::Null);
     if !status.contains(" 2") {
         let message = value.get("error").and_then(Value::as_str).unwrap_or(status);
         return Err(format!("the introduction service said: {message}").into());
     }
     Ok(value)
+}
+
+fn dechunk(mut body: &str) -> String {
+    let mut out = String::new();
+    while let Some((size, rest)) = body.split_once("\r\n") {
+        let Ok(size) = usize::from_str_radix(size.trim(), 16) else {
+            break;
+        };
+        if size == 0 || rest.len() < size {
+            break;
+        }
+        out.push_str(&rest[..size]);
+        body = rest[size..].trim_start_matches("\r\n");
+    }
+    out
 }
 
 pub fn addrs_of(value: &Value) -> Vec<SocketAddr> {
@@ -353,9 +468,10 @@ mod tests {
     #[tokio::test]
     async fn a_host_hears_about_a_join() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let service = listener.local_addr().unwrap();
+        let addr = listener.local_addr().unwrap();
         drop(listener);
-        tokio::spawn(serve(service));
+        tokio::spawn(serve(addr));
+        let service = &Service::from_link(&addr.to_string()).unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let created = call(
@@ -372,7 +488,8 @@ mod tests {
 
         let poll = {
             let path = format!("/v1/sessions/{code}/joins?secret={secret}&after=0");
-            tokio::spawn(async move { call(service, "GET", &path, None).await })
+            let service = service.clone();
+            tokio::spawn(async move { call(&service, "GET", &path, None).await })
         };
         tokio::time::sleep(Duration::from_millis(100)).await;
         let joined = call(
@@ -409,5 +526,22 @@ mod tests {
         )
         .await;
         assert!(missing.is_err());
+    }
+
+    #[test]
+    fn services_parse_and_print() {
+        let http = Service::parse("http://16.146.26.94:8080").unwrap();
+        assert_eq!(
+            (http.tls, http.port, http.link()),
+            (false, 8080, "16.146.26.94:8080".to_string())
+        );
+        let worker = Service::parse("https://rendezvous.example.workers.dev/").unwrap();
+        assert_eq!(
+            (worker.tls, worker.port, worker.link()),
+            (true, 443, "rendezvous.example.workers.dev".to_string())
+        );
+        assert_eq!(Service::from_link(&worker.link()), Some(worker));
+        assert_eq!(Service::from_link("16.146.26.94:8080"), Some(http));
+        assert!(Service::parse("https://evil.example@x").is_none());
     }
 }

@@ -16,7 +16,7 @@
 //!    port becomes a QUIC stream, which the host connects to its Minecraft server.
 //!
 //! Usage:
-//!   holepunch host [--target 127.0.0.1:25565] [--via <service ip:port>] [--no-portmap] [--local]
+//!   holepunch host [--target 127.0.0.1:25565] [--via <https://service or ip:port>] [--no-portmap] [--local]
 //!   holepunch join <invite or host ticket> [--listen 127.0.0.1:25566] [--no-portmap] [--local]
 //!   holepunch rendezvous [--listen 0.0.0.0:8080]   (the introduction service, [`rendezvous`])
 //!
@@ -80,7 +80,7 @@ async fn main() {
         }
         _ => {
             eprintln!(
-                "usage:\n  holepunch host [--target 127.0.0.1:25565] [--via <service ip:port>] [--no-portmap] [--local]\n  \
+                "usage:\n  holepunch host [--target 127.0.0.1:25565] [--via <https://service or ip:port>] [--no-portmap] [--local]\n  \
                  holepunch join <invite or host ticket> [--listen 127.0.0.1:25566] [--no-portmap] [--local]\n  \
                  holepunch rendezvous [--listen 0.0.0.0:8080]"
             );
@@ -316,7 +316,7 @@ fn transport() -> Arc<TransportConfig> {
     Arc::new(transport)
 }
 
-fn provider() -> Arc<rustls::crypto::CryptoProvider> {
+pub fn provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
 }
 
@@ -341,7 +341,13 @@ async fn host(args: &[String]) -> Result<(), Error> {
     let target: SocketAddr = flag(args, "--target")
         .unwrap_or_else(|| "127.0.0.1:25565".into())
         .parse()?;
-    let via: Option<SocketAddr> = flag(args, "--via").map(|v| v.parse()).transpose()?;
+    let via = match flag(args, "--via") {
+        Some(text) => Some(
+            rendezvous::Service::parse(&text)
+                .ok_or("--via takes the service: https://name or ip:port")?,
+        ),
+        None => None,
+    };
     println!("Finding the ways in to this computer...");
     let side = gather(has(args, "--local"), !has(args, "--no-portmap"))?;
 
@@ -402,7 +408,7 @@ async fn host(args: &[String]) -> Result<(), Error> {
     // Through the introduction service: an invite link, and any number of friends.
     let list: Vec<String> = side.candidates.iter().map(ToString::to_string).collect();
     let created = rendezvous::call(
-        service,
+        &service,
         "POST",
         "/v1/sessions",
         Some(serde_json::json!({ "candidates": list })),
@@ -418,7 +424,8 @@ async fn host(args: &[String]) -> Result<(), Error> {
         .to_string();
     println!(
         "\nSend this invite to your friends (the part after # never goes to the service):\n\n  \
-         lhp2://{service}/{code}#{}.{}\n",
+         lhp2://{}/{code}#{}.{}\n",
+        service.link(),
         hex(&fingerprint),
         hex(&token)
     );
@@ -436,7 +443,7 @@ async fn host(args: &[String]) -> Result<(), Error> {
     let mut seen = 0usize;
     loop {
         let path = format!("/v1/sessions/{code}/joins?secret={secret}&after={seen}");
-        let joins = match rendezvous::call(service, "GET", &path, None).await {
+        let joins = match rendezvous::call(&service, "GET", &path, None).await {
             Ok(joins) => joins,
             Err(err) => {
                 println!("  {err}; retrying");
@@ -496,7 +503,7 @@ async fn accept_loop(endpoint: Endpoint, token: [u8; TOKEN_LEN], target: SocketA
 
 /// `lhp2://<service>/<code>#<fingerprint>.<token>`
 struct Invite {
-    service: SocketAddr,
+    service: rendezvous::Service,
     code: String,
     fingerprint: [u8; 32],
     token: [u8; TOKEN_LEN],
@@ -513,7 +520,7 @@ impl Invite {
             return None;
         }
         Some(Self {
-            service: service.parse().ok()?,
+            service: rendezvous::Service::from_link(service)?,
             code: code.to_string(),
             fingerprint: unhex(fingerprint)?.try_into().ok()?,
             token: unhex(token)?.try_into().ok()?,
@@ -545,7 +552,7 @@ async fn join(args: &[String]) -> Result<(), Error> {
         Some(invite) => {
             let list: Vec<String> = side.candidates.iter().map(ToString::to_string).collect();
             let answer = rendezvous::call(
-                invite.service,
+                &invite.service,
                 "POST",
                 &format!("/v1/sessions/{}/joins", invite.code),
                 Some(serde_json::json!({ "candidates": list })),
@@ -729,7 +736,7 @@ mod tests {
             "01".repeat(16)
         );
         let invite = Invite::parse(&text).unwrap();
-        assert_eq!(invite.service, "16.146.26.94:8080".parse().unwrap());
+        assert_eq!(invite.service.link(), "16.146.26.94:8080");
         assert_eq!(invite.code, "ABCDEFGH23");
         assert_eq!(invite.fingerprint, [0xab; 32]);
         assert!(Invite::parse("lhp2://16.146.26.94:8080/AB/../x#00.00").is_none());
