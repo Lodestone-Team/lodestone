@@ -253,7 +253,13 @@ pub(crate) mod test_util {
             .unwrap();
         let addr = listener.local_addr().unwrap();
         let app = axum::Router::new().nest("/api/v1", crate::api_router(state));
-        tokio::spawn(async move { axum::serve(listener, app).await });
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+        });
         format!("http://{addr}/api/v1")
     }
 }
@@ -1179,7 +1185,11 @@ pub async fn run(
                                         axum_server::from_tcp(listener)?
                                             .acceptor(acceptor)
                                             .handle(handle)
-                                            .serve(app.into_make_service())
+                                            .serve(
+                                                app.into_make_service_with_connect_info::<
+                                                    SocketAddr,
+                                                >(),
+                                            )
                                             .await
                                     }
                                 }),

@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;
 
-use super::util::AuthedUser;
+use super::util::{AuthedUser, ClientIp};
 
 #[derive(Deserialize, Serialize)]
 pub struct NewUser {
@@ -264,20 +264,28 @@ pub struct ApiKeyLogin {
 
 /// Signs in with an API key: checks it and returns the user it acts as, with its scope
 /// (a custom key's user is never the owner or an admin). The key itself is then the
-/// session's token, so revoking it ends the session at once. Failures count towards the
-/// same limit as `POST /user/login`, per key.
+/// session's token, so revoking it ends the session at once. Only API keys (`lsk_…`) are
+/// accepted, never session tokens. Failures count towards the same limit as
+/// `POST /user/login`, per client address and key, so one address can't lock others out.
 pub async fn login_api_key(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Json(body): Json<ApiKeyLogin>,
 ) -> Response {
-    let limit_key = match crate::auth::api_key::parse_key(body.key.trim()) {
-        Some(parsed) => format!("api key {}", parsed.id),
-        None => "api key (malformed)".to_string(),
+    let key = body.key.trim();
+    let client = ip.map_or_else(|| "unknown".to_string(), |ip| ip.to_string());
+    let parsed = crate::auth::api_key::parse_key(key);
+    let limit_key = match &parsed {
+        Some(parsed) => format!("api key {} from {client}", parsed.id),
+        None => format!("api key (malformed) from {client}"),
     };
     if let Err(limited) = state.login_limiter.begin_attempt(&limit_key) {
         return limited.into_response();
     }
-    let user = state.users_manager.read().await.try_auth(body.key.trim());
+    let user = match parsed {
+        Some(_) => state.users_manager.read().await.try_auth(key),
+        None => None,
+    };
     match user {
         Some(user) => {
             state.login_limiter.record_success(&limit_key);

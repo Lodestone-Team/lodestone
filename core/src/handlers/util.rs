@@ -210,6 +210,24 @@ pub fn require_owner_if_atom(
     }
 }
 
+/// The address the request came from, when the server records it (it always does
+/// outside tests). An IPv4 address that arrived over IPv6 (`::ffff:a.b.c.d`) is given as
+/// IPv4.
+pub struct ClientIp(pub Option<std::net::IpAddr>);
+
+impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(ClientIp(
+            parts
+                .extensions
+                .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                .map(|info| info.0.ip().to_canonical()),
+        ))
+    }
+}
+
 /// A logged-in user, taken from the `Authorization: Bearer <token>` header. The token is a
 /// session JWT or an API key; for a key, the user has only the key's powers.
 ///

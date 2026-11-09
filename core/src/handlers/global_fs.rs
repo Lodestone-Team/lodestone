@@ -217,16 +217,44 @@ fn touches_lodestone_secret(
         .any(|secret| path.starts_with(secret) || (include_parents && secret.starts_with(path)))
 }
 
-/// What the file API never reads, in the data folder `root` with its `stores` folder:
-/// `stores` (users.json with every user's password hash and token secret, the API
-/// keys), the playit.gg key, and `local_claim`, whose results hold owner API keys (see
-/// [`crate::local_claim`]).
-fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 3] {
+/// What the file API never reads or changes, in the data folder `root` with its `stores`
+/// folder: `stores` (users.json with every user's password hash and token secret, the API
+/// keys), the playit.gg key, `local_claim`, whose files grant owner access (see
+/// [`crate::local_claim`]), and `tls`, the web server's certificate and private key.
+fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 4] {
     [
         stores.to_path_buf(),
         root.join("playit.toml"),
         root.join(crate::local_claim::CLAIM_DIR),
+        root.join("tls"),
     ]
+}
+
+/// [`lodestone_secret_paths`] of this core, resolved like the paths checked against them
+/// (see [`resolve_existing_prefix`]), so a protected path that doesn't exist yet counts
+/// too.
+async fn resolved_secret_paths() -> Vec<PathBuf> {
+    let mut secrets = Vec::new();
+    for secret in lodestone_secret_paths(lodestone_path(), path_to_stores()) {
+        secrets.push(resolve_existing_prefix(&secret).await.unwrap_or(secret));
+    }
+    secrets
+}
+
+/// Refuses to write, create, move or delete `path` when it is, or is inside, Lodestone's
+/// own data ([`lodestone_secret_paths`]), or is a folder holding some of it (such as the
+/// data folder itself). Symbolic links are resolved first; a path that can't be checked
+/// is refused. This applies to every user, including users with `WriteGlobalFile`.
+async fn reject_protected_change(path: &std::path::Path) -> Result<(), Error> {
+    let protected = || Error {
+        kind: ErrorKind::PermissionDenied,
+        source: eyre!("Lodestone's own data cannot be changed through the file API"),
+    };
+    let resolved = resolve_existing_prefix(path).await.ok_or_else(protected)?;
+    if touches_lodestone_secret(&resolved, &resolved_secret_paths().await, true) {
+        return Err(protected());
+    }
+    Ok(())
 }
 
 /// Canonicalizes `path` and rejects it if it is Lodestone's own data: the `stores` folder,
@@ -239,13 +267,7 @@ async fn canonicalize_global_read(
     let path = tokio::fs::canonicalize(path)
         .await
         .context(format!("Failed to find {}", path.display()))?;
-    let mut secrets = Vec::new();
-    for secret in lodestone_secret_paths(lodestone_path(), path_to_stores()) {
-        // a secret that does not exist yet cannot be read
-        if let Ok(secret) = tokio::fs::canonicalize(&secret).await {
-            secrets.push(secret);
-        }
-    }
+    let secrets = resolved_secret_paths().await;
     if touches_lodestone_secret(&path, &secrets, include_parents) {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
@@ -405,6 +427,7 @@ async fn write_file(
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
+    reject_protected_change(&path).await?;
     if is_global_code_path(&path, false).await {
         require_code_write(&state, &requester)?;
     }
@@ -438,6 +461,7 @@ async fn make_directory(
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
+    reject_protected_change(&path).await?;
     if is_global_code_path(&path, true).await {
         require_code_write(&state, &requester)?;
     }
@@ -470,6 +494,8 @@ async fn move_file(
         .ok_or_else(token_error)?;
 
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
+    reject_protected_change(&path_source).await?;
+    reject_protected_change(&path_dest).await?;
 
     let is_dir = tokio::fs::symlink_metadata(&path_source)
         .await
@@ -516,6 +542,7 @@ async fn remove_file(
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
+    reject_protected_change(&path).await?;
 
     tokio::fs::remove_file(&path)
         .await
@@ -545,6 +572,7 @@ async fn remove_dir(
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
+    reject_protected_change(&path).await?;
 
     tokio::fs::remove_dir_all(&path)
         .await
@@ -575,6 +603,7 @@ async fn new_file(
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path = PathBuf::from(absolute_path);
+    reject_protected_change(&path).await?;
     if is_global_code_path(&path, false).await {
         require_code_write(&state, &requester)?;
     }
@@ -726,6 +755,7 @@ async fn upload_file(
     requester.try_action(&UserAction::WriteGlobalFile, state.safe_mode())?;
 
     let path_to_dir = PathBuf::from(absolute_path);
+    reject_protected_change(&path_to_dir).await?;
     if is_global_code_path(&path_to_dir, true).await {
         require_code_write(&state, &requester)?;
     }
@@ -752,6 +782,7 @@ async fn upload_file(
         while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
             let name = upload_file_name(&field)?;
             let path = resolve_path_conflict(path_to_dir.join(&name), None);
+            reject_protected_change(&path).await?;
             if is_global_code_path(&path, false).await {
                 require_code_write(&state, &requester)?;
             }
@@ -897,6 +928,7 @@ mod tests {
             "/home/u/.lodestone/stores/api_keys.json",
             "/home/u/.lodestone/local_claim/abc/result.json",
             "/home/u/.lodestone/playit.toml",
+            "/home/u/.lodestone/tls/key.pem",
         ] {
             assert!(
                 touches_lodestone_secret(std::path::Path::new(path), &secrets, false),
@@ -910,6 +942,42 @@ mod tests {
             &secrets,
             true
         ));
+    }
+
+    /// What `reject_protected_change` refuses, for writes, creates, deletes and both ends
+    /// of a move: anything in a protected folder, the protected folders themselves (even
+    /// before they exist), and folders holding them; nothing else.
+    #[test]
+    fn changes_to_protected_data_are_refused() {
+        let root = std::path::Path::new("/home/u/.lodestone");
+        let secrets = lodestone_secret_paths(root, &root.join("stores"));
+        let refused = |p: &str| touches_lodestone_secret(std::path::Path::new(p), &secrets, true);
+        for path in [
+            // writing the claim files, or creating the folder before the core does
+            "/home/u/.lodestone/local_claim",
+            "/home/u/.lodestone/local_claim/abc/claim",
+            "/home/u/.lodestone/local_claim/abc/owner.json",
+            // the stores and the TLS key
+            "/home/u/.lodestone/stores/users.json",
+            "/home/u/.lodestone/stores",
+            "/home/u/.lodestone/tls/key.pem",
+            // moving or deleting a folder that holds them
+            "/home/u/.lodestone",
+            "/home/u",
+            "/",
+        ] {
+            assert!(refused(path), "{path}");
+        }
+        for path in [
+            // a move's destination elsewhere, and ordinary files in the data folder
+            "/home/u/Desktop/local_claim",
+            "/home/u/.lodestone/instances/a/world/level.dat",
+            "/home/u/.lodestone/notes.txt",
+            "/home/u/.lodestone/local_claim_backup",
+            "/home/u/.lodestone/stores_old",
+        ] {
+            assert!(!refused(path), "{path}");
+        }
     }
 
     #[test]

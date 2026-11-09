@@ -1034,6 +1034,20 @@ impl UsersManager {
         scope: ApiKeyScope,
         caused_by: CausedBy,
     ) -> Result<CreatedApiKey, Error> {
+        self.mint_api_key(uid, name, expires_at, scope, caused_by, true)
+            .await
+    }
+
+    /// Creates a key; `limited` applies [`api_key::MAX_API_KEYS_PER_USER`].
+    async fn mint_api_key(
+        &mut self,
+        uid: &UserId,
+        name: String,
+        expires_at: Option<i64>,
+        scope: ApiKeyScope,
+        caused_by: CausedBy,
+        limited: bool,
+    ) -> Result<CreatedApiKey, Error> {
         let username = self
             .users
             .get(uid)
@@ -1043,7 +1057,7 @@ impl UsersManager {
             })?
             .username
             .clone();
-        if self.api_keys.count_for_user(uid) >= api_key::MAX_API_KEYS_PER_USER {
+        if limited && self.api_keys.count_for_user(uid) >= api_key::MAX_API_KEYS_PER_USER {
             return Err(Error {
                 kind: ErrorKind::BadRequest,
                 source: eyre!(
@@ -1081,6 +1095,32 @@ impl UsersManager {
             caused_by,
         );
         Ok(CreatedApiKey { key: new.key, info })
+    }
+
+    /// Creates a full-scope key for `uid` named `name`, for a local claim
+    /// ([`crate::local_claim`]): first revokes `uid`'s other keys of that name (the
+    /// claiming program uses one name per computer, so each claim replaces the last), and
+    /// isn't limited by [`api_key::MAX_API_KEYS_PER_USER`], so a user with many keys can
+    /// still claim. Returns the key and how many were replaced.
+    pub async fn replace_claim_key(
+        &mut self,
+        uid: &UserId,
+        name: String,
+    ) -> Result<(CreatedApiKey, usize), Error> {
+        let same_name: Vec<String> = self
+            .api_keys
+            .list_for_user(uid)
+            .into_iter()
+            .filter(|key| key.name == name)
+            .map(|key| key.id)
+            .collect();
+        for id in &same_name {
+            self.revoke_api_key(uid, id, CausedBy::System).await?;
+        }
+        let created = self
+            .mint_api_key(uid, name, None, ApiKeyScope::Full, CausedBy::System, false)
+            .await?;
+        Ok((created, same_name.len()))
     }
 
     /// Revokes the key `id` of `uid`. It stops working at once. 404 if `uid` has no such

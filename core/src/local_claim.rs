@@ -11,17 +11,36 @@
 //! 2. The program writes the value into `claim`, a random value of its own into `reply`
 //!    and, for a core without an owner yet, `owner.json` (`{"username", "password"}`).
 //! 3. `POST /local_claim/finish` checks `claim`, creates the owner if asked, mints an
-//!    owner API key and writes `result.json` (0600): the key and the program's `reply`.
-//!    The program reads it there; finding its own `reply` in it proves that the server
-//!    it talked to is the core behind that folder.
+//!    owner API key and writes `result.json` (0600): the key, the program's `reply`, and
+//!    the SHA-256 fingerprint of the core's certificate.
 //!
-//! One claim waits at a time and lasts [`CLAIM_TTL`]; a new start replaces it. Starts
-//! are limited to [`MAX_STARTS_PER_MINUTE`]. Every failure uses the claim up. The
-//! `allow_local_claim` setting turns it off. The folder is never reachable through the
-//! file API.
+//! Finding its own `reply` in `result.json` tells the program that a core read the
+//! folder, but not that the server it dialed is that core: a server in between could
+//! pass `start` and `finish` on to the real core and wait for the key. So the program
+//! must only ever send the key over HTTPS to a server whose certificate has the
+//! fingerprint in `result.json`. A core without a certificate (its TLS setup failed)
+//! writes `null`, and the key should then not be used over the network at all.
+//!
+//! Each client address has up to [`MAX_STARTS_PER_MINUTE`] starts a minute. Up to
+//! [`MAX_PENDING`] claims wait at once for each kind of address (this computer, the local
+//! network, anywhere else), so a flood from the network can't push out a claim from this
+//! computer; when a kind is full its oldest claim goes. A claim lasts [`CLAIM_TTL`], can
+//! only be finished from the address that started it, and is used up by any failure. A
+//! claim's folder is deleted [`ABANDONED_AFTER`] after it expires when it was never
+//! finished (`owner.json` holds a password), and [`RESULT_TTL`] after `finish`. The
+//! `allow_local_claim` setting turns it all off.
+//!
+//! The file API never reads, writes, moves or deletes `local_claim/` (see
+//! `handlers::global_fs`). The folders are created owner-only in one step and checked
+//! before use: a real folder (not a link), owned by the core's user, with no access for
+//! anyone else. On Windows, where these modes don't exist, claims are refused unless the
+//! data folder is inside the user's profile folder, which only the user (and
+//! administrators) can open.
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
+    io::Read,
+    net::IpAddr,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -33,9 +52,10 @@ use subtle::ConstantTimeEq;
 use tracing::{info, warn};
 
 use crate::{
-    auth::{api_key::ApiKeyScope, permission::UserPermission, user::User},
+    auth::{permission::UserPermission, user::User},
     error::{Error, ErrorKind},
     events::CausedBy,
+    handlers::util::ClientIp,
     util::rand_alphanumeric,
     AppState,
 };
@@ -44,10 +64,16 @@ use crate::{
 pub const CLAIM_DIR: &str = "local_claim";
 /// How long a claim waits for `finish`.
 pub const CLAIM_TTL: Duration = Duration::from_secs(60);
+/// How long after it expires the folder of a claim that was never finished is deleted.
+pub const ABANDONED_AFTER: Duration = Duration::from_secs(60);
 /// How long a claim's folder (and an uncollected `result.json`) stays after `finish`.
 pub const RESULT_TTL: Duration = Duration::from_secs(5 * 60);
-/// How many claims may start in a minute.
+/// How many claims one client address may start in a minute.
 pub const MAX_STARTS_PER_MINUTE: usize = 10;
+/// How many claims may wait at once from each kind of address.
+pub const MAX_PENDING: usize = 4;
+/// The most client addresses whose starts are counted at once.
+const MAX_TRACKED_CLIENTS: usize = 4096;
 /// The largest `claim` or `reply` file read.
 const MAX_SMALL_FILE: u64 = 1024;
 /// The largest `owner.json` read.
@@ -78,7 +104,8 @@ pub struct StartReply {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FinishRequest {
     pub id: String,
-    /// The API key's name, such as "Lodestone Launcher on Peter's Mac".
+    /// The API key's name, such as "Lodestone Launcher on Peter's Mac". A claim with the
+    /// same name replaces the key the last one made.
     pub name: String,
 }
 
@@ -91,6 +118,10 @@ pub struct ClaimResult {
     pub reply: String,
     pub owner_created: bool,
     pub owner_username: String,
+    /// SHA-256 of the core's certificate, as colon-separated uppercase hex, as in `/info`.
+    /// The key may only be sent over HTTPS to a server with this certificate. `null` when
+    /// the core has none.
+    pub tls_fingerprint_sha256: Option<String>,
 }
 
 /// `<dir>/owner.json`, written by the program for a core without an owner.
@@ -100,21 +131,54 @@ struct OwnerFile {
     password: String,
 }
 
+/// The kinds of client address, each with its own waiting claims.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Origin {
+    /// This computer.
+    Loopback,
+    /// A private, link-local or unique local address: the local network, or a Docker
+    /// host reaching a core in a container.
+    Private,
+    /// Anything else, or an address the server didn't record.
+    Other,
+}
+
+impl Origin {
+    fn of(ip: Option<IpAddr>) -> Self {
+        match ip {
+            Some(ip) if ip.is_loopback() => Self::Loopback,
+            Some(IpAddr::V4(v4)) if v4.is_private() || v4.is_link_local() => Self::Private,
+            // fc00::/7 (unique local) and fe80::/10 (link-local)
+            Some(IpAddr::V6(v6))
+                if (v6.segments()[0] & 0xfe00) == 0xfc00
+                    || (v6.segments()[0] & 0xffc0) == 0xfe80 =>
+            {
+                Self::Private
+            }
+            _ => Self::Other,
+        }
+    }
+}
+
 struct Pending {
     id: String,
     value: String,
     started: Instant,
+    ip: Option<IpAddr>,
+    origin: Origin,
 }
 
 #[derive(Default)]
 struct ClaimState {
-    pending: Option<Pending>,
-    /// When recent claims started, oldest first, for the rate limit.
-    starts: VecDeque<Instant>,
+    /// Oldest first.
+    pending: Vec<Pending>,
+    /// When each client address started its recent claims, oldest first.
+    starts: HashMap<Option<IpAddr>, VecDeque<Instant>>,
 }
 
-/// The claim in progress, and the folder claims are made in.
+/// The claims in progress, and the folder claims are made in.
 pub struct LocalClaims {
+    root: PathBuf,
     dir: PathBuf,
     state: tokio::sync::Mutex<ClaimState>,
 }
@@ -130,6 +194,7 @@ impl LocalClaims {
     /// Claims under `<data_dir>/local_claim`.
     pub fn new(data_dir: &Path) -> Self {
         Self {
+            root: data_dir.to_path_buf(),
             dir: data_dir.join(CLAIM_DIR),
             state: Default::default(),
         }
@@ -137,10 +202,16 @@ impl LocalClaims {
 
     /// Removes whatever claims a previous run left. Call it at startup, before serving.
     pub async fn clean_up(&self) {
-        match tokio::fs::remove_dir_all(&self.dir).await {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => warn!("Failed to remove {}: {e}", self.dir.display()),
+        match tokio::fs::symlink_metadata(&self.dir).await {
+            Ok(metadata) if metadata.file_type().is_symlink() || metadata.is_file() => {
+                let _ = tokio::fs::remove_file(&self.dir).await;
+            }
+            Ok(_) => {
+                if let Err(e) = tokio::fs::remove_dir_all(&self.dir).await {
+                    warn!("Failed to remove {}: {e}", self.dir.display());
+                }
+            }
+            Err(_) => {}
         }
     }
 
@@ -157,67 +228,123 @@ impl LocalClaims {
         }
     }
 
-    /// Removes claim folders older than [`RESULT_TTL`], apart from `keep`.
-    async fn sweep(&self, keep: Option<&str>) {
+    /// Removes claim folders no waiting claim owns: those without `result.json` once
+    /// [`CLAIM_TTL`] plus [`ABANDONED_AFTER`] have passed, the rest after [`RESULT_TTL`].
+    async fn sweep(&self, waiting: &[Pending]) {
         let Ok(mut entries) = tokio::fs::read_dir(&self.dir).await else {
             return;
         };
         while let Ok(Some(entry)) = entries.next_entry().await {
             let name = entry.file_name().to_string_lossy().into_owned();
-            if Some(name.as_str()) == keep {
+            if waiting.iter().any(|p| p.id == name) {
                 continue;
             }
+            let path = entry.path();
+            let finished = tokio::fs::symlink_metadata(path.join("result.json"))
+                .await
+                .is_ok();
+            let limit = if finished {
+                RESULT_TTL
+            } else {
+                CLAIM_TTL + ABANDONED_AFTER
+            };
             let old = entry
                 .metadata()
                 .await
                 .and_then(|m| m.modified())
                 .ok()
                 .and_then(|t| t.elapsed().ok())
-                .is_none_or(|age| age >= RESULT_TTL);
+                .is_none_or(|age| age >= limit);
             if old {
-                let _ = tokio::fs::remove_dir_all(entry.path()).await;
+                let _ = tokio::fs::remove_dir_all(&path).await;
             }
         }
     }
 
-    /// Starts a claim: replaces any waiting one, creates its folder and empty `claim`.
-    pub async fn start(
-        &self,
-        core_uuid: &str,
-        product: crate::product::CoreProduct,
-        launched_by: crate::product::LaunchedBy,
-    ) -> Result<StartReply, Error> {
-        let mut state = self.state.lock().await;
-        let now = Instant::now();
-        while state
-            .starts
-            .front()
-            .is_some_and(|t| now.duration_since(*t) >= Duration::from_secs(60))
-        {
-            state.starts.pop_front();
+    /// Counts a start from `ip`; refuses it when the address has used its allowance.
+    fn count_start(state: &mut ClaimState, ip: Option<IpAddr>, now: Instant) -> Result<(), Error> {
+        let minute = Duration::from_secs(60);
+        if state.starts.len() >= MAX_TRACKED_CLIENTS {
+            state.starts.retain(|_, times| {
+                times
+                    .back()
+                    .is_some_and(|t| now.duration_since(*t) < minute)
+            });
         }
-        if state.starts.len() >= MAX_STARTS_PER_MINUTE {
+        if state.starts.len() >= MAX_TRACKED_CLIENTS && !state.starts.contains_key(&ip) {
             return Err(Error {
                 kind: ErrorKind::TooManyRequests,
                 source: eyre!("Too many claims started. Try again in a minute"),
             });
         }
-        state.starts.push_back(now);
-        if let Some(old) = state.pending.take() {
-            self.remove_claim(&old.id).await;
+        let times = state.starts.entry(ip).or_default();
+        while times
+            .front()
+            .is_some_and(|t| now.duration_since(*t) >= minute)
+        {
+            times.pop_front();
         }
-        self.sweep(None).await;
+        if times.len() >= MAX_STARTS_PER_MINUTE {
+            return Err(Error {
+                kind: ErrorKind::TooManyRequests,
+                source: eyre!("Too many claims started. Try again in a minute"),
+            });
+        }
+        times.push_back(now);
+        Ok(())
+    }
+
+    /// Starts a claim for the client at `ip`: creates its folder and empty `claim`.
+    pub async fn start(
+        &self,
+        ip: Option<IpAddr>,
+        core_uuid: &str,
+        product: crate::product::CoreProduct,
+        launched_by: crate::product::LaunchedBy,
+    ) -> Result<StartReply, Error> {
+        check_platform(&self.root)?;
+        let mut state = self.state.lock().await;
+        let now = Instant::now();
+        Self::count_start(&mut state, ip, now)?;
+
+        // expired claims stop waiting (their folders go with the sweep or their timer)
+        state
+            .pending
+            .retain(|p| now.duration_since(p.started) < CLAIM_TTL);
+        let origin = Origin::of(ip);
+        if state.pending.iter().filter(|p| p.origin == origin).count() >= MAX_PENDING {
+            if let Some(oldest) = state.pending.iter().position(|p| p.origin == origin) {
+                let old = state.pending.remove(oldest);
+                self.remove_claim(&old.id).await;
+            }
+        }
+        self.sweep(&state.pending).await;
 
         let id = rand_alphanumeric(ID_LEN);
         let value = rand_alphanumeric(VALUE_LEN);
         let dir = self.claim_dir(&id);
-        create_private_dir(&self.dir).await?;
-        create_private_dir(&dir).await?;
-        create_private_file(&dir.join("claim"), b"").await?;
-        state.pending = Some(Pending {
+        ensure_private_dir(&self.dir)?;
+        ensure_private_dir(&dir)?;
+        create_private_file(&dir.join("claim"))?;
+        state.pending.push(Pending {
             id: id.clone(),
             value: value.clone(),
             started: now,
+            ip,
+            origin,
+        });
+        drop(state);
+
+        // a claim never finished goes, with any owner.json, once it is well past its time
+        let abandoned = dir.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(CLAIM_TTL + ABANDONED_AFTER).await;
+            if tokio::fs::symlink_metadata(abandoned.join("result.json"))
+                .await
+                .is_err()
+            {
+                let _ = tokio::fs::remove_dir_all(&abandoned).await;
+            }
         });
         info!("A program on this computer started claiming owner access");
         Ok(StartReply {
@@ -231,17 +358,25 @@ impl LocalClaims {
         })
     }
 
-    /// Checks the claim `id` and, when it holds, writes the owner key into its folder.
-    pub async fn finish(&self, app: &AppState, request: FinishRequest) -> Result<(), Error> {
+    /// Checks the claim `id` from the client at `ip` and, when it holds, writes the owner
+    /// key into its folder.
+    pub async fn finish(
+        &self,
+        app: &AppState,
+        ip: Option<IpAddr>,
+        request: FinishRequest,
+    ) -> Result<(), Error> {
         let mut state = self.state.lock().await;
-        // An id that isn't the waiting claim's leaves the claim alone: ids can't be
-        // guessed, so otherwise anyone on the network could cancel a claim in progress.
-        let Some(pending) = state
+        // An id that isn't a waiting claim's, or a claim another address started, leaves
+        // the claims alone: otherwise anyone could cancel a claim in progress.
+        let found = state
             .pending
-            .take_if(|pending| pending.id.as_bytes().ct_eq(request.id.as_bytes()).into())
-        else {
+            .iter()
+            .position(|p| bool::from(p.id.as_bytes().ct_eq(request.id.as_bytes())) && p.ip == ip);
+        let Some(index) = found else {
             return Err(denied("No such claim. Start a new one"));
         };
+        let pending = state.pending.remove(index);
         drop(state);
         let dir = self.claim_dir(&pending.id);
         let result = self
@@ -274,20 +409,23 @@ impl LocalClaims {
         if pending.started.elapsed() >= CLAIM_TTL {
             return Err(denied("The claim has expired. Start a new one"));
         }
-        let claim = read_small(&dir.join("claim"), MAX_SMALL_FILE)
+        // the folders must still be the private ones made at the start
+        verify_private_dir(&self.dir)?;
+        verify_private_dir(dir)?;
+        let claim = read_small(dir.join("claim"), MAX_SMALL_FILE)
             .await?
             .ok_or_else(|| denied("The claim file is missing"))?;
         if !bool::from(claim.trim().as_bytes().ct_eq(pending.value.as_bytes())) {
             return Err(denied("The claim file doesn't hold the claim's value"));
         }
-        let reply = read_small(&dir.join("reply"), MAX_SMALL_FILE)
+        let reply = read_small(dir.join("reply"), MAX_SMALL_FILE)
             .await?
             .ok_or_else(|| denied("The reply file is missing"))?;
         let reply = reply.trim().to_string();
         if !(16..=256).contains(&reply.len()) || !reply.bytes().all(|b| b.is_ascii_alphanumeric()) {
             return Err(denied("The reply must be 16 to 256 letters and digits"));
         }
-        let owner_file = read_small(&dir.join("owner.json"), MAX_OWNER_FILE).await?;
+        let owner_file = read_small(dir.join("owner.json"), MAX_OWNER_FILE).await?;
 
         let (owner, owner_created) = match current_owner(app).await {
             Some(owner) => (owner, false),
@@ -302,23 +440,18 @@ impl LocalClaims {
             }
         };
         let name = key_name(name);
-        let created = app
+        let (created, replaced) = app
             .users_manager
             .write()
             .await
-            .create_api_key(
-                &owner.uid,
-                name.clone(),
-                None,
-                ApiKeyScope::Full,
-                CausedBy::System,
-            )
+            .replace_claim_key(&owner.uid, name.clone())
             .await?;
         let result = ClaimResult {
             api_key: created.key,
             reply,
             owner_created,
             owner_username: owner.username.clone(),
+            tls_fingerprint_sha256: app.tls_info.fingerprint_sha256.clone(),
         };
         let data = serde_json::to_vec(&result).context("Failed to serialize the claim's result")?;
         crate::persist::write_atomic(dir.join("result.json"), data, Some(0o600))
@@ -333,7 +466,14 @@ impl LocalClaims {
                 owner.username
             );
         }
-        info!("{name} was given owner access through the data folder (API key `{name}`)");
+        info!(
+            "{name} was given owner access through the data folder (API key `{name}`{})",
+            if replaced > 0 {
+                ", replacing its earlier key"
+            } else {
+                ""
+            }
+        );
         Ok(())
     }
 }
@@ -350,10 +490,10 @@ async fn current_owner(app: &AppState) -> Option<User> {
 }
 
 /// Creates the owner from `owner.json`, as `POST /setup/{key}` does, using up the
-/// first-time setup key.
+/// first-time setup key. Errors never repeat the file's contents.
 async fn create_owner(app: &AppState, text: &str) -> Result<User, Error> {
     let owner: OwnerFile =
-        serde_json::from_str(text).map_err(|e| denied(format!("owner.json isn't valid: {e}")))?;
+        serde_json::from_str(text).map_err(|_| denied("owner.json isn't valid"))?;
     let username = owner.username.trim().to_string();
     let chars = username.chars().count();
     if chars == 0 || chars > 64 || username.chars().any(char::is_control) {
@@ -399,29 +539,61 @@ fn key_name(name: &str) -> String {
     }
 }
 
-/// The text of `path`, `None` if it doesn't exist. Refuses a symbolic link, anything but
-/// a regular file, a file larger than `max` and text that isn't UTF-8.
-async fn read_small(path: &Path, max: u64) -> Result<Option<String>, Error> {
-    let metadata = match tokio::fs::symlink_metadata(path).await {
-        Ok(metadata) => metadata,
+/// The text of `path`, `None` if it doesn't exist. Opened without following a symbolic
+/// link (and without waiting on a FIFO), then checked through the open handle: a regular
+/// file of at most `max` bytes, in UTF-8. Errors name the file, never its contents.
+async fn read_small(path: PathBuf, max: u64) -> Result<Option<String>, Error> {
+    tokio::task::spawn_blocking(move || read_small_blocking(&path, max))
+        .await
+        .context("Reading a claim file failed")?
+}
+
+fn read_small_blocking(path: &Path, max: u64) -> Result<Option<String>, Error> {
+    let name = file_name(path);
+    let file = match open_no_follow(path) {
+        Ok(file) => file,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(denied(format!("Failed to read {}: {e}", file_name(path)))),
+        Err(_) => return Err(denied(format!("{name} can't be opened as a plain file"))),
     };
+    let metadata = file
+        .metadata()
+        .map_err(|_| denied(format!("{name} can't be read")))?;
     if !metadata.file_type().is_file() {
-        return Err(denied(format!("{} isn't a plain file", file_name(path))));
+        return Err(denied(format!("{name} isn't a plain file")));
     }
     if metadata.len() > max {
-        return Err(denied(format!("{} is too large", file_name(path))));
+        return Err(denied(format!("{name} is too large")));
     }
-    let bytes = tokio::fs::read(path)
-        .await
-        .map_err(|e| denied(format!("Failed to read {}: {e}", file_name(path))))?;
+    let mut bytes = Vec::new();
+    file.take(max + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| denied(format!("{name} can't be read")))?;
     if bytes.len() as u64 > max {
-        return Err(denied(format!("{} is too large", file_name(path))));
+        return Err(denied(format!("{name} is too large")));
     }
     String::from_utf8(bytes)
         .map(Some)
-        .map_err(|_| denied(format!("{} isn't text", file_name(path))))
+        .map_err(|_| denied(format!("{name} isn't text")))
+}
+
+/// Opens `path` for reading without following a final symbolic link: `O_NOFOLLOW` (an
+/// error for a link) and `O_NONBLOCK` (so a FIFO can't hold the request up) on Unix, the
+/// link itself on Windows (`FILE_FLAG_OPEN_REPARSE_POINT`), which then isn't a file.
+fn open_no_follow(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_FLAG_OPEN_REPARSE_POINT
+        options.custom_flags(0x0020_0000);
+    }
+    options.open(path)
 }
 
 fn file_name(path: &Path) -> String {
@@ -430,56 +602,127 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// Creates `dir` if needed, readable only by the core's OS user.
-async fn create_private_dir(dir: &Path) -> Result<(), Error> {
-    match tokio::fs::create_dir(dir).await {
+/// Refuses claims where the folders can't be made private. On Windows that is a data
+/// folder outside the user's profile folder (`%USERPROFILE%`), whose permissions only the
+/// user and administrators have; elsewhere the folders' modes do it.
+fn check_platform(root: &Path) -> Result<(), Error> {
+    #[cfg(windows)]
+    {
+        let inside = std::env::var_os("USERPROFILE")
+            .and_then(|profile| std::fs::canonicalize(profile).ok())
+            .zip(std::fs::canonicalize(root).ok())
+            .is_some_and(|(profile, root)| root.starts_with(profile));
+        if !inside {
+            return Err(denied(
+                "On Windows, owner access can only be claimed when the core's data folder is \
+                 inside your user folder, where only your account can read it. Sign in with \
+                 a password instead",
+            ));
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = root;
+    Ok(())
+}
+
+/// Creates `dir` owner-only in one step (mode 0700 on Unix), or checks the existing one:
+/// a real folder (a link in its place is removed), owned by the core's user (otherwise
+/// refused), with no access for anyone else (otherwise narrowed).
+fn ensure_private_dir(dir: &Path) -> Result<(), Error> {
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    match builder.create(dir) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            let metadata = tokio::fs::symlink_metadata(dir)
-                .await
-                .context(format!("Failed to check {}", dir.display()))?;
+            let metadata = std::fs::symlink_metadata(dir)
+                .map_err(|e| internal(format!("Failed to check {}: {e}", dir.display())))?;
             if !metadata.is_dir() {
-                return Err(Error {
-                    kind: ErrorKind::Internal,
-                    source: eyre!("{} isn't a folder", dir.display()),
-                });
+                // a link or file in the folder's place: replace it with a real folder
+                std::fs::remove_file(dir)
+                    .map_err(|e| internal(format!("Failed to remove {}: {e}", dir.display())))?;
+                builder
+                    .create(dir)
+                    .map_err(|e| internal(format!("Failed to create {}: {e}", dir.display())))?;
             }
         }
-        Err(e) => {
-            return Err(Error {
-                kind: ErrorKind::Internal,
-                source: eyre!("Failed to create {}: {e}", dir.display()),
-            })
-        }
+        Err(e) => return Err(internal(format!("Failed to create {}: {e}", dir.display()))),
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
-            .await
-            .context(format!("Failed to restrict {}", dir.display()))?;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let metadata = std::fs::symlink_metadata(dir)
+            .map_err(|e| internal(format!("Failed to check {}: {e}", dir.display())))?;
+        if metadata.uid() == effective_uid() && metadata.mode() & 0o077 != 0 {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| internal(format!("Failed to restrict {}: {e}", dir.display())))?;
+        }
+    }
+    verify_private_dir(dir)
+}
+
+/// Checks that `dir` is a real folder owned by the core's user that nobody else can open.
+fn verify_private_dir(dir: &Path) -> Result<(), Error> {
+    let metadata = std::fs::symlink_metadata(dir)
+        .map_err(|_| denied(format!("{} is missing", file_name(dir))))?;
+    if !metadata.is_dir() {
+        return Err(denied(format!("{} isn't a folder", file_name(dir))));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.uid() != effective_uid() {
+            return Err(denied(format!(
+                "{} belongs to another user",
+                file_name(dir)
+            )));
+        }
+        if metadata.mode() & 0o077 != 0 {
+            return Err(denied(format!(
+                "{} can be opened by other users",
+                file_name(dir)
+            )));
+        }
     }
     Ok(())
 }
 
-/// Creates the new file `path` with `contents`, readable only by the core's OS user.
-async fn create_private_file(path: &Path, contents: &[u8]) -> Result<(), Error> {
-    use tokio::io::AsyncWriteExt;
-    let mut options = tokio::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options
-        .open(path)
-        .await
-        .context(format!("Failed to create {}", path.display()))?;
-    file.write_all(contents)
-        .await
-        .context(format!("Failed to write {}", path.display()))?;
-    Ok(())
+#[cfg(unix)]
+fn effective_uid() -> u32 {
+    // SAFETY: geteuid takes no arguments, can't fail and touches no memory.
+    unsafe { libc::geteuid() }
 }
 
-async fn start_claim(State(state): State<AppState>) -> Result<Json<StartReply>, Error> {
+fn internal(message: String) -> Error {
+    Error {
+        kind: ErrorKind::Internal,
+        source: eyre!(message),
+    }
+}
+
+/// Creates the new file `path`, empty and readable only by the core's OS user. Fails if
+/// anything (a link included) is already there.
+fn create_private_file(path: &Path) -> Result<(), Error> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+        .open(path)
+        .map(|_| ())
+        .map_err(|e| internal(format!("Failed to create {}: {e}", path.display())))
+}
+
+async fn start_claim(
+    State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
+) -> Result<Json<StartReply>, Error> {
     if !state.global_settings.lock().await.allow_local_claim() {
         return Err(denied(
             "Claiming owner access from this computer is turned off in Core Settings",
@@ -488,13 +731,14 @@ async fn start_claim(State(state): State<AppState>) -> Result<Json<StartReply>, 
     Ok(Json(
         state
             .local_claims
-            .start(&state.uuid, state.product, state.launched_by)
+            .start(ip, &state.uuid, state.product, state.launched_by)
             .await?,
     ))
 }
 
 async fn finish_claim(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Json(request): Json<FinishRequest>,
 ) -> Result<Json<serde_json::Value>, Error> {
     if !state.global_settings.lock().await.allow_local_claim() {
@@ -502,7 +746,7 @@ async fn finish_claim(
             "Claiming owner access from this computer is turned off in Core Settings",
         ));
     }
-    state.local_claims.finish(&state, request).await?;
+    state.local_claims.finish(&state, ip, request).await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -520,10 +764,15 @@ mod tests {
     use super::*;
     use crate::{
         global_settings::GlobalSettingsData,
+        product::{CoreProduct, LaunchedBy},
         test_util::{serve_api, test_app_state},
     };
     use reqwest::StatusCode;
     use serde_json::{json, Value};
+    use std::net::Ipv4Addr;
+
+    const NAME: &str = "Lodestone Launcher on Test\u{7}Mac";
+    const LOOPBACK: Option<IpAddr> = Some(IpAddr::V4(Ipv4Addr::LOCALHOST));
 
     struct Core {
         dir: tempfile::TempDir,
@@ -535,7 +784,11 @@ mod tests {
     async fn core_with(settings: GlobalSettingsData, owner: bool) -> Core {
         crate::test_util::install_crypto_provider();
         let dir = tempfile::tempdir().unwrap();
-        let state = test_app_state(dir.path(), settings).await;
+        let mut state = test_app_state(dir.path(), settings).await;
+        state.tls_info = std::sync::Arc::new(crate::tls::TlsInfo {
+            mode: crate::tls::TlsMode::None,
+            fingerprint_sha256: Some("AB:CD".to_string()),
+        });
         if owner {
             let user = User::new(
                 "boss".to_string(),
@@ -598,19 +851,36 @@ mod tests {
             std::fs::write(folder.join("reply"), "ReplyFromTheLauncher123").unwrap();
         }
 
-        async fn finish(&self, id: &str) -> StatusCode {
-            self.post(
-                "/local_claim/finish",
-                json!({ "id": id, "name": "Lodestone Launcher on Test\u{7}Mac" }),
-            )
-            .await
-            .0
+        async fn finish(&self, id: &str) -> (StatusCode, Value) {
+            self.post("/local_claim/finish", json!({ "id": id, "name": NAME }))
+                .await
         }
 
         fn result(&self, start: &StartReply) -> ClaimResult {
             let text = std::fs::read_to_string(self.folder(start).join("result.json")).unwrap();
             serde_json::from_str(&text).unwrap()
         }
+
+        /// A whole claim through the API, as the launcher makes it.
+        async fn claim(&self) -> ClaimResult {
+            let start = self.start().await;
+            self.answer(&start, &start.value);
+            assert_eq!(self.finish(&start.id).await.0, StatusCode::OK);
+            self.result(&start)
+        }
+
+        async fn start_from(&self, ip: IpAddr) -> Result<StartReply, Error> {
+            self.state
+                .local_claims
+                .start(Some(ip), "uuid", CoreProduct::Core, LaunchedBy::Direct)
+                .await
+        }
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
     }
 
     #[tokio::test]
@@ -621,15 +891,13 @@ mod tests {
         assert_eq!(start.value.len(), VALUE_LEN);
         assert_eq!(start.dir, format!("local_claim/{}", start.id));
         assert_eq!(start.core_uuid, core.state.uuid);
-        assert_eq!(start.product, crate::product::CoreProduct::Core);
-        assert_eq!(start.launched_by, crate::product::LaunchedBy::Direct);
+        assert_eq!(start.product, CoreProduct::Core);
+        assert_eq!(start.launched_by, LaunchedBy::Direct);
         assert_eq!(start.expires_in, 60);
         let folder = core.folder(&start);
         assert_eq!(std::fs::read(folder.join("claim")).unwrap(), b"");
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode(&folder), 0o700);
             assert_eq!(mode(folder.parent().unwrap()), 0o700);
             assert_eq!(mode(&folder.join("claim")), 0o600);
@@ -642,12 +910,7 @@ mod tests {
             r#"{"username":"owner_abcde","password":"another long password"}"#,
         )
         .unwrap();
-        let (status, body) = core
-            .post(
-                "/local_claim/finish",
-                json!({ "id": start.id, "name": "Lodestone Launcher on Test\u{7}Mac" }),
-            )
-            .await;
+        let (status, body) = core.finish(&start.id).await;
         assert_eq!(status, StatusCode::OK);
         // nothing secret over the network
         assert_eq!(body, json!({ "ok": true }));
@@ -656,15 +919,10 @@ mod tests {
         assert_eq!(result.reply, "ReplyFromTheLauncher123");
         assert!(!result.owner_created);
         assert_eq!(result.owner_username, "boss");
+        // what the launcher pins the core's HTTPS to before sending the key anywhere
+        assert_eq!(result.tls_fingerprint_sha256.as_deref(), Some("AB:CD"));
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(folder.join("result.json"))
-                .unwrap()
-                .permissions()
-                .mode();
-            assert_eq!(mode & 0o777, 0o600);
-        }
+        assert_eq!(mode(&folder.join("result.json")), 0o600);
         for gone in ["claim", "reply", "owner.json"] {
             assert!(!folder.join(gone).exists(), "{gone}");
         }
@@ -676,7 +934,7 @@ mod tests {
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].name, "Lodestone Launcher on TestMac");
         assert_eq!(keys[0].expires_at, None);
-        assert_eq!(keys[0].scope, ApiKeyScope::Full);
+        assert_eq!(keys[0].scope, crate::auth::api_key::ApiKeyScope::Full);
         // only one owner
         assert_eq!(users.as_ref().values().filter(|u| u.is_owner).count(), 1);
     }
@@ -691,7 +949,7 @@ mod tests {
             r#"{"username":"owner_x7k2q","password":"Zq8-strong-generated-pw"}"#,
         )
         .unwrap();
-        assert_eq!(core.finish(&start.id).await, StatusCode::OK);
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::OK);
         let result = core.result(&start);
         assert!(result.owner_created);
         assert_eq!(result.owner_username, "owner_x7k2q");
@@ -707,8 +965,26 @@ mod tests {
         let core = core(false).await;
         let start = core.start().await;
         core.answer(&start, &start.value);
-        assert_eq!(core.finish(&start.id).await, StatusCode::FORBIDDEN);
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
         assert!(!core.folder(&start).exists());
+    }
+
+    #[tokio::test]
+    async fn owner_json_problems_never_echo_its_contents() {
+        let core = core(false).await;
+        let start = core.start().await;
+        core.answer(&start, &start.value);
+        std::fs::write(
+            core.folder(&start).join("owner.json"),
+            r#"{"username":"owner_x7k2q","password":SECRETVALUE}"#,
+        )
+        .unwrap();
+        let (status, body) = core.finish(&start.id).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let text = body.to_string();
+        assert!(text.contains("owner.json isn't valid"), "{text}");
+        assert!(!text.contains("SECRETVALUE"), "{text}");
+        assert!(core.state.first_time_setup_key.lock().await.is_some());
     }
 
     #[tokio::test]
@@ -721,7 +997,7 @@ mod tests {
             r#"{"username":"owner_x7k2q","password":"short"}"#,
         )
         .unwrap();
-        assert_eq!(core.finish(&start.id).await, StatusCode::FORBIDDEN);
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
         assert!(core.state.first_time_setup_key.lock().await.is_some());
     }
 
@@ -730,10 +1006,10 @@ mod tests {
         let core = core(true).await;
         let start = core.start().await;
         core.answer(&start, "not the value");
-        assert_eq!(core.finish(&start.id).await, StatusCode::FORBIDDEN);
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
         assert!(!core.folder(&start).exists());
         // used up: the right value doesn't help now
-        assert_eq!(core.finish(&start.id).await, StatusCode::FORBIDDEN);
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -741,7 +1017,7 @@ mod tests {
         let core = core(true).await;
         let start = core.start().await;
         std::fs::write(core.folder(&start).join("reply"), "ReplyFromTheLauncher123").unwrap();
-        assert_eq!(core.finish(&start.id).await, StatusCode::FORBIDDEN);
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -750,21 +1026,91 @@ mod tests {
         let start = core.start().await;
         std::fs::write(core.folder(&start).join("claim"), &start.value).unwrap();
         std::fs::write(core.folder(&start).join("reply"), "short").unwrap();
-        assert_eq!(core.finish(&start.id).await, StatusCode::FORBIDDEN);
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
     }
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn a_symlinked_claim_file_is_refused() {
+    async fn symlinked_claim_files_are_refused() {
+        for file in ["claim", "reply", "owner.json"] {
+            let core = core(false).await;
+            let start = core.start().await;
+            core.answer(&start, &start.value);
+            let folder = core.folder(&start);
+            let elsewhere = core.dir.path().join("elsewhere");
+            let contents = match file {
+                "claim" => start.value.clone(),
+                "reply" => "ReplyFromTheLauncher123".to_string(),
+                _ => {
+                    r#"{"username":"owner_x7k2q","password":"Zq8-strong-generated-pw"}"#.to_string()
+                }
+            };
+            std::fs::write(&elsewhere, contents).unwrap();
+            let _ = std::fs::remove_file(folder.join(file));
+            std::os::unix::fs::symlink(&elsewhere, folder.join(file)).unwrap();
+            assert_eq!(
+                core.finish(&start.id).await.0,
+                StatusCode::FORBIDDEN,
+                "{file}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_fifo_is_refused_without_hanging() {
         let core = core(true).await;
         let start = core.start().await;
-        let elsewhere = core.dir.path().join("elsewhere");
-        std::fs::write(&elsewhere, &start.value).unwrap();
         let folder = core.folder(&start);
         std::fs::remove_file(folder.join("claim")).unwrap();
-        std::os::unix::fs::symlink(&elsewhere, folder.join("claim")).unwrap();
+        let path =
+            std::ffi::CString::new(folder.join("claim").to_string_lossy().as_bytes().to_vec())
+                .unwrap();
+        // SAFETY: a valid C string and a plain mode.
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
         std::fs::write(folder.join("reply"), "ReplyFromTheLauncher123").unwrap();
-        assert_eq!(core.finish(&start.id).await, StatusCode::FORBIDDEN);
+        let finished = tokio::time::timeout(Duration::from_secs(10), core.finish(&start.id)).await;
+        assert_eq!(finished.unwrap().0, StatusCode::FORBIDDEN);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_claim_folder_must_stay_private() {
+        let core = core(true).await;
+        let start = core.start().await;
+        core.answer(&start, &start.value);
+        // opened up to others after the start
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(core.folder(&start), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_planted_claim_folder_is_made_private_or_replaced() {
+        use std::os::unix::fs::PermissionsExt;
+        // a world-readable local_claim/ of the core's own user is narrowed
+        let core = core(true).await;
+        let claims = core.dir.path().join(CLAIM_DIR);
+        std::fs::create_dir(&claims).unwrap();
+        std::fs::set_permissions(&claims, std::fs::Permissions::from_mode(0o777)).unwrap();
+        core.claim().await;
+        assert_eq!(mode(&claims), 0o700);
+
+        // a link in its place is replaced by a real folder, and the target is untouched
+        let core = core_with(GlobalSettingsData::default(), true).await;
+        let target = core.dir.path().join("somewhere-else");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, core.dir.path().join(CLAIM_DIR)).unwrap();
+        let start = core.start().await;
+        let claims = core.dir.path().join(CLAIM_DIR);
+        assert!(!std::fs::symlink_metadata(&claims)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(core.folder(&start).starts_with(&claims));
+        assert_eq!(std::fs::read_dir(&target).unwrap().count(), 0);
     }
 
     #[tokio::test]
@@ -772,16 +1118,8 @@ mod tests {
         let core = core(true).await;
         let start = core.start().await;
         core.answer(&start, &start.value);
-        core.state
-            .local_claims
-            .state
-            .lock()
-            .await
-            .pending
-            .as_mut()
-            .unwrap()
-            .started -= CLAIM_TTL;
-        assert_eq!(core.finish(&start.id).await, StatusCode::FORBIDDEN);
+        core.state.local_claims.state.lock().await.pending[0].started -= CLAIM_TTL;
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
         assert!(!core.folder(&start).exists());
     }
 
@@ -790,35 +1128,180 @@ mod tests {
         let core = core(true).await;
         let start = core.start().await;
         core.answer(&start, &start.value);
-        assert_eq!(core.finish(&start.id).await, StatusCode::OK);
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::OK);
         core.answer(&start, &start.value);
-        assert_eq!(core.finish(&start.id).await, StatusCode::FORBIDDEN);
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn a_new_claim_replaces_the_key_of_the_same_name() {
+        let core = core(true).await;
+        let first = core.claim().await;
+        let second = core.claim().await;
         let users = core.state.users_manager.read().await;
-        let owner = users.get_user_by_username("boss").unwrap();
+        assert!(
+            users.try_auth(&first.api_key).is_none(),
+            "the old key is revoked"
+        );
+        let owner = users.try_auth(&second.api_key).unwrap();
         assert_eq!(users.list_api_keys(&owner.uid).len(), 1);
     }
 
     #[tokio::test]
-    async fn a_new_start_replaces_the_waiting_claim() {
+    async fn the_key_limit_doesnt_block_a_claim() {
+        let core = core(true).await;
+        {
+            let mut users = core.state.users_manager.write().await;
+            let owner = users.get_user_by_username("boss").unwrap();
+            for i in 0..crate::auth::api_key::MAX_API_KEYS_PER_USER {
+                users
+                    .create_api_key(
+                        &owner.uid,
+                        format!("key {i}"),
+                        None,
+                        crate::auth::api_key::ApiKeyScope::Full,
+                        CausedBy::System,
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+        let result = core.claim().await;
+        assert!(core
+            .state
+            .users_manager
+            .read()
+            .await
+            .try_auth(&result.api_key)
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn claims_wait_side_by_side() {
         let core = core(true).await;
         let first = core.start().await;
         let second = core.start().await;
         assert_ne!(first.id, second.id);
-        assert!(!core.folder(&first).exists());
-        // a wrong id leaves the waiting claim alone
-        assert_eq!(core.finish(&first.id).await, StatusCode::FORBIDDEN);
+        // a second start doesn't touch the first
+        assert!(core.folder(&first).exists());
+        core.answer(&first, &first.value);
+        assert_eq!(core.finish(&first.id).await.0, StatusCode::OK);
         core.answer(&second, &second.value);
-        assert_eq!(core.finish(&second.id).await, StatusCode::OK);
+        assert_eq!(core.finish(&second.id).await.0, StatusCode::OK);
     }
 
     #[tokio::test]
-    async fn starts_are_limited() {
+    async fn an_unknown_id_leaves_the_claims_alone() {
+        let core = core(true).await;
+        let start = core.start().await;
+        assert_eq!(
+            core.finish("not-a-claim-id-at-all-xx").await.0,
+            StatusCode::FORBIDDEN
+        );
+        core.answer(&start, &start.value);
+        assert_eq!(core.finish(&start.id).await.0, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn only_the_address_that_started_a_claim_finishes_it() {
+        let core = core(true).await;
+        let lan: IpAddr = "192.168.1.20".parse().unwrap();
+        let start = core.start_from(lan).await.unwrap();
+        core.answer(&start, &start.value);
+        let request = || FinishRequest {
+            id: start.id.clone(),
+            name: NAME.to_string(),
+        };
+        let claims = &core.state.local_claims;
+        // from this computer (the API), it isn't found, and stays
+        assert!(claims
+            .finish(&core.state, LOOPBACK, request())
+            .await
+            .is_err());
+        claims
+            .finish(&core.state, Some(lan), request())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_network_flood_cant_push_out_a_claim_from_this_computer() {
+        let core = core(true).await;
+        let local = core.start().await;
+        for i in 0..(MAX_PENDING * 3) {
+            let ip: IpAddr = format!("192.168.1.{}", i + 1).parse().unwrap();
+            core.start_from(ip).await.unwrap();
+            let ip: IpAddr = format!("203.0.113.{}", i + 1).parse().unwrap();
+            core.start_from(ip).await.unwrap();
+        }
+        let pending = &core.state.local_claims.state.lock().await.pending;
+        for origin in [Origin::Loopback, Origin::Private, Origin::Other] {
+            assert!(pending.iter().filter(|p| p.origin == origin).count() <= MAX_PENDING);
+        }
+        assert!(pending.iter().any(|p| p.id == local.id));
+        assert!(core.folder(&local).exists());
+    }
+
+    #[tokio::test]
+    async fn a_full_pool_drops_its_oldest_claim() {
+        let core = core(true).await;
+        let first = core.start().await;
+        for _ in 0..MAX_PENDING {
+            core.start().await;
+        }
+        assert!(!core.folder(&first).exists());
+        assert_eq!(core.finish(&first.id).await.0, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn starts_are_limited_per_address() {
         let core = core(true).await;
         for _ in 0..MAX_STARTS_PER_MINUTE {
             core.start().await;
         }
         let (status, _) = core.post("/local_claim/start", json!({})).await;
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        // another address still can
+        core.start_from("10.0.0.5".parse().unwrap()).await.unwrap();
+    }
+
+    #[test]
+    fn origins() {
+        let of = |ip: &str| Origin::of(Some(ip.parse().unwrap()));
+        assert_eq!(of("127.0.0.1"), Origin::Loopback);
+        assert_eq!(of("::1"), Origin::Loopback);
+        assert_eq!(of("192.168.1.2"), Origin::Private);
+        assert_eq!(of("10.1.2.3"), Origin::Private);
+        assert_eq!(of("172.17.0.1"), Origin::Private);
+        assert_eq!(of("169.254.1.1"), Origin::Private);
+        assert_eq!(of("fd12::1"), Origin::Private);
+        assert_eq!(of("fe80::1"), Origin::Private);
+        assert_eq!(of("203.0.113.9"), Origin::Other);
+        assert_eq!(of("2001:db8::1"), Origin::Other);
+        assert_eq!(Origin::of(None), Origin::Other);
+    }
+
+    #[tokio::test]
+    async fn abandoned_claims_are_swept_after_their_time() {
+        let core = core(true).await;
+        let claims = core.dir.path().join(CLAIM_DIR);
+        std::fs::create_dir_all(claims.join("abandoned")).unwrap();
+        std::fs::write(claims.join("abandoned/owner.json"), "{}").unwrap();
+        std::fs::create_dir_all(claims.join("finished")).unwrap();
+        std::fs::write(claims.join("finished/result.json"), "{}").unwrap();
+        let aged = std::time::SystemTime::now() - (CLAIM_TTL + ABANDONED_AFTER);
+        for dir in ["abandoned", "finished"] {
+            std::fs::File::open(claims.join(dir))
+                .unwrap()
+                .set_modified(aged)
+                .unwrap();
+        }
+        core.start().await;
+        assert!(!claims.join("abandoned").exists(), "unfinished: gone");
+        assert!(
+            claims.join("finished").exists(),
+            "finished: kept until RESULT_TTL"
+        );
     }
 
     #[tokio::test]

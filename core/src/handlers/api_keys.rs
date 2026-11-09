@@ -424,6 +424,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn key_sign_in_refuses_session_tokens() {
+        let core = core().await;
+        // a valid session JWT is not an API key
+        let (status, _) = login_with_key(&core, &core.owner_jwt).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn create_list_and_revoke_with_a_session() {
         let core = core().await;
         let (key, info) = core
