@@ -1093,6 +1093,21 @@ pub enum Skins {
         #[arg(long = "use")]
         use_it: bool,
     },
+    /// Checks a skin's readability: each surface's text against what it shows, with
+    /// a suggested fix for what falls short. The one in use, an id, or a pack at
+    /// --path (checked as importing would, without keeping it).
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli skins check\n  lodestone-launcher-cli skins check cozy\n  lodestone-launcher-cli skins check --path ./cozy"
+    )]
+    Check {
+        id: Option<String>,
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Applies the suggested readability fixes to an imported skin (the one in use,
+    /// or an id). Built-in skins can't be changed.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli skins fix cozy")]
+    Fix { id: Option<String> },
     /// Writes a skin to a .zip file: the one in use, or --id.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli skins export ~/Desktop/mine.zip\n  lodestone-launcher-cli skins export neon.zip --id neon"

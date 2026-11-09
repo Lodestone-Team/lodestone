@@ -35,6 +35,11 @@ pub const SCENES: &[&str] = &[
     "skin-neon",
     "skin-overrides",
     "skin-bright",
+    "settings-skin-bright",
+    "skin-showcase",
+    "settings-skin-showcase",
+    "skin-banner",
+    "background-picker-banners",
     "sidebar-resized",
     "sidebar-rail",
     "sidebar-rail-skin",
@@ -149,11 +154,143 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
     }
 }
 
+/// A skin that shows what skins can do: gradients (two-colour, many-colour and
+/// radial), rounded and bordered panels, its own fonts and theme colours.
+fn showcase_skin() -> launcher_core::ui_skin::SkinSpec {
+    use launcher_core::ui_skin::{
+        Fill, Gradient, GradientKind, Rgb, Shape, SkinSpec, Stop, SurfaceId, SurfaceSpec, Tokens,
+    };
+    let stops = |colors: &[u32]| {
+        let last = colors.len() - 1;
+        colors
+            .iter()
+            .enumerate()
+            .map(|(i, c)| Stop {
+                color: Rgb(*c),
+                at: (i * 100 / last) as u8,
+            })
+            .collect::<Vec<_>>()
+    };
+    let linear = |angle: i16, colors: &[u32]| {
+        Fill::Gradient(Gradient {
+            kind: GradientKind::Linear,
+            angle,
+            stops: stops(colors),
+        })
+    };
+    let panel = |fill: Fill, radius: u8| SurfaceSpec {
+        fill: Some(fill),
+        border: Some(Rgb(0x4A2380)),
+        radius: Some(radius),
+        ..SurfaceSpec::default()
+    };
+    let mut spec = SkinSpec::named("Showcase");
+    spec.author = Some("Lodestone".into());
+    spec.accent = Some(Rgb(0xF72585));
+    spec.play.shape = Shape::Pill;
+    spec.play.glow = true;
+    spec.surfaces = [
+        (
+            SurfaceId::Window,
+            SurfaceSpec {
+                fill: Some(Fill::Gradient(Gradient {
+                    kind: GradientKind::Radial,
+                    angle: 180,
+                    stops: stops(&[0x3A0F6B, 0x14062B, 0x09030F]),
+                })),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::TopBar,
+            panel(linear(90, &[0x2A0A4A, 0x5B1A8C, 0x8A1F6E]), 0),
+        ),
+        (
+            SurfaceId::Sidebar,
+            SurfaceSpec {
+                fill: Some(linear(180, &[0x1E0838, 0x100422])),
+                text: Some(Rgb(0xFBF2FF)),
+                muted: Some(Rgb(0xD9C3EC)),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::PlayBar,
+            panel(linear(0, &[0x12051F, 0x220A3C]), 0),
+        ),
+        (SurfaceId::Card, panel(Fill::solid(Rgb(0x1C0A33)), 16)),
+        (
+            SurfaceId::SettingCard,
+            panel(Fill::solid(Rgb(0x1C0A33)), 16),
+        ),
+        (SurfaceId::Dialog, panel(Fill::solid(Rgb(0x16082A)), 20)),
+        (
+            SurfaceId::SettingsNav,
+            panel(linear(180, &[0x1E0838, 0x100422]), 0),
+        ),
+        (SurfaceId::Popover, panel(Fill::solid(Rgb(0x22103E)), 12)),
+        (
+            SurfaceId::Input,
+            SurfaceSpec {
+                fill: Some(Fill::solid(Rgb(0x0E0519))),
+                border: Some(Rgb(0x7B2CBF)),
+                radius: Some(10),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::ButtonPrimary,
+            SurfaceSpec {
+                fill: Some(linear(90, &[0xC9184A, 0x7209B7])),
+                radius: Some(12),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (SurfaceId::Toggle, panel(Fill::solid(Rgb(0xF72585)), 0)),
+        (
+            SurfaceId::Pill,
+            SurfaceSpec {
+                fill: Some(Fill::solid(Rgb(0xB5179E))),
+                text: Some(Rgb::WHITE),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::PlayButton,
+            SurfaceSpec {
+                fill: Some(linear(90, &[0xF72585, 0xB5179E, 0x7209B7, 0x3A0CA3])),
+                text: Some(Rgb::WHITE),
+                radius: Some(30),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::Progress,
+            panel(linear(90, &[0xF72585, 0x4CC9F0]), 0),
+        ),
+        (SurfaceId::Toast, panel(Fill::solid(Rgb(0x2A1150)), 12)),
+    ]
+    .into_iter()
+    .collect();
+    spec.tokens = Tokens {
+        text: Some(Rgb(0xF6EEFF)),
+        secondary: Some(Rgb(0xD9C8F0)),
+        muted: Some(Rgb(0xC0A9DE)),
+        faint: Some(Rgb(0xA98CCB)),
+        border: Some(Rgb(0x3D1D66)),
+    };
+    spec.fonts.play = Some("Lodestone Pixel".into());
+    spec.fonts.button = Some("Clash Grotesk".into());
+    spec.fonts.tab = Some("Clash Grotesk".into());
+    spec
+}
+
 /// Scenes that show instance icons and Play backgrounds.
 fn is_appearance_scene(scene: &str) -> bool {
     scene.starts_with("play-background")
         || scene.starts_with("icon-picker")
         || scene.starts_with("background-picker")
+        || scene == "skin-banner"
         || scene.starts_with("play-slideshow")
 }
 
@@ -728,9 +865,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             };
             shell.open_settings(Some(page), None, cx);
         }
-        "skin-bright" => {
-            // a pack with a bright sky behind the sidebar and no tint: the text has
-            // to look after itself
+        "skin-bright" | "settings-skin-bright" => {
+            // a pack with a bright sky behind the sidebar and no tint: the launcher
+            // leaves its text alone, and the editor suggests fixes
             let instances = shell.instances().clone();
             let store = instances.read(cx).skins();
             let mut spec = launcher_core::ui_skin::SkinSpec::named("Bright");
@@ -740,6 +877,45 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 instances.update(cx, |instances, cx| {
                     instances.set_skin(Some("bright".into()), cx)
                 });
+            }
+            if scene == "settings-skin-bright" {
+                shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
+            }
+        }
+        "skin-showcase" | "settings-skin-showcase" => {
+            let instances = shell.instances().clone();
+            let store = instances.read(cx).skins();
+            let mut spec = showcase_skin();
+            // a font shipped in the pack: one of the system's, for the screenshot
+            let font = std::path::Path::new("/System/Library/Fonts/Supplemental/Georgia.ttf");
+            if font.is_file()
+                && store.save("showcase", &spec).is_ok()
+                && let Ok((file, _family)) = store.add_font("showcase", font)
+            {
+                spec.fonts.heading = Some(file);
+            }
+            if store.save("showcase", &spec).is_ok() {
+                instances.update(cx, |instances, cx| {
+                    instances.set_skin(Some("showcase".into()), cx)
+                });
+            }
+            if scene == "settings-skin-showcase" {
+                shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
+            }
+        }
+        "skin-banner" | "background-picker-banners" => {
+            let instances = shell.instances().clone();
+            instances.update(cx, |instances, cx| {
+                instances.set_skin(Some("grassblock".into()), cx);
+                if let Some(id) = instances.selected().map(|i| i.id.clone()) {
+                    let _ = instances.set_skin_banner(&id, "grassblock", "sunset", cx);
+                }
+            });
+            if scene == "background-picker-banners" {
+                shell.select_tab(InstanceTab::Settings, cx);
+                if let Some(settings) = shell.settings_view().cloned() {
+                    settings.update(cx, |settings, cx| settings.preview_background_picker(cx));
+                }
             }
         }
         "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" => {

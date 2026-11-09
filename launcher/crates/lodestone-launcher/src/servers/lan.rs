@@ -6,7 +6,9 @@
 //! allowed, nothing arrives, so after a few quiet seconds the section says where to
 //! allow it.
 
+use crate::skin::Skinned;
 use crate::theme::px;
+use launcher_core::ui_skin::SurfaceId;
 use std::{
     net::IpAddr,
     sync::{
@@ -181,7 +183,7 @@ impl Servers {
                 .px_4()
                 .py_3()
                 .border_t_1()
-                .border_color(colors::FADE_700)
+                .border_color(crate::theme::ink::border())
                 .text_color(colors::YELLOW)
                 .into_any_element()
         } else if state.shown.is_empty() {
@@ -193,7 +195,7 @@ impl Servers {
                 .px_4()
                 .py_3()
                 .border_t_1()
-                .border_color(colors::FADE_700)
+                .border_color(crate::theme::ink::border())
                 .when(!quiet, |this| this.child(LoadingDots))
                 .child(note(t(if !quiet {
                     M::LanLooking
@@ -221,7 +223,7 @@ impl Servers {
                         .px_4()
                         .py_2p5()
                         .border_t_1()
-                        .border_color(colors::FADE_700)
+                        .border_color(crate::theme::ink::border())
                         .child(
                             div()
                                 .flex_none()
@@ -239,10 +241,10 @@ impl Servers {
                                     div()
                                         .truncate()
                                         .font_weight(weights::BOLD.into())
-                                        .text_color(colors::GRAY_300)
+                                        .text_color(crate::theme::ink::text())
                                         .child(world_title(world)),
                                 )
-                                .child(note(world.address()).font_family(fonts::MONO)),
+                                .child(note(world.address()).font_family(fonts::mono())),
                         )
                         .child(
                             Button::new(SharedString::from(format!("join-{id}")), t(M::Join))
@@ -263,8 +265,9 @@ impl Servers {
             .w_full()
             .rounded(radius::XL)
             .border_1()
-            .border_color(colors::FADE_700)
+            .border_color(crate::theme::ink::border())
             .bg(colors::GRAY_850)
+            .surface(SurfaceId::Card)
             .child(
                 div()
                     .flex()
@@ -281,10 +284,10 @@ impl Servers {
                             .flex_1()
                             .child(
                                 div()
-                                    .font_family(fonts::HEADING)
+                                    .font_family(fonts::heading())
                                     .text_size(theme::text_size(text::H3))
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(t(M::OnYourNetwork)),
                             )
                             .child(note(t(M::OnYourNetworkHint))),
@@ -389,7 +392,7 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
                             .min_w_0()
                             .truncate()
                             .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_300)
+                            .text_color(crate::theme::ink::text())
                             .child(name),
                     )
                     .child(note(detail).flex_none())

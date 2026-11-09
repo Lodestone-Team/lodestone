@@ -9,7 +9,6 @@ use crate::{
     components::{Button, ButtonVariant, Dialog},
     i18n::{CommonMsg, ShellMsg as M, t, tr},
     instances::settings::InstanceSettings,
-    theme::colors,
 };
 
 /// Whose changes the question is about.
@@ -133,7 +132,7 @@ impl LauncherShell {
         let entity = cx.entity();
         Dialog::new("unsaved-settings", t(M::SaveChangesTitle), focus)
             .on_close(move |_, cx| entity.update(cx, |this, cx| this.keep_editing(cx)))
-            .child(div().text_color(colors::GRAY_400).child(body))
+            .child(div().text_color(crate::theme::ink::secondary()).child(body))
             .footer(
                 Button::new("unsaved-save", t(CommonMsg::Save))
                     .variant(ButtonVariant::Primary)

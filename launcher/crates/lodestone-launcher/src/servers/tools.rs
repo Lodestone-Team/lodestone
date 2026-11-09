@@ -281,7 +281,7 @@ impl Render for ServerTools {
                                 .flex_1()
                                 .min_w_0()
                                 .truncate()
-                                .text_color(colors::GRAY_300)
+                                .text_color(crate::theme::ink::text())
                                 .child(pack.label()),
                         )
                         .child(
@@ -318,7 +318,7 @@ impl Render for ServerTools {
                         .flex_row()
                         .items_center()
                         .gap_2()
-                        .text_color(colors::GRAY_400)
+                        .text_color(crate::theme::ink::secondary())
                         .child(LoadingDots)
                         .child(note(text)),
                 )

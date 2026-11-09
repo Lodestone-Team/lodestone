@@ -203,7 +203,7 @@ fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::S
                 this.bg(crate::theme::accent::base().opacity(35))
                     .text_color(colors::WHITE)
             } else {
-                this.text_color(colors::GRAY_300)
+                this.text_color(crate::theme::ink::text())
                     .hover(|style| style.bg(colors::GRAY_700))
             }
         })
@@ -252,10 +252,11 @@ impl LoaderPicker {
                     .text_size(theme::text_size(text::SMALL))
                     .map(|this| {
                         if selected {
-                            this.bg(colors::GRAY_700).text_color(colors::GRAY_300)
+                            this.bg(colors::GRAY_700)
+                                .text_color(crate::theme::ink::text())
                         } else {
-                            this.text_color(colors::GRAY_400)
-                                .hover(|style| style.text_color(colors::GRAY_300))
+                            this.text_color(crate::theme::ink::secondary())
+                                .hover(|style| style.text_color(crate::theme::ink::text()))
                         }
                     })
                     .child(label)
@@ -281,7 +282,7 @@ impl LoaderPicker {
                     .items_center()
                     .gap_2()
                     .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_500)
+                    .text_color(crate::theme::ink::muted())
                     .child(LoadingDots)
                     .child(tr!(M::LoadingLoaderVersions, loader = kind.label()))
                     .into_any_element();
@@ -403,7 +404,7 @@ impl LoaderPicker {
                 this.child(
                     div()
                         .border_t_1()
-                        .border_color(colors::FADE_700)
+                        .border_color(crate::theme::ink::border())
                         .child(SettingRow::new(t(M::LoaderVersion)).child(version)),
                 )
             })

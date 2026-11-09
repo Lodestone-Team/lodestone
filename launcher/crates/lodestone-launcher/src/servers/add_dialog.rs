@@ -210,7 +210,7 @@ impl AddServerDialog {
                         .flex_1()
                         .min_w_0()
                         .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::GRAY_400)
+                        .text_color(crate::theme::ink::secondary())
                         .child(title),
                 )
                 .child(toggle)
@@ -250,7 +250,7 @@ impl AddServerDialog {
                 div()
                     .text_size(theme::text_size(text::SMALL))
                     .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-                    .text_color(colors::GRAY_500)
+                    .text_color(crate::theme::ink::muted())
                     .child(tr!(
                         M::ConsoleAccessHint,
                         computer = t(CommonMsg::ThisComputer)
@@ -263,7 +263,7 @@ fn label(text_value: &'static str) -> impl IntoElement {
     div()
         .text_size(theme::text_size(text::SMALL))
         .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_400)
+        .text_color(crate::theme::ink::secondary())
         .child(text_value)
 }
 
@@ -284,7 +284,7 @@ impl Render for AddServerDialog {
             .rounded(radius::LG)
             .bg(colors::GRAY_900)
             .border_1()
-            .border_color(colors::FADE_700)
+            .border_color(crate::theme::ink::border())
             .children(KeyExpiry::ALL.into_iter().map(|choice| {
                 let selected = choice == expiry;
                 div()
@@ -298,10 +298,11 @@ impl Render for AddServerDialog {
                     .font_weight(weights::BOLD.into())
                     .map(|this| {
                         if selected {
-                            this.bg(colors::GRAY_700).text_color(colors::GRAY_300)
+                            this.bg(colors::GRAY_700)
+                                .text_color(crate::theme::ink::text())
                         } else {
-                            this.text_color(colors::GRAY_500)
-                                .hover(|s| s.text_color(colors::GRAY_300))
+                            this.text_color(crate::theme::ink::muted())
+                                .hover(|s| s.text_color(crate::theme::ink::text()))
                         }
                     })
                     .child(choice.label())
@@ -320,7 +321,7 @@ impl Render for AddServerDialog {
                     .child(
                         div()
                             .text_size(theme::text_size(text::MEDIUM))
-                            .text_color(colors::GRAY_400)
+                            .text_color(crate::theme::ink::secondary())
                             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
                             .child(if self.signing_in {
                                 tr!(M::SignInIntro, computer = t(CommonMsg::ThisComputer))
@@ -346,7 +347,7 @@ impl Render for AddServerDialog {
                                     .min_w_0()
                                     .text_size(theme::text_size(text::SMALL))
                                     .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-                                    .text_color(colors::GRAY_500)
+                                    .text_color(crate::theme::ink::muted())
                                     .child(tr!(
                                         M::KeyExpiresAfter,
                                         computer = t(CommonMsg::ThisComputer)

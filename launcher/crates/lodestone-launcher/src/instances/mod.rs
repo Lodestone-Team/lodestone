@@ -282,6 +282,7 @@ pub struct Instances {
         String,
         (
             Option<std::time::SystemTime>,
+            appearance::BackgroundSource,
             Arc<RenderImage>,
             launcher_core::ui_skin::readable::Backdrop,
         ),
@@ -624,43 +625,54 @@ impl Instances {
     ) -> Option<(Arc<RenderImage>, launcher_core::ui_skin::readable::Backdrop)> {
         self.sidebar_banners
             .get(id)
-            .map(|(_, image, backdrop)| (image.clone(), *backdrop))
+            .map(|(_, _, image, backdrop)| (image.clone(), *backdrop))
     }
 
     /// Makes the sidebar rows' copies of the Play backgrounds that are missing or
     /// changed, in the background; forgets those that are gone. Only while the skin
     /// shows them.
     pub fn load_sidebar_banners(&mut self, cx: &mut Context<Self>) {
-        let wanted: Vec<(String, PathBuf, Option<std::time::SystemTime>)> = self
+        let wanted: Vec<(
+            String,
+            appearance::BackgroundSource,
+            Option<std::time::SystemTime>,
+        )> = self
             .list
             .iter()
             .filter_map(|instance| {
-                let path = self.store.background_path(instance)?;
-                let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-                Some((instance.id.clone(), path, modified))
+                let (source, modified) = self.background_source(instance)?;
+                Some((instance.id.clone(), source, modified))
             })
             .collect();
-        self.sidebar_banners
-            .retain(|id, (time, _, _)| wanted.iter().any(|(w, _, m)| w == id && m == time));
-        for (id, path, modified) in wanted {
+        self.sidebar_banners.retain(|id, (time, source, _, _)| {
+            wanted
+                .iter()
+                .any(|(w, s, m)| w == id && m == time && s == source)
+        });
+        for (id, source, modified) in wanted {
             if self.sidebar_banners.contains_key(&id) || self.sidebar_banner_tasks.contains_key(&id)
             {
                 continue;
             }
-            let decode = cx.background_spawn(async move {
-                let image = image::open(&path).ok()?;
-                // the row's size at 2×, cropped to fill it, and how it looks behind
-                // the row's text
-                let thumb = image
-                    .resize_to_fill(440, 96, image::imageops::FilterType::Triangle)
-                    .to_rgba8();
-                let backdrop =
-                    launcher_core::ui_skin::readable::Backdrop::measure(thumb.pixels().map(|p| {
-                        launcher_core::ui_skin::Rgb(
-                            ((p[0] as u32) << 16) | ((p[1] as u32) << 8) | p[2] as u32,
-                        )
-                    }))?;
-                Some((thumb, backdrop))
+            let cache = self.hero_cache.clone();
+            let decode = cx.background_spawn({
+                let source = source.clone();
+                async move {
+                    let image = image::DynamicImage::ImageRgba8(source.decode(&cache)?);
+                    // the row's size at 2×, cropped to fill it, and how it looks behind
+                    // the row's text
+                    let thumb = image
+                        .resize_to_fill(440, 96, image::imageops::FilterType::Triangle)
+                        .to_rgba8();
+                    let backdrop = launcher_core::ui_skin::readable::Backdrop::measure(
+                        thumb.pixels().map(|p| {
+                            launcher_core::ui_skin::Rgb(
+                                ((p[0] as u32) << 16) | ((p[1] as u32) << 8) | p[2] as u32,
+                            )
+                        }),
+                    )?;
+                    Some((thumb, backdrop))
+                }
             });
             let task_id = id.clone();
             let task = cx.spawn(async move |this, cx| {
@@ -670,7 +682,12 @@ impl Instances {
                     if let Some((image, backdrop)) = decoded {
                         this.sidebar_banners.insert(
                             task_id,
-                            (modified, crate::images::render_image(image), backdrop),
+                            (
+                                modified,
+                                source,
+                                crate::images::render_image(image),
+                                backdrop,
+                            ),
                         );
                         cx.notify();
                     }
@@ -911,6 +928,7 @@ impl Instances {
             .store
             .create(name, version, loader)
             .map_err(|err| err.to_string())?;
+        self.pick_skin_banner(&instance.id);
         self.selected = Some(instance.id.clone());
         self.reload(cx);
         Ok(instance)

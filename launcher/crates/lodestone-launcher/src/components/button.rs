@@ -7,7 +7,9 @@ use gpui::{
 };
 
 use super::{ClickHandler, Icon, focus::KeyboardFocus};
+use crate::skin::{Paint, Painted};
 use crate::theme::{self, Color, colors, leading, radius, text, weights};
+use launcher_core::ui_skin::{FontPart, SurfaceId};
 
 /// The dashboard's button `intention`s, plus its `text` variant as [`ButtonVariant::Ghost`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -55,6 +57,16 @@ struct Colors {
 }
 
 impl ButtonVariant {
+    /// The skin's surface for buttons of this kind.
+    fn surface(self) -> SurfaceId {
+        match self {
+            ButtonVariant::Primary => SurfaceId::ButtonPrimary,
+            ButtonVariant::Secondary => SurfaceId::ButtonSecondary,
+            ButtonVariant::Ghost => SurfaceId::ButtonGhost,
+            ButtonVariant::Danger => SurfaceId::ButtonDanger,
+        }
+    }
+
     fn colors(self) -> Colors {
         match self {
             ButtonVariant::Secondary => Colors {
@@ -217,12 +229,50 @@ impl Button {
 impl RenderOnce for Button {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let mut palette = self.variant.colors();
+        // the skin's paint for this kind of button; a button given its own colours
+        // keeps them
+        let skin = match self.ink {
+            Some(_) => None,
+            None => crate::skin::painted(self.variant.surface()),
+        };
+        let mut layered = None;
+        if let Some(skin) = &skin {
+            if let Some(text) = skin.text {
+                palette.text = text;
+                palette.hover_text = text;
+            }
+            if let Some((border, _)) = skin.border {
+                palette.outline = Some(border);
+                palette.hover_outline = Some(border);
+            }
+            match &skin.paint {
+                Some(Paint::Solid(color)) => {
+                    palette.bg = Some(*color);
+                    palette.hover_bg = Some(color.mix(colors::WHITE, 0.12));
+                    palette.active_bg = Some(color.mix(Color::rgb(0x000000), 0.15));
+                    palette.disabled_bg = Some(color.opacity(50));
+                }
+                Some(paint) => {
+                    palette.bg = None;
+                    palette.hover_bg = None;
+                    palette.active_bg = None;
+                    layered = Some(Painted {
+                        paint: Some(paint.clone()),
+                        radius: skin.radius,
+                        ..Painted::default()
+                    });
+                }
+                None => {}
+            }
+        }
         if let Some((text, hover_bg)) = self.ink {
             palette.text = text;
             palette.hover_text = text;
             palette.hover_bg = Some(hover_bg);
             palette.active_bg = Some(hover_bg);
         }
+        // a gradient or image fill lightens on hover instead of changing colour
+        let fade_on_hover = layered.is_some();
         let inactive = self.disabled || self.loading;
         let text_color = if self.disabled {
             colors::WHITE.opacity(50)
@@ -234,10 +284,15 @@ impl RenderOnce for Button {
             ButtonSize::Medium => (text::MEDIUM, px(6.), px(8.), px(4.), radius::DEFAULT),
             ButtonSize::Large => (text::H3, px(6.), px(12.), px(6.), radius::DEFAULT),
         };
-        let (px_x, rounding) = if self.pill {
-            (px_x + px(6.), gpui::rems(999.))
+        let (px_x, rounding): (_, gpui::AbsoluteLength) = if self.pill {
+            (px_x + px(6.), gpui::rems(999.).into())
         } else {
-            (px_x, rounding)
+            (
+                px_x,
+                skin.as_ref()
+                    .and_then(|s| s.radius)
+                    .map_or(rounding.into(), |r| px(r).into()),
+            )
         };
         let icon_size = px(font_size.0 * 16.);
         let icon_color: Hsla = text_color.opacity(50).into();
@@ -301,10 +356,20 @@ impl RenderOnce for Button {
                     _ => this,
                 },
             )
+            // a gradient or an image under the label
+            .when_some(layered, |this, painted| crate::skin::paint(this, &painted))
+            .when_some(crate::theme::fonts::own(FontPart::Button), |this, font| {
+                this.font_family(font)
+            })
             .when(!inactive, |this| {
                 this.cursor_pointer()
-                    .hover(|style| {
+                    .hover(move |style| {
                         let style = style.text_color(palette.hover_text);
+                        let style = if fade_on_hover {
+                            style.opacity(0.9)
+                        } else {
+                            style
+                        };
                         let style = match palette.hover_bg {
                             Some(bg) => style.bg(bg),
                             None => style,

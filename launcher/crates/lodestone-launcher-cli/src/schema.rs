@@ -178,6 +178,8 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ("skins use", "skins.use", false, false),
     ("skins import", "skins.import", false, false),
     ("skins export", "skins.export", false, false),
+    ("skins check", "skins.check", false, false),
+    ("skins fix", "skins.fix", false, false),
     ("storage show", "storage.show", false, false),
     ("storage clean", "storage.clean", false, true),
     ("jobs list", "jobs.list", false, false),

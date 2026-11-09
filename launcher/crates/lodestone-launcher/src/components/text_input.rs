@@ -5,7 +5,9 @@
 //! needs. Cursor movement steps over `char`s, not grapheme clusters, which avoids a
 //! dependency on `unicode-segmentation`.
 
+use crate::skin::Skinned;
 use crate::theme::px;
+use launcher_core::ui_skin::SurfaceId;
 use std::{
     ops::Range,
     time::{Duration, Instant},
@@ -663,7 +665,8 @@ impl Render for TextInput {
                         .text_color(colors::WHITE.opacity(50))
                 } else {
                     this.bg(colors::GRAY_900)
-                        .text_color(colors::GRAY_300)
+                        .text_color(crate::theme::ink::text())
+                        .surface(SurfaceId::Input)
                         .cursor(CursorStyle::IBeam)
                         .on_action(cx.listener(Self::backspace))
                         .on_action(cx.listener(Self::delete))

@@ -9,13 +9,16 @@ mod play;
 mod settings_modal;
 mod shared_settings;
 mod sidebar;
+pub(crate) mod skin_checks;
 pub(crate) mod skin_settings;
 mod storage_settings;
 mod top_bar;
 mod trace_state;
 mod unsaved;
 
+use crate::skin::Skinned;
 use crate::theme::px;
+use launcher_core::ui_skin::SurfaceId;
 pub use launcher_settings::LauncherSettings;
 use settings_modal::SettingsModal;
 pub use settings_modal::SettingsPage;
@@ -577,7 +580,7 @@ impl LauncherShell {
                         .pl_3()
                         .truncate()
                         .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::GRAY_400)
+                        .text_color(crate::theme::ink::secondary())
                         .child(item)
                 }))
                 .when(more > 0, |this| {
@@ -585,7 +588,7 @@ impl LauncherShell {
                         div()
                             .pl_3()
                             .text_size(theme::text_size(text::SMALL))
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(trn!(P::AndMore, more)),
                     )
                 })
@@ -687,7 +690,7 @@ impl LauncherShell {
                 .flex()
                 .flex_col()
                 .gap_3()
-                .text_color(colors::GRAY_400)
+                .text_color(crate::theme::ink::secondary())
                 .child(div().whitespace_normal().child(summary))
                 .when(!plan.changes_files(), |this| {
                     this.child(div().child(t(M::NoFilesChange)))
@@ -788,7 +791,7 @@ impl LauncherShell {
                 .on_close(close)
                 .child(
                     div()
-                        .text_color(colors::GRAY_400)
+                        .text_color(crate::theme::ink::secondary())
                         .whitespace_normal()
                         .child(tr!(M::DeleteWorldBody, trash = t(CommonMsg::TheTrash))),
                 )
@@ -828,7 +831,7 @@ impl LauncherShell {
                 .on_close(close)
                 .child(
                     div()
-                        .text_color(colors::GRAY_400)
+                        .text_color(crate::theme::ink::secondary())
                         .whitespace_normal()
                         .child(tr!(
                             M::ReplaceWorldBody,
@@ -1002,7 +1005,7 @@ impl LauncherShell {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .text_color(colors::GRAY_400)
+                    .text_color(crate::theme::ink::secondary())
                     .when(has_mods, |this| {
                         let more = check.mismatched.len().saturating_sub(SHOWN);
                         this.child(div().whitespace_normal().child(mods_text))
@@ -1023,20 +1026,20 @@ impl LauncherShell {
                                                 div()
                                                     .min_w_0()
                                                     .truncate()
-                                                    .text_color(colors::GRAY_300)
+                                                    .text_color(crate::theme::ink::text())
                                                     .child(m.name.clone()),
                                             )
                                             .child(
                                                 div()
                                                     .flex_none()
-                                                    .text_color(colors::GRAY_500)
+                                                    .text_color(crate::theme::ink::muted())
                                                     .child(tr!(M::ModMadeFor, loader = m.made_for)),
                                             )
                                     }))
                                     .when(more > 0, |this| {
                                         this.child(
                                             div()
-                                                .text_color(colors::GRAY_500)
+                                                .text_color(crate::theme::ink::muted())
                                                 .child(trn!(P::AndMore, more)),
                                         )
                                     }),
@@ -1055,7 +1058,7 @@ impl LauncherShell {
                                 .border_1()
                                 .border_color(colors::YELLOW_300.opacity(50))
                                 .bg(colors::YELLOW_FADED.opacity(15))
-                                .text_color(colors::GRAY_300)
+                                .text_color(crate::theme::ink::text())
                                 .child(
                                     Icon::TriangleExclamation.render(px(14.), colors::YELLOW_300),
                                 )
@@ -1384,15 +1387,15 @@ impl LauncherShell {
                 .on_close(close(cx))
                 .child(
                     div()
-                        .text_color(colors::GRAY_400)
+                        .text_color(crate::theme::ink::secondary())
                         .whitespace_normal()
                         .children(message.split("\n\n").map(|paragraph| {
                             let command = paragraph.starts_with("softwareupdate");
                             div()
                                 .pb_2()
                                 .when(command, |this| {
-                                    this.font_family(fonts::MONO)
-                                        .text_color(colors::GRAY_300)
+                                    this.font_family(fonts::mono())
+                                        .text_color(crate::theme::ink::text())
                                         .px_3()
                                         .py_2()
                                         .rounded(radius::LG)
@@ -1425,7 +1428,7 @@ impl LauncherShell {
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .text_color(colors::GRAY_400)
+                        .text_color(crate::theme::ink::secondary())
                         .child(tr!(M::DeleteInstanceBody, trash = t(CommonMsg::TheTrash)))
                         .when_some(error.clone(), |this, error| {
                             this.child(div().text_color(colors::RED_200).child(error))
@@ -1503,7 +1506,7 @@ impl LauncherShell {
                 .on_close(close(cx))
                 .child(
                     div()
-                        .text_color(colors::GRAY_400)
+                        .text_color(crate::theme::ink::secondary())
                         .child(tr!(M::RemoveAccountBody, keychain = t(CommonMsg::Keychain))),
                 )
                 .footer(
@@ -1565,7 +1568,11 @@ fn render_crash(
             .flex()
             .flex_col()
             .gap_3()
-            .child(div().text_color(colors::GRAY_400).child(headline))
+            .child(
+                div()
+                    .text_color(crate::theme::ink::secondary())
+                    .child(headline),
+            )
             .when_some(summary.exception.clone(), |this, exception| {
                 this.child(
                     div()
@@ -1575,7 +1582,7 @@ fn render_crash(
                         .bg(colors::GRAY_900)
                         .border_1()
                         .border_color(colors::RED_200.opacity(30))
-                        .font_family(fonts::MONO)
+                        .font_family(fonts::mono())
                         .text_size(theme::text_size(text::SMALL))
                         .text_color(colors::RED_200)
                         .child(exception),
@@ -1591,13 +1598,13 @@ fn render_crash(
                             div()
                                 .text_size(theme::text_size(text::SMALL))
                                 .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_500)
+                                .text_color(crate::theme::ink::muted())
                                 .child(t(M::LikelyCause).to_uppercase()),
                         )
                         .children(summary.causes.iter().map(|cause| {
                             div()
                                 .text_size(theme::text_size(text::MEDIUM))
-                                .text_color(colors::GRAY_300)
+                                .text_color(crate::theme::ink::text())
                                 .child(cause_text(*cause))
                         })),
                 )
@@ -1724,7 +1731,7 @@ impl Render for LauncherShell {
         let look = crate::skin::look(cx);
         let resolved = crate::skin::resolve(&look.spec, self.instances.read(cx).selected());
         theme::accent::set(resolved.accent);
-        crate::skin::set_sidebar_inks(&look);
+        crate::skin::set_frame(&look);
         if look.spec.banner.in_sidebar {
             self.instances
                 .update(cx, |instances, cx| instances.load_sidebar_banners(cx));
@@ -1782,10 +1789,12 @@ impl Render for LauncherShell {
             .flex_col()
             .size_full()
             .bg(colors::GRAY_875)
+            .surface(SurfaceId::Window)
+            // After the skin, so the window's outline follows the frame's corners.
             .map(|this| window_frame::fit_top_corners(this, window))
-            .font_family(fonts::SANS)
+            .font_family(fonts::body())
             .map(crate::i18n::locale_fonts)
-            .text_color(colors::GRAY_300)
+            .text_color(crate::theme::ink::text())
             .text_size(theme::text_size(text::MEDIUM))
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
             .child(top_bar::render(self, window, cx))
@@ -1797,7 +1806,16 @@ impl Render for LauncherShell {
                     .min_h_0()
                     .w_full()
                     .child(sidebar::render(self, cx))
-                    .child(div().flex().flex_1().min_w_0().h_full().child(main)),
+                    .child(
+                        div()
+                            .relative()
+                            .flex()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .surface(SurfaceId::Main)
+                            .child(main),
+                    ),
             )
             .children(settings)
             .children(modal)

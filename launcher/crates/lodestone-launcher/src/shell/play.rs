@@ -1,9 +1,11 @@
 //! The main area: the selected instance's header and tabs, the tab's content, and
 //! the bottom bar with the large Play button.
 
+use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{AnyElement, Context, IntoElement, ObjectFit, SharedString, div, img, prelude::*};
 use launcher_core::instances::{BackgroundMode, Instance};
+use launcher_core::ui_skin::SurfaceId;
 
 use super::{InstanceTab, LauncherShell, loader_label};
 use crate::{
@@ -66,16 +68,16 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                         .flex_col()
                         .child(
                             div()
-                                .font_family(fonts::TITLE)
+                                .font_family(fonts::display())
                                 .text_size(theme::text_size(text::H1))
                                 .line_height(theme::line_height(text::H1, leading::TIGHT))
                                 .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_300)
+                                .text_color(crate::theme::ink::text())
                                 .child(title),
                         )
                         .child(
                             div()
-                                .text_color(colors::GRAY_500)
+                                .text_color(crate::theme::ink::muted())
                                 .font_weight(weights::BOLD.into())
                                 .child(subtitle),
                         )
@@ -179,7 +181,7 @@ fn hero(
         .rounded(radius::XL)
         .overflow_hidden()
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_900)
         .map(|this| match backdrop {
             Backdrop::Slideshow(slideshow) => this.child(slideshow),
@@ -193,13 +195,17 @@ fn hero(
                         .object_fit(ObjectFit::Cover),
                 )
                 .children(scrim_layers(background.scrim)),
-            Backdrop::Artwork => this.child(
-                img(crate::images::hero(cx))
-                    .absolute()
-                    .inset_0()
-                    .size_full()
-                    .object_fit(ObjectFit::Cover),
-            ),
+            // the skin's colour or gradient, or the launcher's artwork
+            Backdrop::Artwork => match crate::skin::painted(SurfaceId::Hero) {
+                Some(painted) if painted.paint.is_some() => crate::skin::paint(this, &painted),
+                _ => this.child(
+                    img(crate::images::hero(cx))
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .object_fit(ObjectFit::Cover),
+                ),
+            },
         })
         .child(
             div()
@@ -211,7 +217,7 @@ fn hero(
                 .max_w(px(460.))
                 .child(
                     div()
-                        .font_family(fonts::TITLE)
+                        .font_family(fonts::title())
                         .text_size(theme::text_size(text::XLARGE_2))
                         .line_height(theme::line_height(text::XLARGE_2, leading::TIGHT))
                         .font_weight(weights::BOLD.into())
@@ -328,8 +334,9 @@ fn picker(
         .py_2()
         .rounded(radius::LG)
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_800)
+        .surface(SurfaceId::Card)
         .when(!enabled, |this| this.opacity(0.6))
         .child(
             div()
@@ -341,7 +348,7 @@ fn picker(
                     div()
                         .text_size(theme::text_size(text::CAPTION))
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_500)
+                        .text_color(crate::theme::ink::muted())
                         .truncate()
                         .child(caption.to_uppercase()),
                 )
@@ -349,7 +356,7 @@ fn picker(
                     div()
                         .truncate()
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_300)
+                        .text_color(crate::theme::ink::text())
                         .child(value.into()),
                 ),
         )
@@ -405,8 +412,9 @@ fn play_bar(
         .px_8()
         .py_4()
         .border_t_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_850)
+        .surface(SurfaceId::PlayBar)
         .child(picker(
             "instance-picker",
             t(M::PickerInstance),
@@ -424,6 +432,7 @@ fn play_bar(
                     PlayButton::new("play")
                         .state(state)
                         .look(resolved.play, resolved.progress)
+                        .layer(resolved.play_layer)
                         .when_some(caption, |button, caption| button.caption(caption))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let Some(id) = &id else {

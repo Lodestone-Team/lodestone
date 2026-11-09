@@ -9,9 +9,16 @@
 //! The built-in skins ([`BUILT_IN`]) live in code; their images are drawn by the
 //! launcher and named `builtin:<name>`.
 //!
+//! A skin paints the launcher's surfaces ([`surface::SurfaceId`]) with colours,
+//! gradients or images, sets its text and border colours, its fonts, and the banners
+//! new instances get. Keeping text readable is the skin's own job: the launcher
+//! measures and suggests ([`readable::checks`]), and only adjusts colours itself
+//! where a pack asks for it (`readability: "auto"`).
+//!
 //! The format is described in `launcher/docs/skins.md`.
 
 use std::{
+    collections::BTreeMap,
     fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
@@ -20,6 +27,15 @@ use std::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::paths::DataDir;
+
+pub mod art;
+pub mod fonts;
+pub mod surface;
+
+pub use surface::{
+    Fill, FontPart, Fonts, Gradient, GradientKind, ImageFill, SkinBanner, Stop, SurfaceId,
+    SurfaceSpec, Surfaces, Tokens,
+};
 
 /// The version of [`SkinSpec`] this build reads and writes.
 pub const SCHEMA: u32 = 1;
@@ -37,15 +53,21 @@ pub const HERO_MAX: (u32, u32) = (2560, 1600);
 pub const MAX_LABEL: usize = 16;
 /// The most blur a sidebar image gets, in pixels.
 pub const MAX_BLUR: u8 = 20;
+/// The size a surface's image is kept at, at most.
+pub const SURFACE_MAX: (u32, u32) = (2048, 2048);
 
 /// The built-in skins' ids, in the gallery's order.
 pub const BUILT_IN: [&str; 4] = ["default", "grassblock", "glass", "neon"];
 /// The images the launcher draws for the built-in skins.
-pub const BUILT_IN_IMAGES: [&str; 4] = [
+pub const BUILT_IN_IMAGES: [&str; 8] = [
     "builtin:dirt",
     "builtin:sky",
+    "builtin:sunset",
+    "builtin:night",
     "builtin:glass",
+    "builtin:aurora",
     "builtin:grid",
+    "builtin:grid-dawn",
 ];
 
 /// An sRGB colour, written `"#RRGGBB"`.
@@ -159,15 +181,17 @@ pub enum Fit {
     Tile,
 }
 
-/// Whether the launcher keeps a surface's text readable on its own.
+/// Whether the launcher adjusts a surface's text to keep it readable. Readability
+/// is the skin's job: by default colours are used as given, and the skin editor
+/// suggests fixes. A pack can opt in to the launcher's adjustments with `auto`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Readability {
-    /// Text colours (and a darker backing if needed) are worked out from the image,
-    /// so text keeps [`readable::BODY`] contrast.
-    #[default]
+    /// Opt-in: text colours (and a darker backing if needed) are worked out from the
+    /// image, so text keeps [`readable::BODY`] contrast.
     Auto,
     /// The colours are used as given.
+    #[default]
     Off,
 }
 
@@ -224,7 +248,7 @@ impl Default for SidebarSpec {
             tint_opacity: tint_default(),
             blur: 0,
             text: TextSpec::default(),
-            readability: Readability::Auto,
+            readability: Readability::Off,
         }
     }
 }
@@ -253,6 +277,9 @@ pub struct HeroSpec {
     /// The Play tab's image for an instance without its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    /// A shade under the hero's title, 0 to 100, so it reads on a bright image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scrim: Option<u8>,
     #[serde(default, skip_serializing_if = "is_default")]
     pub readability: Readability,
 }
@@ -297,6 +324,17 @@ pub struct SkinSpec {
     pub hero: HeroSpec,
     #[serde(default, skip_serializing_if = "is_default")]
     pub play: PlaySpec,
+    /// How each surface is painted. Over the older `sidebar`, `hero` and `play`
+    /// colours and images where both are given.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub surfaces: Surfaces,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub tokens: Tokens,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub fonts: Fonts,
+    /// Play backgrounds the skin gives instances: a new instance takes one at random.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub banners: Vec<SkinBanner>,
 }
 
 impl Default for SkinSpec {
@@ -322,15 +360,97 @@ impl SkinSpec {
             banner: BannerSpec::default(),
             hero: HeroSpec::default(),
             play: PlaySpec::default(),
+            surfaces: Surfaces::new(),
+            tokens: Tokens::default(),
+            fonts: Fonts::default(),
+            banners: Vec::new(),
         }
     }
 
-    /// The images it names, as written (pack files or `builtin:` images).
+    /// The images it names, as written (pack files or `builtin:` images), each once.
     pub fn images(&self) -> Vec<&str> {
-        [self.sidebar.image.as_deref(), self.hero.image.as_deref()]
+        let mut images: Vec<&str> = [self.sidebar.image.as_deref(), self.hero.image.as_deref()]
             .into_iter()
             .flatten()
-            .collect()
+            .chain(
+                self.surfaces
+                    .values()
+                    .filter_map(|s| s.fill.as_ref().and_then(Fill::image)),
+            )
+            .chain(self.banners.iter().map(|b| b.image.as_str()))
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        images.retain(|name| seen.insert(*name));
+        images
+    }
+
+    /// Every file the pack holds besides its description: images and fonts.
+    pub fn files(&self) -> Vec<&str> {
+        let mut files: Vec<&str> = self
+            .images()
+            .into_iter()
+            .filter(|name| !name.starts_with("builtin:"))
+            .collect();
+        files.extend(self.fonts.files());
+        files
+    }
+
+    /// How `id` is painted, from `surfaces` and the older keys that paint it
+    /// (`sidebar`, `hero.image`, `play.color`): `None` when the skin leaves it be.
+    pub fn surface(&self, id: SurfaceId) -> Option<SurfaceSpec> {
+        let mut spec = self.surfaces.get(&id).cloned().unwrap_or_default();
+        match id {
+            SurfaceId::Sidebar => {
+                let legacy = &self.sidebar;
+                if spec.fill.is_none() {
+                    spec.fill = match (&legacy.image, legacy.tint) {
+                        (Some(image), tint) => Some(Fill::Image(ImageFill {
+                            image: image.clone(),
+                            fit: legacy.fit,
+                            tint,
+                            tint_opacity: if tint.is_some() {
+                                legacy.tint_opacity
+                            } else {
+                                0
+                            },
+                            blur: legacy.blur,
+                        })),
+                        (None, Some(tint)) => Some(Fill::Solid {
+                            color: tint,
+                            opacity: legacy.tint_opacity,
+                        }),
+                        (None, None) => None,
+                    };
+                }
+                spec.text = spec.text.or(legacy.text.primary);
+                spec.muted = spec.muted.or(legacy.text.muted);
+            }
+            SurfaceId::Hero if spec.fill.is_none() => {
+                spec.fill = self.hero.image.clone().map(|image| {
+                    Fill::Image(ImageFill {
+                        image,
+                        fit: Fit::Cover,
+                        tint: None,
+                        tint_opacity: 0,
+                        blur: 0,
+                    })
+                });
+            }
+            SurfaceId::PlayButton if spec.fill.is_none() => {
+                spec.fill = match (self.play.color, self.play.gradient) {
+                    (Some(from), Some(to)) => Some(Fill::Gradient(Gradient::vertical(from, to))),
+                    (Some(color), None) => Some(Fill::solid(color)),
+                    _ => None,
+                };
+            }
+            _ => {}
+        }
+        (!spec.is_empty()).then_some(spec)
+    }
+
+    /// The banner called `id`.
+    pub fn banner(&self, id: &str) -> Option<&SkinBanner> {
+        self.banners.iter().find(|b| b.id == id)
     }
 
     /// Checks the values. Images are checked by name only here.
@@ -369,6 +489,14 @@ impl SkinSpec {
                 "sidebar.blur must be 0 to {MAX_BLUR}"
             )));
         }
+        if self.hero.scrim.is_some_and(|s| s > 100) {
+            return Err(SkinError::Invalid("hero.scrim must be 0 to 100".into()));
+        }
+        for (id, surface) in &self.surfaces {
+            surface.validate(*id)?;
+        }
+        self.fonts.validate()?;
+        surface::validate_banners(&self.banners)?;
         for image in self.images() {
             check_image_name(image)?;
         }
@@ -447,6 +575,37 @@ pub struct SkinEntry {
     pub builtin: bool,
 }
 
+fn surface(fill: Fill) -> SurfaceSpec {
+    SurfaceSpec {
+        fill: Some(fill),
+        ..SurfaceSpec::default()
+    }
+}
+
+fn banner(id: &str, name: &str, image: &str) -> SkinBanner {
+    SkinBanner {
+        id: id.into(),
+        name: Some(name.into()),
+        image: format!("builtin:{image}"),
+    }
+}
+
+fn gradient(angle: i16, stops: &[u32]) -> Fill {
+    let last = stops.len().max(2) - 1;
+    Fill::Gradient(Gradient {
+        kind: GradientKind::Linear,
+        angle,
+        stops: stops
+            .iter()
+            .enumerate()
+            .map(|(i, c)| Stop {
+                color: Rgb(*c),
+                at: ((i * 100) / last) as u8,
+            })
+            .collect(),
+    })
+}
+
 /// The built-in skins' descriptions.
 pub fn built_in(id: &str) -> Option<SkinSpec> {
     let mut spec = SkinSpec::named("Default");
@@ -464,6 +623,7 @@ pub fn built_in(id: &str) -> Option<SkinSpec> {
                 ..SidebarSpec::default()
             };
             spec.hero.image = Some("builtin:sky".into());
+            spec.hero.scrim = Some(55);
             spec.play = PlaySpec {
                 color: Some(Rgb(0x5DB83B)),
                 gradient: Some(Rgb(0x3C8A22)),
@@ -471,6 +631,51 @@ pub fn built_in(id: &str) -> Option<SkinSpec> {
                 label: None,
                 glow: false,
             };
+            spec.surfaces = Surfaces::from([
+                (
+                    SurfaceId::Sidebar,
+                    SurfaceSpec {
+                        text: Some(Rgb(0xF4EEE6)),
+                        muted: Some(Rgb(0xD9CDBE)),
+                        ..SurfaceSpec::default()
+                    },
+                ),
+                (
+                    SurfaceId::TopBar,
+                    surface(gradient(180, &[0x3A2A1C, 0x2A1F15])),
+                ),
+                (
+                    SurfaceId::PlayBar,
+                    surface(gradient(180, &[0x2A1F15, 0x1E160F])),
+                ),
+                (
+                    SurfaceId::ButtonPrimary,
+                    SurfaceSpec {
+                        fill: Some(Fill::solid(Rgb(0x3F8F2A))),
+                        radius: Some(2),
+                        ..SurfaceSpec::default()
+                    },
+                ),
+                (SurfaceId::Toggle, surface(Fill::solid(Rgb(0x5DB83B)))),
+                (
+                    SurfaceId::Pill,
+                    SurfaceSpec {
+                        fill: Some(Fill::solid(Rgb(0x3F8F2A))),
+                        text: Some(Rgb::WHITE),
+                        ..SurfaceSpec::default()
+                    },
+                ),
+            ]);
+            spec.tokens.secondary = Some(Rgb(0xCFC8BF));
+            spec.tokens.muted = Some(Rgb(0xA29C94));
+            spec.tokens.faint = Some(Rgb(0xBDB5AB));
+            spec.fonts.heading = Some("Lodestone Pixel".into());
+            spec.fonts.play = Some("Lodestone Pixel".into());
+            spec.banners = vec![
+                banner("day", "Day", "sky"),
+                banner("sunset", "Sunset", "sunset"),
+                banner("night", "Night", "night"),
+            ];
         }
         "glass" => {
             spec.name = "Glass".into();
@@ -493,6 +698,99 @@ pub fn built_in(id: &str) -> Option<SkinSpec> {
                 label: None,
                 glow: false,
             };
+            let frost = |opacity: u8| SurfaceSpec {
+                fill: Some(Fill::Solid {
+                    color: Rgb(0xFFFFFF),
+                    opacity,
+                }),
+                border: Some(Rgb(0x343B4F)),
+                radius: Some(14),
+                ..SurfaceSpec::default()
+            };
+            spec.surfaces = Surfaces::from([
+                (
+                    SurfaceId::Sidebar,
+                    SurfaceSpec {
+                        text: Some(Rgb(0xF4F6FB)),
+                        muted: Some(Rgb(0xC9D0E0)),
+                        ..SurfaceSpec::default()
+                    },
+                ),
+                (
+                    SurfaceId::Window,
+                    surface(Fill::Image(ImageFill {
+                        image: "builtin:aurora".into(),
+                        fit: Fit::Cover,
+                        tint: Some(Rgb(0x0B0E16)),
+                        tint_opacity: 72,
+                        blur: 20,
+                    })),
+                ),
+                (
+                    SurfaceId::Main,
+                    surface(Fill::Solid {
+                        color: Rgb(0x0E111A),
+                        opacity: 55,
+                    }),
+                ),
+                (
+                    SurfaceId::TopBar,
+                    surface(Fill::Solid {
+                        color: Rgb(0x0E111A),
+                        opacity: 70,
+                    }),
+                ),
+                (
+                    SurfaceId::PlayBar,
+                    surface(Fill::Solid {
+                        color: Rgb(0x0E111A),
+                        opacity: 70,
+                    }),
+                ),
+                (SurfaceId::Card, frost(6)),
+                (SurfaceId::SettingCard, frost(5)),
+                (
+                    SurfaceId::Dialog,
+                    SurfaceSpec {
+                        fill: Some(Fill::Solid {
+                            color: Rgb(0x161A26),
+                            opacity: 97,
+                        }),
+                        border: Some(Rgb(0x343B4F)),
+                        radius: Some(18),
+                        ..SurfaceSpec::default()
+                    },
+                ),
+                (
+                    SurfaceId::Popover,
+                    SurfaceSpec {
+                        fill: Some(Fill::solid(Rgb(0x1A1F2E))),
+                        border: Some(Rgb(0x343B4F)),
+                        radius: Some(12),
+                        ..SurfaceSpec::default()
+                    },
+                ),
+                (
+                    SurfaceId::ButtonPrimary,
+                    SurfaceSpec {
+                        fill: Some(Fill::solid(Rgb(0xA9C1FF))),
+                        radius: Some(16),
+                        ..SurfaceSpec::default()
+                    },
+                ),
+                (SurfaceId::Toggle, surface(Fill::solid(Rgb(0x7F9CF5)))),
+            ]);
+            spec.tokens = Tokens {
+                secondary: Some(Rgb(0xC2C7D3)),
+                muted: Some(Rgb(0xAEB4C2)),
+                faint: Some(Rgb(0xA3A9B7)),
+                ..Tokens::default()
+            };
+            spec.fonts.tab = Some("Clash Grotesk".into());
+            spec.banners = vec![
+                banner("glass", "Glass", "glass"),
+                banner("aurora", "Aurora", "aurora"),
+            ];
         }
         "neon" => {
             spec.name = "Neon".into();
@@ -506,6 +804,7 @@ pub fn built_in(id: &str) -> Option<SkinSpec> {
                 ..SidebarSpec::default()
             };
             spec.hero.image = Some("builtin:grid".into());
+            spec.hero.scrim = Some(35);
             spec.play = PlaySpec {
                 color: Some(Rgb(0xD61FB4)),
                 gradient: Some(Rgb(0x7C1FD6)),
@@ -513,6 +812,65 @@ pub fn built_in(id: &str) -> Option<SkinSpec> {
                 label: None,
                 glow: true,
             };
+            let panel = |color: u32| SurfaceSpec {
+                fill: Some(Fill::solid(Rgb(color))),
+                border: Some(Rgb(0x2E1F4A)),
+                ..SurfaceSpec::default()
+            };
+            spec.surfaces = Surfaces::from([
+                (SurfaceId::Window, surface(Fill::solid(Rgb(0x0A0912)))),
+                (SurfaceId::Main, surface(Fill::solid(Rgb(0x0A0912)))),
+                (
+                    SurfaceId::TopBar,
+                    surface(gradient(90, &[0x0B0716, 0x1A0B2E, 0x0B0716])),
+                ),
+                (
+                    SurfaceId::PlayBar,
+                    surface(gradient(90, &[0x0B0716, 0x1A0B2E])),
+                ),
+                (SurfaceId::Card, panel(0x12101E)),
+                (SurfaceId::SettingCard, panel(0x12101E)),
+                (SurfaceId::Dialog, panel(0x110F1C)),
+                (SurfaceId::SettingsNav, surface(Fill::solid(Rgb(0x0C0A16)))),
+                (SurfaceId::Popover, panel(0x151226)),
+                (
+                    SurfaceId::Input,
+                    SurfaceSpec {
+                        fill: Some(Fill::solid(Rgb(0x07060D))),
+                        border: Some(Rgb(0x22D3EE)),
+                        ..SurfaceSpec::default()
+                    },
+                ),
+                (
+                    SurfaceId::ButtonPrimary,
+                    surface(gradient(90, &[0xC21AA3, 0x6A19C2])),
+                ),
+                (SurfaceId::Toggle, surface(Fill::solid(Rgb(0x22D3EE)))),
+                (
+                    SurfaceId::Pill,
+                    SurfaceSpec {
+                        fill: Some(Fill::solid(Rgb(0x22D3EE))),
+                        text: Some(Rgb(0x07060D)),
+                        ..SurfaceSpec::default()
+                    },
+                ),
+                (
+                    SurfaceId::Progress,
+                    surface(gradient(90, &[0xFF2BD6, 0x22D3EE])),
+                ),
+            ]);
+            spec.tokens = Tokens {
+                text: Some(Rgb(0xECEAF6)),
+                secondary: Some(Rgb(0xB9B4D0)),
+                muted: Some(Rgb(0x9A94B8)),
+                faint: Some(Rgb(0x857FA6)),
+                border: Some(Rgb(0x2E1F4A)),
+            };
+            spec.fonts.heading = Some("Clash Grotesk".into());
+            spec.banners = vec![
+                banner("grid", "Grid", "grid"),
+                banner("dawn", "Dawn", "grid-dawn"),
+            ];
         }
         _ => return None,
     }
@@ -602,6 +960,20 @@ impl SkinStore {
         Some(self.dir.join(id).join(name))
     }
 
+    /// The file of font `name` in skin `id`.
+    pub fn font_path(&self, id: &str, name: &str) -> Option<PathBuf> {
+        if check_id(id).is_err() || fonts::check_font_name(name).is_err() {
+            return None;
+        }
+        Some(self.dir.join(id).join(name))
+    }
+
+    /// The file of any pack file (image or font) `name` in skin `id`.
+    fn file_path(&self, id: &str, name: &str) -> Option<PathBuf> {
+        self.image_path(id, name)
+            .or_else(|| self.font_path(id, name))
+    }
+
     /// The file of pack `id`'s description.
     pub fn spec_path(&self, id: &str) -> PathBuf {
         self.dir.join(id).join(SKIN_FILE)
@@ -629,9 +1001,9 @@ impl SkinStore {
         let id = self.unique_id(&spec.name);
         let dir = self.dir.join(&id);
         fs::create_dir_all(&dir)?;
-        for image in spec.images() {
-            if let Some(path) = self.image_path(from, image) {
-                fs::copy(path, dir.join(image))?;
+        for file in spec.files() {
+            if let Some(path) = self.file_path(from, file) {
+                fs::copy(path, dir.join(file))?;
             }
         }
         self.save(&id, &spec)?;
@@ -658,10 +1030,7 @@ impl SkinStore {
         let bytes = read_limited(fs::File::open(source)?, MAX_PACK_BYTES)?;
         let dir = self.dir.join(id);
         fs::create_dir_all(&dir)?;
-        let stem = match role {
-            ImageRole::Sidebar => "sidebar",
-            ImageRole::Hero => "hero",
-        };
+        let stem = role.stem();
         // a new name each time, so Undo's older description keeps its image
         let name = (1..)
             .map(|n| format!("{stem}-{n}"))
@@ -672,6 +1041,122 @@ impl SkinStore {
             .expect("a free name");
         let name = write_image(&bytes, &dir, &name, role.max())?;
         Ok(name)
+    }
+
+    /// Copies `source`, a .ttf or .otf font, into pack `id` after checking it. Returns
+    /// the name to put in the description, and the font's family.
+    pub fn add_font(&self, id: &str, source: &Path) -> Result<(String, String), SkinError> {
+        if built_in(id).is_some() {
+            return Err(SkinError::BuiltIn);
+        }
+        check_id(id)?;
+        let bytes = read_limited(fs::File::open(source)?, fonts::MAX_FONT_BYTES as u64)
+            .map_err(|_| SkinError::Invalid("a font file may be at most 2 MB".into()))?;
+        let family = fonts::font_family(&bytes)?;
+        let ext = if bytes.starts_with(b"OTTO") {
+            "otf"
+        } else {
+            "ttf"
+        };
+        let stem: String = source
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("font")
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .take(40)
+            .collect();
+        let dir = self.dir.join(id);
+        fs::create_dir_all(&dir)?;
+        let name = format!("{stem}.{ext}");
+        fs::write(dir.join(&name), &bytes)?;
+        Ok((name, family))
+    }
+
+    /// The font files of pack `id`, read and checked, with their families. Fonts that
+    /// fail the check are left out.
+    pub fn fonts(&self, id: &str, spec: &SkinSpec) -> Vec<(String, String, Vec<u8>)> {
+        spec.fonts
+            .files()
+            .into_iter()
+            .filter_map(|name| {
+                let path = self.font_path(id, name)?;
+                let bytes =
+                    read_limited(fs::File::open(path).ok()?, fonts::MAX_FONT_BYTES as u64).ok()?;
+                let family = fonts::font_family(&bytes).ok()?;
+                Some((name.to_string(), family, bytes))
+            })
+            .collect()
+    }
+
+    /// Image `name` of skin `id`, decoded: drawn for a built-in image.
+    pub fn load_image(&self, id: &str, name: &str) -> Option<image::RgbaImage> {
+        if let Some(builtin) = name.strip_prefix("builtin:") {
+            return art::draw(builtin);
+        }
+        let path = self.image_path(id, name)?;
+        let mut reader = image::ImageReader::open(path)
+            .ok()?
+            .with_guessed_format()
+            .ok()?;
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(MAX_DECODE_SIDE);
+        limits.max_image_height = Some(MAX_DECODE_SIDE);
+        reader.limits(limits);
+        Some(reader.decode().ok()?.to_rgba8())
+    }
+
+    /// How each image-filled surface of skin `id` looks behind text, before its tint,
+    /// for [`readable::checks`].
+    pub fn measure(&self, id: &str, spec: &SkinSpec) -> BTreeMap<SurfaceId, readable::Backdrop> {
+        SurfaceId::ALL
+            .into_iter()
+            .filter_map(|surface| {
+                let name = spec.surface(surface)?.fill?.image()?.to_string();
+                let image = self.load_image(id, &name)?;
+                // a few thousand pixels are plenty
+                let step = ((image.width() as u64 * image.height() as u64 / 20_000) as f64)
+                    .sqrt()
+                    .max(1.0) as u32;
+                let backdrop = readable::Backdrop::measure(
+                    image
+                        .enumerate_pixels()
+                        .filter(|(x, y, _)| x % step == 0 && y % step == 0)
+                        .map(|(_, _, p)| {
+                            Rgb(((p[0] as u32) << 16) | ((p[1] as u32) << 8) | p[2] as u32)
+                        }),
+                )?;
+                Some((surface, backdrop))
+            })
+            .collect()
+    }
+
+    /// Checks a pack (a .zip file or a folder) as importing would, without keeping
+    /// it: its description, files, images and fonts. Returns its description, and
+    /// its readability checks.
+    pub fn check_pack(source: &Path) -> Result<(SkinSpec, Vec<readable::Check>), SkinError> {
+        let dir = std::env::temp_dir().join(format!(
+            "lodestone-skin-check-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ));
+        let store = SkinStore::at(dir.clone());
+        let result = store.import(source).and_then(|id| {
+            let spec = store.get(&id)?.spec;
+            let measured = store.measure(&id, &spec);
+            let checks = readable::checks(&spec, &|surface| measured.get(&surface).copied());
+            Ok((spec, checks))
+        });
+        let _ = fs::remove_dir_all(&dir);
+        result
     }
 
     /// Imports a pack from a .zip file or a folder, and returns its id.
@@ -693,11 +1178,11 @@ impl SkinStore {
         let mut spec: SkinSpec = serde_json::from_slice(spec_bytes)
             .map_err(|err| SkinError::Invalid(err.to_string()))?;
         spec.validate()?;
-        // only the description and its images: nothing else may come along
+        // only the description, its images and its fonts: nothing else may come along
         for (name, _) in &files {
-            if name != SKIN_FILE && !spec.images().contains(&name.as_str()) {
+            if name != SKIN_FILE && !spec.files().contains(&name.as_str()) {
                 return Err(SkinError::Invalid(format!(
-                    "{name:?} isn't used by the skin; a pack holds only {SKIN_FILE} and its images"
+                    "{name:?} isn't used by the skin; a pack holds only {SKIN_FILE}, its images and its fonts"
                 )));
             }
         }
@@ -726,6 +1211,37 @@ impl SkinStore {
             };
             rename(&mut spec.sidebar.image, ImageRole::Sidebar)?;
             rename(&mut spec.hero.image, ImageRole::Hero)?;
+            // an image used by several surfaces is re-encoded once
+            let mut renamed: BTreeMap<String, String> = BTreeMap::new();
+            let mut rename_once = |name: &mut String, role: ImageRole| -> Result<(), SkinError> {
+                if let Some(done) = renamed.get(name.as_str()) {
+                    *name = done.clone();
+                    return Ok(());
+                }
+                let before = name.clone();
+                let mut slot = Some(name.clone());
+                rename(&mut slot, role)?;
+                *name = slot.expect("still named");
+                renamed.insert(before, name.clone());
+                Ok(())
+            };
+            for surface in spec.surfaces.values_mut() {
+                if let Some(Fill::Image(image)) = surface.fill.as_mut() {
+                    rename_once(&mut image.image, ImageRole::Surface)?;
+                }
+            }
+            for banner in &mut spec.banners {
+                rename_once(&mut banner.image, ImageRole::Banner)?;
+            }
+            for name in spec.fonts.files() {
+                let bytes = files
+                    .iter()
+                    .find(|(file, _)| file == name)
+                    .map(|(_, bytes)| bytes)
+                    .ok_or_else(|| SkinError::Invalid(format!("{name:?} is missing")))?;
+                fonts::font_family(bytes)?;
+                fs::write(staging.join(name), bytes)?;
+            }
             let json = serde_json::to_string_pretty(&spec).map_err(io::Error::other)?;
             fs::write(staging.join(SKIN_FILE), json)?;
             let id = self.unique_id(&spec.name);
@@ -749,9 +1265,9 @@ impl SkinStore {
         zip.start_file(SKIN_FILE, options).map_err(zipped)?;
         let json = serde_json::to_string_pretty(&entry.spec).map_err(io::Error::other)?;
         zip.write_all(json.as_bytes())?;
-        for image in entry.spec.images() {
-            if let Some(path) = self.image_path(id, image) {
-                zip.start_file(image, options).map_err(zipped)?;
+        for file in entry.spec.files() {
+            if let Some(path) = self.file_path(id, file) {
+                zip.start_file(file, options).map_err(zipped)?;
                 zip.write_all(&fs::read(path)?)?;
             }
         }
@@ -790,13 +1306,27 @@ impl SkinStore {
 pub enum ImageRole {
     Sidebar,
     Hero,
+    /// Any other surface's image.
+    Surface,
+    /// One of the skin's instance banners.
+    Banner,
 }
 
 impl ImageRole {
     fn max(self) -> (u32, u32) {
         match self {
             ImageRole::Sidebar => SIDEBAR_MAX,
-            ImageRole::Hero => HERO_MAX,
+            ImageRole::Hero | ImageRole::Banner => HERO_MAX,
+            ImageRole::Surface => SURFACE_MAX,
+        }
+    }
+
+    fn stem(self) -> &'static str {
+        match self {
+            ImageRole::Sidebar => "sidebar",
+            ImageRole::Hero => "hero",
+            ImageRole::Surface => "surface",
+            ImageRole::Banner => "banner",
         }
     }
 }
@@ -995,231 +1525,7 @@ fn tempdir_in(dir: &Path) -> io::Result<PathBuf> {
     Err(io::Error::other("no free folder to import into"))
 }
 
-/// Keeping text readable on a skin's images: measuring an image, and working out
-/// text colours (and a darker or lighter backing when colours can't do it alone) that
-/// keep a minimum contrast against it.
-pub mod readable {
-    use super::{Readability, Rgb, TextSpec};
-
-    /// The contrast body text and subtitles keep: WCAG AA.
-    pub const BODY: f32 = 4.5;
-    /// The contrast icons and large text keep.
-    pub const LARGE: f32 = 3.0;
-    /// The most backing a surface gets: past it the image would barely show.
-    pub const MAX_BACKING: f32 = 0.85;
-    /// The dark backing under light text.
-    pub const DARK: Rgb = Rgb(0x1D1E21);
-    /// The light backing under dark text.
-    pub const LIGHT: Rgb = Rgb(0xF4F6FB);
-
-    /// What an image looks like behind text: its average, and its light and dark
-    /// ends (the 90th and 10th percentiles of luminance), so a busy texture's bright
-    /// specks count without one stray pixel deciding.
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Backdrop {
-        pub mean: Rgb,
-        pub light: Rgb,
-        pub dark: Rgb,
-    }
-
-    impl Backdrop {
-        /// A plain colour.
-        pub fn solid(color: Rgb) -> Self {
-            Self {
-                mean: color,
-                light: color,
-                dark: color,
-            }
-        }
-
-        /// The backdrop of `pixels` (sRGB, `0xRRGGBB`). `None` without pixels.
-        pub fn measure(pixels: impl IntoIterator<Item = Rgb>) -> Option<Self> {
-            let mut lit: Vec<(f32, Rgb)> = pixels.into_iter().map(|p| (p.luminance(), p)).collect();
-            if lit.is_empty() {
-                return None;
-            }
-            let n = lit.len() as f64;
-            let sums = lit.iter().fold([0f64; 3], |mut sum, (_, p)| {
-                sum[0] += ((p.0 >> 16) & 0xFF) as f64;
-                sum[1] += ((p.0 >> 8) & 0xFF) as f64;
-                sum[2] += (p.0 & 0xFF) as f64;
-                sum
-            });
-            let mean = Rgb(sums
-                .iter()
-                .fold(0u32, |acc, s| (acc << 8) | ((s / n).round() as u32 & 0xFF)));
-            lit.sort_by(|a, b| a.0.total_cmp(&b.0));
-            let at = |q: f64| lit[((lit.len() - 1) as f64 * q).round() as usize].1;
-            Some(Self {
-                mean,
-                light: at(0.9),
-                dark: at(0.1),
-            })
-        }
-
-        /// The backdrop under a layer of `color` at `alpha` (0 to 1).
-        pub fn under(self, color: Rgb, alpha: f32) -> Self {
-            Self {
-                mean: self.mean.mix(color, alpha),
-                light: self.light.mix(color, alpha),
-                dark: self.dark.mix(color, alpha),
-            }
-        }
-    }
-
-    /// A surface's text colours: from the brightest to the faintest, and its icons.
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Inks {
-        pub primary: Rgb,
-        pub secondary: Rgb,
-        pub muted: Rgb,
-        pub faint: Rgb,
-        pub icon: Rgb,
-    }
-
-    /// The launcher's own text colours on its dark panels.
-    pub const LIGHT_INKS: Inks = Inks {
-        primary: Rgb(0xE3E3E4),
-        secondary: Rgb(0xA5A5AC),
-        muted: Rgb(0x8A8E96),
-        faint: Rgb(0x7A7D84),
-        icon: Rgb(0x8E8E95),
-    };
-
-    /// Dark text, for light images.
-    pub const DARK_INKS: Inks = Inks {
-        primary: Rgb(0x111114),
-        secondary: Rgb(0x2B2D32),
-        muted: Rgb(0x3F4249),
-        faint: Rgb(0x4A4D55),
-        icon: Rgb(0x44464B),
-    };
-
-    /// The text colours worked out for a surface.
-    #[derive(Clone, Copy, Debug, PartialEq)]
-    pub struct Palette {
-        pub inks: Inks,
-        /// Dark text on a light backdrop.
-        pub dark_text: bool,
-        /// A backing over the image, under the text: [`DARK`] (or [`LIGHT`] under
-        /// dark text) at this opacity, 0 for none.
-        pub backing: f32,
-        /// The lowest contrast of the small text (secondary, muted, faint) against the
-        /// backdrop's worst end, after the backing.
-        pub contrast: f32,
-    }
-
-    impl Palette {
-        /// Whether all text reaches [`BODY`].
-        pub fn passes(&self) -> bool {
-            self.contrast + 0.005 >= BODY
-        }
-    }
-
-    /// The lowest contrast of `inks`' text against `backdrop`, for `dark_text`.
-    fn worst(inks: &Inks, backdrop: Backdrop, dark_text: bool) -> f32 {
-        // light text loses on the light end of the image, dark text on the dark end
-        let against = if dark_text {
-            backdrop.dark
-        } else {
-            backdrop.light
-        };
-        [inks.primary, inks.secondary, inks.muted, inks.faint]
-            .iter()
-            .map(|ink| ink.contrast(against))
-            .fold(f32::MAX, f32::min)
-    }
-
-    /// `ink` moved towards `extreme` (white for light text, near-black for dark) until
-    /// it keeps `min` contrast with `against`.
-    fn push(ink: Rgb, extreme: Rgb, against: Rgb, min: f32) -> Rgb {
-        if ink.contrast(against) >= min {
-            return ink;
-        }
-        (1..=20)
-            .map(|step| ink.mix(extreme, step as f32 / 20.0))
-            .find(|c| c.contrast(against) >= min)
-            .unwrap_or(extreme)
-    }
-
-    /// `inks` made readable against `against`: text to [`BODY`], icons to [`LARGE`].
-    fn adjust(inks: Inks, against: Rgb, dark_text: bool) -> Inks {
-        let extreme = if dark_text { Rgb(0x111114) } else { Rgb::WHITE };
-        Inks {
-            primary: push(inks.primary, extreme, against, BODY),
-            secondary: push(inks.secondary, extreme, against, BODY),
-            muted: push(inks.muted, extreme, against, BODY),
-            faint: push(inks.faint, extreme, against, BODY),
-            icon: push(inks.icon, extreme, against, LARGE),
-        }
-    }
-
-    /// The text colours for `backdrop`.
-    ///
-    /// With [`Readability::Auto`]: light text (or dark text, if the image is light
-    /// enough that dark text needs less help), each colour moved until it reaches its
-    /// contrast. Where even white (or black) can't, a backing is added, as light as
-    /// still works, so the image keeps showing. `text` gives starting colours.
-    ///
-    /// With [`Readability::Off`]: the colours as given, and no backing.
-    pub fn derive(backdrop: Backdrop, text: &TextSpec, readability: Readability) -> Palette {
-        let with = |mut inks: Inks| {
-            if let Some(primary) = text.primary {
-                inks.primary = primary;
-            }
-            if let Some(muted) = text.muted {
-                inks.muted = muted;
-                inks.faint = muted;
-            }
-            inks
-        };
-        if readability == Readability::Off {
-            let dark_text = text.primary.is_some_and(|p| p.luminance() < 0.3);
-            let inks = with(if dark_text { DARK_INKS } else { LIGHT_INKS });
-            return Palette {
-                inks,
-                dark_text,
-                backing: 0.0,
-                contrast: worst(&inks, backdrop, dark_text),
-            };
-        }
-        // the least backing with which the extreme colour (white or black) leaves
-        // room for the greys to reach BODY
-        let backing = |dark_text: bool| -> Option<f32> {
-            let (end, layer, extreme) = if dark_text {
-                (backdrop.dark, LIGHT, Rgb(0x111114))
-            } else {
-                (backdrop.light, DARK, Rgb::WHITE)
-            };
-            (0..=17)
-                .map(|step| step as f32 * 0.05)
-                .find(|&alpha| extreme.contrast(end.mix(layer, alpha)) >= BODY + 1.5)
-        };
-        let light = backing(false);
-        let dark = backing(true);
-        // dark text only when it needs clearly less help than light text
-        let dark_text = match (light, dark) {
-            (Some(l), Some(d)) => d + 0.2 < l,
-            (None, Some(_)) => true,
-            _ => false,
-        };
-        let alpha = (if dark_text { dark } else { light }).unwrap_or(MAX_BACKING);
-        let layer = if dark_text { LIGHT } else { DARK };
-        let seen = backdrop.under(layer, alpha);
-        let against = if dark_text { seen.dark } else { seen.light };
-        let inks = adjust(
-            with(if dark_text { DARK_INKS } else { LIGHT_INKS }),
-            against,
-            dark_text,
-        );
-        Palette {
-            inks,
-            dark_text,
-            backing: alpha,
-            contrast: worst(&inks, seen, dark_text),
-        }
-    }
-}
+pub mod readable;
 
 #[cfg(test)]
 mod tests {
@@ -1243,6 +1549,115 @@ mod tests {
         }
         zip.finish().unwrap();
         file
+    }
+
+    #[test]
+    fn packs_carry_surface_images_fonts_and_banners() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SkinStore::at(dir.path().join("skins"));
+        let json = r##"{
+            "schema": 1,
+            "name": "Rich",
+            "surfaces": {
+                "top_bar": {"fill": {"gradient": {"angle": 90, "stops": ["#101010", "#303030", "#505050"]}}},
+                "card": {"fill": {"image": {"image": "paper.png", "fit": "tile"}}, "radius": 12, "border": "#444444"},
+                "button_primary": {"fill": "#2266CC", "text": "#FFFFFF"}
+            },
+            "tokens": {"muted": "#A0A4AC"},
+            "fonts": {"heading": "serif.ttf", "play": "Lodestone Pixel"},
+            "banners": [
+                {"id": "dawn", "name": "Dawn", "image": "dawn.png"},
+                {"id": "night", "image": "builtin:night"}
+            ]
+        }"##;
+        let font = super::fonts::tests::tiny_font("Pack Serif");
+        let pack = zip_of(&[
+            (SKIN_FILE, json.as_bytes()),
+            ("paper.png", &png(32, 32)),
+            ("dawn.png", &png(64, 40)),
+            ("serif.ttf", &font),
+        ]);
+        let id = store.import(pack.path()).unwrap();
+        let entry = store.get(&id).unwrap();
+        let spec = &entry.spec;
+        assert_eq!(spec.banner("dawn").unwrap().name.as_deref(), Some("Dawn"));
+        for file in spec.files() {
+            assert!(
+                dir.path().join("skins").join(&id).join(file).is_file(),
+                "{file}"
+            );
+        }
+        assert_eq!(spec.fonts.files(), ["serif.ttf"]);
+        let fonts = store.fonts(&id, spec);
+        assert_eq!(fonts[0].1, "Pack Serif");
+        assert!(matches!(
+            spec.surface(SurfaceId::Card).unwrap().fill,
+            Some(Fill::Image(_))
+        ));
+        // out and back in, the same pack
+        let out = dir.path().join("rich.zip");
+        store.export(&id, &out).unwrap();
+        let again = store.import(&out).unwrap();
+        assert_eq!(store.get(&again).unwrap().spec.surfaces, spec.surfaces);
+        // the copy keeps its font
+        let copy = store.duplicate(&id, "Rich copy").unwrap();
+        assert_eq!(store.fonts(&copy, &store.get(&copy).unwrap().spec).len(), 1);
+    }
+
+    #[test]
+    fn packs_are_checked_without_being_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("pale");
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join(SKIN_FILE),
+            r##"{"schema": 1, "name": "Pale", "surfaces": {"sidebar": {"fill": {"image": "white.png"}}}}"##,
+        )
+        .unwrap();
+        let mut bytes = Vec::new();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([250, 250, 250]))
+            .write_to(&mut io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        fs::write(pack.join("white.png"), bytes).unwrap();
+        let (spec, checks) = SkinStore::check_pack(&pack).unwrap();
+        assert_eq!(spec.name, "Pale");
+        // the launcher's light text on a white image: short, with a fix
+        let text = checks
+            .iter()
+            .find(|c| c.surface == SurfaceId::Sidebar && c.role == readable::TextRole::Text)
+            .unwrap();
+        assert!(!text.passes() && text.fix.is_some(), "{text:?}");
+        fs::write(pack.join("extra.sh"), "echo").unwrap();
+        assert!(SkinStore::check_pack(&pack).is_err());
+    }
+
+    #[test]
+    fn packs_refuse_what_they_cant_hold() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SkinStore::at(dir.path().join("skins"));
+        let import = |json: &str, files: &[(&str, &[u8])]| {
+            let mut all = vec![(SKIN_FILE, json.as_bytes())];
+            all.extend_from_slice(files);
+            store.import(zip_of(&all).path())
+        };
+        // a font that isn't one
+        let err = import(
+            r#"{"schema": 1, "name": "X", "fonts": {"body": "x.ttf"}}"#,
+            &[("x.ttf", b"#!/bin/sh\necho not a font")],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("font"), "{err}");
+        // an unknown surface, an unknown font, a font by path
+        for json in [
+            r##"{"schema": 1, "name": "X", "surfaces": {"titlebar": {"fill": "#000000"}}}"##,
+            r#"{"schema": 1, "name": "X", "fonts": {"body": "Comic Sans"}}"#,
+            r#"{"schema": 1, "name": "X", "fonts": {"body": "../evil.ttf"}}"#,
+            r##"{"schema": 1, "name": "X", "surfaces": {"card": {"fill": "#000000", "text": "#FFFFFF"}}}"##,
+            r##"{"schema": 1, "name": "X", "surfaces": {"toggle": {"fill": {"image": "a.png"}}}}"##,
+            r#"{"schema": 1, "name": "X", "banners": [{"id": "Bad Id", "image": "builtin:sky"}]}"#,
+        ] {
+            assert!(import(json, &[]).is_err(), "{json}");
+        }
     }
 
     #[test]

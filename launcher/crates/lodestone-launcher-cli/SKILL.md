@@ -266,15 +266,25 @@ Game files and runtimes download again when needed; logs are deleted for good. R
 game files, runtimes or the cache is refused (`busy`) while a game runs. To free an
 instance's space, `instances delete` moves it to the Trash.
 
-Skins (Settings > Skin), the launcher's look. A skin is a pack: `skin.json` and its
-images (see `launcher/docs/skins.md`). Built-in: `default`, `grassblock`, `glass`, `neon`.
+Skins (Settings > Skin), the launcher's look. A skin is a pack: `skin.json`, its
+images and fonts (see `launcher/docs/skins.md`). Built-in: `default`, `grassblock`,
+`glass`, `neon`.
 
 ```sh
 lodestone-launcher-cli skins list                     # ids, names, which is in use
 lodestone-launcher-cli skins use neon                 # `default` for the default look
 lodestone-launcher-cli skins import ./Cozy.zip --use  # a .zip or a folder; checked first
 lodestone-launcher-cli skins export ./mine.zip        # the one in use, or --id
+lodestone-launcher-cli skins check --path ./cozy      # validate a pack and check its text, not kept
+lodestone-launcher-cli skins check                    # the one in use, or an id
+lodestone-launcher-cli skins fix cozy                 # apply the suggested fixes (not built-ins)
 ```
+
+Readability is the skin's job: the launcher doesn't adjust a skin's colours. `skins
+check` lists each surface's text with its contrast (`ratio`), the `target` (4.5 for
+text, 3 for labels and hints) and a suggested `fix` such as
+`surfaces.sidebar.muted = #D9CDBE`; `passes` is true when nothing falls short. An
+invalid pack gives `valid: false` and the reason.
 
 An instance's own Play button colour and accent are in `instances show` (`play_color`,
 `accent`). Start the launcher with `--no-skin` (or `LODESTONE_LAUNCHER_NO_SKIN=1`) if a

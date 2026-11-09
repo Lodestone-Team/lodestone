@@ -67,7 +67,13 @@ enum BackgroundTab {
     Default,
     Image,
     Slideshow,
+    /// One of the chosen skin's banners.
+    Banner,
 }
+
+/// A skin banner offered in the background picker: the skin, the banner's id, and
+/// its thumbnail.
+type BannerThumb = (String, String, Arc<RenderImage>);
 
 /// Asks the shell to confirm deleting the instance.
 pub struct DeleteRequested(pub String);
@@ -189,6 +195,9 @@ pub struct InstanceSettings {
     /// The slideshow's own images, as thumbnails, with their file names.
     own_images: Load<Vec<(String, Arc<RenderImage>)>>,
     _own_images_task: Option<Task<()>>,
+    /// The chosen skin's banners, as thumbnails.
+    banners: Load<Vec<BannerThumb>>,
+    _banners_task: Option<Task<()>>,
     /// A loader change is waiting for the shell's dialog.
     prompting: bool,
     nav: SectionNav,
@@ -351,6 +360,8 @@ impl InstanceSettings {
             shot_counts: (0, 0),
             own_images: Load::NotLoaded,
             _own_images_task: None,
+            banners: Load::NotLoaded,
+            _banners_task: None,
             prompting: false,
             nav: SectionNav::default(),
             nav_open: false,
@@ -907,9 +918,11 @@ impl InstanceSettings {
                 BackgroundMode::Default => BackgroundTab::Default,
                 BackgroundMode::Image => BackgroundTab::Image,
                 BackgroundMode::Slideshow(_) => BackgroundTab::Slideshow,
+                BackgroundMode::Banner => BackgroundTab::Banner,
             };
         }
         self.load_own_images(cx);
+        self.load_banners(cx);
         let instances = self.instances.read(cx);
         let mut dirs = vec![instances.content_dirs(&self.instance_id)];
         dirs.extend(
@@ -1001,6 +1014,102 @@ impl InstanceSettings {
         }));
     }
 
+    /// Reads the chosen skin's banners as thumbnails, in the background.
+    fn load_banners(&mut self, cx: &mut Context<Self>) {
+        let instances = self.instances.read(cx);
+        let store = instances.skins();
+        let Some(skin) = instances.skin().map(str::to_string) else {
+            self.banners = Load::Ready(Vec::new());
+            return;
+        };
+        if !matches!(self.banners, Load::Ready(_)) {
+            self.banners = Load::Loading;
+        }
+        let work = cx.background_spawn(async move {
+            let Ok(entry) = store.get(&skin) else {
+                return Vec::new();
+            };
+            entry
+                .spec
+                .banners
+                .iter()
+                .filter_map(|banner| {
+                    let image = match banner.image.strip_prefix("builtin:") {
+                        Some(name) => launcher_core::ui_skin::art::draw(name)?,
+                        None => image::open(store.image_path(&skin, &banner.image)?)
+                            .ok()?
+                            .to_rgba8(),
+                    };
+                    let thumb = image::DynamicImage::ImageRgba8(image)
+                        .resize_to_fill(240, 135, image::imageops::FilterType::Triangle)
+                        .to_rgba8();
+                    Some((
+                        skin.clone(),
+                        banner.id.clone(),
+                        crate::images::render_image(thumb),
+                    ))
+                })
+                .collect::<Vec<_>>()
+        });
+        self._banners_task = Some(cx.spawn(async move |this, cx| {
+            let banners = work.await;
+            this.update(cx, |this, cx| {
+                this.banners = Load::Ready(banners);
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    fn use_banner(&mut self, skin: String, banner: String, cx: &mut Context<Self>) {
+        let id = self.instance_id.clone();
+        let result = self.instances.update(cx, |instances, cx| {
+            instances.undoable(&id, cx, |instances, cx| {
+                instances.set_skin_banner(&id, &skin, &banner, cx)
+            })
+        });
+        self.background_result(result, cx);
+    }
+
+    /// The chosen skin's banners, the instance's own outlined.
+    fn banners_grid(&self, cx: &mut Context<Self>) -> AnyElement {
+        let current = self
+            .instance(cx)
+            .and_then(|i| i.skin_banner().map(|(s, b)| (s.to_string(), b.to_string())));
+        match &self.banners {
+            Load::Ready(banners) if !banners.is_empty() => div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap_2()
+                .children(
+                    banners
+                        .iter()
+                        .enumerate()
+                        .map(|(index, (skin, banner, thumb))| {
+                            let chosen = current.as_ref() == Some(&(skin.clone(), banner.clone()));
+                            let (skin, banner) = (skin.clone(), banner.clone());
+                            div()
+                                .rounded(radius::MD)
+                                .border_2()
+                                .border_color(if chosen {
+                                    crate::theme::accent::light()
+                                } else {
+                                    colors::TRANSPARENT
+                                })
+                                .child(thumb_tile(("skin-banner", index), thumb.clone()).on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.use_banner(skin.clone(), banner.clone(), cx)
+                                    }),
+                                ))
+                        }),
+                )
+                .into_any_element(),
+            Load::Ready(_) | Load::Failed(_) => note(t(ShellMsg::SkinBannerMissing)),
+            Load::NotLoaded | Load::Loading => LoadingDots.into_any_element(),
+        }
+    }
+
     /// Says how a change of the background went.
     fn background_result(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
         match result {
@@ -1031,6 +1140,22 @@ impl InstanceSettings {
                 self.instances.update(cx, |instances, cx| {
                     instances.undoable(&id, cx, |instances, cx| {
                         instances.set_slideshow(&id, None, cx)
+                    })
+                })
+            }
+            BackgroundTab::Banner if instance.background_mode() != BackgroundMode::Banner => {
+                // the skin's first banner; the others are a click away
+                let first = match &self.banners {
+                    Load::Ready(banners) => banners.first().cloned(),
+                    _ => None,
+                };
+                let Some((skin, banner, _)) = first else {
+                    cx.notify();
+                    return;
+                };
+                self.instances.update(cx, |instances, cx| {
+                    instances.undoable(&id, cx, |instances, cx| {
+                        instances.set_skin_banner(&id, &skin, &banner, cx)
                     })
                 })
             }
@@ -1135,7 +1260,7 @@ impl InstanceSettings {
                 .items_center()
                 .gap_2()
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(LoadingDots)
                 .child(t(M::FindingScreenshots))
                 .into_any_element(),
@@ -1174,13 +1299,20 @@ impl InstanceSettings {
     fn background_picker_panel(&self, has_background: bool, cx: &mut Context<Self>) -> AnyElement {
         let source = self.instance(cx).and_then(|i| i.slideshow);
         let entity = cx.entity();
+        // the skin's banners, when it has some or the instance uses one
+        let banners = matches!(&self.banners, Load::Ready(b) if !b.is_empty())
+            || self.background_tab == BackgroundTab::Banner;
+        let mut choices = vec![
+            (BackgroundTab::Default, t(M::BackgroundDefault).into()),
+            (BackgroundTab::Image, t(M::BackgroundImage).into()),
+            (BackgroundTab::Slideshow, t(M::BackgroundSlideshow).into()),
+        ];
+        if banners {
+            choices.push((BackgroundTab::Banner, t(ShellMsg::SkinBanners).into()));
+        }
         let tabs = segmented(
             "background-mode",
-            vec![
-                (BackgroundTab::Default, t(M::BackgroundDefault).into()),
-                (BackgroundTab::Image, t(M::BackgroundImage).into()),
-                (BackgroundTab::Slideshow, t(M::BackgroundSlideshow).into()),
-            ],
+            choices,
             Some(&self.background_tab),
             false,
             {
@@ -1192,11 +1324,12 @@ impl InstanceSettings {
             div()
                 .font_weight(weights::BOLD.into())
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_400)
+                .text_color(crate::theme::ink::secondary())
                 .child(text_)
         };
         let body: AnyElement = match self.background_tab {
             BackgroundTab::Default => div().into_any_element(),
+            BackgroundTab::Banner => self.banners_grid(cx),
             BackgroundTab::Image => div()
                 .flex()
                 .flex_col()
@@ -1211,7 +1344,7 @@ impl InstanceSettings {
                         .gap_4()
                         .pt_2()
                         .border_t_1()
-                        .border_color(colors::FADE_700)
+                        .border_color(crate::theme::ink::border())
                         .child(
                             link("background-file", t(M::ChooseFile)).on_click(cx.listener(
                                 |this, _, _, cx| {
@@ -1270,7 +1403,7 @@ impl InstanceSettings {
                                 div()
                                     .pt_2()
                                     .border_t_1()
-                                    .border_color(colors::FADE_700)
+                                    .border_color(crate::theme::ink::border())
                                     .child(heading(t(M::YourScreenshots))),
                             )
                             .child(self.shots_grid(true, cx)),
@@ -1340,10 +1473,11 @@ impl InstanceSettings {
                 .text_size(theme::text_size(text::SMALL))
                 .map(|this| {
                     if selected {
-                        this.bg(colors::GRAY_700).text_color(colors::GRAY_300)
+                        this.bg(colors::GRAY_700)
+                            .text_color(crate::theme::ink::text())
                     } else {
-                        this.text_color(colors::GRAY_400)
-                            .hover(|style| style.text_color(colors::GRAY_300))
+                        this.text_color(crate::theme::ink::secondary())
+                            .hover(|style| style.text_color(crate::theme::ink::text()))
                     }
                 })
                 .child(label)
@@ -1470,7 +1604,7 @@ impl InstanceSettings {
                     .gap_4()
                     .pt_2()
                     .border_t_1()
-                    .border_color(colors::FADE_700)
+                    .border_color(crate::theme::ink::border())
                     .child(link("icon-upload", t(M::UploadImage)).on_click(cx.listener(
                         |this, _, _, cx| {
                             this.icon_picker = None;
@@ -1627,7 +1761,7 @@ impl InstanceSettings {
                 .items_center()
                 .gap_2()
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_400)
+                .text_color(crate::theme::ink::secondary())
                 .child(LoadingDots)
                 .child(label)
                 .into_any_element()
@@ -2093,7 +2227,11 @@ impl Render for InstanceSettings {
                     .child(sized(&self.fields.min_ram, 84.))
                     .child("–")
                     .child(sized(&self.fields.max_ram, 84.))
-                    .child(div().text_color(colors::GRAY_500).child(t(M::MemoryUnit))),
+                    .child(
+                        div()
+                            .text_color(crate::theme::ink::muted())
+                            .child(t(M::MemoryUnit)),
+                    ),
                 cx,
             )
             .hint_opt(fields::total_memory_label(total))
@@ -2206,7 +2344,7 @@ impl Render for InstanceSettings {
                     .child(
                         div()
                             .ml_2()
-                            .text_color(colors::GRAY_400)
+                            .text_color(crate::theme::ink::secondary())
                             .child(t(M::Fullscreen)),
                     )
                     .child(Toggle::new("fullscreen", self.fields.fullscreen).on_change(
@@ -2436,7 +2574,7 @@ fn thumb_tile(
 fn note(text_: &'static str) -> AnyElement {
     div()
         .text_size(theme::text_size(text::SMALL))
-        .text_color(colors::GRAY_500)
+        .text_color(crate::theme::ink::muted())
         .child(text_)
         .into_any_element()
 }

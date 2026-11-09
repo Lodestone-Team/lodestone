@@ -1,9 +1,11 @@
 //! A small label shown while the pointer rests on an element.
 
+use crate::skin::Skinned;
 use gpui::{
     AnyView, App, AppContext as _, Context, IntoElement, Render, SharedString, Window, div,
     prelude::*,
 };
+use launcher_core::ui_skin::SurfaceId;
 
 use crate::theme::{self, colors, px, radius, text, weights};
 
@@ -18,11 +20,12 @@ impl Render for TextTooltip {
             .py_1()
             .rounded(radius::MD)
             .border_1()
-            .border_color(colors::FADE_700)
+            .border_color(crate::theme::ink::border())
             .bg(colors::GRAY_850)
+            .surface(SurfaceId::Popover)
             .text_size(theme::text_size(text::SMALL))
             .font_weight(weights::MEDIUM.into())
-            .text_color(colors::GRAY_300)
+            .text_color(crate::theme::ink::text())
             .child(self.0.clone())
     }
 }
