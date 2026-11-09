@@ -28,8 +28,12 @@ fix on a release branch made from one.
 
 Usage, from a checkout of the version's commit (`git checkout launcher-v0.2.0`):
 
-    python3 launcher/scripts/publish_release.py --find-draft
-                                        # the newest draft: version, commit, platforms
+    python3 launcher/scripts/publish_release.py --next-version [1.0.0]
+                                        # check a version lines up, or suggest one
+    python3 launcher/scripts/publish_release.py --start 1.0.0 --commit <sha>
+                                        # tag it and make its draft, without building
+    python3 launcher/scripts/publish_release.py --find-draft [1.0.0]
+                                        # the newest draft (or 1.0.0's): commit, platforms
     python3 launcher/scripts/publish_release.py --dry-run --tag draft --open
                                         # stage this machine's build for it, and open it
     python3 launcher/scripts/publish_release.py --tag draft
@@ -211,6 +215,217 @@ def tag_version_note(tag: str, version: str) -> str | None:
                 "which the launcher and its installer show. Bump [workspace.package] version "
                 "on the release branch to match, if it should.")
     return None
+
+
+def normalize_tag(value: str) -> str:
+    """`1.0.0`, `v1.0.0` and `launcher-v1.0.0` all name launcher-v1.0.0; `draft` stays."""
+    value = value.strip()
+    if value == "draft" or value.startswith("launcher-"):
+        return value
+    return TAG_PREFIX + value.removeprefix("v")
+
+
+# ---------------------------------------------------------------------------
+# Suggesting the next version from the commits since the last one
+
+# The platforms a release normally has: what CI builds. `--find-draft` lists the
+# ones a draft still lacks, for whoever publishes it.
+EXPECTED_PLATFORMS = ["macos-aarch64", "macos-x86_64", "windows-x86_64"]
+# Paths whose changes make a launcher release: the launcher and the crates it shares.
+LAUNCHER_PATHS = ["launcher", "crates"]
+# The first word of a change's description (after "Area: ") that marks a fix.
+FIX_WORDS = {"fix", "fixes", "fixed", "correct", "corrects", "restore", "restores", "bring",
+             "keep", "keeps", "stop", "stops", "avoid", "avoids", "handle", "handles", "wrap",
+             "prevent", "prevents", "repair", "revert", "reverts", "undo"}
+CONVENTIONAL = re.compile(r"^(\w+)(\([^)]*\))?(!)?:\s*(.*)$")
+LEVELS = ["none", "fix", "feature", "breaking"]
+
+
+def parse_version(tag: str) -> tuple[tuple[int, int, int], str | None] | None:
+    match = TAG.match(tag)
+    if not match:
+        return None
+    major, minor, patch = (int(n) for n in match.group(1).split("."))
+    return (major, minor, patch), (match.group(2) or "")[1:] or None
+
+
+def version_order(tag: str) -> tuple:
+    """Sorts versions: a pre-release before its version, betas by their number."""
+    parsed = parse_version(tag)
+    if not parsed:
+        return ()
+    numbers, pre = parsed
+    pre_key = tuple((0, int(p)) if p.isdigit() else (1, p) for p in (pre or "").split(".") if p)
+    return numbers, pre is None, pre_key
+
+
+def classify(subject: str, body: str = "") -> str:
+    """How big a change a commit is: breaking, feature, fix, or none (tooling).
+
+    Conventional commits (`feat:`, `fix!:`) say so; the repository's usual
+    "Area: what changed" subjects are fixes when the description starts with a word
+    like "fix" or "restore", and features otherwise. A guess: read the commits."""
+    if "BREAKING CHANGE" in body or "BREAKING" in subject:
+        return "breaking"
+    conventional = CONVENTIONAL.match(subject)
+    if conventional and conventional.group(1).lower() in {
+            "feat", "fix", "perf", "refactor", "docs", "test", "tests", "chore", "ci", "build",
+            "style", "revert"}:
+        kind = conventional.group(1).lower()
+        if conventional.group(3):
+            return "breaking"
+        if kind == "feat":
+            return "feature"
+        if kind in {"fix", "perf", "revert"}:
+            return "fix"
+        return "none"
+    description = subject.split(":", 1)[1] if ":" in subject else subject
+    words = description.strip().split()
+    first = words[0].lower().strip(",.") if words else ""
+    if first in FIX_WORDS:
+        return "fix"
+    return "feature"
+
+
+def bump(numbers: tuple[int, int, int], level: str) -> tuple[int, int, int]:
+    """The next version for a change of `level`. Before 1.0, a breaking change bumps
+    the minor number, as semver allows."""
+    major, minor, patch = numbers
+    if level == "breaking":
+        return (major + 1, 0, 0) if major >= 1 else (0, minor + 1, 0)
+    if level == "feature":
+        return major, minor + 1, 0
+    return major, minor, patch + 1
+
+
+def suggest_version(tags: list[str], commits: list[tuple[str, str, str]], workspace: str,
+                    beta: bool) -> tuple[str, str]:
+    """The next version's tag, and why, from the launcher tags so far and the commits
+    since the newest (`(sha, subject, body)` each)."""
+    versions = sorted((t for t in tags if parse_version(t)), key=version_order)
+    level = max((classify(subject, body) for _, subject, body in commits),
+                key=LEVELS.index, default="none")
+    if not versions:
+        numbers = tuple(int(n) for n in (workspace or "0.1.0").split("-")[0].split("."))
+        base = ".".join(map(str, numbers))
+        tag = f"{TAG_PREFIX}{base}" + ("-beta.1" if beta else "")
+        return tag, f"the launcher's first versioned release; launcher/Cargo.toml says {workspace}"
+    newest = versions[-1]
+    stables = [t for t in versions if parse_version(t)[1] is None]
+    numbers, pre = parse_version(newest)
+    version = ".".join(map(str, numbers))
+    if pre is not None:
+        # A beta line is under way for `version`: carry it on, or finish it.
+        if beta:
+            betas = [parse_version(t)[1] for t in versions if parse_version(t)[0] == numbers
+                     and (parse_version(t)[1] or "").startswith("beta.")]
+            count = max((int(b.split(".")[1]) for b in betas if b.split(".")[1].isdigit()),
+                        default=0)
+            return (f"{TAG_PREFIX}{version}-beta.{count + 1}",
+                    f"{newest} is the newest; the next beta of {version}")
+        return (f"{TAG_PREFIX}{version}",
+                f"{newest} is the newest; {version} without a suffix finishes its betas")
+    if level == "none":
+        level_reason = "no launcher changes since; a patch release"
+        level = "fix"
+    else:
+        level_reason = {"breaking": "a breaking change", "feature": "new features",
+                        "fix": "fixes only"}[level] + f" in {len(commits)} commits since"
+    next_numbers = ".".join(map(str, bump(numbers, level)))
+    tag = f"{TAG_PREFIX}{next_numbers}" + ("-beta.1" if beta else "")
+    return tag, f"{newest} is the newest release; {level_reason}"
+
+
+def version_problem(tag: str, tags: list[str]) -> tuple[str | None, str | None]:
+    """Whether a version a developer named lines up with the releases so far.
+
+    Returns (problem, note): a problem (it's too old: not after the newest stable
+    release, or not after the betas of its version) means suggesting another; a
+    note (it skips versions) is only worth mentioning."""
+    parsed = parse_version(tag)
+    if not parsed:
+        return f"{tag} isn't a launcher version", None
+    numbers, pre = parsed
+    if tag in tags:
+        return None, (f"{tag} already exists: builds go into its release while it's a draft "
+                      "(`--find-draft " + tag + "` shows it)")
+    others = [t for t in tags if parse_version(t) and t != tag]
+    stables = sorted((t for t in others if parse_version(t)[1] is None), key=version_order)
+    if stables:
+        newest_stable = stables[-1]
+        stable_numbers = parse_version(newest_stable)[0]
+        if numbers <= stable_numbers:
+            return (f"{tag} is too old: {newest_stable} is already out, so launchers expect a "
+                    "higher version"), None
+    same = sorted((t for t in others if parse_version(t)[0] == numbers), key=version_order)
+    if pre is not None and same and version_order(tag) <= version_order(same[-1]):
+        return f"{tag} is too old: {same[-1]} already exists", None
+    if not stables:
+        return None, None
+    base = parse_version(stables[-1])[0]
+    steps = {bump(base, level) for level in ("fix", "feature", "breaking")}
+    if base[0] == 0:
+        steps.add((1, 0, 0))
+    betas = {parse_version(t)[0] for t in others if parse_version(t)[1] is not None}
+    if numbers not in steps and numbers not in betas:
+        options = ", ".join(".".join(map(str, s)) for s in sorted(steps))
+        return None, f"{tag} skips versions after {stables[-1]} (the next would be {options})"
+    return None, None
+
+
+def launcher_tags() -> list[str]:
+    """The launcher version tags on GitHub, fetched first."""
+    try:
+        # Only these: the old launcher-latest tag moved with every publish, so a
+        # stale local copy makes a plain `git fetch --tags` fail.
+        run(["git", "fetch", "--quiet", "origin", f"refs/tags/{TAG_PREFIX}*:refs/tags/{TAG_PREFIX}*"])
+    except Failure as err:
+        print(f"    warning: couldn't fetch tags from origin: {err}")
+    return [t for t in run(["git", "tag", "--list", f"{TAG_PREFIX}*"]).splitlines() if TAG.match(t)]
+
+
+def commits_since(base: str | None, commit: str) -> list[tuple[str, str, str]]:
+    """The launcher's commits after `base` up to `commit`, newest first."""
+    span = f"{base}..{commit}" if base else commit
+    out = run(["git", "log", "--no-merges", "--format=%H%x1f%s%x1f%b%x1e", span, "--",
+               *LAUNCHER_PATHS])
+    commits = []
+    for record in out.split("\x1e"):
+        parts = record.strip("\n").split("\x1f")
+        if len(parts) >= 2 and parts[0].strip():
+            commits.append((parts[0].strip(), parts[1], parts[2] if len(parts) > 2 else ""))
+    if not base:
+        commits = commits[:50]  # the whole history otherwise; enough to judge
+    return commits
+
+
+def show_next_version(tag: str | None, commit_ref: str, beta: bool) -> int:
+    """Checks a named version against the releases so far, or suggests one."""
+    commit = run(["git", "rev-parse", f"{commit_ref}^{{commit}}"])
+    tags = launcher_tags()
+    newest = max(tags, key=version_order) if tags else None
+    if tag:
+        problem, note = version_problem(tag, tags)
+        if not problem:
+            print(f"{tag} lines up with the releases so far"
+                  + (f" (newest: {newest})." if newest else " (the first one)."))
+            if note:
+                print(f"note: {note}")
+            return 0
+        print(f"problem: {problem}")
+    commits = commits_since(newest, commit)
+    suggested, reason = suggest_version(tags, commits, workspace_version(),
+                                        beta if not tag else is_prerelease_tag(tag))
+    print(f"suggested: {suggested}")
+    print(f"why: {reason}")
+    print(f"commit: {commit}")
+    if commits:
+        print(f"launcher changes since {newest or 'the start'} ({len(commits)}):")
+        for sha, subject, body in commits[:40]:
+            print(f"  {sha[:7]} [{classify(subject, body)}] {subject}")
+        if len(commits) > 40:
+            print(f"  ... and {len(commits) - 40} more")
+    return 1 if tag else 0
 
 
 # ---------------------------------------------------------------------------
@@ -919,10 +1134,17 @@ class VersionRelease(GitHubRelease):
     def published_releases(self) -> list[dict]:
         return launcher_releases(self.repo)
 
-    def create(self, commit: str) -> None:
-        """Tags `commit` (unless the tag exists) and drafts the release."""
+    def create(self, commit: str, force: bool = False) -> None:
+        """Tags `commit` (unless the tag exists) and drafts the release. A new tag must
+        line up with the versions so far, unless `force`."""
         tagged = self.tag_commit()
         if tagged is None:
+            problem, note = version_problem(self.tag, launcher_tags())
+            if problem and not force:
+                raise Failure(f"{problem}. `publish_release.py --next-version` suggests one; "
+                              "--force tags it anyway")
+            if note:
+                print(f"    Note: {note}")
             step(f"Tagging {commit[:7]} as {self.tag}")
             try:
                 self.gh("api", "-X", "POST", f"repos/{self.repo}/git/refs",
@@ -958,8 +1180,13 @@ class VersionRelease(GitHubRelease):
         if info is None:
             if dry:
                 print(f"    Would tag {commit[:7]} as {self.tag} and draft its release.")
+                if tagged is None:
+                    problem, note = version_problem(self.tag, launcher_tags())
+                    for line in (problem, note):
+                        if line:
+                            print(f"    Warning: {line}")
             else:
-                self.create(commit)
+                self.create(commit, force)
                 info = self.info()
         elif not info["isDraft"]:
             print(f"    {self.tag} is already published: launchers can see what's added to it.")
@@ -1077,7 +1304,8 @@ def release_notes(tag: str, commit: str) -> str:
     return "\n".join([
         "## What's new",
         "",
-        "<!-- Write what changed before publishing this release. -->",
+        "<!-- Write what changed. A developer publishes this by hand once every platform's "
+        f"build is in (publish_release.py --find-draft {tag} lists them). -->",
         "",
         "## Download",
         "",
@@ -1273,19 +1501,24 @@ def show_draft(repo: str, draft: dict, others: list[dict]) -> None:
         print(f"note: {tag} isn't tagged yet; the draft targets {target}. Uploading a build "
               "tags the build's commit.")
     platforms = release_platforms(draft)
+    missing = [key for key in EXPECTED_PLATFORMS if key not in platforms]
     here = key_for_target(host_target())
     print(f"tag: {tag}")
+    print(f"draft: {str(bool(draft.get('draft'))).lower()}")
     print(f"commit: {commit}")
     print(f"prerelease: {str(bool(draft.get('prerelease'))).lower()}")
     print(f"url: {draft.get('html_url', '')}")
     print(f"platforms: {', '.join(platforms) or 'none yet'}")
+    print(f"missing: {', '.join(missing) or 'none: every usual platform is in'}")
     print(f"this machine: {here} ({'already in it' if here in platforms else 'missing'})")
     if others:
         print(f"other drafts: {', '.join(d['tag_name'] for d in others)}")
-    print("next, in a worktree of that commit (git fetch origin --tags && git worktree add "
-          f"../lodestone-release {commit or tag}):")
-    print("  publish_release.py --dry-run --tag draft --open    then test it")
-    print("  publish_release.py --tag draft                     once it works")
+    print(f"next, in a worktree of that commit (git fetch origin {commit or tag} && git worktree "
+          f"add ../lodestone-release {commit or tag}):")
+    print(f"  publish_release.py --dry-run --tag {tag} --open    then test it")
+    print(f"  publish_release.py --tag {tag}                     once it works")
+    if draft.get("draft"):
+        print("A developer publishes it by hand on GitHub once every platform is in.")
 
 
 def open_and_explain(test_dir: Path, record: dict, key: str) -> None:
@@ -1325,10 +1558,21 @@ def main(argv: list[str]) -> int:
     mode.add_argument("--bridge", metavar="TAG",
                       help=f"copy this published version to {LEGACY_TAG}, for launchers too old "
                            "to read versioned releases")
-    mode.add_argument("--find-draft", action="store_true",
-                      help="show the newest launcher draft release: its version, commit and platforms")
-    parser.add_argument("--tag", help="the version: launcher-vX.Y.Z, launcher-vX.Y.Z-beta.N, or "
-                                      "`draft` for the newest draft release")
+    mode.add_argument("--find-draft", nargs="?", const="", metavar="TAG",
+                      help="show the newest launcher draft release (or TAG's): its version, "
+                           "commit, and the platforms it has and lacks")
+    mode.add_argument("--next-version", nargs="?", const="", metavar="TAG",
+                      help="check that TAG lines up with the releases so far, or (without TAG, "
+                           "or when it doesn't) suggest the next version from the commits since")
+    mode.add_argument("--start", metavar="TAG",
+                      help="tag a commit (--commit, or HEAD) as this version and draft its "
+                           "release, without building")
+    parser.add_argument("--tag", help="the version: 1.0.0 (or launcher-v1.0.0), 1.0.0-beta.1, "
+                                      "or `draft` for the newest draft release")
+    parser.add_argument("--commit", metavar="REF",
+                        help="with --start or --next-version, the commit to release (HEAD by default)")
+    parser.add_argument("--beta", action="store_true",
+                        help="with --next-version, suggest a beta")
     parser.add_argument("--open", action="store_true",
                         help="open the dry run's test copy for this machine (after --dry-run, or alone)")
     parser.add_argument("--target", action="append", metavar="TRIPLE",
@@ -1348,11 +1592,48 @@ def main(argv: list[str]) -> int:
     # Another repository (a fork) to rehearse in.
     parser.add_argument("--repo", default=REPO, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    for name in ("tag", "find_draft", "next_version", "start", "promote_from", "bridge"):
+        value = getattr(args, name)
+        if value:
+            setattr(args, name, normalize_tag(value))
 
-    if args.find_draft:
+    if args.next_version is not None:
+        if args.next_version:
+            check_tag(args.next_version)
+        return show_next_version(args.next_version or None, args.commit or "HEAD", args.beta)
+
+    if args.find_draft is not None:
         GitHubRelease(args.repo, "").check()
-        draft, others = pick_draft(launcher_releases(args.repo))
-        show_draft(args.repo, draft, others)
+        releases = launcher_releases(args.repo)
+        if args.find_draft:
+            matching = [r for r in releases if r["tag_name"] == args.find_draft]
+            if not matching:
+                raise Failure(f"there's no {args.find_draft} release")
+            show_draft(args.repo, matching[0], [])
+        else:
+            draft, others = pick_draft(releases)
+            show_draft(args.repo, draft, others)
+        return 0
+
+    if args.start:
+        check_tag(args.start)
+        release = VersionRelease(args.repo, args.start)
+        release.check()
+        commit = run(["git", "rev-parse", f"{args.commit or 'HEAD'}^{{commit}}"])
+        if release.info() is None:
+            created = release.tag_commit() is None
+            release.create(commit, args.force)
+            if created:
+                print("    The new tag starts Launcher - Release, which builds macOS and Windows "
+                      "into the draft too.")
+        else:
+            tagged = release.tag_commit()
+            if args.commit and tagged and tagged != commit:
+                raise Failure(f"{args.start} already exists, on {tagged[:7]}, not {commit[:7]}")
+            print(f"    {args.start} already has a release; showing it.")
+        matching = [r for r in launcher_releases(args.repo) if r["tag_name"] == args.start]
+        if matching:
+            show_draft(args.repo, matching[0], [])
         return 0
 
     if args.tag == "draft":

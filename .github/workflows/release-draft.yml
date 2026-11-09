@@ -133,7 +133,7 @@ jobs:
           notes=$(printf '%s\n' \
             "## What's new" \
             "" \
-            "<!-- Write what changed before publishing this release. -->" \
+            "<!-- Write what changed. A developer publishes this by hand once every platform's build is in (launcher: publish_release.py --find-draft $TAG lists them). -->" \
             "" \
             "$install" \
             "" \
@@ -155,5 +155,5 @@ jobs:
           echo "### $TAG"
           echo ""
           echo "Draft release: $url (commit \`${commit:0:7}\`, pre-release: $prerelease)."
-          echo "Builds are uploaded to it as they finish. Publish it by hand once its notes are written and its builds tested."
+          echo "Builds are uploaded to it as they finish; developers add other platforms from their machines. A developer publishes it by hand once every platform is in and its notes are written."
         } >> "$GITHUB_STEP_SUMMARY"

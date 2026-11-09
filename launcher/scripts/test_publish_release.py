@@ -157,7 +157,7 @@ class FakeRelease(pr.VersionRelease):
     def tag_commit(self):
         return self._tag_commit
 
-    def create(self, commit):
+    def create(self, commit, force=False):
         self.created = commit
         self._tag_commit = commit
         self.exists = True
@@ -363,6 +363,78 @@ class Drafts(unittest.TestCase):
                               {"name": pr.dmg_name(31, ["macos-aarch64", "macos-x86_64"])},
                               {"name": pr.STABLE_INSTALLER}]
         self.assertEqual(pr.release_platforms(release), ["macos-aarch64", "windows-x86_64"])
+
+
+class Versions(unittest.TestCase):
+    def test_bare_versions_name_launcher_tags(self):
+        self.assertEqual(pr.normalize_tag("1.0.0"), "launcher-v1.0.0")
+        self.assertEqual(pr.normalize_tag("v1.0.0-beta.2"), "launcher-v1.0.0-beta.2")
+        self.assertEqual(pr.normalize_tag("launcher-v1.0.0"), "launcher-v1.0.0")
+        self.assertEqual(pr.normalize_tag("draft"), "draft")
+
+    def test_versions_sort_with_betas_before_their_version(self):
+        tags = ["launcher-v0.10.0", "launcher-v0.2.0", "launcher-v0.10.0-beta.10",
+                "launcher-v0.10.0-beta.2", "launcher-v0.9.1"]
+        self.assertEqual(sorted(tags, key=pr.version_order),
+                         ["launcher-v0.2.0", "launcher-v0.9.1", "launcher-v0.10.0-beta.2",
+                          "launcher-v0.10.0-beta.10", "launcher-v0.10.0"])
+
+    def test_commits_are_classified(self):
+        self.assertEqual(pr.classify("Launcher: bring the window back after a crash"), "fix")
+        self.assertEqual(pr.classify("Performance monitor: correct readings on Windows"), "fix")
+        self.assertEqual(pr.classify("Launcher: find the mod that crashes an instance"), "feature")
+        self.assertEqual(pr.classify("feat: a new thing"), "feature")
+        self.assertEqual(pr.classify("fix(updater): retry"), "fix")
+        self.assertEqual(pr.classify("refactor!: settings moved"), "breaking")
+        self.assertEqual(pr.classify("chore: bump deps"), "none")
+        self.assertEqual(pr.classify("Settings: new layout", "BREAKING CHANGE: old files"), "breaking")
+
+    def test_bumps_follow_semver_and_its_rule_before_1_0(self):
+        self.assertEqual(pr.bump((0, 2, 3), "fix"), (0, 2, 4))
+        self.assertEqual(pr.bump((0, 2, 3), "feature"), (0, 3, 0))
+        self.assertEqual(pr.bump((0, 2, 3), "breaking"), (0, 3, 0))
+        self.assertEqual(pr.bump((1, 2, 3), "breaking"), (2, 0, 0))
+
+    def commits(self, *subjects):
+        return [(f"{i:040d}", subject, "") for i, subject in enumerate(subjects)]
+
+    def test_the_first_release_takes_the_workspace_version(self):
+        tag, why = pr.suggest_version([], self.commits("Launcher: a thing"), "0.1.0", False)
+        self.assertEqual(tag, "launcher-v0.1.0")
+        self.assertIn("first", why)
+        self.assertEqual(pr.suggest_version([], [], "0.1.0", True)[0], "launcher-v0.1.0-beta.1")
+
+    def test_features_bump_the_minor_version_and_fixes_the_patch(self):
+        tags = ["launcher-v0.2.0", "launcher-v0.1.0", "v9.0.0"]
+        features = self.commits("Launcher: fix a crash", "Launcher: a new setting")
+        self.assertEqual(pr.suggest_version(tags, features, "0.1.0", False)[0], "launcher-v0.3.0")
+        fixes = self.commits("Launcher: fix a crash")
+        self.assertEqual(pr.suggest_version(tags, fixes, "0.1.0", False)[0], "launcher-v0.2.1")
+        self.assertEqual(pr.suggest_version(tags, fixes, "0.1.0", True)[0], "launcher-v0.2.1-beta.1")
+
+    def test_a_beta_line_carries_on_or_finishes(self):
+        tags = ["launcher-v0.2.0", "launcher-v0.3.0-beta.1", "launcher-v0.3.0-beta.2"]
+        commits = self.commits("Launcher: a new setting")
+        self.assertEqual(pr.suggest_version(tags, commits, "0.1.0", True)[0], "launcher-v0.3.0-beta.3")
+        self.assertEqual(pr.suggest_version(tags, commits, "0.1.0", False)[0], "launcher-v0.3.0")
+
+    def test_a_named_version_must_be_newer(self):
+        tags = ["launcher-v0.2.0", "launcher-v0.3.0-beta.2"]
+        self.assertEqual(pr.version_problem("launcher-v0.3.0", tags), (None, None))
+        self.assertEqual(pr.version_problem("launcher-v0.3.0-beta.3", tags), (None, None))
+        self.assertEqual(pr.version_problem("launcher-v0.2.1", tags), (None, None))
+        self.assertIn("already exists", pr.version_problem("launcher-v0.2.0", tags)[1])
+        self.assertIn("too old", pr.version_problem("launcher-v0.1.5", tags)[0])
+        self.assertIn("beta.2 already exists", pr.version_problem("launcher-v0.3.0-beta.1", tags)[0])
+        self.assertIn("too old", pr.version_problem("launcher-v0.2.0-beta.5", tags)[0])
+
+    def test_skipping_versions_is_only_noted(self):
+        tags = ["launcher-v0.2.0"]
+        problem, note = pr.version_problem("launcher-v0.5.0", tags)
+        self.assertIsNone(problem)
+        self.assertIn("skips versions", note)
+        self.assertEqual(pr.version_problem("launcher-v1.0.0", tags), (None, None))
+        self.assertEqual(pr.version_problem("launcher-v1.0.0", []), (None, None))
 
 
 class Opening(unittest.TestCase):
