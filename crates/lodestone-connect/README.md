@@ -66,10 +66,13 @@ after `#` never reaches the service. A test service on `ip:port` uses `http://`.
 3. Both send probes: 13 bytes, `LHP2`, an 8-byte tag (the first 8 bytes of
    SHA-256(`"lodestone-connect probe tag\0"` + token)) and a kind byte. The host sprays
    probes at the friend's candidates for a minute; the friend probes the host's and
-   stops at the first packet from the host. That address is the path.
+   stops at the first packet from the host. That address is the path. Anyone with the
+   code can join, with any addresses, so the host probes at most 8 addresses of a join
+   and at most 8 joins at once (a new join stops the oldest).
 4. The friend opens QUIC (ALPN `lodestone-connect-1`, TLS 1.3) to the host on that
-   path, accepting only the certificate whose SHA-256 is in the link. Keep-alives go
-   every 5 seconds; a tunnel with no packets for 30 seconds closes.
+   path, accepting only the certificate whose SHA-256 is in the link. The host first
+   sends a QUIC retry, so the friend shows it gets packets at its address. Keep-alives
+   go every 5 seconds; a tunnel with no packets for 30 seconds closes.
 
 ## Streams
 
@@ -83,6 +86,11 @@ Every stream is a bidirectional QUIC stream opened by the friend. It starts with
 
 The host closes the whole connection on a wrong token or an unknown kind, and closes a
 connection that hasn't sent a stream with the right token within 20 seconds.
+
+Limits on the host, since anyone who reaches its port can connect: 32 friends, 16
+connections at once that haven't shown the token yet, and 2 MiB of unread data per
+connection (512 KiB per stream). Neither side accepts one-way streams or datagrams, and
+the friend accepts no streams from the host.
 
 - **Game (0)**: the rest of the stream is Minecraft's TCP connection, passed to the
   server's game port.
