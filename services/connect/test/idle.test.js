@@ -43,3 +43,25 @@ test('listing joins counts as the host being there', async () => {
   }
   assert.equal((await s.join(code)).status, 200);
 });
+
+test('a kept invite whose host went quiet is offline until its host opens it again', async () => {
+  const created = await s.post('/v1/invites', { candidates: ['203.0.113.5:4000'], keep: true });
+  const { code, secret } = await created.json();
+  await sleep(3500);
+  const offline = await s.join(code);
+  assert.equal(offline.status, 404);
+  assert.equal((await offline.json()).error, 'host_offline');
+  // its host's socket finds it ended, and renews it
+  const late = s.connect(code, secret);
+  await assert.rejects(late.opened);
+  const reopened = await fetch(`${s.base}/v1/invites/${code}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
+    body: JSON.stringify({ candidates: ['203.0.113.6:4000'] }),
+  });
+  assert.equal(reopened.status, 200);
+  assert.equal((await reopened.json()).code, code);
+  const joined = await s.join(code);
+  assert.equal(joined.status, 200);
+  assert.deepEqual(await joined.json(), { host: ['203.0.113.6:4000'] });
+});

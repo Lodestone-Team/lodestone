@@ -112,6 +112,9 @@ zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
 lodestone_minecraft = { path = "../crates/lodestone-minecraft", default-features = false }
 # Debug traces (local only), shared with the core.
 lodestone_trace = { path = "../crates/lodestone-trace" }
+# Lodestone Connect: joining a server a friend shares with an invite link. Only the
+# `join` feature: its crates are all in Zed's lockfile already.
+lodestone_connect = { path = "../crates/lodestone-connect", default-features = false, features = ["join"] }
 # Already in GPUI's tree: the launcher forwards log records to its debug traces.
 log = "0.4.29"
 

@@ -10,8 +10,11 @@
 //   GET    /v1/invites/<code>/joins?after=<n>  (Authorization: Bearer <secret>)
 //            as a WebSocket: {"joins": [...]} now, then one message per join as it comes
 //            plain:          200 {"joins": [{"id", "candidates"}]}, at once
+//   PUT    /v1/invites/<code>             (Authorization: Bearer <secret>) {"candidates": [...]}
+//            -> 200 {"code", "expires_at", "kept_until"?}: renews the invite, or opens a kept one again
 //   DELETE /v1/invites/<code>             (Authorization: Bearer <secret>) -> 200 {"ok": true}
 //   GET    /v1/health                     -> 200 {"ok": true, "version"}
+//   GET    /j/<code>                      -> the invite page people open (HTML)
 //
 // Errors are {"error": "<code>", "message": "<text>"} with a fitting status.
 //
@@ -21,6 +24,12 @@
 // sends "ping" every 30 s, answered by Cloudflare without waking the object. An invite
 // ends when its host has gone quiet for two minutes, when the host deletes it, or after
 // 24 hours, whichever comes first.
+//
+// Stable links: an invite made with {"keep": true} keeps its code for its host for 30
+// days after it was last open. The host renews it (PUT) with its secret, before or after
+// it ends, and gets the same code: a link shared once keeps working whenever the host
+// is sharing. Anyone else gets "host_offline" meanwhile, and a new invite never takes a
+// kept code.
 
 import { DurableObject } from 'cloudflare:workers';
 
@@ -29,13 +38,19 @@ const CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'; // Crockford base32: n
 const CODE_LEN = 10; // 50 bits
 const SECRET_HEX_LEN = 32; // 128 bits
 const MAX_JOINS = 16;
+// A kept invite takes more joins a day: the same friends come back to it.
+const MAX_JOINS_KEPT = 64;
 const MAX_CANDIDATES = 8;
 const MAX_BODY = 4 * 1024;
 const MAX_SOCKETS = 4;
 const IDLE_MS = 120_000;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
-// WebSocket close code for "the invite has ended".
+// How long a kept code stays its host's after the invite was last open.
+const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
+// WebSocket close codes: "the invite has ended", and "the invite was renewed" (wait on
+// it again from join 0).
 const CLOSE_ENDED = 4000;
+const CLOSE_RENEWED = 4001;
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -56,6 +71,7 @@ function error(status, code, message) {
 }
 
 const notFound = () => error(404, 'not_found', 'No such invite. It may have ended.');
+const OFFLINE_MESSAGE = "The host isn't sharing this server right now. Try again when they're online.";
 const badCandidates = () => error(400, 'bad_candidates', 'Send {"candidates": [...]}: 1 to 8 reachable addresses.');
 const unauthorized = () => error(401, 'unauthorized', 'Send the invite secret as "Authorization: Bearer <secret>".');
 
@@ -135,6 +151,7 @@ async function readBody(request) {
   return new TextDecoder().decode(bytes);
 }
 
+/// The body's candidates (and whether it asks to keep the code), or null.
 async function readCandidates(request, allowLoopback) {
   const text = await readBody(request);
   if (text === null) return null;
@@ -147,7 +164,7 @@ async function readCandidates(request, allowLoopback) {
   const list = body?.candidates;
   if (!Array.isArray(list) || list.length < 1 || list.length > MAX_CANDIDATES) return null;
   if (!list.every((a) => validAddress(a, allowLoopback))) return null;
-  return [...new Set(list)];
+  return { candidates: [...new Set(list)], keep: body.keep === true };
 }
 
 /// Only JSON bodies, so a web page elsewhere can't send these from a visitor's browser
@@ -180,7 +197,7 @@ function sameSecret(given, secret) {
 }
 
 function afterParam(url) {
-  return Math.min(MAX_JOINS, Math.max(0, Math.floor(Number(url.searchParams.get('after')) || 0)));
+  return Math.min(MAX_JOINS_KEPT, Math.max(0, Math.floor(Number(url.searchParams.get('after')) || 0)));
 }
 
 /// Cloudflare's rate limiter, keyed by the client's address. Missing in some local
@@ -193,6 +210,106 @@ async function allowed(limiter, request) {
 }
 
 const rateLimited = (what) => error(429, 'rate_limited', `Too many ${what} from this address. Wait a minute.`);
+
+// ---------------------------------------------------------------------------
+// The invite page: https://connect.lodestone.cc/j/<code>#<fingerprint>.<token>
+//
+// What people open from a chat app. It is the same for every code: the script reads the
+// part after "#" in the browser (it never reaches this service) and offers to open the
+// whole link in Lodestone Launcher, as lodestone://join?invite=<link>. It loads nothing
+// from anywhere, so the link goes nowhere else either.
+
+const RELEASES = 'https://github.com/Lodestone-Team/lodestone/releases/download/launcher-latest';
+
+const PAGE_SCRIPT = `
+(function () {
+  var fragment = location.hash.slice(1);
+  var ok = /^[0-9a-f]{64}\\.[0-9a-f]{32}$/.test(fragment);
+  var link = location.origin + location.pathname + '#' + fragment;
+  document.getElementById(ok ? 'invite' : 'broken').hidden = false;
+  if (!ok) return;
+  document.getElementById('open').href = 'lodestone://join?invite=' + encodeURIComponent(link);
+  var copy = document.getElementById('copy');
+  copy.addEventListener('click', function () {
+    navigator.clipboard.writeText(link).then(function () {
+      copy.textContent = 'Copied';
+    });
+  });
+})();
+`;
+
+const PAGE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Join a Minecraft server with Lodestone</title>
+<meta property="og:title" content="Join my Minecraft server">
+<meta property="og:description" content="Open this link in Lodestone Launcher to play together.">
+<style>
+  :root { color-scheme: light dark; --bg: #f6f6f4; --card: #ffffff; --text: #1b1b1a; --muted: #5d5d58; --accent: #2f6f3e; --line: #deded8; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151514; --card: #1f1f1d; --text: #ececea; --muted: #a3a39c; --accent: #4fae66; --line: #34342f; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { width: 100%; max-width: 440px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px 24px; }
+  h1 { font-size: 22px; line-height: 1.25; margin: 0 0 8px; }
+  p { margin: 0 0 16px; color: var(--muted); }
+  .button { display: block; width: 100%; text-align: center; padding: 12px 16px; border-radius: 10px; font-weight: 600; text-decoration: none; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 15px; cursor: pointer; }
+  .primary { background: var(--accent); border-color: var(--accent); color: #fff; margin-bottom: 10px; }
+  .downloads { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  h2 { font-size: 15px; margin: 24px 0 8px; }
+  small { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <div id="invite" hidden>
+    <h1>You're invited to a Minecraft server</h1>
+    <p>A friend is sharing their server with Lodestone. Open the invite in Lodestone Launcher to join them.</p>
+    <a id="open" class="button primary" href="#">Open in Lodestone Launcher</a>
+    <button id="copy" class="button" type="button">Copy invite link</button>
+    <h2>Don't have Lodestone Launcher?</h2>
+    <p>Download it, then come back here and open the invite.</p>
+    <div class="downloads">
+      <a class="button" href="${RELEASES}/LodestoneLauncher.dmg">macOS</a>
+      <a class="button" href="${RELEASES}/LodestoneLauncherSetup.exe">Windows</a>
+    </div>
+    <small>Your game connects straight to your friend's computer. The key in the link stays in your browser: Lodestone's servers never see it.</small>
+  </div>
+  <div id="broken" hidden>
+    <h1>This invite link is cut short</h1>
+    <p>Ask your friend to send the whole link again, including the part after the #.</p>
+  </div>
+  <noscript><p>Copy this page's address and paste it into Lodestone Launcher to join.</p></noscript>
+</main>
+<script>${PAGE_SCRIPT}</script>
+</body>
+</html>
+`;
+
+let pageHash;
+
+async function invitePage(validInviteCode) {
+  if (!validInviteCode) {
+    return new Response('No such invite.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'x-content-type-options': 'nosniff' } });
+  }
+  if (!pageHash) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(PAGE_SCRIPT));
+    pageHash = btoa(String.fromCharCode(...new Uint8Array(digest)));
+  }
+  return new Response(PAGE, {
+    status: 200,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'public, max-age=3600',
+      'content-security-policy': `default-src 'none'; script-src 'sha256-${pageHash}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      'referrer-policy': 'no-referrer',
+      'x-content-type-options': 'nosniff',
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // The Worker
@@ -213,6 +330,9 @@ async function route(request, env) {
   const parts = url.pathname.split('/').filter(Boolean);
   const allowLoopback = env.ALLOW_LOOPBACK === '1';
 
+  if (parts[0] === 'j' && parts.length === 2 && (request.method === 'GET' || request.method === 'HEAD')) {
+    return invitePage(validCode(parts[1].toUpperCase()));
+  }
   if (parts[0] !== 'v1') return error(404, 'unknown', 'Unknown request.');
 
   if (parts.length === 2 && parts[1] === 'health' && request.method === 'GET') {
@@ -224,14 +344,14 @@ async function route(request, env) {
     if (request.method !== 'POST') return error(405, 'method', 'Use POST.');
     if (!(await allowed(env.CREATE_LIMIT, request))) return rateLimited('invites');
     if (!isJson(request)) return error(415, 'not_json', 'Send JSON (Content-Type: application/json).');
-    const host = await readCandidates(request, allowLoopback);
-    if (!host) return badCandidates();
+    const body = await readCandidates(request, allowLoopback);
+    if (!body) return badCandidates();
     const secret = random('0123456789abcdef', SECRET_HEX_LEN);
-    // A 50-bit code is very unlikely to be taken, but never hand out a live one twice.
+    // A 50-bit code is very unlikely to be taken, but never hand out a live or kept one twice.
     for (let attempt = 0; attempt < 3; attempt++) {
       const code = random(CODE_ALPHABET, CODE_LEN);
-      const created = await env.INVITES.get(env.INVITES.idFromName(code)).create(host, secret);
-      if (created) return json(201, { code, secret, expires_at: new Date(created.expiresAt).toISOString() });
+      const created = await env.INVITES.get(env.INVITES.idFromName(code)).create(body.candidates, secret, body.keep);
+      if (created) return json(201, { code, secret, ...dates(created) });
     }
     throw new Error('no free invite code');
   }
@@ -245,7 +365,7 @@ async function route(request, env) {
     if (!isJson(request)) return error(415, 'not_json', 'Send JSON (Content-Type: application/json).');
     const join = await readCandidates(request, allowLoopback);
     if (!join) return badCandidates();
-    const result = await invite.join(join);
+    const result = await invite.join(join.candidates);
     return 'error' in result ? error(result.status, result.error, result.message) : json(200, { host: result.host });
   }
   if (parts.length === 4 && parts[3] === 'joins' && request.method === 'GET') {
@@ -259,6 +379,16 @@ async function route(request, env) {
     const result = await invite.list(secret, afterParam(url));
     return 'error' in result ? error(result.status, result.error, result.message) : json(200, { joins: result.joins });
   }
+  if (parts.length === 3 && request.method === 'PUT') {
+    if (!(await allowed(env.HOST_LIMIT, request))) return rateLimited('requests');
+    const secret = bearer(request);
+    if (!secret) return unauthorized();
+    if (!isJson(request)) return error(415, 'not_json', 'Send JSON (Content-Type: application/json).');
+    const body = await readCandidates(request, allowLoopback);
+    if (!body) return badCandidates();
+    const result = await invite.renew(secret, body.candidates);
+    return 'error' in result ? error(result.status, result.error, result.message) : json(200, { code, ...dates(result) });
+  }
   if (parts.length === 3 && request.method === 'DELETE') {
     if (!(await allowed(env.HOST_LIMIT, request))) return rateLimited('requests');
     const secret = bearer(request);
@@ -269,11 +399,18 @@ async function route(request, env) {
   return error(404, 'unknown', 'Unknown request.');
 }
 
+function dates({ expiresAt, keptUntil }) {
+  const out = { expires_at: new Date(expiresAt).toISOString() };
+  if (keptUntil) out.kept_until = new Date(keptUntil).toISOString();
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // One invite
 
 const gone = { status: 404, error: 'not_found', message: 'No such invite. It may have ended.' };
 const forbidden = { status: 403, error: 'forbidden', message: 'Wrong secret.' };
+const offline = { status: 404, error: 'host_offline', message: OFFLINE_MESSAGE };
 
 export class Invite extends DurableObject {
   constructor(ctx, env) {
@@ -284,7 +421,7 @@ export class Invite extends DurableObject {
     this.idleMs = Number(env.IDLE_MS) || IDLE_MS;
   }
 
-  /// The invite, or null once it has ended (and then it's cleared away).
+  /// The invite, or null once it has ended (and then it's cleared away, but for a kept code).
   async load() {
     const invite = await this.ctx.storage.get('invite');
     if (!invite) return null;
@@ -295,19 +432,52 @@ export class Invite extends DurableObject {
     return invite;
   }
 
-  async create(host, secret) {
-    if (await this.ctx.storage.get('invite')) return null;
+  /// The kept code's record ({secret, until}), or null.
+  async loadKeep() {
+    const keep = await this.ctx.storage.get('keep');
+    return keep && Date.now() < keep.until ? keep : null;
+  }
+
+  async create(host, secret, keep) {
+    if ((await this.ctx.storage.get('invite')) || (await this.loadKeep())) return null;
+    return this.open(host, secret, keep);
+  }
+
+  /// Opens the invite (anew), and keeps the code for its host if `keep`.
+  async open(host, secret, keep) {
     const now = Date.now();
-    const invite = { host, secret, joins: [], createdAt: now, seenAt: now, expiresAt: now + MAX_AGE_MS };
+    const invite = { host, secret, joins: [], kept: keep, createdAt: now, seenAt: now, expiresAt: now + MAX_AGE_MS };
     await this.ctx.storage.put('invite', invite);
+    let keptUntil;
+    if (keep) {
+      keptUntil = now + KEEP_MS;
+      await this.ctx.storage.put('keep', { secret, until: keptUntil });
+    }
     await this.ctx.storage.setAlarm(now + this.idleMs);
-    return { expiresAt: invite.expiresAt };
+    return { expiresAt: invite.expiresAt, keptUntil };
+  }
+
+  /// A new day for the invite with fresh candidates and no joins, or the kept code open
+  /// again after the invite ended. The host's sockets close with CLOSE_RENEWED.
+  async renew(secret, host) {
+    const invite = await this.load();
+    const keep = await this.loadKeep();
+    if (invite) {
+      if (!sameSecret(secret, invite.secret)) return forbidden;
+    } else if (keep) {
+      if (!sameSecret(secret, keep.secret)) return forbidden;
+    } else {
+      return gone;
+    }
+    const opened = await this.open(host, secret, Boolean(invite?.kept || keep));
+    for (const ws of this.ctx.getWebSockets()) closeQuietly(ws, CLOSE_RENEWED, 'renewed');
+    return opened;
   }
 
   async join(candidates) {
     const invite = await this.load();
-    if (!invite) return gone;
-    if (invite.joins.length >= MAX_JOINS) {
+    if (!invite) return (await this.loadKeep()) ? offline : gone;
+    if (invite.joins.length >= (invite.kept ? MAX_JOINS_KEPT : MAX_JOINS)) {
       return { status: 429, error: 'invite_full', message: 'This invite has had too many joins.' };
     }
     const id = invite.joins.length;
@@ -351,15 +521,18 @@ export class Invite extends DurableObject {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  /// Ends the invite for good: a kept code is let go too.
   async end(secret) {
     const invite = await this.load();
-    if (!invite) return gone;
-    if (!sameSecret(secret, invite.secret)) return forbidden;
-    await this.finish();
+    const owner = invite?.secret ?? (await this.loadKeep())?.secret;
+    if (!owner) return gone;
+    if (!sameSecret(secret, owner)) return forbidden;
+    await this.finish(true);
     return {};
   }
 
-  /// Every idleMs (two minutes) or so: end the invite if its host has gone quiet, or it's too old.
+  /// Every idleMs (two minutes) or so: end the invite if its host has gone quiet, or it's
+  /// too old. Once it has ended, when the kept code runs out: let it go.
   async alarm() {
     const invite = await this.ctx.storage.get('invite');
     const now = Date.now();
@@ -397,9 +570,16 @@ export class Invite extends DurableObject {
     return Math.max(ping, ws.deserializeAttachment()?.connectedAt ?? 0);
   }
 
-  async finish() {
-    await this.ctx.storage.deleteAlarm();
-    await this.ctx.storage.deleteAll();
+  /// Ends the invite. A kept code stays its host's until it runs out, unless `release`.
+  async finish(release = false) {
+    const keep = release ? null : await this.loadKeep();
+    if (keep) {
+      await this.ctx.storage.delete('invite');
+      await this.ctx.storage.setAlarm(keep.until);
+    } else {
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+    }
     for (const ws of this.ctx.getWebSockets()) closeQuietly(ws, CLOSE_ENDED, 'ended');
   }
 }

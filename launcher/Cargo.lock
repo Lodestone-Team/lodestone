@@ -3002,6 +3002,7 @@ dependencies = [
  "http_client_tls",
  "image",
  "libc",
+ "lodestone_connect",
  "lodestone_minecraft",
  "lodestone_trace",
  "md-5",
@@ -3166,6 +3167,26 @@ dependencies = [
  "launcher-control",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "lodestone_connect"
+version = "0.5.1"
+dependencies = [
+ "quinn",
+ "ring",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "socket2",
+ "subtle",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "url",
+ "webpki-roots",
 ]
 
 [[package]]
