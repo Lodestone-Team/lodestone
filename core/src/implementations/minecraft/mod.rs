@@ -2,6 +2,7 @@ pub mod configurable;
 pub mod eula;
 pub mod fabric;
 mod forge;
+pub(crate) mod import;
 mod line_parser;
 pub mod r#macro;
 mod paper;
@@ -153,6 +154,15 @@ pub struct SetupConfig {
     pub version: String,
     pub flavour: Flavour,
     pub port: u32,
+    /// A server folder, or a `.zip` of one, to import instead of downloading a server jar.
+    /// The setup handler checks that the requester may read it and that it is safe to
+    /// import. Never read from or written to JSON, so only that handler can set it.
+    #[serde(skip)]
+    pub existing_server_path: Option<PathBuf>,
+    /// Whether the import may bring script files: only when the owner imports, while code
+    /// execution is on.
+    #[serde(skip)]
+    pub import_scripts: bool,
     pub cmd_args: Vec<String>,
     pub description: Option<String>,
     pub min_ram: Option<u32>,
@@ -560,6 +570,17 @@ impl MinecraftInstance {
             true,
         );
 
+        let existing_server_path_setting = SettingManifest::new_optional_value(
+            "existing_server_path".to_string(),
+            "Existing Server Path".to_string(),
+            "Absolute path of an existing server folder, or a .zip of one, with a server.jar to import instead of downloading a server. Its version must match the version above. Requires access to the host's files".to_string(),
+            None,
+            ConfigurableValueType::String { regex: None },
+            None,
+            false,
+            true,
+        );
+
         let min_ram_setting = SettingManifest::new_value_with_type(
             "min_ram".to_string(),
             "Minimum RAM".to_string(),
@@ -603,6 +624,10 @@ impl MinecraftInstance {
 
         section_1_map.insert("version".to_string(), version_setting);
         section_1_map.insert("port".to_string(), port_setting);
+        section_1_map.insert(
+            "existing_server_path".to_string(),
+            existing_server_path_setting,
+        );
 
         let mut section_2_map = IndexMap::new();
 
@@ -659,6 +684,31 @@ impl MinecraftInstance {
         if min_ram > max_ram {
             return Err(bad_request("Minimum RAM cannot be larger than maximum RAM"));
         }
+        let existing_server_path = match setup_value
+            .get_unique_setting("existing_server_path")
+            .and_then(|s| s.get_value())
+        {
+            Some(value) => {
+                let path = value.try_as_string()?.trim();
+                if path.is_empty() {
+                    None
+                } else {
+                    let path = PathBuf::from(path);
+                    if !path.is_absolute() {
+                        return Err(bad_request(
+                            "The existing server path must be an absolute path",
+                        ));
+                    }
+                    if matches!(flavour, FlavourKind::Forge) {
+                        return Err(bad_request(
+                            "Importing an existing server is not supported for Forge",
+                        ));
+                    }
+                    Some(path)
+                }
+            }
+            None => None,
+        };
         let cmd_args = match setup_value
             .get_unique_setting("cmd_args")
             .and_then(|s| s.get_value())
@@ -672,6 +722,8 @@ impl MinecraftInstance {
             description: setup_value.description.clone(),
             version,
             port,
+            existing_server_path,
+            import_scripts: false,
             min_ram: Some(min_ram),
             max_ram: Some(max_ram),
             cmd_args,
@@ -729,36 +781,58 @@ impl MinecraftInstance {
 
     /// Creates the folders and first files of a new instance: `eula.txt` (with the EULA
     /// accepted only if the user agreed to it) and `server.properties` with the port.
+    ///
+    /// An imported server keeps its own `eula.txt` unless the user agreed to the EULA now,
+    /// and keeps its `server.properties` with only `server-port` changed.
     pub(crate) async fn create_instance_files(
         path_to_instance: &Path,
         config: &SetupConfig,
     ) -> Result<(), Error> {
+        let importing = config.existing_server_path.is_some();
         let path_to_resources = path_to_instance.join("resources");
+        let path_to_eula = path_to_instance.join(eula::EULA_FILE);
+        let path_to_properties = path_to_instance.join("server.properties");
+        let keep_eula = importing
+            && !config.accept_eula
+            && tokio::fs::try_exists(&path_to_eula).await.unwrap_or(false);
+        let keep_properties = importing
+            && tokio::fs::try_exists(&path_to_properties)
+                .await
+                .unwrap_or(false);
+        let write_eula = async {
+            if keep_eula {
+                Ok(())
+            } else {
+                tokio::fs::write(&path_to_eula, eula::eula_file_content(config.accept_eula)).await
+            }
+        };
+        let write_properties = async {
+            if keep_properties {
+                Ok(())
+            } else {
+                tokio::fs::write(
+                    &path_to_properties,
+                    format!("server-port={}\n", config.port),
+                )
+                .await
+            }
+        };
         tokio::fs::create_dir_all(path_to_instance)
             .await
             .and(tokio::fs::create_dir_all(path_to_instance.join("macros")).await)
             .and(tokio::fs::create_dir_all(path_to_resources.join("mods")).await)
             .and(tokio::fs::create_dir_all(path_to_resources.join("worlds")).await)
             .and(tokio::fs::create_dir_all(path_to_resources.join("defaults")).await)
-            .and(
-                tokio::fs::write(
-                    path_to_instance.join(eula::EULA_FILE),
-                    eula::eula_file_content(config.accept_eula),
-                )
-                .await,
-            )
-            .and(
-                tokio::fs::write(
-                    path_to_instance.join("server.properties"),
-                    format!("server-port={}\n", config.port),
-                )
-                .await,
-            )
+            .and(write_eula.await)
+            .and(write_properties.await)
             .context("Could not create some files or directories for the server")
             .map_err(|e| {
                 error!("{e}");
                 e
             })?;
+        if keep_properties {
+            import::set_port(&path_to_properties, config.port).await?;
+        }
         Ok(())
     }
 
@@ -779,6 +853,29 @@ impl MinecraftInstance {
             "1/4: Creating directories",
             1.0,
         ));
+        let importing = config.existing_server_path.is_some();
+        if importing && matches!(config.flavour, Flavour::Forge { .. }) {
+            return Err(bad_request(
+                "Importing an existing server is not supported for Forge",
+            ));
+        }
+        if let Some(source) = config.existing_server_path.clone() {
+            tokio::fs::create_dir_all(&path_to_instance)
+                .await
+                .context("Could not create the instance directory")
+                .map_err(|e| {
+                    error!("{e}");
+                    e
+                })?;
+            // The files go in first, so that the folders and files created below only
+            // fill in what the imported server does not have.
+            import::import_into(source, path_to_instance.clone(), config.import_scripts)
+                .await
+                .map_err(|e| {
+                    error!("Could not import the existing server: {e}");
+                    e
+                })?;
+        }
         Self::create_instance_files(&path_to_instance, &config).await?;
 
         // Step 2: Download JRE
@@ -809,54 +906,64 @@ impl MinecraftInstance {
             ));
         }
 
-        // Step 3: Download server.jar
-        let flavour_name = config.flavour.to_string();
-        let (jar_url, flavour) = get_server_jar_url(config.version.as_str(), &config.flavour)
-            .await
-            .context(format!(
-                "Could not find a {} server.jar for version {}",
-                flavour_name, config.version
-            ))?;
-        let jar_name = match flavour {
-            Flavour::Forge { .. } => "forge-installer.jar",
-            _ => "server.jar",
-        };
+        // Step 3: Download server.jar (an imported server brings its own)
+        let flavour = if importing {
+            event_broadcaster.send(Event::new_progression_event_update(
+                progression_event_id,
+                "3/4: Using the imported server.jar",
+                3.0,
+            ));
+            config.flavour.clone()
+        } else {
+            let flavour_name = config.flavour.to_string();
+            let (jar_url, flavour) = get_server_jar_url(config.version.as_str(), &config.flavour)
+                .await
+                .context(format!(
+                    "Could not find a {} server.jar for version {}",
+                    flavour_name, config.version
+                ))?;
+            let jar_name = match flavour {
+                Flavour::Forge { .. } => "forge-installer.jar",
+                _ => "server.jar",
+            };
 
-        download_file(
-            jar_url.as_str(),
-            &path_to_instance,
-            Some(jar_name),
-            {
-                let event_broadcaster = event_broadcaster.clone();
-                &move |dl| {
-                    if let Some(total) = dl.total {
-                        event_broadcaster.send(Event::new_progression_event_update(
-                            progression_event_id,
-                            format!(
-                                "3/4: Downloading {} {} {}",
-                                flavour_name,
-                                jar_name,
-                                format_byte_download(dl.downloaded, total),
-                            ),
-                            (dl.step as f64 / total as f64) * 3.0,
-                        ));
-                    } else {
-                        event_broadcaster.send(Event::new_progression_event_update(
-                            progression_event_id,
-                            format!(
-                                "3/4: Downloading {} {} {}",
-                                flavour_name,
-                                jar_name,
-                                format_byte(dl.downloaded),
-                            ),
-                            0.0,
-                        ));
+            download_file(
+                jar_url.as_str(),
+                &path_to_instance,
+                Some(jar_name),
+                {
+                    let event_broadcaster = event_broadcaster.clone();
+                    &move |dl| {
+                        if let Some(total) = dl.total {
+                            event_broadcaster.send(Event::new_progression_event_update(
+                                progression_event_id,
+                                format!(
+                                    "3/4: Downloading {} {} {}",
+                                    flavour_name,
+                                    jar_name,
+                                    format_byte_download(dl.downloaded, total),
+                                ),
+                                (dl.step as f64 / total as f64) * 3.0,
+                            ));
+                        } else {
+                            event_broadcaster.send(Event::new_progression_event_update(
+                                progression_event_id,
+                                format!(
+                                    "3/4: Downloading {} {} {}",
+                                    flavour_name,
+                                    jar_name,
+                                    format_byte(dl.downloaded),
+                                ),
+                                0.0,
+                            ));
+                        }
                     }
-                }
-            },
-            true,
-        )
-        .await?;
+                },
+                true,
+            )
+            .await?;
+            flavour
+        };
         let jre = java_binary(&path_to_runtimes, jre_major_version);
         // Step 3 (part 2): Forge Setup
         if let Flavour::Forge { .. } = flavour.clone() {
@@ -1280,6 +1387,9 @@ mod tests {
             serde_json::json!(["1.21.1", "1.20.1"])
         );
         assert_eq!(basic["port"]["value"]["value"], 25565);
+        // importing a server is optional
+        assert!(basic["existing_server_path"]["value"].is_null());
+        assert_eq!(basic["existing_server_path"]["is_required"], false);
         let advanced = &json["setting_sections"]["section_2"]["settings"];
         let mut keys: Vec<_> = advanced.as_object().unwrap().keys().collect();
         keys.sort();

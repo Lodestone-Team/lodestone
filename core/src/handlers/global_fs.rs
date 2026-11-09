@@ -260,7 +260,7 @@ async fn reject_protected_change(path: &std::path::Path) -> Result<(), Error> {
 /// Canonicalizes `path` and rejects it if it is Lodestone's own data: the `stores` folder,
 /// which holds users.json with every user's password hash and token secret and the API
 /// keys, the playit.gg key, and the `local_claim` folder. This applies to every user, including users with `ReadGlobalFile`.
-async fn canonicalize_global_read(
+pub(super) async fn canonicalize_global_read(
     path: &std::path::Path,
     include_parents: bool,
 ) -> Result<PathBuf, Error> {
