@@ -1,0 +1,72 @@
+<svg
+   width="120mm"
+   height="120mm"
+   viewBox="0 0 120 120"
+   version="1.1"
+   id="svg5"
+   sodipodi:docname="Minecraft missing texture block.svg"
+   inkscape:version="1.1 (1:1.1+202105261517+ce6663b3b7)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#ffffff"
+     bordercolor="#cccccc"
+     borderopacity="1"
+     inkscape:pageshadow="0"
+     inkscape:pageopacity="1"
+     inkscape:pagecheckerboard="0"
+     inkscape:document-units="mm"
+     showgrid="false"
+     inkscape:zoom="0.73584456"
+     inkscape:cx="181.42419"
+     inkscape:cy="118.91098"
+     inkscape:window-width="1848"
+     inkscape:window-height="1016"
+     inkscape:window-x="0"
+     inkscape:window-y="27"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1"
+     fit-margin-top="0"
+     fit-margin-left="0"
+     fit-margin-right="0"
+     fit-margin-bottom="0" />
+  <defs
+     id="defs2" />
+  <g
+     inkscape:label="レイヤー 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(-21.464918,-29.913206)">
+    <rect
+       style="fill:#fb40f9;fill-opacity:1;stroke-width:0"
+       id="rect846"
+       width="60"
+       height="60"
+       x="21.464918"
+       y="29.913206" />
+    <rect
+       style="fill:#fb40f9;fill-opacity:1;stroke-width:0"
+       id="rect19764"
+       width="60"
+       height="60"
+       x="81.46492"
+       y="89.913208" />
+    <rect
+       style="fill:#000000;fill-opacity:1;stroke-width:0"
+       id="rect19766"
+       width="60"
+       height="60"
+       x="81.46492"
+       y="29.913208" />
+    <rect
+       style="fill:#000000;fill-opacity:1;stroke-width:0"
+       id="rect19768"
+       width="60"
+       height="60"
+       x="21.46492"
+       y="89.913208" />
+  </g>
+</svg>
