@@ -280,7 +280,8 @@ lodestone-launcher-cli skins check                    # the one in use, or an id
 lodestone-launcher-cli skins fix cozy                 # apply the suggested fixes (not built-ins)
 ```
 
-Readability is the skin's job: the launcher doesn't adjust a skin's colours. `skins
+To make a skin, see `launcher/skills/create-skin/SKILL.md`. Readability is the
+skin's job: the launcher doesn't adjust a skin's colours. `skins
 check` lists each surface's text with its contrast (`ratio`), the `target` (4.5 for
 text, 3 for labels and hints) and a suggested `fix` such as
 `surfaces.sidebar.muted = #D9CDBE`; `passes` is true when nothing falls short. An
