@@ -41,7 +41,8 @@ pub fn extract(jar: &Path, dest: &Path, exclude: &[String]) -> Result<Vec<PathBu
         move |source| NativesError::Io { path, source }
     };
     let file = File::open(jar).map_err(|err| bad_jar(err.to_string()))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|err| bad_jar(err.to_string()))?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
+        .map_err(|err| bad_jar(err.to_string()))?;
     fs::create_dir_all(dest).map_err(io_err(dest))?;
 
     // Check every entry before writing anything.

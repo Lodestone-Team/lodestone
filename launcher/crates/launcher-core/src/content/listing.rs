@@ -73,6 +73,52 @@ pub struct Listing {
 /// Brings `content.json` up to date with the folder of `kind`: new and changed files are
 /// hashed, and, with `api`, files without a source are looked up on Modrinth by SHA-1.
 /// Returns the files, the provenance, and why the lookup failed if it did.
+/// The sha512 and sha1 of each of `files`, in order, read on several threads. A file
+/// whose sha512 matches what `provenance` has keeps its known sha1.
+fn hash_files(
+    dir: &std::path::Path,
+    files: &[&ScannedFile],
+    provenance: &Provenance,
+    kind: ContentKind,
+) -> Result<Vec<(String, String)>, ContentError> {
+    if files.is_empty() {
+        return Ok(Vec::new());
+    }
+    let threads = std::thread::available_parallelism()
+        .map_or(4, |n| n.get())
+        .min(files.len())
+        .max(1);
+    let hash_one = |file: &ScannedFile| -> Result<(String, String), ContentError> {
+        let path = dir.join(&file.file_name);
+        let sha512 = hash::sha512_of(&path).map_err(io_error(&path))?;
+        let known = provenance
+            .get(kind, &file.file_name)
+            .filter(|e| e.sha512 == sha512)
+            .map(|e| e.sha1.clone());
+        let sha1 = match known {
+            Some(sha1) => sha1,
+            None => hash::sha1_of(&path).map_err(io_error(&path))?,
+        };
+        Ok((sha512, sha1))
+    };
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = files
+            .chunks(files.len().div_ceil(threads))
+            .map(|chunk| scope.spawn(move || chunk.iter().map(|f| hash_one(f)).collect::<Vec<_>>()))
+            .collect();
+        let mut out = Vec::with_capacity(files.len());
+        for handle in handles {
+            let results = handle
+                .join()
+                .map_err(|_| ContentError::Invalid("Hashing a file failed.".into()))?;
+            for result in results {
+                out.push(result?);
+            }
+        }
+        Ok(out)
+    })
+}
+
 pub async fn refresh(
     api: Option<&Modrinth>,
     dirs: &InstanceDirs,
@@ -83,18 +129,16 @@ pub async fn refresh(
     let before = provenance.clone();
     provenance.retain_present(kind, &files);
     let dir = dirs.content_dir(kind);
-    for file in files.iter().filter(|f| !f.is_dir) {
-        if provenance.current(file).is_some() {
-            continue;
-        }
-        let path = dir.join(&file.file_name);
-        let sha512 = hash::sha512_of(&path).map_err(io_error(&path))?;
+    // Files not hashed yet (new, or changed since): hashed on up to one thread per
+    // core, since a new instance's first listing hashes every file.
+    let stale: Vec<&ScannedFile> = files
+        .iter()
+        .filter(|f| !f.is_dir && provenance.current(f).is_none())
+        .collect();
+    let hashed = hash_files(&dir, &stale, &provenance, kind)?;
+    for (file, (sha512, sha1)) in stale.into_iter().zip(hashed) {
         let old = provenance.get(kind, &file.file_name).cloned();
         let same = old.as_ref().filter(|e| e.sha512 == sha512);
-        let sha1 = match same {
-            Some(entry) => entry.sha1.clone(),
-            None => hash::sha1_of(&path).map_err(io_error(&path))?,
-        };
         provenance.insert(
             kind,
             &file.file_name,

@@ -265,7 +265,7 @@ pub enum InstallerProfile {
 /// An installer jar, opened with zip 0.6.6.
 pub struct InstallerJar {
     path: PathBuf,
-    archive: zip::ZipArchive<File>,
+    archive: zip::ZipArchive<std::io::BufReader<File>>,
 }
 
 impl InstallerJar {
@@ -273,7 +273,7 @@ impl InstallerJar {
         let file = File::open(path).map_err(|err| {
             LoaderError::Invalid(format!("couldn't open {}: {err}", path.display()))
         })?;
-        let archive = zip::ZipArchive::new(file).map_err(|err| {
+        let archive = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|err| {
             LoaderError::Invalid(format!(
                 "{} is not a valid installer: {err}",
                 path.display()

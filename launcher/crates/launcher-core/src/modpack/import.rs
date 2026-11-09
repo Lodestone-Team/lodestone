@@ -157,7 +157,8 @@ pub(crate) fn extract_overrides(
     cancel: &CancelToken,
 ) -> Result<(), ModpackError> {
     let file = File::open(pack_path).map_err(io_error(pack_path))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(super::zip_error)?;
+    let mut archive =
+        zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(super::zip_error)?;
     for (file, dest) in files {
         if cancel.is_cancelled() {
             return Err(ModpackError::Cancelled);

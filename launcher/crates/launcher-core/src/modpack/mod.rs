@@ -351,7 +351,7 @@ pub fn cdn_ids(url: &url::Url) -> Option<(String, String)> {
 /// why.
 pub fn read_pack(path: &Path) -> Result<PackInfo, ModpackError> {
     let file = File::open(path).map_err(io_error(path))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(zip_error)?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(zip_error)?;
     if archive.len() > MAX_ENTRIES {
         return Err(ModpackError::Invalid(format!(
             "The modpack is unsafe: it has more than {MAX_ENTRIES} files"

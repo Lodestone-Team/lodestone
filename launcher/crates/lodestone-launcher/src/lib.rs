@@ -256,6 +256,54 @@ mod screenshot {
                     .timer(Duration::from_millis(150))
                     .await;
             }
+            // `--click X,Y` (repeatable as X,Y;X,Y): left clicks at window points, each
+            // followed by a short wait, to check how a control responds.
+            if let Some(clicks) = arg_after("--click") {
+                for at in clicks.split(';') {
+                    let Some((x, y)) = at.split_once(',') else {
+                        continue;
+                    };
+                    let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>()) else {
+                        continue;
+                    };
+                    let position = gpui::point(gpui::px(x), gpui::px(y));
+                    window
+                        .update(cx, |_, window, cx| {
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                    position,
+                                    ..Default::default()
+                                }),
+                                cx,
+                            );
+                            window.draw(cx).clear(cx);
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                    button: gpui::MouseButton::Left,
+                                    position,
+                                    modifiers: Default::default(),
+                                    click_count: 1,
+                                    first_mouse: false,
+                                }),
+                                cx,
+                            );
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                    button: gpui::MouseButton::Left,
+                                    position,
+                                    modifiers: Default::default(),
+                                    click_count: 1,
+                                }),
+                                cx,
+                            );
+                            window.draw(cx).clear(cx);
+                        })
+                        .ok();
+                    cx.background_executor()
+                        .timer(Duration::from_millis(600))
+                        .await;
+                }
+            }
             if let Some(steps) = arg_after("--bench-scroll").and_then(|n| n.parse().ok()) {
                 bench_scroll(window, steps, cx);
             }

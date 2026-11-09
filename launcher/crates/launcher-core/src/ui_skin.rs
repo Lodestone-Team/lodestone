@@ -861,7 +861,7 @@ fn read_folder(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, SkinError> {
 /// The files of a pack .zip: flat, or all in one folder.
 fn read_zip(path: &Path) -> Result<Vec<(String, Vec<u8>)>, SkinError> {
     let file = fs::File::open(path)?;
-    let mut zip = zip::ZipArchive::new(file)
+    let mut zip = zip::ZipArchive::new(std::io::BufReader::new(file))
         .map_err(|err| SkinError::Invalid(format!("not a .zip file ({err})")))?;
     let mut names = Vec::new();
     for index in 0..zip.len() {
