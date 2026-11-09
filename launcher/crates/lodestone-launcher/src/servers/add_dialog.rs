@@ -323,7 +323,7 @@ impl Render for AddServerDialog {
                         }
                     })
                     .child(choice.label())
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_press(cx.listener(move |this, _, _, cx| {
                         this.expiry = choice;
                         cx.notify();
                     }))

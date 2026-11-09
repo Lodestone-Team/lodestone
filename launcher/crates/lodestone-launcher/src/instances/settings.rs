@@ -1129,7 +1129,7 @@ impl InstanceSettings {
                                         format!("{skin}: {banner}"),
                                         thumb.clone(),
                                     )
-                                    .on_click(cx.listener(
+                                    .on_press(cx.listener(
                                         move |this, _, _, cx| {
                                             this.use_banner(skin.clone(), banner.clone(), cx)
                                         },
@@ -1279,7 +1279,7 @@ impl InstanceSettings {
                         .file_name()
                         .map(|name| name.to_string_lossy().to_string())
                         .unwrap_or_default();
-                    thumb_tile(("background-shot", index), label, thumb.clone()).on_click(
+                    thumb_tile(("background-shot", index), label, thumb.clone()).on_press(
                         cx.listener(move |this, _, _, cx| {
                             if add {
                                 this.add_own_images(vec![path.clone()], cx);
@@ -1389,7 +1389,7 @@ impl InstanceSettings {
                         .border_t_1()
                         .border_color(crate::theme::ink::border())
                         .child(
-                            link("background-file", t(M::ChooseFile)).on_click(cx.listener(
+                            link("background-file", t(M::ChooseFile)).on_press(cx.listener(
                                 |this, _, _, cx| {
                                     this.background_picker = false;
                                     this.choose_background(cx);
@@ -1398,7 +1398,7 @@ impl InstanceSettings {
                         )
                         .when(has_background, |this| {
                             this.child(div().flex_1()).child(
-                                muted_link("background-default", t(M::UseDefault)).on_click(
+                                muted_link("background-default", t(M::UseDefault)).on_press(
                                     cx.listener(|this, _, _, cx| {
                                         this.set_background_tab(BackgroundTab::Default, cx)
                                     }),
@@ -1438,7 +1438,7 @@ impl InstanceSettings {
                         Some(SlideshowSource::Custom) => this
                             .child(self.own_images_grid(cx))
                             .child(div().flex().child(
-                                link("add-own-images", t(M::AddImages)).on_click(
+                                link("add-own-images", t(M::AddImages)).on_press(
                                     cx.listener(|this, _, _, cx| this.pick_own_images(cx)),
                                 ),
                             ))
@@ -1531,7 +1531,7 @@ impl InstanceSettings {
                     }
                 })
                 .child(label)
-                .on_click(cx.listener(move |this, _, _, cx| {
+                .on_press(cx.listener(move |this, _, _, cx| {
                     this.icon_picker = Some(this_tab);
                     cx.notify();
                 }))
@@ -1578,7 +1578,7 @@ impl InstanceSettings {
                             let value = IconChoice::library(name);
                             tile(("icon-library", index), SharedString::from(*name), selected)
                                 .child(img(appearance::library_image(name)).size(px(36.)))
-                                .on_click(cx.listener(move |this, _, _, cx| {
+                                .on_press(cx.listener(move |this, _, _, cx| {
                                     this.pick_icon(Some(value.clone()), cx)
                                 }))
                         }),
@@ -1619,7 +1619,7 @@ impl InstanceSettings {
                                     } else {
                                         colors::TRANSPARENT
                                     })
-                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                    .on_press(cx.listener(move |this, _, _, cx| {
                                         this.emoji_tile = color;
                                         cx.notify();
                                     }))
@@ -1634,7 +1634,7 @@ impl InstanceSettings {
                         let value = IconChoice::emoji(tile_color, emoji);
                         tile(("icon-emoji", index), SharedString::from(*emoji), selected)
                             .child(appearance::emoji_tile(emoji, tile_color, px(36.)))
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                            .on_press(cx.listener(move |this, _, _, cx| {
                                 this.pick_icon(Some(value.clone()), cx)
                             }))
                     })),
@@ -1672,7 +1672,7 @@ impl InstanceSettings {
                     .pt_2()
                     .border_t_1()
                     .border_color(crate::theme::ink::border())
-                    .child(link("icon-upload", t(M::UploadImage)).on_click(cx.listener(
+                    .child(link("icon-upload", t(M::UploadImage)).on_press(cx.listener(
                         |this, _, _, cx| {
                             this.icon_picker = None;
                             this.choose_icon(cx);
@@ -1681,7 +1681,7 @@ impl InstanceSettings {
                     .child(div().flex_1())
                     .child(
                         muted_link("icon-default", t(M::UseDefault))
-                            .on_click(cx.listener(|this, _, _, cx| this.pick_icon(None, cx))),
+                            .on_press(cx.listener(|this, _, _, cx| this.pick_icon(None, cx))),
                     ),
             )
             .into_any_element()
@@ -1888,7 +1888,7 @@ impl InstanceSettings {
                 .when_some(page, |row, page| {
                     row.child(
                         link("modpack-page", t(M::ViewOnModrinth))
-                            .on_click(move |_, _, cx| cx.open_url(&page)),
+                            .on_press(move |_, _, cx| cx.open_url(&page)),
                     )
                 })
                 .into_any_element(),
@@ -1927,7 +1927,7 @@ impl InstanceSettings {
                     .on_click(cx.listener(|this, _, _, cx| this.unlink(cx))),
             )
             .child(
-                muted_link("cancel-unlink", t(CommonMsg::Cancel)).on_click(cx.listener(
+                muted_link("cancel-unlink", t(CommonMsg::Cancel)).on_press(cx.listener(
                     |this, _, _, cx| {
                         this.confirm_unlink = false;
                         cx.notify();
@@ -1937,7 +1937,7 @@ impl InstanceSettings {
             .note(t(M::UnlinkNote), colors::GRAY_400)
         } else {
             row.child(
-                muted_link("unlink", t(M::Unlink)).on_click(cx.listener(|this, _, _, cx| {
+                muted_link("unlink", t(M::Unlink)).on_press(cx.listener(|this, _, _, cx| {
                     this.confirm_unlink = true;
                     cx.notify();
                 })),
@@ -1975,7 +1975,7 @@ impl InstanceSettings {
                     SharedString::from(format!("reset-{}", setting.id())),
                     t(CommonMsg::Reset),
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.reset(setting, cx))),
+                .on_press(cx.listener(move |this, _, _, cx| this.reset(setting, cx))),
             )
         } else {
             row.child(value(inherited, true))
@@ -1985,7 +1985,7 @@ impl InstanceSettings {
                         SharedString::from(format!("change-{}", setting.id())),
                         t(M::ChangeSetting),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| this.change(setting, cx))),
+                    .on_press(cx.listener(move |this, _, _, cx| this.change(setting, cx))),
                 )
         }
     }
@@ -2026,13 +2026,13 @@ impl InstanceSettings {
                 t(ShellMsg::SkinUseSkins),
                 value.is_none(),
             )
-            .on_click(cx.listener(move |this, _, _, cx| pick(this, None, cx)))
+            .on_press(cx.listener(move |this, _, _, cx| pick(this, None, cx)))
             .into_any_element(),
         ];
         for (i, rgb) in BRIGHT.iter().map(|&c| Rgb(c)).enumerate() {
             choices.push(
                 swatch(("instance-color", base + 1 + i), rgb, value == Some(rgb))
-                    .on_click(cx.listener(move |this, _, _, cx| pick(this, Some(rgb), cx)))
+                    .on_press(cx.listener(move |this, _, _, cx| pick(this, Some(rgb), cx)))
                     .into_any_element(),
             );
         }
@@ -2602,7 +2602,7 @@ impl Render for InstanceSettings {
             root.flex_col()
                 .gap_3()
                 .child(div().flex().flex_row().child(
-                    section_menu_button("instance-settings-menu", title).on_click(cx.listener(
+                    section_menu_button("instance-settings-menu", title).on_press(cx.listener(
                         |this, _, _, cx| {
                             this.nav_open = !this.nav_open;
                             cx.notify();

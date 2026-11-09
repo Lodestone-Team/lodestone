@@ -284,7 +284,7 @@ impl LoaderPicker {
                         }
                     })
                     .child(label)
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_kind(kind, cx)))
+                    .on_press(cx.listener(move |this, _, _, cx| this.set_kind(kind, cx)))
             }))
     }
 
@@ -375,7 +375,7 @@ impl LoaderPicker {
                     .aria_value(chosen_text)
                     .expandable(self.open, toggle)
                     .when(form, |this| this.w(px(300.)).justify_between())
-                    .on_click(cx.listener(|this, _, _, cx| {
+                    .on_press(cx.listener(|this, _, _, cx| {
                         this.open = !this.open;
                         cx.notify();
                     })),
@@ -405,7 +405,7 @@ impl LoaderPicker {
                                             let selected =
                                                 this.selected.as_deref() == Some(&version.id);
                                             let id = version.id.clone();
-                                            version_row(index, version, selected).on_click(
+                                            version_row(index, version, selected).on_press(
                                                 cx.listener(move |this, _, _, cx| {
                                                     this.selected = Some(id.clone());
                                                     this.touched = true;

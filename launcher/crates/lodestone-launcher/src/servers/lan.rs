@@ -414,7 +414,7 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
                             .child(name),
                     )
                     .child(note(detail).flex_none())
-                    .on_click(move |_, _, cx| {
+                    .on_press(move |_, _, cx| {
                         servers.update(cx, |this, cx| this.join_lan(&pick, cx))
                     })
             })),

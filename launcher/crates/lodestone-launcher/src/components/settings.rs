@@ -491,7 +491,7 @@ pub fn section_list(
                     }
                 })
                 .child(title.clone())
-                .on_click(move |_, window, cx| on_pick(index, window, cx))
+                .on_press(move |_, window, cx| on_pick(index, window, cx))
         }))
 }
 
@@ -625,7 +625,7 @@ impl Toast {
                 pill.child(
                     link("toast-action", label)
                         .ml_1()
-                        .on_click(move |_, window, cx| action(window, cx)),
+                        .on_press(move |_, window, cx| action(window, cx)),
                 )
             })
             .with_animation(
@@ -702,7 +702,7 @@ pub fn left_overlay(
                 .absolute()
                 .inset_0()
                 .bg(colors::GRAY_900.opacity(60))
-                .on_click(move |event, window, cx| on_close(event, window, cx)),
+                .on_press(move |event, window, cx| on_close(event, window, cx)),
         )
         .child(
             div()
@@ -785,7 +785,7 @@ pub fn unsaved_bar(
                         .text_color(crate::theme::ink::text())
                         .child(message),
                 )
-                .child(muted_link((id, 0usize), t(CommonMsg::Discard)).on_click(on_discard))
+                .child(muted_link((id, 0usize), t(CommonMsg::Discard)).on_press(on_discard))
                 .child(
                     crate::components::Button::new((id, 1usize), t(CommonMsg::Save))
                         .variant(crate::components::ButtonVariant::Primary)

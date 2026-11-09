@@ -166,7 +166,7 @@ pub(crate) fn pills(
                 .when(index != selected, |this| {
                     this.hover(|style| style.text_color(crate::theme::ink::secondary()))
                 })
-                .on_click({
+                .on_press({
                     let (pills, label) = (id, label.clone());
                     move |_, window, cx| {
                         crate::components::trace_ui(
@@ -1619,7 +1619,7 @@ impl ContentView {
                             this.keyboard_focus()
                                 .cursor_pointer()
                                 .hover(|style| style.bg(colors::GRAY_750))
-                                .on_click(
+                                .on_press(
                                     cx.listener(|this, _, _, cx| this.select_shader(None, cx)),
                                 )
                         })
@@ -1688,7 +1688,7 @@ impl ContentView {
                                 this.keyboard_focus()
                                     .cursor_pointer()
                                     .hover(|style| style.bg(colors::GRAY_750))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                    .on_press(cx.listener(move |this, _, _, cx| {
                                         this.select_shader(Some(name.clone()), cx)
                                     }))
                             })
@@ -1763,7 +1763,7 @@ impl ContentView {
                         .ok();
                     }
                 })
-                .on_click(cx.listener(|this, _, _, cx| {
+                .on_press(cx.listener(|this, _, _, cx| {
                     this.sort_open = !this.sort_open;
                     cx.notify();
                 })),
@@ -1836,7 +1836,7 @@ impl ContentView {
                 this.child(Icon::Check.render(px(10.), colors::WHITE))
             })
             .child(tr!(M::OnlyTarget, target = target))
-            .on_click(cx.listener(move |this, _, _, cx| this.set_only_compatible(kind, !only, cx)));
+            .on_press(cx.listener(move |this, _, _, cx| this.set_only_compatible(kind, !only, cx)));
         div()
             .flex()
             .flex_row()
@@ -1924,7 +1924,7 @@ impl ContentView {
             .keyboard_focus()
             .cursor_pointer()
             .hover(|style| style.bg(colors::GRAY_750))
-            .on_click(
+            .on_press(
                 cx.listener(move |this, _, _, cx| this.open_project(kind, id.clone(), None, cx)),
             )
             .child(icon_box(icon, 36.))

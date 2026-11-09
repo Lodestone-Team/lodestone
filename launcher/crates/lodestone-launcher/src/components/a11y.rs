@@ -11,11 +11,13 @@
 //! div()
 //!     .id("open-folder")
 //!     .accessible(Role::Button, "open-folder", t(InstancesMsg::OpenFolder))
-//!     .on_click(...)
+//!     .on_press(...)
 //! ```
 //!
-//! `on_click` already registers the accessible Click action (UIA's Invoke pattern), and
-//! a tracked focus handle the Focus action. Values, toggles and selections need their
+//! Use [`Accessible::on_press`] in place of `on_click` on such an element: it also
+//! answers assistive technology's Click (UIA's Invoke, Toggle and Select) by calling
+//! the handler, where GPUI alone would click the element's centre on screen and miss
+//! one scrolled out of view. A tracked focus handle gives the Focus action. Values, toggles and selections need their
 //! `aria_*` setters, and setting a value needs an `on_a11y_action` handler: see
 //! [`TextInput`](super::TextInput), [`Toggle`](super::Toggle) and
 //! [`Slider`](super::Slider).
@@ -24,7 +26,9 @@
 //! the same across languages and releases: the control's element id, never its label.
 //! A list's items add the item's own id (an instance id, an index) so each is unique.
 
-use gpui::{App, ElementId, SharedString, StatefulInteractiveElement, Window};
+use std::rc::Rc;
+
+use gpui::{App, ClickEvent, ElementId, SharedString, StatefulInteractiveElement, Window};
 
 pub use accesskit::ActionData;
 pub use gpui::{AccessibleAction, Role, Toggled};
@@ -81,6 +85,20 @@ pub trait Accessible: StatefulInteractiveElement + Sized {
                 if expanded {
                     collapse(window, cx)
                 }
+            })
+    }
+
+    /// `on_click`, which assistive technology's Click (UI Automation's Invoke, Toggle
+    /// and Select) also calls, with a keyboard click event, as Enter or Space would.
+    ///
+    /// Without it, GPUI answers an accessible Click by clicking the element's centre on
+    /// screen, which misses an element scrolled out of view or covered by another.
+    fn on_press(self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        let handler = Rc::new(handler);
+        let pressed = handler.clone();
+        self.on_click(move |event, window, cx| handler(event, window, cx))
+            .on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
+                pressed(&ClickEvent::default(), window, cx)
             })
     }
 }

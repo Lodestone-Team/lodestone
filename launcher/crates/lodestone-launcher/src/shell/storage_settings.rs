@@ -5,6 +5,7 @@
 //! is left. Removing asks first (the shell's dialog), runs in the background, and
 //! counts again. The rules for what is safe to remove are `launcher_core::disk`'s.
 
+use crate::components::a11y::Accessible as _;
 use crate::theme::px;
 use gpui::{
     AnyElement, Context, Entity, EventEmitter, IntoElement, Render, SharedString, Task, Window,
@@ -350,7 +351,7 @@ impl Render for StorageSettings {
                     .when(self.work.is_some() && !busy, |this| this.child(LoadingDots))
                     .child(div().flex_1())
                     .child(
-                        muted_link("storage-open-data", t(M::StorageOpenFolder)).on_click(
+                        muted_link("storage-open-data", t(M::StorageOpenFolder)).on_press(
                             cx.listener(|this, _, _, cx| {
                                 let root = this.instances.read(cx).data_dir().root().to_path_buf();
                                 cx.open_with_system(&root);
@@ -398,7 +399,7 @@ impl Render for StorageSettings {
                         .child(size(usage.total()))
                         .child(
                             muted_link(("storage-open-instance", index), t(M::StorageOpen))
-                                .on_click(cx.listener(move |this, _, _, cx| {
+                                .on_press(cx.listener(move |this, _, _, cx| {
                                     let dir = this
                                         .instances
                                         .read(cx)

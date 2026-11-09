@@ -128,7 +128,7 @@ pub fn render_compact(shell: &LauncherShell, cx: &mut Context<LauncherShell>) ->
             }
         })
         .tooltip(crate::components::text_tooltip(name))
-        .on_click(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
+        .on_press(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
         .child(avatar(accounts, active.as_ref(), px(32.)));
     div()
         .child(button)
@@ -181,7 +181,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                     .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
             }
         })
-        .on_click(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
+        .on_press(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
         .child(avatar)
         .child(
             div()
@@ -344,7 +344,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
             .child(div().flex_none().w(px(12.)).when(is_active, |this| {
                 this.child(Icon::Check.render(px(12.), crate::theme::accent::light()))
             }))
-            .on_click(cx.listener(move |this, _, _, cx| {
+            .on_press(cx.listener(move |this, _, _, cx| {
                 this.set_account_menu(false, cx);
                 this.accounts
                     .update(cx, |accounts, cx| accounts.switch(&id, cx));
@@ -407,7 +407,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                     t(M::SignInAgain),
                     colors::RED_200,
                 )
-                .on_click(cx.listener(|this, _, window, cx| this.open_sign_in(Some(window), cx))),
+                .on_press(cx.listener(|this, _, window, cx| this.open_sign_in(Some(window), cx))),
             )
         })
         .child(
@@ -417,7 +417,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 t(M::AddMicrosoftAccount),
                 colors::GRAY_300,
             )
-            .on_click(cx.listener(|this, _, window, cx| this.open_sign_in(Some(window), cx))),
+            .on_press(cx.listener(|this, _, window, cx| this.open_sign_in(Some(window), cx))),
         )
         .when(offline_enabled, |this| {
             this.child(
@@ -427,7 +427,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                     t(M::AddOfflineAccount),
                     colors::GRAY_300,
                 )
-                .on_click(
+                .on_press(
                     cx.listener(|this, _, window, cx| this.open_offline(None, Some(window), cx)),
                 ),
             )
@@ -441,7 +441,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                     tr!(M::RemoveNamed, name = account.username),
                     colors::RED_200,
                 )
-                .on_click(cx.listener(move |this, _, window, cx| {
+                .on_press(cx.listener(move |this, _, window, cx| {
                     this.confirm_remove(&id, Some(window), cx)
                 })),
             )

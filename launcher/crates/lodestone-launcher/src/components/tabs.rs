@@ -160,7 +160,7 @@ impl RenderOnce for Tabs {
                         this.hover(|style| style.text_color(crate::theme::ink::secondary()))
                     })
                     .when_some(on_select, |this, on_select| {
-                        this.on_click(move |_, window, cx| on_select(&index, window, cx))
+                        this.on_press(move |_, window, cx| on_select(&index, window, cx))
                     })
                     .child(label)
             }))

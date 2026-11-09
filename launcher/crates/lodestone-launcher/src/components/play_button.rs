@@ -183,7 +183,7 @@ fn side_button(
         .text_color(crate::theme::ink::text())
         .cursor_pointer()
         .hover(|style| style.bg(colors::RED_300).text_color(colors::WHITE))
-        .when_some(on_click, |this, on_click| this.on_click(on_click))
+        .when_some(on_click, |this, on_click| this.on_press(on_click))
         .child(label)
 }
 
@@ -256,7 +256,7 @@ impl RenderOnce for PlayButton {
                                         inset: false,
                                     }])
                                 })
-                                .when_some(self.on_click, |this, on_click| this.on_click(on_click))
+                                .when_some(self.on_click, |this, on_click| this.on_press(on_click))
                         }
                     })
                     .when(self.layer && !disabled, |this| {

@@ -275,7 +275,7 @@ impl Render for Console {
                             .text_color(colors::GRAY_550)
                     }
                 })
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle(level, cx)))
+                .on_press(cx.listener(move |this, _, _, cx| this.toggle(level, cx)))
                 .child(t(*label))
         });
 

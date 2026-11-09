@@ -445,7 +445,7 @@ impl NewInstanceDialog {
                                 .map(|(index, version)| {
                                     let selected = this.selected.as_deref() == Some(&version.id);
                                     let id = version.id.clone();
-                                    version_row(index, version, selected).on_click(cx.listener(
+                                    version_row(index, version, selected).on_press(cx.listener(
                                         move |this, _, _, cx| {
                                             this.selected = Some(id.clone());
                                             this.error = None;
@@ -909,7 +909,7 @@ impl NewInstanceDialog {
             .enumerate()
             .map(|(index, option)| {
                 let selected = option == kind;
-                let card = loader_card(index, option, selected).on_click(cx.listener(
+                let card = loader_card(index, option, selected).on_press(cx.listener(
                     move |this, _, _, cx| {
                         this.loader
                             .update(cx, |picker, cx| picker.set_kind(option, cx));
@@ -1028,7 +1028,7 @@ impl NewInstanceDialog {
                     .expandable(self.versions_open, toggle)
                     .w(px(300.))
                     .justify_between()
-                    .on_click(cx.listener(|this, _, window, cx| {
+                    .on_press(cx.listener(|this, _, window, cx| {
                         this.versions_open = !this.versions_open;
                         if this.versions_open {
                             // Type to search straight away.
@@ -1059,7 +1059,7 @@ impl NewInstanceDialog {
                     on: bool,
                     flip: fn(&mut VersionFilter),
                     cx: &mut Context<Self>| {
-            let chip = filter_chip(id, caption, on).on_click(cx.listener(move |this, _, _, cx| {
+            let chip = filter_chip(id, caption, on).on_press(cx.listener(move |this, _, _, cx| {
                 let mut filter = this.filter;
                 flip(&mut filter);
                 this.set_filter(filter, cx);

@@ -95,7 +95,7 @@ pub fn render(
                 window.start_window_move();
             }
         }))
-        .on_click(move |event, window, _| {
+        .on_press(move |event, window, _| {
             if event.click_count() == 2 {
                 if double_click_zooms {
                     window.zoom_window();
@@ -135,7 +135,7 @@ pub fn render(
                 // open Windows' system menu or the compositor's window menu.
                 .when(windows || own_frame, |logo| logo.occlude())
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_click(cx.listener(|this, _, _, cx| this.show(Page::Instance, cx)))
+                .on_press(cx.listener(|this, _, _, cx| this.show(Page::Instance, cx)))
                 .child(
                     img(crate::images::logo(cx))
                         .w(layout::logo_width())
@@ -288,9 +288,9 @@ impl CaptionButton {
         // technology gets its own: Minimize and Maximize here, and Close through the
         // window's own Close (UI Automation's `WindowPattern`), which asks first.
         let name = match self {
-            Self::Minimize => "Minimize",
-            Self::Maximize => "Maximize",
-            Self::Restore => "Restore",
+            Self::Minimize => t(M::MinimizeWindow),
+            Self::Maximize => t(M::MaximizeWindow),
+            Self::Restore => t(M::RestoreWindow),
             Self::Close => t(crate::i18n::CommonMsg::Close),
         };
         div()

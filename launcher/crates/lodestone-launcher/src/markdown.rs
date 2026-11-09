@@ -167,7 +167,7 @@ impl Renderer<'_> {
                     .accessible(Role::Link, format!("{prefix}-{index}"), link.clone())
                     .keyboard_focus()
                     .cursor_pointer()
-                    .on_click(move |_, _, cx| cx.open_url(&link))
+                    .on_press(move |_, _, cx| cx.open_url(&link))
                     .child(element)
                     .into_any_element()
             }

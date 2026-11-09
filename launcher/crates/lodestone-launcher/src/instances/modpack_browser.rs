@@ -617,7 +617,7 @@ impl ModpackBrowser {
                             this.hover(|style| style.bg(colors::GRAY_800))
                         }
                     })
-                    .on_click(cx.listener(move |this, _, _, cx| this.pick_cf(id, cx)))
+                    .on_press(cx.listener(move |this, _, _, cx| this.pick_cf(id, cx)))
                     .child(icon_box(icon, 36.))
                     .child(
                         div()
@@ -751,7 +751,7 @@ impl ModpackBrowser {
                                     this.hover(|style| style.bg(colors::GRAY_800))
                                 }
                             })
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                            .on_press(cx.listener(move |this, _, _, cx| {
                                 if let Some(picked) = &mut this.cf_picked {
                                     picked.file = Some(id);
                                 }
@@ -868,7 +868,7 @@ impl ModpackBrowser {
                             this.hover(|style| style.bg(colors::GRAY_800))
                         }
                     })
-                    .on_click(cx.listener(move |this, _, _, cx| this.pick(id.clone(), None, cx)))
+                    .on_press(cx.listener(move |this, _, _, cx| this.pick(id.clone(), None, cx)))
                     .child(icon_box(icon, 36.))
                     .child(
                         div()
@@ -1026,7 +1026,7 @@ impl ModpackBrowser {
                                         this.hover(|style| style.bg(colors::GRAY_800))
                                     }
                                 })
-                                .on_click(cx.listener(move |this, _, _, cx| {
+                                .on_press(cx.listener(move |this, _, _, cx| {
                                     if let Some(picked) = &mut this.picked {
                                         picked.version = Some(id.clone());
                                     }

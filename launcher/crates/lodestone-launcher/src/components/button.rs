@@ -405,7 +405,7 @@ impl RenderOnce for Button {
                         Some(bg) => style.bg(bg),
                         None => style,
                     })
-                    .when_some(self.on_click, |this, on_click| this.on_click(on_click))
+                    .when_some(self.on_click, |this, on_click| this.on_press(on_click))
             })
             .when_some(self.icon, |this, icon| {
                 this.child(icon.render(icon_size, icon_color))
@@ -527,7 +527,7 @@ impl RenderOnce for IconButton {
                             .border_color(colors::WHITE.opacity(50))
                     })
                     .active(|style| style.bg(colors::GRAY_800))
-                    .when_some(self.on_click, |this, on_click| this.on_click(on_click))
+                    .when_some(self.on_click, |this, on_click| this.on_press(on_click))
             })
             .child(
                 self.icon

@@ -349,7 +349,7 @@ impl Render for SkinSettings {
             .map(|entry| {
                 let id = entry.id.clone();
                 gallery_card(entry, entry.id == look.id)
-                    .on_click(
+                    .on_press(
                         cx.listener(move |this, _, _, cx| this.use_skin(Some(id.clone()), cx)),
                     )
                     .into_any_element()
@@ -395,7 +395,7 @@ impl Render for SkinSettings {
                             .on_click(cx.listener(|this, _, _, cx| this.delete(cx))),
                         )
                     } else {
-                        this.child(muted_link("skin-delete", t(M::SkinDelete)).on_click(
+                        this.child(muted_link("skin-delete", t(M::SkinDelete)).on_press(
                             cx.listener(|this, _, _, cx| {
                                 this.confirm_delete = true;
                                 cx.notify();

@@ -796,7 +796,7 @@ impl ContentView {
             .keyboard_focus()
             .cursor_pointer()
             .hover(|style| style.bg(colors::GRAY_750))
-            .on_click(cx.listener(move |this, _, _, cx| this.open_cf_project(kind, id, cx)))
+            .on_press(cx.listener(move |this, _, _, cx| this.open_cf_project(kind, id, cx)))
             .child(icon_box(icon, 36.))
             .child(
                 div()

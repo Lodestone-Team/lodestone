@@ -85,7 +85,7 @@ fn resize_handle(dragging: bool, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 this.start_sidebar_drag(cx);
             }),
         )
-        .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+        .on_press(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
             if event.click_count() >= 2 {
                 this.reset_sidebar(cx);
             }
@@ -312,7 +312,7 @@ fn rail_button(
                 crate::skin::sidebar_inks().icon
             },
         ))
-        .on_click(on_click)
+        .on_press(on_click)
 }
 
 /// An instance in the rail: its icon, highlighted when it's the one shown, with a
@@ -386,7 +386,7 @@ fn rail_instance(
             )
         })
         .tooltip(crate::components::text_tooltip(tooltip))
-        .on_click(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
+        .on_press(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
         .into_any_element()
 }
 
@@ -614,7 +614,7 @@ fn instance_row(
         .when_some(tooltip, |this, tooltip| {
             this.tooltip(crate::components::text_tooltip(tooltip))
         })
-        .on_click(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
+        .on_press(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
         .into_any_element()
 }
 
@@ -703,7 +703,7 @@ fn group_header(
                 .text_color(crate::skin::sidebar_inks().faint)
                 .child(count.to_string()),
         )
-        .on_click(cx.listener(move |this, _, _, cx| {
+        .on_press(cx.listener(move |this, _, _, cx| {
             this.instances
                 .update(cx, |instances, cx| instances.toggle_group(&group, cx))
         }))
@@ -873,7 +873,7 @@ fn page_link(
         })
         .child(icon.render(px(14.), crate::skin::sidebar_inks().icon))
         .child(div().min_w_0().truncate().child(label))
-        .on_click(cx.listener(move |this, _, _, cx| {
+        .on_press(cx.listener(move |this, _, _, cx| {
             this.show(if open { Page::Instance } else { page }, cx)
         }))
 }
@@ -929,7 +929,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 })
                 .child(Icon::Gear.render(px(14.), crate::skin::sidebar_inks().icon))
                 .child(div().min_w_0().truncate().child(t(M::Settings)))
-                .on_click(
+                .on_press(
                     cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
                 ),
         )

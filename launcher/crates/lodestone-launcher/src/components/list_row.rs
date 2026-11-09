@@ -118,6 +118,6 @@ impl RenderOnce for ListRow {
                         .child(detail),
                 )
             })
-            .when_some(self.on_click, |this, on_click| this.on_click(on_click))
+            .when_some(self.on_click, |this, on_click| this.on_press(on_click))
     }
 }

@@ -2,6 +2,7 @@
 //! and read back after the game exits ([`launcher_core::shared_options`]), and the
 //! "Shared game settings" section of an instance's Settings tab.
 
+use crate::components::a11y::Accessible as _;
 use crate::theme::px;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -373,7 +374,7 @@ impl InstanceSharedSettings {
                         }),
                     )
                     .when(!busy, |link| {
-                        link.on_click(cx.listener(move |this, _, _, cx| {
+                        link.on_press(cx.listener(move |this, _, _, cx| {
                             this.set_overrides(keys.clone(), !all_overridden, cx)
                         }))
                     }),
@@ -385,7 +386,7 @@ impl InstanceSharedSettings {
                         ("shared-category", category as usize),
                         t(if expanded { M::Hide } else { M::Show }),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_press(cx.listener(move |this, _, _, cx| {
                         if !this.expanded.remove(&category) {
                             this.expanded.insert(category);
                         }
@@ -435,7 +436,7 @@ impl InstanceSharedSettings {
                             .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
                     )
                     .child(
-                        muted_link(("shared-cancel", id), t(CommonMsg::Cancel)).on_click(
+                        muted_link(("shared-cancel", id), t(CommonMsg::Cancel)).on_press(
                             cx.listener(|this, _, _, cx| {
                                 this.editing = None;
                                 cx.notify();
@@ -464,13 +465,13 @@ impl InstanceSharedSettings {
                     .child(tag(t(M::ThisInstance), crate::theme::accent::light()))
                     .when(!busy, |line| {
                         line.when(typed, |line| {
-                            line.child(link(("shared-edit", id), t(CommonMsg::Edit)).on_click(
+                            line.child(link(("shared-edit", id), t(CommonMsg::Edit)).on_press(
                                 cx.listener(move |this, _, _, cx| this.edit(&edit_row, cx)),
                             ))
                         })
                         .child(
                             muted_link(("shared-use", id), tr!(M::UseShared, value = shared_text))
-                                .on_click(cx.listener(move |this, _, _, cx| {
+                                .on_press(cx.listener(move |this, _, _, cx| {
                                     this.set_overrides(vec![key.clone()], false, cx)
                                 })),
                         )
@@ -480,7 +481,7 @@ impl InstanceSharedSettings {
                     .child(value(shared_text, true))
                     .child(tag(t(M::Shared), colors::GRAY_500))
                     .when(!busy, |line| {
-                        line.child(link(("shared-override", id), t(M::Override)).on_click(
+                        line.child(link(("shared-override", id), t(M::Override)).on_press(
                             cx.listener(move |this, _, _, cx| {
                                 this.set_overrides(vec![key.clone()], true, cx)
                             }),
@@ -587,7 +588,7 @@ impl Render for InstanceSharedSettings {
                     row.child(
                         link("make-preferred", t(M::MakePreferred))
                             .tooltip(crate::components::text_tooltip(t(M::PreferredExplained)))
-                            .on_click(cx.listener(|this, _, _, cx| this.make_preferred(cx))),
+                            .on_press(cx.listener(|this, _, _, cx| this.make_preferred(cx))),
                     )
                 })
                 .child(
@@ -648,7 +649,7 @@ impl Render for InstanceSharedSettings {
                                     .on_click(cx.listener(|this, _, _, cx| this.keep_changes(cx))),
                             )
                             .child(
-                                muted_link("dismiss-changes", t(M::Dismiss)).on_click(
+                                muted_link("dismiss-changes", t(M::Dismiss)).on_press(
                                     cx.listener(|this, _, _, cx| this.dismiss_changes(cx)),
                                 ),
                             ),

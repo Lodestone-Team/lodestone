@@ -601,7 +601,7 @@ impl ImportDialog {
                     .text_color(crate::theme::ink::secondary())
                     .child(size_text),
             )
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx)))
+            .on_press(cx.listener(move |this, _, _, cx| this.toggle(&key, cx)))
     }
 
     fn launcher_list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {

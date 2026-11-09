@@ -134,7 +134,7 @@ impl RenderOnce for Toggle {
             .when(!self.disabled, |this| {
                 this.cursor_pointer()
                     .when_some(self.on_change, |this, on_change| {
-                        this.on_click(move |_, window, cx| on_change(&!value, window, cx))
+                        this.on_press(move |_, window, cx| on_change(&!value, window, cx))
                     })
             })
     }

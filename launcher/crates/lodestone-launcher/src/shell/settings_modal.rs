@@ -396,7 +396,7 @@ impl LauncherShell {
                                     .child(name),
                             )
                             .child(div().flex().child(
-                                muted_link("manage-accounts", t(M::ManageAccounts)).on_click(
+                                muted_link("manage-accounts", t(M::ManageAccounts)).on_press(
                                     cx.listener(|this, _, _, cx| {
                                         this.set_settings_page(SettingsPage::Accounts, cx);
                                         this.settings_nav_open = false;
@@ -461,7 +461,7 @@ impl LauncherShell {
                         ))
                         // Long titles wrap rather than lose their end.
                         .child(div().flex_1().min_w_0().child(page.title()))
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_press(cx.listener(move |this, _, _, cx| {
                             this.set_settings_page(page, cx);
                             this.settings_nav_open = false;
                             cx.notify();
@@ -519,7 +519,7 @@ impl LauncherShell {
                                 .ok();
                         }
                     })
-                    .on_click(cx.listener(|this, _, _, cx| {
+                    .on_press(cx.listener(|this, _, _, cx| {
                         this.language_menu_open = !this.language_menu_open;
                         cx.notify();
                     })),
@@ -571,7 +571,7 @@ impl LauncherShell {
             )
             .when(zoom != 1.0, |row| {
                 row.child(
-                    muted_link("zoom-reset", t(CommonMsg::Reset)).on_click(cx.listener(
+                    muted_link("zoom-reset", t(CommonMsg::Reset)).on_press(cx.listener(
                         |this, _, _, cx| {
                             this.instances
                                 .update(cx, |instances, cx| instances.set_zoom(1.0, cx))
@@ -777,7 +777,7 @@ impl LauncherShell {
                     })
                     .when(needs_sign_in, |row| {
                         row.child(
-                            link(("account-sign-in", index), t(M::SignInAgain)).on_click(
+                            link(("account-sign-in", index), t(M::SignInAgain)).on_press(
                                 cx.listener(|this, _, window, cx| {
                                     this.open_sign_in(Some(window), cx)
                                 }),
@@ -788,7 +788,7 @@ impl LauncherShell {
                         if in_use {
                             row.child(tag(t(M::InUse), colors::GREEN_300))
                         } else {
-                            row.child(link(("account-use", index), t(M::Use)).on_click(
+                            row.child(link(("account-use", index), t(M::Use)).on_press(
                                 cx.listener(move |this, _, _, cx| {
                                     this.accounts
                                         .update(cx, |accounts, cx| accounts.switch(&switch_id, cx));
@@ -797,7 +797,7 @@ impl LauncherShell {
                         }
                     })
                     .child(
-                        muted_link(("account-remove", index), t(CommonMsg::Remove)).on_click(
+                        muted_link(("account-remove", index), t(CommonMsg::Remove)).on_press(
                             cx.listener(move |this, _, window, cx| {
                                 this.confirm_remove(&remove_id, Some(window), cx)
                             }),

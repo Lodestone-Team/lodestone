@@ -337,7 +337,7 @@ impl SharedSettings {
                         .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
                 )
                 .child(
-                    muted_link(("shared-value-cancel", index), t(CommonMsg::Cancel)).on_click(
+                    muted_link(("shared-value-cancel", index), t(CommonMsg::Cancel)).on_press(
                         cx.listener(|this, _, _, cx| {
                             this.editing = None;
                             cx.notify();
@@ -345,7 +345,7 @@ impl SharedSettings {
                     ),
                 ),
             None => line.child(value(shown, false)).child(
-                link(("shared-value-edit", index), t(CommonMsg::Edit)).on_click(cx.listener(
+                link(("shared-value-edit", index), t(CommonMsg::Edit)).on_press(cx.listener(
                     move |this, _, _, cx| {
                         let text = text_.clone();
                         let (label, automation_id) = (
@@ -416,7 +416,7 @@ impl Render for SharedSettings {
                         })
                     })
                     .when(has_instances, |button| {
-                        button.on_click(
+                        button.on_press(
                             cx.listener(|this, _, _, cx| this.toggle_picker(Picker::SyncFrom, cx)),
                         )
                     }),
@@ -471,7 +471,7 @@ impl Render for SharedSettings {
                         .on_click(cx.listener(|this, _, _, cx| this.reset(cx))),
                 )
                 .child(
-                    muted_link("cancel-reset-shared", t(CommonMsg::Cancel)).on_click(cx.listener(
+                    muted_link("cancel-reset-shared", t(CommonMsg::Cancel)).on_press(cx.listener(
                         |this, _, _, cx| {
                             this.confirm_reset = false;
                             cx.notify();
@@ -529,7 +529,7 @@ impl Render for SharedSettings {
                                         .ok();
                                 }
                             })
-                            .on_click(cx.listener(
+                            .on_press(cx.listener(
                                 move |this, _, _, cx| {
                                     if !this.expanded.remove(&category) {
                                         this.expanded.insert(category);

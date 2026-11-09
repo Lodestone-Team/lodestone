@@ -751,7 +751,7 @@ mod ui_tests {
                 div()
                     .id("row")
                     .w(px(400.))
-                    .on_click(move |_, _, _| clicks.set(clicks.get() + 1))
+                    .on_press(move |_, _, _| clicks.set(clicks.get() + 1))
                     .child(RichText::minecraft("§6Hello §lworld")),
             )
         }

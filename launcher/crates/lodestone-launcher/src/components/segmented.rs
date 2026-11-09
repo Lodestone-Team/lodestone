@@ -56,7 +56,7 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
                 })
                 .child(name.clone())
                 .when(!disabled, |this| {
-                    this.keyboard_focus().cursor_pointer().on_click({
+                    this.keyboard_focus().cursor_pointer().on_press({
                         let (id, name) = (id.clone(), name.clone());
                         move |_, window, cx| {
                             super::trace_ui(

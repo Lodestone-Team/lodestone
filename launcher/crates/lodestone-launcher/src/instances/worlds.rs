@@ -1471,7 +1471,7 @@ impl WorldsView {
                     .bg(colors::GRAY_800)
                     .cursor_pointer()
                     .hover(|style| style.border_color(crate::theme::accent::light().opacity(60)))
-                    .on_click(cx.listener(move |this, _, _, cx| this.view(index, cx)))
+                    .on_press(cx.listener(move |this, _, _, cx| this.view(index, cx)))
                     .child(
                         div()
                             .flex()
