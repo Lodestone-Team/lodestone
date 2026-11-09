@@ -78,6 +78,16 @@ impl HostApp {
                 {
                     this.phase = Phase::Core;
                 }
+                // a core that can't start, while the window is in the background: say
+                // so with the system's notification, as the Tauri Host did
+                if let CoreStatus::Failed { reason, .. } = &this.supervisor.read(cx).status
+                    && crate::notifications::in_background(cx)
+                {
+                    crate::notifications::native::notify(
+                        crate::APP_NAME,
+                        &crate::i18n::tr!(crate::i18n::CoreMsg::CoreFailedNotice, error = reason),
+                    );
+                }
                 cx.notify();
             }
         });

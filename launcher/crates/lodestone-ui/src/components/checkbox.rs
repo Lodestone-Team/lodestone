@@ -4,35 +4,45 @@ use gpui::{App, ElementId, IntoElement, RenderOnce, SharedString, Window, div, p
 use super::Icon;
 use super::a11y::{Accessible, Role, Toggled};
 use super::focus::KeyboardFocus;
-use crate::theme::{self, colors, text};
+use crate::theme::{colors, ink, text};
 
 type ChangeHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
 
-/// A box to tick, with its label after it, after the dashboard's `Checkbox` atom: for
-/// choices in a list, such as the instances a permission applies to. Tab reaches it,
-/// and Space (or Enter) ticks it. A click on the label ticks it too.
+/// A box to tick, with its label beside it, after the dashboard's `Checkbox` atom. A
+/// click on the box or the label flips it; Tab reaches it, and Space or Enter flips it.
+///
+/// The label is text, then any elements added with [`Checkbox::child`] (such as a
+/// link, which should stop its click from reaching the box).
 #[derive(IntoElement)]
 pub struct Checkbox {
     id: ElementId,
-    value: bool,
+    checked: bool,
     disabled: bool,
     label: SharedString,
+    after: Vec<gpui::AnyElement>,
     on_change: Option<ChangeHandler>,
 }
 
 impl Checkbox {
-    pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>, value: bool) -> Self {
+    pub fn new(id: impl Into<ElementId>, checked: bool, label: impl Into<SharedString>) -> Self {
         Self {
             id: id.into(),
-            value,
+            checked,
             disabled: false,
             label: label.into(),
+            after: Vec::new(),
             on_change: None,
         }
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Adds an element after the label's text, in the same line.
+    pub fn child(mut self, element: impl IntoElement) -> Self {
+        self.after.push(element.into_any_element());
         self
     }
 
@@ -52,59 +62,71 @@ impl Checkbox {
     }
 }
 
+/// The box alone, ticked or not.
+pub fn check_box(checked: bool, disabled: bool) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(16.))
+        .rounded(crate::theme::radius::DEFAULT)
+        .border_1()
+        .map(|this| {
+            if checked {
+                let fill = if disabled {
+                    colors::GRAY_600
+                } else {
+                    crate::theme::accent::base()
+                };
+                this.bg(fill).border_color(fill)
+            } else {
+                this.bg(colors::GRAY_900)
+                    .border_color(colors::GRAY_FADED.opacity(if disabled { 20 } else { 50 }))
+            }
+        })
+        .when(checked, |this| {
+            this.child(Icon::Check.render(px(10.), colors::WHITE))
+        })
+}
+
 impl RenderOnce for Checkbox {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let value = self.value;
-        let (fill, border) = match (value, self.disabled) {
-            (true, false) => (theme::accent::base(), theme::accent::base()),
-            (true, true) => (
-                colors::GRAY_FADED.opacity(40),
-                colors::GRAY_FADED.opacity(40),
-            ),
-            (false, _) => (colors::GRAY_900, colors::GRAY_FADED.opacity(50)),
-        };
+    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        let checked = self.checked;
         div()
             .id(self.id.clone())
             .accessible_id(Role::CheckBox, &self.id, self.label.clone())
-            .aria_toggled(if value { Toggled::True } else { Toggled::False })
+            .aria_toggled(if checked {
+                Toggled::True
+            } else {
+                Toggled::False
+            })
             .when(!self.disabled, |this| this.keyboard_focus())
             .flex()
             .flex_row()
-            .items_center()
-            .gap_2()
-            .min_w_0()
-            .rounded(theme::radius::DEFAULT)
+            .items_start()
+            .gap(px(8.))
+            .rounded(crate::theme::radius::DEFAULT)
+            .text_size(text::MEDIUM)
+            .text_color(if self.disabled {
+                ink::faint()
+            } else {
+                ink::secondary()
+            })
+            .child(div().pt(px(2.)).child(check_box(checked, self.disabled)))
             .child(
                 div()
                     .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .size(px(16.))
-                    .rounded(theme::radius::DEFAULT)
-                    .border_1()
-                    .border_color(border)
-                    .bg(fill)
-                    .when(value, |this| {
-                        this.child(Icon::Check.render(px(10.), colors::WHITE))
-                    }),
-            )
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .text_size(theme::text_size(text::MEDIUM))
-                    .text_color(if self.disabled {
-                        theme::ink::muted()
-                    } else {
-                        theme::ink::text()
-                    })
-                    .child(self.label),
+                    .flex_row()
+                    .flex_wrap()
+                    .gap(px(4.))
+                    .child(self.label)
+                    .children(self.after),
             )
             .when(!self.disabled, |this| {
                 this.cursor_pointer()
                     .when_some(self.on_change, |this, on_change| {
-                        this.on_press(move |_, window, cx| on_change(&!value, window, cx))
+                        this.on_press(move |_, window, cx| on_change(&!checked, window, cx))
                     })
             })
     }

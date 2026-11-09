@@ -236,7 +236,7 @@ pub fn parse_frame(text: &str, instance: &str) -> Option<LiveMessage> {
 }
 
 /// The console lines in a `GET /instance/{uuid}/console/buffer` reply.
-fn parse_buffer(events: Vec<Value>, instance: &str) -> Vec<ConsoleLine> {
+pub(crate) fn parse_buffer(events: Vec<Value>, instance: &str) -> Vec<ConsoleLine> {
     let mut lines: Vec<ConsoleLine> = events
         .into_iter()
         .filter_map(|event| match parse_frame(&event.to_string(), instance) {
@@ -364,6 +364,9 @@ pub enum StreamKind {
     /// frames ([`LiveMessage::Frame`]): Lodestone Host's whole view of its core. The
     /// `server` given to [`LiveStream::open`] is not used.
     All,
+    /// One server's CPU and memory, a report a second (`/monitor/{uuid}`), as raw
+    /// frames ([`LiveMessage::Frame`]). The core replays the last minute on connecting.
+    Monitor,
 }
 
 /// What a stream reports.
@@ -459,6 +462,10 @@ fn stream_path(key: &Secret, server: &str, kind: &StreamKind) -> String {
             let filter = json!({ "bearer_token": key.expose() });
             format!("events/all/stream?filter={}", encode(&filter.to_string()))
         }
+        StreamKind::Monitor => format!(
+            "monitor/{server}?token={}",
+            encode(&format!("Bearer {}", key.expose()))
+        ),
     }
 }
 
@@ -565,7 +572,7 @@ fn follow(
             Ok(Message::Text(text)) => {
                 last_frame = Instant::now();
                 pinged = false;
-                if *kind == StreamKind::All {
+                if matches!(kind, StreamKind::All | StreamKind::Monitor) {
                     if tx
                         .unbounded_send(LiveMessage::Frame(text.as_str().to_string()))
                         .is_err()

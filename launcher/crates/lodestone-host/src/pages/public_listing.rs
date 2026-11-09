@@ -79,7 +79,7 @@ pub fn scope_row(
     let toggle_change = on_change.clone();
     let boxes = ScopeFlag::ALL.into_iter().enumerate().map(|(index, flag)| {
         let on_change = on_change.clone();
-        Checkbox::new((id.clone(), index), flag_label(flag), flag.get(&scope))
+        Checkbox::new((id.clone(), index), flag.get(&scope), flag_label(flag))
             .disabled(!can_edit || saving)
             .on_change(move |value, window, cx| on_change(flag.change(*value), window, cx))
     });

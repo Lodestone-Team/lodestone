@@ -29,6 +29,10 @@ pub struct HostShell {
     pub route: Route,
     page: Option<(Route, AnyView)>,
     create: Option<Entity<CreateInstance>>,
+    /// Asks to accept the Minecraft EULA when a server doesn't start without it.
+    eula: Entity<pages::eula_prompt::EulaPrompt>,
+    /// The bell in the top bar and its list (package D).
+    pub notifications: Entity<crate::notifications::Notifications>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -42,11 +46,21 @@ impl HostShell {
                 _ => {}
             }),
         ];
+        let eula = {
+            let state = state.clone();
+            cx.new(|cx| pages::eula_prompt::EulaPrompt::new(state, cx))
+        };
+        let notifications = {
+            let state = state.clone();
+            cx.new(|cx| crate::notifications::Notifications::new(state, cx))
+        };
         Self {
             state,
             route: Route::Home,
             page: None,
             create: None,
+            eula,
+            notifications,
             _subscriptions: subscriptions,
         }
     }
@@ -107,6 +121,11 @@ impl HostShell {
         view
     }
 
+    /// The page shown, for the development screenshots.
+    pub fn page_view(&self) -> Option<AnyView> {
+        self.page.as_ref().map(|(_, view)| view.clone())
+    }
+
     /// The page's heading, as `InstanceTabs.tsx` and the settings show it.
     fn heading(&self, cx: &Context<Self>) -> Option<String> {
         match &self.route {
@@ -165,7 +184,7 @@ impl Render for HostShell {
             .size_full()
             .flex()
             .flex_col()
-            .child(top_bar::render(window, cx))
+            .child(top_bar::render(self.notifications.clone(), window, cx))
             .child(
                 div()
                     .flex_1()
@@ -213,6 +232,7 @@ impl Render for HostShell {
                     ),
             )
             .when_some(self.create.clone(), |this, dialog| this.child(dialog))
+            .child(self.eula.clone())
             .child(toasts)
             .min_w(layout::sidebar_width())
     }

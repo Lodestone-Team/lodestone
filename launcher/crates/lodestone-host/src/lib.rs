@@ -15,6 +15,8 @@
 pub mod app;
 pub mod core_process;
 pub mod i18n;
+pub mod instance_icons;
+pub mod notifications;
 pub mod onboarding;
 pub mod pages;
 pub mod prefs;
@@ -52,6 +54,7 @@ pub fn init(cx: &mut App) {
     launcher_core::wording::set_app_name(APP_NAME);
     lodestone_ui::init(cx);
     prefs::Prefs::init(cx);
+    pages::init(cx);
     #[cfg(target_os = "macos")]
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),

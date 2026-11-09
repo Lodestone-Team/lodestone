@@ -392,20 +392,23 @@ Conventions in the code that every area relies on:
 ### 1.7 Notifications (`data/NotificationContext.tsx`, `data/EventStream.ts`, `components/DashboardLayout/Notification*.tsx`, `components/Atoms/NotificationCard.tsx`)  
 **Package: D.**
 
-- [ ] Event history on sign-in: `GET /events/all/buffer?filter=<EventQuery JSON, all null>` → replay
+- [x] Event history on sign-in: `GET /events/all/buffer?filter=<EventQuery JSON, all null>` → replay
   (non-console) events as non-fresh; failure toast "Couldn't load past events" (id `eventBufferError`);
   "historyLoaded" flag drives skeleton.
-- [ ] Live events: WS `/events/all/stream?filter=<EventQuery JSON with bearer_token>` (console-type events
+  - *Host:* notifications.rs (event_history); a failure is an error toast.
+- [x] Live events: WS `/events/all/stream?filter=<EventQuery JSON with bearer_token>` (console-type events
   `InstanceOutput/InstanceInput/SystemMessage` ignored here).
-- [ ] Notification list: max 200, deduped by snowflake; each item has title, message, timestamp (from
+  - *Host:* HostState's event stream; notifications.rs follows its HostEvent::Core.
+- [x] Notification list: max 200, deduped by snowflake; each item has title, message, timestamp (from
   snowflake: `(id >> 22) + 1667530800000`), level (Info/Warning/Error), fresh flag.
-- [ ] Ongoing (progress) notifications from `ProgressionEvent`: Start (title, total, start value) → Update
+- [x] Ongoing (progress) notifications from `ProgressionEvent`: Start (title, total, start value) → Update
   (add `progress`, message; clamp to total) → End (moves to normal list with end message). Progress shown
   as bar (capped at 99 % while ongoing).
-- [ ] Bell icon in top bar with red dot when a new fresh notification or any ongoing one arrives; cleared
+- [x] Bell icon in top bar with red dot when a new fresh notification or any ongoing one arrives; cleared
   on click. Popover 480 px wide, 80 vh: title, "In progress" section, "All notifications" section
   (newest first), skeleton while history loads, empty state.
-- [ ] Notification titles produced per event (i18n `shell.event.*`): state transitions per state
+  - *Host:* A panel under the bell; the system's notification for a crashed server while the window is in the background, and for a core that can't start (osascript on macOS, notify-send on Linux; none on Windows yet).
+- [x] Notification titles produced per event (i18n `shell.event.*`): state transitions per state
   (`Starting/Running/Stopping/Stopped/Error` "<name> is …"), instance warning (+ error toast
   "warningToast"), instance error, players joined/left/both, player chat message, API key created/revoked,
   macro started/detached/stopped (with exit status type), playit runner started/loading/stopped.
@@ -536,9 +539,9 @@ Conventions in the code that every area relies on:
 ### 2.5 Delete instance — `components/Instance/InstanceSettings.tsx`  
 **Package: C.**
 
-- [ ] In Settings › Danger zone: "Delete" button → danger confirm dialog ("Delete <name>?", cannot be
+- [x] In Settings › Danger zone: "Delete" button → danger confirm dialog ("Delete <name>?", cannot be
   undone) → `DELETE /instance/{uuid}`; refetch list, deselect; error toast.
-- [ ] Permission: `can_delete_instance` (global) and, for atom instances, owner.
+- [x] Permission: `can_delete_instance` (global) and, for atom instances, owner.
 - [ ] No clone, rename-folder, import-existing, backup or export features exist in the dashboard.
 
 ---
@@ -582,25 +585,31 @@ Conventions in the code that every area relies on:
 ## 4. Console tab — `components/GameConsole.tsx`, `data/ConsoleStream.ts`, `components/ConsoleLine.tsx`, `utils/consoleFormat.ts`  
 **Package: B.**
 
-- [ ] History: `GET /instance/{uuid}/console/buffer` → `ClientEvent[]` (only `InstanceOutput` used).
-- [ ] Live: WS `/instance/{uuid}/console/stream?token=Bearer …`; reconnect with backoff and re-fetch buffer
+- [x] History: `GET /instance/{uuid}/console/buffer` → `ClientEvent[]` (only `InstanceOutput` used).
+- [x] Live: WS `/instance/{uuid}/console/stream?token=Bearer …`; reconnect with backoff and re-fetch buffer
   to fill the gap; merge by snowflake, dedupe, keep newest 5,000 lines; render newest 2,000 with a
-  "N older lines hidden" row.
-- [ ] Status dot (top-right) with tooltip: no permission / loading / buffered / live (green) / live but
+  "N older lines hidden" row. *Host: the list is virtualized, so all 5,000 kept lines are
+  shown and there is no "hidden" row (`pages/console.rs`).*
+- [x] Status dot (top-right) with tooltip: no permission / loading / buffered / live (green) / live but
   history failed (yellow) / closed (red) / error (red); "Server stopped" overrides when Stopped.
-- [ ] Filter box + "Regex" checkbox (default on; case-insensitive; invalid regex matches nothing; plain
+- [x] Filter box + "Regex" checkbox (default on; case-insensitive; invalid regex matches nothing; plain
   mode = case-insensitive substring) on the plain text.
-- [ ] Auto-scroll sticks to bottom unless user scrolled up (>10 px).
-- [ ] Coloured output (toggle in Profile, `localStorage.coloredConsole`, default on): ANSI SGR (16/256/24-bit
+- [x] Auto-scroll sticks to bottom unless user scrolled up (>10 px). *Host: and a "Jump to
+  latest" button while scrolled up.*
+- [x] Coloured output (toggle in Profile: *Host: `pages::console::set_colored`, for package D's
+  Profile toggle and settings store; on until then*, `localStorage.coloredConsole`, default on): ANSI SGR (16/256/24-bit
   colours, bold, dim, italic, underline, strike, inverse) and Minecraft `§` codes; other escapes stripped;
   low-contrast colours adjusted for the theme (≥4.5:1); text on background colours rendered as badges;
   plain lines coloured by detected log level (WARN/ERROR from `[..]` prefixes or `WARN:`/`ERROR:`).
-- [ ] Linked-player badge appended to lines that mention a linked player.
-- [ ] Command input: `POST /instance/{uuid}/console` body JSON string; error toast "Couldn't send: …";
-  history of last ~50 commands per tab session, ↑/↓ navigation.
+- [x] Linked-player badge appended to lines that mention a linked player.
+- [x] Command input: `POST /instance/{uuid}/console` body JSON string; error toast "Couldn't send: …";
+  history of last ~50 commands per tab session, ↑/↓ navigation. *Host: kept per instance
+  while the Host runs.*
   - Input disabled with message when: no `can_access_instance_console`; atom instance and not owner;
     instance Stopped; stream closed.
-- [ ] Empty/no-permission states with server icon graphic; skeleton code lines while loading.
+- [x] Empty/no-permission states with server icon graphic; skeleton code lines while loading.
+- [ ] The instance tab container's Console heading with the state label (§1.2): not done,
+  the heading is the shell's; the sidebar and the status dot show the state.
 
 ## 5. Files tab — `components/FileViewer/*`, `utils/apis.ts`, `data/FileSystem.ts`  
 **Package: B.**
@@ -661,9 +670,9 @@ Conventions in the code that every area relies on:
 ### 6.1 Settings tab — `components/Instance/InstanceSettings.tsx`, `components/SettingField.tsx`, `components/Atoms/Config/*`, `InstanceSettingsCreate/*`  
 **Package: C.**
 
-- [ ] Layout: sections with a table of contents (scroll-spy highlighting, click to scroll) —
+- [x] Layout: sections with a table of contents (scroll-spy highlighting, click to scroll) —
   `components/Settings/SettingsToc.tsx`, `SettingsBlocks.tsx`. Skeleton on first load only.
-- [ ] Manifest-driven sections: `GET /instance/{uuid}/settings` → `ConfigurableManifest {auto_start,
+- [x] Manifest-driven sections: `GET /instance/{uuid}/settings` → `ConfigurableManifest {auto_start,
   restart_on_crash, setting_sections}`, refetched every visit. Each setting row by `value_type`:
   - Boolean → toggle (saves immediately, optimistic); Enum → dropdown (saves on change); Integer/
     UnsignedInteger → number input with min/max; Float → text input parsed as float; String → text, or
@@ -679,7 +688,7 @@ Conventions in the code that every area relies on:
     `utils/motd.ts`.
   - (Which settings exist — port, RAM, java, flags, server.properties fields… — comes entirely from the
     core's manifest; the dashboard has no hard-coded list.)
-- [ ] **Automation** section: Auto start, Restart on crash toggles → `PUT /instance/{uuid}/auto_start` /
+- [x] **Automation** section: Auto start, Restart on crash toggles → `PUT /instance/{uuid}/auto_start` /
   `/restart_on_crash` (JSON bool); refetch list; needs `can_access_instance_setting` (+ owner for atom).
 - [ ] **Sharing / public listing** (Minecraft Java only; hidden on cores without scopes) —
   `components/Instance/PublicListingSetting.tsx`
@@ -687,13 +696,24 @@ Conventions in the code that every area relies on:
     Status / Address / Client pack; sentence describing what's shown; only owner can edit; listing can't be
     turned on while core setting "List instances publicly" is off (unlisting always allowed).
   - `PUT /instance/{uuid}/public_listing` body `PublicScopeChange` → `PublicScope`.
-- [ ] **Server resource pack** (Minecraft Java only) — `components/Instance/ResourcePackSetting.tsx`
+- [x] **Server resource pack** (Minecraft Java only) — `components/Instance/ResourcePackSetting.tsx`
   - `GET /instance/{uuid}/resource_pack` → `ServerResourcePack {url, sha1, required, prompt}`.
   - Fields: URL (http/https, no spaces, max 2048), SHA-1 (empty or 40 hex, max 40) + **Compute** button
     (`POST /instance/{uuid}/resource_pack/hash {url}` → `{sha1,size}`, note "Downloaded <size>"),
     Required toggle, Prompt (max 2048). Draft kept until **Save** (`PUT …/resource_pack`); **Remove** saves
     empty pack. Toast "Saved" or "Saved, restart to apply" if running. Needs `can_access_instance_setting`.
-- [ ] **Danger zone**: Delete server (§2.5).
+- [x] **Danger zone**: Delete server (§2.5).
+- [x] **Minecraft EULA** (PR #626, Minecraft Java only): `GET /instance/{uuid}/eula`; a
+  section with the status, a "Read the EULA" link (https://aka.ms/MinecraftEULA) and
+  "I agree to the Minecraft EULA" (`PUT /instance/{uuid}/eula`, needs start permission).
+  When Start or Restart fails and the EULA isn't accepted, a dialog asks the same, with
+  the link and "I agree, start the server" (`pages/eula_prompt.rs`, after the dashboard's
+  instance card). Only the user's click accepts it.
+- Host notes for §6.1: the list of sections shows beside them when the window is wide
+  enough; there is no skeleton, only a loading card on first load. The MOTD preview
+  draws the Minecraft colours and formatting on a dark panel, without the dirt
+  background and the Minecraft font. The public listing ("Sharing") reuses package D's
+  row (`pages/public_listing.rs`) and comes with D's change.
 
 ### 6.2 Mods / Plugins tab — `components/Mods/*`, `data/Mods.ts`, `utils/mods.ts`  
 **Package: C.**

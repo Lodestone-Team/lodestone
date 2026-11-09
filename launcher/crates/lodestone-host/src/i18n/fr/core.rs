@@ -334,6 +334,36 @@ pub fn text(message: M) -> &'static str {
             "Retirer le lien vers {name} ? Il pourra être lié à nouveau depuis Lodestone Launcher."
         }
         M::MinecraftRemoved => "{name} retiré",
+        M::Notifications => "Notifications",
+        M::InProgress => "En cours",
+        M::AllNotifications => "Toutes les notifications",
+        M::LoadingNotifications => "Chargement des notifications",
+        M::NoNotifications => "Aucune notification pour le moment !",
+        M::EventStarting => "Le serveur {name} démarre !",
+        M::EventRunning => "Le serveur {name} a démarré !",
+        M::EventStopping => "Le serveur {name} s’arrête !",
+        M::EventStopped => "Le serveur {name} s’est arrêté !",
+        M::EventCrashed => "Le serveur {name} a rencontré une erreur !",
+        M::WarningToast => {
+            "Avertissement : un serveur a émis un avertissement. Cela ne devrait pas arriver, veuillez le signaler aux développeurs."
+        }
+        M::EventWarning => "Le serveur {name} a émis un avertissement",
+        M::EventError => "Le serveur {name} a rencontré une erreur",
+        M::PlayersJoined => "{players} a rejoint {name}",
+        M::PlayersLeft => "{players} a quitté {name}",
+        M::PlayersJoinedAndLeft => "{joined} a rejoint {name} et {left} a quitté {name}",
+        M::PlayerMessage => "{player} a dit {message} sur {name}",
+        M::EventApiKeyCreated => "Clé d’API « {name} » créée",
+        M::EventApiKeyRevoked => "Clé d’API « {name} » révoquée",
+        M::MacroStarted => "Macro {pid} démarrée sur {server}",
+        M::MacroDetached => "Macro {pid} détachée sur {server}",
+        M::MacroStopped => "Macro {pid} arrêtée sur {server} avec l’état {status}",
+        M::PlayitStarted => "Agent Playitgg démarré !",
+        M::PlayitLoading => "Chargement de l’agent Playitgg…",
+        M::PlayitStopped => "Agent Playitgg arrêté !",
+        M::LoadFailed => "Impossible de charger les notifications : {error}",
+        M::CoreFallback => "Core",
+        M::CoreFailedNotice => "Lodestone Core n’a pas pu démarrer : {error}",
     }
 }
 

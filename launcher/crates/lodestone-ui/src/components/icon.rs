@@ -34,13 +34,34 @@ pub enum Icon {
     WindowMinimize,
     WindowRestore,
     Xmark,
+    Link,
+    UserGroup,
+    ChevronDown,
+    ChevronRight,
+    ChevronLeft,
+    Pen,
+    FloppyDisk,
+    CircleUser,
     CircleInfo,
     CircleCheck,
     CircleExclamation,
+    Server,
+    Folder,
+    FolderPlus,
+    File,
+    FilePen,
+    FileCirclePlus,
+    ArrowsRotate,
+    Scissors,
+    Paste,
+    FileZipper,
+    ListCheck,
+    ClipboardQuestion,
+    Bell,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 32] = [
+    pub const ALL: [Icon; 53] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -70,9 +91,30 @@ impl Icon {
         Icon::WindowMinimize,
         Icon::WindowRestore,
         Icon::Xmark,
+        Icon::Link,
+        Icon::UserGroup,
+        Icon::ChevronDown,
+        Icon::ChevronRight,
+        Icon::ChevronLeft,
+        Icon::Pen,
+        Icon::FloppyDisk,
+        Icon::CircleUser,
         Icon::CircleInfo,
         Icon::CircleCheck,
         Icon::CircleExclamation,
+        Icon::Server,
+        Icon::Folder,
+        Icon::FolderPlus,
+        Icon::File,
+        Icon::FilePen,
+        Icon::FileCirclePlus,
+        Icon::ArrowsRotate,
+        Icon::Scissors,
+        Icon::Paste,
+        Icon::FileZipper,
+        Icon::ListCheck,
+        Icon::ClipboardQuestion,
+        Icon::Bell,
     ];
 
     /// The asset path of the icon's SVG.
@@ -107,9 +149,30 @@ impl Icon {
             Icon::WindowMinimize => "icons/window-minimize.svg",
             Icon::WindowRestore => "icons/window-restore.svg",
             Icon::Xmark => "icons/xmark.svg",
+            Icon::Link => "icons/link.svg",
+            Icon::UserGroup => "icons/user-group.svg",
+            Icon::ChevronDown => "icons/chevron-down.svg",
+            Icon::ChevronRight => "icons/chevron-right.svg",
+            Icon::ChevronLeft => "icons/chevron-left.svg",
+            Icon::Pen => "icons/pen.svg",
+            Icon::FloppyDisk => "icons/floppy-disk.svg",
+            Icon::CircleUser => "icons/circle-user.svg",
             Icon::CircleInfo => "icons/circle-info.svg",
             Icon::CircleCheck => "icons/circle-check.svg",
             Icon::CircleExclamation => "icons/circle-exclamation.svg",
+            Icon::Server => "icons/server.svg",
+            Icon::Folder => "icons/folder.svg",
+            Icon::FolderPlus => "icons/folder-plus.svg",
+            Icon::File => "icons/file.svg",
+            Icon::FilePen => "icons/file-pen.svg",
+            Icon::FileCirclePlus => "icons/file-circle-plus.svg",
+            Icon::ArrowsRotate => "icons/arrows-rotate.svg",
+            Icon::Scissors => "icons/scissors.svg",
+            Icon::Paste => "icons/paste.svg",
+            Icon::FileZipper => "icons/file-zipper.svg",
+            Icon::ListCheck => "icons/list-check.svg",
+            Icon::ClipboardQuestion => "icons/clipboard-question.svg",
+            Icon::Bell => "icons/bell.svg",
         }
     }
 
@@ -120,7 +183,9 @@ impl Icon {
         let message = match self {
             Icon::ArrowDown => M::MoveDown,
             Icon::ArrowUp => M::MoveUp,
-            Icon::ArrowLeft => M::Back,
+            Icon::ArrowLeft | Icon::ChevronLeft => M::Back,
+            Icon::Pen => M::Edit,
+            Icon::FloppyDisk => M::Save,
             Icon::Bars => M::Menu,
             Icon::Check => M::Done,
             Icon::Copy => M::Copy,
@@ -145,9 +210,27 @@ impl Icon {
             | Icon::WindowMaximize
             | Icon::WindowMinimize
             | Icon::WindowRestore
+            | Icon::Link
+            | Icon::UserGroup
+            | Icon::ChevronDown
+            | Icon::ChevronRight
+            | Icon::CircleUser
             | Icon::CircleInfo
             | Icon::CircleCheck
-            | Icon::CircleExclamation => return format!("{self:?}").into(),
+            | Icon::CircleExclamation
+            | Icon::Server
+            | Icon::Folder
+            | Icon::FolderPlus
+            | Icon::File
+            | Icon::FilePen
+            | Icon::FileCirclePlus
+            | Icon::ArrowsRotate
+            | Icon::Scissors
+            | Icon::Paste
+            | Icon::FileZipper
+            | Icon::ListCheck
+            | Icon::ClipboardQuestion
+            | Icon::Bell => return format!("{self:?}").into(),
         };
         t(message).into()
     }

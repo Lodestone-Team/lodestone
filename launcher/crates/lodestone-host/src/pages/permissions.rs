@@ -126,8 +126,8 @@ pub fn rows(
                                 let on_change = on_change.clone();
                                 Checkbox::new(
                                     (row_id.clone(), index),
-                                    instance.name.clone(),
                                     checked,
+                                    instance.name.clone(),
                                 )
                                 .disabled(!allowed(permission, Some(&instance.uuid)))
                                 .on_change(

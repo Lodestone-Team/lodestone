@@ -304,7 +304,7 @@ impl ServerDetail {
 
     fn status_mut(&mut self, kind: &StreamKind) -> &mut StreamStatus {
         match kind {
-            StreamKind::Events | StreamKind::All => &mut self.events_status,
+            StreamKind::Events | StreamKind::All | StreamKind::Monitor => &mut self.events_status,
             StreamKind::Console => &mut self.console_status,
         }
     }
@@ -318,7 +318,7 @@ impl ServerDetail {
                     StreamKind::Console => self.fetch_buffer(cx),
                     StreamKind::Events => self.fetch_players(cx),
                     // the launcher doesn't follow every event
-                    StreamKind::All => {}
+                    StreamKind::All | StreamKind::Monitor => {}
                 }
             }
             LiveMessage::Disconnected(reason) => {

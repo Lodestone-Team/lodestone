@@ -70,10 +70,11 @@ fn main() {
     });
 }
 
-/// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts]`,
+/// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by
 /// default: the core starts and the Host signs in), optionally with the first instance
-/// selected (on its `--tab`: `console`, `files`, …) and sample toasts shown, saves it
+/// selected (on its `--tab`: `console`, `files`, …), sample toasts shown and the page
+/// filled with sample data (`--demo`, for the pages that have some), saves it
 /// and quits, stopping the core.
 #[cfg(feature = "screenshot")]
 mod screenshot {
@@ -102,6 +103,7 @@ mod screenshot {
         });
         let select_first = tab.is_some() || std::env::args().any(|arg| arg == "--select-first");
         let toasts = std::env::args().any(|arg| arg == "--toasts");
+        let demo = std::env::args().any(|arg| arg == "--demo");
         cx.spawn(async move |cx| {
             cx.background_executor()
                 .timer(Duration::from_secs(wait))
@@ -151,6 +153,31 @@ mod screenshot {
                     .ok();
                 cx.background_executor()
                     .timer(Duration::from_millis(2500))
+                    .await;
+            }
+            // `--notifications`: the bell's list, open
+            if std::env::args().any(|arg| arg == "--notifications") {
+                window
+                    .update(cx, |app, _, cx| {
+                        let notifications = app.shell()?.read(cx).notifications.clone();
+                        notifications.update(cx, |list, cx| list.toggle(cx));
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
+            if demo {
+                window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).page_view()?;
+                        lodestone_host::pages::demo(&view, cx);
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
                     .await;
             }
             if toasts {
