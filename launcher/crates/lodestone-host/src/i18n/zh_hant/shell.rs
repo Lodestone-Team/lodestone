@@ -41,7 +41,6 @@ pub fn text(message: M) -> &'static str {
         M::TabPlugins => "外掛程式",
         M::TabMacros => "巨集",
         M::TabEventLogs => "事件日誌",
-        M::TabPlayit => "Playit.gg",
         M::Settings => "設定",
         M::SettingsCore => "Core",
         M::SettingsGeneral => "一般",

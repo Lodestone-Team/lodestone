@@ -130,7 +130,7 @@ pub const ADDRESS_HIDDEN: &str = "The owner hasn't shared this server's address.
 /// `GET /launcher/instances` describe it.
 ///
 /// The public list leaves out what the owner doesn't share: the status (`state` and
-/// the player counts), the address (`port` and `playit_address`) or the client pack
+/// the player counts), the address (`port`) or the client pack
 /// (`has_client_pack`). The signed-in list always has them.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct ServerInstance {
@@ -153,8 +153,6 @@ pub struct ServerInstance {
     /// `None`: the client pack isn't shared.
     #[serde(default)]
     pub has_client_pack: Option<bool>,
-    #[serde(default)]
-    pub playit_address: Option<String>,
     #[serde(default)]
     pub listed: bool,
 }
@@ -242,7 +240,8 @@ mod tests {
                 "uuid": "i1", "name": "SMP", "game_version": "1.20.1", "loader": "fabric",
                 "loader_version": "0.16.14", "port": 25565, "state": "Running",
                 "player_count": 2, "max_player_count": 20, "has_client_pack": true,
-                "playit_address": null, "listed": true
+                // cores before Lodestone Connect also sent a playit.gg address
+                "playit_address": "abc.ply.gg:41234", "listed": true
             }, {
                 "uuid": "i2", "name": "New", "game_version": "26.3", "loader": "quilt",
                 "loader_version": null, "port": 25566, "state": "Hibernating"
@@ -270,11 +269,11 @@ mod tests {
                 "uuid": "i1", "name": "SMP", "game_version": "1.20.1", "loader": "fabric",
                 "loader_version": "0.16.14", "listed": true
             }, {
-                // status and address, unknown counts and no playit tunnel
+                // status and address, unknown counts
                 "uuid": "i2", "name": "Paper", "game_version": "1.21.4", "loader": "paper",
                 "loader_version": "196", "listed": true, "state": "Running",
                 "player_count": null, "max_player_count": null, "port": 25566,
-                "playit_address": null, "has_client_pack": false
+                "has_client_pack": false
             }]
         }))
         .unwrap();
@@ -284,7 +283,6 @@ mod tests {
         assert_eq!(hidden.players_label(), None);
         assert_eq!(hidden.port, None);
         assert!(!hidden.address_shown());
-        assert_eq!(hidden.playit_address, None);
         assert_eq!(hidden.has_client_pack, None);
         assert!(!hidden.has_pack());
         assert!(hidden.mods_hidden());

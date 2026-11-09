@@ -17,7 +17,6 @@
 //! | [`mods`] | mods, plugins, Modrinth, modpacks | A (modpacks) and C (mods) |
 //! | [`users`] | users, permissions, profile, API keys, Minecraft links | D |
 //! | [`core_settings`] | global settings, public listing, UPnP | D |
-//! | [`playit`] | playit.gg | C |
 //!
 //! Errors are [`CoreError`]s: a 401 is [`CoreError::SignedOut`], a 403
 //! [`CoreError::Forbidden`] with the core's reason.
@@ -30,7 +29,6 @@ pub mod instance_settings;
 pub mod instances;
 pub mod models;
 pub mod mods;
-pub mod playit;
 pub mod users;
 
 use http_client::Method;

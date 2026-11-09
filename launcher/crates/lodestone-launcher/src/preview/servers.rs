@@ -80,7 +80,6 @@ pub fn has_instances(scene: &str) -> bool {
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn server(
     uuid: &str,
     name: &str,
@@ -89,7 +88,6 @@ fn server(
     loader_version: Option<&str>,
     state: ServerState,
     players: Option<(u32, u32)>,
-    playit: Option<&str>,
 ) -> ServerInstance {
     ServerInstance {
         uuid: uuid.into(),
@@ -102,7 +100,6 @@ fn server(
         player_count: players.map(|p| p.0),
         max_player_count: players.map(|p| p.1),
         has_client_pack: Some(loader == ServerLoader::Fabric),
-        playit_address: playit.map(str::to_string),
         listed: true,
     }
 }
@@ -138,7 +135,6 @@ fn smp() -> ServerInstance {
         Some("0.16.14"),
         ServerState::Running,
         Some((3, 20)),
-        Some("smp-lodestone.ply.gg:41234"),
     )
 }
 
@@ -160,7 +156,6 @@ fn home(signed_in: bool) -> (SavedCore, CoreStatus, bool) {
             None,
             ServerState::Stopped,
             None,
-            None,
         ),
         server(
             "atm",
@@ -169,7 +164,6 @@ fn home(signed_in: bool) -> (SavedCore, CoreStatus, bool) {
             ServerLoader::Forge,
             Some("1.20.1-47.4.28"),
             ServerState::Stopped,
-            None,
             None,
         ),
     ];
@@ -209,7 +203,6 @@ fn friend() -> (SavedCore, CoreStatus, bool) {
                 Some("0.16.14"),
                 ServerState::Running,
                 Some((7, 16)),
-                None,
             )],
         }),
         false,

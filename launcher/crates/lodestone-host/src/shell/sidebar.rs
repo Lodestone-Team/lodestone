@@ -63,7 +63,6 @@ pub fn tab_name(tab: InstanceTab, instance: &InstanceInfo) -> &'static str {
         },
         InstanceTab::Macros => ShellMsg::TabMacros,
         InstanceTab::EventLogs => ShellMsg::TabEventLogs,
-        InstanceTab::Playit => ShellMsg::TabPlayit,
     })
 }
 

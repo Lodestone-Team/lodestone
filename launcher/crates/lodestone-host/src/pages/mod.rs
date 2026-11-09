@@ -15,7 +15,6 @@
 //! | Settings (instance) | [`instance_settings`] | C |
 //! | Mods / Plugins | [`mods`] | C |
 //! | Event logs | [`event_logs`] | C |
-//! | Playit.gg | [`playit`] | C |
 //! | Macros (needs Deno: out of scope) | [`macros`] | — |
 //! | Settings › General | [`core_settings`] | D |
 //! | Settings › Users | [`users`] | D |
@@ -38,7 +37,6 @@ pub mod mods;
 pub mod overview;
 pub mod parts;
 pub mod permissions;
-pub mod playit;
 pub mod profile;
 pub mod public_listing;
 pub mod updates;
@@ -84,7 +82,6 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
                 InstanceTab::EventLogs => cx
                     .new(|cx| event_logs::EventLogsPage::new(state, uuid, cx))
                     .into(),
-                InstanceTab::Playit => cx.new(|cx| playit::PlayitPage::new(state, uuid, cx)).into(),
             }
         }
         Route::Settings(page) => match page {

@@ -93,7 +93,6 @@ mod tests {
             player_count: None,
             max_player_count: None,
             has_client_pack: Some(false),
-            playit_address: None,
             listed: false,
         }
     }

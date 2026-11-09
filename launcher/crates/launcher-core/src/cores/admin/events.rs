@@ -96,7 +96,6 @@ pub enum EventInner {
     #[serde(rename = "FSEvent")]
     FsEvent(Value),
     ProgressionEvent(ProgressionEvent),
-    PlayitggRunnerEvent(PlayitggRunnerEvent),
     GlobalSettingsChanged,
     #[serde(other)]
     Unknown,
@@ -263,21 +262,6 @@ pub enum ProgressionEndValue {
     Unknown,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PlayitggRunnerEvent {
-    pub playitgg_runner_event_inner: PlayitggRunnerEventInner,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum PlayitggRunnerEventInner {
-    RunnerStarted,
-    RunnerLoading,
-    RunnerStopped,
-    #[serde(other)]
-    Unknown,
-}
-
 /// Reads a frame of the event stream. `None` for a frame that isn't an event.
 pub fn parse(text: &str) -> Option<ClientEvent> {
     serde_json::from_str(text).ok()
@@ -357,5 +341,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(event.event_inner, EventInner::GlobalSettingsChanged);
+        // a playit.gg runner event from a core before Lodestone Connect
+        let event = parse(
+            r#"{"event_inner":{"type":"PlayitggRunnerEvent",
+                "playitgg_runner_event_inner":{"type":"RunnerStarted"}},"details":"",
+                "snowflake":"1","level":"Info","caused_by":{"type":"System"}}"#,
+        )
+        .unwrap();
+        assert_eq!(event.event_inner, EventInner::Unknown);
     }
 }

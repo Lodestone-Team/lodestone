@@ -17,7 +17,6 @@ pub enum CoreSwitch {
     SafeMode,
     CodeExecution,
     AllowLanHttp,
-    PlayitEnabled,
     AllowLocalClaim,
     ListInstancesPublicly,
 }
@@ -28,7 +27,6 @@ impl CoreSwitch {
             CoreSwitch::SafeMode => "safe_mode",
             CoreSwitch::CodeExecution => "code_execution",
             CoreSwitch::AllowLanHttp => "allow_lan_http",
-            CoreSwitch::PlayitEnabled => "playit_enabled",
             CoreSwitch::AllowLocalClaim => "allow_local_claim",
             CoreSwitch::ListInstancesPublicly => "list_instances_publicly",
         }
@@ -40,7 +38,6 @@ impl CoreSwitch {
             CoreSwitch::SafeMode => settings.safe_mode,
             CoreSwitch::CodeExecution => settings.code_execution_enabled,
             CoreSwitch::AllowLanHttp => settings.allow_lan_http,
-            CoreSwitch::PlayitEnabled => settings.playit_enabled,
             CoreSwitch::AllowLocalClaim => settings.allow_local_claim,
             CoreSwitch::ListInstancesPublicly => settings.list_instances_publicly,
         }
@@ -52,7 +49,6 @@ impl CoreSwitch {
             CoreSwitch::SafeMode => &mut settings.safe_mode,
             CoreSwitch::CodeExecution => &mut settings.code_execution_enabled,
             CoreSwitch::AllowLanHttp => &mut settings.allow_lan_http,
-            CoreSwitch::PlayitEnabled => &mut settings.playit_enabled,
             CoreSwitch::AllowLocalClaim => &mut settings.allow_local_claim,
             CoreSwitch::ListInstancesPublicly => &mut settings.list_instances_publicly,
         };
@@ -92,12 +88,6 @@ impl AdminClient {
             Some(value),
         )
         .await
-    }
-
-    /// `POST /playitgg/stop_cli`: stops the playit.gg runner (after turning playit off).
-    pub async fn stop_playit(&self) -> Result<(), CoreError> {
-        self.call(Method::POST, "playitgg/stop_cli", None::<()>)
-            .await
     }
 
     /// `PUT /gateway/open_port/{port}`: asks the router to forward `port` (UPnP).

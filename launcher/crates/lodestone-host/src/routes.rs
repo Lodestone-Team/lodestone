@@ -32,11 +32,10 @@ pub enum InstanceTab {
     /// a core with the `macros` capability (another core), as the dashboard does.
     Macros,
     EventLogs,
-    Playit,
 }
 
 impl InstanceTab {
-    pub const ALL: [InstanceTab; 8] = [
+    pub const ALL: [InstanceTab; 7] = [
         InstanceTab::Overview,
         InstanceTab::Settings,
         InstanceTab::Console,
@@ -44,7 +43,6 @@ impl InstanceTab {
         InstanceTab::Mods,
         InstanceTab::Macros,
         InstanceTab::EventLogs,
-        InstanceTab::Playit,
     ];
 }
 
@@ -80,7 +78,6 @@ impl InstanceTab {
     /// Whether the sidebar lists the tab.
     pub fn visible(self, cx: &TabContext) -> bool {
         match self {
-            InstanceTab::Playit => cx.settings.is_some_and(|s| s.playit_enabled),
             InstanceTab::Macros => cx.me.is_owner && cx.info.capabilities.macros,
             InstanceTab::Mods => {
                 mod_support(cx.instance).is_some()
@@ -141,10 +138,6 @@ mod tests {
         info.capabilities.macros = false;
         let fabric = instance(MinecraftVariant::Fabric);
         let vanilla = instance(MinecraftVariant::Vanilla);
-        let settings = GlobalSettingsData {
-            playit_enabled: true,
-            ..Default::default()
-        };
         let cx = |me, instance, settings| TabContext {
             me,
             info: &info,
@@ -161,8 +154,6 @@ mod tests {
             !InstanceTab::Macros.visible(&cx(&owner, &fabric, None)),
             "no Deno"
         );
-        assert!(!InstanceTab::Playit.visible(&cx(&owner, &fabric, None)));
-        assert!(InstanceTab::Playit.visible(&cx(&owner, &fabric, Some(&settings))));
         assert!(matches!(fabric.game_type, Game::MinecraftJava { .. }));
     }
 }
