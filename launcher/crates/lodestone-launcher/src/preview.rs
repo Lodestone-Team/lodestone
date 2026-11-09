@@ -85,7 +85,9 @@ pub const SCENES: &[&str] = &[
     "loader-change",
     "new-instance-modpack",
     "new-instance-code",
+    "new-instance-code-pack",
     "share-code",
+    "share-code-pack",
     "modpack-importing",
     "modpack-settings",
     "modpack-update",
@@ -348,6 +350,7 @@ fn has_instances(scene: &str) -> bool {
         || scene.starts_with("modpack-")
         || scene == "new-instance-modpack"
         || scene == "share-code"
+        || scene == "share-code-pack"
         || is_worlds_scene(scene)
         || snapshots::is_scene(scene)
         || scene == "loader-change"
@@ -761,15 +764,22 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 dialog.update(cx, |dialog, cx| dialog.paste_code(&code, cx));
             }
         }
-        "share-code" => {
+        "new-instance-code-pack" => {
+            shell.open_new_instance_with(None, None, cx);
+            let code = sample_pack_share_plan().code.encode();
+            if let Some(dialog) = shell.new_instance_dialog().cloned() {
+                dialog.update(cx, |dialog, cx| dialog.paste_code(&code, cx));
+            }
+        }
+        "share-code" | "share-code-pack" => {
             shell.select_tab(InstanceTab::Settings, cx);
-            let dialog = cx.new(|cx| {
-                crate::instances::share_dialog::ShareDialog::preview(
-                    "Survival",
-                    sample_share_plan(),
-                    cx,
-                )
-            });
+            let (name, plan) = if scene == "share-code" {
+                ("Survival".to_string(), sample_share_plan())
+            } else {
+                pack_share_plan()
+            };
+            let dialog =
+                cx.new(|cx| crate::instances::share_dialog::ShareDialog::preview(&name, plan, cx));
             shell.show_share(dialog, cx);
         }
         "logs" => shell.select_tab(InstanceTab::Logs, cx),
@@ -1222,8 +1232,18 @@ fn sample_share_plan() -> launcher_core::content::share::SharePlan {
             game_version: "1.21.1".into(),
             loader: launcher_core::instances::Loader::Fabric,
             loader_version: Some("0.16.9".into()),
+            pack: None,
             items,
+            changes: Default::default(),
         },
+        shared: [
+            (ContentKind::Mod, 186),
+            (ContentKind::ResourcePack, 7),
+            (ContentKind::ShaderPack, 3),
+        ]
+        .into_iter()
+        .collect(),
+        changes: None,
         left_out: vec![
             left_out(
                 ContentKind::Mod,
@@ -1246,6 +1266,82 @@ fn sample_share_plan() -> launcher_core::content::share::SharePlan {
                 LeftOutReason::NotOnModrinth,
             ),
         ],
+    }
+}
+
+/// The share plan of the instance folder in `LODESTONE_SHARE_PLAN_DIR` (read as the
+/// dialog reads it, offline), else [`sample_pack_share_plan`]: to see the dialog for a
+/// real instance.
+fn pack_share_plan() -> (String, launcher_core::content::share::SharePlan) {
+    use launcher_core::content::{InstanceDirs, Target, share};
+    let real = std::env::var_os("LODESTONE_SHARE_PLAN_DIR").and_then(|dir| {
+        let dirs = InstanceDirs::new(std::path::PathBuf::from(dir));
+        let instance: launcher_core::instances::Instance =
+            serde_json::from_slice(&std::fs::read(dirs.instance.join("instance.json")).ok()?)
+                .ok()?;
+        let target = Target::new(instance.game_version.clone(), instance.loader);
+        let plan = futures::executor::block_on(share::collect(
+            None,
+            &dirs,
+            &target,
+            Some(instance.name.clone()),
+            instance.loader,
+            instance.loader_version.clone(),
+        ))
+        .ok()?;
+        Some((instance.name, plan))
+    });
+    real.unwrap_or_else(|| ("Gaycraft".into(), sample_pack_share_plan()))
+}
+
+/// An instance from a Modrinth modpack with two of its mods turned off and one mod
+/// added by hand.
+fn sample_pack_share_plan() -> launcher_core::content::share::SharePlan {
+    use launcher_core::content::{
+        ContentKind,
+        share::{
+            ChangeCounts, FileRef, LeftOut, LeftOutReason, PackChanges, ShareCode, SharePlan,
+            SharedPack,
+        },
+    };
+    SharePlan {
+        code: ShareCode {
+            name: Some("Gaycraft".into()),
+            game_version: "1.20.1".into(),
+            loader: launcher_core::instances::Loader::Fabric,
+            loader_version: Some("0.16.10".into()),
+            pack: Some(SharedPack {
+                project: "a0TMbfWJ".into(),
+                version: "xcEwT3IK".into(),
+                title: "Gaycraft".into(),
+                version_number: "5.0".into(),
+            }),
+            items: Vec::new(),
+            changes: PackChanges {
+                turned_off: vec![
+                    "mods/[1.20.1] Hybrid Aquatic 1.4.2.jar".into(),
+                    "mods/[Fabric]backported_wolves-1.1.0-1.19.3-1.20.4.jar".into(),
+                ],
+                resource_packs: vec![FileRef::Pack("3D Chiseled Bookshelves".into())],
+                ..PackChanges::default()
+            },
+        },
+        shared: [
+            (ContentKind::Mod, 308),
+            (ContentKind::ResourcePack, 37),
+            (ContentKind::ShaderPack, 5),
+        ]
+        .into_iter()
+        .collect(),
+        changes: Some(ChangeCounts {
+            toggled: 2,
+            ..ChangeCounts::default()
+        }),
+        left_out: vec![LeftOut {
+            kind: ContentKind::Mod,
+            file_name: "my-tweaks.jar".into(),
+            reason: LeftOutReason::AddedByHand,
+        }],
     }
 }
 

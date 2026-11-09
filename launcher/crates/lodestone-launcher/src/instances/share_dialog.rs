@@ -1,5 +1,6 @@
 //! "Share code": an instance's Modrinth content as a code to paste into another
-//! Lodestone Launcher, and what the code leaves out.
+//! Lodestone Launcher (for an instance from a Modrinth modpack: the pack and the changes
+//! to it), and what won't arrive as it is.
 
 use std::time::Duration;
 
@@ -29,7 +30,7 @@ pub struct ShareDismissed;
 
 enum State {
     Reading,
-    Ready { plan: SharePlan, code: String },
+    Ready { plan: Box<SharePlan>, code: String },
     Failed(SharedString),
 }
 
@@ -84,7 +85,10 @@ impl ShareDialog {
                         this.state = match result {
                             Ok(plan) => {
                                 let code = plan.code.encode();
-                                State::Ready { plan, code }
+                                State::Ready {
+                                    plan: Box::new(plan),
+                                    code,
+                                }
                             }
                             Err(err) => State::Failed(err.to_string().into()),
                         };
@@ -109,7 +113,10 @@ impl ShareDialog {
         let code = plan.code.encode();
         Self {
             name: name.to_string(),
-            state: State::Ready { plan, code },
+            state: State::Ready {
+                plan: Box::new(plan),
+                code,
+            },
             copied: false,
             focus: cx.focus_handle(),
             _task: None,
@@ -132,6 +139,34 @@ impl ShareDialog {
             })
             .ok();
         }));
+    }
+}
+
+/// "Gaycraft 5.0", or the pack's id when the code has no title.
+pub fn pack_label(pack: &share::SharedPack) -> String {
+    match (pack.title.is_empty(), pack.version_number.is_empty()) {
+        (true, _) => pack.project.clone(),
+        (false, true) => pack.title.clone(),
+        (false, false) => format!("{} {}", pack.title, pack.version_number),
+    }
+}
+
+/// "Your changes: 2 added, 1 removed", or that there are none.
+fn changes_label(changes: &share::ChangeCounts) -> String {
+    let parts: Vec<String> = [
+        (P::ShareAddedCount, changes.added),
+        (P::ShareRemovedCount, changes.removed),
+        (P::ShareChangedCount, changes.changed),
+        (P::ShareToggledCount, changes.toggled),
+    ]
+    .into_iter()
+    .filter(|(_, count)| *count > 0)
+    .map(|(message, count)| trn!(message, count))
+    .collect();
+    if parts.is_empty() {
+        t(M::ShareNoChanges).to_string()
+    } else {
+        tr!(M::ShareChanges, changes = parts.join(", "))
     }
 }
 
@@ -187,16 +222,52 @@ impl Render for ShareDialog {
                     .gap_2()
                     .child(count_tile(
                         t(ContentMsg::KindMods),
-                        plan.code.count(ContentKind::Mod),
+                        plan.shared(ContentKind::Mod),
                     ))
                     .child(count_tile(
                         t(ContentMsg::KindResourcePacks),
-                        plan.code.count(ContentKind::ResourcePack),
+                        plan.shared(ContentKind::ResourcePack),
                     ))
                     .child(count_tile(
                         t(ContentMsg::KindShaders),
-                        plan.code.count(ContentKind::ShaderPack),
+                        plan.shared(ContentKind::ShaderPack),
                     ));
+                let pack = plan.code.pack.as_ref().map(|pack| {
+                    let changes = plan.changes.clone().unwrap_or_default();
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .px_4()
+                        .py_3()
+                        .rounded(radius::LG)
+                        .border_1()
+                        .border_color(colors::FADE_700)
+                        .bg(colors::GRAY_800)
+                        .child(Icon::Cube.render(px(18.), colors::GRAY_400))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_0p5()
+                                .child(
+                                    div()
+                                        .font_weight(weights::BOLD.into())
+                                        .text_color(colors::GRAY_300)
+                                        .child(tr!(M::ShareBasedOnPack, pack = pack_label(pack))),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(theme::text_size(text::SMALL))
+                                        .text_color(colors::GRAY_500)
+                                        .child(changes_label(&changes)),
+                                ),
+                        )
+                });
+                let pack_based = pack.is_some();
                 let left_out = (!plan.left_out.is_empty()).then(|| {
                     let shown: Vec<_> = plan.left_out.iter().take(SHOWN_LEFT_OUT).collect();
                     let more = plan.left_out.len().saturating_sub(SHOWN_LEFT_OUT);
@@ -228,12 +299,19 @@ impl Render for ShareDialog {
                             div()
                                 .text_size(theme::text_size(text::SMALL))
                                 .text_color(colors::GRAY_400)
-                                .child(t(M::ShareNotSharedBody)),
+                                .child(t(if pack_based {
+                                    M::ShareNotSharedBodyPack
+                                } else {
+                                    M::ShareNotSharedBody
+                                })),
                         )
                         .children(shown.into_iter().map(|item| {
                             let reason = match item.reason {
                                 LeftOutReason::CurseForge => t(M::ShareFromCurseForge),
-                                LeftOutReason::NotOnModrinth => t(M::ShareAddedByHand),
+                                LeftOutReason::NotOnModrinth => t(M::ShareNotOnModrinth),
+                                LeftOutReason::AddedByHand => t(M::ShareAddedByHand),
+                                LeftOutReason::ChangedSincePack => t(M::ShareChangedSincePack),
+                                LeftOutReason::Unchecked => t(M::ShareUnchecked),
                             };
                             div()
                                 .flex()
@@ -266,7 +344,12 @@ impl Render for ShareDialog {
                     .flex_col()
                     .gap_4()
                     .text_size(theme::text_size(text::MEDIUM))
-                    .child(div().text_color(colors::GRAY_400).child(t(M::ShareIntro)))
+                    .child(div().text_color(colors::GRAY_400).child(t(if pack_based {
+                        M::ShareIntroPack
+                    } else {
+                        M::ShareIntro
+                    })))
+                    .children(pack)
                     .child(counts)
                     .children(left_out)
                     .child(

@@ -26,7 +26,10 @@ use crate::{
         settings::{popover, popover_panel, select_button},
     },
     file_dialog,
-    i18n::{CommonMsg, ContentMsg, InstanceSettingsMsg as M, format, t, tr},
+    i18n::{
+        CommonMsg, ContentMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, format, t,
+        tr, trn,
+    },
     theme::{self, Color, colors, leading, radius, text, weights},
 };
 
@@ -553,15 +556,28 @@ fn code_preview(code: &ShareCode) -> impl IntoElement {
         (Some(kind), None) => format!("Minecraft {} · {}", code.game_version, kind.label()),
         (None, _) => format!("Minecraft {}", code.game_version),
     };
-    let counts = [
-        (ContentMsg::KindMods, ContentKind::Mod),
-        (ContentMsg::KindResourcePacks, ContentKind::ResourcePack),
-        (ContentMsg::KindShaders, ContentKind::ShaderPack),
-    ]
-    .into_iter()
-    .map(|(label, kind)| format!("{} {}", format::number(code.count(kind) as u64), t(label)))
-    .collect::<Vec<_>>()
-    .join(" · ");
+    let counts = match &code.pack {
+        // "Gaycraft 5.0 from Modrinth + 2 changes"
+        Some(pack) => {
+            let pack = tr!(
+                M::CodePackPreview,
+                pack = super::share_dialog::pack_label(pack)
+            );
+            match code.change_count() {
+                0 => pack,
+                count => format!("{pack} {}", trn!(P::CodePackChanges, count)),
+            }
+        }
+        None => [
+            (ContentMsg::KindMods, ContentKind::Mod),
+            (ContentMsg::KindResourcePacks, ContentKind::ResourcePack),
+            (ContentMsg::KindShaders, ContentKind::ShaderPack),
+        ]
+        .into_iter()
+        .map(|(label, kind)| format!("{} {}", format::number(code.count(kind) as u64), t(label)))
+        .collect::<Vec<_>>()
+        .join(" · "),
+    };
     div()
         .flex()
         .flex_col()

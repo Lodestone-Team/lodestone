@@ -230,6 +230,21 @@ crate::i18n::messages! {
         ShareNotSharedBody = "Only content from Modrinth goes into a share code. Send these separately if they're needed.",
         ShareFromCurseForge = "From CurseForge",
         ShareAddedByHand = "Added by hand",
+        /// A file of the share dialog's list that Modrinth doesn't know.
+        ShareNotOnModrinth = "Not on Modrinth",
+        /// One of the modpack's own files, changed since the pack wrote it.
+        ShareChangedSincePack = "Changed since the modpack",
+        /// Modrinth couldn't be asked about the file (offline).
+        ShareUnchecked = "Not checked with Modrinth",
+        /// {pack} is the modpack and its version, like "Gaycraft 5.0".
+        ShareBasedOnPack = "Based on the modpack {pack}",
+        ShareIntroPack = "Another Lodestone Launcher can make this instance from the code: the modpack, then your changes to it.",
+        ShareNotSharedBodyPack = "The modpack brings its own files, but these won't arrive as they are here. Send them separately if they're needed.",
+        ShareNoChanges = "No changes to the modpack",
+        /// {changes} lists them, like "2 added, 1 removed".
+        ShareChanges = "Your changes: {changes}",
+        /// The New instance dialog's preview of a code based on a modpack; {pack} is like "Gaycraft 5.0".
+        CodePackPreview = "{pack} from Modrinth",
         ShareMore = "And {count} more",
         CopyCode = "Copy code",
         CodeCopied = "Copied",
@@ -325,6 +340,13 @@ crate::i18n::messages! {
     pub enum InstanceSettingsPlural {
         /// The share dialog's warning title.
         ShareNotShared = ("{count} file isn't shared", "{count} files aren't shared"),
+        /// Parts of "Your changes: …" in the share dialog.
+        ShareAddedCount = ("{count} added", "{count} added"),
+        ShareRemovedCount = ("{count} removed", "{count} removed"),
+        ShareChangedCount = ("{count} changed", "{count} changed"),
+        ShareToggledCount = ("{count} turned off or on", "{count} turned off or on"),
+        /// After "Gaycraft 5.0 from Modrinth" in the New instance dialog.
+        CodePackChanges = ("+ {count} change", "+ {count} changes"),
         /// After a loader change; {loader} is "Fabric 0.16.9".
         LoaderNextStartModsOff = (
             "{loader} installs the next time the game starts. {count} mod was turned off.",
