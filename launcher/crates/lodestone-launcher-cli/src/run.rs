@@ -158,7 +158,21 @@ mod unix {
                     "No home folder, so the launcher's data directory is unknown. Pass --socket.",
                 )
             })?;
-        Client::connect(&path).map_err(|err| err.to_error())
+        let mut client = Client::connect(&path).map_err(|err| err.to_error())?;
+        hello(&mut client);
+        Ok(client)
+    }
+
+    /// Says which program this is, for the launcher's Settings > Developer list. A
+    /// launcher too old to know `meta.hello` answers method_not_found: nothing lost.
+    fn hello(client: &mut Client) {
+        let _ = client.call(
+            "meta.hello",
+            json!({
+                "client": format!("lodestone-launcher-cli {}", env!("CARGO_PKG_VERSION")),
+                "pid": std::process::id(),
+            }),
+        );
     }
 
     fn deadline(global: &Global) -> Option<Instant> {
