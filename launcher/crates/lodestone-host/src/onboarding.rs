@@ -42,11 +42,7 @@ pub fn card(children: impl IntoIterator<Item = AnyElement>) -> impl IntoElement 
                 .bg(colors::GRAY_850)
                 .border_1()
                 .border_color(ink::border())
-                .child(
-                    img(lodestone_ui::theme::palette::logo())
-                        .h(px(28.))
-                        .w(px(134.)),
-                )
+                .child(img(crate::shell::logo()).h(px(28.)).w(px(134.)))
                 .children(children),
         )
 }
