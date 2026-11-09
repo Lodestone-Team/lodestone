@@ -188,10 +188,11 @@ pub(super) async fn spawn_minecraft_instance_creation(
 
     // write dot lodestone config
 
-    tokio::fs::write(
+    crate::persist::write_atomic(
         setup_path.join(".lodestone_config"),
         serde_json::to_string_pretty(&dot_lodestone_config)
             .context("Failed to serialize .lodestone_config")?,
+        None,
     )
     .await
     .context("Failed to write .lodestone_config file")?;
