@@ -824,7 +824,7 @@ Conventions in the code that every area relies on:
 ### 6.6 Ports  
 **Package: C (through the settings manifest).**
 
-- [ ] Instance port appears in card/overview/details; editing comes from the settings manifest. Core-wide
+- [x] Instance port appears in card/overview/details; editing comes from the settings manifest. Core-wide
   "Open port" UPnP action is in Core settings (§7.1).
 
 ### 6.7 Playit.gg tab — `components/PlayitggOverview.tsx`, `components/PlayitggSignupModal.tsx`  
