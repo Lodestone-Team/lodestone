@@ -10,6 +10,7 @@ mod settings_modal;
 mod shared_settings;
 mod sidebar;
 pub(crate) mod skin_checks;
+pub(crate) mod skin_editor;
 pub(crate) mod skin_settings;
 mod storage_settings;
 mod top_bar;
@@ -354,7 +355,8 @@ impl LauncherShell {
         observe.push(cx.observe(&storage, |_, _, cx| cx.notify()));
         let skin = {
             let instances = instances.clone();
-            cx.new(|cx| SkinSettings::new(instances, cx))
+            let shell = cx.entity().downgrade();
+            cx.new(|cx| SkinSettings::new(instances, shell, cx))
         };
         observe.push(cx.observe(&skin, |_, _, cx| cx.notify()));
         observe.push(cx.subscribe(&storage, |this, _, event, cx| match event {
@@ -1145,6 +1147,39 @@ impl LauncherShell {
         cx.notify();
     }
 
+    /// Shows (or hides) something in the window for the skin editor: the Settings
+    /// window, a menu, or a notice.
+    pub(crate) fn preview_skin(
+        &mut self,
+        preview: skin_editor::Preview,
+        on: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match preview {
+            skin_editor::Preview::Settings if on => {
+                self.open_settings(Some(SettingsPage::General), None, cx)
+            }
+            skin_editor::Preview::Settings => self.close_settings(cx),
+            skin_editor::Preview::Menu => self.set_account_menu(on, cx),
+            skin_editor::Preview::Notice => {
+                self.undo_toast.show(
+                    t(M::SkinPreviewNoticeText),
+                    false,
+                    |this: &mut Self| &mut this.undo_toast,
+                    cx,
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    /// Opens the skin editor's window, or brings it to the front.
+    pub(crate) fn open_skin_editor(&mut self, cx: &mut Context<Self>) {
+        let instances = self.instances.clone();
+        let shell = cx.entity().downgrade();
+        skin_editor::open(instances, shell, cx);
+    }
+
     fn set_account_menu(&mut self, open: bool, cx: &mut Context<Self>) {
         self.account_menu_open = open;
         cx.notify();
@@ -1639,7 +1674,7 @@ fn render_crash(
 impl LauncherShell {
     /// Undo (`undo` true) or Redo of a setting, with a toast that says what changed
     /// and offers the way back.
-    fn undo_step(&mut self, undo: bool, cx: &mut Context<Self>) {
+    pub(crate) fn undo_step(&mut self, undo: bool, cx: &mut Context<Self>) {
         let outcome = if undo {
             crate::undo::undo(cx)
         } else {
