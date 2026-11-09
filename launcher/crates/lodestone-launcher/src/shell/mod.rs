@@ -48,8 +48,8 @@ use crate::{
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Icon, RichText, focus, settings::Toast,
-        window_frame,
+        Button, ButtonVariant, Dialog, DialogSlot, Icon, RichText, UnderDialogs, focus,
+        settings::Toast, window_frame,
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::{
@@ -2535,26 +2535,35 @@ impl Render for LauncherShell {
             .text_color(crate::theme::ink::text())
             .text_size(theme::text_size(text::MEDIUM))
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
-            .child(top_bar::render(self, window, cx))
-            .child(
+            .child(UnderDialogs::new(
+                "under-dialogs",
                 div()
                     .flex()
-                    .flex_row()
+                    .flex_col()
                     .flex_1()
                     .min_h_0()
                     .w_full()
-                    .child(sidebar::render(self, cx))
+                    .child(top_bar::render(self, window, cx))
                     .child(
                         div()
-                            .relative()
                             .flex()
+                            .flex_row()
                             .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .surface(SurfaceId::Main)
-                            .child(main),
+                            .min_h_0()
+                            .w_full()
+                            .child(sidebar::render(self, cx))
+                            .child(
+                                div()
+                                    .relative()
+                                    .flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h_full()
+                                    .surface(SurfaceId::Main)
+                                    .child(main),
+                            ),
                     ),
-            )
+            ))
             .children(settings)
             .children(modal)
             .child(self.servers_overlay.clone())
