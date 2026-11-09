@@ -125,6 +125,10 @@ impl Snapshot {
     }
 }
 
+/// The empty selected-instance block's height before any instance was shown: about
+/// what a stopped server's card with six tabs takes.
+const EMPTY_BLOCK_HEIGHT: f32 = 368.;
+
 pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElement {
     let state = Snapshot::of(shell.state.read(cx));
     let state = &state;
@@ -142,13 +146,41 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
     };
 
     let selected_block: AnyElement = match &selected {
-        Some(instance) => selected_card(instance, selected_tab, state, cx).into_any_element(),
+        Some(instance) => {
+            // remember how tall it is, for the empty block (read on the next render, so
+            // no notify)
+            let shell_entity = cx.entity().downgrade();
+            div()
+                .relative()
+                .child(selected_card(instance, selected_tab, state, cx))
+                .child(
+                    gpui::canvas(
+                        move |bounds, _, cx| {
+                            shell_entity
+                                .update(cx, |shell, _| {
+                                    shell.selected_block_height = Some(bounds.size.height)
+                                })
+                                .ok();
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+                .into_any_element()
+        }
         None => div()
             .mx(px(8.))
             .p(px(16.))
+            // the space a selected instance takes, so the list under it stays put: as
+            // tall as the last one shown, or a stopped server with six tabs
+            .h(shell
+                .selected_block_height
+                .unwrap_or_else(|| px(EMPTY_BLOCK_HEIGHT)))
             .flex()
             .flex_col()
             .items_center()
+            .justify_center()
             .gap(px(6.))
             .rounded(radius::LG)
             .border_1()
