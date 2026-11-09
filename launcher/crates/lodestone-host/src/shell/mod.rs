@@ -9,6 +9,7 @@ use gpui::{
     AnyView, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
     div, prelude::*,
 };
+use launcher_core::cores::admin::InstanceState;
 use lodestone_ui::{
     components::Tabs,
     theme::{colors, fonts, ink, layout, px, text, weights},
@@ -37,6 +38,8 @@ pub struct HostShell {
     eula: Entity<pages::eula_prompt::EulaPrompt>,
     /// The bell in the top bar and its list (package D).
     pub notifications: Entity<crate::notifications::Notifications>,
+    /// The window title last set.
+    title: String,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -70,6 +73,7 @@ impl HostShell {
             on_local: true,
             eula,
             notifications,
+            title: String::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -171,25 +175,68 @@ impl HostShell {
         self.page.as_ref().map(|(_, view)| view.clone())
     }
 
-    /// The page's heading, as `InstanceTabs.tsx` and the settings show it.
-    fn heading(&self, cx: &Context<Self>) -> Option<String> {
+    /// The page's heading, as `InstanceTabs.tsx` and the settings show it: none on the
+    /// Overview (its heading is the server's name), and the server's state beside the
+    /// Console's.
+    fn heading(&self, cx: &Context<Self>) -> Option<(String, Option<InstanceState>)> {
         match &self.route {
             Route::Home => None,
             Route::Instance { uuid, tab } => {
+                if *tab == InstanceTab::Overview {
+                    return None;
+                }
                 let state = self.state.read(cx);
                 let instance = state.instance(uuid)?;
-                Some(sidebar::tab_name(*tab, instance).to_string())
+                let label = (*tab == InstanceTab::Console).then_some(instance.state);
+                Some((sidebar::tab_name(*tab, instance).to_string(), label))
             }
-            Route::Settings(page) => Some(
-                match page {
-                    SettingsPage::General => t(ShellMsg::SettingsGeneral),
-                    SettingsPage::Users => t(ShellMsg::SettingsUsers),
-                    SettingsPage::Profile => t(ShellMsg::SettingsProfile),
-                    SettingsPage::Updates => t(crate::i18n::CoreMsg::UpdatesTitle),
-                }
-                .to_string(),
-            ),
+            Route::Settings(page) => Some((settings_name(*page).to_string(), None)),
         }
+    }
+
+    /// The window's title: the page, then the app (the dashboard's `pageTitle`).
+    fn title(&self, cx: &Context<Self>) -> String {
+        let page = match &self.route {
+            Route::Home => None,
+            Route::Instance { uuid, tab } => {
+                let state = self.state.read(cx);
+                state.instance(uuid).map(|instance| {
+                    if *tab == InstanceTab::Overview {
+                        instance.name.clone()
+                    } else {
+                        format!("{} – {}", sidebar::tab_name(*tab, instance), instance.name)
+                    }
+                })
+            }
+            Route::Settings(page) => Some(settings_name(*page).to_string()),
+        };
+        match page {
+            Some(page) => format!("{page} – {}", crate::APP_NAME),
+            None => crate::APP_NAME.to_string(),
+        }
+    }
+}
+
+fn settings_name(page: SettingsPage) -> &'static str {
+    match page {
+        SettingsPage::General => t(ShellMsg::SettingsGeneral),
+        SettingsPage::Users => t(ShellMsg::SettingsUsers),
+        SettingsPage::Profile => t(ShellMsg::SettingsProfile),
+        SettingsPage::Updates => t(crate::i18n::CoreMsg::UpdatesTitle),
+    }
+}
+
+/// How wide a page's content may grow, as the dashboard's tabs (`max-w-4xl`, and
+/// `max-w-6xl` for the console and the files) and its settings.
+pub fn page_max_width(route: &Route) -> Option<gpui::Pixels> {
+    match route {
+        Route::Home => None,
+        Route::Instance {
+            tab: InstanceTab::Console | InstanceTab::Files,
+            ..
+        } => Some(gpui::px(1152.)),
+        Route::Instance { .. } => Some(gpui::px(896.)),
+        Route::Settings(_) => None,
     }
 }
 
@@ -226,6 +273,66 @@ impl Render for HostShell {
         };
         let error = self.state.read(cx).error.clone();
         let toasts = self.state.read(cx).toasts.clone();
+        let title = self.title(cx);
+        if self.title != title {
+            window.set_window_title(&title);
+            self.title = title;
+        }
+        let max_width = page_max_width(&self.route);
+        let content = div()
+            .flex_1()
+            .w_full()
+            .when_some(max_width, |this, width| this.max_w(width))
+            .mx_auto()
+            .flex()
+            .flex_col()
+            .gap(px(16.))
+            .when_some(error, |this, error| {
+                this.child(
+                    div()
+                        .px(px(12.))
+                        .py(px(8.))
+                        .rounded(lodestone_ui::theme::radius::MD)
+                        .bg(colors::RED_FADED.opacity(25))
+                        .text_size(text::MEDIUM)
+                        .text_color(colors::RED_200)
+                        .child(error),
+                )
+            })
+            .when_some(heading, |this, (heading, state)| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .gap(px(12.))
+                        .child(
+                            div()
+                                .font_family(fonts::heading())
+                                .text_size(text::XLARGE_2)
+                                .font_weight(weights::BOLD.face())
+                                .text_color(ink::text())
+                                .child(heading),
+                        )
+                        .when_some(state, |this, state| {
+                            let color = sidebar::state_color(state);
+                            this.child(
+                                div()
+                                    .px(px(8.))
+                                    .py(px(2.))
+                                    .rounded(lodestone_ui::theme::radius::MD)
+                                    .bg(color.opacity(15))
+                                    .text_size(text::MEDIUM)
+                                    .font_weight(weights::MEDIUMBOLD.face())
+                                    .text_color(color)
+                                    .child(sidebar::state_name(state)),
+                            )
+                        }),
+                )
+            })
+            .children(settings_tabs)
+            .child(div().flex_1().min_h_0().child(page));
         div()
             .relative()
             .size_full()
@@ -250,32 +357,8 @@ impl Render for HostShell {
                             .flex_col()
                             .px(px(40.))
                             .py(px(32.))
-                            .gap(px(16.))
                             .bg(colors::GRAY_800)
-                            .when_some(error, |this, error| {
-                                this.child(
-                                    div()
-                                        .px(px(12.))
-                                        .py(px(8.))
-                                        .rounded(lodestone_ui::theme::radius::MD)
-                                        .bg(colors::RED_FADED.opacity(25))
-                                        .text_size(text::MEDIUM)
-                                        .text_color(colors::RED_200)
-                                        .child(error),
-                                )
-                            })
-                            .when_some(heading, |this, heading| {
-                                this.child(
-                                    div()
-                                        .font_family(fonts::heading())
-                                        .text_size(text::XLARGE_2)
-                                        .font_weight(weights::BOLD.face())
-                                        .text_color(ink::text())
-                                        .child(heading),
-                                )
-                            })
-                            .children(settings_tabs)
-                            .child(div().flex_1().min_h_0().child(page)),
+                            .child(content),
                     ),
             )
             .when_some(self.create.clone(), |this, dialog| this.child(dialog))
