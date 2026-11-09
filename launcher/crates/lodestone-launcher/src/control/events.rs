@@ -100,6 +100,12 @@ impl Notices {
                     "exception": crash.summary.exception,
                     "description": crash.summary.description,
                     "causes": crash.summary.causes.iter().map(|c| c.explanation()).collect::<Vec<_>>(),
+                    "suspects": crash.suspects.iter().map(|s| json!({
+                        "file": s.file_name,
+                        "name": s.name,
+                        "evidence": format!("{:?}", s.evidence),
+                    })).collect::<Vec<_>>(),
+                    "likely": launcher_core::game::crash::suspects::likely(&crash.suspects),
                 }),
             ),
             InstancesEvent::LaunchFailed { title, message } => {

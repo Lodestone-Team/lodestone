@@ -132,6 +132,22 @@ crate::i18n::messages! {
         } else {
             "The game couldn't set up its window or OpenGL. Update your graphics drivers, or try without a custom window size or fullscreen."
         },
+        CauseModPatch = "A mod couldn't patch the game. It's usually made for a different Minecraft version, or needs a newer version of a mod it depends on. Update or turn off the mod.",
+        /// A heading in the crash dialog (shown in capitals), above the one mod the
+        /// crash points at.
+        ProbablyCausedBy = "Probably caused by",
+        /// A heading in the crash dialog (shown in capitals), above several mods.
+        ModsInvolved = "Mods involved",
+        ModsInvolvedHint = "The crash went through these mods. Turn them off one at a time to find the one that causes it.",
+        /// Why the crash dialog names a mod.
+        EvidenceFailedToPatch = "It couldn't patch the game, so it may be made for a different Minecraft version.",
+        EvidenceCrashedInItsCode = "The crash happened in its code.",
+        EvidencePatchedCrashingCode = "It changed the code that crashed.",
+        EvidenceInStack = "Its code was running when the game crashed.",
+        /// The crash dialog's buttons on a mod: rename it to .disabled, and back.
+        TurnOffMod = "Turn off",
+        TurnOnMod = "Turn on",
+        ModTurnedOff = "Turned off. Play again to see if that fixed it. You can turn it back on here or in Content.",
         CopyLog = "Copy log",
 
         // A modpack update.

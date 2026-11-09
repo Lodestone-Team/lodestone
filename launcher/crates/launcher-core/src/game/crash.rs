@@ -13,6 +13,8 @@ use std::{
 
 use super::log4j::{Level, LogLine};
 
+pub mod suspects;
+
 /// A likely cause of a crash, in plain language.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cause {
@@ -26,6 +28,8 @@ pub enum Cause {
     JvmOptions,
     /// OpenGL or the window could not be set up.
     Graphics,
+    /// A mod couldn't patch the game (a Mixin failure).
+    ModPatch,
 }
 
 impl Cause {
@@ -49,6 +53,9 @@ impl Cause {
                 } else {
                     "The game couldn't set up its window or OpenGL. Update your graphics drivers, or try without a custom window size or fullscreen."
                 }
+            }
+            Cause::ModPatch => {
+                "A mod couldn't patch the game. It's usually made for a different Minecraft version, or needs a newer version of a mod it depends on. Update or turn off the mod."
             }
         }
     }
@@ -137,7 +144,7 @@ fn looks_like_exception(line: &str) -> bool {
 
 /// The causes whose signs appear in `text`.
 pub fn causes(text: &str) -> Vec<Cause> {
-    let checks: [(Cause, &[&str]); 5] = [
+    let checks: [(Cause, &[&str]); 6] = [
         (
             Cause::WrongJava,
             &[
@@ -184,6 +191,17 @@ pub fn causes(text: &str) -> Vec<Cause> {
                 "No OpenGL context",
                 "Failed to create window",
                 "WGL: The driver does not appear to support OpenGL",
+            ],
+        ),
+        (
+            Cause::ModPatch,
+            &[
+                "Mixin apply for mod",
+                "Mixin apply failed",
+                "MixinApplyError",
+                "InvalidInjectionException",
+                "Critical injection failure",
+                "FAILED during APPLY",
             ],
         ),
     ];

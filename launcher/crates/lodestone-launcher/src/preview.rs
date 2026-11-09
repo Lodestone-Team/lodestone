@@ -10,7 +10,10 @@ use launcher_core::{
     accounts::Account,
     auth::{AuthError, MsaConfig},
     game::{
-        crash::{Cause, CrashSummary},
+        crash::{
+            Cause, CrashSummary,
+            suspects::{Evidence, Suspect},
+        },
         download::ProgressSnapshot,
         install::{InstallProgress, Stage as InstallStage},
         log4j::{Level, LogLine, Stream},
@@ -71,6 +74,7 @@ pub const SCENES: &[&str] = &[
     "logs",
     "instance-settings",
     "crash",
+    "crash-mods",
     "rosetta",
     "content-mods",
     "content-browse",
@@ -439,7 +443,13 @@ fn is_worlds_scene(scene: &str) -> bool {
 fn has_instances(scene: &str) -> bool {
     matches!(
         scene,
-        "play-progress" | "playing" | "logs" | "instance-settings" | "crash" | "rosetta"
+        "play-progress"
+            | "playing"
+            | "logs"
+            | "instance-settings"
+            | "crash"
+            | "crash-mods"
+            | "rosetta"
     ) || scene.starts_with("content-")
         || scene.starts_with("modpack-")
         || scene == "new-instance-modpack"
@@ -726,7 +736,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 });
                 instances.preview_preparing(&first.id, progress);
             }
-            "logs" | "crash" => instances.preview_log(&first.id, sample_log()),
+            "logs" | "crash" | "crash-mods" => instances.preview_log(&first.id, sample_log()),
             "playing" => instances.preview_play_state(crate::instances::PlayState::Playing),
             "modpack-importing" => modpacks::importing(&mut instances, cx),
             _ => {}
@@ -886,12 +896,43 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         }
         "crash" => shell.show_crash(
             CrashInfo {
+                instance_id: "preview".into(),
                 instance_name: "Survival 1.20.1".into(),
                 summary: CrashSummary {
                     exception: Some("java.lang.OutOfMemoryError: Java heap space".into()),
                     description: Some("Initializing game".into()),
                     causes: vec![Cause::OutOfMemory],
                 },
+                suspects: Vec::new(),
+                exit_code: Some(-1),
+                report: Some("crash-reports/crash-2026-11-07_12.00.00-client.txt".into()),
+                log_text: String::new(),
+            },
+            cx,
+        ),
+        "crash-mods" => shell.show_crash(
+            CrashInfo {
+                instance_id: "preview".into(),
+                instance_name: "Fabulously Fancy 1.21.1".into(),
+                summary: CrashSummary {
+                    exception: Some(
+                        "java.lang.NullPointerException: Cannot invoke \"net.minecraft.class_1799.method_7909()\" because \"stack\" is null".into(),
+                    ),
+                    description: Some("Rendering screen".into()),
+                    causes: Vec::new(),
+                },
+                suspects: [
+                    ("zenith-1.2.3.jar", "Zenith", Evidence::PatchedCrashingCode),
+                    ("fancymenu-3.5.0.jar", "FancyMenu", Evidence::PatchedCrashingCode),
+                    ("sodium-0.6.0.jar", "Sodium", Evidence::InStack),
+                ]
+                .into_iter()
+                .map(|(file_name, name, evidence)| Suspect {
+                    file_name: file_name.into(),
+                    name: name.into(),
+                    evidence,
+                })
+                .collect(),
                 exit_code: Some(-1),
                 report: Some("crash-reports/crash-2026-11-07_12.00.00-client.txt".into()),
                 log_text: String::new(),

@@ -239,8 +239,11 @@ pub enum LoaderVersions {
 /// What the crash dialog shows.
 #[derive(Clone, Debug)]
 pub struct CrashInfo {
+    pub instance_id: String,
     pub instance_name: String,
     pub summary: CrashSummary,
+    /// The mods the crash points at, strongest evidence first.
+    pub suspects: Vec<crash::suspects::Suspect>,
     pub exit_code: Option<i32>,
     pub report: Option<PathBuf>,
     pub log_text: String,
@@ -1731,6 +1734,7 @@ impl Instances {
             .find(|i| i.id == id)
             .map(|i| i.name.clone())
             .unwrap_or_default();
+        let dirs = self.content_dirs(id);
         if let Some(run) = self.runs.get_mut(id) {
             let message = match (code, stopped) {
                 (_, true) => t(M::StoppedNote).to_string(),
@@ -1744,17 +1748,34 @@ impl Instances {
             };
             run.log.note(level, message);
             if let Outcome::Crashed { exit_code, report } = outcome {
-                let report_text = report
-                    .as_ref()
-                    .and_then(|path| std::fs::read_to_string(path).ok());
-                let summary = crash::summarize(report_text.as_deref(), &run.log.recent());
-                cx.emit(InstancesEvent::Crashed(CrashInfo {
-                    instance_name: name,
-                    summary,
-                    exit_code,
-                    report,
-                    log_text: run.log.to_text(|_| true),
-                }));
+                // Finding the mods involved opens their jars, so the report is read and
+                // the crash worked out off the window's thread. It takes well under a
+                // second: the game has just read the same files.
+                let recent = run.log.recent();
+                let log_text = run.log.to_text(|_| true);
+                let instance_id = id.to_string();
+                let work = cx.background_spawn(async move {
+                    let report_text = report
+                        .as_ref()
+                        .and_then(|path| std::fs::read_to_string(path).ok());
+                    let summary = crash::summarize(report_text.as_deref(), &recent);
+                    let suspects = crash::suspects::find(&dirs, report_text.as_deref(), &recent);
+                    CrashInfo {
+                        instance_id,
+                        instance_name: name,
+                        summary,
+                        suspects,
+                        exit_code,
+                        report,
+                        log_text,
+                    }
+                });
+                cx.spawn(async move |this, cx| {
+                    let crash = work.await;
+                    this.update(cx, |_, cx| cx.emit(InstancesEvent::Crashed(crash)))
+                        .ok();
+                })
+                .detach();
             }
         }
         self.read_back_shared_settings(id);

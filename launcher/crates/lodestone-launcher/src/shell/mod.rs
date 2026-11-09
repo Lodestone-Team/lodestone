@@ -34,7 +34,10 @@ use gpui::{
     IntoElement, Render, SharedString, Subscription, Task, Window, div, prelude::*,
 };
 use launcher_core::{
-    game::crash::Cause,
+    game::crash::{
+        Cause,
+        suspects::{self, Evidence},
+    },
     instances::{Instance, Loader},
 };
 
@@ -149,6 +152,10 @@ enum Modal {
         crash: CrashInfo,
         focus: FocusHandle,
         copied: bool,
+        /// The suspects turned off from the dialog, by their file name before.
+        turned_off: Vec<String>,
+        /// Why turning one off or on didn't work.
+        error: Option<SharedString>,
     },
     LaunchFailed {
         title: SharedString,
@@ -969,9 +976,60 @@ impl LauncherShell {
                 crash,
                 focus,
                 copied: false,
+                turned_off: Vec::new(),
+                error: None,
             },
             cx,
         );
+    }
+
+    /// Turns a mod the crash points at off (renamed to `.disabled`) or back on, from
+    /// the crash dialog. `file_name` is its name before it was turned off.
+    fn set_crash_mod_enabled(&mut self, file_name: String, enabled: bool, cx: &mut Context<Self>) {
+        let Some(Modal::Crash { crash, .. }) = self.modal.current_mut() else {
+            return;
+        };
+        let id = crash.instance_id.clone();
+        let instances = self.instances.read(cx);
+        let result = if instances.is_active(&id) {
+            Err(t(crate::i18n::InstancesMsg::StopGameFirst).to_string())
+        } else {
+            let dirs = instances.content_dirs(&id);
+            let current = if enabled {
+                launcher_core::content::disabled_name(&file_name)
+            } else {
+                file_name.clone()
+            };
+            launcher_core::content::files::set_mod_enabled(&dirs, &current, enabled)
+                .map(|_| ())
+                .map_err(|err| err.to_string())
+        };
+        launcher_core::trace::emit("crash.suspect_toggled", || {
+            serde_json::json!({
+                "instance": id,
+                "file": file_name,
+                "enabled": enabled,
+                "ok": result.is_ok(),
+            })
+        });
+        if let Some(Modal::Crash {
+            turned_off, error, ..
+        }) = self.modal.current_mut()
+        {
+            match result {
+                Ok(()) => {
+                    *error = None;
+                    turned_off.retain(|f| f != &file_name);
+                    if !enabled {
+                        turned_off.push(file_name);
+                    }
+                }
+                Err(err) => *error = Some(err.into()),
+            }
+        }
+        self.content
+            .update(cx, |content, cx| content.mods_changed(&id, cx));
+        cx.notify();
     }
 
     /// Asks before saving a loader change (from the Settings tab).
@@ -1539,7 +1597,19 @@ impl LauncherShell {
                 crash,
                 focus,
                 copied,
-            } => render_crash(crash, focus.clone(), *copied, close(cx), cx),
+                turned_off,
+                error,
+            } => render_crash(
+                crash,
+                focus.clone(),
+                CrashState {
+                    copied: *copied,
+                    turned_off,
+                    error: error.clone(),
+                },
+                close(cx),
+                cx,
+            ),
             Modal::LaunchFailed {
                 title,
                 message,
@@ -1689,7 +1759,125 @@ fn cause_text(cause: Cause) -> &'static str {
         Cause::Natives => M::CauseNatives,
         Cause::JvmOptions => M::CauseJvmOptions,
         Cause::Graphics => M::CauseGraphics,
+        Cause::ModPatch => M::CauseModPatch,
     })
+}
+
+/// Why the crash dialog names a mod, in the current language.
+fn evidence_text(evidence: Evidence) -> &'static str {
+    t(match evidence {
+        Evidence::FailedToPatch => M::EvidenceFailedToPatch,
+        Evidence::CrashedInItsCode => M::EvidenceCrashedInItsCode,
+        Evidence::PatchedCrashingCode => M::EvidencePatchedCrashingCode,
+        Evidence::InStack => M::EvidenceInStack,
+    })
+}
+
+/// What the crash dialog keeps between frames.
+struct CrashState<'a> {
+    copied: bool,
+    turned_off: &'a [String],
+    error: Option<SharedString>,
+}
+
+/// The crash dialog's section on the mods the crash points at: one mod when the
+/// evidence points at one, else the few it went through, each with a way to turn it
+/// off (and back on).
+fn render_suspects(
+    crash: &CrashInfo,
+    state: &CrashState,
+    cx: &mut Context<LauncherShell>,
+) -> Option<AnyElement> {
+    let likely = suspects::likely(&crash.suspects);
+    let shown = if likely {
+        &crash.suspects[..1]
+    } else {
+        &crash.suspects[..crash.suspects.len().min(4)]
+    };
+    if shown.is_empty() {
+        return None;
+    }
+    let heading = if likely {
+        M::ProbablyCausedBy
+    } else {
+        M::ModsInvolved
+    };
+    let rows: Vec<_> = shown
+        .iter()
+        .enumerate()
+        .map(|(index, suspect)| {
+            let off = state.turned_off.contains(&suspect.file_name);
+            let file_name = suspect.file_name.clone();
+            let action = t(if off { M::TurnOnMod } else { M::TurnOffMod });
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(theme::text_size(text::MEDIUM))
+                                .font_weight(weights::BOLD.into())
+                                .text_color(crate::theme::ink::text())
+                                .child(suspect.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_size(theme::text_size(text::SMALL))
+                                .text_color(crate::theme::ink::secondary())
+                                .child(if off {
+                                    t(M::ModTurnedOff)
+                                } else {
+                                    evidence_text(suspect.evidence)
+                                }),
+                        ),
+                )
+                .child(
+                    Button::new(("crash-suspect", index), action)
+                        .variant(ButtonVariant::Secondary)
+                        .accessible_label(format!("{action}: {}", suspect.name))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.set_crash_mod_enabled(file_name.clone(), off, cx);
+                        })),
+                )
+        })
+        .collect();
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_size(theme::text_size(text::SMALL))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(crate::theme::ink::muted())
+                    .child(t(heading).to_uppercase()),
+            )
+            .when(!likely, |this| {
+                this.child(
+                    div()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(crate::theme::ink::secondary())
+                        .child(t(M::ModsInvolvedHint)),
+                )
+            })
+            .children(rows)
+            .when_some(state.error.clone(), |this, error| {
+                this.child(
+                    div()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(colors::RED_200)
+                        .child(error),
+                )
+            })
+            .into_any_element(),
+    )
 }
 
 /// The crash dialog: the exception, the likely causes in plain words, and the crash
@@ -1697,7 +1885,7 @@ fn cause_text(cause: Cause) -> &'static str {
 fn render_crash(
     crash: &CrashInfo,
     focus: FocusHandle,
-    copied: bool,
+    state: CrashState,
     on_close: impl Fn(&mut Window, &mut gpui::App) + 'static,
     cx: &mut Context<LauncherShell>,
 ) -> AnyElement {
@@ -1709,6 +1897,8 @@ fn render_crash(
     };
     let report = crash.report.clone();
     let log_text = crash.log_text.clone();
+    let copied = state.copied;
+    let suspects = render_suspects(crash, &state, cx);
     Dialog::new(
         "crash",
         tr!(M::CrashTitle, name = crash.instance_name),
@@ -1760,7 +1950,8 @@ fn render_crash(
                                 .child(cause_text(*cause))
                         })),
                 )
-            }),
+            })
+            .children(suspects),
     )
     .when_some(report, |this, report| {
         this.footer(
@@ -1986,6 +2177,7 @@ mod tests {
             Cause::Natives,
             Cause::JvmOptions,
             Cause::Graphics,
+            Cause::ModPatch,
         ] {
             assert_eq!(cause_text(cause), cause.explanation());
         }
