@@ -6,7 +6,7 @@ pub fn text(message: M) -> &'static str {
         M::KindResourcePacks => "Packs de ressources",
         M::KindShaders => "Shaders",
         M::Vanilla => "Vanilla",
-        M::SearchInstalledOrModrinth => "Rechercher",
+        M::SearchInstalledOrModrinth => "Rechercher parmi les contenus installés ou sur Modrinth",
         M::InstalledCount => "Installés · {count}",
         M::EnabledCount => "Activés · {count} · le pack du haut l’emporte en cas de chevauchement",
         M::AvailableCount => "Disponibles · {count}",
@@ -144,6 +144,14 @@ pub fn text(message: M) -> &'static str {
         M::SortUpdated => "Mis à jour",
         M::SearchingModrinth => "Recherche sur Modrinth",
         M::NothingMatches => "Aucun résultat sur Modrinth.",
+        M::ModrinthPromptMods => "Recherchez ci-dessus pour trouver des mods sur Modrinth.",
+        M::ModrinthPromptResourcePacks => {
+            "Recherchez ci-dessus pour trouver des packs de ressources sur Modrinth."
+        }
+        M::ModrinthPromptShaderPacks => {
+            "Recherchez ci-dessus pour trouver des packs de shaders sur Modrinth."
+        }
+        M::ModrinthPromptTarget => "Les résultats compatibles avec {target} s’affichent ici.",
         M::NothingOnCurseForge => "Aucun résultat sur CurseForge.",
         M::PageOf => "Page {page} sur {pages}",
         M::ByAuthor => "par {author}",

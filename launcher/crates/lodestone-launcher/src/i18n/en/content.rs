@@ -11,7 +11,7 @@ crate::i18n::messages! {
 
         /// The search over the list: it filters what is installed and searches
         /// Modrinth too.
-        SearchInstalledOrModrinth = "Search",
+        SearchInstalledOrModrinth = "Search installed, or find more on Modrinth",
         /// Headings over the list, with how many rows follow.
         InstalledCount = "Installed · {count}",
         /// Resource packs in use; the top one wins where they overlap.
@@ -140,6 +140,12 @@ crate::i18n::messages! {
         SortUpdated = "Updated",
         SearchingModrinth = "Searching Modrinth",
         NothingMatches = "Nothing on Modrinth matches.",
+        /// The Modrinth section before anything is typed in the search box.
+        ModrinthPromptMods = "Search above to find mods on Modrinth.",
+        ModrinthPromptResourcePacks = "Search above to find resource packs on Modrinth.",
+        ModrinthPromptShaderPacks = "Search above to find shader packs on Modrinth.",
+        /// {target} is the instance's version and loader: "26.3 / Fabric".
+        ModrinthPromptTarget = "Results that work with {target} show here.",
         NothingOnCurseForge = "Nothing on CurseForge matches.",
         PageOf = "Page {page} of {pages}",
         /// A project's author.
