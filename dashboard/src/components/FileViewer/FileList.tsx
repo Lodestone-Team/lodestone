@@ -112,7 +112,7 @@ export default function FileList({
     if (file.file_type === 'Directory') {
       return (
         <img
-          src="/icons/folder-blue.svg"
+          src={asset('/icons/folder-blue.svg')}
           alt={t('files.list.folderIcon')}
           draggable="false"
         />
@@ -121,7 +121,7 @@ export default function FileList({
       if (file.file_stem === '.lodestone_config') {
         return (
           <img
-            src="/icons/lodestone.svg"
+            src={asset('/icons/lodestone.svg')}
             alt={t('files.list.fileIcon')}
             draggable="false"
             // because the lodestone icon is a bit bigger than the others
@@ -143,7 +143,7 @@ export default function FileList({
       } else {
         return (
           <img
-            src="/icons/file.svg"
+            src={asset('/icons/file.svg')}
             alt={t('files.list.fileIcon')}
             draggable="false"
             className="h-4 w-4"
