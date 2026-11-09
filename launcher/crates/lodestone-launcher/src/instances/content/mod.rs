@@ -910,11 +910,31 @@ impl ContentView {
     }
 
     pub fn set_mod_enabled(&mut self, file_name: String, enabled: bool, cx: &mut Context<Self>) {
-        self.change(
-            ContentKind::Mod,
-            |dirs, _| files::set_mod_enabled(dirs, &file_name, enabled).map(|_| ()),
-            cx,
-        );
+        if !self.can_change(cx) {
+            return;
+        }
+        let Some((_, dirs, _)) = self.context(cx) else {
+            return;
+        };
+        match files::set_mod_enabled(&dirs, &file_name, enabled) {
+            Ok(new_name) => {
+                self.message = None;
+                // Show it at once: reading a large folder again takes a moment, and
+                // until then the row would show the old state and the old name.
+                if let Load::Ready(listing) = &mut self.section_mut(ContentKind::Mod).listing
+                    && let Some(item) = listing
+                        .items
+                        .iter_mut()
+                        .find(|item| item.file.file_name == file_name)
+                {
+                    item.file.file_name = new_name;
+                    item.enabled = enabled;
+                }
+                cx.notify();
+            }
+            Err(err) => self.message = Some((err.to_string().into(), true)),
+        }
+        self.reload(ContentKind::Mod, cx);
         // A shader mod may have been turned on or off.
         self.reload(ContentKind::ShaderPack, cx);
     }

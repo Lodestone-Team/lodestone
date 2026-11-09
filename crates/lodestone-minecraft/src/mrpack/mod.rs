@@ -246,9 +246,10 @@ pub fn check_pack_path(
 
 /// Opens the pack at `path`. A file that is not a zip is [`invalid_pack`].
 #[cfg(feature = "zip")]
-pub fn open_pack(path: &Path) -> Result<zip::ZipArchive<std::fs::File>, Error> {
+pub fn open_pack(path: &Path) -> Result<zip::ZipArchive<std::io::BufReader<std::fs::File>>, Error> {
     let file = std::fs::File::open(path).map_err(Error::io("Failed to open the modpack"))?;
-    zip::ZipArchive::new(file).map_err(|e| invalid_pack(format!("it is not a zip file ({e})")))
+    zip::ZipArchive::new(std::io::BufReader::new(file))
+        .map_err(|e| invalid_pack(format!("it is not a zip file ({e})")))
 }
 
 /// Checks the zip limits: entry count and total uncompressed size.
