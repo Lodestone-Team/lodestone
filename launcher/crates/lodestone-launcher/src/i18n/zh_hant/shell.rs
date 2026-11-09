@@ -293,6 +293,16 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffAndSignOut => "關閉並登出",
         M::TurnOffOnly => "只關閉",
         M::SignInSection => "Microsoft 登入",
+        M::CodingAgentsSection => "程式設計助手",
+        M::CodingAgentsLead => {
+            "Claude Code、Codex 等程式設計助手可以透過 lodestone-launcher-cli 操作啟動器。啟動器在資料夾中為它們保存了指南。"
+        }
+        M::AgentSkills => "技能",
+        M::AgentPrompt => "設定程式設計助手",
+        M::AgentPromptHint => {
+            "將這段提示貼給你的助手。它會安裝 lodestone-launcher-cli、閱讀技能、檢查連線，並開始和你一起除錯。"
+        }
+        M::CopyPrompt => "複製提示",
         M::CommandLineSection => "命令列",
         M::CommandLineLead => {
             "lodestone-launcher-cli 和你執行的其他程式透過啟動器資料夾中的通訊端與它溝通。只有你的使用者帳號可以連線。這些設定只能在這裡變更，無法透過命令列變更。"

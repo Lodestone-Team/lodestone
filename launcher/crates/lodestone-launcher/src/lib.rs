@@ -4,6 +4,7 @@
 //! small set of components. The binary in `main.rs` only opens the window.
 
 pub mod accounts;
+pub mod agent_skills;
 pub mod assets;
 pub mod components;
 /// The control socket for lodestone-launcher-cli.

@@ -283,6 +283,10 @@ pub struct LauncherShell {
     /// The dialog over the window, and those still fading out.
     modal: DialogSlot<LauncherShell, Modal>,
     account_menu_open: bool,
+    /// Settings > Developer > Coding agents: the prompt was just copied, and its
+    /// button shows a check for a moment.
+    pub(crate) agent_prompt_copied: bool,
+    pub(crate) agent_prompt_reset: Option<Task<()>>,
     /// The window the shell draws in, for "When a game starts" to minimize and bring
     /// back.
     window: Option<gpui::AnyWindowHandle>,
@@ -488,6 +492,8 @@ impl LauncherShell {
             settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
+            agent_prompt_copied: false,
+            agent_prompt_reset: None,
             window: None,
             minimized_for_game: false,
             sidebar_drag: None,
