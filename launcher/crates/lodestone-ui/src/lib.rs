@@ -11,6 +11,7 @@ pub mod components;
 pub mod file_dialog;
 pub mod i18n;
 pub mod images;
+pub mod markdown;
 pub mod skin;
 pub mod theme;
 pub mod undo;

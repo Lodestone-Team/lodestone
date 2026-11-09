@@ -19,6 +19,7 @@ use launcher_core::{
         admin::{
             AdminClient,
             instance_settings::{ConfigurableValue, ServerResourcePack},
+            mods::ModInstallRequest,
         },
         local_claim::OwnerCredentials,
     },
@@ -211,6 +212,84 @@ fn a_fabric_instances_settings() {
     assert_eq!(block_on(admin.resource_pack(&uuid)).unwrap(), written);
     let removed = block_on(admin.set_resource_pack(&uuid, &ServerResourcePack::default())).unwrap();
     assert!(removed.url.is_empty());
+
+    // the Mods tab: install from Modrinth, turn off and on, the client pack, delete
+    let list = block_on(admin.installed_mods(&uuid, false)).unwrap();
+    assert!(list.mods.is_empty());
+    assert_eq!(list.directory, "mods");
+    let versions =
+        block_on(admin.modrinth_versions("fabric-api", Some("1.21.1"), Some("fabric"))).unwrap();
+    let oldest = versions.last().expect("a Fabric API version for 1.21.1");
+    let result = block_on(admin.install_mod(
+        &uuid,
+        &ModInstallRequest {
+            version_id: oldest.id.clone(),
+            install_dependencies: true,
+            force: false,
+        },
+    ))
+    .unwrap();
+    assert_eq!(result.installed.len(), 1);
+    let file = result.installed[0].file_name.clone();
+    let checked = block_on(admin.installed_mods(&uuid, true)).unwrap();
+    assert!(
+        checked.mods[0]
+            .modrinth
+            .as_ref()
+            .is_some_and(|m| m.update.is_some()),
+        "the oldest version has an update"
+    );
+    let disabled = block_on(admin.set_mod_enabled(&uuid, &file, false)).unwrap();
+    assert!(!disabled.enabled);
+    let enabled = block_on(admin.set_mod_enabled(&uuid, &disabled.file_name, true)).unwrap();
+    assert!(enabled.enabled);
+    // the same file again is refused unless replaced
+    let jar = std::fs::read(
+        std::path::Path::new(&info.path)
+            .join("mods")
+            .join(&enabled.file_name),
+    )
+    .unwrap();
+    let again =
+        block_on(admin.upload_mods(&uuid, &[(enabled.file_name.clone(), jar.clone())], false));
+    assert!(
+        matches!(again, Err(CoreError::Server { status: 409, .. })),
+        "{again:?}"
+    );
+    let replaced =
+        block_on(admin.upload_mods(&uuid, &[(enabled.file_name.clone(), jar)], true)).unwrap();
+    assert_eq!(replaced.len(), 1);
+    // players need nothing yet; with Sodium (client side) they do
+    assert!(matches!(
+        block_on(admin.client_pack(&uuid)),
+        Err(CoreError::Server { status: 400, .. })
+    ));
+    let sodium =
+        block_on(admin.modrinth_versions("sodium", Some("1.21.1"), Some("fabric"))).unwrap();
+    let sodium = block_on(admin.install_mod(
+        &uuid,
+        &ModInstallRequest {
+            version_id: sodium.last().expect("a Sodium version").id.clone(),
+            install_dependencies: true,
+            force: false,
+        },
+    ))
+    .unwrap();
+    let pack = block_on(admin.client_pack(&uuid)).unwrap();
+    assert!(pack.file_name.ends_with(".mrpack"));
+    assert!(
+        !block_on(admin.download_file(&pack.key, 64 << 20))
+            .unwrap()
+            .is_empty()
+    );
+    block_on(admin.delete_mod(&uuid, &enabled.file_name)).unwrap();
+    block_on(admin.delete_mod(&uuid, &sodium.installed[0].file_name)).unwrap();
+    assert!(
+        block_on(admin.installed_mods(&uuid, false))
+            .unwrap()
+            .mods
+            .is_empty()
+    );
 
     block_on(admin.delete_instance(&uuid)).unwrap();
 }

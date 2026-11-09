@@ -3,10 +3,11 @@
 //! linked project is picked as soon as it resolves. Typing waits for a pause (300 ms)
 //! before it searches; a pasted link resolves at once.
 //!
-//! Made for the modpack flow; the Mods tab can use it too (`project_type`, `loader`,
-//! `game_version`).
+//! Made for the modpack flow; the Mods tab uses it too (`project_type`, and the options
+//! below: one box for the server's game version and loader, the "Installed" tag, and
+//! whether players need a mod).
 
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use gpui::{
     AnyElement, Context, Entity, EventEmitter, IntoElement, ParentElement, Render, SharedString,
@@ -69,6 +70,13 @@ pub struct ModrinthSearchView {
     game_version: Option<String>,
     /// The loader the "only …" box filters by, and whether it is ticked.
     loader: Option<(String, &'static str, bool)>,
+    /// The Mods tab's box: the server's game version and loader, its label, and
+    /// whether it is ticked.
+    compat: Option<(String, String, String, bool)>,
+    /// Projects installed on the server, tagged "Installed".
+    installed: HashSet<String>,
+    /// Mods: whether players need a result too (its `client_side`).
+    client_side: bool,
     index: ModrinthSearchIndex,
     sort_open: bool,
     /// The last text that wasn't a link: what the results are for.
@@ -106,6 +114,9 @@ impl ModrinthSearchView {
             project_type,
             game_version: None,
             loader: None,
+            compat: None,
+            installed: HashSet::new(),
+            client_side: false,
             index: ModrinthSearchIndex::Relevance,
             sort_open: false,
             query: String::new(),
@@ -142,16 +153,48 @@ impl ModrinthSearchView {
         self
     }
 
+    /// A box that limits the results to a server's game version and loader ("Only show
+    /// versions for 1.21.1 / fabric"), ticked: the Mods tab's.
+    pub fn with_compat_filter(
+        mut self,
+        game_version: String,
+        loader: String,
+        label: String,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        self.compat = Some((game_version, loader, label, true));
+        self.search(cx);
+        self
+    }
+
+    /// Shows whether players need each result too (mods).
+    pub fn with_client_side(mut self) -> Self {
+        self.client_side = true;
+        self
+    }
+
+    /// The projects installed on the server, tagged "Installed" in the results.
+    pub fn set_installed(&mut self, installed: HashSet<String>, cx: &mut Context<Self>) {
+        if self.installed != installed {
+            self.installed = installed;
+            cx.notify();
+        }
+    }
+
     fn params(&self) -> ModrinthSearch {
+        let compat = self.compat.as_ref().filter(|(.., on)| *on);
         ModrinthSearch {
             query: self.query.clone(),
             project_type: self.project_type,
-            game_version: self.game_version.clone(),
-            loader: self
-                .loader
-                .as_ref()
-                .filter(|(_, _, on)| *on)
-                .map(|(loader, _, _)| loader.clone()),
+            game_version: compat
+                .map(|(version, ..)| version.clone())
+                .or_else(|| self.game_version.clone()),
+            loader: compat.map(|(_, loader, ..)| loader.clone()).or_else(|| {
+                self.loader
+                    .as_ref()
+                    .filter(|(_, _, on)| *on)
+                    .map(|(loader, _, _)| loader.clone())
+            }),
             index: self.index,
             offset: self.page * PAGE_SIZE,
             limit: PAGE_SIZE,
@@ -405,7 +448,16 @@ impl ModrinthSearchView {
                                     .text_size(text::SMALL)
                                     .text_color(ink::muted())
                                     .child(tr!(M::ByAuthor, author = hit.author)),
-                            ),
+                            )
+                            .when(self.installed.contains(&hit.project_id), |this| {
+                                this.child(lodestone_ui::components::settings::tag(
+                                    t(crate::i18n::InstanceMsg::ModsInstalledTag),
+                                    colors::GREEN,
+                                ))
+                            })
+                            .when(self.client_side, |this| {
+                                this.children(client_side_label(&hit.client_side))
+                            }),
                     )
                     .child(
                         div()
@@ -430,6 +482,31 @@ impl ModrinthSearchView {
                 cx.listener(move |_, _, _, cx| cx.emit(ModrinthSearchEvent::Picked(pick.clone()))),
             )
             .into_any_element()
+    }
+}
+
+/// Whether players need a Modrinth project too, from its `client_side`: "Players need
+/// this too" when required, a quiet "Server only" when unsupported, else nothing
+/// (`ClientSideLabel`).
+pub fn client_side_label(client_side: &str) -> Option<AnyElement> {
+    use crate::i18n::InstanceMsg;
+    match client_side {
+        "required" => Some(
+            lodestone_ui::components::settings::tag(
+                t(InstanceMsg::ModsPlayersNeedToo),
+                colors::BLUE_200,
+            )
+            .into_any_element(),
+        ),
+        "unsupported" => Some(
+            div()
+                .flex_none()
+                .text_size(text::SMALL)
+                .text_color(ink::faint())
+                .child(t(InstanceMsg::ModsServerOnly))
+                .into_any_element(),
+        ),
+        _ => None,
     }
 }
 
@@ -526,6 +603,17 @@ impl Render for ModrinthSearchView {
             }
             _ => None,
         };
+        let compat = self.compat.as_ref().map(|(.., label, on)| {
+            Checkbox::new("modrinth-compat-filter", *on, label.clone()).on_change(cx.listener(
+                |this, value: &bool, _, cx| {
+                    if let Some((.., on)) = this.compat.as_mut() {
+                        *on = *value;
+                    }
+                    this.page = 0;
+                    this.search(cx);
+                },
+            ))
+        });
         let filter = self.loader.as_ref().map(|(_, label, on)| {
             Checkbox::new("modrinth-loader-filter", *on, *label).on_change(cx.listener(
                 |this, value: &bool, _, cx| {
@@ -633,6 +721,7 @@ impl Render for ModrinthSearchView {
                     .justify_between()
                     .gap(px(12.))
                     .children(filter)
+                    .children(compat)
                     .child(self.render_sort(cx)),
             )
             .children(link_status)

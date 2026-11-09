@@ -18,6 +18,7 @@ use launcher_core::cores::{
     CoreError,
     admin::{
         InstanceInfo, InstanceState,
+        core_settings::{InstancePublicListing, PublicScopeChange},
         instance_settings::{
             ConfigurableManifest, ConfigurableValue, ConfigurableValueType, EulaStatus,
             MINECRAFT_EULA_URL, PackUrlError, ResourcePackHash, ServerResourcePack, is_sha1,
@@ -40,7 +41,7 @@ use lodestone_ui::{
 
 use self::field::{Field, FieldKind, Problem};
 use crate::{
-    i18n::{CommonMsg, InstanceMsg as M, t, tr},
+    i18n::{CommonMsg, CoreMsg, InstanceMsg as M, t, tr},
     routes::Route,
     state::HostState,
 };
@@ -101,6 +102,10 @@ pub struct InstanceSettingsPage {
     pack: Option<PackForm>,
     eula: Option<EulaStatus>,
     eula_busy: bool,
+    /// The public listing (package D's row), for a Minecraft Java server on a core
+    /// that has its scopes.
+    listing: Option<InstancePublicListing>,
+    listing_saving: bool,
     delete: DialogSlot<Self, DeletePrompt>,
     deleting: bool,
     nav: SectionNav,
@@ -122,6 +127,8 @@ impl InstanceSettingsPage {
             pack: None,
             eula: None,
             eula_busy: false,
+            listing: None,
+            listing_saving: false,
             delete: DialogSlot::new(|this: &mut Self| &mut this.delete),
             deleting: false,
             nav: SectionNav::default(),
@@ -186,17 +193,23 @@ impl InstanceSettingsPage {
         let task = cx.spawn(async move |this, cx| {
             let work = cx.background_spawn(async move {
                 let manifest = admin.instance_settings(&uuid).await;
-                let (pack, eula) = if java {
+                let (pack, eula, listing) = if java {
                     (
                         admin.resource_pack(&uuid).await.ok(),
                         admin.eula(&uuid).await.ok(),
+                        // hidden on cores before the listing's scopes
+                        admin
+                            .instance_public_listing(&uuid)
+                            .await
+                            .ok()
+                            .filter(|l| l.has_scopes()),
                     )
                 } else {
-                    (None, None)
+                    (None, None, None)
                 };
-                (manifest, pack, eula)
+                (manifest, pack, eula, listing)
             });
-            let (manifest, pack, eula) = work.await;
+            let (manifest, pack, eula, listing) = work.await;
             this.update(cx, |this, cx| {
                 match manifest {
                     Ok(manifest) => {
@@ -213,6 +226,7 @@ impl InstanceSettingsPage {
                     this.pack = Some(this.pack_form(pack, cx));
                 }
                 this.eula = eula;
+                this.listing = listing;
                 cx.notify();
             })
             .ok();
@@ -807,6 +821,66 @@ impl InstanceSettingsPage {
         )
     }
 
+    /// Sharing (`PublicListingSetting.tsx`): whether the server is public and what it
+    /// shows; only the owner changes it, and listing needs the core's switch on.
+    fn sharing_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let listing = self.listing.clone()?;
+        let can_edit = self.state.read(cx).me.is_owner;
+        let row = crate::pages::public_listing::scope_row(
+            "instance-listing",
+            t(CoreMsg::ListedPublicly),
+            listing.scope(),
+            listing.list_instances_publicly,
+            can_edit,
+            self.listing_saving,
+            {
+                let page = cx.entity().downgrade();
+                move |change: PublicScopeChange, _, cx| {
+                    page.update(cx, |this, cx| this.change_listing(change, cx))
+                        .ok();
+                }
+            },
+        );
+        Some(
+            section(
+                t(CoreMsg::ListingTitle),
+                Some(t(CoreMsg::ListingLead).into()),
+            )
+            .child(card([row.into_any_element()]))
+            .into_any_element(),
+        )
+    }
+
+    fn change_listing(&mut self, change: PublicScopeChange, cx: &mut Context<Self>) {
+        self.listing_saving = true;
+        cx.notify();
+        let admin = self.state.read(cx).admin.clone();
+        let uuid = self.uuid.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { admin.set_public_scope(&uuid, &change).await })
+                .await;
+            this.update(cx, |this, cx| {
+                this.listing_saving = false;
+                match result {
+                    Ok(scope) => {
+                        if let Some(listing) = &mut this.listing {
+                            listing.listed = scope.listed;
+                            listing.status = Some(scope.status);
+                            listing.address = Some(scope.address);
+                            listing.client_pack = Some(scope.client_pack);
+                        }
+                        this.show_saved(t(CommonMsg::Saved), cx);
+                    }
+                    Err(err) => this.show_error(err.to_string(), cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self.push(task);
+    }
+
     fn pack_section(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let form = self.pack.as_ref()?;
         let draft = self.pack_draft(cx)?;
@@ -1033,6 +1107,9 @@ impl Render for InstanceSettingsPage {
         let mut sections = self.manifest_sections(cx);
         if let Some(automation) = self.automation_section(cx) {
             sections.push((t(M::Automation).into(), automation));
+        }
+        if let Some(sharing) = self.sharing_section(cx) {
+            sections.push((t(CoreMsg::ListingTitle).into(), sharing));
         }
         if let Some(pack) = self.pack_section(cx) {
             sections.push((t(M::ResourcePack).into(), pack));
