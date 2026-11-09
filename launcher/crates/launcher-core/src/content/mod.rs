@@ -150,14 +150,17 @@ pub fn disabled_name(name: &str) -> String {
 }
 
 /// Whether `name` is a single plain file or folder name: no separators, `..`, NUL, `:`,
-/// control characters or leading dot, and not too long.
+/// control characters or leading dot, and not too long. Spaces at either end are fine
+/// (packs come with names like ` x.jar`), except at the end on Windows, which drops
+/// trailing spaces and dots from paths, so such a name would reach a different file.
 pub fn is_plain_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 255
         && !name.contains(['/', '\\', ':', '\0'])
         && !name.contains("..")
         && !name.starts_with('.')
-        && name.trim() == name
+        && !name.trim().is_empty()
+        && !(cfg!(windows) && name.ends_with([' ', '.']))
         && !name.chars().any(|c| c.is_control())
 }
 
@@ -446,7 +449,7 @@ mod tests {
             ".hidden.zip",
             "c:x.zip",
             "a\0.zip",
-            " x.zip",
+            "   ",
             "line\nbreak.zip",
         ] {
             assert!(
@@ -454,6 +457,14 @@ mod tests {
                 "{bad:?}"
             );
         }
+        // Names from packs can start or end with spaces.
+        assert!(is_content_name(ContentKind::Mod, " x.jar", false));
+        assert!(is_content_name(ContentKind::Mod, " x.jar.disabled", false));
+        assert!(is_content_name(ContentKind::ResourcePack, " My pack", true));
+        assert_eq!(
+            is_content_name(ContentKind::ResourcePack, "My pack ", true),
+            !cfg!(windows)
+        );
         assert_eq!(enabled_name("a.jar.disabled"), "a.jar");
         assert_eq!(disabled_name("a.jar"), "a.jar.disabled");
         assert_eq!(disabled_name("a.jar.disabled"), "a.jar.disabled");

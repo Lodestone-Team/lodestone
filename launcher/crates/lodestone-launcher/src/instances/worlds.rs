@@ -35,7 +35,10 @@ use super::{
         view::{badge, card, list_box, muted, pills, row_base, small, small_rich},
     },
 };
-use crate::components::KeyboardFocus;
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role},
+};
 use crate::i18n::{CommonMsg, WorldsMsg as M, WorldsPlural as P, format, t, tr, trn};
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots, TextInput},
@@ -489,7 +492,12 @@ impl WorldsView {
         if !self.can_change(cx) {
             return;
         }
-        let input = cx.new(|cx| TextInput::new(cx).with_text(name));
+        let input = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_text(name)
+                .with_label(CommonMsg::Rename)
+                .with_automation_id("world-rename")
+        });
         self.renaming = Some((folder, input));
         cx.notify();
     }
@@ -1031,8 +1039,11 @@ impl WorldsView {
                 })
                 .into_any_element(),
         };
+        let description = details.join(" · ");
         let mut row = div().flex().flex_col().child(
             row_base(("world", index), index == 0)
+                .accessible(Role::Group, format!("world-{folder}"), name.clone())
+                .aria_description(description)
                 .child(icon)
                 .child(
                     div()
@@ -1206,6 +1217,11 @@ impl WorldsView {
             list = list.child(
                 div()
                     .id(("backup-row", id))
+                    .accessible(
+                        Role::Group,
+                        format!("backup-{}", backup.file_name),
+                        date.clone(),
+                    )
                     .flex()
                     .flex_row()
                     .items_center()
@@ -1438,6 +1454,12 @@ impl WorldsView {
             grid = grid.child(
                 div()
                     .id(("shot", index))
+                    .accessible(
+                        Role::Button,
+                        format!("screenshot-{}", shot.file_name),
+                        shot.file_name.clone(),
+                    )
+                    .aria_description(date.clone())
                     .keyboard_focus_outer()
                     .flex()
                     .flex_col()
@@ -1449,7 +1471,7 @@ impl WorldsView {
                     .bg(colors::GRAY_800)
                     .cursor_pointer()
                     .hover(|style| style.border_color(crate::theme::accent::light().opacity(60)))
-                    .on_click(cx.listener(move |this, _, _, cx| this.view(index, cx)))
+                    .on_press(cx.listener(move |this, _, _, cx| this.view(index, cx)))
                     .child(
                         div()
                             .flex()

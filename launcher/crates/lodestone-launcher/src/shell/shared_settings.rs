@@ -13,6 +13,7 @@ use launcher_core::shared_options::{self, Category, Profile, Row};
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Icon, ListRow, TextInput, Toggle,
+        a11y::Accessible,
         settings::{
             SettingRow, Toast, card, link, muted_link, popover, popover_panel, section,
             select_button, value,
@@ -309,7 +310,10 @@ impl SharedSettings {
             .as_deref()
             .map(|v| shared_options_i18n::show(row, v))
             .unwrap_or_default();
-        let line = SettingRow::new(shared_options_i18n::label(row)).indent();
+        let label = shared_options_i18n::label(row);
+        let line = SettingRow::new(label.clone())
+            .key(SharedString::from(format!("shared-option-{key}")))
+            .indent();
         if editing.is_none()
             && let Some(control) = value_control(
                 ("shared-value", index),
@@ -333,7 +337,7 @@ impl SharedSettings {
                         .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
                 )
                 .child(
-                    muted_link(("shared-value-cancel", index), t(CommonMsg::Cancel)).on_click(
+                    muted_link(("shared-value-cancel", index), t(CommonMsg::Cancel)).on_press(
                         cx.listener(|this, _, _, cx| {
                             this.editing = None;
                             cx.notify();
@@ -341,12 +345,18 @@ impl SharedSettings {
                     ),
                 ),
             None => line.child(value(shown, false)).child(
-                link(("shared-value-edit", index), t(CommonMsg::Edit)).on_click(cx.listener(
+                link(("shared-value-edit", index), t(CommonMsg::Edit)).on_press(cx.listener(
                     move |this, _, _, cx| {
                         let text = text_.clone();
+                        let (label, automation_id) = (
+                            label.clone(),
+                            format!("shared-value-input-{}", key.as_str()),
+                        );
                         let input = cx.new(|cx| {
                             TextInput::new(cx)
                                 .with_placeholder(M::Value)
+                                .with_label(label)
+                                .with_automation_id(automation_id)
                                 .with_text(text)
                         });
                         this.editing = Some((key.clone(), input));
@@ -389,12 +399,24 @@ impl Render for SharedSettings {
                 .child(
                     select_button(
                         "sync-from",
-                        div()
-                            .font_weight(weights::BOLD.into())
-                            .child(preferred_name.unwrap_or_else(|| t(M::NoInstance).into())),
+                        div().font_weight(weights::BOLD.into()).child(
+                            preferred_name
+                                .clone()
+                                .unwrap_or_else(|| t(M::NoInstance).into()),
+                        ),
                     )
+                    .aria_label(t(M::SyncFrom))
+                    .aria_value(preferred_name.unwrap_or_else(|| t(M::NoInstance).into()))
                     .when(has_instances, |button| {
-                        button.on_click(
+                        let shell = cx.entity().downgrade();
+                        button.expandable(self.picker == Some(Picker::SyncFrom), move |_, cx| {
+                            shell
+                                .update(cx, |this, cx| this.toggle_picker(Picker::SyncFrom, cx))
+                                .ok();
+                        })
+                    })
+                    .when(has_instances, |button| {
+                        button.on_press(
                             cx.listener(|this, _, _, cx| this.toggle_picker(Picker::SyncFrom, cx)),
                         )
                     }),
@@ -449,7 +471,7 @@ impl Render for SharedSettings {
                         .on_click(cx.listener(|this, _, _, cx| this.reset(cx))),
                 )
                 .child(
-                    muted_link("cancel-reset-shared", t(CommonMsg::Cancel)).on_click(cx.listener(
+                    muted_link("cancel-reset-shared", t(CommonMsg::Cancel)).on_press(cx.listener(
                         |this, _, _, cx| {
                             this.confirm_reset = false;
                             cx.notify();
@@ -494,7 +516,20 @@ impl Render for SharedSettings {
                                 ("shared-values", category as usize),
                                 if expanded { t(M::Hide) } else { t(M::Show) },
                             )
-                            .on_click(cx.listener(
+                            .expandable(expanded, {
+                                let shell = cx.entity().downgrade();
+                                move |_, cx| {
+                                    shell
+                                        .update(cx, |this, cx| {
+                                            if !this.expanded.remove(&category) {
+                                                this.expanded.insert(category);
+                                            }
+                                            cx.notify();
+                                        })
+                                        .ok();
+                                }
+                            })
+                            .on_press(cx.listener(
                                 move |this, _, _, cx| {
                                     if !this.expanded.remove(&category) {
                                         this.expanded.insert(category);
@@ -505,11 +540,11 @@ impl Render for SharedSettings {
                         )
                     })
                     .child(
-                        Toggle::new(("share-category", category as usize), shared).on_change(
-                            cx.listener(move |this, value: &bool, _, cx| {
+                        Toggle::new(("share-category", category as usize), shared)
+                            .label(category_label(category))
+                            .on_change(cx.listener(move |this, value: &bool, _, cx| {
                                 this.set_category(category, *value, cx)
-                            }),
-                        ),
+                            })),
                     )
                     .into_any_element(),
             );
@@ -524,7 +559,11 @@ impl Render for SharedSettings {
         categories.push(
             SettingRow::new(t(M::ServerList))
                 .hint(t(M::ServerListHint))
-                .child(Toggle::new("share-servers", false).disabled(true))
+                .child(
+                    Toggle::new("share-servers", false)
+                        .label(t(M::ServerList))
+                        .disabled(true),
+                )
                 .into_any_element(),
         );
 
@@ -542,6 +581,7 @@ impl Render for SharedSettings {
             }))
             .child(
                 Toggle::new("narrator-off", shared_options::narrator_off(&self.profile))
+                    .label(t(M::KeepNarratorOff))
                     .disabled(!accessibility_shared)
                     .on_change(
                         cx.listener(|this, off: &bool, _, cx| this.set_narrator_off(*off, cx)),

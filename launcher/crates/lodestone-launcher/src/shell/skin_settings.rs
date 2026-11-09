@@ -16,6 +16,7 @@ use super::LauncherShell;
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus,
+        a11y::{Accessible, Role, Toggled, automation_id},
         settings::{Toast, muted_link, section},
     },
     file_dialog::Pick,
@@ -191,8 +192,15 @@ pub fn swatch(
     rgb: Rgb,
     selected: bool,
 ) -> gpui::Stateful<gpui::Div> {
+    let id = id.into();
     div()
-        .id(id.into())
+        .id(id.clone())
+        .accessible(Role::RadioButton, automation_id(&id), rgb.hex())
+        .aria_toggled(if selected {
+            Toggled::True
+        } else {
+            Toggled::False
+        })
         .keyboard_focus()
         .size(px(20.))
         .rounded_full()
@@ -215,8 +223,15 @@ pub fn swatch_none(
     label: &'static str,
     selected: bool,
 ) -> gpui::Stateful<gpui::Div> {
+    let id = id.into();
     div()
-        .id(id.into())
+        .id(id.clone())
+        .accessible(Role::RadioButton, automation_id(&id), label)
+        .aria_toggled(if selected {
+            Toggled::True
+        } else {
+            Toggled::False
+        })
         .keyboard_focus()
         .px_2()
         .h(px(20.))
@@ -259,8 +274,11 @@ fn gallery_card(entry: &SkinEntry, selected: bool) -> gpui::Stateful<gpui::Div> 
         Some(_) => colors::GRAY_700,
         None => colors::GRAY_800,
     };
+    let card_id = SharedString::from(format!("skin-{}", entry.id));
     div()
-        .id(SharedString::from(format!("skin-{}", entry.id)))
+        .id(card_id.clone())
+        .accessible(Role::ListItem, card_id, spec.name.clone())
+        .aria_selected(selected)
         .keyboard_focus()
         .flex()
         .flex_col()
@@ -339,7 +357,7 @@ impl Render for SkinSettings {
             .map(|entry| {
                 let id = entry.id.clone();
                 gallery_card(entry, entry.id == look.id)
-                    .on_click(
+                    .on_press(
                         cx.listener(move |this, _, _, cx| this.use_skin(Some(id.clone()), cx)),
                     )
                     .into_any_element()
@@ -390,7 +408,7 @@ impl Render for SkinSettings {
                             .on_click(cx.listener(|this, _, _, cx| this.delete(cx))),
                         )
                     } else {
-                        this.child(muted_link("skin-delete", t(M::SkinDelete)).on_click(
+                        this.child(muted_link("skin-delete", t(M::SkinDelete)).on_press(
                             cx.listener(|this, _, _, cx| {
                                 this.confirm_delete = true;
                                 cx.notify();

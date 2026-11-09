@@ -11,6 +11,7 @@ use super::{InstanceTab, LauncherShell, loader_label};
 use crate::{
     components::{
         Align, Button, ButtonSize, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs,
+        a11y::{Accessible, Role},
     },
     i18n::{ShellMsg as M, t, tr},
     instances::appearance::{Background, scrim_layers},
@@ -192,9 +193,10 @@ fn hero(
                         .absolute()
                         .inset_0()
                         .size_full()
+                        .rounded(radius::XL)
                         .object_fit(ObjectFit::Cover),
                 )
-                .children(scrim_layers(background.scrim)),
+                .children(scrim_layers(background.scrim, radius::XL)),
             // the skin's colour or gradient, or the launcher's artwork
             Backdrop::Artwork => match crate::skin::painted(SurfaceId::Hero) {
                 Some(painted) if painted.paint.is_some() => crate::skin::paint(this, &painted),
@@ -203,6 +205,7 @@ fn hero(
                         .absolute()
                         .inset_0()
                         .size_full()
+                        .rounded(radius::XL)
                         .object_fit(ObjectFit::Cover),
                 ),
             },
@@ -217,6 +220,10 @@ fn hero(
                 .max_w(px(460.))
                 .child(
                     div()
+                        .id("hero-title")
+                        .accessible(Role::Heading, "hero-title", title.clone())
+                        .aria_level(1)
+                        .aria_description(body.clone())
                         .font_family(fonts::title())
                         .text_size(theme::text_size(text::XLARGE_2))
                         .line_height(theme::line_height(text::XLARGE_2, leading::TIGHT))
@@ -319,8 +326,10 @@ fn picker(
     value: impl Into<SharedString>,
     enabled: bool,
 ) -> impl IntoElement {
+    let value: SharedString = value.into();
     div()
         .id(id)
+        .accessible(Role::Label, id, format!("{caption}: {value}"))
         .flex()
         .flex_row()
         .items_center()
@@ -357,7 +366,7 @@ fn picker(
                         .truncate()
                         .font_weight(weights::BOLD.into())
                         .text_color(crate::theme::ink::text())
-                        .child(value.into()),
+                        .child(value),
                 ),
         )
 }

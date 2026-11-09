@@ -31,8 +31,10 @@ use super::{
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, Slider, TextInput, Toggle,
+        a11y::{Accessible, Role, Toggled},
         segmented,
         settings::{SettingRow, Toast, card, muted_link, section},
+        window_frame::Side,
     },
     i18n::{ShellMsg as M, t, tr},
     instances::Instances,
@@ -258,11 +260,24 @@ impl SkinEditor {
             .map(|f| {
                 (
                     f,
-                    cx.new(|cx| TextInput::new(cx).with_placeholder("#RRGGBB")),
+                    cx.new(|cx| {
+                        TextInput::new(cx)
+                            .with_placeholder("#RRGGBB")
+                            .with_automation_id(
+                                format!("skin-hex-{f:?}")
+                                    .to_lowercase()
+                                    .replace(['(', ')'], ""),
+                            )
+                    }),
                 )
             })
             .collect();
-        let label = cx.new(|cx| TextInput::new(cx).with_placeholder(M::Play));
+        let label = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::Play)
+                .with_label(M::SkinLabel)
+                .with_automation_id("skin-label")
+        });
         let mut observe = Vec::new();
         for (which, input) in &hex {
             let which = *which;
@@ -717,7 +732,7 @@ impl SkinEditor {
                     none,
                     value.is_none(),
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.set_color(which, None, cx)))
+                .on_press(cx.listener(move |this, _, _, cx| this.set_color(which, None, cx)))
                 .into_any_element(),
             );
         }
@@ -728,11 +743,12 @@ impl SkinEditor {
                     rgb,
                     value == Some(rgb),
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.set_color(which, Some(rgb), cx)))
+                .on_press(cx.listener(move |this, _, _, cx| this.set_color(which, Some(rgb), cx)))
                 .into_any_element(),
             );
         }
         SettingRow::new(label)
+            .key(SharedString::from(format!("skin-color-row-{key}")))
             .when_some(value, |row, rgb| row.hint(rgb.hex()))
             .child(
                 div()
@@ -763,8 +779,10 @@ fn slider_row(
 ) -> AnyElement {
     let entity = entity.clone();
     SettingRow::new(label)
+        .key(SharedString::from(format!("{id}-row")))
         .child(
             Slider::new(id, value, min, max, step)
+                .label(label)
                 .disabled(disabled)
                 .format(move |v| format!("{v:.0}{unit}").into())
                 .on_change(move |value, _, cx| {
@@ -942,6 +960,12 @@ impl SkinEditor {
                 let chips = gradient.stops.iter().enumerate().map(|(i, s)| {
                     div()
                         .id(("skin-stop", i))
+                        .accessible(Role::RadioButton, format!("skin-stop-{i}"), s.color.hex())
+                        .aria_toggled(if i == stop {
+                            Toggled::True
+                        } else {
+                            Toggled::False
+                        })
                         .keyboard_focus()
                         .size(px(26.))
                         .rounded(radius::MD)
@@ -953,7 +977,7 @@ impl SkinEditor {
                         } else {
                             colors::FADE_700
                         })
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_press(cx.listener(move |this, _, _, cx| {
                             this.stop = i;
                             cx.notify();
                         }))
@@ -1040,8 +1064,9 @@ impl SkinEditor {
                 if can_remove {
                     fill_rows.push(
                         SettingRow::new("")
+                            .key("skin-remove-stop-row")
                             .child(
-                                muted_link("skin-remove-stop", t(M::SkinRemoveStop)).on_click(
+                                muted_link("skin-remove-stop", t(M::SkinRemoveStop)).on_press(
                                     cx.listener(move |this, _, _, cx| {
                                         this.stop = stop.saturating_sub(1);
                                         this.edit_surface(surface, "stops", cx, move |own| {
@@ -1066,6 +1091,16 @@ impl SkinEditor {
                     let chosen = image.image == name;
                     div()
                         .id(("skin-builtin", i))
+                        .accessible(
+                            Role::RadioButton,
+                            format!("skin-builtin-{i}"),
+                            name.trim_start_matches("builtin:").to_string(),
+                        )
+                        .aria_toggled(if chosen {
+                            Toggled::True
+                        } else {
+                            Toggled::False
+                        })
                         .keyboard_focus()
                         .px_2()
                         .py_0p5()
@@ -1084,7 +1119,7 @@ impl SkinEditor {
                             colors::GRAY_400
                         })
                         .child(name.trim_start_matches("builtin:").to_string())
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_press(cx.listener(move |this, _, _, cx| {
                             let name = name.clone();
                             this.edit_surface(surface, "image", cx, move |own| {
                                 if let Some(Fill::Image(image)) = &mut own.fill {
@@ -1301,7 +1336,7 @@ impl SkinEditor {
                     )
                     .when(painted, |this| {
                         this.child(
-                            muted_link("skin-surface-reset", t(M::SkinUseLaunchers)).on_click(
+                            muted_link("skin-surface-reset", t(M::SkinUseLaunchers)).on_press(
                                 cx.listener(move |this, _, _, cx| {
                                     this.edit(Some(surface), "reset", cx, move |spec| {
                                         spec.surfaces.remove(&surface);
@@ -1390,8 +1425,15 @@ impl SkinEditor {
                     .enumerate()
                     .map(|(i, (value, name, face))| {
                         let chosen = value == current;
+                        let chip_id = SharedString::from(format!("font-{}-{i}", part.key()));
                         div()
-                            .id(SharedString::from(format!("font-{}-{i}", part.key())))
+                            .id(chip_id.clone())
+                            .accessible(Role::RadioButton, chip_id, name.clone())
+                            .aria_toggled(if chosen {
+                                Toggled::True
+                            } else {
+                                Toggled::False
+                            })
                             .keyboard_focus()
                             .px_2()
                             .py_0p5()
@@ -1410,7 +1452,7 @@ impl SkinEditor {
                                 colors::GRAY_400
                             })
                             .child(name)
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                            .on_press(cx.listener(move |this, _, _, cx| {
                                 let value = value.clone();
                                 this.edit(None, part.key(), cx, move |spec| {
                                     spec.fonts.set(part, value)
@@ -1418,6 +1460,7 @@ impl SkinEditor {
                             }))
                     });
                 SettingRow::new(label)
+                    .key(SharedString::from(format!("font-row-{}", part.key())))
                     .child(
                         div()
                             .flex()
@@ -1497,7 +1540,7 @@ impl SkinEditor {
                                 ),
                         )
                         .child(
-                            muted_link(("skin-banner-remove", i), t(M::SkinRemove)).on_click(
+                            muted_link(("skin-banner-remove", i), t(M::SkinRemove)).on_press(
                                 cx.listener(move |this, _, _, cx| {
                                     let id = id.clone();
                                     this.edit(None, "banners", cx, move |spec| {
@@ -1513,8 +1556,9 @@ impl SkinEditor {
         section(t(M::SkinBannerSet), Some(t(M::SkinBannersLead).into()))
             .child(card([SettingRow::new(t(M::SkinBannerInSidebar))
                 .child(
-                    Toggle::new("skin-banner-rows", in_sidebar).on_change(cx.listener(
-                        |this, on: &bool, _, cx| {
+                    Toggle::new("skin-banner-rows", in_sidebar)
+                        .label(t(M::SkinBannerInSidebar))
+                        .on_change(cx.listener(|this, on: &bool, _, cx| {
                             let on = *on;
                             this.edit(None, "in-sidebar", cx, move |spec| {
                                 spec.banner.in_sidebar = on
@@ -1523,8 +1567,7 @@ impl SkinEditor {
                                 this.instances
                                     .update(cx, |instances, _| instances.forget_sidebar_banners());
                             }
-                        },
-                    )),
+                        })),
                 )
                 .into_any_element()]))
             .child(
@@ -1583,12 +1626,12 @@ impl SkinEditor {
                     .into_any_element(),
                 SettingRow::new(t(M::SkinGlow))
                     .child(
-                        Toggle::new("skin-glow", spec.play.glow).on_change(cx.listener(
-                            |this, on: &bool, _, cx| {
+                        Toggle::new("skin-glow", spec.play.glow)
+                            .label(t(M::SkinGlow))
+                            .on_change(cx.listener(|this, on: &bool, _, cx| {
                                 let on = *on;
                                 this.edit(None, "glow", cx, move |spec| spec.play.glow = on)
-                            },
-                        )),
+                            })),
                     )
                     .into_any_element(),
                 SettingRow::new(t(M::SkinFill))
@@ -1630,8 +1673,12 @@ impl SkinEditor {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let open = self.pane == pane;
+        let id = id.into();
+        let label: SharedString = label.into();
         div()
-            .id(id.into())
+            .id(id.clone())
+            .accessible_id(Role::Tab, &id, label.clone())
+            .aria_selected(open)
             .keyboard_focus()
             .flex()
             .flex_row()
@@ -1649,7 +1696,7 @@ impl SkinEditor {
             .when(open, |this| this.bg(colors::GRAY_750))
             .hover(|style| style.bg(colors::GRAY_800))
             .children(swatch)
-            .child(div().flex_1().truncate().child(label.into()))
+            .child(div().flex_1().truncate().child(label))
             .when_some(badge.filter(|n| *n > 0), |this, n| {
                 this.child(
                     div()
@@ -1661,7 +1708,7 @@ impl SkinEditor {
                         .child(n.to_string()),
                 )
             })
-            .on_click(cx.listener(move |this, _, _, cx| this.show(pane, cx)))
+            .on_press(cx.listener(move |this, _, _, cx| this.show(pane, cx)))
             .into_any_element()
     }
 }
@@ -1762,9 +1809,11 @@ impl Render for SkinEditor {
                 .py_1()
                 .child(t(label))
                 .child(
-                    Toggle::new(("skin-preview", i), shown.contains(&preview)).on_change(
-                        cx.listener(move |this, _: &bool, _, cx| this.toggle_preview(preview, cx)),
-                    ),
+                    Toggle::new(("skin-preview", i), shown.contains(&preview))
+                        .label(t(label))
+                        .on_change(cx.listener(move |this, _: &bool, _, cx| {
+                            this.toggle_preview(preview, cx)
+                        })),
                 )
                 .into_any_element()
         })
@@ -1778,6 +1827,7 @@ impl Render for SkinEditor {
             Pane::Readability => self.readability_pane(&look, cx),
         };
         let mac = cfg!(target_os = "macos");
+        let windows = cfg!(target_os = "windows");
         div()
             .id("skin-editor")
             .track_focus(&self.focus)
@@ -1810,8 +1860,13 @@ impl Render for SkinEditor {
                     .items_center()
                     .gap_3()
                     .h(gpui::px(super::top_bar::TOP_BAR_HEIGHT + 1.0))
+                    // macOS's traffic lights sit at the left end. Elsewhere the
+                    // window's own buttons, drawn over the bar by `window_controls`,
+                    // take room at either end, as in the main window's top bar.
                     .pl(px(if mac { 84. } else { 16. }))
-                    .pr_4()
+                    // On Windows the caption buttons end the bar, flush with the edge.
+                    .when(!windows, |bar| bar.pr_4())
+                    .children(super::top_bar::controls_room(Side::Left, window, cx))
                     .bg(colors::GRAY_800)
                     .border_b_1()
                     .border_color(colors::GRAY_FADED.opacity(30))
@@ -1856,7 +1911,8 @@ impl Render for SkinEditor {
                             .size(ButtonSize::Slim)
                             .icon(Icon::Upload)
                             .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
-                    ),
+                    )
+                    .children(super::top_bar::controls_room(Side::Right, window, cx)),
             )
             .child(
                 div()

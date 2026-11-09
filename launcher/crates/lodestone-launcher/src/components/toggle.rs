@@ -1,7 +1,10 @@
 use crate::theme::px;
-use gpui::{App, ElementId, IntoElement, ObjectFit, RenderOnce, Window, div, img, prelude::*};
+use gpui::{
+    App, ElementId, IntoElement, ObjectFit, RenderOnce, SharedString, Window, div, img, prelude::*,
+};
 use launcher_core::ui_skin::SurfaceId;
 
+use super::a11y::{Accessible, Role, Toggled};
 use super::focus::KeyboardFocus;
 use crate::theme::colors;
 
@@ -14,6 +17,7 @@ pub struct Toggle {
     id: ElementId,
     value: bool,
     disabled: bool,
+    label: Option<SharedString>,
     on_change: Option<ChangeHandler>,
 }
 
@@ -23,8 +27,16 @@ impl Toggle {
             id: id.into(),
             value,
             disabled: false,
+            label: None,
             on_change: None,
         }
+    }
+
+    /// What the switch turns on or off, for assistive technology and automation. In a
+    /// settings row it is the row's name.
+    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = Some(label.into());
+        self
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
@@ -76,8 +88,11 @@ impl RenderOnce for Toggle {
         let value = self.value;
 
         // h-6 w-11 track with an h-4 w-4 knob at translate-x-1 or translate-x-6.
+        let label = self.label.unwrap_or_default();
         div()
-            .id(self.id)
+            .id(self.id.clone())
+            .accessible_id(Role::Switch, &self.id, label)
+            .aria_toggled(if value { Toggled::True } else { Toggled::False })
             .when(!self.disabled, |this| this.keyboard_focus_outer())
             .flex()
             .flex_none()
@@ -119,7 +134,7 @@ impl RenderOnce for Toggle {
             .when(!self.disabled, |this| {
                 this.cursor_pointer()
                     .when_some(self.on_change, |this, on_change| {
-                        this.on_click(move |_, window, cx| on_change(&!value, window, cx))
+                        this.on_press(move |_, window, cx| on_change(&!value, window, cx))
                     })
             })
     }

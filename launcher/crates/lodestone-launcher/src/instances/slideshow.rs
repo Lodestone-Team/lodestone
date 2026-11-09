@@ -293,6 +293,10 @@ impl Slideshow {
     }
 }
 
+/// The hero's corners: children are clipped to a rectangle, so each layer rounds
+/// itself to match.
+const HERO_RADIUS: gpui::Rems = crate::theme::radius::XL;
+
 impl Render for Slideshow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut fade = None;
@@ -318,6 +322,7 @@ impl Render for Slideshow {
                 .absolute()
                 .inset_0()
                 .size_full()
+                .rounded(HERO_RADIUS)
                 .object_fit(ObjectFit::Cover)
         };
         let scrim = match (&self.current, &self.next, fade) {
@@ -345,13 +350,19 @@ impl Render for Slideshow {
                         .absolute()
                         .inset_0()
                         .size_full()
+                        .rounded(HERO_RADIUS)
                         .object_fit(ObjectFit::Cover),
                 ),
             })
             .when_some(self.next.as_ref().zip(fade), |this, ((next, _), t)| {
                 this.child(cover(next.image.clone()).opacity(t))
             })
-            .children(scrim.map(scrim_layers).into_iter().flatten())
+            .children(
+                scrim
+                    .map(|scrim| scrim_layers(scrim, HERO_RADIUS))
+                    .into_iter()
+                    .flatten(),
+            )
     }
 }
 

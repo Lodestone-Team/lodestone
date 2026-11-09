@@ -21,7 +21,11 @@ use gpui::{
     WindowButtonLayout, WindowControlArea, WindowControls, canvas, div, point, prelude::*, size,
 };
 
-use super::{Icon, text_tooltip};
+use super::{
+    Icon,
+    a11y::{Accessible, Role},
+    text_tooltip,
+};
 use crate::{
     i18n::{CommonMsg, ShellMsg, t},
     theme::{colors, shadow},
@@ -404,8 +408,8 @@ fn window_button(button: WindowButton, maximized: bool) -> impl IntoElement {
     let close = button == WindowButton::Close;
     div()
         .id(id)
+        .accessible(Role::Button, id, label)
         .window_control_area(area)
-        .aria_label(label)
         .tooltip(text_tooltip(label))
         .group(id)
         .flex()
@@ -434,7 +438,7 @@ fn window_button(button: WindowButton, maximized: bool) -> impl IntoElement {
                     })
                 }),
         )
-        .on_click(move |_, window, cx| {
+        .on_press(move |_, window, cx| {
             cx.stop_propagation();
             super::trace_ui(
                 "ui.click",

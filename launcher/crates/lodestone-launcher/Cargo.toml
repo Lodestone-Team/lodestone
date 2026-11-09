@@ -19,6 +19,7 @@ runtime-shaders = ["gpui_platform/runtime_shaders"]
 screenshot = ["gpui_platform/test-support", "dep:zip"]
 
 [dependencies]
+accesskit.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 futures.workspace = true

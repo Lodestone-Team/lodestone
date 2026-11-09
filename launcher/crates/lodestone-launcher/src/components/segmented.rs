@@ -1,6 +1,9 @@
 use gpui::{App, SharedString, Window, div, prelude::*};
 
-use super::{ArrowGroup, KeyboardFocus};
+use super::{
+    ArrowGroup, KeyboardFocus,
+    a11y::{Accessible, Role, Toggled},
+};
 use crate::theme::{self, colors, radius, text, weights};
 use launcher_core::ui_skin::SurfaceId;
 
@@ -15,6 +18,7 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
 ) -> impl IntoElement {
     let id: SharedString = id.into();
     ArrowGroup::new(id.clone())
+        .group_role(Role::RadioGroup)
         .flex()
         .flex_row()
         .flex_wrap()
@@ -27,8 +31,15 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
         .children(choices.into_iter().enumerate().map(|(i, (value, name))| {
             let is_selected = selected == Some(&value);
             let on_pick = on_pick.clone();
+            let item_id = SharedString::from(format!("{id}-{i}"));
             let item = div()
-                .id(SharedString::from(format!("{id}-{i}")))
+                .id(item_id.clone())
+                .accessible(Role::RadioButton, item_id, name.clone())
+                .aria_toggled(if is_selected {
+                    Toggled::True
+                } else {
+                    Toggled::False
+                })
                 .px_3()
                 .py_1()
                 .rounded(radius::MD)
@@ -45,7 +56,7 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
                 })
                 .child(name.clone())
                 .when(!disabled, |this| {
-                    this.keyboard_focus().cursor_pointer().on_click({
+                    this.keyboard_focus().cursor_pointer().on_press({
                         let (id, name) = (id.clone(), name.clone());
                         move |_, window, cx| {
                             super::trace_ui(

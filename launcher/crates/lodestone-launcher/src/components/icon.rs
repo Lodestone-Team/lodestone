@@ -104,6 +104,42 @@ impl Icon {
         }
     }
 
+    /// A name for an icon-only control showing this icon, when the control has none
+    /// of its own: what pressing it usually does.
+    pub fn label(self) -> gpui::SharedString {
+        use crate::i18n::{CommonMsg as M, t};
+        let message = match self {
+            Icon::ArrowDown => M::MoveDown,
+            Icon::ArrowUp => M::MoveUp,
+            Icon::ArrowLeft => M::Back,
+            Icon::Bars => M::Menu,
+            Icon::Check => M::Done,
+            Icon::Copy => M::Copy,
+            Icon::Ellipsis => M::MoreActions,
+            Icon::Download => M::Install,
+            Icon::Gear => M::Edit,
+            Icon::MagnifyingGlass => M::Search,
+            Icon::Plus | Icon::SquarePlus => M::Add,
+            Icon::RightFromBracket => M::SignOut,
+            Icon::TrashCan => M::Delete,
+            Icon::ArrowUpRightFromSquare => M::Open,
+            Icon::CircleUp => M::Update,
+            Icon::Xmark | Icon::WindowClose => M::Close,
+            Icon::CaretDown
+            | Icon::Cube
+            | Icon::Expand
+            | Icon::HardDrive
+            | Icon::Palette
+            | Icon::TriangleExclamation
+            | Icon::Upload
+            | Icon::User
+            | Icon::WindowMaximize
+            | Icon::WindowMinimize
+            | Icon::WindowRestore => return format!("{self:?}").into(),
+        };
+        t(message).into()
+    }
+
     /// The icon as a square element of `size`, filled with `color`.
     pub fn render(self, size: Pixels, color: impl Into<Hsla>) -> Svg {
         svg()

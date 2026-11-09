@@ -146,12 +146,19 @@ impl HostDialog {
         let username = cores.first().and_then(|c| c.2.clone());
         Self {
             instance_id,
-            name: cx.new(|cx| TextInput::new(cx).with_text(instance_name.clone())),
+            name: cx.new(|cx| {
+                TextInput::new(cx)
+                    .with_text(instance_name.clone())
+                    .with_label(M::ServerName)
+                    .with_automation_id("host-server-name")
+            }),
             instance_name,
             cores,
             core,
             username: cx.new(|cx| {
-                let input = TextInput::new(cx).with_placeholder(M::Username);
+                let input = TextInput::new(cx)
+                    .with_placeholder(M::Username)
+                    .with_automation_id("host-username");
                 match username {
                     Some(username) => input.with_text(username),
                     None => input,
@@ -160,6 +167,7 @@ impl HostDialog {
             password: cx.new(|cx| {
                 TextInput::new(cx)
                     .with_placeholder(M::Password)
+                    .with_automation_id("host-password")
                     .with_masked()
             }),
             max_ram: hosting::DEFAULT_MAX_RAM,
@@ -315,15 +323,18 @@ impl Render for HostDialog {
                                     .flex_row()
                                     .items_center()
                                     .gap_3()
-                                    .child(Toggle::new("host-eula", eula).disabled(busy).on_change(
-                                        move |value, _, cx| {
-                                            let value = *value;
-                                            toggle_eula.update(cx, |this, cx| {
-                                                this.eula = value;
-                                                cx.notify();
-                                            })
-                                        },
-                                    ))
+                                    .child(
+                                        Toggle::new("host-eula", eula)
+                                            .disabled(busy)
+                                            .label(tr!(M::EulaAgree, url = EULA_URL))
+                                            .on_change(move |value, _, cx| {
+                                                let value = *value;
+                                                toggle_eula.update(cx, |this, cx| {
+                                                    this.eula = value;
+                                                    cx.notify();
+                                                })
+                                            }),
+                                    )
                                     .child(
                                         note(tr!(M::EulaAgree, url = EULA_URL)).flex_1().min_w_0(),
                                     ),

@@ -27,6 +27,7 @@ use super::{
 };
 use crate::components::{
     Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, LoadingDots, Toggle,
+    a11y::{Accessible, Role},
 };
 use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr};
 use crate::theme::{self, colors, fonts, text, weights};
@@ -544,6 +545,7 @@ impl ContentView {
             };
             rows = rows.child(
                 row_base(("blocked-row", index), index == 0)
+                    .accessible(Role::Group, format!("blocked-{index}"), file.title())
                     .child(
                         div()
                             .flex()
@@ -785,10 +787,16 @@ impl ContentView {
             .map(|a| a.name.clone())
             .unwrap_or_default();
         row_base(("cf-hit", index), first)
+            .accessible(
+                Role::ListItem,
+                format!("{}-cf-hit-{id}", kind.dir()),
+                hit.name.clone(),
+            )
+            .aria_description(hit.summary.clone())
             .keyboard_focus()
             .cursor_pointer()
             .hover(|style| style.bg(colors::GRAY_750))
-            .on_click(cx.listener(move |this, _, _, cx| this.open_cf_project(kind, id, cx)))
+            .on_press(cx.listener(move |this, _, _, cx| this.open_cf_project(kind, id, cx)))
             .child(icon_box(icon, 36.))
             .child(
                 div()
@@ -1024,14 +1032,14 @@ impl ContentView {
                         .items_center()
                         .gap_2()
                         .child(
-                            Toggle::new(("cf-show-all", kind as usize), show_all).on_change(
-                                cx.listener(move |this, value: &bool, _, cx| {
+                            Toggle::new(("cf-show-all", kind as usize), show_all)
+                                .label(t(M::ShowAllVersions))
+                                .on_change(cx.listener(move |this, value: &bool, _, cx| {
                                     if let Some(view) = this.cf_project_mut(kind) {
                                         view.show_all = *value;
                                     }
                                     cx.notify();
-                                }),
-                            ),
+                                })),
                         )
                         .child(
                             small(t(M::ShowAllVersions)).text_color(crate::theme::ink::secondary()),
@@ -1046,6 +1054,7 @@ impl ContentView {
                             .gap_2()
                             .child(
                                 Toggle::new(("cf-with-deps", kind as usize), with_dependencies)
+                                    .label(t(M::AlsoInstallDependencies))
                                     .on_change(cx.listener(move |this, value: &bool, _, cx| {
                                         if let Some(view) = this.cf_project_mut(kind) {
                                             view.with_dependencies = *value;
@@ -1133,6 +1142,12 @@ impl ContentView {
             };
             rows = rows.child(
                 row_base(("cf-file-row", index), index == 0)
+                    .accessible(
+                        Role::Group,
+                        format!("{}-cf-file-{id}", kind.dir()),
+                        file.display_name_or_file().to_string(),
+                    )
+                    .aria_description(format!("{type_label} · {date}"))
                     .child(
                         div()
                             .flex()

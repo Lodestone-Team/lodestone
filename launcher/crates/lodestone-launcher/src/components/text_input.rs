@@ -23,6 +23,7 @@ use gpui::{
     fill, point, prelude::*, relative, size,
 };
 
+use super::a11y::{Accessible, AccessibleAction, ActionData, Role};
 use crate::{
     i18n::Text,
     theme::{self, colors, focus_ring_width, leading, radius, text, weights},
@@ -140,6 +141,11 @@ pub struct TextInput {
     content: SharedString,
     /// Looked up when drawn, so it follows the language.
     placeholder: Text,
+    /// The field's name for assistive technology and automation; the placeholder when
+    /// empty.
+    label: Text,
+    /// What automation finds the field by; `text-input` when empty.
+    automation_id: SharedString,
     disabled: bool,
     /// Shows a mask instead of the text, and never copies it, for passwords.
     masked: bool,
@@ -206,6 +212,8 @@ impl TextInput {
             focus_handle: cx.focus_handle(),
             content: SharedString::default(),
             placeholder: Text::default(),
+            label: Text::default(),
+            automation_id: SharedString::default(),
             disabled: false,
             masked: false,
             selected_range: 0..0,
@@ -230,6 +238,40 @@ impl TextInput {
     pub fn with_placeholder(mut self, placeholder: impl Into<Text>) -> Self {
         self.placeholder = placeholder.into();
         self
+    }
+
+    /// The field's name for assistive technology and automation, such as "Instance
+    /// name". Without one, the placeholder names it.
+    pub fn with_label(mut self, label: impl Into<Text>) -> Self {
+        self.label = label.into();
+        self
+    }
+
+    /// What automation finds the field by, such as `instance-name`: stable across
+    /// languages, so never the label.
+    pub fn with_automation_id(mut self, id: impl Into<SharedString>) -> Self {
+        self.automation_id = id.into();
+        self
+    }
+
+    /// Replaces the whole text, as assistive technology or automation asks (UI
+    /// Automation's `ValuePattern.SetValue`). Like typing it, it can be undone.
+    fn set_value_from_accessibility(
+        &mut self,
+        text: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.disabled {
+            return;
+        }
+        let text = text.replace(['\r', '\n'], " ");
+        self.replace(0..self.content.len(), &text);
+        self.selected_range = self.content.len()..self.content.len();
+        self.selection_reversed = false;
+        self.marked_range = None;
+        window.notify_text_input_changed(&self.focus_handle);
+        cx.notify();
     }
 
     /// Changes the placeholder of a field already shown.
@@ -987,8 +1029,36 @@ impl Focusable for TextInput {
 impl Render for TextInput {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.focus_handle.is_focused(window);
+        let label = Some(self.label.get())
+            .filter(|label| !label.is_empty())
+            .unwrap_or_else(|| self.placeholder.get());
+        let automation_id = Some(self.automation_id.clone())
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| "text-input".into());
         div()
             .id("text-input")
+            .map(|this| {
+                if self.masked {
+                    // A password field: never its text.
+                    this.accessible(Role::PasswordInput, automation_id, label)
+                } else {
+                    this.accessible(Role::TextInput, automation_id, label)
+                        .aria_value(self.content.clone())
+                }
+            })
+            .aria_placeholder(self.placeholder.get())
+            .when(!self.disabled, |this| {
+                let input = cx.entity().downgrade();
+                this.on_a11y_action(AccessibleAction::SetValue, move |data, window, cx| {
+                    if let Some(ActionData::Value(text)) = data {
+                        input
+                            .update(cx, |input, cx| {
+                                input.set_value_from_accessibility(text, window, cx)
+                            })
+                            .ok();
+                    }
+                })
+            })
             .key_context("TextInput")
             // A tab stop unless disabled.
             .track_focus(&self.focus_handle.clone().tab_stop(!self.disabled))
