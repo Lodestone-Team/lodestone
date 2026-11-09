@@ -37,6 +37,7 @@ fn record() -> ModpackRecord {
         date_published: "2025-05-01T00:00:00Z".into(),
         icon_url: Some(icon_url(PACK)),
         files: BTreeMap::new(),
+        curseforge: None,
     }
 }
 

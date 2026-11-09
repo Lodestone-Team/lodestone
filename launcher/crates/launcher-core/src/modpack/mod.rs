@@ -373,7 +373,9 @@ pub fn cdn_ids(url: &url::Url) -> Option<(String, String)> {
 
 /// Opens the zip at `path` after checking it isn't unsafe: too many entries, or too large
 /// once unpacked.
-pub(crate) fn open_pack(path: &Path) -> Result<zip::ZipArchive<File>, ModpackError> {
+pub(crate) fn open_pack(
+    path: &Path,
+) -> Result<zip::ZipArchive<std::io::BufReader<File>>, ModpackError> {
     let file = File::open(path).map_err(io_error(path))?;
     let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(zip_error)?;
     if archive.len() > MAX_ENTRIES {
