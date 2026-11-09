@@ -775,7 +775,10 @@ Conventions in the code that every area relies on:
 ### 6.4 Event Logs tab — `pages/InstanceTabs/InstanceTabs.tsx`  
 **Package: C.**
 
-- [ ] Placeholder only ("Coming soon" with cube image). No per-instance event log exists.
+- [x] Placeholder only ("Coming soon" with cube image). No per-instance event log exists.
+  The Host shows a real log instead (`pages/event_logs.rs`): the instance's state
+  changes, warnings, errors, players joining and leaving, and chat, newest first, from
+  `GET /events/all/buffer` then the live event stream (at most 500 lines).
 
 ### 6.5 Players / whitelist / ops / backups / scheduling  
 **Package: nobody (not in the dashboard).**
@@ -792,18 +795,22 @@ Conventions in the code that every area relies on:
 ### 6.7 Playit.gg tab — `components/PlayitggOverview.tsx`, `components/PlayitggSignupModal.tsx`  
 **Package: C.**
 
-- [ ] Tab only when `global_settings.playit_enabled`. (Core-wide, not per instance.)
-- [ ] On open: `POST /playitgg/verify_key` → bool (refetched each visit), `GET /playitgg/cli_is_running`
+- [x] Tab only when `global_settings.playit_enabled`. (Core-wide, not per instance.)
+- [x] On open: `POST /playitgg/verify_key` → bool (refetched each visit), `GET /playitgg/cli_is_running`
   → runner status, `GET /playitgg/get_tunnels` → `PlayitTunnelInfo[]` (failure → empty list).
-- [ ] Not verified → signup modal opens automatically: "Generate link" (`GET
+- [x] Not verified → signup modal opens automatically: "Generate link" (`GET
   /playitgg/generate_signup_link` → `{url, claim_code}`) → shows link → "Verify" (re-run verify_key,
   refetch tunnels). Error toasts.
-- [ ] "Playit runner" heading + power button (disabled until verified) toggling `POST
+- [x] "Playit runner" heading + power button (disabled until verified) toggling `POST
   /playitgg/start_cli` (status → Loading) / `POST /playitgg/stop_cli` (→ Stopped); status label
   Stopped/Loading/Started; status also driven by `PlayitggRunnerEvent`s.
-- [ ] Tunnels list with refresh icon (spins): name, active dot (green only if active and runner started),
+- [x] Tunnels list with refresh icon (spins): name, active dot (green only if active and runner started),
   public address (click copies), "Local server ip:port"; empty states "No tunnels" / "Not signed up";
   help link to wiki.
+- Host notes for §6.7 (`pages/playit.rs`): the runner and the tunnels are settings-style
+  cards; the power button is Start/Stop; a tunnel's address is copied with its copy
+  button. A user who isn't the owner sees the core's refusal ("Couldn't load the
+  playit.gg status").
 
 ---
 

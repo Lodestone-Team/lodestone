@@ -63,6 +63,47 @@ pub fn text(message: M) -> &'static str {
         M::EulaDialogTitle => "接受 Minecraft EULA",
         M::EulaDialogBody => "你同意 Minecraft EULA 後，{name} 才能啟動。你同意嗎？",
         M::EulaAcceptAndStart => "我同意，啟動伺服器",
+        M::PlayitLoadFailed => "無法載入 playit.gg 狀態：{error}",
+        M::PlayitSignupFailed => "無法產生註冊連結：{error}",
+        M::PlayitVerifyFailed => "無法驗證 playit.gg 帳戶：{error}",
+        M::PlayitStartFailed => "無法啟動 playit.gg 執行程式：{error}",
+        M::PlayitStopFailed => "無法停止 playit.gg 執行程式：{error}",
+        M::PlayitSetupTitle => "設定 playit.gg",
+        M::PlayitSetupIntro => "你需要先註冊 playit.gg 才能使用它。使用下方的按鈕產生註冊連結。",
+        M::PlayitGenerateLink => "產生註冊連結",
+        M::PlayitFollowLink => {
+            "開啟連結並建立帳戶。看到 playit.gg 控制面板後，回到這裡按「驗證」。"
+        }
+        M::PlayitOpenLink => "開啟註冊連結",
+        M::PlayitVerify => "驗證",
+        M::PlayitRunner => "playit.gg 執行程式",
+        M::PlayitRunnerLead => "在這台電腦上執行你的通道，玩家無需連接埠轉送即可加入。",
+        M::PlayitStopped => "已停止",
+        M::PlayitLoading => "啟動中",
+        M::PlayitStarted => "已啟動",
+        M::PlayitTrouble => {
+            "遇到問題？請確認已在 playit.gg 網站上設定通道，並且你的伺服器正在執行。"
+        }
+        M::PlayitSignupRequired => "使用前請先註冊 playit.gg。",
+        M::PlayitSignUp => "註冊",
+        M::PlayitTunnels => "通道",
+        M::PlayitTunnelsLead => "在 playit.gg 網站上建立更多通道並變更設定。",
+        M::PlayitWebsite => "開啟 playit.gg",
+        M::PlayitLocalServer => "本機伺服器位址：{address}",
+        M::PlayitCopyAddress => "複製位址",
+        M::PlayitCopied => "已複製 {address}",
+        M::PlayitActive => "使用中",
+        M::PlayitInactive => "未使用",
+        M::PlayitNoTunnels => "你還沒有建立任何通道",
+        M::PlayitNotSignedUp => "你還沒有註冊",
+        M::PlayitHelp => "需要協助？",
+        M::EventLogsLead => "此伺服器發生的事件，最新的在前。核心會保留最近的事件。",
+        M::EventLogsEmpty => "還沒有任何事件",
+        M::EventLogsFailed => "無法載入事件：{error}",
+        M::EventState => "伺服器現在為{state}",
+        M::EventJoined => "{names} 加入了",
+        M::EventLeft => "{names} 離開了",
+        M::EventBy => "由 {user}",
     }
 }
 
