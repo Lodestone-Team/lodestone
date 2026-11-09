@@ -425,6 +425,22 @@ impl ConnectShares {
         }
     }
 
+    /// Stops sharing every instance as the core shuts down, keeping the links: sharing
+    /// resumes at the next start. Closing the connections tells connected friends at
+    /// once, instead of after their connection times out.
+    pub async fn stop_all(&self) {
+        let slots: Vec<_> = self.slots.lock().await.drain().collect();
+        for (uuid, slot) in slots {
+            if let Slot::Running { host, tasks } = slot {
+                for task in tasks {
+                    task.abort();
+                }
+                (*host).stop(false).await;
+                info!("Stopped sharing {uuid} with friends (shutting down)");
+            }
+        }
+    }
+
     /// Resumes sharing the instances that were shared when the core last stopped,
     /// retrying in the background while this computer is offline. Saved identities of
     /// instances that no longer exist are deleted.

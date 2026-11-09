@@ -1295,6 +1295,12 @@ pub async fn run_with(
                 for handle in &axum_server_handles {
                     handle.shutdown();
                 }
+                // friends joined through Lodestone Connect hear that sharing stopped
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    shared_state.connect.stop_all(),
+                )
+                .await;
                 if let Err(e) = shared_state
                     .users_manager
                     .read()
