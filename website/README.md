@@ -50,11 +50,17 @@ To run it on Cloudflare's own runtime instead, build first, then run
 The site is a Cloudflare Worker with static assets, built from this repository
 by Cloudflare's Git integration (Workers Builds). Its build settings:
 
-| Setting         | Value               |
-| --------------- | ------------------- |
-| Root directory  | `website`           |
-| Build command   | `node build.mjs`    |
-| Deploy command  | `npx wrangler deploy` |
+| Setting                    | Value                      |
+| -------------------------- | -------------------------- |
+| Root directory             | `website`                  |
+| Build command              | `node build.mjs`           |
+| Deploy command             | `npx wrangler deploy`      |
+| Build watch paths: include | `website/*`, `dashboard/*` |
+
+The watch paths are relative to the repository root and `*` covers subfolders.
+They make Cloudflare build only for commits that change the site or the
+dashboard it serves at `/core`. Commits to the launcher or Core alone don't
+redeploy the site, and their PRs don't get a Cloudflare preview build.
 
 `wrangler.jsonc` names the Worker, puts it on Wenwei's account and on
 `www.lodestone.cc` (a custom domain, so Cloudflare manages its DNS record), and
