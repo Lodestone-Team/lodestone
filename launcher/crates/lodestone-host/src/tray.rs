@@ -61,6 +61,12 @@ pub fn set_dev_dock_icon() {
     }
 }
 
+/// Windows: a notification from the notification area icon. False without the icon.
+#[cfg(windows)]
+pub fn notify(title: &str, body: &str) -> bool {
+    windows::notify(title, body)
+}
+
 #[cfg(windows)]
 #[path = "tray_windows.rs"]
 mod windows;

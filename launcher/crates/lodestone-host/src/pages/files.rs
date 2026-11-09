@@ -44,16 +44,19 @@ use crate::{
     state::{HostEvent, HostState},
 };
 
-actions!(host_files, [SaveFile, CloseMenu]);
+mod find;
+
+actions!(host_files, [SaveFile, CloseMenu, FindInFile]);
 
 pub fn init(cx: &mut App) {
-    let save = if cfg!(target_os = "macos") {
-        "cmd-s"
+    let (save, find) = if cfg!(target_os = "macos") {
+        ("cmd-s", "cmd-f")
     } else {
-        "ctrl-s"
+        ("ctrl-s", "ctrl-f")
     };
     cx.bind_keys([
         KeyBinding::new(save, SaveFile, Some("FilesPage")),
+        KeyBinding::new(find, FindInFile, Some("FilesPage")),
         KeyBinding::new("escape", CloseMenu, Some("FilesMenu")),
     ]);
 }
@@ -145,6 +148,8 @@ pub struct FilesPage {
     clip_action: ClipAction,
     opened: Option<Opened>,
     editor: Entity<TextEditor>,
+    /// The editor's find bar, while open.
+    find: Option<find::FindBar>,
     dirty: bool,
     saving: bool,
     list_scroll: UniformListScrollHandle,
@@ -213,6 +218,8 @@ impl FilesPage {
                         this.dirty = dirty;
                         cx.notify();
                     }
+                    // the matches moved with the edit
+                    this.refind(false, cx);
                 }
             }),
             // unsaved edits outlive the tab
@@ -232,6 +239,7 @@ impl FilesPage {
             clipboard: Vec::new(),
             clip_action: ClipAction::Copy,
             opened: None,
+            find: None,
             editor,
             dirty: false,
             saving: false,
@@ -418,6 +426,7 @@ impl FilesPage {
 
     fn open_file_now(&mut self, file: ClientFile, cx: &mut Context<Self>) {
         self.menu = None;
+        self.close_find(None, cx);
         self.dirty = false;
         self.editor.update(cx, |editor, cx| {
             editor.set_text("", cx);
@@ -476,6 +485,7 @@ impl FilesPage {
     }
 
     fn close_file(&mut self, cx: &mut Context<Self>) {
+        self.close_find(None, cx);
         self.opened = None;
         self.dirty = false;
         self.file_task = None;
@@ -1791,7 +1801,13 @@ impl FilesPage {
         usize::from(!at_top) + self.files.len() + status
     }
 
-    fn editor_pane(&self) -> AnyElement {
+    fn editor_pane(
+        &mut self,
+        can_write: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let find_bar = self.find_bar(can_write, window, cx);
         let Some(opened) = &self.opened else {
             return div().into_any_element();
         };
@@ -1812,7 +1828,10 @@ impl FilesPage {
             .into_any_element(),
             Content::Loaded(_) => div()
                 .size_full()
-                .child(self.editor.clone())
+                .flex()
+                .flex_col()
+                .children(find_bar)
+                .child(div().flex_1().min_h_0().child(self.editor.clone()))
                 .into_any_element(),
         }
     }
@@ -1999,6 +2018,7 @@ impl Render for FilesPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let can_read = self.can_read(cx);
         let can_write = self.can_write(cx);
+        let editor_pane = self.editor_pane(can_write, window, cx);
         let showing_editor = matches!(
             self.opened.as_ref().map(|o| &o.content),
             Some(Content::Loaded(_))
@@ -2177,7 +2197,7 @@ impl Render for FilesPage {
                             .h_full()
                             .overflow_hidden()
                             .rounded_r(radius::LG)
-                            .child(self.editor_pane()),
+                            .child(editor_pane),
                     )
                 })
                 .into_any_element()
@@ -2215,6 +2235,7 @@ impl Render for FilesPage {
             .id("files-page")
             .key_context("FilesPage")
             .on_action(cx.listener(Self::on_save))
+            .on_action(cx.listener(|this, _: &FindInFile, _, cx| this.open_find(cx)))
             .on_action(cx.listener(Self::close_menu))
             .group("files-drop")
             .relative()

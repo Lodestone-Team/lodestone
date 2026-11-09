@@ -251,6 +251,19 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
+            // `--find <text>`: the Files tab's find bar (with `--tab files --demo`)
+            if let Some(query) = arg_after("--find") {
+                window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).page_view()?;
+                        lodestone_host::pages::find_for_screenshot(&view, &query, cx);
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
             // `--degraded`: the banner shown while live updates stopped
             if std::env::args().any(|arg| arg == "--degraded") {
                 window

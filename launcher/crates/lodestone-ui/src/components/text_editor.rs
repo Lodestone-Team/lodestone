@@ -554,9 +554,38 @@ pub struct TextEditor {
     widest: usize,
     label: Text,
     automation_id: SharedString,
+    /// Ranges drawn with a highlight, such as the matches of a search
+    /// ([`TextEditor::set_highlights`]).
+    highlights: Vec<Range<Pos>>,
 }
 
 impl EventEmitter<TextEditorEvent> for TextEditor {}
+
+/// Where `query` is in `lines`, ignoring ASCII case (as editors search by default),
+/// each match on one line. An empty query matches nothing.
+pub fn find_in_lines(lines: &[String], query: &str) -> Vec<Range<Pos>> {
+    let mut found = Vec::new();
+    if query.is_empty() || query.contains('\n') {
+        return found;
+    }
+    let needle = query.as_bytes();
+    for (line_ix, line) in lines.iter().enumerate() {
+        let hay = line.as_bytes();
+        let mut start = 0;
+        while start + needle.len() <= hay.len() {
+            if line.is_char_boundary(start)
+                && line.is_char_boundary(start + needle.len())
+                && hay[start..start + needle.len()].eq_ignore_ascii_case(needle)
+            {
+                found.push(Pos::new(line_ix, start)..Pos::new(line_ix, start + needle.len()));
+                start += needle.len();
+            } else {
+                start += 1;
+            }
+        }
+    }
+    found
+}
 
 impl TextEditor {
     pub fn new(cx: &mut Context<Self>) -> Self {
@@ -578,7 +607,29 @@ impl TextEditor {
             widest: 0,
             label: Text::default(),
             automation_id: "text-editor".into(),
+            highlights: Vec::new(),
         }
+    }
+
+    /// Where `query` is in the text, ignoring ASCII case: for a find bar.
+    pub fn find(&self, query: &str) -> Vec<Range<Pos>> {
+        find_in_lines(&self.lines, query)
+    }
+
+    /// Draws `ranges` highlighted (the matches of a search), until set again.
+    pub fn set_highlights(&mut self, ranges: Vec<Range<Pos>>, cx: &mut Context<Self>) {
+        self.highlights = ranges;
+        cx.notify();
+    }
+
+    /// Replaces `range` with `text`, as typing would (it can be undone). Nothing
+    /// changes in a read-only editor.
+    pub fn replace(&mut self, range: Range<Pos>, text: &str, cx: &mut Context<Self>) {
+        if self.read_only {
+            return;
+        }
+        let range = self.clamp(range.start)..self.clamp(range.end);
+        self.edit(range, text, cx);
     }
 
     /// The editor's name for assistive technology, such as the file's name.
@@ -1777,6 +1828,8 @@ struct Prepaint {
     gutter_bounds: Bounds<Pixels>,
     current_line: Option<Bounds<Pixels>>,
     selection: Vec<Bounds<Pixels>>,
+    /// The highlighted ranges in view (search matches).
+    highlights: Vec<Bounds<Pixels>>,
     cursor: Option<Bounds<Pixels>>,
     text_bounds: Bounds<Pixels>,
     scrollbar: Option<Bounds<Pixels>>,
@@ -1969,6 +2022,24 @@ impl Element for EditorElement {
                     ));
                 }
             }
+            // the highlighted ranges (search matches) on the lines in view
+            let mut highlights = Vec::new();
+            for range in &editor.highlights {
+                let line_ix = range.start.line;
+                if range.end.line != line_ix || line_ix < first_line || line_ix >= last_line {
+                    continue;
+                }
+                let Some((shaped, tabs)) = frame.lines.get(line_ix - first_line) else {
+                    continue;
+                };
+                let start = shaped.x_for_index(to_display(range.start.col, tabs));
+                let end = shaped.x_for_index(to_display(range.end.col, tabs));
+                let y = text_bounds.top() + line_height * line_ix as f32 - scroll.y;
+                highlights.push(Bounds::from_corners(
+                    point(text_bounds.left() + start - scroll.x, y),
+                    point(text_bounds.left() + end - scroll.x, y + line_height),
+                ));
+            }
             let head_y = text_bounds.top() + line_height * head.line as f32 - scroll.y;
             let cursor = (head.line >= first_line && head.line < last_line && focused).then(|| {
                 let (shaped, tabs) = &frame.lines[head.line - first_line];
@@ -2001,6 +2072,7 @@ impl Element for EditorElement {
                 gutter_bounds: Bounds::new(bounds.origin, size(gutter_width, bounds.size.height)),
                 current_line,
                 selection,
+                highlights,
                 cursor,
                 text_bounds,
                 scrollbar,
@@ -2040,6 +2112,9 @@ impl Element for EditorElement {
                 bounds.bottom_right(),
             );
             window.with_content_mask(Some(ContentMask { bounds: text_mask }), |window| {
+                for highlight in &prepaint.highlights {
+                    window.paint_quad(fill(*highlight, colors::YELLOW.opacity(30)));
+                }
                 for selection in &prepaint.selection {
                     window.paint_quad(fill(*selection, crate::theme::accent::faded().opacity(45)));
                 }
@@ -2112,6 +2187,27 @@ fn split_underline(runs: Vec<TextRun>, range: Range<usize>, color: Hsla) -> Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_ignores_ascii_case_and_never_overlaps() {
+        let lines: Vec<String> = ["motd=A Server", "max-players=20", "aaa", "é motd"]
+            .map(String::from)
+            .to_vec();
+        assert_eq!(
+            find_in_lines(&lines, "MOTD"),
+            [
+                Pos::new(0, 0)..Pos::new(0, 4),
+                Pos::new(3, 3)..Pos::new(3, 7)
+            ]
+        );
+        assert_eq!(
+            find_in_lines(&lines, "aa"),
+            [Pos::new(2, 0)..Pos::new(2, 2)]
+        );
+        assert!(find_in_lines(&lines, "").is_empty());
+        assert!(find_in_lines(&lines, "a\nb").is_empty());
+        assert!(find_in_lines(&lines, "nothing").is_empty());
+    }
 
     #[test]
     fn tabs_show_as_four_columns() {

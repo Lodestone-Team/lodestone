@@ -662,6 +662,11 @@ pub mod native {
         if cfg!(test) {
             return;
         }
+        // Windows: from the notification area icon, which Windows shows as a toast
+        #[cfg(windows)]
+        if crate::tray::notify(title, body) {
+            return;
+        }
         let (title, body) = (title.to_string(), body.to_string());
         std::thread::spawn(move || {
             let _ = command(&title, &body).and_then(|mut c| c.status().ok());
