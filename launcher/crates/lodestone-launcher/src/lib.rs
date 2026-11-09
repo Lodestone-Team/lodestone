@@ -15,6 +15,7 @@ pub mod i18n;
 pub mod images;
 pub mod instances;
 pub mod markdown;
+pub mod perf;
 #[cfg(feature = "screenshot")]
 pub mod preview;
 pub mod servers;

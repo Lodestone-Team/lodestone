@@ -20,6 +20,14 @@ pub struct BundledImages {
 
 impl Global for BundledImages {}
 
+/// Adds the bundled images, for the performance monitor.
+pub fn tally(tally: &mut crate::perf::ImageTally, cx: &App) {
+    if let Some(images) = cx.try_global::<BundledImages>() {
+        tally.add(&images.logo);
+        tally.add(&images.hero);
+    }
+}
+
 /// The scale passed to GPUI's SVG renderer, as its own `img()` loader does. The
 /// renderer doubles it.
 const SVG_SCALE: f32 = 1.0;

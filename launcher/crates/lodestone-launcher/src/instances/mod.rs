@@ -347,6 +347,20 @@ fn gpui_sleep(cx: &App) -> Sleep {
 }
 
 impl Instances {
+    /// Adds the decoded icons, Play backgrounds and sidebar banners, for the
+    /// performance monitor.
+    pub fn tally_images(&self, tally: &mut crate::perf::ImageTally) {
+        for (_, image) in self.icons.values() {
+            tally.add(image);
+        }
+        for (_, _, background) in self.backgrounds.values() {
+            tally.add(&background.image);
+        }
+        for (_, _, image, _) in self.sidebar_banners.values() {
+            tally.add(image);
+        }
+    }
+
     pub fn new(data_dir: DataDir, accounts: Entity<Accounts>, cx: &mut Context<Self>) -> Self {
         Self::with_urls(data_dir, accounts, MojangUrls::production(), cx)
     }

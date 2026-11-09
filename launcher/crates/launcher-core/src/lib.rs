@@ -24,6 +24,7 @@ pub mod markdown;
 pub mod modpack;
 pub mod offline;
 pub mod paths;
+pub mod process_stats;
 pub mod screenshots;
 pub mod secret;
 pub mod settings;

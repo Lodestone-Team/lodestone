@@ -127,6 +127,17 @@ impl Modrinth {
         }
     }
 
+    /// The response cache: how many entries it holds and their bytes.
+    pub fn cache_stats(&self) -> (usize, u64) {
+        let cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
+        let bytes = cache
+            .entries
+            .values()
+            .map(|(_, _, body)| body.len() as u64)
+            .sum();
+        (cache.entries.len(), bytes)
+    }
+
     /// The number of requests sent, for tests of the cache and rate limit.
     pub fn requests_sent(&self) -> u64 {
         self.requests.load(std::sync::atomic::Ordering::Relaxed)

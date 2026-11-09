@@ -264,6 +264,15 @@ impl file_dialog::ShowsError for ContentView {
 }
 
 impl ContentView {
+    /// Adds the decoded icons of the listed content, for the performance monitor.
+    pub fn tally_images(&self, tally: &mut crate::perf::ImageTally) {
+        for section in &self.sections {
+            for image in section.icons.values() {
+                tally.add(image);
+            }
+        }
+    }
+
     pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
         let sections = ContentKind::ALL.map(|kind| Section::new(kind, cx));
         let mut observe = vec![cx.observe(&instances, |this, _, cx| this.sync(cx))];

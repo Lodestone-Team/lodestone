@@ -1235,14 +1235,16 @@ fn preview_control(cx: &mut App) {
     let now = SystemTime::now();
     crate::control::preview(
         crate::control::ControlStatus {
-            socket: "/Users/you/Library/Application Support/Lodestone Launcher/control.sock"
-                .into(),
+            socket: "/Users/you/Library/Application Support/Lodestone Launcher/control.sock".into(),
             running: true,
             error: None,
             clients: vec![
                 crate::control::ClientInfo {
                     connection: (1 << 32) | 3,
-                    name: Some(format!("lodestone-launcher-cli {}", env!("CARGO_PKG_VERSION"))),
+                    name: Some(format!(
+                        "lodestone-launcher-cli {}",
+                        env!("CARGO_PKG_VERSION")
+                    )),
                     pid: Some(48213),
                     since: now - Duration::from_secs(95),
                     subscriptions: 1,

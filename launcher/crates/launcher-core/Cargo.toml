@@ -43,6 +43,7 @@ zip.workspace = true
 windows-sys = { workspace = true, features = [
     "Wdk_System_SystemServices",
     "Win32_Foundation",
+    "Win32_System_ProcessStatus",
     "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",

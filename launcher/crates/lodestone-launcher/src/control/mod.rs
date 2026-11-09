@@ -1362,6 +1362,29 @@ pub fn preview(status: ControlStatus, cx: &mut App) {
     cx.set_global(PreviewStatus(status));
 }
 
+/// Control API jobs running, for the performance monitor.
+pub fn running_jobs(cx: &App) -> usize {
+    cx.try_global::<Service>().map_or(0, |service| {
+        service
+            .control
+            .jobs
+            .borrow()
+            .states()
+            .iter()
+            .filter(|(_, state)| *state == JobState::Running)
+            .count()
+    })
+}
+
+/// Programs connected to the socket; `None` while it is closed.
+pub fn client_count(cx: &App) -> Option<usize> {
+    let service = cx.try_global::<Service>()?;
+    service
+        .handle
+        .is_some()
+        .then(|| service.control.clients.borrow().len())
+}
+
 /// Closes one client's connection (the Developer page's Disconnect).
 pub fn disconnect(connection: u64, cx: &mut App) {
     let Some(service) = cx.try_global::<Service>() else {
