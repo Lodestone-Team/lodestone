@@ -712,7 +712,18 @@ def info_plist(build: int, version: str) -> dict:
             "Minecraft and its mods can use your microphone, for example for voice chat.",
         "NSLocalNetworkUsageDescription":
             "Lodestone Launcher finds Minecraft worlds opened to LAN on your network.",
+        # `lodestone://join?invite=…`: a friend's invite link, opened from the invite
+        # page on connect.lodestone.cc (the launcher's `deep_link` module).
+        "CFBundleURLTypes": [URL_TYPE],
     }
+
+
+# The URL scheme the launcher opens, for Info.plist.
+URL_TYPE = {
+    "CFBundleURLName": BUNDLE_ID,
+    "CFBundleURLSchemes": ["lodestone"],
+    "CFBundleTypeRole": "Viewer",
+}
 
 
 def build_app(binaries: list[Path], build: int, version: str, identity: str, into: Path) -> Path:

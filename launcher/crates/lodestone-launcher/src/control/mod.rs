@@ -23,6 +23,7 @@
 mod accounts;
 mod content;
 mod events;
+mod friends;
 mod import;
 mod instances;
 mod jobs;
@@ -661,6 +662,27 @@ pub const METHODS: &[Method] = &[
         "prompts.answer",
         "Answers a question the window is asking.",
         servers::prompts_answer,
+    ),
+    // friends' servers (Lodestone Connect)
+    method(
+        "friends.list",
+        "Friends' servers joined with an invite link (no links: they are secrets).",
+        friends::list,
+    ),
+    method(
+        "friends.open",
+        "Opens the join dialog for an invite link, as opening the link does.",
+        friends::open,
+    ),
+    method(
+        "friends.join",
+        "Joins a friend's server from an invite link (or one joined before): connects, then plays (play: false to only connect).",
+        friends::join,
+    ),
+    destructive(
+        "friends.remove",
+        "Forgets a friend's server and its invite link. Instances made for it stay.",
+        friends::remove,
     ),
     // jobs and events
     method(
@@ -1498,6 +1520,7 @@ pub const READ_METHODS: &[&str] = &[
     "cores.list",
     "servers.list",
     "prompts.list",
+    "friends.list",
     "jobs.list",
     "jobs.get",
     "jobs.wait",
@@ -1701,6 +1724,9 @@ mod tests {
         "servers.host",
         "servers.resource_pack",
         "prompts.answer",
+        "friends.open",
+        "friends.join",
+        "friends.remove",
         "jobs.cancel",
     ];
 

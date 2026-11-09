@@ -462,6 +462,112 @@ pub fn text(message: M) -> &'static str {
         M::WorldImported => {
             "Importé comme le monde «\u{a0}{folder}\u{a0}» dans {instance}. Ouvrez-le depuis Solo\u{202F}; c’est une copie, les modifications ne reviennent donc pas sur le serveur."
         }
+        M::FriendsTitle => "Serveurs d’amis",
+        M::FriendsHint => {
+            "Les serveurs que vos amis partagent avec vous grâce aux liens d’invitation Lodestone Connect."
+        }
+        M::JoinAFriend => "Rejoindre un ami",
+        M::NoFriendsYet => {
+            "Quand un ami partage un serveur depuis Lodestone Host, il obtient un lien d’invitation. Ouvrez-le, ou collez-le ici avec Rejoindre un ami."
+        }
+        M::SharedBy => "Partagé par {name}",
+        M::FriendCheck => "Vérifier",
+        M::FriendChecking => "Vérification…",
+        M::FriendPlayingNow => "En jeu",
+        M::StopTrusting => "Ne plus faire confiance",
+        M::ConnectedVia => "Connexion directe {how}, {ms}\u{a0}ms",
+        M::ViaSameComputer => "sur le même ordinateur",
+        M::ViaLocalNetwork => "par votre réseau local",
+        M::ViaIpv6 => "par IPv6",
+        M::ViaInternet => "par Internet",
+        M::JoinFriendTitle => "Rejoindre le serveur d’un ami",
+        M::JoinFriendIntro => {
+            "Collez le lien d’invitation que votre ami vous a envoyé. Il commence par https://connect.lodestone.cc/j/."
+        }
+        M::InvitePlaceholder => "Lien d’invitation (https://connect.lodestone.cc/j/…)",
+        M::NotAnInvite => {
+            "Ce n’est pas un lien d’invitation Lodestone. Les liens d’invitation commencent par https://connect.lodestone.cc/j/."
+        }
+        M::PasteInviteFirst => "Collez d’abord un lien d’invitation.",
+        M::ConnectingTo => "Connexion à {name}…",
+        M::ConnectingToFriend => "Connexion au serveur de votre ami…",
+        M::StageFinding => {
+            "Recherche d’un chemin direct entre votre réseau et celui de votre ami. Cela prend quelques secondes."
+        }
+        M::StageFindingSlow => {
+            "Toujours en recherche. Certains réseaux demandent jusqu’à une minute."
+        }
+        M::StageReading => "Connecté. Lecture des informations du serveur…",
+        M::FactVersion => "Version",
+        M::FactMods => "Mods",
+        M::FactStatus => "État",
+        M::FactConnection => "Connexion",
+        M::FactInstance => "Instance",
+        M::FriendHasMods => {
+            "Ce serveur utilise des mods. Lodestone Launcher installe les mêmes pour vous."
+        }
+        M::FriendNoMods => "Aucun n’est nécessaire",
+        M::PlaysWithLinked => {
+            "{name}, créée pour ce serveur. Ses mods restent à jour avec ceux du serveur."
+        }
+        M::PlaysWithInstance => "Votre instance {name}, qui a la même version.",
+        M::MakesInstance => "Jouer crée une nouvelle instance de la même version.",
+        M::MakesInstanceWithMods => {
+            "Jouer crée une nouvelle instance avec la version et les mods du serveur."
+        }
+        M::FriendServerStopped => "Le serveur est arrêté",
+        M::FriendServerStoppedBody => {
+            "Demandez à votre ami de le démarrer. Minecraft ne peut pas le rejoindre tant qu’il ne tourne pas."
+        }
+        M::FriendStarting => "Préparation du jeu…",
+        M::FriendInstanceBusy => "Cette instance est déjà lancée. Quittez d’abord le jeu.",
+        M::FriendLinkEnded => "Ce lien d’invitation n’est plus valide",
+        M::FriendLinkEndedBody => {
+            "Votre ami a arrêté de partager le serveur, ou a créé un nouveau lien. Demandez-lui le nouveau."
+        }
+        M::FriendNotSharing => "Votre ami ne partage pas ce serveur en ce moment",
+        M::FriendNotSharingBody => {
+            "Son ordinateur ou Lodestone Host est peut-être éteint. Réessayez plus tard, ou demandez à votre ami de reprendre le partage."
+        }
+        M::FriendNoPath => {
+            "Votre réseau et celui de votre ami ne peuvent pas se connecter directement"
+        }
+        M::FriendNoPathBody => {
+            "Lodestone Connect relie directement deux ordinateurs, et ces deux réseaux l’empêchent. Essayez un autre réseau (le partage de connexion d’un téléphone, par exemple), ou demandez à votre ami d’ouvrir un port sur son routeur."
+        }
+        M::FriendWrongHost => "Ce n’est pas le serveur de votre ami",
+        M::FriendWrongHostBody => {
+            "L’ordinateur qui a répondu n’est pas celui pour lequel ce lien a été créé\u{202F}: Lodestone Launcher s’est donc arrêté avant d’envoyer quoi que ce soit. Quelqu’un se fait peut-être passer pour le serveur de votre ami. Demandez-lui un nouveau lien, et n’utilisez que des liens reçus directement de lui."
+        }
+        M::FriendOffline => "Cet ordinateur semble hors ligne",
+        M::FriendOfflineBody => "Vérifiez votre connexion Internet, puis réessayez.",
+        M::FriendServiceUnreachable => "Impossible de joindre Lodestone Connect",
+        M::FriendServiceUnreachableBody => {
+            "connect.lodestone.cc n’a pas répondu ({detail}). Vérifiez votre connexion Internet, puis réessayez."
+        }
+        M::FriendJoinFailed => "Impossible de rejoindre le serveur",
+        M::FriendJoinFailedBody => "Un problème est survenu\u{a0}: {detail}",
+        M::FriendTunnelEnded => "La connexion à {name} a pris fin",
+        M::FriendTunnelEndedBody => {
+            "Votre ami a arrêté le partage, ou son ordinateur s’est déconnecté. Minecraft indique que la connexion a été perdue. Rejouez quand il sera de retour."
+        }
+        M::FriendLinkMissing => {
+            "Lodestone Launcher n’a pas pu lire le lien d’invitation de ce serveur. Ouvrez de nouveau le lien reçu de votre ami."
+        }
+        M::FriendRemoved => {
+            "Cette instance a été créée pour le serveur d’un ami ({link}) qui n’est plus dans Lodestone Launcher. Ouvrez de nouveau son lien d’invitation pour le rejoindre."
+        }
+        M::FriendsReadFailed => "Impossible de lire les serveurs de vos amis",
+        M::FriendsSaveFailed => "Impossible d’enregistrer les serveurs de vos amis",
+        M::EulaNotAccepted => "Le CLUF de Minecraft n’est pas accepté pour ce serveur",
+        M::EulaNotAcceptedBody => {
+            "Le serveur ne peut pas démarrer tant que quelqu’un n’a pas accepté le CLUF de Minecraft de Mojang ({url}). Lisez-le, et ne l’acceptez que si vous êtes d’accord."
+        }
+        M::AcceptEula => "Accepter le CLUF de Minecraft",
+        M::EulaAccepted => {
+            "Vous avez accepté le CLUF de Minecraft pour ce serveur. Il peut démarrer maintenant."
+        }
+        M::EulaAcceptFailed => "Impossible d’accepter le CLUF\u{a0}: {error}",
         M::PackSaved => {
             "Enregistré sous {file} dans les packs de ressources de l’instance. Activez-le là-bas pour l’utiliser aussi sur d’autres serveurs."
         }
