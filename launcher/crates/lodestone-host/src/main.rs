@@ -13,6 +13,11 @@ use lodestone_host::{
 use lodestone_ui::assets::Assets;
 
 fn main() {
+    // Before an update renames anything: where this executable is.
+    launcher_core::update::remember_exe();
+    // Restarted after an update: the old Host holds the single-instance lock until it
+    // exits.
+    launcher_core::update::wait_for_previous();
     let (show_tx, mut show_rx) = futures::channel::mpsc::unbounded();
     if !single_instance::acquire(show_tx) {
         return;

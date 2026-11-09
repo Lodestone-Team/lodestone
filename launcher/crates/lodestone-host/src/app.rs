@@ -290,7 +290,12 @@ impl HostApp {
             .update(cx, |supervisor, cx| supervisor.shutdown(cx));
         cx.spawn(async move |_, cx| {
             stopped.await;
-            cx.update(|cx| cx.quit());
+            cx.update(|cx| {
+                // with the core stopped, a downloaded update can replace it (and
+                // restart the Host, if that is why it quits)
+                crate::updater::Updater::apply(cx);
+                cx.quit()
+            });
         })
         .detach();
     }

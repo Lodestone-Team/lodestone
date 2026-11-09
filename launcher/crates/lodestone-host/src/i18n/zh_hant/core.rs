@@ -310,15 +310,20 @@ pub fn text(message: M) -> &'static str {
         M::BuildNumber => "組建 {build}",
         M::BuildNumberCommit => "組建 {build} · {commit}",
         M::DevelopmentBuild => "開發組建",
-        M::UpdatesUnavailable => "Lodestone Host 還不能自動更新。新版本需要重新下載安裝。",
+        M::UpdatesUnavailable => "此組建不會自動更新。從官網下載的 Lodestone Host 會自動更新。",
         M::UpdateNotChecked => "每隔幾小時檢查一次是否有新組建。",
         M::UpdateChecking => "正在檢查新組建…",
         M::UpToDate => "目前已是最新組建。",
         M::UpdateAvailable => "組建 {build} 現已可用。",
         M::UpdateDownloading => "正在下載組建 {build}… {percent}",
         M::UpdateReady => {
-            "組建 {build} 已安裝，重新啟動後即可使用：你的伺服器會停止，設為自動啟動的伺服器隨後會再次啟動。"
+            "組建 {build} 已下載，重新啟動後即可使用：你的伺服器會停止，設為自動啟動的伺服器隨後會再次啟動。結束時也會安裝。"
         }
+        M::RestartUpdateTitle => "重新啟動以更新？",
+        M::RestartUpdateBody => {
+            "重新啟動 Lodestone Host 會先停止這些伺服器。設為自動啟動的伺服器會在重新啟動後再次啟動。"
+        }
+        M::RestartUpdateConfirm => "停止伺服器並重新啟動",
         M::UpdateFailed => "無法更新：{error}",
         M::CheckForUpdates => "立即檢查",
         M::DownloadUpdate => "下載",
@@ -334,5 +339,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ScopeServers => ["{count} 個伺服器", "{count} 個伺服器"],
         P::ScopePermissions => ["{count} 項權限", "{count} 項權限"],
+        P::ServersRunning => ["{count} 個伺服器正在執行。", "{count} 個伺服器正在執行。"],
     }
 }
