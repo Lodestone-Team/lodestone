@@ -457,6 +457,38 @@ export async function loginToCore(
 }
 
 /**
+ * Checks an API key (`lsk_…`) for signing in with it: the key is then the session's
+ * token. Resolves with the user the key acts as, with the key's scope.
+ * @throws ApiError
+ */
+export async function loginWithApiKey(key: string): Promise<PublicUser> {
+  try {
+    const response = await axios.post<{ user: PublicUser }>(
+      '/user/login_api_key',
+      { key }
+    );
+    return response.data.user;
+  } catch (error) {
+    const apiError = toApiError(error);
+    if (isAxiosError(error) && error.response?.status === 429)
+      throw new ApiError(
+        tooManyLoginAttemptsMessage(error.response.headers['retry-after']),
+        429,
+        apiError.kind
+      );
+    if (apiError.status === undefined)
+      throw new ApiError(
+        t('server.api.loginFailed', { message: apiError.message })
+      );
+    throw new ApiError(
+      t('server.api.loginError', { message: apiError.message }),
+      apiError.status,
+      apiError.kind
+    );
+  }
+}
+
+/**
  * @throws ApiError
  * @returns the new user if success
  */

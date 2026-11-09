@@ -7,6 +7,8 @@ import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { TlsInfo } from 'bindings/TlsInfo';
 import { CoreCapabilities } from 'bindings/CoreCapabilities';
+import { CoreProduct } from 'bindings/CoreProduct';
+import { LaunchedBy } from 'bindings/LaunchedBy';
 import { t } from 'i18n';
 
 // The /system routes require login; axios sends the token by default
@@ -68,6 +70,10 @@ export interface CoreInfo {
   tls?: TlsInfo;
   /** The core's optional features. Missing on older cores, which have them all. */
   capabilities?: Partial<CoreCapabilities>;
+  /** Lodestone Host or the standalone core. Missing on older cores: treat as `core`. */
+  product?: CoreProduct;
+  /** What started the core. Missing on older cores: unknown. */
+  launched_by?: LaunchedBy;
 }
 
 /**

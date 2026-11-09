@@ -1,6 +1,12 @@
 use std::{env, sync::OnceLock};
 
-use crate::{capabilities::CoreCapabilities, prelude::VERSION, tls::TlsInfo, AppState};
+use crate::{
+    capabilities::CoreCapabilities,
+    prelude::VERSION,
+    product::{CoreProduct, LaunchedBy},
+    tls::TlsInfo,
+    AppState,
+};
 use axum::{routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use sysinfo::{Disks, System};
@@ -22,6 +28,10 @@ pub struct CoreInfo {
     tls: TlsInfo,
     /// The optional features this core has. Missing on older cores, which have them all.
     capabilities: CoreCapabilities,
+    /// Lodestone Host or the standalone core. Missing on older cores: treat as `core`.
+    product: CoreProduct,
+    /// What started the core. Missing on older cores: unknown.
+    launched_by: LaunchedBy,
 }
 
 /// Hardware details that do not change while the core runs.
@@ -77,6 +87,8 @@ pub async fn get_core_info(
         up_since: state.up_since,
         tls: (*state.tls_info).clone(),
         capabilities: CoreCapabilities::new(state.docker_bridge.is_available()),
+        product: state.product,
+        launched_by: state.launched_by,
     })
 }
 
@@ -84,4 +96,39 @@ pub fn get_core_info_routes(state: AppState) -> Router {
     Router::new()
         .route("/info", get(get_core_info))
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        global_settings::GlobalSettingsData,
+        product::{CoreProduct, LaunchedBy},
+        test_util::{serve_api, test_app_state},
+    };
+
+    async fn info_of(product: CoreProduct, launched_by: LaunchedBy) -> serde_json::Value {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = test_app_state(dir.path(), GlobalSettingsData::default()).await;
+        state.product = product;
+        state.launched_by = launched_by;
+        let base = serve_api(state).await;
+        reqwest::get(format!("{base}/info"))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn info_says_what_this_core_is_and_what_started_it() {
+        let info = info_of(CoreProduct::Core, LaunchedBy::LodestoneCli).await;
+        assert_eq!(info["product"], "core");
+        assert_eq!(info["launched_by"], "lodestone_cli");
+        let info = info_of(CoreProduct::Host, LaunchedBy::Host).await;
+        assert_eq!(info["product"], "host");
+        assert_eq!(info["launched_by"], "host");
+        let info = info_of(CoreProduct::Core, LaunchedBy::Docker).await;
+        assert_eq!(info["launched_by"], "docker");
+    }
 }

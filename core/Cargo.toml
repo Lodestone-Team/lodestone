@@ -111,6 +111,11 @@ whoami = "2.1.3"
 zip = { version = "9.0.5", default-features = false, features = ["deflate", "deflate64", "bzip2", "zstd", "time"] }
 rcgen = { version = "=0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 
+# Already in the lockfile through other crates: O_NOFOLLOW and the effective uid for the
+# local claim's folder (src/local_claim.rs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 # WebSocket client for the API key tests; axum's `ws` feature already locks this version
 tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect"] }

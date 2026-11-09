@@ -50,6 +50,12 @@ pub struct GlobalSettingsData {
     // at `GET /public/instances` (for Lodestone Launcher). Off unless the owner turns it on.
     #[serde(default)]
     pub list_instances_publicly: bool,
+    // Whether a program on this computer (Lodestone Launcher) may claim owner access by
+    // proving it can write to the core's data folder, see `crate::local_claim`. Anything
+    // that can write there already controls the core, so it is on by default, also for
+    // files written before it existed.
+    #[serde(default = "default_true")]
+    pub allow_local_claim: bool,
 }
 
 /// A lock-free view of the code execution kill switch, shared by everything that runs
@@ -153,6 +159,7 @@ impl Default for GlobalSettingsData {
             code_execution_locked: false,
             allow_lan_http: false,
             list_instances_publicly: false,
+            allow_local_claim: true,
         }
     }
 }
@@ -391,6 +398,22 @@ impl GlobalSettings {
 
     pub fn list_instances_publicly(&self) -> bool {
         self.global_settings_data.list_instances_publicly
+    }
+
+    pub async fn set_allow_local_claim(&mut self, enabled: bool) -> Result<(), Error> {
+        let old = self.global_settings_data.allow_local_claim;
+        self.global_settings_data.allow_local_claim = enabled;
+        match self.write_to_file().await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.global_settings_data.allow_local_claim = old;
+                Err(e)
+            }
+        }
+    }
+
+    pub fn allow_local_claim(&self) -> bool {
+        self.global_settings_data.allow_local_claim
     }
 
     /// Turns code execution on or off and saves the setting. Turning it on fails with 403

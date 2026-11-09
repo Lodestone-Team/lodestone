@@ -284,6 +284,14 @@ export const fr: Messages = {
   'shell.login.changeCore': 'Changer de core',
   'shell.login.signIn': 'Se connecter',
 
+  'shell.login.withApiKey': 'Se connecter avec une clé d’API',
+  'shell.login.withPassword':
+    'Se connecter avec un nom d’utilisateur et un mot de passe',
+  'shell.login.apiKey': 'Clé d’API',
+  'shell.login.apiKeyHint':
+    'Collez une clé qui commence par lsk_. Vous obtenez l’accès de la clé, et la révoquer vous déconnecte.',
+  'shell.login.apiKeyRequired': 'Une clé d’API est requise',
+  'shell.login.apiKeyFormat': 'Une clé d’API commence par lsk_',
   'shell.coreConnect.pageTitle': 'Connexion au core',
   'shell.coreConnect.title': 'Ajouter un core',
   'shell.coreConnect.httpErrorTitle': 'Erreur HTTP',
@@ -394,6 +402,10 @@ export const fr: Messages = {
   'settings.core.listPublicly.label': 'Lister les serveurs publiquement',
   'settings.core.listPublicly.hint':
     'Toute personne qui peut joindre ce core voit les serveurs que vous rendez publics ci-dessous.',
+  'settings.core.localClaim.label':
+    'Autoriser les applications de cet ordinateur à obtenir l’accès propriétaire',
+  'settings.core.localClaim.hint':
+    'Lodestone Launcher peut devenir propriétaire en prouvant qu’il peut écrire dans le dossier de données de ce core. Tout ce qui peut y écrire peut déjà modifier chaque utilisateur et réglage\u00a0: cela ne compte que sur un ordinateur partagé.',
   'settings.core.safeMode.label': 'Mode sécurisé',
   'settings.core.safeMode.hint':
     'Réserve l’accès administrateur de cette machine au propriétaire.',
