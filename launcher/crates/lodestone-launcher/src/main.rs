@@ -84,8 +84,7 @@ fn main() {
                         cx,
                     );
                     trace.mark("window opened");
-                    // The socket lodestone-launcher-cli talks to (Unix only, for now).
-                    #[cfg(unix)]
+                    // The socket lodestone-launcher-cli talks to.
                     window
                         .update(cx, |shell, _, cx| {
                             lodestone_launcher::control::start(shell, cx)

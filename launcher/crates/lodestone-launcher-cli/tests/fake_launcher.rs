@@ -1,6 +1,5 @@
 //! The CLI binary against a fake launcher on a real socket: its JSON output, exit
 //! codes, confirmations, progress and streams.
-#![cfg(unix)]
 
 use std::{
     path::{Path, PathBuf},

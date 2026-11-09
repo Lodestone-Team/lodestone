@@ -534,7 +534,6 @@ impl Instances {
                 self.record_settings(before, cx);
                 if cli_changed {
                     // opens or closes the control socket; later, as it reads this
-                    #[cfg(unix)]
                     cx.defer(crate::control::apply);
                 }
                 Ok(())

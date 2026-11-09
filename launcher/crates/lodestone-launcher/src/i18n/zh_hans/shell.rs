@@ -280,7 +280,6 @@ pub fn text(message: M) -> &'static str {
         M::ClientSince => "连接于 {time}",
         M::ClientPid => "进程 {pid}",
         M::Disconnect => "断开连接",
-        M::CliUnavailable => "Windows 上暂不支持命令行控制。",
         M::DiagnosticsSection => "诊断",
         M::PerfMonitor => "性能监视器",
         M::PerfMonitorHint => "一个小窗口，每秒更新启动器及正在运行的游戏的内存、CPU 和帧时间。",

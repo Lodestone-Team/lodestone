@@ -1,18 +1,17 @@
 //! The socket server and client against a fake backend.
-#![cfg(unix)]
 
 use std::{
     io::{BufRead, BufReader, Write},
-    os::unix::{fs::PermissionsExt, net::UnixStream},
     sync::{Arc, Mutex, mpsc},
     time::Duration,
 };
 
 use launcher_control::{
-    ErrorObject, Message,
+    ErrorObject, Message, UserId,
     client::{Client, ClientError},
     codes, current_uid,
     server::{Backend, BindError, Outbox, Server},
+    transport::{Listener, Stream as UnixStream},
 };
 use serde_json::{Value, json};
 
@@ -212,11 +211,25 @@ fn bad_lines_are_answered_with_codes() {
     assert_eq!(fake.disconnected.lock().unwrap().len(), 1);
 }
 
+#[cfg(unix)]
 #[test]
 fn the_socket_is_private() {
+    use std::os::unix::fs::PermissionsExt;
     let (_dir, path, _fake, _handle) = serve();
     let mode = std::fs::metadata(&path).unwrap().permissions().mode();
     assert_eq!(mode & 0o777, 0o600);
+}
+
+/// A user that isn't this test's.
+fn someone_else() -> UserId {
+    #[cfg(unix)]
+    return current_uid().wrapping_add(1);
+    #[cfg(windows)]
+    return if current_uid() == "S-1-5-18" {
+        "S-1-5-19".into()
+    } else {
+        "S-1-5-18".into() // LocalSystem
+    };
 }
 
 #[test]
@@ -226,7 +239,7 @@ fn other_users_are_refused() {
     // pretend the launcher runs as someone else: this test's user is then the stranger
     let _handle = Server::bind(&path)
         .unwrap()
-        .with_allowed_uid(current_uid().wrapping_add(1))
+        .with_allowed_uid(someone_else())
         .spawn(Arc::new(Fake::default()))
         .unwrap();
     let mut client = Client::connect(&path).unwrap();
@@ -240,7 +253,7 @@ fn a_stale_socket_is_replaced_but_a_live_one_is_kept() {
     let path = dir.path().join("control.sock");
     {
         // a launcher that quit without cleaning up leaves its socket file
-        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let listener = Listener::bind(&path).unwrap();
         drop(listener);
     }
     assert!(path.exists());

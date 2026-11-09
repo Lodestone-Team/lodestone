@@ -336,9 +336,6 @@ pub fn text(message: M) -> &'static str {
         M::ClientSince => "Connecté · {time}",
         M::ClientPid => "Processus {pid}",
         M::Disconnect => "Déconnecter",
-        M::CliUnavailable => {
-            "Le contrôle en ligne de commande n’est pas encore disponible sur Windows."
-        }
         M::DiagnosticsSection => "Diagnostic",
         M::PerfMonitor => "Moniteur de performances",
         M::PerfMonitorHint => {

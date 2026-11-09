@@ -81,6 +81,9 @@ serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
 sha1 = "0.10.6"
 sha2 = "0.10"
+# The control socket on Windows (`launcher-control`'s `transport`): AF_UNIX sockets,
+# which std exposes only on Unix. 0.6.5 is in the lockfile already, through GPUI's tree.
+socket2 = "0.6"
 tempfile = "3.20.0"
 thiserror = "2.0.12"
 tiny_http = "0.12"

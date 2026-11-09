@@ -3,7 +3,6 @@
 
 use launcher_core::game::{download::ProgressSnapshot, install::Stage};
 
-#[cfg(unix)]
 use super::LogRow;
 use super::{Instances, RunState};
 
@@ -11,13 +10,11 @@ use super::{Instances, RunState};
 #[derive(Clone, Debug, PartialEq)]
 pub struct RunStatus {
     /// `idle`, `preparing` or `running`.
-    #[cfg_attr(not(unix), allow(dead_code))] // read by the control API only
     pub state: &'static str,
     /// While preparing: the stage and the download counts.
     pub progress: Option<(Stage, ProgressSnapshot)>,
     /// While running: the game's process id and how long it has run.
     pub pid: Option<u32>,
-    #[cfg_attr(not(unix), allow(dead_code))] // read by the control API only
     pub running_secs: Option<u64>,
 }
 
@@ -47,7 +44,6 @@ impl Instances {
 
     /// The console rows after `cursor` (as returned by the last call; 0 at first), and
     /// the new cursor. Rows dropped from the console's start are skipped.
-    #[cfg(unix)]
     pub(crate) fn log_since(&self, id: &str, cursor: u64) -> (Vec<LogRow>, u64) {
         let Some(log) = self.runs.get(id).map(|run| &run.log) else {
             return (Vec::new(), cursor);
@@ -58,7 +54,6 @@ impl Instances {
     }
 
     /// The last `count` console rows, and the cursor after them.
-    #[cfg(unix)]
     pub(crate) fn log_tail(&self, id: &str, count: usize) -> (Vec<LogRow>, u64) {
         let Some(log) = self.runs.get(id).map(|run| &run.log) else {
             return (Vec::new(), 0);
@@ -68,7 +63,6 @@ impl Instances {
     }
 
     /// Whether "Switch to Fabric" or another loader switch is running.
-    #[cfg(unix)]
     pub(crate) fn loader_switch_running(&self) -> bool {
         self.loader_switch.is_some()
     }

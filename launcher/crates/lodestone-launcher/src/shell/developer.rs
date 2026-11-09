@@ -5,6 +5,7 @@
 
 use super::{LauncherShell, Modal};
 use crate::theme::px;
+use crate::{components::segmented, theme::colors};
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, Toggle,
@@ -13,13 +14,8 @@ use crate::{
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     theme::{self, leading, text, weights},
 };
-use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
-// What only the control socket's settings (Unix) use.
-#[cfg(unix)]
-use crate::{components::segmented, theme::colors};
-#[cfg(unix)]
 use gpui::ClipboardItem;
-#[cfg(unix)]
+use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
 use launcher_core::settings::{CliAccess, CliSettings};
 
 /// The disclosure shown before the option is turned on, as (heading, paragraph).
@@ -96,7 +92,6 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
 }
 
 /// Settings > Developer > Command line.
-#[cfg(unix)]
 fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyElement {
     let cli = shell.instances.read(cx).cli_settings();
     let status = crate::control::status(cx).map(|status| status.read(cx).clone());
@@ -197,13 +192,7 @@ fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyEl
     .into_any_element()
 }
 
-#[cfg(not(unix))]
-fn command_line(_: &LauncherShell, _: &mut Context<LauncherShell>) -> AnyElement {
-    card([SettingRow::new(t(M::CliUnavailable)).into_any_element()]).into_any_element()
-}
-
 /// Settings > Developer > Connected programs, while the socket is open.
-#[cfg(unix)]
 fn clients(cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
     let status = crate::control::status(cx)?.read(cx).clone();
     if !status.running {
@@ -254,11 +243,6 @@ fn clients(cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
             .child(card(rows))
             .into_any_element(),
     )
-}
-
-#[cfg(not(unix))]
-fn clients(_: &mut Context<LauncherShell>) -> Option<AnyElement> {
-    None
 }
 
 impl LauncherShell {

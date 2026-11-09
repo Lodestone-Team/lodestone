@@ -6,23 +6,22 @@
 //!
 //! - [`protocol`]: the messages, newline-delimited JSON with a protocol version;
 //! - [`paths`]: where the socket is, from the launcher's data directory;
-//! - [`server`] and [`client`]: the Unix domain socket, created with mode 0600, whose
-//!   server refuses connections from other users (checked with `getpeereid` or
-//!   `SO_PEERCRED`).
+//! - [`server`] and [`client`]: the Unix domain socket ([`transport`]), whose server
+//!   refuses connections from other users and whose client talks only to a launcher of
+//!   its own user ([`peer_uid`]).
 //!
-//! The socket is Unix only. On Windows the protocol types build, but there is no
-//! transport yet (a named pipe would be the equivalent).
+//! On macOS and Linux the socket is created with mode 0600 and the user on the other
+//! end is checked with `getpeereid` or `SO_PEERCRED`. Windows (10 1803 and later) has
+//! `AF_UNIX` sockets too: the socket file inherits the data folder's permissions, and
+//! the other end's user is the SID of the process the socket names.
 
 pub mod paths;
 pub mod protocol;
 
-#[cfg(unix)]
 pub mod client;
-#[cfg(unix)]
 mod peer;
-#[cfg(unix)]
 pub mod server;
+pub mod transport;
 
-#[cfg(unix)]
-pub use peer::{current_uid, peer_uid};
+pub use peer::{UserId, current_uid, peer_uid};
 pub use protocol::{ErrorObject, Message, PROTOCOL_VERSION, Request, codes};
