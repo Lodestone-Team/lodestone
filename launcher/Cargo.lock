@@ -3136,6 +3136,7 @@ dependencies = [
  "accesskit",
  "anyhow",
  "chrono",
+ "embed-resource",
  "futures",
  "gpui",
  "gpui_platform",
