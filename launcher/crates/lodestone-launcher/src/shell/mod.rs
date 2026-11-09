@@ -34,7 +34,10 @@ use gpui::{
     IntoElement, Render, SharedString, Subscription, Task, Window, div, prelude::*,
 };
 use launcher_core::{
-    game::crash::Cause,
+    game::crash::{
+        Cause,
+        suspects::{self, Evidence},
+    },
     instances::{Instance, Loader},
 };
 
@@ -54,6 +57,7 @@ use crate::{
         console::Console,
         content::{ContentEvent, ContentView},
         import::{ImportDialog, ImportDismissed},
+        mod_finder::{ModFinder, ModFinderClosed},
         modpacks::UpdatePrompt,
         new_instance::{NewInstanceDialog, NewInstanceDismissed},
         settings::{
@@ -146,10 +150,19 @@ enum Modal {
         dialog: Entity<ShareDialog>,
         _events: Subscription,
     },
+    /// "Find it for me": finding the mod that crashes an instance.
+    ModFinder {
+        finder: Entity<ModFinder>,
+        _events: Subscription,
+    },
     Crash {
         crash: CrashInfo,
         focus: FocusHandle,
         copied: bool,
+        /// The suspects turned off from the dialog, by their file name before.
+        turned_off: Vec<String>,
+        /// Why turning one off or on didn't work.
+        error: Option<SharedString>,
     },
     LaunchFailed {
         title: SharedString,
@@ -308,7 +321,15 @@ impl LauncherShell {
                 cx.notify();
             }),
             cx.subscribe(&instances, |this, _, event, cx| match event {
-                InstancesEvent::Crashed(crash) => this.show_crash(crash.clone(), cx),
+                InstancesEvent::Crashed(crash) => {
+                    if this.mod_finder_for(cx) != Some(crash.instance_id.clone()) {
+                        this.show_crash(crash.clone(), cx)
+                    }
+                }
+                InstancesEvent::LaunchFailed { .. } if this.mod_finder_for(cx).is_some() => {}
+                InstancesEvent::Exited { .. }
+                | InstancesEvent::ReachedMenu(_)
+                | InstancesEvent::ModsRefused(_) => {}
                 InstancesEvent::LaunchFailed { title, message }
                 | InstancesEvent::Notice { title, message } => {
                     let focus = cx.focus_handle();
@@ -489,6 +510,7 @@ impl LauncherShell {
             }),
         };
         this.sync_settings(cx);
+        this.offer_interrupted_mod_finder(cx);
         this
     }
 
@@ -1009,9 +1031,155 @@ impl LauncherShell {
                 crash,
                 focus,
                 copied: false,
+                turned_off: Vec::new(),
+                error: None,
             },
             cx,
         );
+    }
+
+    /// The instance a "Find it for me" search is running for, if one is open.
+    fn mod_finder_for(&self, cx: &App) -> Option<String> {
+        match self.modal.current() {
+            Some(Modal::ModFinder { finder, .. }) => {
+                Some(finder.read(cx).instance_id().to_string())
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether the crash dialog offers "Find it for me": the instance has a mod
+    /// loader, the evidence doesn't already point at one mod, and the crash isn't one
+    /// mods don't cause (memory, Java, graphics).
+    fn can_find_mod(&self, crash: &CrashInfo, cx: &App) -> bool {
+        let modded = self
+            .instances
+            .read(cx)
+            .list()
+            .iter()
+            .any(|i| i.id == crash.instance_id && i.loader != Loader::None);
+        modded
+            && !crash.mods_refused
+            && !suspects::likely(&crash.suspects)
+            && crash
+                .summary
+                .causes
+                .iter()
+                .all(|cause| *cause == Cause::ModPatch)
+    }
+
+    /// Starts "Find it for me" for the crash in the crash dialog.
+    fn open_mod_finder(&mut self, crash: &CrashInfo, window: &mut Window, cx: &mut Context<Self>) {
+        let instances = self.instances.clone();
+        let finder = cx.new(|cx| ModFinder::new(instances, crash, cx));
+        window.focus(&finder.focus_handle(cx), cx);
+        self.show_mod_finder(finder, cx);
+    }
+
+    /// Shows a mod finder (a prepared one for the offscreen screenshots).
+    pub fn show_mod_finder(&mut self, finder: Entity<ModFinder>, cx: &mut Context<Self>) {
+        let subscription = cx.subscribe(&finder, |this, finder, _: &ModFinderClosed, cx| {
+            let open = matches!(
+                this.modal.current(),
+                Some(Modal::ModFinder { finder: open, .. }) if open.entity_id() == finder.entity_id()
+            );
+            if open {
+                let id = finder.read(cx).instance_id().to_string();
+                this.content
+                    .update(cx, |content, cx| content.mods_changed(&id, cx));
+                this.close_modal(cx);
+            }
+        });
+        self.modal.open(
+            Modal::ModFinder {
+                finder,
+                _events: subscription,
+            },
+            cx,
+        );
+    }
+
+    /// Offers to finish a search that a launcher quit in the middle of, which left some
+    /// of an instance's mods off.
+    fn offer_interrupted_mod_finder(&mut self, cx: &mut Context<Self>) {
+        let instances = self.instances.read(cx);
+        let candidates: Vec<(String, launcher_core::content::InstanceDirs)> = instances
+            .list()
+            .iter()
+            .map(|i| (i.id.clone(), instances.content_dirs(&i.id)))
+            .collect();
+        let check = cx.background_spawn(async move {
+            candidates.into_iter().find_map(|(id, dirs)| {
+                dirs.instance
+                    .join(launcher_core::content::mod_finder::FILE_NAME)
+                    .exists()
+                    .then_some(id)
+            })
+        });
+        cx.spawn(async move |this, cx| {
+            let Some(id) = check.await else {
+                return;
+            };
+            this.update(cx, |this, cx| {
+                if this.modal.current().is_some() {
+                    return;
+                }
+                let instances = this.instances.clone();
+                let finder = cx.new(|cx| ModFinder::resume(instances, &id, cx));
+                this.show_mod_finder(finder, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Turns a mod the crash points at off (renamed to `.disabled`) or back on, from
+    /// the crash dialog. `file_name` is its name before it was turned off.
+    fn set_crash_mod_enabled(&mut self, file_name: String, enabled: bool, cx: &mut Context<Self>) {
+        let Some(Modal::Crash { crash, .. }) = self.modal.current_mut() else {
+            return;
+        };
+        let id = crash.instance_id.clone();
+        let instances = self.instances.read(cx);
+        let result = if instances.is_active(&id) {
+            Err(t(crate::i18n::InstancesMsg::StopGameFirst).to_string())
+        } else {
+            let dirs = instances.content_dirs(&id);
+            let current = if enabled {
+                launcher_core::content::disabled_name(&file_name)
+            } else {
+                file_name.clone()
+            };
+            launcher_core::content::files::set_mod_enabled(&dirs, &current, enabled)
+                .map(|_| ())
+                .map_err(|err| err.to_string())
+        };
+        launcher_core::trace::emit("crash.suspect_toggled", || {
+            serde_json::json!({
+                "instance": id,
+                "file": file_name,
+                "enabled": enabled,
+                "ok": result.is_ok(),
+            })
+        });
+        if let Some(Modal::Crash {
+            turned_off, error, ..
+        }) = self.modal.current_mut()
+        {
+            match result {
+                Ok(()) => {
+                    *error = None;
+                    turned_off.retain(|f| f != &file_name);
+                    if !enabled {
+                        turned_off.push(file_name);
+                    }
+                }
+                Err(err) => *error = Some(err.into()),
+            }
+        }
+        self.content
+            .update(cx, |content, cx| content.mods_changed(&id, cx));
+        cx.notify();
     }
 
     /// Asks before saving a loader change (from the Settings tab).
@@ -1686,11 +1854,25 @@ impl LauncherShell {
             Modal::Import { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Snapshot { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Share { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::ModFinder { finder, .. } => finder.clone().into_any_element(),
             Modal::Crash {
                 crash,
                 focus,
                 copied,
-            } => render_crash(crash, focus.clone(), *copied, close(cx), cx),
+                turned_off,
+                error,
+            } => render_crash(
+                crash,
+                focus.clone(),
+                CrashState {
+                    copied: *copied,
+                    turned_off,
+                    error: error.clone(),
+                    can_find: self.can_find_mod(crash, cx),
+                },
+                close(cx),
+                cx,
+            ),
             Modal::OfferMain { id, name, focus } => {
                 let id = id.clone();
                 Dialog::new(
@@ -1909,7 +2091,127 @@ fn cause_text(cause: Cause) -> &'static str {
         Cause::Natives => M::CauseNatives,
         Cause::JvmOptions => M::CauseJvmOptions,
         Cause::Graphics => M::CauseGraphics,
+        Cause::ModPatch => M::CauseModPatch,
     })
+}
+
+/// Why the crash dialog names a mod, in the current language.
+fn evidence_text(evidence: Evidence) -> &'static str {
+    t(match evidence {
+        Evidence::FailedToPatch => M::EvidenceFailedToPatch,
+        Evidence::CrashedInItsCode => M::EvidenceCrashedInItsCode,
+        Evidence::PatchedCrashingCode => M::EvidencePatchedCrashingCode,
+        Evidence::InStack => M::EvidenceInStack,
+    })
+}
+
+/// What the crash dialog keeps between frames.
+struct CrashState<'a> {
+    copied: bool,
+    turned_off: &'a [String],
+    error: Option<SharedString>,
+    /// Whether to offer "Find it for me".
+    can_find: bool,
+}
+
+/// The crash dialog's section on the mods the crash points at: one mod when the
+/// evidence points at one, else the few it went through, each with a way to turn it
+/// off (and back on).
+fn render_suspects(
+    crash: &CrashInfo,
+    state: &CrashState,
+    cx: &mut Context<LauncherShell>,
+) -> Option<AnyElement> {
+    let likely = suspects::likely(&crash.suspects);
+    let shown = if likely {
+        &crash.suspects[..1]
+    } else {
+        &crash.suspects[..crash.suspects.len().min(4)]
+    };
+    if shown.is_empty() {
+        return None;
+    }
+    let heading = if likely {
+        M::ProbablyCausedBy
+    } else {
+        M::ModsInvolved
+    };
+    let rows: Vec<_> = shown
+        .iter()
+        .enumerate()
+        .map(|(index, suspect)| {
+            let off = state.turned_off.contains(&suspect.file_name);
+            let file_name = suspect.file_name.clone();
+            let action = t(if off { M::TurnOnMod } else { M::TurnOffMod });
+            div()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(theme::text_size(text::MEDIUM))
+                                .font_weight(weights::BOLD.into())
+                                .text_color(crate::theme::ink::text())
+                                .child(suspect.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_size(theme::text_size(text::SMALL))
+                                .text_color(crate::theme::ink::secondary())
+                                .child(if off {
+                                    t(M::ModTurnedOff)
+                                } else {
+                                    evidence_text(suspect.evidence)
+                                }),
+                        ),
+                )
+                .child(
+                    Button::new(("crash-suspect", index), action)
+                        .variant(ButtonVariant::Secondary)
+                        .accessible_label(format!("{action}: {}", suspect.name))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.set_crash_mod_enabled(file_name.clone(), off, cx);
+                        })),
+                )
+        })
+        .collect();
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_size(theme::text_size(text::SMALL))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(crate::theme::ink::muted())
+                    .child(t(heading).to_uppercase()),
+            )
+            .when(!likely, |this| {
+                this.child(
+                    div()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(crate::theme::ink::secondary())
+                        .child(t(M::ModsInvolvedHint)),
+                )
+            })
+            .children(rows)
+            .when_some(state.error.clone(), |this, error| {
+                this.child(
+                    div()
+                        .text_size(theme::text_size(text::SMALL))
+                        .text_color(colors::RED_200)
+                        .child(error),
+                )
+            })
+            .into_any_element(),
+    )
 }
 
 /// The crash dialog: the exception, the likely causes in plain words, and the crash
@@ -1917,7 +2219,7 @@ fn cause_text(cause: Cause) -> &'static str {
 fn render_crash(
     crash: &CrashInfo,
     focus: FocusHandle,
-    copied: bool,
+    state: CrashState,
     on_close: impl Fn(&mut Window, &mut gpui::App) + 'static,
     cx: &mut Context<LauncherShell>,
 ) -> AnyElement {
@@ -1929,6 +2231,10 @@ fn render_crash(
     };
     let report = crash.report.clone();
     let log_text = crash.log_text.clone();
+    let copied = state.copied;
+    let can_find = state.can_find;
+    let suspects = render_suspects(crash, &state, cx);
+    let finder_crash = crash.clone();
     Dialog::new(
         "crash",
         tr!(M::CrashTitle, name = crash.instance_name),
@@ -1980,12 +2286,29 @@ fn render_crash(
                                 .child(cause_text(*cause))
                         })),
                 )
-            }),
+            })
+            .children(suspects),
     )
+    .when(can_find, |this| {
+        this.footer(
+            Button::new(
+                "find-crashing-mod",
+                t(crate::i18n::InstancesMsg::FindModButton),
+            )
+            .variant(ButtonVariant::Primary)
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.open_mod_finder(&finder_crash, window, cx)
+            })),
+        )
+    })
     .when_some(report, |this, report| {
         this.footer(
             Button::new("open-crash-report", t(M::OpenCrashReport))
-                .variant(ButtonVariant::Primary)
+                .variant(if can_find {
+                    ButtonVariant::Secondary
+                } else {
+                    ButtonVariant::Primary
+                })
                 .on_click(move |_, _, cx| cx.open_with_system(&report)),
         )
     })
@@ -2207,6 +2530,7 @@ mod tests {
             Cause::Natives,
             Cause::JvmOptions,
             Cause::Graphics,
+            Cause::ModPatch,
         ] {
             assert_eq!(cause_text(cause), cause.explanation());
         }

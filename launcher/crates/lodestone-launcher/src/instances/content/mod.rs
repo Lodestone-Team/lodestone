@@ -559,6 +559,24 @@ impl ContentView {
         }
     }
 
+    /// Mods of `instance_id` were turned on or off somewhere else (the crash dialog):
+    /// reads them again if they are the ones on screen.
+    pub fn mods_changed(&mut self, instance_id: &str, cx: &mut Context<Self>) {
+        if self.instance_id.as_deref() != Some(instance_id) {
+            return;
+        }
+        if !matches!(self.section(ContentKind::Mod).listing, Load::NotLoaded) {
+            self.reload(ContentKind::Mod, cx);
+        }
+        // A shader mod may have been turned on or off.
+        if !matches!(
+            self.section(ContentKind::ShaderPack).listing,
+            Load::NotLoaded
+        ) {
+            self.reload(ContentKind::ShaderPack, cx);
+        }
+    }
+
     /// Reads the section's folder again (and matches new files on Modrinth).
     pub fn reload(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
         let Some((id, dirs, target)) = self.context(cx) else {

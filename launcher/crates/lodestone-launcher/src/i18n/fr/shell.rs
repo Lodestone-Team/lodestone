@@ -127,6 +127,25 @@ pub fn text(message: M) -> &'static str {
                 "Le jeu n’a pas pu créer sa fenêtre ou initialiser OpenGL. Mettez à jour vos pilotes graphiques, ou essayez sans taille de fenêtre personnalisée ni plein écran."
             }
         }
+        M::CauseModPatch => {
+            "Un mod n’a pas pu appliquer ses modifications au jeu. Il est sans doute fait pour une autre version de Minecraft, ou il a besoin d’une version plus récente d’un autre mod. Mettez-le à jour ou désactivez-le."
+        }
+        M::ProbablyCausedBy => "Probablement causé par",
+        M::ModsInvolved => "Mods en cause",
+        M::ModsInvolvedHint => {
+            "Chacun d’eux pourrait être en cause. Essayez de les désactiver un par un."
+        }
+        M::EvidenceFailedToPatch => {
+            "Il n’a pas pu se charger, il est peut-être fait pour une autre version de Minecraft."
+        }
+        M::EvidenceCrashedInItsCode => "Le plantage s’est produit dans ce mod.",
+        M::EvidencePatchedCrashingCode => "Il modifie la partie du jeu qui a planté.",
+        M::EvidenceInStack => "Il était en cours d’exécution quand le jeu a planté.",
+        M::TurnOffMod => "Désactiver",
+        M::TurnOnMod => "Réactiver",
+        M::ModTurnedOff => {
+            "Désactivé. Rejouez pour voir si le problème est réglé. Vous pouvez le réactiver ici ou dans l’onglet Contenu."
+        }
         M::CopyLog => "Copier le journal",
 
         M::UpdateTitle => "Mettre à jour {name}\u{202F}?",

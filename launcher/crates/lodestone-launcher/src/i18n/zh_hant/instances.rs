@@ -149,6 +149,48 @@ pub fn text(message: M) -> &'static str {
         M::Description => "簡介",
         M::NoVersions => "此模組包沒有任何版本。",
         M::LoadingVersions => "正在載入版本",
+        M::FindModButton => "幫我找出來",
+        M::FinderTitle => "找出造成「{name}」當機的模組",
+        M::FinderIntro => {
+            "啟動器會多次啟動遊戲，每次停用可能造成當機的模組中的一半，直到只剩下一個。完成後，你的模組會恢復原狀。"
+        }
+        M::FinderAutomatic => {
+            "遊戲在啟動時當機，所以你什麼都不用做。每次嘗試會在遊戲當機或進入主選單時結束。"
+        }
+        M::FinderManual => {
+            "遊戲是在你遊玩時當機的，所以每次嘗試都需要你來玩。重複之前造成當機的操作。如果再次當機，下一次嘗試會自動開始；如果沒有，請按「沒有當機」。"
+        }
+        M::FinderStart => "開始",
+        M::FinderReading => "正在檢查你的模組",
+        M::FinderTry => "第 {number} 次嘗試",
+        M::FinderStarting => "正在啟動遊戲",
+        M::FinderWaiting => "正在等待，看遊戲是否當機",
+        M::FinderSettling => "已進入主選單，正在確認遊戲不會關閉",
+        M::FinderPlay => "一直玩到當機為止。如果沒有當機，請按「沒有當機」。",
+        M::FinderAsk => "遊戲已關閉。問題出現了嗎？",
+        M::FinderDidntCrash => "沒有當機",
+        M::FinderItCrashed => "當機了",
+        M::FinderStopping => "正在停止遊戲",
+        M::FinderFound => "找到了",
+        M::FinderFoundOne => "停用 {name} 後，遊戲不會當機。",
+        M::FinderFoundGroup => {
+            "停用這些模組後，遊戲不會當機：{names}。它們彼此相依，只能一起停用。"
+        }
+        M::FinderAlsoOff => "相依於它的模組也會保持停用：{names}。",
+        M::FinderKeepOff => "保持停用",
+        M::FinderPutBack => "全部重新啟用",
+        M::FinderNotFound => {
+            "即使停用了這些模組，遊戲仍然當機，所以原因可能不是模組，或者當機只是偶爾發生。你的模組已恢復原狀。"
+        }
+        M::FinderRefused => {
+            "有些模組少了被停用的模組就無法載入，所以只能停止尋找。你的模組已恢復原狀。"
+        }
+        M::FinderFailed => "發生問題，尋找已停止。你的模組已恢復原狀。",
+        M::FinderStopped => "已停止尋找。你的模組已恢復原狀。",
+        M::FinderStop => "停止",
+        M::FinderInterruptedTitle => "要完成在「{name}」中尋找模組嗎？",
+        M::FinderInterrupted => "啟動器在尋找途中關閉了，所以「{name}」的部分模組仍處於停用狀態。",
+        M::FinderPutBackFailed => "部分模組無法重新啟用：{error}",
     }
 }
 
@@ -178,5 +220,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::PackFilesLeftOut => ["模組包中有 {count} 個檔案被略過，例如 {path}。"; 2],
         P::WorldsBackedUp => ["已先備份 {count} 個世界。"; 2],
         P::DownloadingFiles => ["正在下載 {count} 個檔案"; 2],
+        P::FinderModsLeft => ["還有 {count} 個模組待檢查"; 2],
+        P::FinderModsOff => ["已停用 {count} 個模組"; 2],
+        P::FinderTriesLeft => ["大約還需 {count} 次嘗試"; 2],
     }
 }
