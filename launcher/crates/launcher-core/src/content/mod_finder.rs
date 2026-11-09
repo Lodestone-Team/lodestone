@@ -148,11 +148,12 @@ fn read_ids(path: &std::path::Path) -> (Vec<String>, Vec<String>) {
     let (mut provides, requires) = metadata_ids(&mut archive);
     let nested: Vec<String> = archive
         .file_names()
+        .filter_map(Result::ok)
         .filter(|name| {
             (name.starts_with("META-INF/jars/") || name.starts_with("META-INF/jarjar/"))
                 && name.ends_with(".jar")
         })
-        .map(str::to_string)
+        .map(|name| name.into_owned())
         .collect();
     for name in nested {
         let Some(bytes) = read_entry(&mut archive, &name, 64 * 1024 * 1024) else {

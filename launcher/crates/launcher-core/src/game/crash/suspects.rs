@@ -577,11 +577,11 @@ fn owners(
         let mut found = Vec::new();
         let mut nested = Vec::new();
         if let Some(archive) = open(&jars[index]) {
-            for name in archive.file_names() {
-                if let Some(key) = wanted(name, classes, configs) {
+            for name in archive.file_names().filter_map(Result::ok) {
+                if let Some(key) = wanted(&name, classes, configs) {
                     found.push(key);
-                } else if is_nested_jar(name) {
-                    nested.push(name.to_string());
+                } else if is_nested_jar(&name) {
+                    nested.push(name.into_owned());
                 }
             }
         }
@@ -626,7 +626,7 @@ fn owners(
             found.extend(
                 nested
                     .file_names()
-                    .filter_map(|name| wanted(name, &classes, &configs)),
+                    .filter_map(|name| wanted(&name.ok()?, &classes, &configs)),
             );
         }
         found

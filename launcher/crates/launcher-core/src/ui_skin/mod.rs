@@ -1259,8 +1259,8 @@ impl SkinStore {
         let entry = self.get(id)?;
         let file = fs::File::create(dest)?;
         let mut zip = zip::ZipWriter::new(io::BufWriter::new(file));
-        let options =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         let zipped = |err: zip::result::ZipError| SkinError::Io(io::Error::other(err));
         zip.start_file(SKIN_FILE, options).map_err(zipped)?;
         let json = serde_json::to_string_pretty(&entry.spec).map_err(io::Error::other)?;
@@ -1439,12 +1439,12 @@ fn read_zip(path: &Path) -> Result<Vec<(String, Vec<u8>)>, SkinError> {
             continue;
         }
         // no absolute paths, no "..", nothing outside the pack
-        let name = entry
-            .enclosed_name()
-            .ok_or_else(|| {
-                SkinError::Invalid(format!("{:?} points outside the pack", entry.name()))
-            })?
-            .to_path_buf();
+        let name = entry.enclosed_name().ok_or_else(|| {
+            SkinError::Invalid(format!(
+                "{:?} points outside the pack",
+                String::from_utf8_lossy(entry.name_raw())
+            ))
+        })?;
         names.push((index, name));
     }
     // a pack zipped as its folder: strip the one folder all files are in
@@ -1546,7 +1546,7 @@ mod tests {
         let file = tempfile::NamedTempFile::new().unwrap();
         let mut zip = zip::ZipWriter::new(file.reopen().unwrap());
         for (name, bytes) in files {
-            zip.start_file(*name, zip::write::FileOptions::default())
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
                 .unwrap();
             zip.write_all(bytes).unwrap();
         }
@@ -1816,6 +1816,23 @@ mod tests {
         ] {
             assert!(check_image_name(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn zip_entries_outside_the_pack_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SkinStore::at(dir.path().join("skins"));
+        let json = br#"{"schema": 1, "name": "Escape"}"#;
+        for bad in ["../x.png", "a/../../x.png", "pack/../../x.png"] {
+            let pack = zip_of(&[(SKIN_FILE, json), (bad, &png(4, 4))]);
+            let err = store.import(pack.path()).unwrap_err();
+            assert!(err.to_string().contains("outside the pack"), "{bad}: {err}");
+        }
+        // zip reads an absolute name as relative: a file the skin doesn't use.
+        let pack = zip_of(&[(SKIN_FILE, json), ("/x.png", &png(4, 4))]);
+        assert!(store.import(pack.path()).is_err());
+        assert!(!dir.path().join("x.png").exists());
+        assert!(store.list().iter().all(|e| e.spec.name != "Escape"));
     }
 
     #[test]

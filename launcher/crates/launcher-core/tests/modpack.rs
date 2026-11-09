@@ -56,7 +56,7 @@ fn file(path: &str, url: &str, bytes: &[u8], client: &str, server: &str) -> Valu
 
 fn write_pack(path: &Path, index: Value, entries: &[(&str, &[u8])]) {
     let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
-    let options = zip::write::FileOptions::default();
+    let options = zip::write::SimpleFileOptions::default();
     zip.start_file("modrinth.index.json", options).unwrap();
     zip.write_all(index.to_string().as_bytes()).unwrap();
     for (name, bytes) in entries {
@@ -412,6 +412,37 @@ fn refuses_unsafe_and_unsupported_packs() {
     let not_zip = temp.path().join("x.mrpack");
     fs::write(&not_zip, b"not a zip").unwrap();
     assert!(modpack::read_pack(&not_zip).is_err());
+}
+
+#[test]
+fn symbolic_links_in_overrides_are_skipped() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("links.mrpack");
+    let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("modrinth.index.json", options).unwrap();
+    zip.write_all(index("p", "1", vec![]).to_string().as_bytes())
+        .unwrap();
+    zip.add_symlink("overrides/config", "../../..", options)
+        .unwrap();
+    zip.add_symlink("overrides/options.txt", "/etc/passwd", options)
+        .unwrap();
+    zip.start_file("overrides/config.toml", options).unwrap();
+    zip.write_all(b"ok").unwrap();
+    zip.finish().unwrap();
+
+    let pack = modpack::read_pack(&path).unwrap();
+    let written: Vec<&str> = pack.overrides.iter().map(|o| o.path.as_str()).collect();
+    assert_eq!(written, ["config.toml"]);
+    for link in ["config", "options.txt"] {
+        assert!(
+            pack.skipped
+                .iter()
+                .any(|s| s.path == link && s.reason.contains("symbolic link")),
+            "{link}: {:?}",
+            pack.skipped
+        );
+    }
 }
 
 #[test]
