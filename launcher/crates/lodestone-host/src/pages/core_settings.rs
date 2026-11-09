@@ -426,7 +426,8 @@ impl CoreSettingsPage {
             row(
                 CoreMsg::InfoTotalRam,
                 if info.total_ram > 0 {
-                    lodestone_ui::i18n::format::bytes(info.total_ram)
+                    // in binary units, as the OS counts memory: 48 GB, not 52
+                    lodestone_ui::i18n::format::bytes_binary(info.total_ram)
                 } else {
                     t(CoreMsg::InfoNoRam).to_string()
                 },
