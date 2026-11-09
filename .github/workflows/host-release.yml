@@ -1,0 +1,256 @@
+name: Host - Release
+
+# Builds a Lodestone Host version (the GPUI app in launcher/crates/lodestone-host,
+# with the Lodestone Core it runs) into its own draft GitHub release. It only runs by
+# hand: Actions › Host - Release › Run workflow.
+#
+# A version is a `host-vX.Y.Z` tag on one commit. The channel is in the tag: a stable
+# version is `host-vX.Y.Z`, a beta `host-vX.Y.Z-beta.N` (a GitHub pre-release).
+# `channel` must say the same, so a beta isn't released as stable by mistake. To pin
+# the commit, give it: any commit on GitHub, such as an older one on main or a fix
+# on a release branch made from it. Without one, the tag's own commit if it exists,
+# else main's tip.
+#
+# Then:
+#
+# 1. release-draft.yml makes the tag (if it's new) and a draft release for it.
+# 2. macOS (host-macos-app.yml) and Windows build the tagged commit: the Host, and
+#    the core without Deno (`--no-default-features`).
+# 3. publish_release.py uploads them to the draft and writes its latest.json, which
+#    lists each platform's Host and core with the build number and SHA-256.
+#    Platforms the draft already has (uploaded from a developer's machine) are left
+#    alone.
+#
+# Nothing reaches users until a developer writes the notes and publishes the draft:
+# installed Hosts read published `host-v*` releases only, betas only with
+# Settings › Updates › Beta builds on.
+#
+# `promote_from` makes a stable version out of a published beta without rebuilding:
+# the tag goes on the beta's commit and gets the beta's files, byte for byte.
+# See .claude/skills/publish-host-release/SKILL.md.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag: host-vX.Y.Z (stable), or host-vX.Y.Z-beta.N (beta)"
+        required: true
+        type: string
+      channel:
+        description: "Which channel the version is for; must match the tag (a -suffix is beta)"
+        type: choice
+        options: [beta, stable]
+        default: beta
+      commit:
+        description: "Commit to release (SHA or branch). Empty: the tag's commit if it exists, else main's tip"
+        required: false
+        type: string
+        default: ""
+      platforms:
+        description: Which platforms CI builds (none just makes the draft, for builds from developers' machines)
+        type: choice
+        options: [all, macos, windows, none]
+        default: all
+      promote_from:
+        description: "Instead of building, copy this published beta's files (e.g. host-v0.6.0-beta.3)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# One run per version at a time: each rewrites the release's latest.json.
+concurrency:
+  group: host-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      commit: ${{ steps.check.outputs.commit }}
+    steps:
+    - name: Check the version
+      id: check
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag }}
+        CHANNEL: ${{ inputs.channel }}
+        PROMOTE_FROM: ${{ inputs.promote_from }}
+        COMMIT: ${{ inputs.commit }}
+      run: |
+        set -euo pipefail
+        if [[ ! "$TAG" =~ ^host-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+          echo "::error::Lodestone Host versions are tagged host-vX.Y.Z (stable) or host-vX.Y.Z-beta.N (beta), not $TAG."
+          exit 1
+        fi
+        if [[ "$TAG" == *-*-* ]]; then tagged=beta; else tagged=stable; fi
+        if [ "$tagged" != "$CHANNEL" ]; then
+          echo "::error::$TAG is a $tagged version, but the channel is $CHANNEL. A beta's tag ends in -beta.N; a stable one has no suffix."
+          exit 1
+        fi
+        commit="$COMMIT"
+        if [ -n "$PROMOTE_FROM" ]; then
+          if [ "$CHANNEL" != stable ]; then
+            echo "::error::Promoting makes a stable version; pick the stable channel."
+            exit 1
+          fi
+          if [ -n "$COMMIT" ]; then
+            echo "::error::A promotion goes on the beta's commit; leave commit empty."
+            exit 1
+          fi
+          if [[ "$PROMOTE_FROM" != host-v* ]]; then
+            echo "::error::$PROMOTE_FROM isn't a Lodestone Host version."
+            exit 1
+          fi
+          commit="$(gh api "repos/$REPO/commits/tags/$PROMOTE_FROM" --jq .sha)"
+        fi
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+        echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+  draft:
+    needs: check
+    uses: ./.github/workflows/release-draft.yml
+    permissions:
+      contents: write
+    with:
+      tag: ${{ needs.check.outputs.tag }}
+      commit: ${{ needs.check.outputs.commit }}
+
+  # A commit from before the Host could update itself would leave its users behind.
+  updater:
+    needs: draft
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        ref: ${{ needs.draft.outputs.commit }}
+        sparse-checkout: launcher/crates/launcher-core/src/update.rs
+        sparse-checkout-cone-mode: false
+
+    - name: The commit's Host updates itself
+      run: |
+        if ! grep -q 'HOST_TAG_PREFIX: &str = "host-v"' launcher/crates/launcher-core/src/update.rs; then
+          echo "::error::This commit's Host can't update itself from host-v releases. Release a newer commit."
+          exit 1
+        fi
+
+  macos:
+    needs: [draft, updater]
+    if: inputs.promote_from == '' && contains(fromJSON('["all", "macos"]'), inputs.platforms)
+    uses: ./.github/workflows/host-macos-app.yml
+    with:
+      ref: ${{ needs.draft.outputs.commit }}
+    secrets: inherit
+
+  windows:
+    needs: [draft, updater]
+    if: inputs.promote_from == '' && contains(fromJSON('["all", "windows"]'), inputs.platforms)
+    runs-on: windows-latest
+    timeout-minutes: 150
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        ref: ${{ needs.draft.outputs.commit }}
+        # A build's number is the count of commits in its history.
+        fetch-depth: 0
+
+    # Installs the toolchain pinned in the repository's rust-toolchain.toml.
+    - name: Install Rust toolchain
+      shell: bash
+      run: rustup toolchain install --profile minimal --no-self-update
+
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        prefix-key: rust-cache
+        shared-key: host-windows-release
+        workspaces: |
+          launcher
+          .
+
+    # The installer is built with Inno Setup 6, which GitHub's Windows images
+    # usually include.
+    - name: Check for Inno Setup
+      shell: pwsh
+      run: |
+        $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+        if (-not (Test-Path $iscc)) { choco install innosetup --yes --no-progress }
+
+    # The tagged commit's own script builds it (the Host, and the core without Deno),
+    # so a release branch's build fixes apply.
+    - name: Build and stage
+      shell: bash
+      run: python launcher/scripts/publish_release.py --product host --stage "$RUNNER_TEMP/host-windows"
+
+    - name: Keep the build
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: host-windows
+        path: ${{ runner.temp }}/host-windows
+        if-no-files-found: error
+        retention-days: 14
+
+  upload:
+    needs: [draft, macos, windows]
+    # Runs when every platform asked for built, and the others were skipped.
+    if: >-
+      always() && needs.draft.result == 'success' && inputs.promote_from == ''
+      && (needs.macos.result == 'success' || needs.windows.result == 'success')
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    # The workflow's own copy of the script uploads (main's).
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Fetch the builds
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: host-*
+        path: ${{ runner.temp }}/builds
+
+    - name: Upload to the draft
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ needs.draft.outputs.tag }}
+      run: |
+        args=()
+        for folder in "$RUNNER_TEMP"/builds/host-*/; do
+          args+=(--from "$folder")
+        done
+        python3 launcher/scripts/publish_release.py --product host --tag "$TAG" --skip-existing "${args[@]}" \
+          | tee -a "$GITHUB_STEP_SUMMARY"
+
+  promote:
+    needs: draft
+    if: inputs.promote_from != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Copy the beta's files to the draft
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ needs.draft.outputs.tag }}
+        FROM: ${{ inputs.promote_from }}
+      run: |
+        python3 launcher/scripts/publish_release.py --product host --tag "$TAG" --promote-from "$FROM" \
+          | tee -a "$GITHUB_STEP_SUMMARY"

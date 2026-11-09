@@ -291,9 +291,18 @@ def key_for_target(triple: str) -> str:
     return f"{os_name}-{arch}"
 
 
+def version_file() -> Path:
+    """Where the version the app shows is: the launcher's workspace, or the Host's own
+    crate (its versions carry on from the Tauri Host's)."""
+    if PRODUCT.key == "host":
+        return LAUNCHER / "crates" / "lodestone-host" / "Cargo.toml"
+    return LAUNCHER / "Cargo.toml"
+
+
 def workspace_version() -> str:
-    text = (LAUNCHER / "Cargo.toml").read_text(encoding="utf-8")
-    match = re.search(r'^\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"', text, re.M | re.S)
+    text = version_file().read_text(encoding="utf-8")
+    section = r"\[package\]" if PRODUCT.key == "host" else r"\[workspace\.package\]"
+    match = re.search("^" + section + r'[^\[]*?^version\s*=\s*"([^"]+)"', text, re.M | re.S)
     return match.group(1) if match else ""
 
 
@@ -322,9 +331,10 @@ def tag_version_note(tag: str, version: str) -> str | None:
     """A note when the tag's version isn't the workspace's (which the build shows)."""
     match = TAG.match(tag)
     if match and version and match.group(1) != version.split("-", 1)[0]:
-        return (f"{tag} is version {match.group(1)}, but launcher/Cargo.toml says {version}, "
-                f"which {PRODUCT.name} and its installer show. Bump [workspace.package] version "
-                "on the release branch to match, if it should.")
+        file = version_file().relative_to(ROOT).as_posix()
+        return (f"{tag} is version {match.group(1)}, but {file} says {version}, "
+                f"which {PRODUCT.name} and its installer show. Bump its version on the release "
+                "branch to match, if it should.")
     return None
 
 
@@ -421,8 +431,8 @@ def suggest_version(tags: list[str], commits: list[tuple[str, str, str]], worksp
         numbers = tuple(int(n) for n in (workspace or "0.1.0").split("-")[0].split("."))
         base = ".".join(map(str, numbers))
         tag = f"{TAG_PREFIX}{base}" + ("-beta.1" if beta else "")
-        return tag, (f"{PRODUCT.name}'s first versioned release; launcher/Cargo.toml says "
-                     f"{workspace}")
+        return tag, (f"{PRODUCT.name}'s first versioned release; "
+                     f"{version_file().relative_to(ROOT).as_posix()} says {workspace}")
     newest = versions[-1]
     stables = [t for t in versions if parse_version(t)[1] is None]
     numbers, pre = parse_version(newest)
