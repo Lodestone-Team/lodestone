@@ -184,6 +184,8 @@ pub struct Report {
     pub cache: u64,
     pub leftovers: Leftovers,
     pub logs: Logs,
+    /// Snapshots of instances.
+    pub snapshots: crate::snapshots::Usage,
     /// Settings, accounts and other small files, and anything else in the folder.
     pub other: u64,
 }
@@ -211,6 +213,7 @@ impl Report {
             + self.game_files.total()
             + self.cache
             + self.leftovers.bytes
+            + self.snapshots.bytes
             + self.other
     }
 }
@@ -226,6 +229,8 @@ pub enum Clean {
     /// Logs and crash reports older than [`OLD_LOGS`].
     OldLogs,
     AllLogs,
+    /// Automatic snapshots, those of deleted instances, and shared snapshot files.
+    Snapshots,
 }
 
 impl Clean {
@@ -238,6 +243,7 @@ impl Clean {
             Clean::Leftovers => "leftovers",
             Clean::OldLogs => "old-logs",
             Clean::AllLogs => "logs",
+            Clean::Snapshots => "snapshots",
         }
     }
 
@@ -249,6 +255,7 @@ impl Clean {
             Clean::Leftovers,
             Clean::OldLogs,
             Clean::AllLogs,
+            Clean::Snapshots,
         ]
         .into_iter()
         .find(|clean| clean.name() == name)
@@ -336,6 +343,9 @@ pub fn scan(data: &DataDir, instances: &[Instance], cancel: &Cancel) -> Result<R
     report.game_files.unused = unused_game_files(data, &used, cancel)?;
 
     report.cache = sizer.size(&data.cache_dir())?;
+    let store = crate::snapshots::Store::new(data);
+    let ids: HashSet<&str> = instances.iter().map(|i| i.id.as_str()).collect();
+    report.snapshots = store.usage(&ids);
 
     // Everything else at the top of the data directory.
     let known: HashSet<PathBuf> = [
@@ -345,6 +355,7 @@ pub fn scan(data: &DataDir, instances: &[Instance], cancel: &Cancel) -> Result<R
         data.libraries_dir(),
         data.assets_dir(),
         data.cache_dir(),
+        store.root().to_path_buf(),
     ]
     .into_iter()
     .collect();
@@ -370,6 +381,10 @@ pub fn clean(
 ) -> Result<Cleaned, DiskError> {
     let mut cleaned = Cleaned::default();
     match what {
+        Clean::Snapshots => {
+            let ids: HashSet<&str> = instances.iter().map(|i| i.id.as_str()).collect();
+            cleaned.bytes = crate::snapshots::Store::new(data).clean_up(&ids);
+        }
         Clean::Cache => {
             for entry in read_dir(&data.cache_dir()) {
                 remove(&entry.path(), &mut cleaned, cancel)?;

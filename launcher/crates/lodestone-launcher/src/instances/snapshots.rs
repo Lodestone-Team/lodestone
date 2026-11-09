@@ -540,7 +540,7 @@ impl SnapshotDialog {
             .find(|i| Some(&i.id) == self.instance_id.as_ref())
             .map(|i| i.name.clone())
             .unwrap_or_default();
-        let folder = store.root().join("exports");
+        let folder = store.exports_dir();
         let file = folder.join(format!(
             "{} - {}.{}",
             file_safe(&instance_name),

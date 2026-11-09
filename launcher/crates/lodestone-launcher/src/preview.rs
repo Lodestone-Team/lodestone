@@ -1062,6 +1062,12 @@ fn storage_report() -> launcher_core::disk::Report {
             old_bytes: 9 * MB,
             old_files: 61,
         },
+        snapshots: launcher_core::snapshots::Usage {
+            bytes: 186 * MB,
+            snapshots: 7,
+            removable_snapshots: 2,
+            removable_bytes: 41 * MB,
+        },
         other: 400_000,
     }
 }

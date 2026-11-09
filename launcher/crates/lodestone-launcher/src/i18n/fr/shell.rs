@@ -576,6 +576,12 @@ pub fn text(message: M) -> &'static str {
         M::StorageGameFiles => "Fichiers du jeu",
         M::StorageRuntimes => "Environnements Java",
         M::StorageCache => "Cache",
+        M::StorageSnapshots => "Instantanés",
+        M::StorageSnapshotsHint => "{count} instantanés · {size} récupérables",
+        M::StorageCleanSnapshotsTitle => "Supprimer les instantanés automatiques\u{a0}?",
+        M::StorageCleanSnapshotsBody => {
+            "Libère {size}. Supprime les instantanés pris avant un retour en arrière, ceux des instances supprimées et les fichiers créés pour le partage."
+        }
         M::StorageLeftovers => "Téléchargements et importations inachevés",
         M::StorageCleanLeftoversTitle => "Supprimer les téléchargements inachevés\u{a0}?",
         M::StorageCleanLeftoversBody => {

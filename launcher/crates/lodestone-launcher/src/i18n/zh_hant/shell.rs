@@ -480,6 +480,12 @@ pub fn text(message: M) -> &'static str {
         M::StorageGameFiles => "遊戲檔案",
         M::StorageRuntimes => "Java 執行環境",
         M::StorageCache => "快取",
+        M::StorageSnapshots => "快照",
+        M::StorageSnapshotsHint => "{count} 個快照 · 可釋放 {size}",
+        M::StorageCleanSnapshotsTitle => "移除自動快照？",
+        M::StorageCleanSnapshotsBody => {
+            "這會釋放 {size}。將移除回復前自動拍攝的快照、已刪除實例的快照以及為分享而產生的檔案。"
+        }
         M::StorageLeftovers => "未完成的下載和匯入",
         M::StorageCleanLeftoversTitle => "移除未完成的下載？",
         M::StorageCleanLeftoversBody => {

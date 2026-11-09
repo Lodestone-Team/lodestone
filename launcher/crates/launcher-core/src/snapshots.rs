@@ -337,6 +337,17 @@ pub struct Part {
     pub bytes: u64,
 }
 
+/// What the snapshot store takes on disk.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Usage {
+    pub bytes: u64,
+    pub snapshots: usize,
+    /// Automatic snapshots and those of deleted instances.
+    pub removable_snapshots: usize,
+    /// What [`Store::clean_up`] would free.
+    pub removable_bytes: u64,
+}
+
 fn summarize(files: impl Iterator<Item = (Category, Option<String>, u64)>) -> Vec<Part> {
     let mut parts: BTreeMap<(Category, Option<String>), (usize, u64)> = BTreeMap::new();
     for (category, world, size) in files {
@@ -557,6 +568,77 @@ impl Store {
             },
             added,
         ))
+    }
+
+    /// Files "Share…" wrote, to drag out or save. Removed by [`Store::clean_up`].
+    pub fn exports_dir(&self) -> PathBuf {
+        self.root.join("exports")
+    }
+
+    /// Every manifest in the store, with the instance it belongs to.
+    fn all(&self) -> Vec<(String, Snapshot)> {
+        let mut all = Vec::new();
+        for dir in fs::read_dir(self.root.join("instances"))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let instance = dir.file_name().to_string_lossy().into_owned();
+            for snapshot in self.list(&instance) {
+                all.push((instance.clone(), snapshot));
+            }
+        }
+        all
+    }
+
+    /// What the store takes, and what [`Store::clean_up`] would free. `instances` are
+    /// the ids of the instances that still exist.
+    pub fn usage(&self, instances: &HashSet<&str>) -> Usage {
+        let all = self.all();
+        let removable = |instance: &str, snapshot: &Snapshot| {
+            snapshot.automatic || !instances.contains(instance)
+        };
+        let kept: HashSet<&str> = all
+            .iter()
+            .filter(|(instance, snapshot)| !removable(instance, snapshot))
+            .flat_map(|(_, snapshot)| snapshot.files.iter().map(|f| f.sha256.as_str()))
+            .collect();
+        let mut freed: BTreeMap<&str, u64> = BTreeMap::new();
+        for (_, snapshot) in all.iter().filter(|(i, s)| removable(i, s)) {
+            for file in &snapshot.files {
+                if !kept.contains(file.sha256.as_str()) {
+                    freed.insert(&file.sha256, file.size);
+                }
+            }
+        }
+        Usage {
+            bytes: self.size(),
+            snapshots: all.len(),
+            removable_snapshots: all.iter().filter(|(i, s)| removable(i, s)).count(),
+            removable_bytes: freed.values().sum::<u64>()
+                + crate::worlds::folder_size(&self.exports_dir()),
+        }
+    }
+
+    /// Deletes the automatic snapshots, those of instances that no longer exist, and
+    /// the shared files, then what no snapshot uses. Returns the bytes freed.
+    pub fn clean_up(&self, instances: &HashSet<&str>) -> u64 {
+        let before = self.size();
+        for (instance, snapshot) in self.all() {
+            if snapshot.automatic || !instances.contains(instance.as_str()) {
+                let _ = fs::remove_file(self.manifest_path(&instance, &snapshot.id));
+            }
+        }
+        for dir in fs::read_dir(self.root.join("instances"))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let _ = fs::remove_dir(dir.path()); // only when empty
+        }
+        let _ = fs::remove_dir_all(self.exports_dir());
+        self.collect_garbage();
+        before.saturating_sub(self.size())
     }
 
     /// Deletes a snapshot and the objects only it used.
@@ -1286,6 +1368,56 @@ mod tests {
         store.delete("a", &second.id).unwrap();
         store.delete("b", &third.id).unwrap();
         assert_eq!(fs::read_dir(store.objects()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn cleans_up_automatic_and_orphaned_snapshots() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (a, dir_a) = instance_at(temp.path(), "a");
+        let (b, dir_b) = instance_at(temp.path(), "b");
+        let kept = store
+            .create(&a, &dir_a, "kept", None, &Selection::all(), false, &none)
+            .unwrap();
+        write(
+            &dir_a,
+            "minecraft/mods/extra.jar",
+            b"only in the automatic one",
+        );
+        store
+            .create(&a, &dir_a, "auto", None, &Selection::all(), true, &none)
+            .unwrap();
+        write(
+            &dir_b,
+            "minecraft/mods/b-only.jar",
+            b"only in the deleted instance",
+        );
+        store
+            .create(&b, &dir_b, "gone", None, &Selection::all(), false, &none)
+            .unwrap();
+        fs::create_dir_all(store.exports_dir()).unwrap();
+        fs::write(store.exports_dir().join("x.lodesnap"), b"0123456789").unwrap();
+
+        // Instance "b" is deleted: its snapshot and the automatic one can go.
+        let ids: HashSet<&str> = ["a"].into_iter().collect();
+        let usage = store.usage(&ids);
+        assert_eq!(usage.snapshots, 3);
+        assert_eq!(usage.removable_snapshots, 2);
+        let only_removable =
+            "only in the automatic one".len() + "only in the deleted instance".len();
+        assert_eq!(usage.removable_bytes, only_removable as u64 + 10);
+
+        assert!(store.clean_up(&ids) > 0);
+        let left = store.list("a");
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, kept.id);
+        assert!(store.list("b").is_empty());
+        assert!(!store.exports_dir().exists());
+        // What the kept snapshot uses is still there.
+        for file in &kept.files {
+            assert!(store.object(&file.sha256).exists());
+        }
+        assert_eq!(store.usage(&ids).removable_bytes, 0);
     }
 
     #[test]
