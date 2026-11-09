@@ -399,9 +399,18 @@ def commits_since(base: str | None, commit: str) -> list[tuple[str, str, str]]:
     return commits
 
 
+def resolve_commit(ref: str) -> str:
+    """`ref`'s full commit SHA in this clone."""
+    try:
+        return run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"])
+    except Failure:
+        raise Failure(f"{ref} isn't a commit in this clone; `git fetch origin` (or `git fetch "
+                      f"origin {ref}`) first")
+
+
 def show_next_version(tag: str | None, commit_ref: str, beta: bool) -> int:
     """Checks a named version against the releases so far, or suggests one."""
-    commit = run(["git", "rev-parse", f"{commit_ref}^{{commit}}"])
+    commit = resolve_commit(commit_ref)
     tags = launcher_tags()
     newest = max(tags, key=version_order) if tags else None
     if tag:
@@ -1619,7 +1628,7 @@ def main(argv: list[str]) -> int:
         check_tag(args.start)
         release = VersionRelease(args.repo, args.start)
         release.check()
-        commit = run(["git", "rev-parse", f"{args.commit or 'HEAD'}^{{commit}}"])
+        commit = resolve_commit(args.commit or "HEAD")
         if release.info() is None:
             created = release.tag_commit() is None
             release.create(commit, args.force)
