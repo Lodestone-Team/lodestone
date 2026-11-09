@@ -21,6 +21,7 @@ pub mod http;
 pub mod import;
 pub mod instances;
 pub mod markdown;
+pub mod mc_text;
 pub mod modpack;
 pub mod offline;
 pub mod paths;
