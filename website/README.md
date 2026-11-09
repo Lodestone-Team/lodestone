@@ -31,8 +31,8 @@ node website/serve.mjs                  # http://localhost:8888, with netlify.to
   as it follows `publish_release.py`'s file names.
 - **Star count.** It comes from the GitHub API too, cached in `localStorage` for
   an hour (the unauthenticated API allows 60 calls an hour per visitor).
-- **Download count.** The badge above the headline shows Lodestone Core's
-  downloads: pulls of its Docker image plus downloads from its GitHub releases
+- **Download count.** The badge above the headline ("109k+ downloads") counts
+  Lodestone Core's downloads: pulls of its Docker image plus downloads from its GitHub releases
   (see `stats.mjs`). `build.mjs` works it out on each deploy and writes it into
   the page; if a source can't be read, the page keeps its default, "100k+". Set
   `GITHUB_TOKEN` in Netlify's environment to avoid the API's unauthenticated

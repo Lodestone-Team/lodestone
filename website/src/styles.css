@@ -163,29 +163,18 @@ a {
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 6px 10px;
-  margin-bottom: 20px;
+  gap: 6px;
+  margin: 0 0 20px;
   padding: 6px 14px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: rgba(38, 40, 44, 0.7);
   color: var(--text-muted);
-  text-decoration: none;
   font-size: 14px;
   font-weight: 500;
-  transition:
-    border-color 0.15s,
-    color 0.15s;
-}
-
-.eyebrow:hover {
-  border-color: var(--text-faint);
-  color: var(--text);
 }
 
 .eyebrow-stat {
-  padding-left: 10px;
-  border-left: 1px solid var(--border);
   color: var(--accent);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -193,12 +182,17 @@ a {
 
 h1 {
   margin: 0;
-  max-width: 22ch;
+  max-width: 24ch;
   font-family: 'Chillax', 'Satoshi', system-ui, sans-serif;
   font-weight: 600;
   font-size: clamp(40px, 5.6vw, 68px);
   line-height: 1.04;
   letter-spacing: -0.02em;
+}
+
+/* Wrap the headline at the comma, not mid-phrase. */
+h1 .phrase {
+  display: inline-block;
 }
 
 .lede {
@@ -392,10 +386,6 @@ a:focus-visible {
     display: none;
   }
 
-  .eyebrow-stat {
-    padding-left: 0;
-    border-left: 0;
-  }
 
   .hero {
     padding-left: 16px;
