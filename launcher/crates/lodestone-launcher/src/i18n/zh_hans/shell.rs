@@ -140,6 +140,15 @@ pub fn text(message: M) -> &'static str {
         M::ManageAccounts => "管理账户",
         M::GroupAutomatically => "自动分组实例",
         M::GroupAutomaticallyHint => "按加载器为未分组的实例分组。",
+        M::WhenAGameStarts => "游戏启动后",
+        M::AfterLaunchStay => "保持打开",
+        M::AfterLaunchMinimize => "最小化",
+        M::AfterLaunchQuit => "退出",
+        M::AfterLaunchStayHint => "启动器在游戏旁保持打开。",
+        M::AfterLaunchMinimizeHint => "游戏窗口打开后启动器最小化，游戏关闭时恢复。",
+        M::AfterLaunchQuitHint => {
+            "游戏窗口打开后启动器退出。游戏会继续运行，但不会记录其日志、崩溃报告和游戏时长。"
+        }
         M::OfflineAccount => "离线账户",
         M::MicrosoftAccount => "Microsoft 账户",
         M::SignInAgain => "重新登录",
@@ -335,6 +344,11 @@ pub fn text(message: M) -> &'static str {
         M::CodeCopiedWaiting => "代码已复制。正在等待你输入…",
         M::WaitingForCode => "正在等待你输入代码…",
         M::CopyCodeAndOpen => "复制代码并打开 {host}",
+        M::CopySignInCode => "复制代码",
+        M::StopSigningInTitle => "停止登录？",
+        M::StopSigningInBody => "Microsoft 仍在等待你复制的代码。如果现在停止，输入它将无法登录。",
+        M::StopSigningIn => "停止登录",
+        M::KeepWaiting => "继续等待",
         M::LinkInstructions => {
             "请在打开的浏览器窗口中登录。随后 Microsoft 会显示一个页面，说明该页面通常不会显示。从浏览器地址栏复制完整地址，并且只粘贴到本启动器中。"
         }

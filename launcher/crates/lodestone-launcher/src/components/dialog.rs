@@ -70,7 +70,8 @@ fn ease_out_cubic(delta: f32) -> f32 {
 /// Escape, on a click on the backdrop and with its × button, at the end of the title's
 /// row (at the top right corner of a frameless dialog). So no dialog lacks a way out
 /// for the mouse, and none needs a footer button that only closes it; see
-/// [`Self::footer`] for the footer's order.
+/// [`Self::footer`] for the footer's order. A dialog whose work a stray click
+/// shouldn't lose (signing in) can [ignore the backdrop](Self::keep_open_on_backdrop).
 ///
 /// The dialog tracks `focus_handle`, which should be its own (not a text field's).
 /// When it first renders it takes focus, unless focus is already in it (say, in a
@@ -94,6 +95,8 @@ pub struct Dialog {
     footer_start: Vec<AnyElement>,
     footer: Vec<AnyElement>,
     on_close: Option<CloseHandler>,
+    /// A click on the backdrop calls `on_close` (yes by default).
+    backdrop_closes: bool,
     width: gpui::Pixels,
     /// No title, padding or footer: the body fills a panel of this height.
     frameless: Option<gpui::Pixels>,
@@ -117,6 +120,7 @@ impl Dialog {
             footer_start: Vec::new(),
             footer: Vec::new(),
             on_close: None,
+            backdrop_closes: true,
             width: layout::dialog_width(),
             frameless: None,
             edge_to_edge: None,
@@ -168,6 +172,12 @@ impl Dialog {
         self
     }
 
+    /// A click on the backdrop does nothing; Escape and the × still call `on_close`.
+    pub fn keep_open_on_backdrop(mut self) -> Self {
+        self.backdrop_closes = false;
+        self
+    }
+
     /// What closing does, by Escape, a click on the backdrop or the ×. Without it the
     /// dialog has no × and doesn't close on its own.
     pub fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
@@ -193,7 +203,7 @@ impl RenderOnce for Dialog {
         );
         let on_dismiss = self.on_close.clone();
         let close = self.on_close.clone().map(close_button);
-        let on_backdrop = self.on_close;
+        let on_backdrop = self.on_close.filter(|_| self.backdrop_closes);
         let reduce_motion = prefers_reduced_motion();
         let enter = Animation::new(if reduce_motion { ENTER_REDUCED } else { ENTER })
             .with_easing(ease_out_cubic);
@@ -432,6 +442,7 @@ mod tests {
         focus: FocusHandle,
         variant: Variant,
         closable: bool,
+        backdrop_closes: bool,
         closed: Rc<Cell<usize>>,
     }
 
@@ -451,6 +462,7 @@ mod tests {
                 .when(self.closable, |dialog| {
                     dialog.on_close(move |_, _| closed.set(closed.get() + 1))
                 })
+                .when(!self.backdrop_closes, Dialog::keep_open_on_backdrop)
                 .child(div().child("Body"))
                 .footer(Button::new("ok", "OK"));
             div().relative().size_full().child(dialog)
@@ -467,6 +479,7 @@ mod tests {
             focus: cx.focus_handle(),
             variant,
             closable,
+            backdrop_closes: true,
             closed: Rc::new(Cell::new(0)),
         });
         cx.run_until_parked();
@@ -525,6 +538,24 @@ mod tests {
         cx.simulate_keystrokes("escape");
         assert_eq!(closed(&view, cx), 1);
         cx.simulate_click(gpui::point(px(4.), px(4.)), Modifiers::none());
+        assert_eq!(closed(&view, cx), 2);
+    }
+
+    #[test]
+    fn a_dialog_kept_open_on_the_backdrop_still_closes_on_escape_and_the_x() {
+        let mut cx = TestAppContext::single();
+        let (view, cx) = open(Variant::Normal, true, &mut cx);
+        view.update(cx, |this, cx| {
+            this.backdrop_closes = false;
+            cx.notify();
+        });
+        cx.run_until_parked();
+        cx.simulate_click(gpui::point(px(4.), px(4.)), Modifiers::none());
+        assert_eq!(closed(&view, cx), 0, "a click on the backdrop does nothing");
+        cx.simulate_keystrokes("escape");
+        assert_eq!(closed(&view, cx), 1);
+        let bounds = cx.debug_bounds("dialog-close").expect("it has a ×");
+        cx.simulate_click(bounds.center(), Modifiers::none());
         assert_eq!(closed(&view, cx), 2);
     }
 }

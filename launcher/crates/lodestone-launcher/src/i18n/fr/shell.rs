@@ -170,6 +170,17 @@ pub fn text(message: M) -> &'static str {
         M::ManageAccounts => "Gérer les comptes",
         M::GroupAutomatically => "Grouper les instances automatiquement",
         M::GroupAutomaticallyHint => "Classe les instances sans groupe par chargeur de mods.",
+        M::WhenAGameStarts => "Au lancement d’un jeu",
+        M::AfterLaunchStay => "Rester ouvert",
+        M::AfterLaunchMinimize => "Réduire",
+        M::AfterLaunchQuit => "Quitter",
+        M::AfterLaunchStayHint => "Le lanceur reste ouvert à côté du jeu.",
+        M::AfterLaunchMinimizeHint => {
+            "Le lanceur se réduit dès que la fenêtre du jeu s’ouvre, et revient quand le jeu se ferme."
+        }
+        M::AfterLaunchQuitHint => {
+            "Le lanceur se ferme dès que la fenêtre du jeu s’ouvre. Le jeu continue, mais son journal, son rapport de plantage et son temps de jeu ne sont pas enregistrés."
+        }
         M::OfflineAccount => "Compte hors ligne",
         M::MicrosoftAccount => "Compte Microsoft",
         M::SignInAgain => "Se reconnecter",
@@ -399,6 +410,13 @@ pub fn text(message: M) -> &'static str {
         M::CodeCopiedWaiting => "Code copié. En attente de sa saisie…",
         M::WaitingForCode => "En attente de la saisie du code…",
         M::CopyCodeAndOpen => "Copier le code et ouvrir {host}",
+        M::CopySignInCode => "Copier le code",
+        M::StopSigningInTitle => "Arrêter la connexion\u{202F}?",
+        M::StopSigningInBody => {
+            "Microsoft attend toujours le code que vous avez copié. Si vous arrêtez maintenant, le saisir ne vous connectera pas."
+        }
+        M::StopSigningIn => "Arrêter la connexion",
+        M::KeepWaiting => "Continuer d’attendre",
         M::LinkInstructions => {
             "Connectez-vous dans la fenêtre du navigateur qui s’est ouverte. Microsoft affiche ensuite une page indiquant qu’elle n’est normalement pas affichée. Copiez l’adresse complète depuis la barre d’adresse du navigateur et collez-la uniquement dans ce lanceur."
         }

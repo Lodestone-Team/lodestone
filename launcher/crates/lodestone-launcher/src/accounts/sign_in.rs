@@ -11,7 +11,7 @@ use std::time::Duration;
 use super::{Accounts, auth_errors};
 use crate::{
     components::{
-        Button, ButtonVariant, Dialog, Icon, TextInput,
+        Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, RichText, TextInput,
         a11y::{Accessible, Role},
     },
     i18n::{CommonMsg, ShellMsg as M, t, tr},
@@ -52,6 +52,13 @@ pub enum Stage {
     Failed(AuthError),
 }
 
+/// Where "Stop signing in" goes: back to the first step, or out of the dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StopTo {
+    Back,
+    Close,
+}
+
 pub enum SignInEvent {
     /// Signed in, or closed.
     Dismissed,
@@ -71,6 +78,12 @@ pub struct SignInDialog {
     /// The sign-in by pasted link in progress, and the field it is pasted into.
     link: Option<LinkSignIn>,
     link_input: Entity<TextInput>,
+    /// The code was just copied with the button beside it, which shows a check
+    /// for a moment.
+    code_copied: bool,
+    _code_copied_reset: Option<Task<()>>,
+    /// "Stop signing in?", over the dialog once the code has been copied.
+    stop_prompt: DialogSlot<SignInDialog, (FocusHandle, StopTo)>,
 }
 
 impl EventEmitter<SignInEvent> for SignInDialog {}
@@ -97,6 +110,9 @@ impl SignInDialog {
                     .with_placeholder(format!("{}?code=…", auth_errors::LINK_PAGE))
                     .with_automation_id("sign-in-link")
             }),
+            code_copied: false,
+            _code_copied_reset: None,
+            stop_prompt: DialogSlot::new(|this: &mut SignInDialog| &mut this.stop_prompt),
         }
     }
 
@@ -112,7 +128,48 @@ impl SignInDialog {
 
     fn set_stage(&mut self, stage: Stage, cx: &mut Context<Self>) {
         self.stage = stage;
+        // The sign-in moved on (it finished, or failed): the question no longer applies.
+        if self.stop_prompt.is_open() && !self.code_handed_out() {
+            self.stop_prompt.close(cx);
+        }
         cx.notify();
+    }
+
+    /// The code has been copied (with either button), so the user may be entering it
+    /// on another device: leaving now would waste that, so it asks first.
+    fn code_handed_out(&self) -> bool {
+        matches!(self.stage, Stage::DeviceCode { opened: true, .. })
+    }
+
+    /// Back or closing (the × or Escape; the backdrop never closes this dialog): at
+    /// once, or after "Stop signing in?" once the code has been copied.
+    fn request_stop(&mut self, to: StopTo, cx: &mut Context<Self>) {
+        if !self.code_handed_out() {
+            return self.stop_to(to, cx);
+        }
+        if !self.stop_prompt.is_open() {
+            self.stop_prompt.open((cx.focus_handle(), to), cx);
+        }
+    }
+
+    /// Shows "Stop signing in?" as closing would, for the offscreen screenshots.
+    #[cfg(feature = "screenshot")]
+    pub fn ask_to_stop(&mut self, cx: &mut Context<Self>) {
+        self.request_stop(StopTo::Close, cx);
+    }
+
+    /// "Keep waiting": back to the code, with the sign-in still waiting for it.
+    fn keep_waiting(&mut self, cx: &mut Context<Self>) {
+        self.stop_prompt.close(cx);
+    }
+
+    /// "Stop signing in", or Back and closing before the code was copied.
+    fn stop_to(&mut self, to: StopTo, cx: &mut Context<Self>) {
+        self.stop_prompt.close(cx);
+        match to {
+            StopTo::Back => self.back(cx),
+            StopTo::Close => self.dismiss(cx),
+        }
     }
 
     fn stop(&mut self) {
@@ -123,8 +180,8 @@ impl SignInDialog {
         self.link = None;
     }
 
-    /// Back: stops the sign-in under way and goes back to the first step. (The ×,
-    /// Escape and a click on the backdrop close the dialog.)
+    /// Back: stops the sign-in under way and goes back to the first step. (The × and
+    /// Escape close the dialog; a click on the backdrop does nothing.)
     fn back(&mut self, cx: &mut Context<Self>) {
         self.stop();
         self.set_stage(Stage::Choose, cx);
@@ -238,6 +295,28 @@ impl SignInDialog {
         }
     }
 
+    /// The button beside the code: copies it, and shows a check for a moment.
+    fn copy_code(&mut self, cx: &mut Context<Self>) {
+        let Stage::DeviceCode { user_code, .. } = &self.stage else {
+            return;
+        };
+        let user_code = user_code.clone();
+        cx.write_to_clipboard(ClipboardItem::new_string(user_code.to_string()));
+        if let Stage::DeviceCode { opened, .. } = &mut self.stage {
+            *opened = true;
+        }
+        self.code_copied = true;
+        cx.notify();
+        self._code_copied_reset = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(2)).await;
+            this.update(cx, |this, cx| {
+                this.code_copied = false;
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
     fn copy_code_and_open(&mut self, cx: &mut Context<Self>) {
         if let Stage::DeviceCode {
             user_code,
@@ -251,6 +330,30 @@ impl SignInDialog {
             cx.notify();
         }
     }
+}
+
+/// "Stop signing in?": Stop signing in, or Keep waiting (which Escape and the × also
+/// mean).
+fn stop_prompt(focus: FocusHandle, to: StopTo, cx: &mut Context<SignInDialog>) -> Dialog {
+    let entity = cx.entity();
+    Dialog::new("sign-in-stop", t(M::StopSigningInTitle), focus)
+        .keep_open_on_backdrop()
+        .on_close(move |_, cx| entity.update(cx, |this, cx| this.keep_waiting(cx)))
+        .child(
+            div()
+                .text_color(crate::theme::ink::secondary())
+                .child(t(M::StopSigningInBody)),
+        )
+        .footer(
+            Button::new("sign-in-stop-confirm", t(M::StopSigningIn))
+                .variant(ButtonVariant::Danger)
+                .on_click(cx.listener(move |this, _, _, cx| this.stop_to(to, cx))),
+        )
+        .footer(
+            Button::new("sign-in-keep-waiting", t(M::KeepWaiting))
+                .variant(ButtonVariant::Secondary)
+                .on_click(cx.listener(|this, _, _, cx| this.keep_waiting(cx))),
+        )
 }
 
 /// Runs the rest of the chain with the Microsoft tokens and adds the account.
@@ -344,15 +447,20 @@ fn waiting(label: &'static str) -> impl IntoElement {
 }
 
 impl Render for SignInDialog {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let offline_enabled = self.accounts.read(cx).offline_enabled();
         let entity = cx.entity();
         let title = match &self.stage {
             Stage::Failed(err) => auth_errors::title(err),
             _ => t(M::SignInWithMicrosoft),
         };
+        // Signing in can't be lost to a stray click: only the ×, Escape and Back leave,
+        // and they ask first once the code has been copied.
         let mut dialog = Dialog::new("sign-in", title, self.focus_handle.clone())
-            .on_close(move |_, cx| entity.update(cx, |this, cx| this.dismiss(cx)));
+            .keep_open_on_backdrop()
+            .on_close(move |_, cx| {
+                entity.update(cx, |this, cx| this.request_stop(StopTo::Close, cx))
+            });
 
         let launcher_identity = self.launcher_identity();
         // The other way to sign in: a code for Lodestone's app, a pasted link for
@@ -371,7 +479,7 @@ impl Render for SignInDialog {
         let back = |cx: &mut Context<Self>| {
             Button::new("sign-in-back", t(CommonMsg::Back))
                 .variant(ButtonVariant::Secondary)
-                .on_click(cx.listener(|this, _, _, cx| this.back(cx)))
+                .on_click(cx.listener(|this, _, _, cx| this.request_stop(StopTo::Back, cx)))
         };
 
         match &self.stage {
@@ -459,12 +567,16 @@ impl Render for SignInDialog {
                             .gap_3()
                             .child(muted(tr!(M::GoToHost, host = host)))
                             .child(
+                                // The code, centred and selectable, with a copy button
+                                // at the box's right edge.
                                 div()
                                     .id("device-code")
                                     .accessible(Role::Label, "device-code", user_code.clone())
+                                    .relative()
                                     .flex()
                                     .justify_center()
                                     .py_3()
+                                    .px(px(56.))
                                     .rounded(radius::LG)
                                     .bg(colors::GRAY_900)
                                     .border_1()
@@ -474,7 +586,36 @@ impl Render for SignInDialog {
                                     .line_height(theme::line_height(text::XLARGE_2, leading::TIGHT))
                                     .font_weight(weights::EXTRABOLD.into())
                                     .text_color(crate::theme::ink::text())
-                                    .child(user_code.clone()),
+                                    .child(RichText::new(user_code.clone()).id("device-code-text"))
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .top_0()
+                                            .bottom_0()
+                                            .right(px(12.))
+                                            .flex()
+                                            .items_center()
+                                            .child(
+                                                IconButton::new(
+                                                    "copy-device-code",
+                                                    if self.code_copied {
+                                                        Icon::Check
+                                                    } else {
+                                                        Icon::Copy
+                                                    },
+                                                )
+                                                .label(if self.code_copied {
+                                                    t(CommonMsg::Copied)
+                                                } else {
+                                                    t(M::CopySignInCode)
+                                                })
+                                                .on_click(
+                                                    cx.listener(|this, _, _, cx| {
+                                                        this.copy_code(cx)
+                                                    }),
+                                                ),
+                                            ),
+                                    ),
                             )
                             .child(waiting(if *opened {
                                 t(M::CodeCopiedWaiting)
@@ -581,6 +722,171 @@ impl Render for SignInDialog {
                     .footer(use_code(cx));
             }
         }
-        dialog
+        // The question is a second dialog over this one, so this view fills the window
+        // for both of them.
+        let stop_prompt = self.stop_prompt.render(window, |(focus, to)| {
+            Some(stop_prompt(focus.clone(), *to, cx).into_any_element())
+        });
+        div()
+            .absolute()
+            .inset_0()
+            .child(dialog)
+            .children(stop_prompt)
+    }
+}
+
+#[cfg(all(test, feature = "screenshot"))]
+mod close_tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use gpui::{Modifiers, TestAppContext, VisualTestContext, point};
+
+    use super::*;
+    use crate::components::EXIT;
+
+    struct Opened<'a> {
+        dialog: Entity<SignInDialog>,
+        cx: &'a mut VisualTestContext,
+        dismissed: Rc<Cell<usize>>,
+    }
+
+    impl Opened<'_> {
+        fn asking(&mut self) -> bool {
+            self.dialog
+                .read_with(self.cx, |this, _| this.stop_prompt.is_open())
+        }
+
+        fn at_first_step(&mut self) -> bool {
+            self.dialog
+                .read_with(self.cx, |this, _| matches!(this.stage, Stage::Choose))
+        }
+
+        fn close(&mut self, how: &str) {
+            match how {
+                "escape" => self.cx.simulate_keystrokes("escape"),
+                "×" => {
+                    let bounds = self.cx.debug_bounds("dialog-close").expect("the ×");
+                    self.cx.simulate_click(bounds.center(), Modifiers::none());
+                }
+                _ => self
+                    .cx
+                    .simulate_click(point(px(4.), px(4.)), Modifiers::none()),
+            }
+            self.cx.run_until_parked();
+        }
+
+        fn update(&mut self, f: impl FnOnce(&mut SignInDialog, &mut Context<SignInDialog>)) {
+            self.dialog.update(self.cx, f);
+            self.cx.run_until_parked();
+        }
+
+        /// Lets a closing prompt finish fading out, so it no longer takes clicks.
+        fn settle(&mut self) {
+            self.cx.executor().advance_clock(EXIT * 2);
+            self.cx.run_until_parked();
+        }
+    }
+
+    /// The dialog showing a code, copied (`copied`) or not.
+    fn open(copied: bool, cx: &mut TestAppContext) -> Opened<'_> {
+        cx.update(crate::components::init);
+        let (dialog, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            SignInDialog::new(accounts, cx).with_stage(Stage::DeviceCode {
+                user_code: "F7K2-9QXM".into(),
+                verification_uri: "https://www.microsoft.com/link".into(),
+                opened: copied,
+            })
+        });
+        let dismissed = Rc::new(Cell::new(0));
+        let count = dismissed.clone();
+        cx.update(|_, cx| {
+            cx.subscribe(&dialog, move |_, event: &SignInEvent, _| {
+                if matches!(event, SignInEvent::Dismissed) {
+                    count.set(count.get() + 1)
+                }
+            })
+            .detach()
+        });
+        cx.run_until_parked();
+        Opened {
+            dialog,
+            cx,
+            dismissed,
+        }
+    }
+
+    #[test]
+    fn the_backdrop_never_closes_it() {
+        for copied in [false, true] {
+            let mut cx = TestAppContext::single();
+            let mut opened = open(copied, &mut cx);
+            opened.close("backdrop");
+            assert_eq!(opened.dismissed.get(), 0, "copied: {copied}");
+            assert!(!opened.asking(), "copied: {copied}");
+        }
+    }
+
+    #[test]
+    fn before_the_code_is_copied_escape_and_the_x_close_at_once() {
+        for how in ["escape", "×"] {
+            let mut cx = TestAppContext::single();
+            let mut opened = open(false, &mut cx);
+            opened.close(how);
+            assert!(!opened.asking(), "{how}: no question");
+            assert_eq!(opened.dismissed.get(), 1, "{how} closes");
+        }
+    }
+
+    #[test]
+    fn once_the_code_is_copied_escape_and_the_x_ask_first() {
+        for how in ["escape", "×"] {
+            let mut cx = TestAppContext::single();
+            let mut opened = open(true, &mut cx);
+            opened.close(how);
+            assert!(opened.asking(), "{how} asks");
+            assert_eq!(opened.dismissed.get(), 0, "{how}: still open");
+            // "Stop signing in" closes.
+            opened.update(|this, cx| this.stop_to(StopTo::Close, cx));
+            assert_eq!(opened.dismissed.get(), 1, "{how}, then Stop: closed");
+        }
+    }
+
+    #[test]
+    fn keep_waiting_and_escape_on_the_question_go_back_to_the_code() {
+        let mut cx = TestAppContext::single();
+        let mut opened = open(true, &mut cx);
+        opened.close("×");
+        // Escape on the question means Keep waiting.
+        opened.close("escape");
+        assert!(!opened.asking());
+        assert_eq!(opened.dismissed.get(), 0);
+        opened.settle();
+        // So does the backdrop not close anything, nor ask.
+        opened.close("backdrop");
+        assert!(!opened.asking());
+        assert_eq!(opened.dismissed.get(), 0);
+    }
+
+    #[test]
+    fn back_asks_once_the_code_is_copied() {
+        let mut cx = TestAppContext::single();
+        let mut opened = open(true, &mut cx);
+        opened.update(|this, cx| this.request_stop(StopTo::Back, cx));
+        assert!(opened.asking());
+        assert!(!opened.at_first_step());
+        opened.update(|this, cx| this.stop_to(StopTo::Back, cx));
+        assert!(!opened.asking());
+        assert!(opened.at_first_step());
+        assert_eq!(opened.dismissed.get(), 0, "Back doesn't close the dialog");
+    }
+
+    #[test]
+    fn the_copy_button_counts_as_copying_the_code() {
+        let mut cx = TestAppContext::single();
+        let mut opened = open(false, &mut cx);
+        opened.update(|this, cx| this.copy_code(cx));
+        opened.update(|this, cx| this.request_stop(StopTo::Back, cx));
+        assert!(opened.asking());
     }
 }

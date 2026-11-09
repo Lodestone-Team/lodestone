@@ -57,6 +57,7 @@ pub const SCENES: &[&str] = &[
     "sign-in",
     "sign-in-browser",
     "sign-in-code",
+    "sign-in-stop",
     "sign-in-not-approved",
     "launcher-identity",
     "sign-in-launcher",
@@ -66,6 +67,7 @@ pub const SCENES: &[&str] = &[
     "new-instance",
     "new-instance-fabric",
     "new-instance-versions",
+    "new-instance-versions-failed",
     "play-progress",
     "playing",
     "logs",
@@ -851,6 +853,17 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 });
             }
         }
+        "new-instance-versions-failed" => {
+            shell.open_new_instance_with(Some(("Crash Test", "")), None, cx);
+            // as Windows words a refused connection: long, with a URL that can't wrap
+            let error = "could not connect to https://piston-meta.mojang.com/mc/game/version_manifest_v2.json: could not connect: error sending request for url (https://piston-meta.mojang.com/mc/game/version_manifest_v2.json): client error (Connect): tcp connect error: An attempt was made to access a socket in a way forbidden by its access permissions. (os error 10013)";
+            shell.instances().clone().update(cx, |instances, cx| {
+                instances.set_versions(Versions::Failed(error.into()), cx)
+            });
+            if let Some(dialog) = shell.new_instance_dialog().cloned() {
+                dialog.update(cx, |dialog, cx| dialog.open_versions(cx));
+            }
+        }
         "new-instance-code" => {
             shell.open_new_instance_with(None, None, cx);
             let code = sample_share_plan().code.encode();
@@ -1205,6 +1218,18 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),
         "sign-in" => shell.open_sign_in_at(Stage::Choose, None, cx),
         "sign-in-browser" => shell.open_sign_in_at(Stage::Browser, None, cx),
+        "sign-in-stop" => {
+            shell.open_sign_in_at(
+                Stage::DeviceCode {
+                    user_code: "F7K2-9QXM".into(),
+                    verification_uri: launcher_core::auth::DEVICE_LOGIN_URL.into(),
+                    opened: true,
+                },
+                None,
+                cx,
+            );
+            shell.preview_ask_to_stop_signing_in(cx);
+        }
         "sign-in-code" => shell.open_sign_in_at(
             Stage::DeviceCode {
                 user_code: "F7K2-9QXM".into(),

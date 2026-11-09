@@ -140,6 +140,15 @@ pub fn text(message: M) -> &'static str {
         M::ManageAccounts => "管理帳號",
         M::GroupAutomatically => "自動將實例分組",
         M::GroupAutomaticallyHint => "依載入器為未分組的實例分組。",
+        M::WhenAGameStarts => "遊戲啟動後",
+        M::AfterLaunchStay => "保持開啟",
+        M::AfterLaunchMinimize => "最小化",
+        M::AfterLaunchQuit => "結束",
+        M::AfterLaunchStayHint => "啟動器在遊戲旁保持開啟。",
+        M::AfterLaunchMinimizeHint => "遊戲視窗開啟後啟動器最小化，遊戲關閉時恢復。",
+        M::AfterLaunchQuitHint => {
+            "遊戲視窗開啟後啟動器結束。遊戲會繼續執行，但不會記錄其記錄檔、當機報告和遊玩時間。"
+        }
         M::OfflineAccount => "離線帳號",
         M::MicrosoftAccount => "Microsoft 帳號",
         M::SignInAgain => "重新登入",
@@ -337,6 +346,11 @@ pub fn text(message: M) -> &'static str {
         M::CodeCopiedWaiting => "已複製代碼。正在等待你輸入…",
         M::WaitingForCode => "正在等待你輸入代碼…",
         M::CopyCodeAndOpen => "複製代碼並開啟 {host}",
+        M::CopySignInCode => "複製代碼",
+        M::StopSigningInTitle => "停止登入？",
+        M::StopSigningInBody => "Microsoft 仍在等待你複製的代碼。如果現在停止，輸入它將無法登入。",
+        M::StopSigningIn => "停止登入",
+        M::KeepWaiting => "繼續等待",
         M::LinkInstructions => {
             "請在開啟的瀏覽器視窗中登入。接著 Microsoft 會顯示一個頁面，說明這個頁面通常不會顯示。從瀏覽器的網址列複製完整網址，並且只貼到這個啟動器中。"
         }
