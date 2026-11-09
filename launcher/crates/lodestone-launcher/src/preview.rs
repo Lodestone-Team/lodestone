@@ -901,6 +901,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 "settings-developer" => crate::shell::SettingsPage::Developer,
                 _ => crate::shell::SettingsPage::Defaults,
             };
+            if scene == "settings-developer" {
+                preview_control(cx);
+            }
             shell.open_settings(Some(page), None, cx);
         }
         "skin-bright" | "settings-skin-bright" => {
@@ -1224,3 +1227,38 @@ fn sample_share_plan() -> launcher_core::content::share::SharePlan {
         ],
     }
 }
+
+/// Settings > Developer's socket, with two programs connected.
+#[cfg(unix)]
+fn preview_control(cx: &mut App) {
+    use std::time::{Duration, SystemTime};
+    let now = SystemTime::now();
+    crate::control::preview(
+        crate::control::ControlStatus {
+            socket: "/Users/you/Library/Application Support/Lodestone Launcher/control.sock"
+                .into(),
+            running: true,
+            error: None,
+            clients: vec![
+                crate::control::ClientInfo {
+                    connection: (1 << 32) | 3,
+                    name: Some(format!("lodestone-launcher-cli {}", env!("CARGO_PKG_VERSION"))),
+                    pid: Some(48213),
+                    since: now - Duration::from_secs(95),
+                    subscriptions: 1,
+                },
+                crate::control::ClientInfo {
+                    connection: (1 << 32) | 4,
+                    name: None,
+                    pid: None,
+                    since: now - Duration::from_secs(12),
+                    subscriptions: 0,
+                },
+            ],
+        },
+        cx,
+    );
+}
+
+#[cfg(not(unix))]
+fn preview_control(_: &mut App) {}

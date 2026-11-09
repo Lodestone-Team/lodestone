@@ -1345,6 +1345,21 @@ fn refresh_status(cx: &mut App) {
 pub fn status(cx: &App) -> Option<Entity<ControlStatus>> {
     cx.try_global::<Service>()
         .map(|service| service.status.clone())
+        .or_else(|| {
+            cx.try_global::<PreviewStatus>()
+                .map(|preview| preview.0.clone())
+        })
+}
+
+/// A made-up socket state for the offscreen screenshots, which serve no socket.
+struct PreviewStatus(Entity<ControlStatus>);
+
+impl gpui::Global for PreviewStatus {}
+
+/// Shows `status` on the Developer page, for the offscreen screenshots.
+pub fn preview(status: ControlStatus, cx: &mut App) {
+    let status = cx.new(|_| status);
+    cx.set_global(PreviewStatus(status));
 }
 
 /// Closes one client's connection (the Developer page's Disconnect).
