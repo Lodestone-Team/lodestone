@@ -204,6 +204,19 @@ pub fn text(message: M) -> &'static str {
         M::ShareNotSharedBody => "分享碼只包含來自 Modrinth 的內容。如有需要，請另行傳送這些檔案。",
         M::ShareFromCurseForge => "來自 CurseForge",
         M::ShareAddedByHand => "手動加入",
+        M::ShareNotOnModrinth => "不在 Modrinth 上",
+        M::ShareChangedSincePack => "自模組包安裝後已變更",
+        M::ShareUnchecked => "未向 Modrinth 核對",
+        M::ShareBasedOnPack => "基於模組包 {pack}",
+        M::ShareIntroPack => {
+            "另一個 Lodestone Launcher 可以用這個分享碼建立同樣的實例：先安裝模組包，再套用你的變更。"
+        }
+        M::ShareNotSharedBodyPack => {
+            "模組包內附的檔案會隨之而來，但這些檔案不會原樣送達。如有需要，請另行傳送。"
+        }
+        M::ShareNoChanges => "未變更模組包",
+        M::ShareChanges => "你的變更：{changes}",
+        M::CodePackPreview => "來自 Modrinth 的 {pack}",
         M::ShareMore => "還有 {count} 個",
         M::CopyCode => "複製分享碼",
         M::CodeCopied => "已複製",
@@ -283,6 +296,11 @@ pub fn text(message: M) -> &'static str {
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ShareNotShared => ["有 {count} 個檔案不會被分享"; 2],
+        P::ShareAddedCount => ["加入 {count} 項"; 2],
+        P::ShareRemovedCount => ["移除 {count} 項"; 2],
+        P::ShareChangedCount => ["變更 {count} 項"; 2],
+        P::ShareToggledCount => ["啟用或停用 {count} 項"; 2],
+        P::CodePackChanges => ["+ {count} 項變更"; 2],
         P::LoaderNextStartModsOff => {
             ["{loader} 會在遊戲下次啟動時安裝。已停用 {count} 個模組。"; 2]
         }

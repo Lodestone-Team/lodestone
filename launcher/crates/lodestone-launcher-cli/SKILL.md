@@ -147,17 +147,31 @@ lodestone-launcher-cli instances duplicate Survival
 lodestone-launcher-cli instances select Survival          # shows it in the window
 lodestone-launcher-cli instances export Survival ./survival.mrpack          # long
 lodestone-launcher-cli instances verify Survival                            # long; downloads missing game files
-lodestone-launcher-cli instances share-code Survival --json | jq -r .code   # an LDS1: share code
+lodestone-launcher-cli instances share-code Survival --json | jq -r .code   # an LDS1:/LDS2: share code
 lodestone-launcher-cli instances import-code "$CODE" --name "Friend's pack" # long; a new instance
 lodestone-launcher-cli instances delete Survival --yes
 ```
 
-A share code (`LDS1:…`, a few KB for hundreds of mods) holds the Minecraft version,
-the loader and its version, and the exact Modrinth versions of the mods, resource
-packs (in order) and shader packs, with which are on. Only Modrinth content is in it:
-`share-code` lists the rest in `left_out` (CurseForge files and files added by hand).
-Tell the user about them before they share the code. `import-code` makes the
-instance, then installs each version; `failed` lists any that are gone from Modrinth.
+A share code holds the Minecraft version, the loader and its version, and exact Modrinth
+versions. There are two kinds:
+
+- `LDS1:…` (a few KB for hundreds of mods): every Modrinth mod, resource pack (in
+  order) and shader pack, with which are on.
+- `LDS2:…` (a few hundred characters): for an instance made from a Modrinth modpack.
+  It names the pack's project and version (`pack` in the JSON), then only what differs
+  from it: Modrinth content added on top, the pack's files removed or turned off/on
+  (`changes`), and the resource packs and shader in use. The pack's own files,
+  including those bundled in it, come with the pack.
+
+Only content that will arrive as it is goes in. `share-code` lists the rest in
+`left_out`, each with a `reason_code`: `added_by_hand`, `not_on_modrinth`,
+`changed_since_pack` (the recipient gets the pack's original), `curseforge` or
+`unchecked` (Modrinth couldn't be asked). Tell the user about them before they share
+the code. `mods`, `resource_packs` and `shader_packs` count what arrives.
+
+`import-code` makes the instance, then installs each version; `failed` lists any that
+are gone from Modrinth. An `LDS2` code is imported like the modpack (the pack is
+downloaded first) and then its changes are applied; it waits like `modpacks install`.
 
 `instances list` gives `instances` (each with `effective_group`: its own group, or with
 automatic groups on, "Fabric (modded)", "Vanilla", "Imported" …), `groups` in sidebar

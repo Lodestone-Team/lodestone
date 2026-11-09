@@ -217,6 +217,19 @@ pub fn text(message: M) -> &'static str {
         }
         M::ShareFromCurseForge => "Depuis CurseForge",
         M::ShareAddedByHand => "Ajouté à la main",
+        M::ShareNotOnModrinth => "Absent de Modrinth",
+        M::ShareChangedSincePack => "Modifié depuis le modpack",
+        M::ShareUnchecked => "Non vérifié auprès de Modrinth",
+        M::ShareBasedOnPack => "Basé sur le modpack {pack}",
+        M::ShareIntroPack => {
+            "Un autre Lodestone Launcher peut recréer cette instance avec ce code\u{a0}: le modpack, puis vos modifications."
+        }
+        M::ShareNotSharedBodyPack => {
+            "Le modpack apporte ses propres fichiers, mais ceux-ci n’arriveront pas tels quels. Envoyez-les à part s’ils sont nécessaires."
+        }
+        M::ShareNoChanges => "Aucune modification du modpack",
+        M::ShareChanges => "Vos modifications\u{a0}: {changes}",
+        M::CodePackPreview => "{pack} depuis Modrinth",
         M::ShareMore => "Et {count} autres",
         M::CopyCode => "Copier le code",
         M::CodeCopied => "Copié",
@@ -311,6 +324,14 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} fichier n’est pas partagé",
             "{count} fichiers ne sont pas partagés",
         ],
+        P::ShareAddedCount => ["{count} ajouté", "{count} ajoutés"],
+        P::ShareRemovedCount => ["{count} retiré", "{count} retirés"],
+        P::ShareChangedCount => ["{count} modifié", "{count} modifiés"],
+        P::ShareToggledCount => [
+            "{count} activé ou désactivé",
+            "{count} activés ou désactivés",
+        ],
+        P::CodePackChanges => ["+ {count} modification", "+ {count} modifications"],
         P::LoaderNextStartModsOff => [
             "{loader} s’installera au prochain démarrage du jeu. {count}\u{a0}mod a été désactivé.",
             "{loader} s’installera au prochain démarrage du jeu. {count}\u{a0}mods ont été désactivés.",

@@ -8,10 +8,11 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use gpui::{AppContext as _, Context, SharedString, Task};
 use launcher_core::{
     content::{
-        Modrinth, Platforms,
+        InstanceDirs, Modrinth, Platforms, Target,
         curseforge::{CfFile, CfMod},
         curseforge_install::CfPlannedFile,
         install::InstallProgress,
+        share::{self, ShareCode, ShareOutcome},
     },
     game::{download::CancelToken, install::Installer, loaders::LoaderKind},
     instances::{Instance, Loader},
@@ -107,6 +108,30 @@ struct Source {
     name: Option<String>,
     /// A CurseForge pack to download first, with its project (for the icon).
     curseforge: Option<(CfMod, CfFile)>,
+    /// A share code based on a Modrinth modpack: its pack is downloaded, and its
+    /// changes applied to the new instance.
+    share: Option<ShareCode>,
+}
+
+/// The pack's "ready" message, and what of a share code couldn't be installed.
+fn share_message(ready: String, outcome: &ShareOutcome) -> String {
+    if outcome.failed.is_empty() {
+        return ready;
+    }
+    tr!(
+        M::TwoSentences,
+        first = ready,
+        second = tr!(
+            M::ShareCodeNotInstalled,
+            names = crate::i18n::format::list(
+                &outcome
+                    .failed
+                    .iter()
+                    .map(|(title, _)| title.clone())
+                    .collect::<Vec<_>>()
+            )
+        )
+    )
 }
 
 /// The loader the instance gets for a pack, with Forge's list for old Forge builds.
@@ -201,6 +226,7 @@ impl Instances {
                     record: ModpackRecord::default(),
                     name: None,
                     curseforge: None,
+                    share: None,
                 },
                 None,
                 cx,
@@ -239,6 +265,7 @@ impl Instances {
                 record,
                 name,
                 curseforge: Some((project, file)),
+                share: None,
             },
             None,
             cx,
@@ -264,6 +291,7 @@ impl Instances {
                 record,
                 name,
                 curseforge: None,
+                share: None,
             },
             Some(version),
             cx,
@@ -296,28 +324,52 @@ impl Instances {
         self.create(&name, &code.game_version, loader.as_ref(), cx)
     }
 
+    /// Makes an instance from a share code. A code based on a modpack is imported like
+    /// the pack (in the background) and returns no id; otherwise the empty instance is
+    /// made at once and its id returned while its content installs.
     pub fn import_share_code(
         &mut self,
-        code: launcher_core::content::share::ShareCode,
+        code: ShareCode,
         name: Option<String>,
         cx: &mut Context<Self>,
-    ) -> Result<String, String> {
-        use launcher_core::content::share;
+    ) -> Result<Option<String>, String> {
+        if let Some(pack) = &code.pack {
+            if self.modrinth.is_none() {
+                return Err(t(crate::i18n::InstanceSettingsMsg::ModrinthUnreachable).into());
+            }
+            let title = name
+                .or_else(|| code.name.clone())
+                .unwrap_or_else(|| super::share_dialog::pack_label(pack));
+            self.start_import(
+                title.clone(),
+                Source {
+                    pack_path: PathBuf::new(),
+                    downloaded: true,
+                    record: ModpackRecord::default(),
+                    name: Some(title),
+                    curseforge: None,
+                    share: Some(code),
+                },
+                None,
+                cx,
+            );
+            return Ok(None);
+        }
         let instance = self.create_from_share_code(&code, name, cx)?;
         let id = instance.id.clone();
         let name = instance.name.clone();
         if code.items.is_empty() {
-            return Ok(id);
+            return Ok(Some(id));
         }
         let Some(api) = self.modrinth.clone() else {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::ShareCodeContentFailed).into(),
                 message: t(M::ShareCodeOffline).into(),
             });
-            return Ok(id);
+            return Ok(Some(id));
         };
         let (Some(target), dirs) = (self.content_target(&id), self.content_dirs(&id)) else {
-            return Ok(id);
+            return Ok(Some(id));
         };
         self.next_import += 1;
         let job_id = self.next_import;
@@ -380,7 +432,7 @@ impl Instances {
         });
         self.start_import_ticker(cx);
         cx.notify();
-        Ok(id)
+        Ok(Some(id))
     }
 
     fn start_import(
@@ -406,6 +458,14 @@ impl Instances {
             let cancel = cancel.clone();
             cx.background_spawn(async move {
                 let mut source = source;
+                let mut version = version;
+                if let Some(pack) = source.share.as_ref().and_then(|c| c.pack.clone()) {
+                    let (project, found) = share::pack_version(&api, &pack)
+                        .await
+                        .map_err(|err| ModpackError::Invalid(err.to_string()))?;
+                    source.record = ModpackRecord::from_modrinth(&project, &found);
+                    version = Some(found);
+                }
                 if let Some(version) = &version {
                     source.pack_path = import::download_pack(
                         &api,
@@ -495,7 +555,29 @@ impl Instances {
                 if source.downloaded {
                     let _ = std::fs::remove_file(&source.pack_path);
                 }
-                result
+                let (instance, pack, blocked) = result?;
+                // A share code's changes, on top of the pack it is based on.
+                let shared = match &source.share {
+                    Some(code) => {
+                        let dirs = InstanceDirs::new(store.dir(&instance.id));
+                        let target = Target::new(instance.game_version.clone(), instance.loader);
+                        Some(
+                            share::install(
+                                &api,
+                                &downloader,
+                                &dirs,
+                                &target,
+                                code,
+                                &progress,
+                                &cancel,
+                            )
+                            .await
+                            .map_err(|err| err.to_string()),
+                        )
+                    }
+                    None => None,
+                };
+                Ok((instance, pack, blocked, shared))
             })
         };
         let task = cx.spawn(async move |this, cx| {
@@ -503,7 +585,7 @@ impl Instances {
             this.update(cx, |this, cx| {
                 this.imports.retain(|job| job.id != id);
                 match result {
-                    Ok((instance, pack, blocked)) => {
+                    Ok((instance, pack, blocked, shared)) => {
                         this.selected = Some(instance.id.clone());
                         let to_download = blocked.len();
                         if !blocked.is_empty() {
@@ -534,10 +616,20 @@ impl Instances {
                                 second = trn!(P::PackFilesToDownload, to_download)
                             );
                         }
-                        cx.emit(InstancesEvent::Notice {
-                            title: tr!(M::ModpackReady, name = instance.name).into(),
-                            message: message.into(),
-                        });
+                        match shared {
+                            None => cx.emit(InstancesEvent::Notice {
+                                title: tr!(M::ModpackReady, name = instance.name).into(),
+                                message: message.into(),
+                            }),
+                            Some(Ok(outcome)) => cx.emit(InstancesEvent::Notice {
+                                title: tr!(M::ShareCodeReady, name = instance.name).into(),
+                                message: share_message(message, &outcome).into(),
+                            }),
+                            Some(Err(err)) => cx.emit(InstancesEvent::LaunchFailed {
+                                title: t(M::ShareCodeContentFailed).into(),
+                                message: err.into(),
+                            }),
+                        }
                     }
                     Err(ModpackError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {

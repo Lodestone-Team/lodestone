@@ -709,10 +709,7 @@ fn unchanged(
         let Ok(relative) = file.strip_prefix(&path) else {
             return false;
         };
-        let key = format!(
-            "{base}/{}",
-            relative.to_string_lossy().replace('\\', "/")
-        );
+        let key = format!("{base}/{}", relative.to_string_lossy().replace('\\', "/"));
         entry.files.get(&key).is_some_and(|expected| {
             crate::modpack::import::sha1_on_disk(file).is_some_and(|a| a == *expected)
         })
@@ -822,7 +819,9 @@ pub async fn collect(
                 disabled_name(&file.file_name),
             ]
             .into_iter()
-            .find(|n| (kind == ContentKind::Mod || *n == file.file_name) && entries.contains_key(n));
+            .find(|n| {
+                (kind == ContentKind::Mod || *n == file.file_name) && entries.contains_key(n)
+            });
             if let Some(pack_name) = in_pack {
                 seen.insert(pack_name.clone());
                 let pack_entry = &entries[&pack_name];
@@ -945,7 +944,9 @@ pub async fn collect(
         title: shown_text(&r.title, MAX_NAME_CHARS).unwrap_or_default(),
         version_number: shown_text(&r.version_number, 64).unwrap_or_default(),
     });
-    let name = name.and_then(|n| shown_text(&n, MAX_NAME_CHARS)).filter(|n| !n.is_empty());
+    let name = name
+        .and_then(|n| shown_text(&n, MAX_NAME_CHARS))
+        .filter(|n| !n.is_empty());
     Ok(SharePlan {
         changes: pack.is_some().then_some(counts),
         code: ShareCode {
@@ -1092,7 +1093,9 @@ fn apply_pack_changes(
     let of_pack = |path: &str| -> Option<(ContentKind, String)> {
         let kind = pack_path_kind(path)?;
         let (_, name) = path.split_once('/')?;
-        tops[&kind].contains_key(name).then(|| (kind, name.to_string()))
+        tops[&kind]
+            .contains_key(name)
+            .then(|| (kind, name.to_string()))
     };
     for path in &changes.removed {
         let Some((kind, name)) = of_pack(path) else {

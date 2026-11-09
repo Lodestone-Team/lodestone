@@ -1518,22 +1518,70 @@ pub fn share_code(call: Call, cx: &mut App) -> Reply {
         .await
         .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
         let code = plan.code.encode();
+        let changes = &plan.code.changes;
         Ok(json!({
             "code": code,
             "chars": code.len(),
-            "mods": plan.code.count(ContentKind::Mod),
-            "resource_packs": plan.code.count(ContentKind::ResourcePack),
-            "shader_packs": plan.code.count(ContentKind::ShaderPack),
+            // what arrives as it is: with the pack's files, for a code based on a pack
+            "mods": plan.shared(ContentKind::Mod),
+            "resource_packs": plan.shared(ContentKind::ResourcePack),
+            "shader_packs": plan.shared(ContentKind::ShaderPack),
+            "pack": pack_json(&plan.code),
+            "changes": plan.changes.as_ref().map(|counts| json!({
+                "added": counts.added,
+                "removed": counts.removed,
+                "changed": counts.changed,
+                "toggled": counts.toggled,
+                "removed_paths": changes.removed,
+                "turned_off": changes.turned_off,
+                "turned_on": changes.turned_on,
+            })),
             "left_out": plan.left_out.iter().map(|item| json!({
                 "kind": kind_name(item.kind),
                 "file": item.file_name,
-                "reason": match item.reason {
-                    share::LeftOutReason::CurseForge => "from CurseForge, which can't be shared",
-                    share::LeftOutReason::NotOnModrinth => "not on Modrinth (added by hand)",
-                },
+                "reason_code": left_out_code(item.reason),
+                "reason": left_out_reason(item.reason),
             })).collect::<Vec<_>>(),
         }))
     })
+}
+
+/// The modpack a code is based on, or null.
+fn pack_json(code: &share::ShareCode) -> Value {
+    match &code.pack {
+        Some(pack) => json!({
+            "project": pack.project,
+            "version": pack.version,
+            "title": pack.title,
+            "version_number": pack.version_number,
+            "changes": code.change_count(),
+        }),
+        None => Value::Null,
+    }
+}
+
+fn left_out_code(reason: share::LeftOutReason) -> &'static str {
+    match reason {
+        share::LeftOutReason::NotOnModrinth => "not_on_modrinth",
+        share::LeftOutReason::AddedByHand => "added_by_hand",
+        share::LeftOutReason::ChangedSincePack => "changed_since_pack",
+        share::LeftOutReason::CurseForge => "curseforge",
+        share::LeftOutReason::Unchecked => "unchecked",
+    }
+}
+
+fn left_out_reason(reason: share::LeftOutReason) -> &'static str {
+    match reason {
+        share::LeftOutReason::NotOnModrinth => "not on Modrinth",
+        share::LeftOutReason::AddedByHand => {
+            "not in the modpack and not on Modrinth (added by hand)"
+        }
+        share::LeftOutReason::ChangedSincePack => {
+            "one of the modpack's files, changed since: the recipient gets the pack's"
+        }
+        share::LeftOutReason::CurseForge => "from CurseForge, which can't be shared",
+        share::LeftOutReason::Unchecked => "not checked with Modrinth yet (offline)",
+    }
 }
 
 #[derive(Deserialize)]
@@ -1553,6 +1601,21 @@ pub fn import_code(call: Call, cx: &mut App) -> Reply {
     };
     let name = params.name.filter(|n| !n.trim().is_empty());
     let control = call.control.clone();
+    if let Some(pack) = &code.pack {
+        // Imported like the modpack, with the code's changes after it.
+        tri!(modrinth(&control, cx));
+        let label = format!(
+            "Installing {} from a share code",
+            crate::instances::share_dialog::pack_label(pack)
+        );
+        let seq = control.notices.borrow().last_seq();
+        let before = last_import(&control, cx);
+        let started = control.instances.update(cx, |instances, cx| {
+            instances.import_share_code(code, name, cx)
+        });
+        tri!(failed(started));
+        return follow_import(&call, before, seq, label, cx);
+    }
     let api = if code.items.is_empty() {
         None
     } else {
