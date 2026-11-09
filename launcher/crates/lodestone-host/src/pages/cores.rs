@@ -53,7 +53,13 @@ enum Step {
     /// The system doesn't trust its certificate: show the fingerprint.
     Trust { url: Url, fingerprint: String },
     /// Signing in to it.
-    SignIn { client: CoreClient, name: String },
+    SignIn {
+        client: CoreClient,
+        name: String,
+        /// How its version differs from this computer's core's.
+        gap: VersionGap,
+        version: String,
+    },
 }
 
 pub struct CoresDialog {
@@ -70,6 +76,37 @@ pub struct CoresDialog {
 }
 
 impl EventEmitter<CoresEvent> for CoresDialog {}
+
+/// How another core's version differs from this computer's core's, as the dashboard's
+/// version check sees it (`VersionMismatch`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VersionGap {
+    Same,
+    /// Only the patch differs: everything should work.
+    Patch,
+    /// The major or minor version differs: some pages may not work.
+    Incompatible,
+}
+
+/// Compares two core versions (`0.5.2`, `0.5.2-beta.1`). Versions that can't be read
+/// count as the same: the core's requests say what fails.
+pub fn version_gap(ours: &str, theirs: &str) -> VersionGap {
+    fn parts(version: &str) -> Option<(u64, u64, u64)> {
+        let core = version.trim().trim_start_matches('v');
+        let core = core.split(['-', '+']).next()?;
+        let mut numbers = core.split('.').map(|n| n.parse::<u64>().ok());
+        Some((numbers.next()??, numbers.next()??, numbers.next()??))
+    }
+    match (parts(ours), parts(theirs)) {
+        (Some(a), Some(b)) if (a.0, a.1) != (b.0, b.1) => VersionGap::Incompatible,
+        (Some(a), Some(b)) if a.2 != b.2 => VersionGap::Patch,
+        _ => VersionGap::Same,
+    }
+}
+
+/// This computer's core's version, kept when the Cores dialog opens on it (the Host
+/// always starts there), to compare other cores with.
+static LOCAL_VERSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// The client for a core at `url`, accepting the certificate trusted for it.
 fn client(url: Url, fingerprint: Option<&str>) -> Result<CoreClient, String> {
@@ -112,6 +149,9 @@ fn remember(address: &str, fingerprint: Option<String>, cx: &mut App) {
 
 impl CoresDialog {
     pub fn new(state: Entity<HostState>, on_local: bool, cx: &mut Context<Self>) -> Self {
+        if on_local && let Ok(mut local) = LOCAL_VERSION.lock() {
+            *local = Some(state.read(cx).info.version.clone());
+        }
         let address = cx.new(|cx| {
             TextInput::new(cx)
                 .with_label(t(CoreMsg::CoreAddress))
@@ -158,9 +198,14 @@ impl CoresDialog {
             async move { probe.info().await },
             move |this, result, _| match result {
                 Ok(info) => {
+                    let ours = LOCAL_VERSION.lock().ok().and_then(|v| v.clone());
+                    let gap =
+                        ours.map_or(VersionGap::Same, |ours| version_gap(&ours, &info.version));
                     this.step = Step::SignIn {
                         client,
                         name: info.core_name,
+                        gap,
+                        version: info.version,
                     }
                 }
                 Err(CoreError::Untrusted {
@@ -361,7 +406,9 @@ impl CoresDialog {
                 )
                 .child(parts::paragraph(t(CoreMsg::FingerprintHelp)))
                 .into_any_element(),
-            Step::SignIn { name, .. } => div()
+            Step::SignIn {
+                name, gap, version, ..
+            } => div()
                 .flex()
                 .flex_col()
                 .gap_3()
@@ -371,6 +418,26 @@ impl CoresDialog {
                         .text_color(ink::text())
                         .child(tr!(CoreMsg::SignInTo, name = name)),
                 )
+                .when(*gap != VersionGap::Same, |this| {
+                    let ours = LOCAL_VERSION
+                        .lock()
+                        .ok()
+                        .and_then(|v| v.clone())
+                        .unwrap_or_default();
+                    let incompatible = *gap == VersionGap::Incompatible;
+                    let color = if incompatible {
+                        colors::YELLOW
+                    } else {
+                        ink::muted()
+                    };
+                    this.child(div().text_size(text::SMALL).text_color(color).child(
+                        if incompatible {
+                            tr!(CoreMsg::VersionIncompatible, theirs = version, ours = ours)
+                        } else {
+                            tr!(CoreMsg::VersionPatch, theirs = version, ours = ours)
+                        },
+                    ))
+                })
                 .child(parts::field(t(CoreMsg::Username), &self.username))
                 .child(parts::field(t(CoreMsg::Password), &self.password))
                 .into_any_element(),
@@ -429,5 +496,21 @@ impl Render for CoresDialog {
                     )),
                 )
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn versions_are_compared_as_the_dashboard_does() {
+        assert_eq!(version_gap("0.5.2", "0.5.2"), VersionGap::Same);
+        assert_eq!(version_gap("0.5.2", "0.5.3-beta.1"), VersionGap::Patch);
+        assert_eq!(version_gap("0.5.2", "0.6.0"), VersionGap::Incompatible);
+        assert_eq!(version_gap("0.5.2", "1.5.2"), VersionGap::Incompatible);
+        assert_eq!(version_gap("v0.5.2", "0.5.2+build"), VersionGap::Same);
+        // unreadable versions don't warn
+        assert_eq!(version_gap("dev", "0.5.2"), VersionGap::Same);
     }
 }

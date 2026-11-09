@@ -61,6 +61,10 @@ pub struct PrefsData {
     /// Other cores connected to before (the dashboard's `cores`), with the certificate
     /// trusted for each. Their sign-ins aren't saved.
     pub cores: Vec<SavedCore>,
+    /// The sidebar's width, dragged (`leftNavSize`), in pixels at 100% zoom.
+    pub sidebar_width: Option<f32>,
+    /// The Files tab's list beside the editor (`fileListSize`).
+    pub file_list_width: Option<f32>,
 }
 
 /// Another core: its address and the HTTPS certificate the user trusted for it.
@@ -85,6 +89,8 @@ impl Default for PrefsData {
             beta_builds: false,
             latest_version: None,
             cores: Vec::new(),
+            sidebar_width: None,
+            file_list_width: None,
         }
     }
 }
@@ -190,6 +196,8 @@ mod tests {
                 address: "https://192.168.1.5:16662".into(),
                 fingerprint: Some("AB:CD".into()),
             }],
+            sidebar_width: Some(260.),
+            file_list_width: Some(340.),
         };
         save(&path, &data).unwrap();
         assert_eq!(load(&path), data);

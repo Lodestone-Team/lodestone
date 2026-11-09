@@ -346,6 +346,30 @@ impl HostApp {
         }
     }
 
+    /// The first run's forms, filled in and sent as a user would (`--owner`, development
+    /// screenshots): the owner account, then the core's name as suggested. Returns the
+    /// step it is on: "owner", "config", "shell" or "waiting".
+    #[cfg(feature = "screenshot")]
+    pub fn onboard_for_screenshot(
+        &mut self,
+        username: &str,
+        password: &str,
+        cx: &mut Context<Self>,
+    ) -> &'static str {
+        match &self.phase {
+            Phase::Owner(form) => {
+                form.update(cx, |form, cx| form.fill_and_submit(username, password, cx));
+                "owner"
+            }
+            Phase::FirstConfig { form, .. } => {
+                form.update(cx, |form, cx| form.submit_for_screenshot(cx));
+                "config"
+            }
+            Phase::Shell(_) => "shell",
+            _ => "waiting",
+        }
+    }
+
     /// Selects the first instance, for the development screenshots.
     pub fn select_first_instance(&mut self, cx: &mut Context<Self>) {
         if let Phase::Shell(shell) = &self.phase {

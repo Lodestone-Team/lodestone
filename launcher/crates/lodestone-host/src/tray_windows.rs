@@ -16,7 +16,8 @@ use windows_sys::Win32::{
     System::LibraryLoader::GetModuleHandleW,
     UI::{
         Shell::{
-            NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW, Shell_NotifyIconW,
+            NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+            NOTIFYICONDATAW, Shell_NotifyIconW,
         },
         WindowsAndMessaging::{
             AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW,
@@ -50,6 +51,32 @@ struct Shared {
 unsafe impl Send for Shared {}
 
 static SHARED: OnceLock<Mutex<Option<Shared>>> = OnceLock::new();
+
+/// The icon's window, once it exists, for notifications.
+static WINDOW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Shows a notification from the icon (a balloon, which Windows 10 and 11 show as a
+/// toast in the notification center). Returns false when there is no icon.
+pub fn notify(title: &str, body: &str) -> bool {
+    let hwnd = WINDOW.load(std::sync::atomic::Ordering::Relaxed);
+    if hwnd == 0 {
+        return false;
+    }
+    let icon = with_shared(|shared| shared.icon).unwrap_or(std::ptr::null_mut());
+    let mut data = icon_data(hwnd as HWND, icon);
+    data.uFlags = NIF_INFO;
+    data.dwInfoFlags = NIIF_INFO;
+    let copy = |into: &mut [u16], text: &str| {
+        let text: Vec<u16> = text.encode_utf16().collect();
+        let len = text.len().min(into.len() - 1);
+        into[..len].copy_from_slice(&text[..len]);
+        into[len] = 0;
+    };
+    copy(&mut data.szInfoTitle, title);
+    copy(&mut data.szInfo, body);
+    // SAFETY: `data` names this process's icon; the shell copies it.
+    unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) != 0 }
+}
 
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
@@ -144,6 +171,7 @@ unsafe extern "system" fn window_proc(
             0
         }
         WM_CLOSE => {
+            WINDOW.store(0, std::sync::atomic::Ordering::Relaxed);
             let data = icon_data(hwnd, std::ptr::null_mut());
             // SAFETY: removes this window's icon, then the window.
             unsafe {
@@ -240,6 +268,7 @@ pub fn install(show: &str, quit: &str, tx: UnboundedSender<TrayCommand>) -> Opti
                     return;
                 }
                 add_icon(hwnd);
+                WINDOW.store(hwnd as usize, std::sync::atomic::Ordering::Relaxed);
                 let _ = ready_tx.send(Some(hwnd as usize));
                 let mut message: MSG = std::mem::zeroed();
                 while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {

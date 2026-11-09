@@ -425,6 +425,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::TrustCertificate => "Approuver le certificat",
         M::SignInTo => "Se connecter à {name}",
+        M::VersionIncompatible => {
+            "Ce core utilise Lodestone Core {theirs}, et celui de cet ordinateur {ours}. Certaines pages risquent de ne pas fonctionner tant que les deux ne sont pas à jour."
+        }
+        M::VersionPatch => "Ce core utilise Lodestone Core {theirs} (cet ordinateur : {ours}).",
         M::SignIn => "Se connecter",
         M::RemoveCore => "Retirer",
         M::RemoteSignedOut => {

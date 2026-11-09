@@ -243,6 +243,18 @@ impl OwnerForm {
         cx.emit(OwnerSubmitted { username, password });
         cx.notify();
     }
+
+    /// Types the owner account and presses Create, for the development screenshots'
+    /// end-to-end run (`--owner`).
+    #[cfg(feature = "screenshot")]
+    pub fn fill_and_submit(&mut self, username: &str, password: &str, cx: &mut Context<Self>) {
+        self.username
+            .update(cx, |input, cx| input.set_text(username.to_string(), cx));
+        for input in [&self.password, &self.confirm] {
+            input.update(cx, |input, cx| input.set_text(password.to_string(), cx));
+        }
+        self.submit(cx);
+    }
 }
 
 impl Render for OwnerForm {
@@ -314,6 +326,12 @@ impl CoreConfigForm {
         self.busy = true;
         cx.emit(CoreConfigSubmitted { name, domain });
         cx.notify();
+    }
+
+    /// Presses Continue with the values shown, for the development screenshots.
+    #[cfg(feature = "screenshot")]
+    pub fn submit_for_screenshot(&mut self, cx: &mut Context<Self>) {
+        self.submit(cx);
     }
 }
 

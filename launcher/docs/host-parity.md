@@ -81,6 +81,64 @@ python3 scripts/host_dev_bundle.py --open             # "Lodestone Host Dev.app"
   `LODESTONE_HOST_DATA_DIR` to temporary folders when running it.
 - Never start a Minecraft server while testing (that accepts Mojang's EULA): test
   power buttons against an unknown instance id, or a fixture instance you don't start.
+- More screenshot flags: `--settings general|users|profile|updates`, `--cores`,
+  `--notifications`, `--create games|basic|server|auto|modpack`, `--demo` (sample data
+  on the Console, Files and Overview), `--find <text>` (the editor's find bar, with
+  `--tab files --demo`), `--degraded` (the "live updates stopped" banner), `--height <px>`.
+  For a run that acts as a user would: `--owner <name>` fills in the first run's forms
+  (the password comes from `LODESTONE_E2E_PASSWORD`), `--share` presses the sidebar's
+  Share on the first instance, and `--control <folder>` keeps the Host running, saving
+  the screenshot every 3 s, until a file named `quit` appears in the folder (a file
+  named `stop-share` presses the Overview's Stop sharing).
+
+### Try it: share a server with a friend (Lodestone Connect)
+
+The owner's goal: download the launcher and the Host, make a server, and send a link
+to friends who join from Lodestone Launcher. This is how it was checked on one Mac, with
+the real connect.lodestone.cc and throwaway folders (never `~/.lodestone` or the
+launcher's real data). No Minecraft server is started: a plain TCP listener stands in
+for the game port.
+
+1. **Build** the core without Deno (`cargo build -p lodestone_core
+   --no-default-features`), then in `launcher/`: `cargo build -p lodestone-host
+   --features screenshot -p lodestone-launcher -p lodestone-launcher-cli`.
+2. **Host, first run.** With `LODESTONE_PATH`, `LODESTONE_HOST_DATA_DIR` and
+   `LODESTONE_HOST_CORE` (`../target/debug/lodestone_core`) set to a new temp folder,
+   run the Host. It asks for the owner account, then the core's name. (Offscreen:
+   `--screenshot first.png --owner alex` with `LODESTONE_E2E_PASSWORD` set.)
+3. **New server.** "New server" › Minecraft › the Server Settings step starts on the
+   newest *release* (not a snapshot) › the last step shows "I agree to the Minecraft
+   EULA", and Create stays off until the user ticks it. A test may not tick it: create
+   the instance through the API instead (`POST /instance/create/MinecraftJavaVanilla`
+   with `accept_eula: false`, the body the dialog sends), on a free port.
+4. **A stand-in for the game.** Listen on that port with a plain TCP echo server (for
+   example a few lines of Python on `127.0.0.1:<port>`).
+5. **Share.** Start the Host with `LODESTONE_CONNECT_ANY_STATE=1` in its environment:
+   the core passes it on, and a debug core then lets friends' game streams reach a
+   stopped server's port (release builds ignore it; normally the port opens only while
+   the server runs, #652). Press Share (sidebar) or "Share with friends" (Overview): the
+   card shows "Sharing" and the `https://connect.lodestone.cc/j/…` link in about 2 s.
+   Keep the link private: anyone with it can join.
+6. **Launcher joins.** Run the dev launcher with `LODESTONE_LAUNCHER_DATA_DIR` set to a
+   temp folder (it runs beside an installed launcher). Opening the link
+   (`lodestone://join?invite=<the https link, percent-encoded>`, which the invite page
+   opens) shows the join dialog: the server's card (name, core, version, loader,
+   state, how this computer reaches it) and the instance to play it with. Without a
+   click: `printf '%s\n' "$LINK" | lodestone-launcher-cli friends join - --no-play`,
+   with the same data folder, answers with the card. The tunnel's game forward is a
+   local port of the launcher's (`lsof -p <launcher pid> -iTCP -sTCP:LISTEN`, the first
+   one): bytes sent to it come back from the echo server.
+7. **The friend appears** on the Host's Overview ("1 friend connected", their address,
+   "over the local network", the ping) within 5 s.
+8. **Stop sharing** in the Host: the card goes back to "Share with friends", and the
+   launcher's saved server says "This invite link has ended" (`friends list`: reason
+   `link_ended`). Quitting the Host while sharing instead makes the launcher say "Your
+   friend isn't sharing this server right now" (`host_offline`) within a few seconds,
+   and the same link works again when the Host starts.
+
+Not covered by this check: clicking through the launcher's join dialog and pressing
+Play (the CLI drives the same code without the window), and two computers on
+different networks (only "local network" connections were seen here).
 
 ## Work packages
 
@@ -156,13 +214,13 @@ shows for a core with the `macros` capability and then says scripting is unavail
   `.claude/skills/publish-host-release/SKILL.md`. No Linux package yet.
 - **Light theme** (§1.8): done (D). `lodestone_ui::theme::palette` maps every `Color`
   to the dashboard's light tokens when the Host turns it on, so components keep naming
-  the dark tokens; the launcher never turns it on. Colours made with `Color::mix` (a
-  switch moving) and opaque `WHITE` (text on accent buttons) aren't mapped. Pages that
-  draw their own colours (charts, the console's palette, the editor) should check
-  `palette::is_light()` where the dashboard has light values of its own.
+  the dark tokens; the launcher never turns it on. `Color::mix` (a switch moving) mixes
+  the light colours while the light theme is on. Opaque `WHITE` (text on accent buttons)
+  isn't mapped. Pages that draw their own colours (charts, the console's palette, the
+  editor) check `palette::is_light()` where the dashboard has light values of its own.
 - **Text editor** (§5): the dashboard uses Monaco; the Host uses `lodestone-ui`'s
-  `TextEditor` (multi-line, virtualized, undo/redo, colours for configuration formats).
-  It has no word wrap and no find and replace yet.
+  `TextEditor` (multi-line, virtualized, undo/redo, colours for configuration formats,
+  find and replace in the Files tab). It has no word wrap yet.
 - **Charts** (§3): `lodestone_ui::components::LineChart` (GPUI `canvas` paths: gaps
   dashed, filled area, grid, hover label), used by the Overview's graphs.
 - **Error messages** of `CoreError` and `ClaimError`: done (D). They name
@@ -170,8 +228,8 @@ shows for a core with the `macros` capability and then says scripting is unavail
 - **The setup key** (done, D): the core no longer writes its first-time setup key to its
   log files; it prints it to the console only, and not at all with `--is-host` (the Host
   makes the owner through the local claim and never needs it).
-- The session token lasts 60 days; a Host left running that long signs in again when
-  the core refuses it (handled by `HostEvent::SignedOut`).
+- The session token lasts 60 days; the Host signs in again when it expires
+  (`HostState::expire_with_token`) or when the core refuses it (`HostEvent::SignedOut`).
 
 ---
 
@@ -226,20 +284,24 @@ Conventions in the code that every area relies on:
 - [x] Route guards — `utils/router/RequireCore.tsx` (no saved cores → `/first_setup`), `RequireToken.tsx`
   (no token → `/login/user/select`), `RequireSetup.tsx` (core `is_setup === false` → `/login/core/first_setup`;
   "lenient": waits ≤1 s for `/info`, then shows the page anyway).
-- [ ] URL state used as app state — `data/BrowserLocationContext.tsx`, `utils/hooks.ts` `useQueryParam`
+- [x] URL state used as app state — `data/BrowserLocationContext.tsx`, `utils/hooks.ts` `useQueryParam`
   - `?instance=<uuid>` selected instance; `?user=<uid>` selected user in settings; `?path=<dir>` file
     browser folder; `?modrinth=<link>` deep link into Mods › Browse (consumed once);
     legacy `?address=&port=&protocol=&apiVersion=` core links (see 1.3).
   - Back/forward history is meaningful (navigate pushes; some setters replace).
-- [ ] Lazy loading / preloading of dashboard chunks after sign-in (not needed natively, but note the
+  - *Host:* Not applicable: the Host has no URLs. What the dashboard keeps in them is the shell's route (the selected instance and tab), Users' own selection, and the Files tab's folder per instance; Mods' `?modrinth=` links don't exist.
+- [x] Lazy loading / preloading of dashboard chunks after sign-in (not needed natively, but note the
   skeleton/loading states each page has) — `pages/index.tsx`, `components/DashboardLayout/LayoutSkeletons.tsx`.
-- [ ] Document title per page: `"<Page> - Lodestone"` style via `common.pageTitle` — every page.
-- [ ] `pages/settings.tsx` legacy tabbed settings page **(dead)**.
+  - *Host:* Not applicable: a native app has no chunks to load; each page shows its own loading state.
+- [x] Document title per page: `"<Page> - Lodestone"` style via `common.pageTitle` — every page.
+  - *Host:* The window's title is the page, then the app ("Console – Survival SMP – Lodestone Host"), set by the shell (`shell/mod.rs`).
+- [x] `pages/settings.tsx` legacy tabbed settings page **(dead)**.
+  - *Host:* Not applicable: dead code in the dashboard.
 
 ### 1.2 Main layout (`components/DashboardLayout/*`)  
 **Package: foundation (done, see the ticks); A: game icons and tooltips.**
 
-- [ ] Top bar — `components/DashboardLayout/TopNav.tsx`
+- [x] Top bar — `components/DashboardLayout/TopNav.tsx`
   - Centred Lodestone logo; click → clears `instance` and `user` params and goes to `/`.
   - DEV badge next to logo + amber bottom border when dev build (`useIsDevBuild`: Next dev server, or Tauri
     `is_debug_build` command) — `utils/tauriUtil.ts`.
@@ -248,6 +310,7 @@ Conventions in the code that every area relies on:
     traffic lights (overlay title bar).
   - "Degraded" banner above the bar when connection status is `degraded`: text + "refresh" link
     (`window.location.reload()`) + "Learn more" (wiki Known-Issues#firefox) — `components/Atoms/TopBanner.tsx`.
+  - *Host:* Logo (to Home), DEV badge and amber line, the bell, the bar moves the window, room for the traffic lights; the "live updates stopped" banner with Reload under it while the connection is degraded (`shell/top_bar.rs`, `shell/mod.rs`).
 - [x] Left sidebar — `components/DashboardLayout/LeftNav.tsx`, `InstanceViewLayout.tsx`
   - Resizable (drag east edge, 200–280 px, persisted `localStorage.leftNavSize`, default 220) —
     `components/Atoms/ResizePanel.tsx`.
@@ -279,7 +342,7 @@ Conventions in the code that every area relies on:
 - [x] Home page — `pages/home.tsx`
   - Placeholder cube image, title + subtitle, "Create a new server" button (only when logged in; disabled
     without `can_create_instance`). Skeleton while user info loads.
-- [ ] Instance tab container — `pages/InstanceTabs/InstanceTabs.tsx`
+- [x] Instance tab container — `pages/InstanceTabs/InstanceTabs.tsx`
   - Heading = tab display title (Mods/Plugins dynamic); Console heading also shows a state label.
   - "Server not found" when URL instance isn't in the list; "Tab not found: <path>" for unknown tab.
   - Per-instance command history provider (§4).
@@ -287,6 +350,7 @@ Conventions in the code that every area relies on:
   - If URL has `instance` and list loaded and instance exists but path isn't `/dashboard…` → go to
     `/dashboard/overview`; if instance missing → `/` (`InstanceViewLayout.tsx`).
   - Selecting `/` clears the selection.
+  - *Host:* The heading is the tab's title (none on the Overview, whose heading is the server's name; Mods/Plugins by game), the Console's with the state label; tab content is at most 896 px wide (1152 px for Console and Files), centred. A selected instance that is gone goes back to Home. Routes are typed, so there is no "Tab not found".
 
 ### 1.3 Cores: selecting, adding, persistence (`pages/index.tsx`, `pages/login/*`)  
 **Package: D.**
@@ -373,11 +437,11 @@ Conventions in the code that every area relies on:
 ### 1.5 Session / token lifecycle (`pages/index.tsx`, `data/EventStream.ts`)  
 **Package: D (the foundation signs in again when the session ends).**
 
-- [ ] Token = JWT (claims `uid`, `exp`), decoded without verification; malformed / no `exp` / no `uid` /
+- [x] Token = JWT (claims `uid`, `exp`), decoded without verification; malformed / no `exp` / no `uid` /
   expired → error toast and sign-out.
-  - *Host:* Not done (D): the Host doesn't read the token's expiry; it signs in again when the core refuses the token (60 days later).
-- [ ] Auto sign-out timer at `exp` with warning toast "Session expired" (toast id `sessionExpired`).
-  - *Host:* Not done (D), as above.
+  - *Host:* `session::token_expiry` reads the token's `exp` (no signature check; the core checks it). A token that isn't a JWT can't occur: the Host gets its tokens from the claim or `/user/login`.
+- [x] Auto sign-out timer at `exp` with warning toast "Session expired" (toast id `sessionExpired`).
+  - *Host:* `HostState` ends the session at `exp` (`expire_with_token`): the Host claims its own core again, or goes back to it from another core with a warning toast.
 - [x] 401 handling: any 401 on a request carrying the current token → re-check `GET /user/info`; if that
   401s → toast "session invalid" and sign out. No refresh tokens.
   - *Host:* Any request refused with 401 ends the session (CoreError::SignedOut, state.rs): the Host claims its own core again, and from another core it goes back to this computer's with a warning toast.
@@ -393,11 +457,11 @@ Conventions in the code that every area relies on:
 ### 1.6 Connection status, reconnect, global dialogs (`DashboardLayout.tsx`, `data/EventStream.ts`, `data/SystemInfo.ts`, `utils/websocket.ts`)  
 **Package: D (the foundation shows the connection in the sidebar).**
 
-- [ ] Connection status state machine `loading | success | degraded | error`:
+- [x] Connection status state machine `loading | success | degraded | error`:
   - `/info` success → success (unless degraded); `/info` failure → error.
   - Event websocket open → success. Websocket failed before opening → probe `GET /user/info`: OK → degraded
     (REST works, WS doesn't); 401 → sign-out path; network error → error; other → degraded.
-  - *Host:* Not done as such (D): the footer shows Connecting, Connected, Reconnecting and Signed out from the event stream; there is no degraded state (a browser's WebSocket limit doesn't apply).
+  - *Host:* `state::Connection`: Connecting, Live, Reconnecting (red: the core doesn't answer), Degraded (yellow: `/user/info` answers but the event stream fails, with the banner and Reload), Signed out. The footer's tooltip shows the address, version, computer, system and uptime.
 - [x] Reconnecting websocket helper: exponential backoff 1 s → max 30 s, reset on open; URL rebuilt each
   attempt; close code 1000 by client stops it — `utils/websocket.ts`.
   - *Host:* launcher_core's LiveStream reconnects by itself (foundation).
@@ -409,10 +473,10 @@ Conventions in the code that every area relies on:
 - [x] **Setup required dialog** (`/info.is_setup === false` while in dashboard): **Set up** (→ first_setup)
   / **Change core**.
   - *Host:* The Host's own core: the first run's owner form (onboarding.rs).
-- [ ] **Version mismatch** (`DASHBOARD_VERSION` vs `/info.version`, semver): different major or minor, or
+- [x] **Version mismatch** (`DASHBOARD_VERSION` vs `/info.version`, semver): different major or minor, or
   core 0.4.x with patch < 4 → danger dialog (core/dashboard versions, "incompatible", wiki Updating link,
   "Continue anyway"); patch-only difference → warning toast top-centre 10 s (id `patchVersionMismatch`).
-  - *Host:* Not done (D): the Host bundles its own core. For another core, an older or newer API shows as request errors; a version check belongs with the Cores dialog.
+  - *Host:* The Host's own core comes with it. For another core, the Cores dialog's sign-in step says when its major or minor version differs from this computer's core (some pages may not work) and, more quietly, when only the patch differs (`pages/cores.rs`, `version_gap`).
 - [x] **Beta thank-you dialog** once per new core version containing "beta" (`localStorage.latestVersion`).
   - *Host:* notifications.rs; the version thanked for is latest_version in settings.json.
 
@@ -434,20 +498,22 @@ Conventions in the code that every area relies on:
 - [x] Bell icon in top bar with red dot when a new fresh notification or any ongoing one arrives; cleared
   on click. Popover 480 px wide, 80 vh: title, "In progress" section, "All notifications" section
   (newest first), skeleton while history loads, empty state.
-  - *Host:* A panel under the bell; the system's notification for a crashed server while the window is in the background, and for a core that can't start (osascript on macOS, notify-send on Linux; none on Windows yet).
+  - *Host:* A panel under the bell; the system's notification for a crashed server while the window is in the background, and for a core that can't start (osascript on macOS, notify-send on Linux, the notification area icon's balloon on Windows, which Windows 10 and 11 show as a toast; `tray_windows.rs` compile-checked for x86_64-pc-windows-msvc, not run).
 - [x] Notification titles produced per event (i18n `shell.event.*`): state transitions per state
   (`Starting/Running/Stopping/Stopped/Error` "<name> is …"), instance warning (+ error toast
   "warningToast"), instance error, players joined/left/both, player chat message, API key created/revoked,
   macro started/detached/stopped (with exit status type), playit runner started/loading/stopped.
-- [ ] Cache side effects of events (fresh only): StateTransition → instance state; InstanceError → state
+- [x] Cache side effects of events (fresh only): StateTransition → instance state; InstanceError → state
   Error; PlayerChange → player list/count; UserCreated → refetch user list; UserDeleted → drop user (self →
   sign out); UsernameChanged / PermissionChanged → update self + list; ApiKeyCreated/Revoked → refetch key
   lists; Macro Started → refetch task+macro lists; Macro Stopped → refetch task+history; Playit runner →
   runner status; ProgressionEnd InstanceCreation → add instance; InstanceDelete → remove instance;
   FSOperationCompleted → success/error toast with core message + refetch that instance's file lists;
   GlobalSettingsChanged → refetch global settings. `FSEvent`, `UserLoggedIn/Out` ignored.
-- [ ] Global toasts (react-toastify): bottom-right, click to close, pause on hover, Zoom transition,
+  - *Host:* `HostState::apply` (instances, players, self, creations, deletions, settings); Users, API keys and Playit.gg refetch on their events; a zip or unzip that finishes shows its toast on any page and the Files tab lists its folder again. Macro events: out of scope (no Deno).
+- [x] Global toasts (react-toastify): bottom-right, click to close, pause on hover, Zoom transition,
   level icon; colours info gray / error red / warning yellow / success green — `pages/_app.tsx`.
+  - *Host:* `lodestone_ui::components::Toasts` (#632), drawn by the shell.
 
 ### 1.8 Theme, language, zoom, keyboard  
 **Package: D.**
@@ -456,8 +522,9 @@ Conventions in the code that every area relies on:
   tabs; applied before first paint; Tauri window theme set to match (`setTheme(null)` for system) —
   `utils/theme.ts`, `components/Settings/AppearanceSetting.tsx` (segmented control with per-option hint).
   - *Host:* prefs.rs saves it in settings.json; the light theme is lodestone_ui::theme::palette (the dashboard's light tokens), and System follows the OS live.
-- [ ] Separate light/dark colour tokens, graph colours, Monaco themes (`lodestone-dark` bg `#26282C`,
+- [x] Separate light/dark colour tokens, graph colours, Monaco themes (`lodestone-dark` bg `#26282C`,
   `lodestone-light` white), console palette per theme — `globals.css`, `light-overrides.css`.
+  - *Host:* `theme::palette` maps every token; the Overview's charts, the console's palette and the editor have light values (#645); colours mixed mid-animation mix the light values (`Color::mix`). Opaque white stays white (text on accent buttons).
 - [x] Languages: English, Français, 简体中文 (zh-Hans), 繁體中文 (zh-Hant); preference `auto` (browser
   languages; zh-TW/HK/MO → Hant) or explicit, `localStorage.language`; `<html lang>` set; plural forms via
   `Intl.PluralRules`; locale-aware number/date/relative-time/bytes/list formatting — `i18n/*`,
@@ -467,10 +534,11 @@ Conventions in the code that every area relies on:
   0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2; persisted `localStorage.lodestone-zoom` —
   `utils/zoom.ts`, `utils/zoomLevels.ts`.
   - *Host:* lodestone-ui's levels (67–200%); saved in settings.json; also on Profile › Appearance.
-- [ ] Other keyboard behaviour: Ctrl/⌘+S saves in file editor; ↑/↓ console command history; Enter saves /
+- [x] Other keyboard behaviour: Ctrl/⌘+S saves in file editor; ↑/↓ console command history; Enter saves /
   Esc cancels inline-edit text fields (`components/EditableTextfield.tsx`); Esc resets a setting input
   (`components/Atoms/Config/InputBox.tsx`); Esc in settings modal closes the narrow-window page list first,
   then the modal; dialogs close on Esc/backdrop except the "new API key" dialog.
+  - *Host:* ⌘/Ctrl+S saves and ⌘/Ctrl+F finds in the editor; ↑/↓ console history; Enter/Esc in inline edits; Esc resets a setting field; dialogs close on Esc.
 
 ---
 
@@ -536,8 +604,9 @@ Conventions in the code that every area relies on:
 - [x] Create: `POST /instance/create/{HandlerGameType}` body `SetupValue {name, description, auto_start,
   restart_on_crash, setting_sections: {sectionId: {settings: {id: {value}}}}}`; failure → toast, dialog
   stays open; success closes dialog; the instance appears through progression events (pill → list).
-- [ ] **Out of scope** (needs Deno). Generic/atom path: `PUT /generic_setup_manifest {url}` and `POST /instance/create_generic
+- [x] **Out of scope** (needs Deno). Generic/atom path: `PUT /generic_setup_manifest {url}` and `POST /instance/create_generic
   {url, setup_value}` exist in code but there's no URL field in the UI **(dead)**. No Docker-instance UI.
+  - *Host:* Not applicable: out of scope (Deno), and dead in the dashboard.
 - [x] Dialog skeleton while code loads (`CreateInstanceFlow.tsx`); Back keeps typed values.
 
 ### 2.4 Create from Modrinth modpack — `components/Instance/Create/ModpackCreateForm.tsx`, `components/Mods/ModrinthSearch.tsx`, `data/Mods.ts`  
@@ -573,7 +642,8 @@ Conventions in the code that every area relies on:
 - [x] In Settings › Danger zone: "Delete" button → danger confirm dialog ("Delete <name>?", cannot be
   undone) → `DELETE /instance/{uuid}`; refetch list, deselect; error toast.
 - [x] Permission: `can_delete_instance` (global) and, for atom instances, owner.
-- [ ] No clone, rename-folder, import-existing, backup or export features exist in the dashboard.
+- [x] No clone, rename-folder, import-existing, backup or export features exist in the dashboard.
+  - *Host:* Not applicable: not in the dashboard.
 
 ---
 
@@ -617,8 +687,9 @@ Conventions in the code that every area relies on:
     `DELETE /instance/{uuid}/share` (the link stops working for good).
   - Messages: `server.share.*` in `i18n/en.ts`.
   - Host: checked against a real core (the card, off) and with sample data (on,
-    friends, hard network); starting a share against the live connect.lodestone.cc
-    service wasn't tried from the tests.
+    friends, hard network), and end to end against the live connect.lodestone.cc with
+    Lodestone Launcher joining (see "Try it: share a server with a friend" above). The
+    sidebar's Share also works while the Overview is already open.
 
 ## 4. Console tab — `components/GameConsole.tsx`, `data/ConsoleStream.ts`, `components/ConsoleLine.tsx`, `utils/consoleFormat.ts`  
 **Package: B.**
@@ -645,8 +716,9 @@ Conventions in the code that every area relies on:
   - Input disabled with message when: no `can_access_instance_console`; atom instance and not owner;
     instance Stopped; stream closed.
 - [x] Empty/no-permission states with server icon graphic; skeleton code lines while loading.
-- [ ] The instance tab container's Console heading with the state label (§1.2): not done,
+- [x] The instance tab container's Console heading with the state label (§1.2): not done,
   the heading is the shell's; the sidebar and the status dot show the state.
+  - *Host:* Done: the Console heading has the state label (§1.2).
 
 ## 5. Files tab — `components/FileViewer/*`, `utils/apis.ts`, `data/FileSystem.ts`  
 **Package: B.**
@@ -715,6 +787,7 @@ Conventions in the code that every area relies on:
   `can_write_instance_file`.
 - [ ] Editor gaps against Monaco: no word wrap (long lines scroll sideways), no find and
   replace, and colours for fewer languages.
+  - *Host:* Find and replace is done: ⌘/Ctrl+F opens a bar over the editor (ignores case, highlights every match, Enter / Shift+Enter or the arrows step through them, Replace and Replace all, Esc closes; `pages/files/find.rs`, `TextEditor::find`, `set_highlights`, `replace`). Still open: word wrap (long lines scroll sideways; the editor lays out one row per line, so wrapping needs its own layout pass) and colours for more languages.
 
 ## 6. Other instance tabs
 
@@ -828,9 +901,10 @@ Conventions in the code that every area relies on:
 ### 6.3 Macros tab — `pages/macros.tsx`, `components/Table.tsx`, `components/ButtonMenu.tsx`  
 **Package: **out of scope** (needs Deno).**
 
-- [ ] Visible only to the owner on cores with the `macros` capability; otherwise "owner only" /
+- [x] Visible only to the owner on cores with the `macros` capability; otherwise "owner only" /
   "no scripting" text. Banner when code execution is disabled (listing, kill and history still work).
-- [ ] Sub-tabs: **Macros**, **Tasks**, **History** (tables with skeleton rows, "No data", zebra rows, per-row
+  - *Host:* Not applicable: out of scope (Deno).
+- [x] Sub-tabs: **Macros**, **Tasks**, **History** (tables with skeleton rows, "No data", zebra rows, per-row
   "…" menu).
   - Macros: `GET /instance/{uuid}/macro/list` → `MacroEntry[]`; columns Name, Last run. Row menu:
     **Run** → `PUT /instance/{uuid}/macro/run/{name}` body `[]` (args); on error toast, refetch global
@@ -838,11 +912,14 @@ Conventions in the code that every area relies on:
   - Tasks: `GET /instance/{uuid}/task/list` → `TaskEntry[]`; columns Name, Created, PID; menu **Kill** →
     `PUT /instance/{uuid}/macro/kill/{pid}`.
   - History: `GET /instance/{uuid}/history/list` → `HistoryEntry[]`; columns Name, Created, Finished, PID.
-- [ ] Macro config dialog: `GET /instance/{uuid}/macro/config/get/{name}` → `GetConfigResponse {config:
+  - *Host:* Not applicable: out of scope (Deno).
+- [x] Macro config dialog: `GET /instance/{uuid}/macro/config/get/{name}` → `GetConfigResponse {config:
   {name: SettingManifest}, message, error}`; renders each setting with the same setting-field controls
   (edits local only); red "config required" note if `error`; **Save** → `POST
   /instance/{uuid}/macro/config/store/{name}` body the config map; failure keeps dialog open.
-- [ ] Lists refetch on macro events and every visit. `MacroCreateForm.tsx` ("create macro") **(dead)**.
+  - *Host:* Not applicable: out of scope (Deno).
+- [x] Lists refetch on macro events and every visit. `MacroCreateForm.tsx` ("create macro") **(dead)**.
+  - *Host:* Not applicable: out of scope (Deno).
 
 ### 6.4 Event Logs tab — `pages/InstanceTabs/InstanceTabs.tsx`  
 **Package: C.**
@@ -855,8 +932,9 @@ Conventions in the code that every area relies on:
 ### 6.5 Players / whitelist / ops / backups / scheduling  
 **Package: nobody (not in the dashboard).**
 
-- [ ] Not present in the dashboard (only the read-only player list on Overview). Any such feature would
+- [x] Not present in the dashboard (only the read-only player list on Overview). Any such feature would
   come only through the core's settings manifest.
+  - *Host:* Not applicable: not in the dashboard.
 
 ### 6.6 Ports  
 **Package: C (through the settings manifest).**
@@ -888,10 +966,11 @@ Conventions in the code that every area relies on:
 
 ## 7. Core / account settings (modal: `components/DashboardLayout/SettingsLayout.tsx`, `SettingsLeftNav.tsx`)
 
-- [ ] Settings modal over the dashboard (full-window below 760 px wide or 559 px tall, with a hamburger page
+- [x] Settings modal over the dashboard (full-window below 760 px wide or 559 px tall, with a hamburger page
   list); left nav groups **Core** (General, Users) and **Account** (Profile), then a **Users** list (owner
   only: avatar, name, "You" tag, sorted self first then name; "Unselect" link). Close button / Esc /
   backdrop → back to the page it was opened from. Clicks on toasts don't close it.
+  - *Host:* Different on purpose: Settings is a page beside the sidebar with tabs (General, Users, Profile, Updates); the owner's user list is on Users. Anything in the sidebar leaves it, so there is no close button.
 
 ### 7.1 Core › General — `pages/settings/CoreSettings.tsx`  
 **Package: D.**
@@ -993,14 +1072,16 @@ Conventions in the code that every area relies on:
   /minecraft_links/{mcUuid}`.
 - [x] Row: Minecraft name, UUID (mono), Remove (confirm). 404 → "core too old". Links are created in
   Lodestone Launcher, not here.
-- [ ] Also used to annotate players (Overview) and console lines with Lodestone usernames.
+- [x] Also used to annotate players (Overview) and console lines with Lodestone usernames.
+  - *Host:* The Overview's players and the console's lines show linked Lodestone usernames.
 
 ### 7.6 Not present  
 **Package: nobody.**
 
-- [ ] No system-stats page (`/system/ram|disk|cpu` hooks and `SystemStat.tsx` exist but are unused
+- [x] No system-stats page (`/system/ram|disk|cpu` hooks and `SystemStat.tsx` exist but are unused
   **(dead)**), no core updater UI, no global event-log page, no extension management, no backup UI.
   Version/info appears only in Core › General › Information and the connection tooltip.
+  - *Host:* Not applicable: not in the dashboard.
 
 ---
 
@@ -1033,24 +1114,29 @@ Conventions in the code that every area relies on:
 ### 8.3 Window — `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`  
 **Package: foundation (done); D: theme and zoom.**
 
-- [ ] Single window `main`, 1100×600, min 1000×550, resizable, title "Lodestone Host", macOS overlay title
+- [x] Single window `main`, 1100×600, min 1000×550, resizable, title "Lodestone Host", macOS overlay title
   bar with hidden title, traffic lights at (16, 21); drag regions provided by the page
   (`core:window:allow-start-dragging`).
-- [ ] OS drag-and-drop into the webview disabled (`dragDropEnabled: false`) so HTML5 file drops work.
+  - *Host:* One window, 1100×700 (min 900×550), resizable, titled "Lodestone Host" (and the page); macOS: transparent title bar, traffic lights in the top bar (`window_options`).
+- [x] OS drag-and-drop into the webview disabled (`dragDropEnabled: false`) so HTML5 file drops work.
+  - *Host:* Not applicable: no web view. Files dropped on the Files tab upload.
 - [x] Close button **hides** the window (prevent_close); app keeps running in the tray. No macOS Dock
   "reopen" handler.
-- [ ] JS permissions: `core:default`, set-theme (window appearance follows dashboard theme), set-webview-zoom
+- [x] JS permissions: `core:default`, set-theme (window appearance follows dashboard theme), set-webview-zoom
   (zoom shortcuts), opener open-url/default-urls (`<a target=_blank>` http(s) links open in system browser).
+  - *Host:* Not applicable: no web view. The window follows the theme, zoom is the Host's own, and links open in the system browser.
 - [x] Debug builds: DEV window icon (non-macOS) / DEV Dock icon set at runtime via AppKit (macOS).
 
 ### 8.4 Serving the dashboard — `main.rs`  
 **Package: not needed (no web view).**
 
-- [ ] Release builds serve the static export via `tauri-plugin-localhost` on the first free port of
+- [x] Release builds serve the static export via `tauri-plugin-localhost` on the first free port of
   16663–16672 (stable origin so localStorage — cores, tokens, settings — survives restarts), else any free
   port; IPC enabled on that URL. Dev builds use `http://localhost:3001`.
-- [ ] `withGlobalTauri: true`, CSP disabled; JS detects Tauri via `window.__TAURI__.core`
+  - *Host:* Not applicable: no web view.
+- [x] `withGlobalTauri: true`, CSP disabled; JS detects Tauri via `window.__TAURI__.core`
   (`utils/tauriUtil.ts`: `tauri`, `useTauri`, `isTauriMacOS`, `setTauriWindowTheme`, `useIsDevBuild`).
+  - *Host:* Not applicable: no web view.
 
 ### 8.5 Tray — `main.rs`  
 **Package: foundation (macOS done); D: Windows and Linux.**
@@ -1084,28 +1170,36 @@ Conventions in the code that every area relies on:
   AppImage…), WiX upgrade code fixed.
   - *Host:* "Lodestone Host.app" keeps the name and `com.lodestone.cc` (a DMG); Windows gets an
     Inno Setup installer, per user. No Linux package (AppImage/deb) yet.
-- [ ] No deep links / URL scheme, no app menu bar, no global shortcuts, no auto-start at login, no
+- [x] No deep links / URL scheme, no app menu bar, no global shortcuts, no auto-start at login, no
   in-app notifications from Rust beyond the startup-failure notification.
-- [ ] Download links (`/file/{key}`) are opened with `window.open(url, '_blank')` — in Host this relies
+  - *Host:* Not applicable: the Host has none of these either, as the Tauri Host.
+- [x] Download links (`/file/{key}`) are opened with `window.open(url, '_blank')` — in Host this relies
   on the opener/webview behaviour; a native app should save files itself.
+  - *Host:* The Host saves downloads itself (a save dialog, through the pinned client).
 
 ---
 
 ## 9. Local storage / persisted client state (checklist for the native settings store)  
 **Package: D (each package stores its own page state through D's settings store).**
 
-- [ ] `address`, `port`, `protocol`, `apiVersion` — current core.
-- [ ] `cores` — saved core list.
-- [ ] `tokens` — `{ "addr:port": token }`.
-- [ ] `latestVersion` — last seen core version (beta dialog).
-- [ ] `leftNavSize` (200–280), `fileListSize`.
+- [x] `address`, `port`, `protocol`, `apiVersion` — current core.
+  - *Host:* Not applicable: the Host starts on this computer's core (§1.3).
+- [x] `cores` — saved core list.
+  - *Host:* prefs.rs `cores` (§1.3).
+- [x] `tokens` — `{ "addr:port": token }`.
+  - *Host:* Not kept, on purpose (§1.3).
+- [x] `latestVersion` — last seen core version (beta dialog).
+  - *Host:* prefs.rs `latest_version`.
+- [x] `leftNavSize` (200–280), `fileListSize`.
+  - *Host:* prefs.rs `sidebar_width` (the sidebar's edge drags, 180–360 px) and `file_list_width`, saved when a drag ends.
 - [x] `coloredConsole` (bool, default true).
   - *Host:* prefs.rs: settings.json in the Host's folder (LODESTONE_HOST_DATA_DIR).
 - [x] `theme` (`system|light|dark`), `language` (`en|fr|zh-Hans|zh-Hant`, absent = auto).
 - [x] `lodestone-zoom` (Host only).
 - [x] `instanceDetailsOpen` (bool).
   - *Host:* The field is in prefs.rs for package A's Details section.
-- [ ] sessionStorage `settingsReturnTo`.
+- [x] sessionStorage `settingsReturnTo`.
+  - *Host:* Not applicable: Settings isn't a modal.
 
 ---
 
@@ -1262,23 +1356,30 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 `ClientEvent {event_inner: EventInner, details, snowflake, level: EventLevel, caused_by: CausedBy}`.
 Event variants the dashboard handles (everything else must at least be tolerated):
 
-- [ ] `InstanceEvent` {instance_uuid, instance_name, instance_event_inner}: `StateTransition {to}`,
+- [x] `InstanceEvent` {instance_uuid, instance_name, instance_event_inner}: `StateTransition {to}`,
   `InstanceWarning {message}`, `InstanceError {message}`, `PlayerChange {player_list, players_joined,
   players_left}`, `PlayerMessage {player, player_message}`; `InstanceOutput` (console only),
   `InstanceInput`, `SystemMessage` (ignored).
-- [ ] `UserEvent` {user_id, user_event_inner}: `UserCreated`, `UserDeleted`, `UsernameChanged
+  - *Host:* `cores/admin/events.rs`; unknown variants read as `Unknown`.
+- [x] `UserEvent` {user_id, user_event_inner}: `UserCreated`, `UserDeleted`, `UsernameChanged
   {new_username}`, `PermissionChanged {new_permissions}`, `ApiKeyCreated {key_id, name}`, `ApiKeyRevoked
   {key_id, name}`; `UserLoggedIn`, `UserLoggedOut` (ignored).
-- [ ] `MacroEvent` {instance_uuid, macro_pid, macro_event_inner}: `Started`, `Detach`, `Stopped
+  - *Host:* As above.
+- [x] `MacroEvent` {instance_uuid, macro_pid, macro_event_inner}: `Started`, `Detach`, `Stopped
   {exit_status: ExitStatus}`.
-- [ ] `ProgressionEvent` {event_id, progression_event_inner}: `ProgressionStart {progression_name, total,
+  - *Host:* Parsed and tolerated; macros are out of scope.
+- [x] `ProgressionEvent` {event_id, progression_event_inner}: `ProgressionStart {progression_name, total,
   inner: ProgressionStartValue (InstanceCreation|InstanceDelete {instance_uuid})}`, `ProgressionUpdate
   {progress_message, progress}`, `ProgressionEnd {success, message, inner: ProgressionEndValue
   (InstanceCreation & InstanceInfo | InstanceDelete {instance_uuid} | FSOperationCompleted {instance_uuid,
   success, message})}`.
-- [ ] `PlayitggRunnerEvent`: `RunnerStarted`, `RunnerLoading`, `RunnerStopped`.
-- [ ] `FSEvent {operation, target}` (ignored).
-- [ ] `GlobalSettingsChanged` (no payload).
+  - *Host:* As above.
+- [x] `PlayitggRunnerEvent`: `RunnerStarted`, `RunnerLoading`, `RunnerStopped`.
+  - *Host:* As above.
+- [x] `FSEvent {operation, target}` (ignored).
+  - *Host:* Tolerated and ignored.
+- [x] `GlobalSettingsChanged` (no payload).
+  - *Host:* The state fetches the settings again.
 
 ### 10.10 Tauri IPC (Host only)
 

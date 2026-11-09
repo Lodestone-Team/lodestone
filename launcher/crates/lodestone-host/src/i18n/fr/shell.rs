@@ -78,6 +78,15 @@ pub fn text(message: M) -> &'static str {
         M::QuitHost => "Quitter Lodestone Host",
         M::DevBadge => "DEV",
         M::CoreVersion => "Version {version}",
+        M::Degraded => "Mises à jour en direct interrompues",
+        M::DegradedBanner => {
+            "Lodestone Host joint le core, mais les mises à jour en direct se sont arrêtées. Ce qui s’affiche n’est peut-être plus à jour."
+        }
+        M::Reload => "Recharger",
+        M::CoreAddress => "Adresse : {address}",
+        M::CoreHost => "Ordinateur : {host}",
+        M::CoreSystem => "Système : {system}",
+        M::CoreUptime => "En marche depuis {uptime}",
     }
 }
 

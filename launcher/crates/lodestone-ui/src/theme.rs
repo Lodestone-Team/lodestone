@@ -28,11 +28,24 @@ impl Color {
 
     /// The colour `t` of the way from `self` to `other` (0.0 is `self`), channel by
     /// channel, alpha included: for animating between two states.
+    ///
+    /// With the light theme on, it mixes the two colours as the light theme draws them:
+    /// a colour between two tokens is no token, so it wouldn't be mapped, and a
+    /// switch moving would flash its dark colours.
     pub fn mix(self, other: Color, t: f32) -> Self {
+        self.mix_in(other, t, palette::is_light())
+    }
+
+    fn mix_in(self, other: Color, t: f32, light: bool) -> Self {
+        let (from, to) = if light {
+            (palette::light(self), palette::light(other))
+        } else {
+            (self, other)
+        };
         let t = t.clamp(0.0, 1.0);
         let channel = |shift: u32| {
-            let a = ((self.0 >> shift) & 0xff) as f32;
-            let b = ((other.0 >> shift) & 0xff) as f32;
+            let a = ((from.0 >> shift) & 0xff) as f32;
+            let b = ((to.0 >> shift) & 0xff) as f32;
             ((a + (b - a) * t).round() as u32) << shift
         };
         Self(channel(24) | channel(16) | channel(8) | channel(0))
@@ -896,6 +909,18 @@ mod tests {
         assert_eq!(palette::light(WHITE), WHITE);
         assert_eq!(palette::light(BLUE_FADED), BLUE_FADED);
         assert_eq!(palette::light(WHITE.opacity(50)), Color::rgba(0x14171C80));
+        // a colour mixed mid-animation mixes the light colours, and stays as it is
+        let mid = GRAY_800.mix_in(GRAY_700, 0.5, true);
+        assert_eq!(
+            mid,
+            palette::light(GRAY_800).mix_in(palette::light(GRAY_700), 0.5, false)
+        );
+        assert_eq!(palette::light(mid), mid);
+        assert_eq!(
+            GRAY_800.mix_in(GRAY_700, 0.0, true),
+            palette::light(GRAY_800)
+        );
+        assert_eq!(GRAY_800.mix_in(GRAY_700, 0.5, false), Color::rgb(0x313339));
         assert_eq!(
             palette::light(GRAY_FADED.opacity(30)).to_hex(),
             light["line"]
