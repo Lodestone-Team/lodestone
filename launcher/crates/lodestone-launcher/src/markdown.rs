@@ -9,8 +9,8 @@ use std::{collections::HashMap, ops::Range, sync::Arc};
 
 use crate::components::RichText;
 use gpui::{
-    AnyElement, FontStyle, HighlightStyle, IntoElement, ObjectFit, RenderImage,
-    SharedString, StrikethroughStyle, StyledText, UnderlineStyle, div, img, prelude::*,
+    AnyElement, FontStyle, HighlightStyle, IntoElement, ObjectFit, RenderImage, SharedString,
+    StrikethroughStyle, StyledText, UnderlineStyle, div, img, prelude::*,
 };
 use launcher_core::markdown::{Block, Inline};
 

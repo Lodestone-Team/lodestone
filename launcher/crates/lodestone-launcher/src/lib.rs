@@ -373,7 +373,9 @@ mod screenshot {
             };
             if let Some(drags) = arg_after("--drag") {
                 for drag in drags.split(';') {
-                    let Some((from, to)) = drag.split_once('>').and_then(|(a, b)| Some((point(a)?, point(b)?)))
+                    let Some((from, to)) = drag
+                        .split_once('>')
+                        .and_then(|(a, b)| Some((point(a)?, point(b)?)))
                     else {
                         continue;
                     };

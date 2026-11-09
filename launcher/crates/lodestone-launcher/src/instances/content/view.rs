@@ -12,7 +12,6 @@ use gpui::{
     Window, div, img, list, prelude::*,
 };
 use launcher_core::{
-    mc_text,
     content::{
         ContentKind,
         listing::Item,
@@ -20,6 +19,7 @@ use launcher_core::{
         shaders::{ShaderLoader, ShaderModOffer},
     },
     instances::Loader,
+    mc_text,
 };
 use lodestone_minecraft::modrinth::{
     ModrinthSearchHit, ModrinthSearchIndex, ModrinthVersionType, RawVersion,
@@ -2011,9 +2011,7 @@ impl ContentView {
                                     div()
                                         .text_color(crate::theme::ink::secondary())
                                         .whitespace_normal()
-                                        .child(RichText::minecraft(
-                                            project.description.clone(),
-                                        )),
+                                        .child(RichText::minecraft(project.description.clone())),
                                 )
                                 .child(
                                     div()

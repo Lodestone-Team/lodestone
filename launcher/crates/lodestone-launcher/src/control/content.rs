@@ -10,7 +10,6 @@ use std::{path::PathBuf, rc::Rc, sync::Arc, time::Duration};
 use gpui::{App, AppContext as _, AsyncApp};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
-    mc_text,
     content::{
         ContentKind, InstanceDirs, Modrinth, Target, files,
         install::{self, InstallOutcome, InstallProgress, InstallRequest},
@@ -21,6 +20,7 @@ use launcher_core::{
     },
     game::download::CancelToken,
     instances::{Instance, Loader},
+    mc_text,
 };
 use lodestone_minecraft::modrinth::{
     ClientProjectType, ClientSearchParams, ModrinthProject, ModrinthSearchIndex,

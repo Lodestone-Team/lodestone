@@ -29,9 +29,8 @@ use gpui::{
     AnyElement, App, Bounds, ClipboardItem, CursorStyle, DispatchPhase, Element, ElementId,
     FontStyle, GlobalElementId, HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId,
     InteractiveElement, IntoElement, KeyBinding, LayoutId, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, SharedString,
-    StrikethroughStyle, Styled, StyledText, UnderlineStyle, Window,
-    actions, anchored, div, fill, point,
+    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, SharedString, StrikethroughStyle,
+    Styled, StyledText, UnderlineStyle, Window, actions, anchored, div, fill, point,
 };
 use launcher_core::mc_text::{self, Formatted};
 use launcher_core::ui_skin::Rgb;
@@ -198,7 +197,11 @@ impl RichText {
 
     /// Text styled by the caller (`text` must be the text `styled` draws), such as a
     /// paragraph of a Markdown description.
-    pub fn styled(id: impl Into<ElementId>, text: impl Into<SharedString>, styled: StyledText) -> Self {
+    pub fn styled(
+        id: impl Into<ElementId>,
+        text: impl Into<SharedString>,
+        styled: StyledText,
+    ) -> Self {
         Self {
             id: id.into(),
             text: text.into(),
@@ -230,7 +233,9 @@ impl RichText {
 /// How a Minecraft style draws in the launcher.
 fn highlight(style: &mc_text::Style) -> HighlightStyle {
     HighlightStyle {
-        color: style.color.map(|rgb| crate::theme::Color::rgb(readable(rgb)).into()),
+        color: style
+            .color
+            .map(|rgb| crate::theme::Color::rgb(readable(rgb)).into()),
         font_weight: style.bold.then(|| weights::BOLD.into()),
         font_style: style.italic.then_some(FontStyle::Italic),
         underline: style.underlined.then(|| UnderlineStyle {
@@ -253,7 +258,9 @@ fn highlight(style: &mc_text::Style) -> HighlightStyle {
 /// on the launcher's panels: black, dark blue and dark grey are made for the game's
 /// lighter backgrounds.
 fn readable(rgb: u32) -> u32 {
-    Rgb(rgb).readable_against(crate::theme::accent::PANEL, 3.0).0
+    Rgb(rgb)
+        .readable_against(crate::theme::accent::PANEL, 3.0)
+        .0
 }
 
 /// The word around `index`: letters, digits and `_`, or a run of spaces, or one
@@ -707,7 +714,10 @@ mod tests {
         // Black, dark blue and dark grey become readable on the panels.
         for dark in [0x000000, 0x0000AA, 0x555555] {
             let lifted = Rgb(readable(dark));
-            assert!(lifted.contrast(crate::theme::accent::PANEL) >= 3.0, "{dark:06x}");
+            assert!(
+                lifted.contrast(crate::theme::accent::PANEL) >= 3.0,
+                "{dark:06x}"
+            );
         }
         let blue = readable(0x0000AA);
         assert!(blue & 0xFF > (blue >> 16) & 0xFF, "still blue: {blue:06x}");
@@ -727,6 +737,7 @@ mod ui_tests {
     };
 
     use super::RichText;
+    use std::ops::Range;
 
     /// A clickable row with selectable text in it.
     struct Row {
@@ -773,7 +784,11 @@ mod ui_tests {
         assert_eq!(clicks.get(), 1, "a selecting drag doesn't click the row");
         cx.simulate_keystrokes("secondary-c");
         let copied = cx.read_from_clipboard().and_then(|item| item.text());
-        assert_eq!(copied.as_deref(), Some("Hello world"), "copied without codes");
+        assert_eq!(
+            copied.as_deref(),
+            Some("Hello world"),
+            "copied without codes"
+        );
 
         // A click outside clears it.
         cx.simulate_click(point(px(450.), px(200.)), none);
@@ -789,7 +804,9 @@ mod ui_tests {
             let opened = self.opened.clone();
             div().w(px(400.)).child(
                 RichText::new("link and more text")
-                    .links(vec![0..4], move |n, _, _| opened.set(Some(n))),
+                    .links(vec![Range { start: 0, end: 4 }], move |n, _, _| {
+                        opened.set(Some(n))
+                    }),
             )
         }
     }

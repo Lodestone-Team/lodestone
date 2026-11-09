@@ -1041,7 +1041,9 @@ impl WorldsView {
                                 .text_color(crate::theme::ink::muted()),
                         )
                         .when_some(world.problem.clone(), |this, problem| {
-                            this.child(small_rich(RichText::new(problem)).text_color(colors::YELLOW_300))
+                            this.child(
+                                small_rich(RichText::new(problem)).text_color(colors::YELLOW_300),
+                            )
                         }),
                 )
                 .child(
