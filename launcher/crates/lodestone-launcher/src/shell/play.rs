@@ -319,59 +319,7 @@ fn placeholder(message: impl Into<SharedString>) -> impl IntoElement {
         .child(message.into())
 }
 
-/// A picker in the bottom bar: a caption over a value.
-fn picker(
-    id: &'static str,
-    caption: &'static str,
-    value: impl Into<SharedString>,
-    enabled: bool,
-) -> impl IntoElement {
-    let value: SharedString = value.into();
-    div()
-        .id(id)
-        .accessible(Role::Label, id, format!("{caption}: {value}"))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_3()
-        // 200 wide when there's room; narrower (the value truncating) when the
-        // window isn't, so the bar never spills under the sidebar.
-        .w(px(200.))
-        .min_w_0()
-        .flex_shrink(1.)
-        .px_3()
-        .py_2()
-        .rounded(radius::LG)
-        .border_1()
-        .border_color(crate::theme::ink::border())
-        .bg(colors::GRAY_800)
-        .surface(SurfaceId::Card)
-        .when(!enabled, |this| this.opacity(0.6))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .text_size(theme::text_size(text::CAPTION))
-                        .font_weight(weights::BOLD.into())
-                        .text_color(crate::theme::ink::muted())
-                        .truncate()
-                        .child(caption.to_uppercase()),
-                )
-                .child(
-                    div()
-                        .truncate()
-                        .font_weight(weights::BOLD.into())
-                        .text_color(crate::theme::ink::text())
-                        .child(value),
-                ),
-        )
-}
-
-/// The bar under the tabs: the instance, Play, and the version.
+/// The bar under the tabs: Play.
 fn play_bar(
     shell: &LauncherShell,
     instance: Option<&Instance>,
@@ -424,12 +372,6 @@ fn play_bar(
         .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_850)
         .surface(SurfaceId::PlayBar)
-        .child(picker(
-            "instance-picker",
-            t(M::PickerInstance),
-            instance.map_or(t(M::NoInstances).to_string(), |i| i.name.clone()),
-            instance.is_some(),
-        ))
         .child(
             div()
                 .flex()
@@ -476,12 +418,4 @@ fn play_bar(
                     )
                 }),
         )
-        .child(picker(
-            "version-picker",
-            t(M::PickerVersion),
-            instance.map_or("—".to_string(), |i| {
-                format!("{} · {}", i.game_version, loader_label(i))
-            }),
-            instance.is_some(),
-        ))
 }

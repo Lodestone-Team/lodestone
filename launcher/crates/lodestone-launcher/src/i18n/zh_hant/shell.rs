@@ -54,8 +54,6 @@ pub fn text(message: M) -> &'static str {
         M::LogsPlaceholder => "有了實例後，日誌會顯示在這裡。",
         M::LinkedTo => "已連結到 {core} 上的 {server}",
         M::LinkedToRemoved => "已連結到 {core} 上的 {server}（該核心已從「伺服器」頁面移除）",
-        M::PickerInstance => "實例",
-        M::PickerVersion => "版本",
         M::NoInstances => "沒有實例",
         M::AndJoin => "並加入 {server}",
         M::PlayWithoutJoining => "開始遊戲但不加入",
