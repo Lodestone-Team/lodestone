@@ -18,19 +18,20 @@ use gpui::{
     prelude::*,
 };
 
-use super::dialog::prefers_reduced_motion;
+use super::dialog::{ENTER, ENTER_REDUCED, SLIDE, ease_out_cubic, prefers_reduced_motion};
 
-/// How long a dialog takes to close, like the dashboard's `leave` transitions
-/// (`ease-in duration-150`).
-pub const EXIT: Duration = Duration::from_millis(150);
-/// The shorter fade, without the slide, when the system asks for reduced motion.
-pub const EXIT_REDUCED: Duration = Duration::from_millis(120);
-/// How far the panel rises while it fades out.
-const SLIDE_OUT: f32 = 10.;
+/// How long a dialog takes to close: as long as it took to open.
+pub const EXIT: Duration = ENTER;
+/// The shorter fade, without the slide, when the system asks for reduced motion: as
+/// long as the reduced entrance.
+pub const EXIT_REDUCED: Duration = ENTER_REDUCED;
+/// How far the panel rises while it fades out: back to where its entrance started.
+const SLIDE_OUT: f32 = SLIDE;
 
-/// A quadratic ease-in, close to the CSS `ease-in` (`cubic-bezier(0.4, 0, 1, 1)`).
-fn ease_in_quad(delta: f32) -> f32 {
-    delta * delta
+/// How far the exit has gone at `progress` (0 to 1), as the entrance played
+/// backwards: the entrance's ease-out, reversed in time, is an ease-in.
+fn exit_easing(progress: f32) -> f32 {
+    1. - ease_out_cubic(1. - progress)
 }
 
 /// Each dialog shown gets a key that no other dialog in the app has, so that a dialog
@@ -311,7 +312,7 @@ fn layer<T>(
         }
     });
 
-    let delta = ease_in_quad(progress);
+    let delta = exit_easing(progress);
     let lift = if shown.reduced { 0. } else { SLIDE_OUT * delta };
     layer
         // The panel is centred in the layer: raising the layer's top edge by twice the
@@ -366,7 +367,7 @@ mod tests {
         presence.close(start, EXIT);
         let progress = |now| presence.shown(now).next().and_then(|(_, _, exit)| exit);
         assert_eq!(progress(start), Some(0.));
-        let half = progress(start + 75 * MS).unwrap();
+        let half = progress(start + EXIT / 2).unwrap();
         assert!((half - 0.5).abs() < 1e-4, "{half}");
         // over: no longer drawn, even before it is dropped
         assert_eq!(progress(start + EXIT), None);
@@ -452,12 +453,28 @@ mod tests {
     }
 
     #[test]
+    fn the_exit_is_the_entrance_backwards() {
+        assert_eq!(EXIT, ENTER);
+        assert_eq!(EXIT_REDUCED, ENTER_REDUCED);
+        // at each point of the exit, the panel is where the entrance had it at the
+        // same time before its end
+        for step in 0..=10 {
+            let t = step as f32 / 10.;
+            let shown_on_exit = 1. - exit_easing(t);
+            let shown_on_entry = ease_out_cubic(1. - t);
+            assert!((shown_on_exit - shown_on_entry).abs() < 1e-6, "{t}");
+        }
+        assert_eq!(exit_easing(0.), 0.);
+        assert_eq!(exit_easing(1.), 1.);
+    }
+
+    #[test]
     fn reduced_exit_is_shorter() {
         let start = Instant::now();
         let mut presence = Presence::new();
         presence.open("a", start, EXIT_REDUCED);
         presence.close(start, EXIT_REDUCED);
-        assert_eq!(shown(&presence, start + 119 * MS), [("a", true)]);
+        assert_eq!(shown(&presence, start + EXIT_REDUCED - MS), [("a", true)]);
         assert!(shown(&presence, start + EXIT_REDUCED).is_empty());
     }
 }

@@ -15,8 +15,7 @@ use gpui::{
 use launcher_core::cores::admin::{
     ClientEvent, EventInner, InstanceState,
     events::{
-        EventLevel, InstanceEventInner, PlayitggRunnerEventInner, ProgressionEndValue,
-        ProgressionEventInner, UserEventInner,
+        EventLevel, InstanceEventInner, ProgressionEndValue, ProgressionEventInner, UserEventInner,
     },
 };
 use lodestone_ui::{
@@ -163,13 +162,6 @@ pub fn describe(event: &ClientEvent) -> Option<(String, String)> {
                 _ => return None,
             }
         }
-        EventInner::PlayitggRunnerEvent(runner) => t(match runner.playitgg_runner_event_inner {
-            PlayitggRunnerEventInner::RunnerStarted => CoreMsg::PlayitStarted,
-            PlayitggRunnerEventInner::RunnerLoading => CoreMsg::PlayitLoading,
-            PlayitggRunnerEventInner::RunnerStopped => CoreMsg::PlayitStopped,
-            PlayitggRunnerEventInner::Unknown => return None,
-        })
-        .to_string(),
         _ => return None,
     };
     Some((title, String::new()))
@@ -274,7 +266,7 @@ pub struct Notifications {
     unseen: bool,
     open: bool,
     /// The thank-you for a beta core, once per version (`DashboardLayout.tsx`).
-    beta: Option<gpui::FocusHandle>,
+    beta: lodestone_ui::components::DialogSlot<Self, gpui::FocusHandle>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -297,16 +289,20 @@ impl Notifications {
         let last = cx
             .try_global::<crate::prefs::Prefs>()
             .and_then(|p| p.data.latest_version.clone());
-        let beta = thank_for_beta(&version, last.as_deref()).then(|| cx.focus_handle());
+        let beta = thank_for_beta(&version, last.as_deref());
         let mut this = Self {
             state,
             list: List::default(),
             history_loaded: false,
             unseen: false,
             open: false,
-            beta,
+            beta: lodestone_ui::components::DialogSlot::new(|this: &mut Self| &mut this.beta),
             _subscriptions: vec![subscription],
         };
+        if beta {
+            let focus = cx.focus_handle();
+            this.beta.open(focus, cx);
+        }
         this.load_history(cx);
         this
     }
@@ -399,7 +395,7 @@ impl Notifications {
     }
 
     fn close_beta(&mut self, cx: &mut Context<Self>) {
-        self.beta = None;
+        self.beta.close(cx);
         let version = self.state.read(cx).info.version.clone();
         crate::prefs::Prefs::update(cx, |p| p.latest_version = Some(version));
     }
@@ -612,17 +608,23 @@ impl Render for Notifications {
             )
             .with_priority(3)
         });
-        let beta = self.beta.clone().map(|focus| {
-            let close = cx.entity().downgrade();
-            crate::pages::parts::overlay(
-                window,
-                lodestone_ui::components::Dialog::new("beta-thanks", t(CoreMsg::BetaTitle), focus)
-                    .on_close(move |_, cx| {
-                        close.update(cx, |this, cx| this.close_beta(cx)).ok();
-                    })
-                    .child(crate::pages::parts::paragraph(t(CoreMsg::BetaBody))),
+        let close = cx.entity().downgrade();
+        let beta = self.beta.render(window, |focus| {
+            let close = close.clone();
+            Some(
+                lodestone_ui::components::Dialog::new(
+                    "beta-thanks",
+                    t(CoreMsg::BetaTitle),
+                    focus.clone(),
+                )
+                .on_close(move |_, cx| {
+                    close.update(cx, |this, cx| this.close_beta(cx)).ok();
+                })
+                .child(crate::pages::parts::paragraph(t(CoreMsg::BetaBody)))
+                .into_any_element(),
             )
         });
+        let beta = lodestone_ui::components::window_layer(window, beta);
         div()
             .relative()
             .flex()

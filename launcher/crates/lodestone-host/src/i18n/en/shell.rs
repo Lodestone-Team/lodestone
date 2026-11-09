@@ -46,7 +46,6 @@ crate::i18n::messages! {
         TabPlugins = "Plugins",
         TabMacros = "Macros",
         TabEventLogs = "Event logs",
-        TabPlayit = "Playit.gg",
         /// The settings and their pages.
         Settings = "Settings",
         SettingsCore = "Core",

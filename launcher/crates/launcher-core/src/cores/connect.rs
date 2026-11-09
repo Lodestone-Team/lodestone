@@ -321,7 +321,6 @@ pub fn server_instance(server: &SharedServer) -> ServerInstance {
         player_count: server.player_count,
         max_player_count: server.max_player_count,
         has_client_pack: Some(server.modpack),
-        playit_address: None,
         listed: false,
     }
 }

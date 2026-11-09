@@ -1,14 +1,15 @@
 //! What the Settings pages (General, Users, Profile) are built from, beyond
 //! `lodestone_ui::components::settings`: a text setting that saves on Enter, the
-//! confirm dialog, a dialog drawn over the whole window, notices, form fields, the
-//! user's avatar, and the "Saved" toast. Work package D.
+//! confirm dialog, notices, form fields, the user's avatar, and the "Saved" toast.
+//! Pages keep their dialogs in a `DialogSlot` (so they fade out when closed) and draw
+//! them over the whole window with `window_layer`. Work package D.
 
 use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, AppContext as _, ClipboardItem, Context, Entity, EventEmitter, FocusHandle,
-    IntoElement, KeyDownEvent, ParentElement, Render, SharedString, Styled, Window, anchored,
-    deferred, div, point, prelude::*,
+    IntoElement, KeyDownEvent, ParentElement, Render, SharedString, Styled, Window, div,
+    prelude::*,
 };
 use lodestone_ui::{
     components::{
@@ -61,18 +62,6 @@ pub fn saved(state: &Entity<HostState>, cx: &mut App) {
 /// Copies `text`. Never put what was copied in a toast: it may be a key.
 pub fn copy(text: &str, cx: &mut App) {
     cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
-}
-
-/// A dialog drawn over the whole window, wherever the page puts it in its tree.
-pub fn overlay(window: &Window, dialog: impl IntoElement) -> AnyElement {
-    let size = window.viewport_size();
-    deferred(
-        anchored()
-            .position(point(gpui::px(0.), gpui::px(0.)))
-            .child(div().w(size.width).h(size.height).relative().child(dialog)),
-    )
-    .with_priority(2)
-    .into_any_element()
 }
 
 /// The dashboard's `ConfirmDialog`: a title, a sentence, and the action with Cancel.

@@ -115,9 +115,7 @@ fn settings_routes_refuse_an_unknown_instance() {
     unknown(block_on(admin.set_auto_start("nope", true)));
     unknown(block_on(admin.delete_instance("nope")));
 
-    // the playit.gg runner isn't running in a new core; its history has no events of
-    // an unknown instance
-    assert_eq!(block_on(admin.playit_running()).ok(), Some(false));
+    // its history has no events of an unknown instance
     assert!(block_on(admin.event_history()).is_ok());
 }
 

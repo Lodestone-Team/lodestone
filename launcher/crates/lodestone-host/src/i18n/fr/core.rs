@@ -16,8 +16,6 @@ pub fn text(message: M) -> &'static str {
         M::DomainHint => {
             "C’est votre IP publique si vous avez configuré une redirection de port. Sinon, laissez tel quel."
         }
-        M::Playit => "Activer l’intégration Playit",
-        M::PlayitHint => "Ouvre les serveurs à Internet sans redirection de port.",
         M::ListPublicly => "Lister les serveurs publiquement",
         M::ListPubliclyHint => {
             "Toute personne qui peut joindre ce core voit les serveurs que vous rendez publics ci-dessous."
@@ -358,9 +356,6 @@ pub fn text(message: M) -> &'static str {
         M::MacroStarted => "Macro {pid} démarrée sur {server}",
         M::MacroDetached => "Macro {pid} détachée sur {server}",
         M::MacroStopped => "Macro {pid} arrêtée sur {server} avec l’état {status}",
-        M::PlayitStarted => "Agent Playitgg démarré !",
-        M::PlayitLoading => "Chargement de l’agent Playitgg…",
-        M::PlayitStopped => "Agent Playitgg arrêté !",
         M::LoadFailed => "Impossible de charger les notifications : {error}",
         M::CoreFallback => "Core",
         M::CoreFailedNotice => "Lodestone Core n’a pas pu démarrer : {error}",

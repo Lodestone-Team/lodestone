@@ -10,8 +10,9 @@ use gpui::{
 use launcher_core::settings::Language;
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, Toggle, segmented,
+        Button, ButtonSize, DialogSlot, Toggle, segmented,
         settings::{self, SettingRow},
+        window_layer,
     },
     i18n::Locale,
     theme::{ink, px, text, zoom},
@@ -64,7 +65,7 @@ pub struct ProfilePage {
     username: Entity<TextSetting>,
     api_keys: Entity<ApiKeysSection>,
     links: Entity<MinecraftLinksSection>,
-    dialog: Option<Entity<AccountDialog>>,
+    dialog: DialogSlot<Self, Entity<AccountDialog>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -103,7 +104,7 @@ impl ProfilePage {
             username,
             api_keys,
             links,
-            dialog: None,
+            dialog: DialogSlot::new(|this: &mut Self| &mut this.dialog),
             _subscriptions: subscriptions,
         }
     }
@@ -136,18 +137,19 @@ impl ProfilePage {
         let uid = state.read(cx).me.uid.clone();
         let (dialog, subscription) = account_dialogs::open(
             move |cx| AccountDialog::change_password(state, uid, cx),
-            |this: &mut Self, event, cx| {
+            |this: &mut Self, dialog, event, cx| {
+                if this.dialog.current() != Some(dialog) {
+                    return;
+                }
                 if matches!(event, AccountDialogEvent::Changed) {
                     parts::saved(&this.state, cx);
                 }
-                this.dialog = None;
-                cx.notify();
+                this.dialog.close(cx);
             },
             cx,
         );
         self._subscriptions.push(subscription);
-        self.dialog = Some(dialog);
-        cx.notify();
+        self.dialog.open(dialog, cx);
     }
 
     fn appearance(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -257,10 +259,11 @@ impl Render for ProfilePage {
                     .into_any_element(),
             ]))
             .into_any_element();
-        let dialog = self
-            .dialog
-            .clone()
-            .map(|dialog| parts::overlay(window, dialog));
+        let dialog = window_layer(
+            window,
+            self.dialog
+                .render(window, |dialog| Some(dialog.clone().into_any_element())),
+        );
         parts::page([
             account,
             self.appearance(cx),

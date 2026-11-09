@@ -326,7 +326,6 @@ async fn only_listed_instances_are_shown_while_the_switch_is_on() {
     assert_eq!(entry["loader_version"], "0.16.14");
     assert_eq!(entry["port"], 25570);
     assert_eq!(entry["state"], "Stopped");
-    assert_eq!(entry["playit_address"], Value::Null);
     assert_eq!(entry["listed"], true);
 
     // only the fields of the contract: no paths, description, owner or settings
@@ -340,7 +339,6 @@ async fn only_listed_instances_are_shown_while_the_switch_is_on() {
             "max_player_count",
             "name",
             "player_count",
-            "playit_address",
             "port",
             "state",
             "uuid"
@@ -403,7 +401,7 @@ async fn each_scope_flag_shows_exactly_its_fields() {
 
     for (flag, fields) in [
         ("status", vec!["max_player_count", "player_count", "state"]),
-        ("address", vec!["playit_address", "port"]),
+        ("address", vec!["port"]),
         ("client_pack", vec!["has_client_pack"]),
     ] {
         let (status, body) = core.set_scope(&core.fabric, json!({ flag: true })).await;
@@ -416,7 +414,7 @@ async fn each_scope_flag_shows_exactly_its_fields() {
         core.set_scope(&core.fabric, json!({ flag: false })).await;
     }
 
-    // the values when shown: counts and the playit address are null when unknown
+    // the values when shown: counts are null when unknown
     core.set_scope(
         &core.fabric,
         json!({ "status": true, "address": true, "client_pack": true }),
@@ -425,7 +423,6 @@ async fn each_scope_flag_shows_exactly_its_fields() {
     let entry = core.public_entry(&core.fabric).await;
     assert_eq!(entry["state"], "Stopped");
     assert_eq!(entry["port"], 25570);
-    assert_eq!(entry["playit_address"], Value::Null);
     assert_eq!(entry["has_client_pack"], true);
     assert!(entry.as_object().unwrap().contains_key("player_count"));
 
@@ -453,7 +450,6 @@ async fn each_scope_flag_shows_exactly_its_fields() {
                 "max_player_count",
                 "name",
                 "player_count",
-                "playit_address",
                 "port",
                 "state",
                 "uuid"

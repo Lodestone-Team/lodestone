@@ -36,11 +36,6 @@ max_player_count?: number | null,
  */
 has_client_pack?: boolean, 
 /**
- * The public address of an active playit.gg tunnel to the game port, `null` when
- * there is none. Scope `address`.
- */
-playit_address?: string | null, 
-/**
  * Whether the instance is listed publicly. Always true on the public route.
  */
 listed: boolean, };

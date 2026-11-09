@@ -153,7 +153,7 @@ helpers at the end), merged often, to keep conflicts small.
 |---|---|---|
 | **A: instances** | instance list polish (icons, tooltips, creation progress), "New server" for every game and the Modrinth modpack flow (§2.1–2.4), the Overview tab (§3) | `pages/create_instance.rs` (and a `pages/create_instance/` folder), `pages/overview.rs`, `cores/admin/instances.rs`, the modpack part of `cores/admin/mods.rs`, `i18n/*/instances.rs` |
 | **B: console and files** | the Console tab (§4), the Files tab with its editor (§5) | `pages/console.rs`, `pages/files.rs` (and folders of the same names), `cores/admin/console.rs`, `cores/admin/files.rs`, `i18n/*/console_files.rs` |
-| **C: instance tabs** | the instance Settings tab with the settings-manifest form, public listing, resource pack and delete (§2.5, §6.1), Mods/Plugins (§6.2), Event logs (§6.4), Playit.gg (§6.7) | `pages/instance_settings.rs`, `pages/mods.rs`, `pages/event_logs.rs`, `pages/playit.rs`, `cores/admin/instance_settings.rs`, `cores/admin/playit.rs`, the mods part of `cores/admin/mods.rs`, `i18n/*/instance.rs` |
+| **C: instance tabs** | the instance Settings tab with the settings-manifest form, public listing, resource pack and delete (§2.5, §6.1), Mods/Plugins (§6.2), Event logs (§6.4) | `pages/instance_settings.rs`, `pages/mods.rs`, `pages/event_logs.rs`, `cores/admin/instance_settings.rs`, the mods part of `cores/admin/mods.rs`, `i18n/*/instance.rs` |
 | **D: core and account** | Settings › General, Users and permissions, Profile, API keys, Minecraft links (§7), notifications (§1.7), connection dialogs and session (§1.5, §1.6), theme, language and zoom settings (§1.8), connecting to other cores (§1.3), the updater (§8.7), the tray on Windows and Linux (§8.5), persisted settings (§9) | `pages/core_settings.rs`, `pages/users.rs`, `pages/profile.rs`, a new `notifications.rs`, `cores/admin/users.rs`, `cores/admin/core_settings.rs`, `tray.rs` (Windows/Linux), `i18n/*/core.rs`; the notification bell's slot in `shell/top_bar.rs` |
 
 *Shared*: `state.rs`, `routes.rs`, `pages/mod.rs`, `shell/*`, `app.rs`,
@@ -279,7 +279,7 @@ Conventions in the code that every area relies on:
     (needs ≥1 saved core else → `/login/core/new`), `/login/core/new` (CoreConnect).
   - Login layout + RequireCore: `/login/core/first_setup` (CoreSetupNew), `/login/core/first_config`
     (CoreConfigNew), `/login/user/select` + `/login/user` (both wrapped in RequireSetup).
-  - Dashboard (RequireCore + RequireToken): `/` (Home) and `/dashboard/{overview|settings|console|files|mods|macros|logs|playitgg}` (InstanceTabs).
+  - Dashboard (RequireCore + RequireToken): `/` (Home) and `/dashboard/{overview|settings|console|files|mods|macros|logs}` (InstanceTabs).
   - `/settings/general`, `/settings/users`, `/settings/profile`: settings **modal** over the page it was
     opened from (that page is still rendered underneath; return path kept in sessionStorage
     `settingsReturnTo`, `utils/settingsReturn.ts`).
@@ -324,13 +324,12 @@ Conventions in the code that every area relies on:
   - Empty state: dashed box "No instance selected" (faExpand icon).
   - Loading skeleton when URL names an instance but list still loading.
   - Instance card (§2.2) then the tab list. Tab visibility rules:
-    - `playitgg` only if `global_settings.playit_enabled`.
     - `macros` only if owner (`canManage`) and core capability `macros` (and capabilities loaded).
     - `mods` only if the game supports mods/plugins (Fabric/Forge → "Mods", Paper/Spigot → "Plugins",
       `utils/mods.ts getModSupport`) **and** user has `can_read_instance_file` on the instance.
     - Tabs + icons (`pages/InstanceTabs/tabList.tsx`): Overview (chart-line), Settings (cog),
-      Console (server), Files (folder), Mods/Plugins (puzzle), Macros (code-compare), Event Logs (inbox),
-      Playit.gg (car-tunnel). Active tab highlighted.
+      Console (server), Files (folder), Mods/Plugins (puzzle), Macros (code-compare), Event Logs (inbox).
+      Active tab highlighted.
 - [x] Footer: core connection status row — `components/DashboardLayout/CoreConnectionStatus.tsx`
   - Icon + core name; colour by status: success (plug-check, green), loading (plug, gray), degraded
     (plug-exclamation, yellow), error (plug-x, red).
@@ -505,15 +504,15 @@ Conventions in the code that every area relies on:
 - [x] Notification titles produced per event (i18n `shell.event.*`): state transitions per state
   (`Starting/Running/Stopping/Stopped/Error` "<name> is …"), instance warning (+ error toast
   "warningToast"), instance error, players joined/left/both, player chat message, API key created/revoked,
-  macro started/detached/stopped (with exit status type), playit runner started/loading/stopped.
+  macro started/detached/stopped (with exit status type).
 - [x] Cache side effects of events (fresh only): StateTransition → instance state; InstanceError → state
   Error; PlayerChange → player list/count; UserCreated → refetch user list; UserDeleted → drop user (self →
   sign out); UsernameChanged / PermissionChanged → update self + list; ApiKeyCreated/Revoked → refetch key
-  lists; Macro Started → refetch task+macro lists; Macro Stopped → refetch task+history; Playit runner →
-  runner status; ProgressionEnd InstanceCreation → add instance; InstanceDelete → remove instance;
+  lists; Macro Started → refetch task+macro lists; Macro Stopped → refetch task+history;
+  ProgressionEnd InstanceCreation → add instance; InstanceDelete → remove instance;
   FSOperationCompleted → success/error toast with core message + refetch that instance's file lists;
   GlobalSettingsChanged → refetch global settings. `FSEvent`, `UserLoggedIn/Out` ignored.
-  - *Host:* `HostState::apply` (instances, players, self, creations, deletions, settings); Users, API keys and Playit.gg refetch on their events; a zip or unzip that finishes shows its toast on any page and the Files tab lists its folder again. Macro events: out of scope (no Deno).
+  - *Host:* `HostState::apply` (instances, players, self, creations, deletions, settings); Users and API keys refetch on their events; a zip or unzip that finishes shows its toast on any page and the Files tab lists its folder again. Macro events: out of scope (no Deno).
 - [x] Global toasts (react-toastify): bottom-right, click to close, pause on hover, Zoom transition,
   level icon; colours info gray / error red / warning yellow / success green — `pages/_app.tsx`.
   - *Host:* `lodestone_ui::components::Toasts` (#632), drawn by the shell.
@@ -676,7 +675,7 @@ Conventions in the code that every area relies on:
   modrinth.com/modpack/<id> if from Modrinth). Rows without value hidden.
   - Host: the open state is kept for the session only, until D's settings store
     (§9 `instanceDetailsOpen`).
-- [x] Ports / playit tunnels are not on Overview (Playit is its own tab, §6.7).
+- [x] Ports are not on Overview.
 - [x] **Share with friends** (Lodestone Connect, added after the inventory) —
   `components/Instance/ShareWithFriends.tsx`, `data/InstanceShare.ts`, core `src/connect.rs`
   - `GET /instance/{uuid}/share` → `InstanceShare` (fails for users who can't manage the
@@ -947,25 +946,10 @@ Conventions in the code that every area relies on:
 - [x] Instance port appears in card/overview/details; editing comes from the settings manifest. Core-wide
   "Open port" UPnP action is in Core settings (§7.1).
 
-### 6.7 Playit.gg tab — `components/PlayitggOverview.tsx`, `components/PlayitggSignupModal.tsx`  
-**Package: C.**
+### 6.7 Tunnel tab (removed)
 
-- [x] Tab only when `global_settings.playit_enabled`. (Core-wide, not per instance.)
-- [x] On open: `POST /playitgg/verify_key` → bool (refetched each visit), `GET /playitgg/cli_is_running`
-  → runner status, `GET /playitgg/get_tunnels` → `PlayitTunnelInfo[]` (failure → empty list).
-- [x] Not verified → signup modal opens automatically: "Generate link" (`GET
-  /playitgg/generate_signup_link` → `{url, claim_code}`) → shows link → "Verify" (re-run verify_key,
-  refetch tunnels). Error toasts.
-- [x] "Playit runner" heading + power button (disabled until verified) toggling `POST
-  /playitgg/start_cli` (status → Loading) / `POST /playitgg/stop_cli` (→ Stopped); status label
-  Stopped/Loading/Started; status also driven by `PlayitggRunnerEvent`s.
-- [x] Tunnels list with refresh icon (spins): name, active dot (green only if active and runner started),
-  public address (click copies), "Local server ip:port"; empty states "No tunnels" / "Not signed up";
-  help link to wiki.
-- Host notes for §6.7 (`pages/playit.rs`): the runner and the tunnels are settings-style
-  cards; the power button is Start/Stop; a tunnel's address is copied with its copy
-  button. A user who isn't the owner sees the core's refusal ("Couldn't load the
-  playit.gg status").
+- Removed from the core, the dashboard and the Host. Players join a friend's server through
+  Lodestone Connect instead (**Share with friends**, §3).
 
 ---
 
@@ -980,7 +964,7 @@ Conventions in the code that every area relies on:
 ### 7.1 Core › General — `pages/settings/CoreSettings.tsx`  
 **Package: D.**
 
-- [x] Data: `GET /global_settings` → `GlobalSettingsData {core_name, safe_mode, domain, playit_enabled,
+- [x] Data: `GET /global_settings` → `GlobalSettingsData {core_name, safe_mode, domain,
   code_execution_enabled, code_execution_locked, allow_lan_http, list_instances_publicly,
   allow_local_claim}`; `GET /info`. Edits only by owner (`is_owner`); others see read-only values.
 - [x] Warning banner when `allow_lan_http` is on (owner/other wording).
@@ -988,7 +972,6 @@ Conventions in the code that every area relies on:
   - Core name: text, not empty, ≤32 → `PUT /global_settings/name`.
   - Public domain/IP: text, may be empty, ≤253, placeholder current address, tooltip → `PUT
     /global_settings/domain`. Used for "Copy IP" everywhere.
-  - Enable Playit.gg toggle → `PUT /global_settings/playit_enabled` then `POST /playitgg/stop_cli`.
 - [x] **Public instances** section (owner, cores that support it): "List instances publicly" toggle →
   `PUT /global_settings/list_instances_publicly`; per-instance Public toggle + Status/Address/Client pack
   checkboxes for every Minecraft Java instance from `GET /public_listing` → `PublicListingOverview` (same
@@ -1255,7 +1238,6 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 | PUT | `/global_settings/safe_mode` | bool | – |
 | PUT | `/global_settings/code_execution` | bool | – |
 | PUT | `/global_settings/allow_lan_http` | bool | – |
-| PUT | `/global_settings/playit_enabled` | bool | – |
 | PUT | `/global_settings/allow_local_claim` | bool | – |
 | PUT | `/global_settings/list_instances_publicly` | bool | – |
 | GET | `/public_listing` | – | `PublicListingOverview` |
@@ -1338,16 +1320,9 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 | GET | `/instance/{uuid}/macro/config/get/{name}` | – | `GetConfigResponse` |
 | POST | `/instance/{uuid}/macro/config/store/{name}` | `{[name]: SettingManifest}` | – |
 
-### 10.8 Playit.gg
+### 10.8 Tunnels (removed)
 
-| Method | Path | Request | Response |
-|---|---|---|---|
-| GET | `/playitgg/generate_signup_link` | – | `PlayitSignupData {url, claim_code}` |
-| POST | `/playitgg/verify_key` | – | bool |
-| POST | `/playitgg/start_cli` | – | – |
-| POST | `/playitgg/stop_cli` | – | – |
-| GET | `/playitgg/cli_is_running` | – | bool |
-| GET | `/playitgg/get_tunnels` | – | `PlayitTunnelInfo[]` |
+The tunnel routes are gone (see §6.7).
 
 ### 10.9 Events (REST + WebSocket)
 
@@ -1378,8 +1353,6 @@ Event variants the dashboard handles (everything else must at least be tolerated
   {progress_message, progress}`, `ProgressionEnd {success, message, inner: ProgressionEndValue
   (InstanceCreation & InstanceInfo | InstanceDelete {instance_uuid} | FSOperationCompleted {instance_uuid,
   success, message})}`.
-  - *Host:* As above.
-- [x] `PlayitggRunnerEvent`: `RunnerStarted`, `RunnerLoading`, `RunnerStopped`.
   - *Host:* As above.
 - [x] `FSEvent {operation, target}` (ignored).
   - *Host:* Tolerated and ignored.

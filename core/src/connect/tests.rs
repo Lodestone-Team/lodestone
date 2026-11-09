@@ -210,7 +210,6 @@ async fn info_streams_reach_only_the_shared_instances_routes() {
     assert_eq!(list["instances"].as_array().unwrap().len(), 1);
     assert_eq!(list["instances"][0]["uuid"], core.fabric.to_string());
     assert!(list["instances"][0].get("port").is_none());
-    assert!(list["instances"][0].get("playit_address").is_none());
 
     // its client pack, as the launcher fetches it
     let (status, _) = info_get(

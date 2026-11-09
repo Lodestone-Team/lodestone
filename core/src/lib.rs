@@ -21,7 +21,7 @@ use crate::{
         instance_macro::get_instance_macro_routes, instance_mods::get_instance_mods_routes,
         instance_players::get_instance_players_routes, instance_server::get_instance_server_routes,
         instance_setup_configs::get_instance_setup_config_routes, modpack::get_modpack_routes,
-        modrinth::get_modrinth_routes, monitor::get_monitor_routes, playitgg::get_playitgg_routes,
+        modrinth::get_modrinth_routes, monitor::get_monitor_routes,
         setup::get_setup_route, system::get_system_routes, users::get_user_routes,
     },
     util::{port_in_use, rand_alphanumeric},
@@ -45,7 +45,6 @@ use global_settings::GlobalSettings;
 use implementations::generic;
 use implementations::minecraft;
 use macro_executor::MacroExecutor;
-use playitgg::utils::{is_valid_secret_key, parse_secret_key};
 use port_manager::PortManager;
 use prelude::GameInstance;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
@@ -120,7 +119,6 @@ mod modrinth;
 mod mods;
 mod output_types;
 mod persist;
-pub mod playitgg;
 mod port_manager;
 pub mod prelude;
 pub mod product;
@@ -196,11 +194,8 @@ pub(crate) mod test_util {
                 Default::default(),
             ))),
             first_time_setup_key: Default::default(),
-            playitgg_key: Default::default(),
             system: Arc::new(Mutex::new(sysinfo::System::new())),
             download_urls: Default::default(),
-            playit_keep_running: Default::default(),
-            playit_signup: Default::default(),
             safe_mode: global_settings.safe_mode_flag(),
             code_execution: code_execution.clone(),
             login_limiter: Default::default(),
@@ -288,14 +283,10 @@ pub struct AppState {
     system: Arc<Mutex<sysinfo::System>>,
     port_manager: Arc<Mutex<PortManager>>,
     first_time_setup_key: Arc<Mutex<Option<String>>>,
-    playitgg_key: Arc<Mutex<Option<String>>>,
     download_urls: Arc<Mutex<HashMap<String, DownloadableFile>>>,
     macro_executor: MacroExecutor,
     sqlite_pool: sqlx::SqlitePool,
     docker_bridge: docker_bridge::DockerBridge,
-    playit_keep_running: Arc<Mutex<Option<Arc<AtomicBool>>>>,
-    /// The playit.gg signup in progress, if any. Only one runs at a time.
-    playit_signup: Arc<std::sync::Mutex<Option<playitgg::PlayitSignupData>>>,
     /// The current safe mode setting, kept in sync by [`GlobalSettings`].
     safe_mode: Arc<AtomicBool>,
     /// The code execution kill switch, kept in sync by [`GlobalSettings`].
@@ -375,7 +366,6 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_global_settings_routes(shared_state.clone()))
         .merge(get_gateway_routes(shared_state.clone()))
         .merge(get_extension_routes(shared_state.clone()))
-        .merge(get_playitgg_routes(shared_state.clone()))
         .merge(get_modrinth_routes(shared_state.clone()))
         .merge(get_instance_mods_routes(shared_state.clone()))
         .merge(get_modpack_routes(shared_state.clone()))
@@ -818,9 +808,8 @@ pub async fn run_with(
     ),
     Error,
 > {
-    // Several crates in the dependency graph enable different rustls crypto providers
-    // (deno_runtime/reqwest/axum-server: aws-lc-rs, playit-api-client: ring), so rustls
-    // cannot pick a process-wide default on its own and `ClientConfig::builder()` /
+    // Crates in the dependency graph can enable different rustls crypto providers, so
+    // rustls may not pick a process-wide default on its own and `ClientConfig::builder()` /
     // `ServerConfig::builder()` would panic (deno's fetch(), the TLS listener). Install
     // aws-lc-rs explicitly before anything touches TLS. Errors only if one is already set.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
@@ -947,20 +936,6 @@ pub async fn run_with(
         None
     };
 
-    // The key is validated against playit.gg in the background (see below) so startup
-    // does not wait on the network.
-    let stored_playitgg_key =
-        match tokio::fs::read_to_string(lodestone_path.join("playit.toml")).await {
-            Ok(playitgg_file) => match parse_secret_key(&playitgg_file) {
-                Ok(key) => key,
-                Err(e) => {
-                    warn!("Ignoring playit.toml: {}", e.source);
-                    None
-                }
-            },
-            Err(_) => None,
-        };
-
     let macro_executor = MacroExecutor::new(
         tx.clone(),
         tokio::runtime::Handle::current(),
@@ -999,11 +974,8 @@ pub async fn run_with(
         up_since: chrono::Utc::now().timestamp(),
         port_manager: Arc::new(Mutex::new(PortManager::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
-        playitgg_key: Arc::new(Mutex::new(None)),
         system: Arc::new(Mutex::new(crate::util::cpu_and_memory_system())),
         download_urls: Arc::new(Mutex::new(HashMap::new())),
-        playit_keep_running: Arc::new(Mutex::new(None)),
-        playit_signup: Arc::new(std::sync::Mutex::new(None)),
         safe_mode: global_settings.safe_mode_flag(),
         code_execution,
         login_limiter: Arc::new(auth::login_limiter::LoginRateLimiter::default()),
@@ -1053,18 +1025,6 @@ pub async fn run_with(
 
     // the core's events, for the owner's debug traces (local only)
     crate::trace::forward_events(shared_state.event_broadcaster.subscribe());
-
-    if let Some(key) = stored_playitgg_key {
-        let playitgg_key = shared_state.playitgg_key.clone();
-        tokio::spawn(async move {
-            if is_valid_secret_key(key.clone()).await {
-                info!("Validated playitgg key");
-                playitgg_key.lock().await.get_or_insert(key);
-            } else {
-                warn!("Could not validate the playit.gg key in playit.toml (invalid key or playit.gg unreachable); playit.gg is disabled until the next start or a new signup");
-            }
-        });
-    }
 
     tokio::spawn(flush_api_keys_periodically(
         shared_state.users_manager.clone(),

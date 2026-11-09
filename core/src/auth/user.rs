@@ -397,7 +397,6 @@ impl User {
             EventInner::ProgressionEvent(progression_event) => {
                 self.can_view_progression_event(progression_event, caused_by)
             }
-            EventInner::PlayitggRunnerEvent(_playitgg_runner_event) => true,
             EventInner::GlobalSettingsChanged => true,
         }
     }

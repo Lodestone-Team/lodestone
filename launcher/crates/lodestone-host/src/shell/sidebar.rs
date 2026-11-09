@@ -63,8 +63,21 @@ pub fn tab_name(tab: InstanceTab, instance: &InstanceInfo) -> &'static str {
         },
         InstanceTab::Macros => ShellMsg::TabMacros,
         InstanceTab::EventLogs => ShellMsg::TabEventLogs,
-        InstanceTab::Playit => ShellMsg::TabPlayit,
     })
+}
+
+/// A tab's icon, as the dashboard's tab list (`pages/InstanceTabs/tabList.tsx`) shows
+/// it beside the name.
+pub fn tab_icon(tab: InstanceTab) -> Icon {
+    match tab {
+        InstanceTab::Overview => Icon::ChartLine,
+        InstanceTab::Settings => Icon::Gear,
+        InstanceTab::Console => Icon::Server,
+        InstanceTab::Files => Icon::Folder,
+        InstanceTab::Mods => Icon::PuzzlePiece,
+        InstanceTab::Macros => Icon::CodeCompare,
+        InstanceTab::EventLogs => Icon::Inbox,
+    }
 }
 
 fn dot(color: Color) -> impl IntoElement {
@@ -308,9 +321,10 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                 .child(selected_block)
                 .child(section(t(ShellMsg::AllInstances)))
                 .children(list)
+                // a row like the others, as the footer's
                 .child(
-                    div().pt(px(8.)).child(
-                        Button::new(
+                    div().pt(px(4.)).child(
+                        ListRow::new(
                             "new-server",
                             if may_create {
                                 t(ShellMsg::NewServer)
@@ -318,9 +332,7 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                                 t(ShellMsg::NoPermission)
                             },
                         )
-                        .variant(ButtonVariant::Ghost)
                         .icon(Icon::SquarePlus)
-                        .full_width()
                         .disabled(!may_create)
                         .on_click(cx.listener(|this, _, _, cx| this.open_create(cx))),
                     ),
@@ -513,6 +525,7 @@ fn selected_card(
                 gpui::SharedString::from(format!("tab-{tab:?}")),
                 tab_name(tab, instance),
             )
+            .icon(tab_icon(tab))
             .selected(selected_tab == Some(tab))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.navigate(

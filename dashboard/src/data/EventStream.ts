@@ -293,40 +293,6 @@ export const useEventStream = () => {
             });
           },
         }),
-      PlayitggRunnerEvent: ({ playitgg_runner_event_inner: event_inner }) => {
-        match(event_inner, {
-          RunnerStarted: () => {
-            if (fresh)
-              queryClient.setQueryData(['playitgg', 'status'], 'Started');
-            dispatch({
-              title: t('shell.event.playitStarted'),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-          RunnerLoading: () => {
-            if (fresh)
-              queryClient.setQueryData(['playitgg', 'status'], 'Loading');
-            dispatch({
-              title: t('shell.event.playitLoading'),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-          RunnerStopped: () => {
-            if (fresh)
-              queryClient.setQueryData(['playitgg', 'status'], 'Stopped');
-            dispatch({
-              title: t('shell.event.playitStopped'),
-              event,
-              type: 'add',
-              fresh,
-            });
-          },
-        });
-      },
       ProgressionEvent: (progressionEvent) => {
         ongoingDispatch({
           event,

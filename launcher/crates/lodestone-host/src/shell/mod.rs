@@ -11,7 +11,7 @@ use gpui::{
 };
 use launcher_core::cores::admin::InstanceState;
 use lodestone_ui::{
-    components::{Tabs, UnderDialogs},
+    components::{DialogSlot, Tabs, UnderDialogs},
     theme::{colors, fonts, ink, layout, px, text, weights},
 };
 
@@ -29,9 +29,9 @@ pub struct HostShell {
     pub state: Entity<HostState>,
     pub route: Route,
     page: Option<(Route, AnyView)>,
-    create: Option<Entity<CreateInstance>>,
+    create: DialogSlot<HostShell, Entity<CreateInstance>>,
     /// The other cores (package D), from the footer's "Change core".
-    cores: Option<Entity<pages::cores::CoresDialog>>,
+    cores: DialogSlot<HostShell, Entity<pages::cores::CoresDialog>>,
     /// The core shown is this computer's (not another one's).
     pub on_local: bool,
     /// Asks to accept the Minecraft EULA when a server doesn't start without it.
@@ -72,8 +72,8 @@ impl HostShell {
             state,
             route: Route::Home,
             page: None,
-            create: None,
-            cores: None,
+            create: DialogSlot::new(|this: &mut HostShell| &mut this.create),
+            cores: DialogSlot::new(|this: &mut HostShell| &mut this.cores),
             on_local: true,
             eula,
             notifications,
@@ -131,15 +131,16 @@ impl HostShell {
         let state = self.state.clone();
         let on_local = self.on_local;
         let dialog = cx.new(|cx| pages::cores::CoresDialog::new(state, on_local, cx));
-        let subscription = cx.subscribe(&dialog, |this, _, event, cx| match event {
+        let subscription = cx.subscribe(&dialog, |this, dialog, event, cx| match event {
             pages::cores::CoresEvent::Close => {
-                this.cores = None;
-                cx.notify();
+                // not one still fading out
+                if this.cores.current() == Some(&dialog) {
+                    this.cores.close(cx);
+                }
             }
         });
         self._subscriptions.push(subscription);
-        self.cores = Some(dialog);
-        cx.notify();
+        self.cores.open(dialog, cx);
     }
 
     pub fn open_create(&mut self, cx: &mut Context<Self>) {
@@ -148,7 +149,7 @@ impl HostShell {
 
     /// The "New server" dialog, if it is open.
     pub fn create_dialog(&self) -> Option<Entity<CreateInstance>> {
-        self.create.clone()
+        self.create.current().cloned()
     }
 
     /// The "New server" dialog, on a Modrinth modpack when `preset` is given.
@@ -165,15 +166,16 @@ impl HostShell {
             }
             dialog
         });
-        let subscription = cx.subscribe(&dialog, |this, _, event, cx| match event {
+        let subscription = cx.subscribe(&dialog, |this, dialog, event, cx| match event {
             CreateInstanceEvent::Close => {
-                this.create = None;
-                cx.notify();
+                // not one still fading out
+                if this.create.current() == Some(&dialog) {
+                    this.create.close(cx);
+                }
             }
         });
         self._subscriptions.push(subscription);
-        self.create = Some(dialog);
-        cx.notify();
+        self.create.open(dialog, cx);
     }
 
     /// Back to Home when the selected instance is gone (deleted, or no longer visible
@@ -468,10 +470,14 @@ impl Render for HostShell {
                             ),
                     ),
             ))
-            .when_some(self.create.clone(), |this, dialog| this.child(dialog))
-            .when_some(self.cores.clone(), |this, dialog| {
-                this.child(div().absolute().inset_0().child(dialog))
-            })
+            .children(
+                self.create
+                    .render(window, |dialog| Some(dialog.clone().into_any_element())),
+            )
+            .children(
+                self.cores
+                    .render(window, |dialog| Some(dialog.clone().into_any_element())),
+            )
             .child(self.eula.clone())
             .child(toasts)
             .min_w(layout::sidebar_width())
