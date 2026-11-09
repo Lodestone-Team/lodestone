@@ -319,6 +319,12 @@ fn placeholder(message: impl Into<SharedString>) -> impl IntoElement {
         .child(message.into())
 }
 
+/// How tall the Play bar and the sidebar's footer are at least (logical pixels at
+/// 100% zoom), so the line along the top of one runs on into the other. Both fit
+/// in it with room to spare: the footer's two links and version, and Play with
+/// "Play without joining" under it.
+pub const BOTTOM_BAR_HEIGHT: f32 = 108.0;
+
 /// The bar under the tabs: Play.
 fn play_bar(
     shell: &LauncherShell,
@@ -365,9 +371,10 @@ fn play_bar(
         .justify_center()
         .gap_6()
         .w_full()
+        .min_h(px(BOTTOM_BAR_HEIGHT))
         .overflow_hidden()
         .px_8()
-        .py_4()
+        .py_1p5()
         .border_t_1()
         .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_850)

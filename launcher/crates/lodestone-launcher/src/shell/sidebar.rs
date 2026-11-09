@@ -247,8 +247,10 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 .flex_col()
                 .items_center()
                 .flex_none()
+                .justify_center()
                 .gap_1()
                 .w_full()
+                .min_h(px(super::play::BOTTOM_BAR_HEIGHT))
                 .py_2()
                 .border_t_1()
                 .border_color(crate::theme::ink::border())
@@ -882,7 +884,8 @@ fn page_link(
         }))
 }
 
-/// Servers and Settings, pinned to the bottom, and the version.
+/// Servers and Settings, pinned to the bottom, and the version. As tall as the
+/// Play bar beside it, so their top lines meet.
 fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let settings_open = shell.settings_open();
     let servers_open = shell.page == Page::Servers;
@@ -890,8 +893,10 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .flex()
         .flex_col()
         .flex_none()
+        .justify_center()
         .gap_1()
         .w_full()
+        .min_h(px(super::play::BOTTOM_BAR_HEIGHT))
         .px_2()
         .py_2()
         .border_t_1()
@@ -941,6 +946,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
             div()
                 .px_2()
                 .text_size(theme::text_size(text::CAPTION))
+                .line_height(theme::line_height(text::CAPTION, leading::NORMAL))
                 .font_weight(weights::MEDIUM.into())
                 .text_color(crate::skin::sidebar_inks().faint)
                 .truncate()
