@@ -2942,6 +2942,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "url",
  "zip",
 ]

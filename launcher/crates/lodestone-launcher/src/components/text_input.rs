@@ -2,14 +2,15 @@
 //!
 //! The editing model, the IME support (`EntityInputHandler`) and the text element are
 //! adapted from GPUI's `examples/input.rs` (Apache-2.0), trimmed to what the launcher
-//! needs. Cursor movement steps over `char`s, not grapheme clusters, which avoids a
-//! dependency on `unicode-segmentation`.
+//! needs. Cursor movement steps over `char`s, not grapheme clusters. Deleting a word
+//! goes by grapheme clusters, so a letter and its combining marks go together.
 
 use crate::theme::px;
 use std::{
     ops::Range,
     time::{Duration, Instant},
 };
+use unicode_segmentation::UnicodeSegmentation as _;
 
 use gpui::{
     App, Bounds, BoxShadow, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler,
@@ -29,6 +30,8 @@ actions!(
     [
         Backspace,
         Delete,
+        DeleteWordBackward,
+        DeleteWordForward,
         Left,
         Right,
         SelectLeft,
@@ -78,6 +81,17 @@ pub(super) fn init(cx: &mut App) {
         KeyBinding::new("end", End, context),
         KeyBinding::new("cmd-left", Home, context),
         KeyBinding::new("cmd-right", End, context),
+    ]);
+    // Deleting a word: Option on macOS, Ctrl on Linux and Windows.
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("alt-backspace", DeleteWordBackward, context),
+        KeyBinding::new("alt-delete", DeleteWordForward, context),
+    ]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([
+        KeyBinding::new("ctrl-backspace", DeleteWordBackward, context),
+        KeyBinding::new("ctrl-delete", DeleteWordForward, context),
     ]);
     cx.bind_keys(secondary);
 }
@@ -301,6 +315,43 @@ impl TextInput {
         self.replace_text_in_range(None, "", window, cx)
     }
 
+    /// Deletes the selection, or back to the start of the word before the cursor.
+    /// A password field is one word: its words would show where the spaces are.
+    fn delete_word_backward(
+        &mut self,
+        _: &DeleteWordBackward,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.selected_range.is_empty() {
+            let start = if self.masked {
+                0
+            } else {
+                previous_word_start(&self.content, self.cursor_offset())
+            };
+            self.select_to(start, window, cx)
+        }
+        self.replace_text_in_range(None, "", window, cx)
+    }
+
+    /// Deletes the selection, or on to the end of the word after the cursor.
+    fn delete_word_forward(
+        &mut self,
+        _: &DeleteWordForward,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.selected_range.is_empty() {
+            let end = if self.masked {
+                self.content.len()
+            } else {
+                next_word_end(&self.content, self.cursor_offset())
+            };
+            self.select_to(end, window, cx)
+        }
+        self.replace_text_in_range(None, "", window, cx)
+    }
+
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             self.replace_text_in_range(None, &text.replace('\n', " "), window, cx);
@@ -444,6 +495,66 @@ fn next_char_boundary(text: &str, offset: usize) -> usize {
         .chars()
         .next()
         .map_or(text.len(), |ch| offset + ch.len_utf8())
+}
+
+/// What a word is made of, for deleting by words: a run of letters, digits and `_`,
+/// or a run of other symbols. Spaces separate words and belong to none.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CharKind {
+    Space,
+    Word,
+    Symbol,
+}
+
+/// The kind of a grapheme cluster, from its first `char`: a letter's combining marks
+/// (an accent, a virama, a Thai tone mark) go with the letter, never on their own.
+fn cluster_kind(cluster: &str) -> CharKind {
+    match cluster.chars().next() {
+        Some(ch) if ch.is_whitespace() => CharKind::Space,
+        Some(ch) if ch.is_alphanumeric() || ch == '_' => CharKind::Word,
+        _ => CharKind::Symbol,
+    }
+}
+
+/// Where Ctrl+Backspace (Option+Backspace on macOS) deletes back to from `offset`: over
+/// any spaces, then over the word or the run of symbols before them, as GTK, Qt and
+/// browsers do. "foo bar|" → "foo |", "foo.bar|" → "foo.|", "foo  |" → "|".
+fn previous_word_start(text: &str, offset: usize) -> usize {
+    let mut clusters = text[..offset].grapheme_indices(true).rev().peekable();
+    while clusters
+        .next_if(|&(_, cluster)| cluster_kind(cluster) == CharKind::Space)
+        .is_some()
+    {}
+    let Some(&(_, first)) = clusters.peek() else {
+        return 0;
+    };
+    let kind = cluster_kind(first);
+    let mut start = offset;
+    while let Some((index, _)) = clusters.next_if(|&(_, cluster)| cluster_kind(cluster) == kind) {
+        start = index;
+    }
+    start
+}
+
+/// Where Ctrl+Delete (Option+Delete on macOS) deletes on to from `offset`: over any
+/// spaces, then over the word or the run of symbols after them. "|foo bar" → "| bar".
+fn next_word_end(text: &str, offset: usize) -> usize {
+    let mut clusters = text[offset..].grapheme_indices(true).peekable();
+    while clusters
+        .next_if(|&(_, cluster)| cluster_kind(cluster) == CharKind::Space)
+        .is_some()
+    {}
+    let Some(&(_, first)) = clusters.peek() else {
+        return text.len();
+    };
+    let kind = cluster_kind(first);
+    while clusters
+        .next_if(|&(_, cluster)| cluster_kind(cluster) == kind)
+        .is_some()
+    {}
+    clusters
+        .peek()
+        .map_or(text.len(), |&(index, _)| offset + index)
 }
 
 /// Converts a UTF-16 offset (as the platform's input methods use) to a byte offset.
@@ -658,6 +769,8 @@ impl Render for TextInput {
                         .cursor(CursorStyle::IBeam)
                         .on_action(cx.listener(Self::backspace))
                         .on_action(cx.listener(Self::delete))
+                        .on_action(cx.listener(Self::delete_word_backward))
+                        .on_action(cx.listener(Self::delete_word_forward))
                         .on_action(cx.listener(Self::left))
                         .on_action(cx.listener(Self::right))
                         .on_action(cx.listener(Self::select_left))
@@ -936,6 +1049,92 @@ mod tests {
         );
     }
 
+    /// Deletes back a word from the `|` in `text`, as Ctrl+Backspace does.
+    fn word_backward(text: &str) -> String {
+        let cursor = text.find('|').unwrap();
+        let text = text.replacen('|', "", 1);
+        let start = previous_word_start(&text, cursor);
+        format!("{}|{}", &text[..start], &text[cursor..])
+    }
+
+    /// Deletes on a word from the `|` in `text`, as Ctrl+Delete does.
+    fn word_forward(text: &str) -> String {
+        let cursor = text.find('|').unwrap();
+        let text = text.replacen('|', "", 1);
+        let end = next_word_end(&text, cursor);
+        format!("{}|{}", &text[..cursor], &text[end..])
+    }
+
+    #[test]
+    fn deleting_back_a_word() {
+        for (before, after) in [
+            ("foo bar|", "foo |"),
+            ("foo bar |", "foo |"),
+            ("foo bar  \t|", "foo |"),
+            ("foo|", "|"),
+            ("|", "|"),
+            ("   |", "|"),
+            ("|foo", "|foo"),
+            ("foo ba|r", "foo |r"),
+            // Symbols are a word of their own, as in GTK, Qt and browsers.
+            ("foo.bar|", "foo.|"),
+            ("foo.|", "foo|"),
+            ("foo...|", "foo|"),
+            ("-Xmx4G -XX:+UseG1GC|", "-Xmx4G -XX:+|"),
+            ("/home/me/.minecraft|", "/home/me/.|"),
+            ("snake_case|", "|"),
+            ("v1.21.1|", "v1.21.|"),
+            // Letters beyond ASCII, and characters of several bytes.
+            ("héllo wörld|", "héllo |"),
+            ("日本語 テキスト|", "日本語 |"),
+            ("a 🙂🙂|", "a |"),
+            ("a🙂|", "a|"),
+            // A letter's combining marks belong to its word: decomposed é, a Thai
+            // tone mark, a Devanagari virama, a Tamil pulli.
+            ("cafe\u{301}|", "|"),
+            ("x cafe\u{301}|", "x |"),
+            ("ไม่|", "|"),
+            ("हिन्दी|", "|"),
+            ("தமிழ்|", "|"),
+            // An emoji joined into one picture is one symbol.
+            ("a 👩\u{200d}💻|", "a |"),
+        ] {
+            assert_eq!(word_backward(before), after, "from {before:?}");
+        }
+    }
+
+    #[test]
+    fn deleting_on_a_word() {
+        for (before, after) in [
+            ("|foo bar", "| bar"),
+            ("| foo bar", "| bar"),
+            ("foo|", "foo|"),
+            ("|", "|"),
+            ("|   ", "|"),
+            ("f|oo bar", "f| bar"),
+            ("|foo.bar", "|.bar"),
+            ("|.bar", "|bar"),
+            ("|-Xmx4G -Xms1G", "|Xmx4G -Xms1G"),
+            ("|héllo wörld", "| wörld"),
+            ("|🙂🙂 a", "| a"),
+            ("|cafe\u{301} x", "| x"),
+            ("|हिन्दी x", "| x"),
+        ] {
+            assert_eq!(word_forward(before), after, "from {before:?}");
+        }
+    }
+
+    #[test]
+    fn word_boundaries_fall_between_chars() {
+        let text = "é🙂 漢字.x cafe\u{301} हिन्दी";
+        for offset in (0..=text.len()).filter(|&o| text.is_char_boundary(o)) {
+            assert!(text.is_char_boundary(previous_word_start(text, offset)));
+            assert!(text.is_char_boundary(next_word_end(text, offset)));
+            assert!(previous_word_start(text, offset) <= offset);
+            assert!(next_word_end(text, offset) >= offset);
+        }
+    }
+
     #[test]
     fn utf16_offsets_round_trip() {
         // 🙂 is two UTF-16 units and four bytes; 漢 is one unit and three bytes.
@@ -952,5 +1151,98 @@ mod tests {
         }
         // Offsets past the end clamp to the end.
         assert_eq!(utf16_to_utf8(text, 99), text.len());
+    }
+}
+
+/// Ctrl+Backspace and Ctrl+Delete (Option on macOS) typed into a field in a test
+/// window. GPUI's test platform comes with its `test-support` feature, which the
+/// `screenshot` feature turns on: `cargo test -p lodestone-launcher --features screenshot`.
+#[cfg(all(test, feature = "screenshot"))]
+mod keystroke_tests {
+    use gpui::{Entity, Focusable as _, TestAppContext, VisualTestContext};
+
+    use super::TextInput;
+
+    /// The word-delete modifier of the platform the tests run on.
+    const WORD: &str = if cfg!(target_os = "macos") {
+        "alt"
+    } else {
+        "ctrl"
+    };
+
+    fn field<'a>(
+        text: &str,
+        masked: bool,
+        cx: &'a mut TestAppContext,
+    ) -> (Entity<TextInput>, &'a mut VisualTestContext) {
+        cx.update(crate::components::init);
+        let text = text.to_string();
+        let (input, cx) = cx.add_window_view(move |_, cx| {
+            let input = TextInput::new(cx).with_text(text);
+            if masked { input.with_masked() } else { input }
+        });
+        cx.update(|window, cx| {
+            let handle = input.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+        });
+        cx.run_until_parked();
+        (input, cx)
+    }
+
+    fn text(input: &Entity<TextInput>, cx: &mut VisualTestContext) -> String {
+        input.read_with(cx, |input, _| input.text().to_string())
+    }
+
+    #[test]
+    fn word_backspace_deletes_back_a_word() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("-Xmx4G -XX:+UseG1GC", false, &mut cx);
+        cx.simulate_keystrokes(&format!("{WORD}-backspace"));
+        assert_eq!(text(&input, cx), "-Xmx4G -XX:+");
+        cx.simulate_keystrokes(&format!("{WORD}-backspace"));
+        assert_eq!(text(&input, cx), "-Xmx4G -XX");
+        cx.simulate_keystrokes(&format!("{WORD}-backspace {WORD}-backspace"));
+        assert_eq!(text(&input, cx), "-Xmx4G ");
+        // Plain Backspace still deletes one character.
+        cx.simulate_keystrokes("backspace");
+        assert_eq!(text(&input, cx), "-Xmx4G");
+    }
+
+    #[test]
+    fn word_delete_deletes_on_a_word() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("foo bar", false, &mut cx);
+        cx.simulate_keystrokes("home");
+        cx.simulate_keystrokes(&format!("{WORD}-delete"));
+        assert_eq!(text(&input, cx), " bar");
+        cx.simulate_keystrokes(&format!("{WORD}-delete"));
+        assert_eq!(text(&input, cx), "");
+    }
+
+    #[test]
+    fn word_backspace_deletes_the_selection_first() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("one two three", false, &mut cx);
+        cx.simulate_keystrokes("shift-left shift-left");
+        cx.simulate_keystrokes(&format!("{WORD}-backspace"));
+        assert_eq!(text(&input, cx), "one two thr");
+    }
+
+    #[test]
+    fn a_password_is_one_word() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("correct horse", true, &mut cx);
+        cx.simulate_keystrokes(&format!("{WORD}-backspace"));
+        assert_eq!(text(&input, cx), "");
+    }
+
+    #[test]
+    fn a_word_delete_undoes() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("foo bar", false, &mut cx);
+        cx.simulate_keystrokes(&format!("{WORD}-backspace"));
+        assert_eq!(text(&input, cx), "foo ");
+        input.update_in(cx, |input, window, cx| input.undo(&crate::Undo, window, cx));
+        assert_eq!(text(&input, cx), "foo bar");
     }
 }
