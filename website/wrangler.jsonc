@@ -1,0 +1,11 @@
+// www.lodestone.cc on Cloudflare Workers: the files in dist (built by
+// build.mjs), plus worker.js for the dashboard's routes. See README.md.
+{
+  "name": "lodestone-website",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  }
+}

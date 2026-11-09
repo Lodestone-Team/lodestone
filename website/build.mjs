@@ -3,11 +3,12 @@
 //   /       the Lodestone Launcher landing page (website/src, copied as is)
 //   /core   the Lodestone Core web dashboard (dashboard/, built with basePath /core)
 //
-// Netlify runs this from website/ (see netlify.toml here). Locally:
+// Cloudflare's build runs this from website/, then deploys dist with
+// wrangler.jsonc. Locally:
 //
 //   node website/build.mjs                  # landing page and dashboard
 //   node website/build.mjs --landing-only   # landing page only, no dashboard build
-//   node website/serve.mjs                  # preview dist with Netlify's redirects
+//   node website/serve.mjs                  # preview dist with the same redirects
 import { execSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -42,8 +43,9 @@ if (downloads !== null) {
 }
 
 if (!landingOnly) {
-  // Netlify starts from a clean checkout; locally, reuse installed modules.
-  if (process.env.NETLIFY || !existsSync(join(dashboardDir, 'node_modules'))) {
+  // CI starts from a clean checkout (Cloudflare's build sets CI); locally,
+  // reuse installed modules.
+  if (process.env.CI || !existsSync(join(dashboardDir, 'node_modules'))) {
     run('npm ci', dashboardDir);
   }
   run('npm run build', dashboardDir, { DASHBOARD_BASE_PATH });
