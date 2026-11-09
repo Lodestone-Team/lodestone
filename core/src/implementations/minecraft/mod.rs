@@ -1217,8 +1217,7 @@ impl TInstance for MinecraftInstance {
 fn is_release(version: &str) -> bool {
     let mut parts = version.split('.');
     let count = parts.clone().count();
-    count >= 2
-        && parts.all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+    count >= 2 && parts.all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
 #[cfg(test)]
@@ -1240,7 +1239,10 @@ mod tests {
             serde_json::json!({ "type": "Enum", "value": "1.21.10" })
         );
         // every version is still offered, snapshots too
-        assert_eq!(version["value_type"]["options"].as_array().unwrap().len(), 5);
+        assert_eq!(
+            version["value_type"]["options"].as_array().unwrap().len(),
+            5
+        );
 
         assert!(is_release("26.1"));
         assert!(is_release("26.1.2"));
