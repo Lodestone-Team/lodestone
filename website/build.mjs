@@ -31,8 +31,9 @@ rmSync(dist, { recursive: true, force: true });
 cpSync(join(websiteDir, 'src'), dist, { recursive: true });
 console.log(`Copied the landing page to ${dist}`);
 
-// Lodestone Core's download count. The page keeps its default (100k+) when a
-// source can't be read, so a GitHub hiccup never fails the deploy.
+// Lodestone Core's download count. Sources that can't be read fall back to
+// their last known counts (see stats.mjs), so a GitHub hiccup never fails the
+// deploy or lowers the number.
 const downloads = await coreDownloads();
 if (downloads !== null) {
   const page = join(dist, 'index.html');

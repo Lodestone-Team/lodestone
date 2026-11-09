@@ -37,7 +37,8 @@ To run it on Cloudflare's own runtime instead, build first, then run
 - **Download count.** The badge above the headline ("109k+ downloads") counts
   Lodestone Core's downloads: pulls of its Docker image plus downloads from its GitHub releases
   (see `stats.mjs`). `build.mjs` works it out on each deploy and writes it into
-  the page; if a source can't be read, the page keeps its default, "100k+". Set
+  the page. A source that can't be read counts as its last known figure (`KNOWN`
+  in `stats.mjs`, raise it now and then), so the number never drops. Set
   `GITHUB_TOKEN` as a build variable in Cloudflare to avoid the API's
   unauthenticated limit.
 - **Screenshots.** `src/images/<view>.webp` (2240×1400) and `<view>-1120.webp`

@@ -58,22 +58,37 @@ export async function releaseDownloads(repo) {
   }
 }
 
-/** The total, or null when any source couldn't be read. */
-export async function coreDownloads() {
+// Each source's count on 2026-11-09. Counts only go up, so when a source can't
+// be read (GitHub rate-limits or blocks some build machines), its last known
+// count still gives a true lower bound. Raise these now and then.
+const KNOWN = {
+  image: 76226,
+  lodestone: 24216,
+  lodestone_core: 3255,
+  lodestone_cli: 5621,
+};
+
+async function count(name, read) {
   try {
-    const [pulls, ...releases] = await Promise.all([
-      imagePulls(),
-      ...RELEASE_REPOS.map(releaseDownloads),
-    ]);
-    const total = pulls + releases.reduce((a, b) => a + b, 0);
-    console.log(
-      `Core downloads: ${total} (image ${pulls}, releases ${RELEASE_REPOS.map((r, i) => `${r} ${releases[i]}`).join(', ')})`
-    );
-    return total;
+    return Math.max(await read(), KNOWN[name]);
   } catch (err) {
-    console.warn(`Couldn't count Core downloads, keeping the page's default: ${err.message}`);
-    return null;
+    console.warn(`Couldn't read ${name} downloads, using ${KNOWN[name]}: ${err.message}`);
+    return KNOWN[name];
   }
+}
+
+/** The total, from live counts where they can be read. */
+export async function coreDownloads() {
+  const sources = [
+    ['image', imagePulls],
+    ...RELEASE_REPOS.map((repo) => [repo, () => releaseDownloads(repo)]),
+  ];
+  const counts = await Promise.all(sources.map(([name, read]) => count(name, read)));
+  const total = counts.reduce((a, b) => a + b, 0);
+  console.log(
+    `Core downloads: ${total} (${sources.map(([name], i) => `${name} ${counts[i]}`).join(', ')})`
+  );
+  return total;
 }
 
 /** 109312 -> "109k+", 1250000 -> "1.2M+". */
