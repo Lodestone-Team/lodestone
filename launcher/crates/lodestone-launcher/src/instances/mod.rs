@@ -553,6 +553,34 @@ impl Instances {
         cx.refresh_windows();
     }
 
+    /// The sidebar's width (logical pixels at 100% zoom) and whether it is folded
+    /// into the rail of icons.
+    pub fn sidebar(&self) -> (f32, bool) {
+        (
+            self.settings
+                .sidebar_width
+                .unwrap_or(crate::theme::layout::SIDEBAR_DEFAULT),
+            self.settings.sidebar_collapsed,
+        )
+    }
+
+    /// Saves the sidebar's width and fold, once a drag ends.
+    pub fn set_sidebar(&mut self, width: f32, collapsed: bool, cx: &mut Context<Self>) {
+        if (width, collapsed) == self.sidebar() {
+            return;
+        }
+        let width = (width != crate::theme::layout::SIDEBAR_DEFAULT).then_some(width);
+        if let Err(err) = self.update_settings(
+            |settings| {
+                settings.sidebar_width = width;
+                settings.sidebar_collapsed = collapsed;
+            },
+            cx,
+        ) {
+            self.notice = Some(err.into());
+        }
+    }
+
     /// The launcher's skins folder.
     pub fn skins(&self) -> launcher_core::ui_skin::SkinStore {
         launcher_core::ui_skin::SkinStore::new(&self.data_dir)

@@ -80,6 +80,40 @@ fn short_status(accounts: &Accounts, account: &Account) -> SharedString {
     }
 }
 
+/// The account box of the folded sidebar: the avatar alone, opening the same menu.
+/// The name shows as a tooltip.
+pub fn render_compact(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let accounts = shell.accounts.read(cx);
+    let active = accounts.active().cloned();
+    let menu_open = shell.account_menu_open;
+    let name: SharedString = match &active {
+        Some(account) => account.username.clone().into(),
+        None => t(CommonMsg::SignIn).into(),
+    };
+    let button = div()
+        .id("account-box")
+        .keyboard_focus()
+        .p_1()
+        .rounded(radius::LG)
+        .border_1()
+        .cursor_pointer()
+        .map(|this| {
+            if menu_open {
+                this.bg(colors::GRAY_800)
+                    .border_color(colors::GRAY_FADED.opacity(30))
+            } else {
+                this.border_color(colors::FADE_700)
+                    .hover(|style| style.bg(colors::GRAY_800))
+            }
+        })
+        .tooltip(crate::components::text_tooltip(name))
+        .on_click(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
+        .child(avatar(accounts, active.as_ref(), px(32.)));
+    div()
+        .child(button)
+        .when(menu_open, |this| this.child(menu(shell, cx)))
+}
+
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let accounts = shell.accounts.read(cx);
     let active = accounts.active().cloned();
