@@ -67,6 +67,7 @@ pub const SCENES: &[&str] = &[
     "new-instance",
     "new-instance-fabric",
     "new-instance-versions",
+    "new-instance-versions-failed",
     "play-progress",
     "playing",
     "logs",
@@ -850,6 +851,17 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                         dialog.open_versions(cx);
                     }
                 });
+            }
+        }
+        "new-instance-versions-failed" => {
+            shell.open_new_instance_with(Some(("Crash Test", "")), None, cx);
+            // as Windows words a refused connection: long, with a URL that can't wrap
+            let error = "could not connect to https://piston-meta.mojang.com/mc/game/version_manifest_v2.json: could not connect: error sending request for url (https://piston-meta.mojang.com/mc/game/version_manifest_v2.json): client error (Connect): tcp connect error: An attempt was made to access a socket in a way forbidden by its access permissions. (os error 10013)";
+            shell.instances().clone().update(cx, |instances, cx| {
+                instances.set_versions(Versions::Failed(error.into()), cx)
+            });
+            if let Some(dialog) = shell.new_instance_dialog().cloned() {
+                dialog.update(cx, |dialog, cx| dialog.open_versions(cx));
             }
         }
         "new-instance-code" => {

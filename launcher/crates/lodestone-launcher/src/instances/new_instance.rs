@@ -413,16 +413,28 @@ impl NewInstanceDialog {
                 .child(LoadingDots)
                 .child(t(M::LoadingVersionList))
                 .into_any_element(),
+            // The error can be long (a URL and the OS's reason): it wraps inside the
+            // list, a text child of its own with the list's width, and long words such as
+            // the URL break, rather than running out of the dropdown as one line. Centred
+            // with auto margins, so one too tall for the list starts at its top and
+            // scrolls instead of losing its first and last lines.
             Versions::Failed(error) => div()
+                .id("versions-failed")
                 .flex()
-                .items_center()
-                .justify_center()
+                .flex_col()
                 .size_full()
                 .p_4()
-                .text_center()
-                .text_color(colors::RED_200)
-                .text_size(theme::text_size(text::SMALL))
-                .child(tr!(M::CouldntLoadVersions, error = error))
+                .overflow_y_scroll()
+                .child(
+                    div()
+                        .my_auto()
+                        .w_full()
+                        .min_w_0()
+                        .text_center()
+                        .text_color(colors::RED_200)
+                        .text_size(theme::text_size(text::SMALL))
+                        .child(tr!(M::CouldntLoadVersions, error = error)),
+                )
                 .into_any_element(),
             Versions::Ready(all) => {
                 let search = self.search.read(cx).text().to_string();
