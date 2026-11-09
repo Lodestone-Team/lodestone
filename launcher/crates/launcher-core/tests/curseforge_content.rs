@@ -679,3 +679,257 @@ fn searches_filter_by_class_loader_and_version() {
     assert_eq!(request.query["modLoaderTypes"], "[4]");
     assert_eq!(request.query["gameVersion"], "1.20.1");
 }
+
+/// A CurseForge pack zip: `manifest.json` listing `files` (project, file, required) for
+/// `loader` on 1.20.1, and an overrides folder.
+fn curseforge_pack(dir: &Path, loader: &str, files: &[(u64, u64, bool)]) -> std::path::PathBuf {
+    use std::io::Write as _;
+    let path = dir.join(format!("pack-{loader}.zip"));
+    let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+    let options = zip::write::FileOptions::default();
+    let manifest = serde_json::json!({
+        "minecraft": { "version": "1.20.1.", "modLoaders": [{ "id": loader, "primary": true }] },
+        "manifestType": "minecraftModpack",
+        "manifestVersion": 1,
+        "name": "Mixed Pack",
+        "version": "1.2",
+        "author": "someone",
+        "files": files.iter().map(|(p, f, r)| serde_json::json!({
+            "projectID": p, "fileID": f, "required": r
+        })).collect::<Vec<_>>(),
+        "overrides": "overrides",
+    });
+    zip.start_file("manifest.json", options).unwrap();
+    zip.write_all(manifest.to_string().as_bytes()).unwrap();
+    zip.start_file("overrides/config/create.toml", options)
+        .unwrap();
+    zip.write_all(b"setting = true").unwrap();
+    zip.start_file("modlist.html", options).unwrap();
+    zip.write_all(b"<ul></ul>").unwrap();
+    zip.finish().unwrap();
+    path
+}
+
+#[test]
+fn curseforge_packs_become_instances_with_files_from_both_platforms() {
+    use launcher_core::{
+        instances::InstanceStore,
+        modpack::{
+            self, CurseForgePack, ModpackRecord, curseforge as cf_pack,
+            import::{self as pack_import, ImportOptions},
+        },
+    };
+    const OPTIONAL_MOD: u64 = 600_001;
+    const FAITHFUL: u64 = 700_001;
+    let sodium_jar = fabric_jar("sodium", "0.5.13");
+    let mock = CurseForgeMock::start();
+    create_and_fabric_api(&mock);
+    mock.project(SODIUM, "sodium", CLASS_MODS)
+        .project(SECRET_MOD, "secret-mod", CLASS_MODS)
+        .project(OPTIONAL_MOD, "optional-extras", CLASS_MODS)
+        .project(FAITHFUL, "faithful-32x", 12)
+        // Kept on CurseForge's website, but Modrinth has the same jar.
+        .file(
+            FakeFile::new(
+                7_001,
+                SODIUM,
+                "sodium-0.5.13.jar",
+                &["1.20.1", "Fabric"],
+                NEW,
+                sodium_jar.clone(),
+            )
+            .blocked(),
+        )
+        // Kept on CurseForge's website, and nowhere else.
+        .file(
+            FakeFile::new(
+                8_001,
+                SECRET_MOD,
+                "Secret-Mod-1.0.jar",
+                &["1.20.1", "Fabric"],
+                NEW,
+                fabric_jar("secret", "1.0"),
+            )
+            .blocked(),
+        )
+        .file(FakeFile::new(
+            9_001,
+            OPTIONAL_MOD,
+            "extras-1.0.jar",
+            &["1.20.1", "Fabric"],
+            NEW,
+            fabric_jar("extras", "1.0"),
+        ))
+        .file(FakeFile::new(
+            9_100,
+            FAITHFUL,
+            "Faithful-32x.zip",
+            &["1.20.1"],
+            NEW,
+            b"PK resource pack".to_vec(),
+        ));
+    let mr_mock = ModrinthMock::start();
+    mr_mock.project(MR_SODIUM, "sodium", "mod").version(
+        FakeVersion::new(
+            "sod0513",
+            MR_SODIUM,
+            "0.5.13",
+            &["fabric"],
+            &["1.20.1"],
+            NEW,
+        )
+        .file("sodium-fabric-0.5.13+mc1.20.1.jar", &sodium_jar),
+    );
+    let (cf, mr) = (mock.client(), mr_mock.client());
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = curseforge_pack(
+        dir.path(),
+        "fabric-0.16.10",
+        &[
+            (CREATE, 5_001, true),
+            (FABRIC_API, 5_100, true),
+            (SODIUM, 7_001, true),
+            (SECRET_MOD, 8_001, true),
+            (OPTIONAL_MOD, 9_001, false),
+            (FAITHFUL, 9_100, true),
+            (CREATE, 99_999, true),
+        ],
+    );
+    assert!(cf_pack::is_curseforge_pack(&path));
+    let pack = cf_pack::read_curseforge_pack(&path).unwrap();
+    assert_eq!(pack.game_version, "1.20.1", "the trailing dot is dropped");
+    let resolved = block_on(cf_pack::resolve(&cf, Some(&mr), &pack)).unwrap();
+    assert_eq!(resolved.blocked.len(), 1);
+    assert_eq!(resolved.blocked[0].file.id, 8_001);
+    assert!(
+        resolved
+            .info
+            .skipped
+            .iter()
+            .any(|s| s.reason.contains("no longer")),
+        "{:?}",
+        resolved.info.skipped
+    );
+
+    let store = InstanceStore::new(dir.path().join("instances"));
+    fs::create_dir_all(store.root()).unwrap();
+    let (kind, version) = resolved.info.loader.clone().unwrap();
+    let loader = modpack::loader_choice(kind, &version, "1.20.1", None).unwrap();
+    let instance = block_on(pack_import::import_with(
+        &store,
+        Platforms::new(Some(&mr), Some(&cf)),
+        &downloader(),
+        &path,
+        &resolved.info,
+        ImportOptions {
+            name: "Mixed Pack".into(),
+            loader: Some(loader),
+            record: ModpackRecord {
+                title: "Mixed Pack".into(),
+                curseforge: Some(CurseForgePack {
+                    project_id: 1,
+                    file_id: 2,
+                    ..CurseForgePack::default()
+                }),
+                ..ModpackRecord::default()
+            },
+            icon: None,
+        },
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    assert_eq!(instance.loader, Loader::Fabric);
+    let dirs = InstanceDirs::new(store.dir(&instance.id));
+    assert_eq!(
+        mods(&dirs),
+        [
+            "create-fabric-0.5.1.jar",
+            "extras-1.0.jar.disabled",
+            "fabric-api-0.92.2-cf.jar",
+            "sodium-0.5.13.jar",
+        ],
+        "optional mods come disabled; the website-only one waits for the user"
+    );
+    assert!(
+        dirs.content_dir(ContentKind::ResourcePack)
+            .join("Faithful-32x.zip")
+            .exists()
+    );
+    assert_eq!(
+        fs::read_to_string(dirs.game.join("config/create.toml")).unwrap(),
+        "setting = true"
+    );
+    let record = ModpackRecord::load(&dirs.instance).unwrap();
+    assert!(record.on_curseforge());
+    let provenance = Provenance::load(&dirs.instance);
+    let create = provenance
+        .get(ContentKind::Mod, "create-fabric-0.5.1.jar")
+        .unwrap();
+    assert_eq!(
+        create.sha512.len(),
+        128,
+        "computed for files CurseForge gave no SHA-512 for"
+    );
+    assert!(
+        !mock
+            .requests()
+            .iter()
+            .any(|r| r.path.contains("sodium-0.5.13.jar")),
+        "the website-only Sodium came from Modrinth"
+    );
+
+    // The listing then finds the CurseForge files by fingerprint.
+    let listing = block_on(listing::list(
+        Platforms::new(Some(&mr), Some(&cf)),
+        &dirs,
+        &fabric(),
+        ContentKind::Mod,
+    ))
+    .unwrap();
+    let create_item = listing
+        .items
+        .iter()
+        .find(|i| i.file.file_name == "create-fabric-0.5.1.jar")
+        .unwrap();
+    assert_eq!(create_item.curseforge.as_ref().unwrap().project_id, CREATE);
+
+    // And the website-only file goes in once the user has downloaded it.
+    let downloads = dir.path().join("Downloads");
+    fs::create_dir_all(&downloads).unwrap();
+    fs::write(
+        downloads.join("Secret-Mod-1.0.jar"),
+        fabric_jar("secret", "1.0"),
+    )
+    .unwrap();
+    let found = curseforge_install::find_downloaded(&downloads, &resolved.blocked);
+    curseforge_install::install_downloaded(&dirs, &fabric(), &resolved.blocked[0], &found[0].1)
+        .unwrap();
+    assert!(mods(&dirs).contains(&"Secret-Mod-1.0.jar".to_string()));
+}
+
+#[test]
+fn curseforge_pack_manifests_are_checked() {
+    use launcher_core::modpack::curseforge as cf_pack;
+    let dir = tempfile::tempdir().unwrap();
+    let pack = cf_pack::read_curseforge_pack(&curseforge_pack(
+        dir.path(),
+        "neoforge-1.20.1-47.1.84",
+        &[(1, 2, true), (1, 2, true)],
+    ))
+    .unwrap();
+    assert_eq!(pack.files.len(), 1, "a file listed twice is installed once");
+    assert_eq!(
+        pack.loader,
+        Some((
+            launcher_core::game::loaders::LoaderKind::NeoForge,
+            "47.1.84".into()
+        ))
+    );
+    assert_eq!(pack.overrides.len(), 1);
+    assert_eq!(pack.overrides[0].path, "config/create.toml");
+    assert!(
+        cf_pack::read_curseforge_pack(&curseforge_pack(dir.path(), "liteloader-1.0", &[])).is_err()
+    );
+}

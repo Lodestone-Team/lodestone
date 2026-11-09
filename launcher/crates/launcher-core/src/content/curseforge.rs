@@ -822,6 +822,12 @@ impl CurseForge {
         self.allowed_url(url, &DOWNLOAD_HOSTS)
     }
 
+    /// The URL to fetch a file on CurseForge's CDN from (`url` as a pack lists it), if it
+    /// is an HTTPS URL on one of [`DOWNLOAD_HOSTS`].
+    pub fn cdn_url(&self, url: &str) -> Result<String, CurseForgeError> {
+        self.allowed_url(url, &DOWNLOAD_HOSTS)
+    }
+
     fn allowed_url(&self, url: &str, hosts: &[&str]) -> Result<String, CurseForgeError> {
         let parsed =
             Url::parse(url).map_err(|_| CurseForgeError::Invalid(format!("{url} isn't a URL")))?;
