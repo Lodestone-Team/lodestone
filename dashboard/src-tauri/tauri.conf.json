@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Lodestone",
-  "mainBinaryName": "Lodestone",
+  "productName": "Lodestone Host",
+  "mainBinaryName": "Lodestone Host",
   "version": "0.5.1",
   "identifier": "com.lodestone.cc",
   "build": {
@@ -22,7 +22,7 @@
         "height": 600,
         "minHeight": 550,
         "resizable": true,
-        "title": "Lodestone",
+        "title": "Lodestone Host",
         "width": 1100,
         "minWidth": 1000,
         "dragDropEnabled": false,
@@ -65,7 +65,10 @@
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
-      "timestampUrl": ""
+      "timestampUrl": "",
+      "wix": {
+        "upgradeCode": "6b332263-b97a-55f5-abf0-1550c51471e9"
+      }
     }
   },
   "plugins": {

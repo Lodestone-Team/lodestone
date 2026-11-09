@@ -51,4 +51,4 @@ jobs:
 
 
       - name: Run Clippy Check
-        run: cargo clippy --locked --all-features --release -p lodestone-client
+        run: cargo clippy --locked --all-features --release -p lodestone-host

@@ -152,7 +152,7 @@ export const deleteInstanceDirectory = async (
 /**
  * The URL that downloads a file the core registered under `key` (see
  * `/file/{key}` in the core's global_fs.rs). Opened in a new tab, it works in
- * browsers and in the desktop app.
+ * browsers and in Lodestone Host.
  */
 export const fileDownloadUrl = (key: string) =>
   axios.defaults.baseURL + `/file/${key}`;

@@ -717,8 +717,9 @@ async fn check_for_core_update() {
 pub struct Args {
     #[arg(long, default_value = "false")]
     pub is_cli: bool,
-    #[arg(long, default_value = "false")]
-    pub is_desktop: bool,
+    /// Set by Lodestone Host, which runs the core inside its own process.
+    #[arg(long, alias = "is-desktop", default_value = "false")]
+    pub is_host: bool,
     #[arg(short, long)]
     pub lodestone_path: Option<PathBuf>,
     /// Turn off macros, atom instances, extensions, instance scripts and custom Java
@@ -788,10 +789,10 @@ pub async fn run(
         source: Report::msg("Failed to set current dir"),
     })?;
     let guard = setup_tracing();
-    if args.is_desktop {
-        info!("Lodestone Core running in Tauri");
+    if args.is_host {
+        info!("Lodestone Core running in Lodestone Host");
     }
-    if !args.is_cli && !args.is_desktop {
+    if !args.is_cli && !args.is_host {
         warn!("Lodestone Core is not meant to be run as a standalone program. Please use Lodestone CLI instead.");
         warn!("Download it here: https://github.com/Lodestone-Team/lodestone_cli")
     }

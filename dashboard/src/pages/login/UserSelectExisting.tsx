@@ -34,7 +34,7 @@ const UserSelectExisting = () => {
   const { core_name, is_setup } = coreInfo ?? {};
   const { data: userInfo, isPending: isUserInfoLoading } = useUserInfo();
   const uid = useUid();
-  // Signed out, outside the desktop app's own core: this page only sends the
+  // Signed out, outside Lodestone Host's own core: this page only sends the
   // user on to the sign-in form (below). Render nothing meanwhile instead of
   // flashing it. Read once, like the redirect.
   const [redirecting] = useState(

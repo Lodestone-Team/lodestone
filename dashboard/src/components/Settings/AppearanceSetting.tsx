@@ -21,7 +21,7 @@ const descriptions = {
 
 /**
  * The light / dark theme choice. It is saved in this browser (localStorage),
- * not on the core, so each browser and the desktop app keep their own.
+ * not on the core, so each browser and Lodestone Host keep their own.
  */
 export default function AppearanceSetting() {
   const t = useT();

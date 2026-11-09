@@ -2,7 +2,7 @@ import { tauri } from 'utils/tauriUtil';
 
 import { ZOOM_LEVELS, nextZoomLevel, zoomShortcut } from './zoomLevels';
 
-// Zoom in the desktop app: Ctrl or ⌘ with + and − zooms the page, and 0 goes
+// Zoom in Lodestone Host: Ctrl or ⌘ with + and − zooms the page, and 0 goes
 // back to 100%, like a browser. In a browser the browser does this itself, so
 // nothing here runs there. The level is kept between launches.
 
@@ -42,7 +42,7 @@ const applyZoom = (level: number) => {
 let initialized = false;
 
 /** Restores the saved zoom and listens for the shortcuts. Call once on the client. */
-export const initDesktopZoom = () => {
+export const initHostZoom = () => {
   if (initialized || typeof window === 'undefined' || !tauri) return;
   initialized = true;
   const saved = readStoredZoom();
