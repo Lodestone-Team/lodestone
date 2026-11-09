@@ -9,7 +9,7 @@
 
 A free, open source server hosting tool for Minecraft and other multiplayers games. Lodestone is designed to be easy to use, secure, and feature-rich. It is built with Rust, React, and TypeScript.
 
-🔗 Get Started: [https://www.lodestone.cc/](https://www.lodestone.cc/)
+🔗 Get Started: [https://www.lodestone.cc/core](https://www.lodestone.cc/core)
 
 ## Features
 
@@ -58,7 +58,7 @@ You can download Lodestone Desktop for Windows from the [releases page](https://
 Download and run [Lodestone CLI](https://github.com/Lodestone-Team/lodestone_cli).
 
 If you would like to use the dashboard we hosts:
-1. Use a chromium based browser (Chrome, Edge, Brave, etc.) and go to [https://www.lodestone.cc/](https://www.lodestone.cc/)
+1. Use a chromium based browser (Chrome, Edge, Brave, etc.) and go to [https://www.lodestone.cc/core](https://www.lodestone.cc/core)
 2. Follow this [guide](https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en) to enable mixed content for the site.
 3. If you have browser extensions such as HTTPS Everywhere, disable them for the site.
 

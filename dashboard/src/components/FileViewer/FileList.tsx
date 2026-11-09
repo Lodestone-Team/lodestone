@@ -16,6 +16,7 @@ import { useOnClickOutside } from 'usehooks-ts';
 import { useFileViewer } from './FileViewerContext';
 import { SkeletonGroup, SkeletonRows } from 'components/Atoms/Skeleton';
 import { useT } from 'i18n';
+import { asset } from 'utils/basePath';
 
 // a map from file extension to icon
 const iconMap: { [key: string]: string } = {
@@ -133,7 +134,7 @@ export default function FileList({
       if (fileExt in iconMap) {
         return (
           <img
-            src={iconMap[fileExt]}
+            src={asset(iconMap[fileExt])}
             alt={t('files.list.fileIcon')}
             draggable="false"
             className="h-4 w-4"

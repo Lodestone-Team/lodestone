@@ -1,6 +1,7 @@
 import Button from 'components/Atoms/Button';
 import { useDocumentTitle } from 'usehooks-ts';
 import { useT } from 'i18n';
+import { asset } from 'utils/basePath';
 
 export default function NotFound() {
   const t = useT();
@@ -13,7 +14,7 @@ export default function NotFound() {
         label={t('shell.notFound.goHome')}
         className="mt-4"
         onClick={() => {
-          window.location.href = '/';
+          window.location.href = asset('/');
         }}
       />
     </div>
