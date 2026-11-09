@@ -298,6 +298,35 @@ pub fn text(message: M) -> &'static str {
         M::LoadFailed => "無法載入通知：{error}",
         M::CoreFallback => "核心",
         M::CoreFailedNotice => "Lodestone Core 無法啟動：{error}",
+        M::UpdatesTitle => "更新",
+        M::UpdatesLead => "這台電腦上的 Lodestone Host。Lodestone Core 隨之更新。",
+        M::ThisVersion => "此版本",
+        M::UpdateAutomatically => "自動更新",
+        M::UpdateAutomaticallyHint => "在背景下載新組建。",
+        M::BetaBuilds => "測試版組建",
+        M::BetaBuildsHint => {
+            "搶先體驗新功能。測試版組建可能有錯誤。關閉後會保留目前的組建，直到有更新的穩定版組建。"
+        }
+        M::BuildNumber => "組建 {build}",
+        M::BuildNumberCommit => "組建 {build} · {commit}",
+        M::DevelopmentBuild => "開發組建",
+        M::UpdatesUnavailable => "Lodestone Host 還不能自動更新。新版本需要重新下載安裝。",
+        M::UpdateNotChecked => "每隔幾小時檢查一次是否有新組建。",
+        M::UpdateChecking => "正在檢查新組建…",
+        M::UpToDate => "目前已是最新組建。",
+        M::UpdateAvailable => "組建 {build} 現已可用。",
+        M::UpdateDownloading => "正在下載組建 {build}… {percent}",
+        M::UpdateReady => {
+            "組建 {build} 已安裝，重新啟動後即可使用：你的伺服器會停止，設為自動啟動的伺服器隨後會再次啟動。"
+        }
+        M::UpdateFailed => "無法更新：{error}",
+        M::CheckForUpdates => "立即檢查",
+        M::DownloadUpdate => "下載",
+        M::RestartToUpdate => "重新啟動",
+        M::BetaTitle => "感謝使用 Lodestone 測試版！",
+        M::BetaBody => {
+            "感謝使用 Lodestone 測試版！如果你發現任何問題，請在我們的 Discord 伺服器或 Github 上告訴我們。"
+        }
     }
 }
 

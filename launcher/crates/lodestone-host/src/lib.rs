@@ -27,6 +27,7 @@ pub mod single_instance;
 pub mod state;
 pub mod supervisor;
 pub mod tray;
+pub mod updater;
 
 use gpui::{
     App, Bounds, KeyBinding, Menu, MenuItem, SharedString, WindowBounds, WindowOptions, actions,
@@ -54,6 +55,7 @@ pub fn init(cx: &mut App) {
     launcher_core::wording::set_app_name(APP_NAME);
     lodestone_ui::init(cx);
     prefs::Prefs::init(cx);
+    updater::Updater::init(cx);
     pages::init(cx);
     #[cfg(target_os = "macos")]
     cx.bind_keys([

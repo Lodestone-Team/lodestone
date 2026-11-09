@@ -273,7 +273,14 @@ pub struct Notifications {
     /// Something new arrived since the list was last opened: the bell's red dot.
     unseen: bool,
     open: bool,
+    /// The thank-you for a beta core, once per version (`DashboardLayout.tsx`).
+    beta: Option<gpui::FocusHandle>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// Whether to thank the user for running core `version`: a beta not thanked for yet.
+pub fn thank_for_beta(version: &str, last: Option<&str>) -> bool {
+    version.contains("beta") && last != Some(version)
 }
 
 impl Notifications {
@@ -286,12 +293,18 @@ impl Notifications {
             }
             _ => {}
         });
+        let version = state.read(cx).info.version.clone();
+        let last = cx
+            .try_global::<crate::prefs::Prefs>()
+            .and_then(|p| p.data.latest_version.clone());
+        let beta = thank_for_beta(&version, last.as_deref()).then(|| cx.focus_handle());
         let mut this = Self {
             state,
             list: List::default(),
             history_loaded: false,
             unseen: false,
             open: false,
+            beta,
             _subscriptions: vec![subscription],
         };
         this.load_history(cx);
@@ -383,6 +396,12 @@ impl Notifications {
         self.open = !self.open;
         self.unseen = false;
         cx.notify();
+    }
+
+    fn close_beta(&mut self, cx: &mut Context<Self>) {
+        self.beta = None;
+        let version = self.state.read(cx).info.version.clone();
+        crate::prefs::Prefs::update(cx, |p| p.latest_version = Some(version));
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
@@ -593,11 +612,23 @@ impl Render for Notifications {
             )
             .with_priority(3)
         });
+        let beta = self.beta.clone().map(|focus| {
+            let close = cx.entity().downgrade();
+            crate::pages::parts::overlay(
+                window,
+                lodestone_ui::components::Dialog::new("beta-thanks", t(CoreMsg::BetaTitle), focus)
+                    .on_close(move |_, cx| {
+                        close.update(cx, |this, cx| this.close_beta(cx)).ok();
+                    })
+                    .child(crate::pages::parts::paragraph(t(CoreMsg::BetaBody))),
+            )
+        });
         div()
             .relative()
             .flex()
             .flex_col()
             .items_end()
+            .children(beta)
             .child(
                 div()
                     .relative()
@@ -759,6 +790,14 @@ mod tests {
             "details": "", "snowflake": "6", "level": "Info", "caused_by": { "type": "System" },
         }));
         assert!(describe(&console).is_none());
+    }
+
+    #[test]
+    fn betas_are_thanked_for_once() {
+        assert!(thank_for_beta("0.5.2-beta.1", None));
+        assert!(!thank_for_beta("0.5.2-beta.1", Some("0.5.2-beta.1")));
+        assert!(thank_for_beta("0.5.2-beta.2", Some("0.5.2-beta.1")));
+        assert!(!thank_for_beta("0.5.2", None));
     }
 
     #[test]

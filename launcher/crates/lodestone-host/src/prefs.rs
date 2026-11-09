@@ -52,6 +52,12 @@ pub struct PrefsData {
     pub colored_console: bool,
     /// The Overview's Details section is open (`instanceDetailsOpen`).
     pub instance_details_open: bool,
+    /// Settings › Updates: download new builds by themselves.
+    pub auto_update: bool,
+    /// Settings › Updates: beta builds too.
+    pub beta_builds: bool,
+    /// The last beta core version thanked for (`latestVersion`).
+    pub latest_version: Option<String>,
 }
 
 impl Default for PrefsData {
@@ -62,6 +68,9 @@ impl Default for PrefsData {
             zoom: 1.0,
             colored_console: true,
             instance_details_open: false,
+            auto_update: true,
+            beta_builds: false,
+            latest_version: None,
         }
     }
 }
@@ -160,6 +169,9 @@ mod tests {
             zoom: 1.25,
             colored_console: false,
             instance_details_open: true,
+            auto_update: false,
+            beta_builds: true,
+            latest_version: Some("0.5.2-beta.1".into()),
         };
         save(&path, &data).unwrap();
         assert_eq!(load(&path), data);

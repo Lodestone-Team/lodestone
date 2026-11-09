@@ -163,6 +163,7 @@ impl HostShell {
                     SettingsPage::General => t(ShellMsg::SettingsGeneral),
                     SettingsPage::Users => t(ShellMsg::SettingsUsers),
                     SettingsPage::Profile => t(ShellMsg::SettingsProfile),
+                    SettingsPage::Updates => t(crate::i18n::CoreMsg::UpdatesTitle),
                 }
                 .to_string(),
             ),
@@ -188,6 +189,7 @@ impl Render for HostShell {
                             t(ShellMsg::SettingsGeneral),
                             t(ShellMsg::SettingsUsers),
                             t(ShellMsg::SettingsProfile),
+                            t(crate::i18n::CoreMsg::UpdatesTitle),
                         ],
                     )
                     .selected(selected)

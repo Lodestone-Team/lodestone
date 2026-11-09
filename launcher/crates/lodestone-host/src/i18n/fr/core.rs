@@ -364,6 +364,39 @@ pub fn text(message: M) -> &'static str {
         M::LoadFailed => "Impossible de charger les notifications : {error}",
         M::CoreFallback => "Core",
         M::CoreFailedNotice => "Lodestone Core n’a pas pu démarrer : {error}",
+        M::UpdatesTitle => "Mises à jour",
+        M::UpdatesLead => {
+            "Lodestone Host, sur cet ordinateur. Lodestone Core se met à jour avec lui."
+        }
+        M::ThisVersion => "Cette version",
+        M::UpdateAutomatically => "Mettre à jour automatiquement",
+        M::UpdateAutomaticallyHint => "Télécharge les nouveaux builds en arrière-plan.",
+        M::BetaBuilds => "Builds bêta",
+        M::BetaBuildsHint => {
+            "Profitez des nouveautés avant tout le monde. Les builds bêta peuvent comporter des bugs. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’un build stable plus récent sorte."
+        }
+        M::BuildNumber => "Build {build}",
+        M::BuildNumberCommit => "Build {build} · {commit}",
+        M::DevelopmentBuild => "Build de développement",
+        M::UpdatesUnavailable => {
+            "Lodestone Host ne se met pas encore à jour tout seul. Les nouvelles versions s’installent avec un nouveau téléchargement."
+        }
+        M::UpdateNotChecked => "Recherche de nouveaux builds toutes les quelques heures.",
+        M::UpdateChecking => "Recherche d’un build plus récent…",
+        M::UpToDate => "C’est le build le plus récent.",
+        M::UpdateAvailable => "Le build {build} est disponible.",
+        M::UpdateDownloading => "Téléchargement du build {build}… {percent}",
+        M::UpdateReady => {
+            "Le build {build} est installé. Redémarrez pour l’utiliser : vos serveurs s’arrêtent, puis redémarrent s’ils démarrent tout seuls."
+        }
+        M::UpdateFailed => "Impossible de mettre à jour : {error}",
+        M::CheckForUpdates => "Vérifier",
+        M::DownloadUpdate => "Télécharger",
+        M::RestartToUpdate => "Redémarrer",
+        M::BetaTitle => "Merci d’utiliser la bêta de Lodestone !",
+        M::BetaBody => {
+            "Merci d’utiliser la bêta de Lodestone ! Si vous rencontrez un problème, signalez-le-nous sur notre serveur Discord ou sur Github."
+        }
     }
 }
 
