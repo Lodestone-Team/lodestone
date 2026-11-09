@@ -191,9 +191,9 @@ main {
   aspect-ratio: 1.6;
   translate: -50% -50%;
   background:
-    radial-gradient(closest-side at 42% 45%, rgba(34, 201, 128, 0.16), transparent),
-    radial-gradient(closest-side at 58% 55%, rgba(91, 79, 192, 0.16), transparent),
-    radial-gradient(closest-side, rgba(47, 111, 168, 0.12), transparent);
+    radial-gradient(closest-side at 45% 45%, rgba(34, 201, 128, 0.08), transparent),
+    radial-gradient(closest-side at 55% 55%, rgba(91, 79, 192, 0.08), transparent),
+    radial-gradient(closest-side, rgba(47, 111, 168, 0.08), transparent);
   z-index: -1;
   pointer-events: none;
 }
@@ -223,7 +223,7 @@ main {
   margin-bottom: 26px;
   transform: perspective(600px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
   transition: transform 0.3s ease-out;
-  filter: drop-shadow(0 14px 36px rgba(47, 111, 168, 0.45));
+  filter: drop-shadow(0 12px 30px rgba(47, 111, 168, 0.28));
 }
 
 .mark svg {
@@ -243,7 +243,7 @@ main {
 }
 
 .gem-sheen {
-  animation: sheen 6s ease-in-out 1.1s infinite;
+  animation: sheen 8s ease-in-out 1.4s infinite;
 }
 
 @keyframes gem-in {
@@ -260,13 +260,15 @@ main {
   }
 }
 
+/* The band starts left of the gem and ends right of it; the group around it
+   tilts it. */
 @keyframes sheen {
   from {
-    transform: rotate(20deg) translateX(-300px);
+    transform: translateX(-240px);
   }
-  30%,
+  22%,
   to {
-    transform: rotate(20deg) translateX(820px);
+    transform: translateX(720px);
   }
 }
 
@@ -318,9 +320,9 @@ h1 .phrase {
   display: inline-block;
 }
 
-/* The second line picks up the gem's gradient. */
+/* The second line takes a soft version of the gem's colors. */
 h1 .phrase + .phrase {
-  background: linear-gradient(100deg, var(--mint), var(--sky) 55%, var(--lilac));
+  background: linear-gradient(100deg, #86dcb6, #93b9e8);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -461,20 +463,20 @@ h1 .phrase + .phrase {
 .card-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 
 .card-icon {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 28px;
+  height: 28px;
   flex: none;
 }
 
 .card-icon-term {
-  border-radius: 10px;
+  border-radius: 7px;
   background: linear-gradient(160deg, #23292e, #15191c);
   box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--green);
@@ -765,6 +767,7 @@ h1 .phrase + .phrase {
   font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.6;
+  overflow: hidden;
   white-space: pre-wrap;
   word-break: break-word;
 }
