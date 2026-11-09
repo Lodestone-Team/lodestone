@@ -56,7 +56,9 @@ by Cloudflare's Git integration (Workers Builds). Its build settings:
 | Build command   | `node build.mjs`    |
 | Deploy command  | `npx wrangler deploy` |
 
-`wrangler.jsonc` names the Worker and points it at `dist`. `.node-version` asks
+`wrangler.jsonc` names the Worker, puts it on Wenwei's account and on
+`www.lodestone.cc` (a custom domain, so Cloudflare manages its DNS record), and
+points it at `dist`. `.node-version` asks
 for Node 24, which the dashboard needs.
 
 How a request is answered, in order:
@@ -70,4 +72,5 @@ How a request is answered, in order:
    there would also catch the dashboard's own files.
 
 Redirecting `lodestone.cc` to `www.lodestone.cc` is a Cloudflare setting (a
-redirect rule on the zone), not part of this repository.
+redirect rule on the zone), not part of this repository. Until one is added,
+the apex record still forwards to Netlify, which does the redirect.

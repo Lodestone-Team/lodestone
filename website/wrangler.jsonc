@@ -6,6 +6,12 @@
   "account_id": "8db4e596671f8d4d9f0e60c129db9f90",
   "main": "worker.js",
   "compatibility_date": "2026-10-01",
+  // The lodestone.cc zone is on the same account.
+  "routes": [{ "pattern": "www.lodestone.cc", "custom_domain": true }],
+  // Keep the workers.dev address and the per-branch preview links, which
+  // Wrangler turns off by default once a route is set.
+  "workers_dev": true,
+  "preview_urls": true,
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS"
