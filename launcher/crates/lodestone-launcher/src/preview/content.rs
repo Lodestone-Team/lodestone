@@ -51,7 +51,7 @@ fn write_zip(path: &Path, entries: &[(&str, Vec<u8>)]) {
     let mut zip = zip::ZipWriter::new(file);
     for (name, bytes) in entries {
         if zip
-            .start_file(*name, zip::write::FileOptions::default())
+            .start_file(*name, zip::write::SimpleFileOptions::default())
             .is_ok()
         {
             let _ = zip.write_all(bytes);

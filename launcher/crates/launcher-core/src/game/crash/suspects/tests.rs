@@ -6,7 +6,7 @@ use crate::game::log4j::Stream;
 /// Writes a jar with these files (empty) and a `fabric.mod.json` for `id` and `name`.
 fn jar(path: &Path, id: &str, name: &str, files: &[&str]) {
     let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
-    let options = zip::write::FileOptions::default();
+    let options = zip::write::SimpleFileOptions::default();
     zip.start_file("fabric.mod.json", options).unwrap();
     write!(
         zip,
@@ -22,7 +22,7 @@ fn jar(path: &Path, id: &str, name: &str, files: &[&str]) {
 /// A jar that bundles `inner` (with `files`) in `META-INF/jars/`.
 fn jar_with_nested(path: &Path, id: &str, files: &[&str]) {
     let mut inner = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    let options = zip::write::FileOptions::default();
+    let options = zip::write::SimpleFileOptions::default();
     for file in files {
         inner.start_file(*file, options).unwrap();
     }

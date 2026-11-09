@@ -408,7 +408,7 @@ pub(crate) fn read_overrides<R: Read + io::Seek>(
     for prefix in prefixes {
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i).map_err(zip_error)?;
-            let name = entry.name().to_string();
+            let name = entry.name().map_err(zip_error)?.into_owned();
             let Some(relative) = name.strip_prefix(prefix) else {
                 continue;
             };

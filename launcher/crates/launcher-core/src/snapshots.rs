@@ -808,7 +808,7 @@ impl Store {
         let result = (|| {
             let file = File::create(&tmp).map_err(io_error(&tmp))?;
             let mut zip = zip::ZipWriter::new(BufWriter::new(file));
-            let options = zip::write::FileOptions::default()
+            let options = zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated)
                 .large_file(true);
             let manifest =
@@ -1000,7 +1000,7 @@ fn open_lodesnap(path: &Path) -> Result<(Snapshot, Archive), SnapshotError> {
     let mut objects: HashSet<String> = HashSet::new();
     for i in 0..archive.len() {
         let entry = archive.by_index_raw(i).map_err(zip_error)?;
-        let name = entry.name().to_string();
+        let name = entry.name().map_err(zip_error)?.into_owned();
         let size = entry.size();
         total = total.saturating_add(size);
         if entry.is_dir() {
@@ -1623,7 +1623,7 @@ mod tests {
 
     fn zip_with(path: &Path, entries: &[(&str, &[u8])]) {
         let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
-        let options = zip::write::FileOptions::default();
+        let options = zip::write::SimpleFileOptions::default();
         for (name, data) in entries {
             zip.start_file(*name, options).unwrap();
             zip.write_all(data).unwrap();
@@ -1685,8 +1685,8 @@ mod tests {
         small.files[0].size = 10;
         let bomb = temp.path().join("bomb.lodesnap");
         let mut zip = zip::ZipWriter::new(File::create(&bomb).unwrap());
-        let options =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         zip.start_file("manifest.json", options).unwrap();
         zip.write_all(&good(&small)).unwrap();
         zip.start_file(format!("objects/{}", small.files[0].sha256), options)

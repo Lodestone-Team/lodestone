@@ -146,7 +146,10 @@ pub fn is_curseforge_pack(path: &Path) -> bool {
     let Ok(archive) = zip::ZipArchive::new(file) else {
         return false;
     };
-    let names: HashSet<&str> = archive.file_names().collect();
+    let names: HashSet<String> = archive
+        .file_names()
+        .filter_map(|name| name.ok().map(|name| name.into_owned()))
+        .collect();
     names.contains(MANIFEST_FILE) && !names.contains(lodestone_minecraft::mrpack::INDEX_FILE)
 }
 

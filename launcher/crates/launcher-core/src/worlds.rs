@@ -10,6 +10,8 @@
 //! - **World zips** (export, import) have the same layout; an imported zip needs
 //!   `level.dat` at its root or one folder down. Every path is checked like a modpack's
 //!   ([`check_pack_path`]), links are skipped and sizes are checked against the header.
+//!   Names come from the zip's central directory, the same list the checks read; a
+//!   local header that names another path is never used.
 //!
 //! Nothing here checks whether the game is running; the app refuses changes then.
 
@@ -469,8 +471,8 @@ pub fn write_zip(
         let file = File::create(&tmp).map_err(io_error(&tmp))?;
         // Buffered: the zip writer's own writes (headers, stored entries) are small.
         let mut zip = zip::ZipWriter::new(io::BufWriter::with_capacity(1 << 20, file));
-        let base =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let base = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         let zip_err = |err: zip::result::ZipError| {
             WorldError::Invalid(format!("couldn't write the zip: {err}"))
         };
@@ -664,7 +666,7 @@ pub fn inspect_zip(path: &Path) -> Result<WorldZip, WorldError> {
     for i in 0..archive.len() {
         let entry = archive.by_index_raw(i).map_err(zip_error(path))?;
         total = total.saturating_add(entry.size());
-        let name = entry.name().to_string();
+        let name = entry.name().map_err(zip_error(path))?.into_owned();
         if is_mac_metadata(&name) {
             continue;
         }
@@ -854,7 +856,7 @@ fn plan_extract(
     let mut entries = Vec::new();
     for index in 0..archive.len() {
         let entry = archive.by_index_raw(index).map_err(zip_error(path))?;
-        let name = entry.name().to_string();
+        let name = entry.name().map_err(zip_error(path))?.into_owned();
         let Some(relative) = mappings.iter().find_map(|(prefix, dest)| {
             name.strip_prefix(prefix.as_str())
                 .filter(|rest| !rest.is_empty())
@@ -894,8 +896,9 @@ fn plan_extract(
 
 /// Fails when two entries would land on the same path on a filesystem that ignores case
 /// (as Windows and macOS do by default): `region/r.0.0.mca` and `REGION/r.0.0.mca`, a
-/// file that is also a folder, or the same file twice. Extracting such a zip there would
-/// silently keep only one of them. Folders spelled the same way may repeat.
+/// or a file that is also a folder. Extracting such a zip there would silently keep only
+/// one of them. Folders spelled the same way may repeat. (A name listed twice in the zip
+/// is one entry: zip reads only one of them.)
 fn check_collisions(entries: &[PlannedEntry]) -> Result<(), WorldError> {
     // the path with its case folded -> (as spelled, is a folder, the entry's name)
     let mut seen: HashMap<String, (String, bool, &str)> = HashMap::new();

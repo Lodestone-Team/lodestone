@@ -1,13 +1,12 @@
-//! Extracting old-style native jars into the natives directory, with zip 0.6.
+//! Extracting old-style native jars into the natives directory.
 //!
 //! The jars come from Mojang and are checked by SHA-1, but extraction still refuses
 //! anything that could write outside the natives directory: entries with absolute
 //! paths, `..` components, backslashes or drive prefixes, and symbolic links.
 //!
-//! zip 0.6.6 has advisories in `ZipArchive::extract` (symlinks, SUID bits and
-//! permissions applied through links) and in AES entries. This module never calls
-//! `extract`: it writes each regular file itself, with default permissions, and the
-//! `aes-crypto` feature is off.
+//! This module never calls zip's `ZipArchive::extract`: it writes each regular file
+//! itself, with default permissions, so no symlink, SUID bit or file mode from the jar
+//! reaches the disk. zip's `aes-crypto` feature is off.
 
 use std::{
     fs::{self, File},
@@ -50,7 +49,10 @@ pub fn extract(jar: &Path, dest: &Path, exclude: &[String]) -> Result<Vec<PathBu
         let entry = archive
             .by_index_raw(index)
             .map_err(|err| bad_jar(err.to_string()))?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|err| bad_jar(err.to_string()))?
+            .into_owned();
         if excluded(&name, exclude) {
             continue;
         }
@@ -67,7 +69,10 @@ pub fn extract(jar: &Path, dest: &Path, exclude: &[String]) -> Result<Vec<PathBu
         let mut entry = archive
             .by_index(index)
             .map_err(|err| bad_jar(err.to_string()))?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|err| bad_jar(err.to_string()))?
+            .into_owned();
         if excluded(&name, exclude) || entry.is_dir() {
             continue;
         }
@@ -139,7 +144,7 @@ pub fn reset_dir(dir: &Path) -> io::Result<()> {
 mod tests {
     use std::io::Write as _;
 
-    use zip::write::FileOptions;
+    use zip::write::SimpleFileOptions as FileOptions;
 
     use super::*;
 

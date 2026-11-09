@@ -171,7 +171,7 @@ fn counts_the_tries_left() {
 
 fn jar(path: &Path, fabric_mod_json: &str) {
     let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
-    zip.start_file("fabric.mod.json", zip::write::FileOptions::default())
+    zip.start_file("fabric.mod.json", zip::write::SimpleFileOptions::default())
         .unwrap();
     zip.write_all(fabric_mod_json.as_bytes()).unwrap();
     zip.finish().unwrap();

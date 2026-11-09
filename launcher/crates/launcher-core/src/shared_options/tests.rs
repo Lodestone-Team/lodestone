@@ -840,7 +840,7 @@ fn the_data_version_comes_from_the_jar() {
 fn write_jar(path: &Path, world_version: u32) {
     let file = fs::File::create(path).unwrap();
     let mut zip = zip::ZipWriter::new(file);
-    zip.start_file("version.json", zip::write::FileOptions::default())
+    zip.start_file("version.json", zip::write::SimpleFileOptions::default())
         .unwrap();
     write!(zip, "{{\"id\": \"x\", \"world_version\": {world_version}}}").unwrap();
     zip.finish().unwrap();
