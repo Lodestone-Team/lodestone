@@ -236,7 +236,7 @@ pub fn parse_frame(text: &str, instance: &str) -> Option<LiveMessage> {
 }
 
 /// The console lines in a `GET /instance/{uuid}/console/buffer` reply.
-fn parse_buffer(events: Vec<Value>, instance: &str) -> Vec<ConsoleLine> {
+pub(crate) fn parse_buffer(events: Vec<Value>, instance: &str) -> Vec<ConsoleLine> {
     let mut lines: Vec<ConsoleLine> = events
         .into_iter()
         .filter_map(|event| match parse_frame(&event.to_string(), instance) {

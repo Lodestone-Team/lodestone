@@ -5,6 +5,8 @@
 
 pub mod a11y;
 mod button;
+mod checkbox;
+pub mod console_line;
 mod dialog;
 mod dialog_slot;
 pub mod focus;
@@ -24,6 +26,7 @@ pub mod window_frame;
 
 pub use a11y::Accessible;
 pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
+pub use checkbox::Checkbox;
 pub use dialog::Dialog;
 pub use dialog::prefers_reduced_motion;
 pub use dialog_slot::{DialogSlot, EXIT, EXIT_REDUCED, Presence};

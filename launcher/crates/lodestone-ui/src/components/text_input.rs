@@ -294,6 +294,15 @@ impl TextInput {
         self
     }
 
+    /// Turns a field already shown on or off, such as a console's command line while
+    /// the server is stopped.
+    pub fn set_disabled(&mut self, disabled: bool, cx: &mut Context<Self>) {
+        if self.disabled != disabled {
+            self.disabled = disabled;
+            cx.notify();
+        }
+    }
+
     /// A password field: the text is shown masked and cannot be copied or cut.
     pub fn with_masked(mut self) -> Self {
         self.masked = true;

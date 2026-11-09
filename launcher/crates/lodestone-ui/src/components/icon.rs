@@ -37,10 +37,25 @@ pub enum Icon {
     CircleInfo,
     CircleCheck,
     CircleExclamation,
+    Square,
+    SquareCheck,
+    Server,
+    Folder,
+    FolderPlus,
+    File,
+    FilePen,
+    FileCirclePlus,
+    FloppyDisk,
+    ArrowsRotate,
+    Scissors,
+    Paste,
+    FileZipper,
+    ListCheck,
+    ClipboardQuestion,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 32] = [
+    pub const ALL: [Icon; 47] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -73,6 +88,21 @@ impl Icon {
         Icon::CircleInfo,
         Icon::CircleCheck,
         Icon::CircleExclamation,
+        Icon::Square,
+        Icon::SquareCheck,
+        Icon::Server,
+        Icon::Folder,
+        Icon::FolderPlus,
+        Icon::File,
+        Icon::FilePen,
+        Icon::FileCirclePlus,
+        Icon::FloppyDisk,
+        Icon::ArrowsRotate,
+        Icon::Scissors,
+        Icon::Paste,
+        Icon::FileZipper,
+        Icon::ListCheck,
+        Icon::ClipboardQuestion,
     ];
 
     /// The asset path of the icon's SVG.
@@ -110,6 +140,21 @@ impl Icon {
             Icon::CircleInfo => "icons/circle-info.svg",
             Icon::CircleCheck => "icons/circle-check.svg",
             Icon::CircleExclamation => "icons/circle-exclamation.svg",
+            Icon::Square => "icons/square-regular.svg",
+            Icon::SquareCheck => "icons/square-check.svg",
+            Icon::Server => "icons/server.svg",
+            Icon::Folder => "icons/folder.svg",
+            Icon::FolderPlus => "icons/folder-plus.svg",
+            Icon::File => "icons/file.svg",
+            Icon::FilePen => "icons/file-pen.svg",
+            Icon::FileCirclePlus => "icons/file-circle-plus.svg",
+            Icon::FloppyDisk => "icons/floppy-disk.svg",
+            Icon::ArrowsRotate => "icons/arrows-rotate.svg",
+            Icon::Scissors => "icons/scissors.svg",
+            Icon::Paste => "icons/paste.svg",
+            Icon::FileZipper => "icons/file-zipper.svg",
+            Icon::ListCheck => "icons/list-check.svg",
+            Icon::ClipboardQuestion => "icons/clipboard-question.svg",
         }
     }
 
@@ -147,7 +192,22 @@ impl Icon {
             | Icon::WindowRestore
             | Icon::CircleInfo
             | Icon::CircleCheck
-            | Icon::CircleExclamation => return format!("{self:?}").into(),
+            | Icon::CircleExclamation
+            | Icon::Square
+            | Icon::SquareCheck
+            | Icon::Server
+            | Icon::Folder
+            | Icon::FolderPlus
+            | Icon::File
+            | Icon::FilePen
+            | Icon::FileCirclePlus
+            | Icon::FloppyDisk
+            | Icon::ArrowsRotate
+            | Icon::Scissors
+            | Icon::Paste
+            | Icon::FileZipper
+            | Icon::ListCheck
+            | Icon::ClipboardQuestion => return format!("{self:?}").into(),
         };
         t(message).into()
     }
