@@ -1,0 +1,158 @@
+name: Launcher - Release
+
+# Publishes Lodestone Launcher builds to one of its two update channels. Run it by
+# hand from `main` (Actions › Launcher - Release › Run workflow):
+#
+# - beta: builds main's tip for macOS (launcher-macos-app.yml) and Windows, and
+#   publishes it to the `launcher-beta` release. Launchers with Settings › General ›
+#   Beta builds on update to it.
+# - stable: promotes beta's current builds to `launcher-latest`, which every other
+#   launcher reads. Nothing is rebuilt: stable gets the files beta users have run,
+#   byte for byte.
+#
+# Both go through launcher/scripts/publish_release.py, which refuses a build that
+# isn't newer than the channel's, or a commit that isn't on main. See
+# .claude/skills/publish-launcher-release/SKILL.md for the whole process.
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "beta: build main and publish it to beta. stable: promote beta's builds to stable."
+        type: choice
+        options: [beta, stable]
+        default: beta
+      platforms:
+        description: Which platforms
+        type: choice
+        options: [all, macos, windows]
+        default: all
+
+permissions:
+  contents: read
+
+# One release at a time: each rewrites its channel's latest.json.
+concurrency:
+  group: launcher-release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Releases come from main
+      run: |
+        if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+          echo "::error::Run this workflow on main, not $GITHUB_REF."
+          exit 1
+        fi
+
+  macos:
+    needs: check
+    if: inputs.channel == 'beta' && inputs.platforms != 'windows'
+    uses: ./.github/workflows/launcher-macos-app.yml
+    secrets: inherit
+
+  windows:
+    needs: check
+    if: inputs.channel == 'beta' && inputs.platforms != 'macos'
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        # A build's number is the count of commits in its history.
+        fetch-depth: 0
+
+    # Installs the toolchain pinned in the repository's rust-toolchain.toml.
+    - name: Install Rust toolchain
+      shell: bash
+      run: rustup toolchain install --profile minimal --no-self-update
+
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        prefix-key: rust-cache
+        shared-key: launcher-windows-release
+        workspaces: launcher
+
+    # The installer is built with Inno Setup 6, which GitHub's Windows images
+    # usually include.
+    - name: Check for Inno Setup
+      shell: pwsh
+      run: |
+        $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+        if (-not (Test-Path $iscc)) { choco install innosetup --yes --no-progress }
+
+    - name: Build and stage
+      shell: bash
+      run: python launcher/scripts/publish_release.py --stage "$RUNNER_TEMP/launcher-windows"
+
+    - name: Keep the build
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: launcher-windows
+        path: ${{ runner.temp }}/launcher-windows
+        if-no-files-found: error
+        retention-days: 14
+
+  publish-beta:
+    needs: [check, macos, windows]
+    # Runs when every platform asked for built, and the others were skipped.
+    if: >-
+      always() && inputs.channel == 'beta' && needs.check.result == 'success'
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        # The script checks that each build's commit is on main.
+        fetch-depth: 0
+
+    - name: Fetch the builds
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: launcher-*
+        path: ${{ runner.temp }}/builds
+
+    - name: Publish to beta
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        args=()
+        for folder in "$RUNNER_TEMP"/builds/launcher-*/; do
+          args+=(--from "$folder")
+        done
+        python3 launcher/scripts/publish_release.py --channel beta "${args[@]}"
+
+  promote-stable:
+    needs: check
+    if: inputs.channel == 'stable'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Promote beta to stable
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PLATFORMS: ${{ inputs.platforms }}
+      run: |
+        case "$PLATFORMS" in
+          macos) args=(--platform macos-aarch64 --platform macos-x86_64) ;;
+          windows) args=(--platform windows-x86_64) ;;
+          *) args=() ;;
+        esac
+        python3 launcher/scripts/publish_release.py --promote "${args[@]}"

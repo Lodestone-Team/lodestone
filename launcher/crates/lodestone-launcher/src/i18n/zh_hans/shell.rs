@@ -433,6 +433,10 @@ pub fn text(message: M) -> &'static str {
         M::UpdatesSection => "更新",
         M::UpdateAutomatically => "自动更新",
         M::UpdateAutomaticallyHint => "在后台从 GitHub 下载新构建。",
+        M::BetaBuilds => "测试版构建",
+        M::BetaBuildsHint => {
+            "抢先体验新功能。测试版构建可能有错误。关闭后会保留当前构建，直到有更新的稳定版构建。"
+        }
         M::BuildNumber => "构建 {build}",
         M::BuildNumberCommit => "构建 {build} · {commit}",
         M::DevelopmentBuild => "开发构建",

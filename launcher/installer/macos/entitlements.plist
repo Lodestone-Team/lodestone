@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for a launcher signed with a Developer ID, which runs with the
+  hardened runtime (launcher/scripts/publish_release.py). The hardened runtime
+  blocks the microphone unless it is listed here, and the game, which runs as the
+  launcher's child, asks for it through the launcher (voice chat mods).
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

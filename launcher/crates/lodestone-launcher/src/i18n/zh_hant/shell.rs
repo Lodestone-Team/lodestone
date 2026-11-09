@@ -437,6 +437,10 @@ pub fn text(message: M) -> &'static str {
         M::UpdatesSection => "更新",
         M::UpdateAutomatically => "自動更新",
         M::UpdateAutomaticallyHint => "在背景從 GitHub 下載新組建。",
+        M::BetaBuilds => "測試版組建",
+        M::BetaBuildsHint => {
+            "搶先體驗新功能。測試版組建可能有錯誤。關閉後會保留目前的組建，直到有更新的穩定版組建。"
+        }
         M::BuildNumber => "組建 {build}",
         M::BuildNumberCommit => "組建 {build} · {commit}",
         M::DevelopmentBuild => "開發組建",

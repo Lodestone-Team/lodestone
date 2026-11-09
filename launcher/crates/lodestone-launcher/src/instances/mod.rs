@@ -591,6 +591,21 @@ impl Instances {
         }
     }
 
+    /// Settings > General > "Beta builds".
+    pub fn update_channel(&self) -> launcher_core::update::UpdateChannel {
+        self.settings.update_channel
+    }
+
+    pub fn set_update_channel(
+        &mut self,
+        channel: launcher_core::update::UpdateChannel,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(err) = self.update_settings(|settings| settings.update_channel = channel, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
     /// Settings > General > Language.
     pub fn language(&self) -> crate::i18n::Language {
         self.settings.language
