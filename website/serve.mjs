@@ -26,7 +26,7 @@ const TYPES = {
   '.txt': 'text/plain',
 };
 
-// "/login/*  /core/login/:splat  301" -> { pattern, target, status }
+// "/login/*  /host/login/:splat  301" -> { pattern, target, status }
 const redirects = readFileSync(join(websiteDir, 'src', '_redirects'), 'utf8')
   .split('\n')
   .map((line) => line.trim())
@@ -48,7 +48,10 @@ function file(pathname) {
 
 function send(res, status, path) {
   res.writeHead(status, { 'Content-Type': TYPES[extname(path)] || 'application/octet-stream' });
-  createReadStream(path).pipe(res);
+  // a rebuild can delete the file mid-request; don't let that stop the server
+  createReadStream(path)
+    .on('error', () => res.destroy())
+    .pipe(res);
 }
 
 createServer((req, res) => {
@@ -67,9 +70,9 @@ createServer((req, res) => {
 
   // worker.js
   const lastSegment = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
-  const inDashboard = url.pathname === '/core' || url.pathname.startsWith('/core/');
+  const inDashboard = url.pathname === '/host' || url.pathname.startsWith('/host/');
   if (inDashboard && !lastSegment.includes('.')) {
-    return send(res, 200, join(dist, 'core', 'index.html'));
+    return send(res, 200, join(dist, 'host', 'index.html'));
   }
 
   res.writeHead(404, { 'Content-Type': 'text/plain' });

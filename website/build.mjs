@@ -2,7 +2,7 @@
 //
 //   /           the Lodestone home page, with all the products (website/src)
 //   /launcher   the Lodestone Launcher page (website/src/launcher)
-//   /core       the Lodestone Core web dashboard (dashboard/, built with basePath /core)
+//   /host       the Lodestone Host web dashboard (dashboard/, built with basePath /host)
 //
 // Cloudflare's build runs this from website/, then deploys dist with
 // wrangler.jsonc. Locally:
@@ -21,7 +21,7 @@ const dashboardDir = join(websiteDir, '..', 'dashboard');
 const dist = join(websiteDir, 'dist');
 const landingOnly = process.argv.includes('--landing-only');
 
-export const DASHBOARD_BASE_PATH = '/core';
+export const DASHBOARD_BASE_PATH = '/host';
 
 function run(command, cwd, env = {}) {
   console.log(`\n$ ${command}  (in ${cwd})`);
@@ -32,7 +32,7 @@ rmSync(dist, { recursive: true, force: true });
 cpSync(join(websiteDir, 'src'), dist, { recursive: true });
 console.log(`Copied the pages to ${dist}`);
 
-// Lodestone Core's download count. Sources that can't be read fall back to
+// Lodestone Host's download count. Sources that can't be read fall back to
 // their last known counts (see stats.mjs), so a GitHub hiccup never fails the
 // deploy or lowers the number.
 const downloads = await coreDownloads();

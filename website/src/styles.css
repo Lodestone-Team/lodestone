@@ -1,5 +1,5 @@
 /* lodestone.cc home page: the Lodestone products. Colors come from the gem
-   logo (images/mark.svg, the launcher's logo); the Core card keeps Core's own
+   logo (images/mark.svg, the launcher's logo); the Host card keeps Host's own
    green. Fonts are shared with the launcher page (Satoshi for text, Clash
    Grotesk for headlines). */
 
@@ -34,7 +34,7 @@
   --mint: #4fe0a5;
   --sky: #6aaeee;
   --lilac: #9a8ff5;
-  /* Lodestone Core's green (dashboard/public/lodestone_logo.svg) */
+  /* Lodestone Host's green (dashboard/public/lodestone_logo.svg) */
   --green: #2ef29a;
   color-scheme: dark;
 }
@@ -191,9 +191,9 @@ main {
   aspect-ratio: 1.6;
   translate: -50% -50%;
   background:
-    radial-gradient(closest-side at 42% 45%, rgba(34, 201, 128, 0.16), transparent),
-    radial-gradient(closest-side at 58% 55%, rgba(91, 79, 192, 0.16), transparent),
-    radial-gradient(closest-side, rgba(47, 111, 168, 0.12), transparent);
+    radial-gradient(closest-side at 45% 45%, rgba(34, 201, 128, 0.08), transparent),
+    radial-gradient(closest-side at 55% 55%, rgba(91, 79, 192, 0.08), transparent),
+    radial-gradient(closest-side, rgba(47, 111, 168, 0.08), transparent);
   z-index: -1;
   pointer-events: none;
 }
@@ -223,7 +223,7 @@ main {
   margin-bottom: 26px;
   transform: perspective(600px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
   transition: transform 0.3s ease-out;
-  filter: drop-shadow(0 14px 36px rgba(47, 111, 168, 0.45));
+  filter: drop-shadow(0 12px 30px rgba(47, 111, 168, 0.28));
 }
 
 .mark svg {
@@ -231,8 +231,8 @@ main {
   overflow: visible;
 }
 
-/* On load the gem turns into place and the L rises into it; then a glint runs
-   across the gem every few seconds. */
+/* On load the gem turns into place and the L rises into it; then, every few
+   seconds, a short light runs once around the gem's edge. */
 .gem-hex {
   transform-origin: 512px 512px;
   animation: gem-in 1.1s cubic-bezier(0.2, 0.9, 0.25, 1) both;
@@ -242,8 +242,15 @@ main {
   animation: l-in 0.9s cubic-bezier(0.2, 0.9, 0.25, 1) 0.35s both;
 }
 
-.gem-sheen {
-  animation: sheen 6s ease-in-out 1.1s infinite;
+.gem-edge {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 16 84;
+  stroke-dashoffset: 0;
+  opacity: 0;
+  animation: edge 8s cubic-bezier(0.45, 0, 0.25, 1) 1.4s infinite;
 }
 
 @keyframes gem-in {
@@ -260,13 +267,21 @@ main {
   }
 }
 
-@keyframes sheen {
+@keyframes edge {
   from {
-    transform: rotate(20deg) translateX(-300px);
+    stroke-dashoffset: 0;
+    opacity: 0;
   }
-  30%,
+  4% {
+    opacity: 0.55;
+  }
+  26% {
+    opacity: 0.55;
+  }
+  32%,
   to {
-    transform: rotate(20deg) translateX(820px);
+    stroke-dashoffset: -100;
+    opacity: 0;
   }
 }
 
@@ -318,9 +333,9 @@ h1 .phrase {
   display: inline-block;
 }
 
-/* The second line picks up the gem's gradient. */
+/* The second line takes a soft version of the gem's colors. */
 h1 .phrase + .phrase {
-  background: linear-gradient(100deg, var(--mint), var(--sky) 55%, var(--lilac));
+  background: linear-gradient(100deg, #86dcb6, #93b9e8);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -461,20 +476,20 @@ h1 .phrase + .phrase {
 .card-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 
 .card-icon {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 28px;
+  height: 28px;
   flex: none;
 }
 
 .card-icon-term {
-  border-radius: 10px;
+  border-radius: 7px;
   background: linear-gradient(160deg, #23292e, #15191c);
   box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--green);
@@ -527,7 +542,7 @@ h1 .phrase + .phrase {
   transform: translateX(3px);
 }
 
-.card-core .card-link:not(.card-link-quiet) {
+.card-host .card-link:not(.card-link-quiet) {
   color: var(--green);
 }
 
@@ -613,8 +628,8 @@ h1 .phrase + .phrase {
   transform: rotateX(8deg) rotateY(-12deg) rotateZ(2deg) translate3d(14px, -14px, -40px);
 }
 
-/* Core: a little server list. */
-.core-visual {
+/* Host: a little server list. */
+.host-visual {
   padding: 0 28px 28px;
 }
 
@@ -765,6 +780,7 @@ h1 .phrase + .phrase {
   font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12.5px;
   line-height: 1.6;
+  overflow: hidden;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -893,7 +909,7 @@ h1 .phrase + .phrase {
     padding: 22px 22px 0;
   }
 
-  .core-visual,
+  .host-visual,
   .cli-visual {
     padding: 0 22px 22px;
   }
@@ -924,7 +940,7 @@ h1 .phrase + .phrase {
 
   .gem-hex,
   .gem-l,
-  .gem-sheen,
+  .gem-edge,
   .pulse::after,
   .caret {
     animation: none;

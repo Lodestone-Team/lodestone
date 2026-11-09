@@ -1,8 +1,11 @@
-# The dashboard used to be served from the root. Send its old addresses to
-# /core; Cloudflare keeps the query string (Core links carry ?address=&port=...).
-# Unknown /core paths are handled by worker.js, not here: a catch-all rule in
-# this file would also catch the dashboard's own files.
-/first_setup  /core/first_setup       301
-/login/*      /core/login/:splat      301
-/dashboard/*  /core/dashboard/:splat  301
-/settings/*   /core/settings/:splat   301
+# The dashboard was served from the root, then from /core (when Lodestone Host
+# was called Lodestone Core). Send those addresses to /host; Cloudflare keeps
+# the query string (dashboard links carry ?address=&port=...). Unknown /host
+# paths are handled by worker.js, not here: a catch-all rule for /host in this
+# file would also catch the dashboard's own files.
+/core         /host                   301
+/core/*       /host/:splat            301
+/first_setup  /host/first_setup       301
+/login/*      /host/login/:splat      301
+/dashboard/*  /host/dashboard/:splat  301
+/settings/*   /host/settings/:splat   301

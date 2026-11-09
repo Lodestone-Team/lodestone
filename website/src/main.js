@@ -1,6 +1,6 @@
 // lodestone.cc home page. Everything here is decoration on top of a page that
 // works without it: the star count, the iron filings behind the logo, the
-// tilt of the logo, the light on the cards, the Core card's chart and the CLI
+// tilt of the logo, the light on the cards, the Host card's chart and the CLI
 // card's typing.
 
 const REPO = 'Lodestone-Team/lodestone';
@@ -59,8 +59,12 @@ async function showStars() {
 
 // Iron filings. A grid of short strokes, each turned along the field of a
 // magnet at the logo (a dipole whose axis sways a little). The pointer is a
-// second, weaker magnet. On load the strokes start at random angles and swing
-// into line, nearest the logo first.
+// second magnet: strokes within about 170px of it turn toward its field. The
+// ones closest to it (about 90px) fade almost away, and a ring just outside
+// that brightens, pushing those strokes toward the full gem colors they
+// already carry, so the pointer reads as a dark spot with a lit rim that the
+// field bends around. On load the strokes start at random angles and swing into line,
+// nearest the logo first.
 
 function startField() {
   const canvas = document.querySelector('[data-field]');
@@ -81,6 +85,12 @@ function startField() {
   ];
   const BANDS = BAND_COLORS.length;
   const CLEAR_RADIUS = 84; // no filings under the logo
+  const POINTER_REACH = 170; // px; the pointer's pull halves at about this distance
+  const POINTER_SPREAD = 2 * (POINTER_REACH / 1.18) ** 2;
+  const FADE_REACH = 90; // px; strokes are half faded at about this distance
+  const FADE_SPREAD = 2 * (FADE_REACH / 1.18) ** 2;
+  const RING_RADIUS = 125; // px from the pointer to the brightest part of the ring
+  const RING_WIDTH = 2 * 42 ** 2;
   let width = 0;
   let height = 0;
   let spacing = 22;
@@ -151,6 +161,9 @@ function startField() {
   }
 
   const b = { x: 0, y: 0 };
+  const pb = { x: 0, y: 0 };
+  // strokes have no head or tail, so angles wrap at half a turn
+  const halfTurn = (d) => ((((d + Math.PI / 2) % Math.PI) + Math.PI) % Math.PI) - Math.PI / 2;
   const paths = Array.from({ length: BUCKETS * BANDS }, () => []);
 
   function frame(now) {
@@ -173,23 +186,38 @@ function startField() {
       b.x = 0;
       b.y = 0;
       dipole(f.x, f.y, center.x, center.y, mx, my, 1, b);
+      let target = Math.atan2(b.y, b.x);
+      let near = 0; // how much the pointer pulls on this stroke, 0 to 1
+      let fade = 0; // how much the pointer fades it, 0 to 1
+      let ring = 0; // how much the ring around the pointer lights it, 0 to 1
       if (pointer.strength > 0.01) {
-        dipole(f.x, f.y, pointer.x, pointer.y, px / pl, py / pl, 0.12 * pointer.strength, b);
+        const dx = f.x - pointer.x;
+        const dy = f.y - pointer.y;
+        const d2 = dx * dx + dy * dy;
+        near = pointer.strength * Math.exp(-d2 / POINTER_SPREAD);
+        fade = pointer.strength * Math.exp(-d2 / FADE_SPREAD);
+        const fromRing = Math.sqrt(d2) - RING_RADIUS;
+        ring = pointer.strength * Math.exp(-(fromRing * fromRing) / RING_WIDTH);
+        if (near > 0.003) {
+          pb.x = 0;
+          pb.y = 0;
+          dipole(f.x, f.y, pointer.x, pointer.y, px / pl, py / pl, 1, pb);
+          target += halfTurn(Math.atan2(pb.y, pb.x) - target) * Math.min(1, near * 1.15);
+        }
       }
-      const target = Math.atan2(b.y, b.x);
       const elapsed = now - start - f.delay;
       if (reducedMotion) {
         f.angle = target;
       } else if (elapsed > 0) {
-        // strokes have no head or tail: turn the short way, modulo half a turn
-        let d = target - f.angle;
-        d = ((((d + Math.PI / 2) % Math.PI) + Math.PI) % Math.PI) - Math.PI / 2;
-        f.angle += d * f.rate;
+        // turn the short way
+        f.angle += halfTurn(target - f.angle) * f.rate;
       }
       const appear = reducedMotion ? 1 : Math.min(1, Math.max(0, elapsed / 600));
       if (appear <= 0) continue;
-      const strength = Math.min(1, Math.pow(Math.hypot(b.x, b.y), 0.3) * 0.7);
-      const level = Math.min(BUCKETS - 1, Math.floor(strength * appear * BUCKETS));
+      const strength = Math.min(1, Math.pow(Math.hypot(b.x, b.y), 0.3) * 0.85);
+      const shown = Math.min(1, (strength * (1 - 0.97 * fade) + 0.42 * ring) * appear);
+      if (shown < 0.05) continue;
+      const level = Math.min(BUCKETS - 1, Math.floor(shown * BUCKETS));
       const half = (spacing * (0.24 + 0.14 * strength)) / 1;
       const cx = Math.cos(f.angle) * half;
       const cy = Math.sin(f.angle) * half;
@@ -209,7 +237,7 @@ function startField() {
         const r = Math.round(104 + (hr - 104) * s);
         const g = Math.round(116 + (hg - 116) * s);
         const bl = Math.round(134 + (hb - 134) * s);
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${bl}, ${0.16 + 0.6 * s})`;
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${bl}, ${0.08 + 0.68 * s})`;
         ctx.beginPath();
         for (let k = 0; k < seg.length; k += 4) {
           ctx.moveTo(seg[k], seg[k + 1]);
@@ -296,8 +324,8 @@ function lightCards() {
   }
 }
 
-// The Core card's CPU chart: a random walk that moves along every second.
-function chartCore() {
+// The Host card's CPU chart: a random walk that moves along every second.
+function chartHost() {
   const line = document.querySelector('[data-spark-line]');
   const fill = document.querySelector('[data-spark-fill]');
   if (!line || !fill) return;
@@ -335,7 +363,34 @@ function typeTerminal() {
   const term = document.querySelector('[data-term]');
   if (!term || reducedMotion) return;
   const lines = [...term.children].map((el) => ({ cls: el.className, text: el.textContent }));
-  term.style.minHeight = `${term.offsetHeight}px`;
+
+  // Fix the terminal at the height of its last frame (every line, then a
+  // fresh prompt), so typing never resizes the card or the grid.
+  function reserve() {
+    const ghost = document.createElement('pre');
+    ghost.className = term.className;
+    for (const [i, line] of lines.entries()) {
+      if (i) ghost.append('\n');
+      const span = document.createElement('span');
+      span.className = line.cls;
+      span.textContent = line.text;
+      ghost.append(span);
+    }
+    ghost.append('\n');
+    const prompt = document.createElement('span');
+    prompt.className = 't-cmd';
+    ghost.append(prompt);
+    ghost.style.cssText = `position:absolute;visibility:hidden;width:${term.offsetWidth}px;height:auto;min-height:0`;
+    document.body.append(ghost);
+    term.style.height = `${ghost.offsetHeight}px`;
+    ghost.remove();
+  }
+  reserve();
+  let reserveTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(reserveTimer);
+    reserveTimer = setTimeout(reserve, 100);
+  });
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const caret = document.createElement('span');
   caret.className = 'caret';
@@ -384,5 +439,5 @@ showStars();
 startField();
 tiltMark();
 lightCards();
-chartCore();
+chartHost();
 typeTerminal();

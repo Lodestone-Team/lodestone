@@ -6,7 +6,7 @@
     <title>Lodestone</title>
     <meta
       name="description"
-      content="Free, open source tools for playing and hosting Minecraft: Lodestone Launcher, Lodestone Core and Lodestone CLI."
+      content="Free, open source tools for playing and hosting Minecraft: Lodestone Launcher, Lodestone Host and Lodestone CLI."
     />
     <meta name="theme-color" content="#0d0f13" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -34,7 +34,7 @@
       </a>
       <nav class="nav">
         <a class="nav-link" href="/launcher">Launcher</a>
-        <a class="nav-link" href="/core">Core</a>
+        <a class="nav-link" href="/host">Host</a>
         <a
           class="github"
           href="https://github.com/Lodestone-Team/lodestone"
@@ -88,27 +88,17 @@
                   <stop stop-color="#9AA6BC" />
                   <stop offset="1" stop-color="#DCE3EE" />
                 </linearGradient>
-                <linearGradient id="hg-sheen" x1="0" y1="0" x2="1" y2="0">
-                  <stop stop-color="#FFFFFF" stop-opacity="0" />
-                  <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.28" />
-                  <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
-                </linearGradient>
                 <filter id="hg-crease" x="-20%" y="-20%" width="140%" height="140%">
                   <feGaussianBlur stdDeviation="1.6" />
                 </filter>
                 <clipPath id="hg-footclip">
                   <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" />
                 </clipPath>
-                <clipPath id="hg-hexclip">
-                  <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" />
-                </clipPath>
               </defs>
               <g class="gem-hex">
                 <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" fill="url(#hg-gem)" />
                 <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" fill="url(#hg-hl)" />
-                <g clip-path="url(#hg-hexclip)">
-                  <rect class="gem-sheen" x="100" y="150" width="220" height="720" fill="url(#hg-sheen)" transform="rotate(20 512 512)" />
-                </g>
+                <path class="gem-edge" d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" pathLength="100" />
               </g>
               <g class="gem-l">
                 <g transform="translate(415.31,362) scale(4.2857)">
@@ -156,7 +146,7 @@
           <article class="card card-launcher" data-card>
             <div class="card-copy">
               <div class="card-head">
-                <img class="card-icon" src="/launcher/images/icon.svg" alt="" width="40" height="40" />
+                <img class="card-icon" src="/launcher/images/icon.svg" alt="" width="28" height="28" />
                 <p class="kicker">Play</p>
               </div>
               <h3>Lodestone Launcher</h3>
@@ -188,16 +178,16 @@
             </div>
           </article>
 
-          <article class="card card-core" data-card>
+          <article class="card card-host" data-card>
             <div class="card-copy">
               <div class="card-head">
-                <img class="card-icon" src="/images/core-mark.svg" alt="" width="40" height="40" />
-                <p class="kicker">Host</p>
+                <img class="card-icon" src="/images/host-mark.svg" alt="" width="28" height="28" />
+                <p class="kicker">Serve</p>
               </div>
-              <h3>Lodestone Core</h3>
+              <h3>Lodestone Host</h3>
               <p>Run Minecraft servers on your own machine and look after them from a dashboard in your browser.</p>
               <div class="card-links">
-                <a class="card-link" href="/core">Open the dashboard <span aria-hidden="true">→</span></a>
+                <a class="card-link" href="/host">Open the dashboard <span aria-hidden="true">→</span></a>
                 <a
                   class="card-link card-link-quiet"
                   href="https://github.com/Lodestone-Team/lodestone#installation"
@@ -207,7 +197,7 @@
                 >
               </div>
             </div>
-            <div class="card-visual core-visual" aria-hidden="true">
+            <div class="card-visual host-visual" aria-hidden="true">
               <div class="servers">
                 <div class="servers-head">
                   <span>Servers</span>
@@ -251,7 +241,7 @@
             <div class="card-copy">
               <div class="card-head">
                 <span class="card-icon card-icon-term">
-                  <svg viewBox="0 0 24 24" width="20" height="20">
+                  <svg viewBox="0 0 24 24" width="16" height="16">
                     <path d="M5 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
                     <path d="M12.5 17H19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
                   </svg>
@@ -259,7 +249,7 @@
                 <p class="kicker">Automate</p>
               </div>
               <h3>Lodestone CLI</h3>
-              <p>Install and update Core, then run your servers from the terminal. Scripts and agents get JSON output.</p>
+              <p>Install and update Lodestone Host, then run your servers from the terminal. Scripts and agents get JSON output.</p>
               <a
                 class="card-link"
                 href="https://github.com/Lodestone-Team/lodestone_cli/releases/latest"

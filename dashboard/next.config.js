@@ -2,7 +2,7 @@ const { PHASE_DEVELOPMENT_SERVER } = require('next/constants');
 
 /** @type {(phase: string) => import('next').NextConfig} */
 module.exports = (phase) => {
-  // The path to serve the dashboard under, e.g. "/core" for lodestone.cc (see
+  // The path to serve the dashboard under, e.g. "/host" for lodestone.cc (see
   // website/build.mjs). Empty for Tauri and everything else.
   const basePath = process.env.DASHBOARD_BASE_PATH || '';
 
