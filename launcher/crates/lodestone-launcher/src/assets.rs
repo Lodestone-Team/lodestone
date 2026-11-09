@@ -70,6 +70,10 @@ static FILES: &[(&str, &[u8])] = embed!(
     "icons/triangle-exclamation.svg",
     "icons/upload.svg",
     "icons/user.svg",
+    "icons/window-close.svg",
+    "icons/window-maximize.svg",
+    "icons/window-minimize.svg",
+    "icons/window-restore.svg",
     "icons/xmark.svg",
 );
 

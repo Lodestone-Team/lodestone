@@ -162,7 +162,8 @@ impl LauncherShell {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let viewport = window.viewport_size();
+        // The shell's size: inside the launcher's own frame, when it draws one.
+        let viewport = crate::components::window_frame::content_size(window);
         let top = gpui::px(super::top_bar::TOP_BAR_HEIGHT + 1.0);
         // A window too small for the dialog to float gets it edge to edge, under the
         // top bar.

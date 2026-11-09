@@ -44,6 +44,13 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ("instances delete", "instances.delete", false, true),
     ("instances export", "instances.export", true, false),
     ("instances verify", "instances.verify", true, false),
+    ("instances share-code", "instances.share_code", false, false),
+    (
+        "instances import-code",
+        "instances.import_code",
+        true,
+        false,
+    ),
     ("play launch", "play.launch", true, false),
     ("play stop", "play.stop", true, false),
     ("play status", "play.status", false, false),

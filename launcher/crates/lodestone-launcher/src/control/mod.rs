@@ -223,6 +223,16 @@ pub const METHODS: &[Method] = &[
         instances::export,
     ),
     method(
+        "instances.share_code",
+        "An instance's Modrinth mods, resource packs and shaders as a share code another Lodestone Launcher can paste. Lists what it leaves out (CurseForge and hand-added files).",
+        content::share_code,
+    ),
+    method(
+        "instances.import_code",
+        "Makes an instance from a share code, then installs its content from Modrinth (a job).",
+        content::import_code,
+    ),
+    method(
         "instances.verify",
         "Checks every game file and downloads missing or broken ones.",
         instances::verify,

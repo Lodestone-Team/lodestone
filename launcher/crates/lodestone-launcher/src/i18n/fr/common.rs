@@ -99,6 +99,13 @@ pub fn text(message: M) -> &'static str {
                 "trousseau de clés du système"
             }
         }
+        M::FileDialogUnavailable => {
+            if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+                "La boîte de dialogue de fichiers du système n’est pas disponible. Elle a besoin de xdg-desktop-portal et du portail de votre bureau, comme xdg-desktop-portal-kde ou xdg-desktop-portal-gnome."
+            } else {
+                "La boîte de dialogue de fichiers du système n’a pas pu s’ouvrir. Réessayez."
+            }
+        }
     }
 }
 

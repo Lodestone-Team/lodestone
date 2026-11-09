@@ -186,7 +186,7 @@ crate::i18n::messages! {
         RevertBody = "The chosen parts are replaced by the snapshot’s. A snapshot of them is taken first, so you can come back.",
         Revert = "Revert",
         ShareEllipsis = "Share…",
-        ShareTitle = "Share {name}",
+        ShareSnapshotTitle = "Share {name}",
         PreparingFile = "Preparing the file…",
         DragToShare = "Drag the file into another app, or:",
         SaveAsEllipsis = "Save as…",
@@ -220,6 +220,26 @@ crate::i18n::messages! {
         HostOnCore = "Host on a Lodestone core",
         HostHint = "Creates a server with this instance's mods.",
         HostButton = "Host…",
+        ShareCodeRow = "Share code",
+        /// Opens the share code dialog.
+        ShareButton = "Share…",
+        /// {name} is the instance's name.
+        ShareTitle = "Share {name}",
+        ShareIntro = "Another Lodestone Launcher can make this instance from the code: the same Minecraft version, loader and Modrinth content.",
+        ShareReading = "Reading the content…",
+        ShareNotSharedBody = "Only content from Modrinth goes into a share code. Send these separately if they're needed.",
+        ShareFromCurseForge = "From CurseForge",
+        ShareAddedByHand = "Added by hand",
+        ShareMore = "And {count} more",
+        CopyCode = "Copy code",
+        CodeCopied = "Copied",
+        /// The New instance dialog's third mode: from a share code.
+        ShareCodeMode = "Share code",
+        PasteShareCode = "Paste a share code",
+        CodeNotACode = "That isn't a Lodestone share code.",
+        CodeNewer = "This code is from a newer Lodestone Launcher.",
+        CodeTooLarge = "The code is too long.",
+        CodeDamaged = "The code is damaged. Copy it again.",
         DeleteInstance = "Delete instance",
         DeleteHint = "Including its worlds and mods.",
         DeleteButton = "Delete…",
@@ -303,6 +323,8 @@ crate::i18n::messages! {
     }
 
     pub enum InstanceSettingsPlural {
+        /// The share dialog's warning title.
+        ShareNotShared = ("{count} file isn't shared", "{count} files aren't shared"),
         /// After a loader change; {loader} is "Fabric 0.16.9".
         LoaderNextStartModsOff = (
             "{loader} installs the next time the game starts. {count} mod was turned off.",

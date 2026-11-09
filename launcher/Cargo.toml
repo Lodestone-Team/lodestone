@@ -55,6 +55,8 @@ anyhow = "1.0.86"
 # terminal_size 0.4.3, strsim 0.11.1 or anstream 0.6.21 (checked 2026-11-08).
 clap = { version = "4.4", features = ["derive", "wrap_help"] }
 base64 = "0.22"
+# Share codes are deflated (flate2 is already in the lockfile through zip).
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 # Local dates for worlds, backups and screenshots; already in Zed's tree through GPUI.
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
 dirs = "6.0"
@@ -83,6 +85,9 @@ tiny_http = "0.12"
 # 0.28 (through async-tungstenite); no TLS feature, the launcher wraps rustls itself.
 tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 trash = { git = "https://github.com/zed-industries/trash-rs", rev = "41c6c800d884a89351f3b8856d12894cccee261d" }
+# Word boundaries in text fields: a word delete keeps a letter and its combining marks
+# together. Zed's requirement; 1.13.3 in its lockfile, already in GPUI's tree.
+unicode-segmentation = "1.10"
 url = "2.2"
 uuid = { version = "1.1", features = ["serde"] }
 # Windows-only system calls libc lacks there (host name, memory, OS version, the window's

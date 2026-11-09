@@ -100,6 +100,13 @@ pub fn text(message: M) -> &'static str {
                 "系统密钥环"
             }
         }
+        M::FileDialogUnavailable => {
+            if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+                "系统的文件对话框不可用。它需要 xdg-desktop-portal 及你的桌面对应的后端，例如 xdg-desktop-portal-kde 或 xdg-desktop-portal-gnome。"
+            } else {
+                "系统的文件对话框无法打开。请重试。"
+            }
+        }
     }
 }
 

@@ -167,7 +167,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::Revert => "Restaurer",
         M::ShareEllipsis => "Partager…",
-        M::ShareTitle => "Partager {name}",
+        M::ShareSnapshotTitle => "Partager {name}",
         M::PreparingFile => "Préparation du fichier…",
         M::DragToShare => "Faites glisser le fichier dans une autre app, ou\u{a0}:",
         M::SaveAsEllipsis => "Enregistrer sous…",
@@ -205,6 +205,27 @@ pub fn text(message: M) -> &'static str {
         M::HostOnCore => "Héberger sur un Lodestone Core",
         M::HostHint => "Crée un serveur avec les mods de cette instance.",
         M::HostButton => "Héberger…",
+        M::ShareCodeRow => "Code de partage",
+        M::ShareButton => "Partager…",
+        M::ShareTitle => "Partager {name}",
+        M::ShareIntro => {
+            "Un autre Lodestone Launcher peut recréer cette instance avec ce code\u{a0}: la même version de Minecraft, le même chargeur et le même contenu Modrinth."
+        }
+        M::ShareReading => "Lecture du contenu…",
+        M::ShareNotSharedBody => {
+            "Seul le contenu de Modrinth peut figurer dans un code de partage. Envoyez ces fichiers à part s’ils sont nécessaires."
+        }
+        M::ShareFromCurseForge => "Depuis CurseForge",
+        M::ShareAddedByHand => "Ajouté à la main",
+        M::ShareMore => "Et {count} autres",
+        M::CopyCode => "Copier le code",
+        M::CodeCopied => "Copié",
+        M::ShareCodeMode => "Code de partage",
+        M::PasteShareCode => "Collez un code de partage",
+        M::CodeNotACode => "Ce n’est pas un code de partage Lodestone.",
+        M::CodeNewer => "Ce code vient d’une version plus récente de Lodestone Launcher.",
+        M::CodeTooLarge => "Le code est trop long.",
+        M::CodeDamaged => "Le code est endommagé. Copiez-le à nouveau.",
         M::DeleteInstance => "Supprimer l’instance",
         M::DeleteHint => "Y compris ses mondes et ses mods.",
         M::DeleteButton => "Supprimer…",
@@ -286,6 +307,10 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
+        P::ShareNotShared => [
+            "{count} fichier n’est pas partagé",
+            "{count} fichiers ne sont pas partagés",
+        ],
         P::LoaderNextStartModsOff => [
             "{loader} s’installera au prochain démarrage du jeu. {count}\u{a0}mod a été désactivé.",
             "{loader} s’installera au prochain démarrage du jeu. {count}\u{a0}mods ont été désactivés.",

@@ -1660,6 +1660,27 @@ mod tests {
         }
     }
 
+    /// The examples in the docs and the create-skin skill are valid skins.
+    #[test]
+    fn documented_examples_are_valid() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for doc in ["docs/skins.md", "skills/create-skin/SKILL.md"] {
+            let text = fs::read_to_string(root.join(doc)).unwrap();
+            let mut found = 0;
+            for block in text.split("```json").skip(1) {
+                let json = block.split("```").next().unwrap();
+                if !json.contains("\"schema\"") {
+                    continue;
+                }
+                let spec: SkinSpec =
+                    serde_json::from_str(json).unwrap_or_else(|e| panic!("{doc}: {e}\n{json}"));
+                spec.validate().unwrap_or_else(|e| panic!("{doc}: {e}"));
+                found += 1;
+            }
+            assert!(found > 0, "{doc} has an example");
+        }
+    }
+
     #[test]
     fn colours_parse_and_print() {
         assert_eq!(Rgb::parse("#1d8eb2"), Some(Rgb(0x1D8EB2)));

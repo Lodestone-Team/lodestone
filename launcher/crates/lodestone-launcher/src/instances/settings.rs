@@ -44,6 +44,7 @@ use crate::{
             value,
         },
     },
+    file_dialog,
     i18n::{
         CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, ShellMsg, Text, format,
         t, tr, trn,
@@ -80,6 +81,9 @@ pub struct DeleteRequested(pub String);
 
 /// "Host on a Lodestone core…" was clicked for this instance.
 pub struct HostRequested(pub String);
+
+/// "Share…" was clicked for this instance: the shell opens the share code dialog.
+pub struct ShareRequested(pub String);
 
 /// Asks the shell to confirm a loader change that leaves mods behind or puts worlds at
 /// risk.
@@ -221,6 +225,7 @@ pub struct InstanceSettings {
 impl EventEmitter<DeleteRequested> for InstanceSettings {}
 impl EventEmitter<HostRequested> for InstanceSettings {}
 impl EventEmitter<super::snapshots::SnapshotRequested> for InstanceSettings {}
+impl EventEmitter<ShareRequested> for InstanceSettings {}
 impl EventEmitter<LoaderChangePrompt> for InstanceSettings {}
 impl EventEmitter<UpdatePrompt> for InstanceSettings {}
 
@@ -256,6 +261,12 @@ fn form_values(instance: &Instance) -> Instance {
         env: instance.env.clone(),
         prerelease_updates: instance.prerelease_updates,
         ..Instance::default()
+    }
+}
+
+impl file_dialog::ShowsError for InstanceSettings {
+    fn show_error(&mut self, message: SharedString, cx: &mut Context<Self>) {
+        self.set_message(message, true, cx);
     }
 }
 
@@ -820,7 +831,7 @@ impl InstanceSettings {
             prompt: Some(t(M::UseThisJava).into()),
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             let Some(path) = paths.into_iter().next() else {
@@ -845,7 +856,7 @@ impl InstanceSettings {
         });
         let id = self.instance_id.clone();
         self._prompt = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             let Some(path) = paths.into_iter().next() else {
@@ -888,7 +899,7 @@ impl InstanceSettings {
         });
         let id = self.instance_id.clone();
         self._prompt = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             let Some(path) = paths.into_iter().next() else {
@@ -1215,7 +1226,7 @@ impl InstanceSettings {
             prompt: Some(t(M::AddToSlideshow).into()),
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             this.update(cx, |this, cx| this.add_own_images(paths, cx))
@@ -1642,7 +1653,7 @@ impl InstanceSettings {
         let picked = cx.prompt_for_new_path(&folder, Some(&format!("{file_name}.mrpack")));
         let id = self.instance_id.clone();
         self._prompt = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(path))) = picked.await else {
+            let Some(path) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             this.update(cx, |this, cx| {
@@ -2043,7 +2054,7 @@ fn auto_group_name(group: launcher_core::instances::AutoGroup) -> &'static str {
 impl Render for InstanceSettings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.track_edits(cx);
-        let viewport_width = window.viewport_size().width;
+        let viewport_width = crate::components::window_frame::content_size(window).width;
         let (defaults, total, busy, background, required_java) = {
             let instances = self.instances.read(cx);
             (
@@ -2427,6 +2438,16 @@ impl Render for InstanceSettings {
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
+                )
+                .into_any_element(),
+            SettingRow::new(t(M::ShareCodeRow))
+                .child(
+                    Button::new("share-instance", t(M::ShareButton))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.emit(ShareRequested(this.instance_id.clone()))
+                        })),
                 )
                 .into_any_element(),
             SettingRow::new(t(M::Duplicate))

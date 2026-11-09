@@ -526,14 +526,15 @@ pub mod layout {
     pub const SIDEBAR_FOLD_BELOW: f32 = 140.0;
 
     /// The sidebar for its edge dragged to `x` (logical pixels at 100% zoom, from
-    /// the window's left edge), in a window `window_width` wide: its width, and
+    /// the content's left edge), in content `content_width` wide: its width, and
     /// whether it is folded into the rail. It never takes more than 45% of the
-    /// window.
-    pub fn sidebar_drag(x: f32, window_width: f32) -> (f32, bool) {
+    /// content. The content is the window inside the launcher's own frame, when it
+    /// draws one (see `window_frame::content_bounds`).
+    pub fn sidebar_drag(x: f32, content_width: f32) -> (f32, bool) {
         if x < SIDEBAR_FOLD_BELOW {
             return (SIDEBAR_DEFAULT, true);
         }
-        let max = SIDEBAR_MAX.min(window_width * 0.45).max(SIDEBAR_MIN);
+        let max = SIDEBAR_MAX.min(content_width * 0.45).max(SIDEBAR_MIN);
         (x.clamp(SIDEBAR_MIN, max).round(), false)
     }
 

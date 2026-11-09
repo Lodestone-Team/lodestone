@@ -663,7 +663,7 @@ impl SnapshotDialog {
         match self.mode {
             Mode::Take => t(M::TakeSnapshotTitle).into(),
             Mode::Revert => tr!(M::RevertTitle, name = name).into(),
-            Mode::Share => tr!(M::ShareTitle, name = name).into(),
+            Mode::Share => tr!(M::ShareSnapshotTitle, name = name).into(),
             Mode::Delete => tr!(M::DeleteSnapshotTitle, name = name).into(),
             Mode::Import => t(M::ImportSnapshotTitle).into(),
         }
