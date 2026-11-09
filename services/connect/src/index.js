@@ -201,7 +201,9 @@ function afterParam(url) {
 }
 
 /// Cloudflare's rate limiter, keyed by the client's address. Missing in some local
-/// setups, where everything passes.
+/// setups, where everything passes. Ask it only after the checks a web page elsewhere
+/// can't pass from a visitor's browser (JSON bodies, the Authorization header): else any
+/// page could use up the visitor's limits, and stop them sharing or joining.
 async function allowed(limiter, request) {
   if (!limiter) return true;
   const key = request.headers.get('cf-connecting-ip') || 'local';
@@ -342,8 +344,8 @@ async function route(request, env) {
 
   if (parts.length === 2) {
     if (request.method !== 'POST') return error(405, 'method', 'Use POST.');
-    if (!(await allowed(env.CREATE_LIMIT, request))) return rateLimited('invites');
     if (!isJson(request)) return error(415, 'not_json', 'Send JSON (Content-Type: application/json).');
+    if (!(await allowed(env.CREATE_LIMIT, request))) return rateLimited('invites');
     const body = await readCandidates(request, allowLoopback);
     if (!body) return badCandidates();
     const secret = random('0123456789abcdef', SECRET_HEX_LEN);
@@ -361,17 +363,17 @@ async function route(request, env) {
   const invite = env.INVITES.get(env.INVITES.idFromName(code));
 
   if (parts.length === 4 && parts[3] === 'joins' && request.method === 'POST') {
-    if (!(await allowed(env.JOIN_LIMIT, request))) return rateLimited('joins');
     if (!isJson(request)) return error(415, 'not_json', 'Send JSON (Content-Type: application/json).');
+    if (!(await allowed(env.JOIN_LIMIT, request))) return rateLimited('joins');
     const join = await readCandidates(request, allowLoopback);
     if (!join) return badCandidates();
     const result = await invite.join(join.candidates);
     return 'error' in result ? error(result.status, result.error, result.message) : json(200, { host: result.host });
   }
   if (parts.length === 4 && parts[3] === 'joins' && request.method === 'GET') {
-    if (!(await allowed(env.HOST_LIMIT, request))) return rateLimited('requests');
     const secret = bearer(request);
     if (!secret) return unauthorized();
+    if (!(await allowed(env.HOST_LIMIT, request))) return rateLimited('requests');
     if ((request.headers.get('upgrade') || '').toLowerCase() === 'websocket') {
       // The object answers the upgrade itself, and keeps the socket.
       return invite.fetch(request);
@@ -380,19 +382,19 @@ async function route(request, env) {
     return 'error' in result ? error(result.status, result.error, result.message) : json(200, { joins: result.joins });
   }
   if (parts.length === 3 && request.method === 'PUT') {
-    if (!(await allowed(env.HOST_LIMIT, request))) return rateLimited('requests');
     const secret = bearer(request);
     if (!secret) return unauthorized();
     if (!isJson(request)) return error(415, 'not_json', 'Send JSON (Content-Type: application/json).');
+    if (!(await allowed(env.HOST_LIMIT, request))) return rateLimited('requests');
     const body = await readCandidates(request, allowLoopback);
     if (!body) return badCandidates();
     const result = await invite.renew(secret, body.candidates);
     return 'error' in result ? error(result.status, result.error, result.message) : json(200, { code, ...dates(result) });
   }
   if (parts.length === 3 && request.method === 'DELETE') {
-    if (!(await allowed(env.HOST_LIMIT, request))) return rateLimited('requests');
     const secret = bearer(request);
     if (!secret) return unauthorized();
+    if (!(await allowed(env.HOST_LIMIT, request))) return rateLimited('requests');
     const result = await invite.end(secret);
     return 'error' in result ? error(result.status, result.error, result.message) : json(200, { ok: true });
   }

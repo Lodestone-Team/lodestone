@@ -41,7 +41,9 @@ the commit built. They take the published release of their channel whose file fo
 their platform has the highest build. So the script refuses a build lower than one
 already published on the same channel for that platform.
 
-Host and Core release the same way with `vX.Y.Z` tags (`release.yml`); this skill
+The Tauri Host and Core release the same way with `vX.Y.Z` tags (`release.yml`).
+The GPUI Lodestone Host releases with this script and `--product host`
+(`host-vX.Y.Z` tags): see `.claude/skills/publish-host-release/SKILL.md`. This skill
 is about the launcher.
 
 ## What this machine needs

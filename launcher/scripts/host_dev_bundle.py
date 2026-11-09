@@ -7,8 +7,9 @@ Info.plist points the core's data folder and the Host's own folder (logs, the
 single-instance socket) into the output folder, so a test never touches
 `~/.lodestone` or the installed Host's data. It is signed ad hoc, for this Mac only.
 
-Nothing is published. For a release build of the Host, see the parity plan
-(`launcher/docs/host-parity.md`): its packaging is still to come.
+Nothing is published. Release builds of the Host ("Lodestone Host.app" in a disk
+image, the Windows installer) come from `publish_release.py --product host`; see
+`.claude/skills/publish-host-release/SKILL.md`.
 
 Usage, from anywhere in the repository:
 

@@ -276,13 +276,16 @@ crate::i18n::messages! {
         BuildNumber = "Build {build}",
         BuildNumberCommit = "Build {build} · {commit}",
         DevelopmentBuild = "Development build",
-        UpdatesUnavailable = "Lodestone Host doesn’t update itself yet. New versions come with a new download.",
+        UpdatesUnavailable = "This build doesn’t update itself. Lodestone Host from the website does.",
         UpdateNotChecked = "Looks for new builds every few hours.",
         UpdateChecking = "Looking for a newer build…",
         UpToDate = "This is the newest build.",
         UpdateAvailable = "Build {build} is available.",
         UpdateDownloading = "Downloading build {build}… {percent}",
-        UpdateReady = "Build {build} is installed. Restart to use it: your servers stop, then start again if they start on their own.",
+        UpdateReady = "Build {build} is downloaded. Restart to use it: your servers stop, then start again if they start on their own. Quitting installs it too.",
+        RestartUpdateTitle = "Restart to update?",
+        RestartUpdateBody = "Restarting Lodestone Host stops them first. Servers that start on their own start again after the restart.",
+        RestartUpdateConfirm = "Stop servers and restart",
         UpdateFailed = "Couldn’t update: {error}",
         CheckForUpdates = "Check now",
         DownloadUpdate = "Download",
@@ -314,5 +317,6 @@ crate::i18n::messages! {
     pub enum CorePlural {
         ScopeServers = ("{count} server", "{count} servers"),
         ScopePermissions = ("{count} permission", "{count} permissions"),
+        ServersRunning = ("{count} server is running.", "{count} servers are running."),
     }
 }

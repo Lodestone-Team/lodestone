@@ -1,19 +1,26 @@
 //! Lodestone Host's own updates: what Settings › Updates shows and does.
 //!
-//! The mechanism comes later (`launcher/docs/host-parity.md`, §8.7). It will be an
-//! [`UpdateSource`]: the launcher's (`launcher_core::update`: a manifest on a GitHub
-//! release per channel, a download checked against its size and hash, the executable
-//! swapped in place, a restart) with the Host's own channels and bundle (the Host and
-//! its core). Until a source is set, the page says the Host doesn't update itself.
-//!
 //! The model is the launcher's (`lodestone-launcher/src/updater.rs`): a check a while
-//! after the start and every few hours, "Update automatically" downloads and installs
-//! a newer build, "Beta builds" picks the channel, and a restart applies it. Restarting
-//! the Host stops the core and its servers first, as Quit does.
+//! after the start and every few hours, "Update automatically" downloads a newer
+//! build, and "Beta builds" picks the channel. Builds come from an [`UpdateSource`]:
+//! [`ReleaseSource`] reads the Host's GitHub releases (`host-vX.Y.Z`) through
+//! `launcher_core::update`, with the launcher's manifest, checks and file swap.
+//!
+//! The Host is two programs: itself and the core it runs. A download stages both
+//! next to the running ones, checked against the manifest's size and SHA-256. They
+//! are only swapped in once the core has stopped: when the Host quits
+//! ([`Updater::apply`], from `HostApp::quit`), or restarts to update, which stops the
+//! core (and its servers) the same way. Restarting asks first when servers run
+//! (`pages/updates.rs`).
+//!
+//! Only builds made by `launcher/scripts/publish_release.py --product host` update:
+//! it compiles in `LODESTONE_HOST_BUILD` and `LODESTONE_HOST_COMMIT`. A plain
+//! `cargo build` has no build number and never updates.
 
 use std::{
+    path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
@@ -21,6 +28,8 @@ use std::{
 
 use futures::future::BoxFuture;
 use gpui::{App, AppContext as _, Context, Entity, Global, Task};
+use http_client::HttpClient;
+use launcher_core::update::{self, Build, Product, UpdateChannel};
 
 use crate::prefs::Prefs;
 
@@ -31,20 +40,33 @@ const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 /// How often a download's progress is redrawn.
 const PROGRESS_TICK: Duration = Duration::from_millis(250);
 
-/// Where new builds come from: the part that comes later.
+/// This build, as the publish script compiled it in; `None` for `cargo build`.
+pub fn this_build() -> Option<Build> {
+    Build::parse(
+        option_env!("LODESTONE_HOST_BUILD"),
+        option_env!("LODESTONE_HOST_COMMIT"),
+    )
+}
+
+/// Where new builds come from.
 pub trait UpdateSource: Send + Sync + 'static {
     /// The newest build in the stable channel, or the stable and beta ones, newer than
     /// `running`; `None` when there is none.
     fn check(&self, beta: bool, running: u64) -> BoxFuture<'static, Result<Option<Found>, String>>;
 
-    /// Downloads and installs `found`, telling `progress` how many bytes are done.
-    fn install(
+    /// Downloads `found` and keeps it ready to install, telling `progress` how many
+    /// bytes are done.
+    fn download(
         &self,
         found: Found,
         progress: Arc<dyn Fn(u64) + Send + Sync>,
     ) -> BoxFuture<'static, Result<(), String>>;
 
-    /// Starts the installed build. The Host then quits (stopping its core first).
+    /// Swaps the downloaded build in. Called once the core has stopped.
+    fn install(&self) -> Result<(), String>;
+
+    /// Starts the Host again (the installed build, if [`Self::install`] worked). The
+    /// Host quits right after.
     fn restart(&self) -> Result<(), String>;
 }
 
@@ -52,14 +74,16 @@ pub trait UpdateSource: Send + Sync + 'static {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Found {
     pub build: u64,
-    /// The download's size in bytes.
+    /// The download's size in bytes: the Host and its core.
     pub size: u64,
+    /// The release and manifest it is in; `None` from a test source.
+    pub release: Option<update::Found>,
 }
 
 /// Where updating stands (the launcher's `UpdateState`).
 #[derive(Clone, Debug)]
 pub enum UpdateState {
-    /// No source yet, or a build the publish script didn't make.
+    /// A build the publish script didn't make, which doesn't update itself.
     Unavailable,
     Idle,
     Checking,
@@ -71,7 +95,7 @@ pub enum UpdateState {
         done: Arc<AtomicU64>,
         total: u64,
     },
-    /// Installed: runs after a restart.
+    /// Downloaded: installed when the Host restarts or quits.
     Ready {
         build: u64,
     },
@@ -90,6 +114,10 @@ pub struct Updater {
     source: Option<Arc<dyn UpdateSource>>,
     /// This build's number, `None` for a development build.
     pub build: Option<u64>,
+    /// This build's commit, as the publish script compiled it in.
+    pub commit: Option<&'static str>,
+    /// The Host quits to restart into the downloaded build.
+    restart_requested: bool,
     work: Option<Task<()>>,
     _poll: Option<Task<()>>,
 }
@@ -100,9 +128,19 @@ pub struct GlobalUpdater(pub Entity<Updater>);
 impl Global for GlobalUpdater {}
 
 impl Updater {
-    /// Makes the app's updater, with no source yet. Call once at startup.
+    /// Makes the app's updater. A build the publish script made reads the Host's
+    /// releases; others don't update. Call once at startup.
     pub fn init(cx: &mut App) {
-        let updater = cx.new(|_| Updater::new(None, None));
+        let build = this_build();
+        let source = build.and_then(|_| ReleaseSource::new().ok());
+        let updater = cx.new(|cx| {
+            let mut updater = Updater::new(None, None);
+            if let (Some(build), Some(source)) = (build, source) {
+                updater.commit = build.commit;
+                updater.set_source(Arc::new(source), build.number, cx);
+            }
+            updater
+        });
         cx.set_global(GlobalUpdater(updater));
     }
 
@@ -120,6 +158,8 @@ impl Updater {
             },
             source,
             build,
+            commit: None,
+            restart_requested: false,
             work: None,
             _poll: None,
         }
@@ -162,22 +202,26 @@ impl Updater {
         ) {
             return;
         }
-        let installed = match self.state {
+        let downloaded = match self.state {
             UpdateState::Ready { build } => Some(build),
             _ => None,
         };
         self.state = UpdateState::Checking;
         cx.notify();
         let beta = Prefs::get(cx).beta_builds;
-        let running = installed.or(self.build).unwrap_or(0);
+        let running = downloaded.or(self.build).unwrap_or(0);
         let work = cx.background_spawn(source.check(beta, running));
         self.work = Some(cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
                 this.work = None;
                 this.state = match result {
-                    Err(err) => UpdateState::Failed(err),
-                    Ok(None) => match installed {
+                    Err(err) => match downloaded {
+                        // a failed check doesn't lose the download
+                        Some(build) => UpdateState::Ready { build },
+                        None => UpdateState::Failed(err),
+                    },
+                    Ok(None) => match downloaded {
                         Some(build) => UpdateState::Ready { build },
                         None => UpdateState::UpToDate,
                     },
@@ -193,7 +237,7 @@ impl Updater {
         }));
     }
 
-    /// Downloads and installs the available build.
+    /// Downloads the available build.
     pub fn download_available(&mut self, cx: &mut Context<Self>) {
         if let UpdateState::Available(found) = &self.state {
             let found = found.clone();
@@ -233,7 +277,7 @@ impl Updater {
         cx.notify();
         let progress: Arc<dyn Fn(u64) + Send + Sync> =
             Arc::new(move |bytes| done.store(bytes, Ordering::Relaxed));
-        let work = cx.background_spawn(source.install(found, progress));
+        let work = cx.background_spawn(source.download(found, progress));
         self.work = Some(cx.spawn(async move |this, cx| {
             let mut work = std::pin::pin!(work);
             loop {
@@ -261,20 +305,217 @@ impl Updater {
         }));
     }
 
-    /// Starts the installed build; the caller then quits the Host as Quit does.
+    /// Whether a downloaded build waits to be installed.
+    pub fn is_ready(&self) -> bool {
+        matches!(self.state, UpdateState::Ready { .. })
+    }
+
+    /// Asks for a restart into the downloaded build. Returns whether there is one; the
+    /// caller then quits the Host as Quit does (`crate::Quit`): the core stops, its
+    /// servers first, and [`Self::apply`] installs the build and starts it.
     pub fn restart(&mut self, cx: &mut Context<Self>) -> bool {
-        let (UpdateState::Ready { .. }, Some(source)) = (&self.state, &self.source) else {
+        if !self.is_ready() || self.source.is_none() {
             return false;
+        }
+        self.restart_requested = true;
+        cx.notify();
+        true
+    }
+
+    /// Installs a downloaded build, and restarts the Host if that was asked for. Call
+    /// it while quitting, once the core has stopped. Errors are only logged: the Host
+    /// is quitting, and the next start checks again.
+    pub fn apply(cx: &mut App) {
+        let Some(updater) = Self::global(cx) else {
+            return;
         };
-        match source.restart() {
-            Ok(()) => true,
-            Err(err) => {
-                self.state = UpdateState::Failed(err);
-                cx.notify();
-                false
-            }
+        let (source, ready, restart) = {
+            let updater = updater.read(cx);
+            (
+                updater.source.clone(),
+                updater.is_ready(),
+                updater.restart_requested,
+            )
+        };
+        let Some(source) = source else {
+            return;
+        };
+        if ready && let Err(err) = source.install() {
+            eprintln!("Lodestone Host couldn't install the update: {err}");
+        }
+        // Even when the install failed, the Host comes back (as the old build).
+        if restart && let Err(err) = source.restart() {
+            eprintln!("Lodestone Host couldn't restart: {err}");
         }
     }
+}
+
+/// The Host's GitHub releases: `launcher_core::update` with [`Product::HOST`].
+pub struct ReleaseSource {
+    /// The Host's executable, as it was when the process started.
+    exe: PathBuf,
+    /// The core's program, next to it.
+    core: PathBuf,
+    http: Arc<dyn HttpClient>,
+    download_http: Arc<dyn HttpClient>,
+    /// The downloaded build, once both files are staged.
+    staged: Arc<Mutex<Option<u64>>>,
+}
+
+impl ReleaseSource {
+    /// For the running Host. Removes what an earlier update left behind.
+    pub fn new() -> Result<Self, String> {
+        let exe = update::exe()
+            .map(Path::to_path_buf)
+            .ok_or("couldn't tell where Lodestone Host is")?;
+        let core = core_path(&exe);
+        update::clean_up(&exe);
+        update::clean_up(&core);
+        if let Some(build) = this_build() {
+            // Installed with the Windows installer: Settings › Apps shows this build.
+            let display = update::display_version(env!("CARGO_PKG_VERSION"), build.number);
+            update::refresh_uninstall_entry_for(update::HOST_WINDOWS_APP_ID, &exe, &display);
+        }
+        Ok(Self {
+            exe,
+            core,
+            http: launcher_core::http::default_client().map_err(|err| err.to_string())?,
+            download_http: launcher_core::http::download_client().map_err(|err| err.to_string())?,
+            staged: Arc::new(Mutex::new(None)),
+        })
+    }
+}
+
+/// Where the core's program goes: next to the Host's executable, where
+/// `core_process::find_core` looks.
+pub fn core_path(exe: &Path) -> PathBuf {
+    exe.with_file_name(crate::core_process::CORE_PROGRAM)
+}
+
+impl UpdateSource for ReleaseSource {
+    fn check(&self, beta: bool, running: u64) -> BoxFuture<'static, Result<Option<Found>, String>> {
+        let http = self.http.clone();
+        let channel = if beta {
+            UpdateChannel::Beta
+        } else {
+            UpdateChannel::Stable
+        };
+        Box::pin(launcher_core::http::in_http_runtime(async move {
+            let found = update::find_update_for(Product::HOST, http.as_ref(), channel)
+                .await
+                .map_err(|err| err.to_string())?;
+            // Never older than what runs: leaving the beta waits for stable.
+            let Some(found) = found else {
+                return Ok(None);
+            };
+            let Some((build, asset)) = found.manifest.newer(running) else {
+                return Ok(None);
+            };
+            let Some(core) = &asset.core else {
+                return Err(format!(
+                    "build {build} has no Lodestone Core for this computer"
+                ));
+            };
+            Ok(Some(Found {
+                build,
+                size: asset.size + core.size,
+                release: Some(found.clone()),
+            }))
+        }))
+    }
+
+    fn download(
+        &self,
+        found: Found,
+        progress: Arc<dyn Fn(u64) + Send + Sync>,
+    ) -> BoxFuture<'static, Result<(), String>> {
+        let (exe, core) = (self.exe.clone(), self.core.clone());
+        let http = self.download_http.clone();
+        let staged = self.staged.clone();
+        Box::pin(launcher_core::http::in_http_runtime(async move {
+            let release = found.release.ok_or("there's no release to download from")?;
+            let (build, asset) = release
+                .manifest
+                .for_platform()
+                .ok_or("the release has no build for this computer")?;
+            let core_asset = asset
+                .core
+                .as_ref()
+                .ok_or("the release has no Lodestone Core for this computer")?
+                .as_asset();
+            *staged.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            let host_url =
+                update::Manifest::asset_url(&release.url, asset).map_err(|err| err.to_string())?;
+            let core_url = update::Manifest::asset_url(&release.url, &core_asset)
+                .map_err(|err| err.to_string())?;
+            let host_size = asset.size;
+            update::download(
+                http.as_ref(),
+                &host_url,
+                asset,
+                &update::staging_path(&exe),
+                |bytes| progress(bytes),
+            )
+            .await
+            .map_err(|err| err.to_string())?;
+            update::download(
+                http.as_ref(),
+                &core_url,
+                &core_asset,
+                &update::staging_path(&core),
+                |bytes| progress(host_size + bytes),
+            )
+            .await
+            .map_err(|err| err.to_string())?;
+            *staged.lock().unwrap_or_else(|e| e.into_inner()) = Some(build);
+            Ok(())
+        }))
+    }
+
+    fn install(&self) -> Result<(), String> {
+        if self
+            .staged
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .is_none()
+        {
+            return Ok(());
+        }
+        install_pair(&self.exe, &self.core)
+    }
+
+    fn restart(&self) -> Result<(), String> {
+        update::restart(&self.exe).map_err(|err| err.to_string())
+    }
+}
+
+/// Swaps the staged core and Host in for `core` and `exe`: the core first, so a Host
+/// that fails half way still runs its old self with a newer core, which it can talk
+/// to. If the Host can't be swapped, the old core is put back.
+pub fn install_pair(exe: &Path, core: &Path) -> Result<(), String> {
+    let (staged_exe, staged_core) = (update::staging_path(exe), update::staging_path(core));
+    if !staged_exe.is_file() || !staged_core.is_file() {
+        return Err("the download is missing; it starts again at the next check".into());
+    }
+    // Keep the old core, to put it back if the Host can't be replaced.
+    let backup = core.with_file_name(format!(
+        "{}.previous",
+        core.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    let had_core = core.is_file();
+    if had_core {
+        std::fs::copy(core, &backup).map_err(|err| err.to_string())?;
+    }
+    let result = update::install(&staged_core, core)
+        .and_then(|()| update::install(&staged_exe, exe))
+        .map_err(|err| err.to_string());
+    if result.is_err() && had_core {
+        let _ = std::fs::rename(&backup, core);
+    } else {
+        let _ = std::fs::remove_file(&backup);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -292,5 +533,47 @@ mod tests {
         let done = AtomicU64::new(50);
         assert_eq!(UpdateState::percent(&done, 200), 25);
         assert_eq!(UpdateState::percent(&done, 0), 100);
+    }
+
+    #[test]
+    fn installs_the_host_and_its_core_together() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("lodestone-host");
+        let core = core_path(&exe);
+        std::fs::write(&exe, b"old host").unwrap();
+        std::fs::write(&core, b"old core").unwrap();
+        // nothing staged: nothing changes
+        assert!(install_pair(&exe, &core).is_err());
+        assert_eq!(std::fs::read(&exe).unwrap(), b"old host");
+
+        std::fs::write(update::staging_path(&exe), b"new host").unwrap();
+        std::fs::write(update::staging_path(&core), b"new core").unwrap();
+        install_pair(&exe, &core).unwrap();
+        assert_eq!(std::fs::read(&exe).unwrap(), b"new host");
+        assert_eq!(std::fs::read(&core).unwrap(), b"new core");
+        for leftover in [
+            update::staging_path(&exe),
+            update::staging_path(&core),
+            core.with_file_name(format!("{}.previous", crate::core_process::CORE_PROGRAM)),
+        ] {
+            assert!(!leftover.exists(), "{}", leftover.display());
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_host_that_cant_be_replaced_keeps_its_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("lodestone-host");
+        let core = core_path(&exe);
+        std::fs::write(&core, b"old core").unwrap();
+        std::fs::write(update::staging_path(&core), b"new core").unwrap();
+        // a file can't replace a folder that isn't empty
+        std::fs::create_dir(&exe).unwrap();
+        std::fs::write(exe.join("busy"), b"").unwrap();
+        std::fs::write(update::staging_path(&exe), b"new host").unwrap();
+        assert!(install_pair(&exe, &core).is_err());
+        assert_eq!(std::fs::read(&core).unwrap(), b"old core");
+        assert!(exe.join("busy").is_file());
     }
 }

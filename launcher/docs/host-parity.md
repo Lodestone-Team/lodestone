@@ -145,9 +145,15 @@ shows for a core with the `macros` capability and then says scripting is unavail
   (closing minimizes), the system draws the window frame (the launcher draws its own
   caption buttons on Windows: reuse `components::window_frame` and the launcher's
   `top_bar` approach), and the Windows executable has no icon resource yet.
-- **Packaging and updates** (§8.7): no release packaging, signing or updater for the
-  Host yet. The Tauri Host's updater feed is different from the launcher's channels;
-  the Host should use the launcher's (`launcher_core::update`) with its own channel.
+- **Packaging and updates** (§8.7, §8.8): done. `publish_release.py --product host`
+  builds "Lodestone Host.app" (bundle id `com.lodestone.cc`, the Tauri app's, so it
+  replaces it in place) in `LodestoneHost.dmg`, and `LodestoneHostSetup.exe` (Inno
+  Setup, per user), each with the core next to the Host; "Host - Release" builds
+  them into `host-vX.Y.Z` drafts. The Host updates itself from those releases
+  (`updater.rs`, `launcher_core::update` with `Product::HOST`): it downloads the Host
+  and the core, and installs them once the core has stopped, when it quits or
+  restarts to update (asking first while servers run). See
+  `.claude/skills/publish-host-release/SKILL.md`. No Linux package yet.
 - **Light theme** (§1.8): done (D). `lodestone_ui::theme::palette` maps every `Color`
   to the dashboard's light tokens when the Host turns it on, so components keep naming
   the dark tokens; the launcher never turns it on. Colours made with `Color::mix` (a
@@ -1068,13 +1074,16 @@ Conventions in the code that every area relies on:
   updates/main/updates.json` (minisign pubkey in config). If an update exists: native Yes/No dialog "A new
   version of Lodestone Host is available!" with versions and release notes → download+install → second
   dialog "Ready to restart" → restart. Errors logged only. Bundles `v1Compatible` updater artifacts.
-  - *Host:* Settings › Updates (pages/updates.rs) and updater.rs, after the launcher's updater: check, download, install, restart, with Update automatically and Beta builds saved in settings.json. The source of builds (an UpdateSource) comes with the Host's release channel; until then the page says the Host doesn't update itself.
+  - *Host:* Settings › Updates (pages/updates.rs) and updater.rs, after the launcher's updater: check, download, install, restart, with Update automatically and Beta builds saved in settings.json.
+  - *Host:* builds come from the `host-v*` GitHub releases (`ReleaseSource`: `launcher_core::update` with `Product::HOST`), 30 s after the start and every 6 hours. A download stages the Host and its core next to the running ones, checked against `latest.json`; they are installed when the Host quits or restarts, after the core (and its servers) stopped. Restarting while servers run asks first. Only builds made by `publish_release.py --product host` (with `LODESTONE_HOST_BUILD`) update.
 
 ### 8.8 Other Tauri facts  
-**Package: D (packaging).**
+**Package: D (packaging: done by the release agent).**
 
-- [ ] Product "Lodestone Host" v0.5.1, identifier `com.lodestone.cc`, bundle targets all (dmg/msi/deb/
+- [x] Product "Lodestone Host" v0.5.1, identifier `com.lodestone.cc`, bundle targets all (dmg/msi/deb/
   AppImage…), WiX upgrade code fixed.
+  - *Host:* "Lodestone Host.app" keeps the name and `com.lodestone.cc` (a DMG); Windows gets an
+    Inno Setup installer, per user. No Linux package (AppImage/deb) yet.
 - [ ] No deep links / URL scheme, no app menu bar, no global shortcuts, no auto-start at login, no
   in-app notifications from Rust beyond the startup-failure notification.
 - [ ] Download links (`/file/{key}`) are opened with `window.open(url, '_blank')` — in Host this relies
