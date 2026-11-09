@@ -3,23 +3,23 @@ import { InstanceEvent } from './../bindings/InstanceEvent';
 import { match, otherwise } from 'variant';
 import { useUserAuthorized } from 'data/UserInfo';
 import axios from 'axios';
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import {
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { openReconnectingWebSocket } from 'utils/websocket';
 import { ConsoleHistoryPage } from 'bindings/ConsoleHistoryPage';
-import {
-  ConsoleEvent,
-  MAX_CONSOLE_LINES,
-  MAX_LOADED_LINES,
-  mergeConsoleEvents,
-  olderSnowflake,
-} from 'utils/consoleLog';
+import { ConsoleEvent } from 'utils/consoleLog';
+import { ConsoleLogSource, ConsoleLogStore } from 'utils/consoleLogStore';
 
 export type { ConsoleEvent };
 
-/** Lines asked for in one request for older history (the core caps it as well). */
-const HISTORY_PAGE_SIZE = 200;
+const noLines: ConsoleEvent[] = [];
 
 export type ConsoleStreamStatus =
   | 'no-permission'
@@ -70,17 +70,40 @@ const isConsoleOutput = (event: ClientEvent) =>
   event.event_inner.type === 'InstanceEvent' &&
   event.event_inner.instance_event_inner.type === 'InstanceOutput';
 
+const consoleLogSource: ConsoleLogSource = {
+  buffer: (uuid) =>
+    axios
+      .get<ClientEvent[]>(`/instance/${uuid}/console/buffer`)
+      .then((response) => response.data),
+  history: (uuid, before, limit) =>
+    axios
+      .get<ConsoleHistoryPage>(`/instance/${uuid}/console/history`, {
+        params: { limit, ...(before !== null && { before }) },
+      })
+      .then((response) => response.data),
+  toConsoleEvents: (events) =>
+    events.filter(isConsoleOutput).map(toConsoleEvent),
+};
+
 /**
  * Does two things:
- * 1. fetches the console buffer (history)
+ * 1. fetches the console buffer (history), and older history page by page
  * 2. opens a websocket connection to the server and subscribes to the console stream,
  *    reconnecting with backoff (and refetching the buffer to fill the gap) if it drops
+ *
+ * Answers that arrive after the instance changed are dropped, see
+ * `ConsoleLogStore`.
  *
  * @param uuid the uuid of the instance to subscribe to
  */
 export const useConsoleStream = (uuid: string) => {
   const { core, token } = useContext(LodestoneContext);
-  const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
+  const [store] = useState(() => new ConsoleLogStore(consoleLogSource));
+  const state = useSyncExternalStore(
+    store.subscribe,
+    store.getState,
+    store.getState
+  );
   const [status, setStatusInner] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
   const statusRef = useRef<ConsoleStreamStatus>('loading');
   const setStatus = (newStatus: ConsoleStreamStatus) => {
@@ -92,123 +115,15 @@ export const useConsoleStream = (uuid: string) => {
     uuid
   );
 
-  // Older history, fetched page by page from the core's event database. The
-  // cursor is the oldest snowflake received so far, from the buffer, the live
-  // stream or an earlier page, so a page never repeats a line already shown.
-  const [hasOlder, setHasOlder] = useState(true);
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const [historyFailed, setHistoryFailed] = useState(false);
-  // counts the times older lines were put in front of the log
-  const [olderVersion, setOlderVersion] = useState(0);
-  const oldestRef = useRef<string | null>(null);
-  const maxLinesRef = useRef(MAX_CONSOLE_LINES);
-  const logLengthRef = useRef(0);
-  const hasOlderRef = useRef(true);
-  const loadingOlderRef = useRef(false);
-  // changes with the instance, so that a page of the previous one is dropped
-  const generationRef = useRef(0);
-
-  useEffect(() => {
-    logLengthRef.current = consoleLog.length;
-  }, [consoleLog]);
-
-  useEffect(() => {
-    generationRef.current += 1;
-    oldestRef.current = null;
-    maxLinesRef.current = MAX_CONSOLE_LINES;
-    hasOlderRef.current = true;
-    loadingOlderRef.current = false;
-    setHasOlder(true);
-    setLoadingOlder(false);
-    setHistoryFailed(false);
-    setConsoleLog([]);
-  }, [uuid]);
-
-  const clearConsoleLog = () => {
-    setConsoleLog([]);
-  };
-
-  const mergeConsoleLog = (newLog: ClientEvent[]) => {
-    for (const event of newLog) {
-      oldestRef.current = olderSnowflake(oldestRef.current, event.snowflake);
-    }
-    const consoleEvents = newLog.filter(isConsoleOutput).map(toConsoleEvent);
-    setConsoleLog((oldLog) =>
-      mergeConsoleEvents(oldLog, consoleEvents, maxLinesRef.current)
-    );
-  };
-
-  /** Fetches the page of console lines before the oldest one received. */
-  const loadOlder = useCallback(async () => {
-    if (loadingOlderRef.current || !hasOlderRef.current) return;
-    loadingOlderRef.current = true;
-    setLoadingOlder(true);
-    setHistoryFailed(false);
-    const generation = generationRef.current;
-    try {
-      const response = await axios.get<ConsoleHistoryPage>(
-        `/instance/${uuid}/console/history`,
-        {
-          params: {
-            limit: HISTORY_PAGE_SIZE,
-            ...(oldestRef.current !== null && { before: oldestRef.current }),
-          },
-        }
-      );
-      if (generation !== generationRef.current) return;
-      const { events, has_more } = response.data;
-      // lines that are not console output still move the cursor
-      for (const event of events) {
-        oldestRef.current = olderSnowflake(oldestRef.current, event.snowflake);
-      }
-      const consoleEvents = events.filter(isConsoleOutput).map(toConsoleEvent);
-      // the loaded history is kept, up to a limit
-      const total = logLengthRef.current + consoleEvents.length;
-      maxLinesRef.current = Math.min(
-        MAX_LOADED_LINES,
-        Math.max(maxLinesRef.current, total)
-      );
-      setConsoleLog((oldLog) =>
-        mergeConsoleEvents(oldLog, consoleEvents, maxLinesRef.current)
-      );
-      if (consoleEvents.length > 0) setOlderVersion((version) => version + 1);
-      hasOlderRef.current = has_more && total < MAX_LOADED_LINES;
-      setHasOlder(hasOlderRef.current);
-    } catch (e) {
-      if (generation !== generationRef.current) return;
-      console.error(e);
-      setHistoryFailed(true);
-    } finally {
-      if (generation === generationRef.current) {
-        loadingOlderRef.current = false;
-        setLoadingOlder(false);
-      }
-    }
-  }, [uuid]);
-
-  // resolves to true if the buffer was fetched
-  const fetchBuffer = useCallback(
-    () =>
-      axios
-        .get<ClientEvent[]>(`/instance/${uuid}/console/buffer`)
-        .then((response) => {
-          mergeConsoleLog(response.data);
-          return true;
-        })
-        .catch((e) => {
-          console.error(e);
-          return false;
-        }),
-    [uuid]
-  );
-
   useEffect(() => {
     if (!canAccessConsole) {
+      store.close();
       setStatus('no-permission');
       return;
     }
     if (!token) return;
     setStatus('loading');
+    const session = store.open(uuid);
     let cancelled = false;
     // The history and the live stream arrive in either order. The status only
     // moves on once the history has been fetched (or failed): the socket
@@ -228,11 +143,11 @@ export const useConsoleStream = (uuid: string) => {
       // failed and not connected yet: stays loading until the socket opens
     };
 
-    fetchBuffer().then((ok) => {
-      if (cancelled) return;
+    store.fetchBuffer().then((result) => {
+      if (cancelled || result === 'stale') return;
       // nothing in memory: the core may have restarted since it stored lines
-      if (oldestRef.current === null) loadOlder();
-      buffer = ok ? 'fetched' : 'failed';
+      if (store.isEmpty()) store.loadOlder();
+      buffer = result;
       // the socket may have dropped meanwhile; that status stays
       if (socketOpen || statusRef.current === 'loading') updateStatus();
     });
@@ -251,9 +166,9 @@ export const useConsoleStream = (uuid: string) => {
           // fill in the lines sent while we were disconnected
           buffer = 'pending';
           updateStatus();
-          fetchBuffer().then((ok) => {
-            if (cancelled || !socketOpen) return;
-            buffer = ok ? 'fetched' : 'failed';
+          store.fetchBuffer().then((result) => {
+            if (cancelled || result === 'stale' || !socketOpen) return;
+            buffer = result;
             updateStatus();
           });
           return;
@@ -268,7 +183,7 @@ export const useConsoleStream = (uuid: string) => {
           console.error('Invalid event from the console stream', e);
           return;
         }
-        mergeConsoleLog([event]);
+        store.addLive(session, [event]);
       },
       onClose: (event) => {
         socketOpen = false;
@@ -284,18 +199,21 @@ export const useConsoleStream = (uuid: string) => {
 
     return () => {
       cancelled = true;
+      store.close();
       websocket.close();
     };
-  }, [core, token, uuid, canAccessConsole, fetchBuffer, loadOlder]);
+  }, [core, token, uuid, canAccessConsole, store]);
 
+  // until the effect has opened a newly selected instance, the store still
+  // holds the previous one's lines, which are not shown
+  const current = state.uuid === uuid;
   return {
-    consoleLog,
+    consoleLog: current ? state.log : noLines,
     consoleStatus: status,
-    clearConsoleLog,
-    loadOlder,
-    loadingOlder,
-    hasOlder,
-    historyFailed,
-    olderVersion,
+    loadOlder: store.loadOlder,
+    loadingOlder: current && state.loadingOlder,
+    hasOlder: current && state.hasOlder,
+    historyFailed: current && state.historyFailed,
+    historyLimitReached: current && state.limitReached,
   };
 };
