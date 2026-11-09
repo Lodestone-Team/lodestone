@@ -439,10 +439,8 @@ pub fn text(message: M) -> &'static str {
         M::FriendServerStoppedBody => "請好友啟動伺服器。伺服器執行前，Minecraft 無法加入。",
         M::FriendStarting => "正在準備遊戲…",
         M::FriendInstanceBusy => "該實例已在執行。請先結束遊戲。",
-        M::FriendLinkEnded => "此邀請連結已失效",
-        M::FriendLinkEndedBody => {
-            "好友已停止共享該伺服器，或者建立了新的連結。請向好友索取新連結。"
-        }
+        M::FriendLinkEnded => "好友已停止共享此伺服器",
+        M::FriendLinkEndedBody => "請向好友索取新連結。",
         M::FriendNotSharing => "好友目前沒有共享此伺服器",
         M::FriendNotSharingBody => {
             "好友的電腦或 Lodestone Host 可能已關閉。請稍後再試，或請好友開始共享。"

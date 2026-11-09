@@ -70,8 +70,9 @@ impl Progress {
 /// Why joining failed, as the window explains it.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum JoinError {
-    /// The link ended: the friend stopped sharing, or it never existed.
-    #[error("This invite link has ended. Ask your friend for a new one.")]
+    /// The link ended: the friend stopped sharing (or made a new link), or it never
+    /// existed.
+    #[error("Your friend stopped sharing this server. Ask them for a new link.")]
     Ended,
     /// The host isn't sharing right now (its computer or core is off).
     #[error("Your friend's server isn't being shared right now.")]

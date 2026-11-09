@@ -88,6 +88,7 @@ pub fn text(message: M) -> &'static str {
         M::FilesSaveChanges => "要儲存對 {name} 的變更嗎？",
         M::FilesTooLarge => "此檔案太大，無法在此開啟（超過 {size}）。請下載它。",
         M::FilesReadOnly => "唯讀",
+        M::FilesWrapLines => "自動換行",
         M::FilesSelect => "選取 {name}",
         M::FilesList => "檔案",
         M::FilesResize => "調整檔案列表大小",

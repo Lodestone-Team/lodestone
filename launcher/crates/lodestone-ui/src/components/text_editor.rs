@@ -5,8 +5,12 @@
 //! view, so a file of many megabytes scrolls and edits as quickly as a short one.
 //!
 //! The editing model and the IME support follow [`TextInput`](super::TextInput),
-//! extended to lines. Lines don't wrap; a long line scrolls sideways. Tabs show as
-//! four columns. Line endings are kept as the file had them (`\n` or `\r\n`).
+//! extended to lines. With soft wrap on ([`TextEditor::set_soft_wrap`], ⌥Z / Alt+Z)
+//! a long line wraps into rows as wide as the editor, breaking between words; off, it
+//! scrolls sideways. The rows are laid out by counting columns (the font is
+//! monospaced), so wrapping a large file stays quick, and each change lays out only
+//! the lines it touched. Tabs show as four columns. Line endings are kept as the file
+//! had them (`\n` or `\r\n`).
 //!
 //! The editor tells its view about edits with [`TextEditorEvent::Changed`]; Undo and
 //! Redo (`crate::Undo`, `crate::Redo`) change its text while it has the focus, as a
@@ -71,6 +75,7 @@ actions!(
         Copy,
         Cut,
         Paste,
+        ToggleSoftWrap,
     ]
 );
 
@@ -102,6 +107,8 @@ pub(super) fn init(cx: &mut App) {
         KeyBinding::new("shift-enter", Newline, context),
         KeyBinding::new("tab", Indent, context),
         KeyBinding::new("shift-tab", Outdent, context),
+        // as in Visual Studio Code
+        KeyBinding::new("alt-z", ToggleSoftWrap, context),
     ]);
     #[cfg(target_os = "macos")]
     cx.bind_keys([
@@ -480,6 +487,210 @@ fn from_display(display: usize, tabs: &[usize]) -> usize {
     col
 }
 
+/// How many columns a character takes in a row: a tab four, a wide character (East
+/// Asian scripts, emoji) two, any other one. Wrapping counts rows in these.
+fn char_columns(c: char) -> usize {
+    match c {
+        '\t' => TAB_WIDTH,
+        '\u{1100}'..='\u{115F}'
+        | '\u{2E80}'..='\u{303E}'
+        | '\u{3041}'..='\u{33FF}'
+        | '\u{3400}'..='\u{4DBF}'
+        | '\u{4E00}'..='\u{9FFF}'
+        | '\u{A000}'..='\u{A4CF}'
+        | '\u{AC00}'..='\u{D7A3}'
+        | '\u{F900}'..='\u{FAFF}'
+        | '\u{FE30}'..='\u{FE4F}'
+        | '\u{FF00}'..='\u{FF60}'
+        | '\u{FFE0}'..='\u{FFE6}'
+        | '\u{1F300}'..='\u{1F64F}'
+        | '\u{1F900}'..='\u{1F9FF}'
+        | '\u{20000}'..='\u{3FFFD}' => 2,
+        _ => 1,
+    }
+}
+
+/// Where a line wraps into rows of `cols` columns: the byte offsets the second and
+/// later rows start at (none when it fits on one row). A row breaks after a space
+/// when it has one, so words stay whole; a word longer than a row breaks inside.
+/// One space may hang past the edge, so a row doesn't start with the space between
+/// two words.
+pub fn wrap_points(line: &str, cols: usize) -> Vec<usize> {
+    let cols = cols.max(1);
+    let mut points = Vec::new();
+    // a line no longer in bytes than a row, without tabs, fits (no character takes
+    // more columns than it has bytes, except a tab)
+    if line.len() <= cols && !line.contains('\t') {
+        return points;
+    }
+    let mut row_start = 0;
+    let mut width = 0;
+    // the last place the row may break (after a space), with the row's width before it
+    let mut last_break: Option<(usize, usize)> = None;
+    let mut after_space = false;
+    for (i, c) in line.char_indices() {
+        let w = char_columns(c);
+        let space = c == ' ' || c == '\t';
+        if after_space && !space && i > row_start {
+            last_break = Some((i, width));
+        }
+        let hangs = c == ' ' && width == cols;
+        if width + w > cols && i > row_start && !hangs {
+            match last_break.take() {
+                Some((at, before)) => {
+                    points.push(at);
+                    row_start = at;
+                    width -= before;
+                }
+                None => {
+                    points.push(i);
+                    row_start = i;
+                    width = 0;
+                }
+            }
+            if width + w > cols && i > row_start {
+                points.push(i);
+                row_start = i;
+                width = 0;
+            }
+        }
+        width += w;
+        after_space = space;
+    }
+    points
+}
+
+/// How the lines are laid out in rows: one row each, or several when they wrap.
+/// Kept in step with the lines on every change, so moving the cursor between frames
+/// sees the rows the next frame draws.
+#[derive(Default)]
+struct Rows {
+    /// Columns in a row when lines wrap; `None` when they don't (or before the first
+    /// frame has measured the editor).
+    cols: Option<usize>,
+    /// For each line, where its later rows start ([`wrap_points`]); empty for one row.
+    points: Vec<Box<[usize]>>,
+    /// For each line, the row it starts on, then the number of rows. Rebuilt after a
+    /// change, when first asked for.
+    starts: std::cell::OnceCell<Vec<usize>>,
+}
+
+impl Rows {
+    fn new(lines: &[String], cols: Option<usize>) -> Self {
+        let mut rows = Rows {
+            cols,
+            ..Default::default()
+        };
+        rows.relayout(lines);
+        rows
+    }
+
+    fn wrap(cols: Option<usize>, line: &str) -> Box<[usize]> {
+        match cols {
+            Some(cols) => wrap_points(line, cols).into_boxed_slice(),
+            None => Box::default(),
+        }
+    }
+
+    /// Lays every line out again (after a change of width, or of all the text).
+    fn relayout(&mut self, lines: &[String]) {
+        let cols = self.cols;
+        self.points = lines.iter().map(|line| Self::wrap(cols, line)).collect();
+        self.starts = Default::default();
+    }
+
+    /// Wraps at `cols` columns (or not, with `None`); returns whether that changed.
+    fn set_cols(&mut self, cols: Option<usize>, lines: &[String]) -> bool {
+        if self.cols == cols {
+            return false;
+        }
+        self.cols = cols;
+        self.relayout(lines);
+        true
+    }
+
+    /// Lines `replaced` became `new`.
+    fn splice(&mut self, replaced: std::ops::RangeInclusive<usize>, new: &[String]) {
+        let cols = self.cols;
+        self.points
+            .splice(replaced, new.iter().map(|line| Self::wrap(cols, line)));
+        self.starts = Default::default();
+    }
+
+    fn starts(&self) -> &[usize] {
+        self.starts.get_or_init(|| {
+            let mut starts = Vec::with_capacity(self.points.len() + 1);
+            let mut row = 0;
+            for points in &self.points {
+                starts.push(row);
+                row += points.len() + 1;
+            }
+            starts.push(row);
+            starts
+        })
+    }
+
+    /// How many rows there are.
+    fn count(&self) -> usize {
+        *self.starts().last().expect("one start more than lines")
+    }
+
+    /// The row `pos` is on. A place where a line wraps is on the later row.
+    fn row_of(&self, pos: Pos) -> usize {
+        let points = &self.points[pos.line];
+        self.starts()[pos.line] + points.partition_point(|&p| p <= pos.col)
+    }
+
+    /// The line `row` shows, and which of its rows it is.
+    fn line_of(&self, row: usize) -> (usize, usize) {
+        let starts = self.starts();
+        let line = starts
+            .partition_point(|&start| start <= row)
+            .saturating_sub(1)
+            .min(self.points.len() - 1);
+        (line, row - starts[line])
+    }
+
+    /// The bytes of a line of `len` bytes that its row `nth` shows.
+    fn span(&self, line: usize, nth: usize, len: usize) -> Range<usize> {
+        let points = &self.points[line];
+        let start = if nth == 0 { 0 } else { points[nth - 1] };
+        start..points.get(nth).copied().unwrap_or(len)
+    }
+
+    /// Whether row `nth` is a line's last.
+    fn is_last(&self, line: usize, nth: usize) -> bool {
+        nth == self.points[line].len()
+    }
+}
+
+/// The part of `range` on a row showing bytes `span` of line `line` (the row the line
+/// ends on when `last`): its first and last byte, and whether `range` goes on past
+/// the line's end (a selection, which then shows over the line break).
+fn span_on_row(
+    range: &Range<Pos>,
+    line: usize,
+    span: &Range<usize>,
+    last: bool,
+) -> Option<(usize, usize, bool)> {
+    let row_start = Pos::new(line, span.start);
+    let row_end = Pos::new(line, span.end);
+    if range.end < row_start || range.start > row_end || (range.start == row_end && !last) {
+        return None;
+    }
+    let start = if range.start > row_start {
+        range.start.col
+    } else {
+        span.start
+    };
+    let (end, past) = if range.end < row_end {
+        (range.end.col, false)
+    } else {
+        (span.end, last && range.end.line > line)
+    };
+    (end > start || past).then_some((start, end, past))
+}
+
 /// One edit, and how to undo it.
 #[derive(Clone, Debug)]
 struct Edit {
@@ -519,6 +730,8 @@ enum Drag {
 pub enum TextEditorEvent {
     /// The text changed (by typing, pasting, undo, …).
     Changed,
+    /// Soft wrap was turned on or off from the keyboard (⌥Z / Alt+Z).
+    SoftWrapChanged(bool),
 }
 
 /// The last drawn frame, for the pointer and the input method.
@@ -527,10 +740,26 @@ struct Frame {
     text_bounds: Bounds<Pixels>,
     line_height: Pixels,
     char_width: Pixels,
-    first_line: usize,
-    /// The drawn lines from `first_line`, with their tabs.
-    lines: Vec<(ShapedLine, Vec<usize>)>,
+    first_row: usize,
+    /// The drawn rows from `first_row`.
+    rows: Vec<FrameRow>,
     scroll: Point<Pixels>,
+}
+
+/// A drawn row: the bytes of its line it shows, as shaped, with their tabs.
+struct FrameRow {
+    line: usize,
+    span: Range<usize>,
+    /// The row the line ends on.
+    last: bool,
+    shaped: ShapedLine,
+    tabs: Vec<usize>,
+}
+
+impl Frame {
+    fn row(&self, row: usize) -> Option<&FrameRow> {
+        self.rows.get(row.checked_sub(self.first_row)?)
+    }
 }
 
 pub struct TextEditor {
@@ -557,6 +786,10 @@ pub struct TextEditor {
     /// Ranges drawn with a highlight, such as the matches of a search
     /// ([`TextEditor::set_highlights`]).
     highlights: Vec<Range<Pos>>,
+    /// Long lines wrap to the editor's width ([`TextEditor::set_soft_wrap`]).
+    soft_wrap: bool,
+    /// The lines' rows, in step with `lines`.
+    rows: Rows,
 }
 
 impl EventEmitter<TextEditorEvent> for TextEditor {}
@@ -608,7 +841,36 @@ impl TextEditor {
             label: Text::default(),
             automation_id: "text-editor".into(),
             highlights: Vec::new(),
+            soft_wrap: false,
+            rows: Rows::new(&[String::new()], None),
         }
+    }
+
+    /// Wraps long lines to the editor's width (Monaco's `wordWrap: 'on'`) instead of
+    /// scrolling sideways. Off by default; ⌥Z / Alt+Z toggles it.
+    pub fn with_soft_wrap(mut self, wrap: bool) -> Self {
+        self.soft_wrap = wrap;
+        self
+    }
+
+    pub fn set_soft_wrap(&mut self, wrap: bool, cx: &mut Context<Self>) {
+        if self.soft_wrap != wrap {
+            self.soft_wrap = wrap;
+            if !wrap {
+                self.rows.set_cols(None, &self.lines);
+            }
+            self.autoscroll = true;
+            cx.notify();
+        }
+    }
+
+    pub fn soft_wrap(&self) -> bool {
+        self.soft_wrap
+    }
+
+    fn toggle_soft_wrap(&mut self, _: &ToggleSoftWrap, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_soft_wrap(!self.soft_wrap, cx);
+        cx.emit(TextEditorEvent::SoftWrapChanged(self.soft_wrap));
     }
 
     /// Where `query` is in the text, ignoring ASCII case: for a find bar.
@@ -676,6 +938,7 @@ impl TextEditor {
         self.marked = None;
         self.scroll = Point::default();
         self.history = History::default();
+        self.rows.relayout(&self.lines);
         self.widest = self
             .lines
             .iter()
@@ -779,6 +1042,7 @@ impl TextEditor {
         for line in &new_lines {
             self.widest = self.widest.max(display_width(line));
         }
+        self.rows.splice(start.line..=end.line, &new_lines);
         self.lines.splice(start.line..=end.line, new_lines);
         Pos {
             line: start.line + last,
@@ -955,52 +1219,85 @@ impl TextEditor {
         Pos::new(pos.line, if pos.col == indent { 0 } else { indent })
     }
 
-    /// The x of `pos` in its line's drawn text.
+    /// The line row `row` shows, and the bytes of it on the row.
+    fn row_span(&self, row: usize) -> (usize, Range<usize>) {
+        let (line, nth) = self.rows.line_of(row);
+        (line, self.rows.span(line, nth, self.lines[line].len()))
+    }
+
+    /// The drawn row `row`, when the last frame drew it and it still shows `span` of
+    /// `line`.
+    fn drawn_row(&self, row: usize, line: usize, span: &Range<usize>) -> Option<&FrameRow> {
+        self.frame
+            .as_ref()?
+            .row(row)
+            .filter(|drawn| drawn.line == line && drawn.span == *span)
+    }
+
+    fn char_width(&self) -> Pixels {
+        self.frame.as_ref().map_or(px(8.), |f| f.char_width)
+    }
+
+    /// The x of `pos` in its row's drawn text.
     fn x_of(&self, pos: Pos) -> Pixels {
-        let (shown, tabs) = expand_tabs(&self.lines[pos.line]);
-        let display = to_display(pos.col, &tabs);
-        if let Some(frame) = &self.frame
-            && pos.line >= frame.first_line
-            && let Some((line, _)) = frame.lines.get(pos.line - frame.first_line)
-        {
-            return line.x_for_index(display);
+        let row = self.rows.row_of(pos);
+        let (line, span) = self.row_span(row);
+        let col = pos.col.clamp(span.start, span.end);
+        if let Some(drawn) = self.drawn_row(row, line, &span) {
+            return drawn
+                .shaped
+                .x_for_index(to_display(col - span.start, &drawn.tabs));
         }
-        let char_width = self.frame.as_ref().map_or(px(8.), |f| f.char_width);
-        char_width * shown[..display].chars().count() as f32
+        let columns: usize = self.lines[line][span.start..col]
+            .chars()
+            .map(char_columns)
+            .sum();
+        self.char_width() * columns as f32
     }
 
-    /// The column of line `line` nearest to `x`.
-    fn col_at_x(&self, line: usize, x: Pixels) -> usize {
+    /// The place on row `row` nearest to `x`. A row that wraps ends before its last
+    /// character: the place after it is the next row's start.
+    fn pos_on_row(&self, row: usize, x: Pixels) -> Pos {
+        let (line, span) = self.row_span(row);
         let text = &self.lines[line];
-        let (shown, tabs) = expand_tabs(text);
-        if let Some(frame) = &self.frame
-            && line >= frame.first_line
-            && let Some((shaped, tabs)) = frame.lines.get(line - frame.first_line)
-        {
-            return from_display(shaped.closest_index_for_x(x), tabs).min(text.len());
+        let mut col = if let Some(drawn) = self.drawn_row(row, line, &span) {
+            span.start + from_display(drawn.shaped.closest_index_for_x(x), &drawn.tabs)
+        } else {
+            let char_width = self.char_width();
+            let mut col = span.start;
+            let mut left = px(0.);
+            for (i, c) in text[span.clone()].char_indices() {
+                let width = char_width * char_columns(c) as f32;
+                if x < left + width / 2. {
+                    break;
+                }
+                left += width;
+                col = span.start + i + c.len_utf8();
+            }
+            col
+        };
+        col = col.clamp(span.start, span.end);
+        while !text.is_char_boundary(col) {
+            col -= 1;
         }
-        let char_width = self.frame.as_ref().map_or(px(8.), |f| f.char_width);
-        let chars = (x / char_width).round().max(0.) as usize;
-        let display = shown
-            .char_indices()
-            .nth(chars)
-            .map_or(shown.len(), |(i, _)| i);
-        from_display(display, &tabs).min(text.len())
+        if col == span.end && span.end < text.len() && col > span.start {
+            col = text[..col].char_indices().next_back().map_or(0, |(i, _)| i);
+        }
+        Pos::new(line, col)
     }
 
-    /// `lines` lines up (negative) or down from the head, keeping the column.
-    fn vertical(&self, lines: isize) -> Pos {
+    /// `rows` rows up (negative) or down from the head, keeping the column.
+    fn vertical(&self, rows: isize) -> Pos {
         let goal = self.goal_x.unwrap_or_else(|| self.x_of(self.head));
-        let target = self.head.line as isize + lines;
+        let target = self.rows.row_of(self.head) as isize + rows;
         if target < 0 {
             return Pos::default();
         }
         let target = target as usize;
-        if target >= self.lines.len() {
-            let last = self.lines.len() - 1;
-            return Pos::new(last, self.lines[last].len());
+        if target >= self.rows.count() {
+            return self.document_end_pos();
         }
-        Pos::new(target, self.col_at_x(target, goal))
+        self.pos_on_row(target, goal)
     }
 
     fn page_lines(&self) -> isize {
@@ -1375,12 +1672,12 @@ impl TextEditor {
         if y < px(0.) {
             return Pos::default();
         }
-        let line = (y / frame.line_height).floor() as usize;
-        if line >= self.lines.len() {
+        let row = (y / frame.line_height).floor() as usize;
+        if row >= self.rows.count() {
             return self.document_end_pos();
         }
         let x = position.x - frame.text_bounds.left() + frame.scroll.x;
-        Pos::new(line, self.col_at_x(line, x.max(px(0.))))
+        self.pos_on_row(row, x.max(px(0.)))
     }
 
     fn word_at(&self, pos: Pos) -> (Pos, Pos) {
@@ -1490,11 +1787,15 @@ impl TextEditor {
             self.scroll = Point::default();
             return;
         };
-        let content_height = frame.line_height * self.lines.len() as f32;
+        let content_height = frame.line_height * self.rows.count() as f32;
         let max_y =
             (content_height - frame.text_bounds.size.height + frame.line_height * 2.).max(px(0.));
         let content_width = frame.char_width * (self.widest + 2) as f32;
-        let max_x = (content_width - frame.text_bounds.size.width).max(px(0.));
+        let max_x = if self.soft_wrap {
+            px(0.)
+        } else {
+            (content_width - frame.text_bounds.size.width).max(px(0.))
+        };
         self.scroll.y = self.scroll.y.clamp(px(0.), max_y);
         self.scroll.x = self.scroll.x.clamp(px(0.), max_x);
     }
@@ -1710,8 +2011,8 @@ impl EntityInputHandler for TextEditor {
     ) -> Option<Bounds<Pixels>> {
         let frame = self.frame.as_ref()?;
         let range = self.range_from_utf16(&range_utf16);
-        let top =
-            frame.text_bounds.top() + frame.line_height * range.start.line as f32 - frame.scroll.y;
+        let row = self.rows.row_of(range.start);
+        let top = frame.text_bounds.top() + frame.line_height * row as f32 - frame.scroll.y;
         let left = frame.text_bounds.left() + self.x_of(range.start) - frame.scroll.x;
         Some(Bounds::new(
             point(left, top),
@@ -1783,6 +2084,7 @@ impl Render for TextEditor {
             .on_action(cx.listener(Self::select_page_down))
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::toggle_soft_wrap))
             .when(!self.read_only, |this| {
                 this.on_action(cx.listener(Self::backspace))
                     .on_action(cx.listener(Self::delete))
@@ -1820,6 +2122,9 @@ impl IntoElement for EditorElement {
         self
     }
 }
+
+/// A line's coloured tokens ([`tokens`]).
+type Coloured = Vec<(Range<usize>, Token)>;
 
 /// What the gutter and the text are drawn with.
 struct Prepaint {
@@ -1893,39 +2198,53 @@ impl Element for EditorElement {
                 ),
                 bounds.bottom_right(),
             );
+            // lay the lines out in rows as wide as the text, less the scroll bar
+            let cols = editor.soft_wrap.then(|| {
+                let width = text_bounds.size.width - px(TEXT_PADDING + 8.);
+                (width / char_width).floor().max(1.) as usize
+            });
+            if editor.rows.set_cols(cols, &editor.lines) {
+                editor.autoscroll = true;
+            }
             // keep the cursor in view
             if editor.autoscroll {
                 editor.autoscroll = false;
                 let head = editor.head;
-                let top = line_height * head.line as f32;
+                let top = line_height * editor.rows.row_of(head) as f32;
                 let height = text_bounds.size.height;
                 if top < editor.scroll.y {
                     editor.scroll.y = top;
                 } else if top + line_height > editor.scroll.y + height {
                     editor.scroll.y = top + line_height - height;
                 }
-                let (shown, tabs) = expand_tabs(&editor.lines[head.line]);
-                let x = char_width * shown[..to_display(head.col, &tabs)].chars().count() as f32;
-                let width = text_bounds.size.width;
-                if x < editor.scroll.x {
-                    editor.scroll.x = (x - char_width * 4.).max(px(0.));
-                } else if x + char_width * 2. > editor.scroll.x + width {
-                    editor.scroll.x = x + char_width * 4. - width;
+                if editor.soft_wrap {
+                    editor.scroll.x = px(0.);
+                } else {
+                    let (shown, tabs) = expand_tabs(&editor.lines[head.line]);
+                    let x =
+                        char_width * shown[..to_display(head.col, &tabs)].chars().count() as f32;
+                    let width = text_bounds.size.width;
+                    if x < editor.scroll.x {
+                        editor.scroll.x = (x - char_width * 4.).max(px(0.));
+                    } else if x + char_width * 2. > editor.scroll.x + width {
+                        editor.scroll.x = x + char_width * 4. - width;
+                    }
                 }
             }
             editor.frame = Some(Frame {
                 text_bounds,
                 line_height,
                 char_width,
-                first_line: 0,
-                lines: Vec::new(),
+                first_row: 0,
+                rows: Vec::new(),
                 scroll: editor.scroll,
             });
             editor.clamp_scroll();
             let scroll = editor.scroll;
-            let first_line = (scroll.y / line_height).floor() as usize;
+            let row_count = editor.rows.count();
+            let first_row = (scroll.y / line_height).floor() as usize;
             let visible = (text_bounds.size.height / line_height).ceil() as usize + 1;
-            let last_line = (first_line + visible).min(editor.lines.len());
+            let last_row = (first_row + visible).min(row_count);
 
             let run = |len: usize, color: Hsla| TextRun {
                 len,
@@ -1936,18 +2255,32 @@ impl Element for EditorElement {
                 strikethrough: None,
             };
             let base: Hsla = colors::GRAY_300.into();
-            let mut shaped_lines = Vec::new();
+            let mut rows = Vec::new();
             let mut text = Vec::new();
             let mut gutter = Vec::new();
-            for line_ix in first_line.min(last_line)..last_line {
+            // the colours of the line being drawn, for each of its rows
+            let mut coloured: Option<(usize, Coloured)> = None;
+            for row in first_row.min(last_row)..last_row {
+                let (line_ix, nth) = editor.rows.line_of(row);
                 let line = &editor.lines[line_ix];
-                let (shown, tabs) = expand_tabs(line);
+                let span = editor.rows.span(line_ix, nth, line.len());
+                let (shown, tabs) = expand_tabs(&line[span.clone()]);
+                if !matches!(&coloured, Some((at, _)) if *at == line_ix) {
+                    coloured = Some((line_ix, tokens(editor.language, line)));
+                }
+                let line_tokens = coloured.as_ref().map_or(&[][..], |(_, t)| &t[..]);
+                // a byte of the line, as one in the row's drawn text
+                let shown_at =
+                    |col: usize| to_display(col.clamp(span.start, span.end) - span.start, &tabs);
                 // colours, as runs over the drawn text
                 let mut runs = Vec::new();
                 let mut at = 0;
-                for (range, token) in tokens(editor.language, line) {
-                    let start = to_display(range.start, &tabs);
-                    let end = to_display(range.end, &tabs);
+                for (range, token) in line_tokens {
+                    if range.end <= span.start || range.start >= span.end {
+                        continue;
+                    }
+                    let start = shown_at(range.start);
+                    let end = shown_at(range.end);
                     if start > at {
                         runs.push(run(start - at, base));
                     }
@@ -1964,86 +2297,110 @@ impl Element for EditorElement {
                     && end.line == line_ix
                 {
                     // the input method's text, underlined
-                    let (s, e) = (to_display(start.col, &tabs), to_display(end.col, &tabs));
-                    runs = split_underline(runs, s..e, base);
+                    let (s, e) = (shown_at(start.col), shown_at(end.col));
+                    if e > s {
+                        runs = split_underline(runs, s..e, base);
+                    }
                 }
-                let y = text_bounds.top() + line_height * line_ix as f32 - scroll.y;
+                let y = text_bounds.top() + line_height * row as f32 - scroll.y;
                 let shaped = text_system.shape_line(shown.into(), font_size, &runs, None);
                 text.push((shaped.clone(), point(text_bounds.left() - scroll.x, y)));
-                shaped_lines.push((shaped, tabs));
+                let last = editor.rows.is_last(line_ix, nth);
+                rows.push(FrameRow {
+                    line: line_ix,
+                    span,
+                    last,
+                    shaped,
+                    tabs,
+                });
 
-                let number: SharedString = (line_ix + 1).to_string().into();
-                let color: Hsla = if line_ix == editor.head.line && focused {
-                    colors::GRAY_300.into()
-                } else {
-                    colors::GRAY_500.into()
-                };
-                let numeral = text_system.shape_line(
-                    number.clone(),
-                    font_size,
-                    &[run(number.len(), color)],
-                    None,
-                );
-                let x = bounds.left() + gutter_width - px(GUTTER_PADDING) - numeral.width;
-                gutter.push((numeral, point(x, y)));
+                // the line's number, on its first row
+                if nth == 0 {
+                    let number: SharedString = (line_ix + 1).to_string().into();
+                    let color: Hsla = if line_ix == editor.head.line && focused {
+                        colors::GRAY_300.into()
+                    } else {
+                        colors::GRAY_500.into()
+                    };
+                    let numeral = text_system.shape_line(
+                        number.clone(),
+                        font_size,
+                        &[run(number.len(), color)],
+                        None,
+                    );
+                    let x = bounds.left() + gutter_width - px(GUTTER_PADDING) - numeral.width;
+                    gutter.push((numeral, point(x, y)));
+                }
             }
 
             let sel = editor.selection();
             let head = editor.head;
-            let line_count = editor.lines.len();
+            let head_row = editor.rows.row_of(head);
+            let (first_line, last_line) = match (rows.first(), rows.last()) {
+                (Some(first), Some(last)) => (first.line, last.line),
+                _ => (1, 0),
+            };
             let frame = editor.frame.as_mut().expect("set above");
-            frame.first_line = first_line;
-            frame.lines = shaped_lines;
+            frame.first_row = first_row;
+            frame.rows = rows;
             frame.scroll = scroll;
+            let row_y = |row: usize| text_bounds.top() + line_height * row as f32 - scroll.y;
+            // the bounds of bytes `start..end` of drawn row `row` (and on past its end,
+            // when `past`)
+            let span_bounds =
+                |row: usize, drawn: &FrameRow, start: usize, end: usize, past: bool| {
+                    let x = |col: usize| {
+                        drawn
+                            .shaped
+                            .x_for_index(to_display(col - drawn.span.start, &drawn.tabs))
+                    };
+                    let right = if past {
+                        drawn.shaped.width + char_width
+                    } else {
+                        x(end)
+                    };
+                    let y = row_y(row);
+                    Bounds::from_corners(
+                        point(text_bounds.left() + x(start) - scroll.x, y),
+                        point(text_bounds.left() + right - scroll.x, y + line_height),
+                    )
+                };
 
-            // the selection, line by line
+            // the selection, row by row
             let mut selection = Vec::new();
             if sel.start != sel.end {
-                for line_ix in
-                    sel.start.line.max(first_line)..=sel.end.line.min(last_line.saturating_sub(1))
-                {
-                    let Some((shaped, tabs)) = frame.lines.get(line_ix - first_line) else {
-                        continue;
-                    };
-                    let start = if line_ix == sel.start.line {
-                        shaped.x_for_index(to_display(sel.start.col, tabs))
-                    } else {
-                        px(0.)
-                    };
-                    let end = if line_ix == sel.end.line {
-                        shaped.x_for_index(to_display(sel.end.col, tabs))
-                    } else {
-                        shaped.width + char_width
-                    };
-                    let y = text_bounds.top() + line_height * line_ix as f32 - scroll.y;
-                    selection.push(Bounds::from_corners(
-                        point(text_bounds.left() + start - scroll.x, y),
-                        point(text_bounds.left() + end - scroll.x, y + line_height),
-                    ));
+                for (i, drawn) in frame.rows.iter().enumerate() {
+                    if let Some((start, end, past)) =
+                        span_on_row(&sel, drawn.line, &drawn.span, drawn.last)
+                    {
+                        selection.push(span_bounds(first_row + i, drawn, start, end, past));
+                    }
                 }
             }
-            // the highlighted ranges (search matches) on the lines in view
+            // the highlighted ranges (search matches) on the rows in view
             let mut highlights = Vec::new();
             for range in &editor.highlights {
                 let line_ix = range.start.line;
-                if range.end.line != line_ix || line_ix < first_line || line_ix >= last_line {
+                if range.end.line != line_ix || line_ix < first_line || line_ix > last_line {
                     continue;
                 }
-                let Some((shaped, tabs)) = frame.lines.get(line_ix - first_line) else {
-                    continue;
-                };
-                let start = shaped.x_for_index(to_display(range.start.col, tabs));
-                let end = shaped.x_for_index(to_display(range.end.col, tabs));
-                let y = text_bounds.top() + line_height * line_ix as f32 - scroll.y;
-                highlights.push(Bounds::from_corners(
-                    point(text_bounds.left() + start - scroll.x, y),
-                    point(text_bounds.left() + end - scroll.x, y + line_height),
-                ));
+                for (i, drawn) in frame.rows.iter().enumerate() {
+                    if drawn.line != line_ix {
+                        continue;
+                    }
+                    if let Some((start, end, _)) =
+                        span_on_row(range, drawn.line, &drawn.span, drawn.last)
+                    {
+                        highlights.push(span_bounds(first_row + i, drawn, start, end, false));
+                    }
+                }
             }
-            let head_y = text_bounds.top() + line_height * head.line as f32 - scroll.y;
-            let cursor = (head.line >= first_line && head.line < last_line && focused).then(|| {
-                let (shaped, tabs) = &frame.lines[head.line - first_line];
-                let x = shaped.x_for_index(to_display(head.col, tabs));
+            let head_y = row_y(head_row);
+            let cursor = frame.row(head_row).filter(|_| focused).map(|drawn| {
+                let col = head.col.clamp(drawn.span.start, drawn.span.end);
+                let x = drawn
+                    .shaped
+                    .x_for_index(to_display(col - drawn.span.start, &drawn.tabs));
                 Bounds::new(
                     point(text_bounds.left() + x - scroll.x, head_y),
                     size(px(1.5), line_height),
@@ -2056,7 +2413,7 @@ impl Element for EditorElement {
                 )
             });
             // a scroll bar's thumb, when the text is taller than the view
-            let content = line_height * (line_count + 2) as f32;
+            let content = line_height * (row_count + 2) as f32;
             let scrollbar = (content > bounds.size.height).then(|| {
                 let ratio = bounds.size.height / content;
                 let height = (bounds.size.height * ratio).max(px(24.));
@@ -2289,6 +2646,96 @@ mod tests {
         assert_eq!(word_range_at("foo bar", 7), 4..7);
         assert_eq!(word_range_at("", 0), 0..0);
     }
+
+    fn rows_of(line: &str, cols: usize) -> Vec<&str> {
+        let mut starts = vec![0];
+        starts.extend(wrap_points(line, cols));
+        starts.push(line.len());
+        starts.windows(2).map(|w| &line[w[0]..w[1]]).collect()
+    }
+
+    #[test]
+    fn long_lines_wrap_between_words() {
+        assert_eq!(rows_of("short", 10), ["short"]);
+        assert_eq!(rows_of("", 10), [""]);
+        // the space between two words stays at the end of the row
+        assert_eq!(rows_of("hello world", 5), ["hello ", "world"]);
+        assert_eq!(
+            rows_of("one two three four", 9),
+            ["one two ", "three ", "four"]
+        );
+        // a word longer than a row breaks inside
+        assert_eq!(rows_of("abcdefghij", 4), ["abcd", "efgh", "ij"]);
+        assert_eq!(rows_of("aa bbbbbbbb", 4), ["aa ", "bbbb", "bbbb"]);
+        // tabs take four columns, wide characters two
+        assert_eq!(rows_of("\t\tx", 4), ["\t", "\t", "x"]);
+        assert_eq!(rows_of("日本語の", 4), ["日本", "語の"]);
+        assert_eq!(rows_of("ab日", 3), ["ab", "日"]);
+        // never an empty row, even narrower than a character
+        assert_eq!(rows_of("日本", 1), ["日", "本"]);
+    }
+
+    fn lines(text: &[&str]) -> Vec<String> {
+        text.iter().map(|l| l.to_string()).collect()
+    }
+
+    #[test]
+    fn rows_map_to_lines_and_back() {
+        let text = lines(&["abcdefghij", "", "hello world"]);
+        let mut rows = Rows::new(&text, Some(5));
+        assert_eq!(rows.count(), 5);
+        assert_eq!(rows.row_of(Pos::new(0, 4)), 0);
+        // where a line wraps is the later row's start
+        assert_eq!(rows.row_of(Pos::new(0, 5)), 1);
+        assert_eq!(rows.row_of(Pos::new(0, 10)), 1);
+        assert_eq!(rows.row_of(Pos::new(1, 0)), 2);
+        assert_eq!(rows.row_of(Pos::new(2, 7)), 4);
+        assert_eq!(rows.line_of(1), (0, 1));
+        assert_eq!(rows.line_of(2), (1, 0));
+        assert_eq!(rows.line_of(4), (2, 1));
+        assert_eq!(rows.span(0, 1, 10), 5..10);
+        assert_eq!(rows.span(2, 0, 11), 0..6);
+        assert!(rows.is_last(0, 1) && !rows.is_last(0, 0) && rows.is_last(1, 0));
+
+        // an edit lays out only the lines it changed
+        let mut text = text;
+        let new = lines(&["x", "yyyyyyy"]);
+        rows.splice(1..=1, &new);
+        text.splice(1..=1, new);
+        assert_eq!(rows.count(), 7);
+        assert_eq!(rows.line_of(4), (2, 1));
+        assert_eq!(rows.row_of(Pos::new(3, 0)), 5);
+
+        // without wrapping, a row a line
+        assert!(rows.set_cols(None, &text));
+        assert!(!rows.set_cols(None, &text));
+        assert_eq!(rows.count(), 4);
+        assert_eq!(rows.row_of(Pos::new(2, 6)), 2);
+        assert_eq!(rows.line_of(3), (3, 0));
+    }
+
+    #[test]
+    fn ranges_split_over_rows() {
+        // "abcdefghij" in rows "abcde" and "fghij", then "xy"
+        let first = 0..5;
+        let second = 5..10;
+        let sel = Pos::new(0, 3)..Pos::new(0, 7);
+        assert_eq!(span_on_row(&sel, 0, &first, false), Some((3, 5, false)));
+        assert_eq!(span_on_row(&sel, 0, &second, true), Some((5, 7, false)));
+        assert_eq!(span_on_row(&sel, 1, &(0..2), true), None);
+        // on past the line's end, over the line break
+        let sel = Pos::new(0, 6)..Pos::new(1, 1);
+        assert_eq!(span_on_row(&sel, 0, &first, false), None);
+        assert_eq!(span_on_row(&sel, 0, &second, true), Some((6, 10, true)));
+        assert_eq!(span_on_row(&sel, 1, &(0..2), true), Some((0, 1, false)));
+        // a range ending where a row wraps takes nothing of the next row
+        let sel = Pos::new(0, 1)..Pos::new(0, 5);
+        assert_eq!(span_on_row(&sel, 0, &first, false), Some((1, 5, false)));
+        assert_eq!(span_on_row(&sel, 0, &second, true), None);
+        // an empty line inside a selection shows its line break
+        let sel = Pos::new(0, 0)..Pos::new(2, 0);
+        assert_eq!(span_on_row(&sel, 1, &(0..0), true), Some((0, 0, true)));
+    }
 }
 
 /// Keys and clicks in a test window. `cargo test -p lodestone-ui --features screenshot`.
@@ -2296,7 +2743,7 @@ mod tests {
 mod window_tests {
     use gpui::{ClipboardItem, Entity, Focusable as _, TestAppContext, VisualTestContext};
 
-    use super::{Pos, TextEditor};
+    use super::{Pos, Rows, TextEditor};
 
     fn editor<'a>(
         text: &str,
@@ -2329,6 +2776,11 @@ mod window_tests {
         "cmd-z"
     } else {
         "ctrl-z"
+    };
+    const DOC_START: &str = if cfg!(target_os = "macos") {
+        "cmd-up"
+    } else {
+        "ctrl-home"
     };
     const DOC_END: &str = if cfg!(target_os = "macos") {
         "cmd-down"
@@ -2443,6 +2895,141 @@ mod window_tests {
         cx.simulate_input("x");
         cx.simulate_keystrokes("backspace enter");
         assert_eq!(text(&editor, cx), "abc");
+    }
+
+    /// An editor that wraps, in a narrow window; and how many columns its rows have.
+    fn wrapped<'a>(
+        text: &str,
+        cx: &'a mut TestAppContext,
+    ) -> (Entity<TextEditor>, &'a mut VisualTestContext, usize) {
+        let (editor, cx) = editor(text, cx);
+        cx.simulate_resize(gpui::size(gpui::px(320.), gpui::px(240.)));
+        editor.update(cx, |e, cx| e.set_soft_wrap(true, cx));
+        cx.run_until_parked();
+        let cols = editor
+            .read_with(cx, |e, _| e.rows.cols)
+            .expect("the frame laid the lines out");
+        assert!(cols > 4 && cols < 60, "{cols} columns");
+        (editor, cx, cols)
+    }
+
+    #[test]
+    fn up_and_down_move_by_rows_when_lines_wrap() {
+        let mut cx = TestAppContext::single();
+        let long = "x".repeat(200);
+        let (editor, cx, cols) = wrapped(&format!("{long}\nend"), &mut cx);
+        let rows = editor.read_with(cx, |e, _| e.rows.count());
+        assert_eq!(rows, 200usize.div_ceil(cols) + 1);
+        cx.simulate_keystrokes("right right down");
+        assert_eq!(cursor(&editor, cx), Pos::new(0, cols + 2));
+        cx.simulate_keystrokes("down");
+        assert_eq!(cursor(&editor, cx), Pos::new(0, 2 * cols + 2));
+        cx.simulate_keystrokes("up up");
+        assert_eq!(cursor(&editor, cx), Pos::new(0, 2));
+        // from the line's last row to the next line
+        cx.simulate_keystrokes("end down");
+        assert_eq!(cursor(&editor, cx), Pos::new(1, 3));
+        // and back up onto the last row of the long line
+        cx.simulate_keystrokes("home up");
+        let last_row_start = (199 / cols) * cols;
+        assert_eq!(cursor(&editor, cx), Pos::new(0, last_row_start));
+        // Shift+Down selects a row
+        cx.simulate_keystrokes(&format!("{DOC_START} shift-down"));
+        assert_eq!(
+            editor.read_with(cx, |e, _| e.selection()),
+            Pos::new(0, 0)..Pos::new(0, cols)
+        );
+    }
+
+    #[test]
+    fn a_row_ends_before_the_place_it_wraps() {
+        let mut cx = TestAppContext::single();
+        let long = "y".repeat(200);
+        let (editor, cx, cols) = wrapped(&format!("ab\n{long}"), &mut cx);
+        // from the end of a short line down to a wrapped row: on that row
+        cx.simulate_keystrokes("end down");
+        assert_eq!(cursor(&editor, cx), Pos::new(1, 2));
+        // a click past a wrapped row's end puts the cursor on that row, not the next
+        let at = editor.read_with(cx, |e, _| {
+            let frame = e.frame.as_ref().unwrap();
+            gpui::point(
+                frame.text_bounds.right() - gpui::px(2.),
+                frame.text_bounds.top() + frame.line_height * 1.5,
+            )
+        });
+        cx.simulate_click(at, gpui::Modifiers::none());
+        let pos = cursor(&editor, cx);
+        assert_eq!(pos, Pos::new(1, cols - 1));
+        assert_eq!(editor.read_with(cx, |e, _| e.rows.row_of(pos)), 1);
+    }
+
+    #[test]
+    fn edits_and_undo_keep_the_rows_in_step() {
+        let mut cx = TestAppContext::single();
+        let (editor, cx, cols) = wrapped("start", &mut cx);
+        let long = "word ".repeat(cols);
+        cx.simulate_keystrokes("end");
+        cx.simulate_input(&format!(" {long}"));
+        let check = |editor: &Entity<TextEditor>, cx: &mut VisualTestContext| {
+            editor.read_with(cx, |e, _| {
+                let fresh = Rows::new(&e.lines, e.rows.cols);
+                assert_eq!(e.rows.points, fresh.points);
+                assert_eq!(e.rows.count(), fresh.count());
+                e.rows.count()
+            })
+        };
+        assert!(check(&editor, cx) > 1);
+        cx.simulate_keystrokes("enter");
+        cx.simulate_input("next");
+        check(&editor, cx);
+        // the new line, the line break, the long text
+        cx.simulate_keystrokes(UNDO);
+        check(&editor, cx);
+        cx.simulate_keystrokes(UNDO);
+        check(&editor, cx);
+        cx.simulate_keystrokes(UNDO);
+        assert_eq!(text(&editor, cx), "start");
+        assert_eq!(check(&editor, cx), 1);
+        cx.simulate_keystrokes(REDO);
+        assert!(check(&editor, cx) > 1);
+    }
+
+    #[test]
+    fn alt_z_toggles_soft_wrap() {
+        let mut cx = TestAppContext::single();
+        let (editor, cx, _) = wrapped(&"z".repeat(300), &mut cx);
+        assert!(editor.read_with(cx, |e, _| e.rows.count()) > 1);
+        cx.simulate_keystrokes("alt-z");
+        cx.run_until_parked();
+        assert!(!editor.read_with(cx, |e, _| e.soft_wrap()));
+        assert_eq!(editor.read_with(cx, |e, _| e.rows.count()), 1);
+        cx.simulate_keystrokes("alt-z");
+        cx.run_until_parked();
+        assert!(editor.read_with(cx, |e, _| e.rows.count()) > 1);
+    }
+
+    #[test]
+    fn a_large_wrapped_file_opens_and_edits() {
+        let mut cx = TestAppContext::single();
+        let big: String = (0..200_000)
+            .map(|i| {
+                if i % 10 == 0 {
+                    format!("long_{i} = {}\n", "value ".repeat(40))
+                } else {
+                    format!("key_{i} = {i}\n")
+                }
+            })
+            .collect();
+        let started = std::time::Instant::now();
+        let (editor, cx, _) = wrapped(&big, &mut cx);
+        cx.simulate_keystrokes(DOC_END);
+        cx.simulate_input("end");
+        cx.simulate_keystrokes("up up up home");
+        cx.simulate_input("!");
+        cx.simulate_keystrokes("pagedown pageup");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        assert!(editor.read_with(cx, |e, _| e.rows.count()) > 220_000);
+        assert!(text(&editor, cx).ends_with("key_199999 = 199999\nend"));
     }
 
     #[test]

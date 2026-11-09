@@ -131,10 +131,12 @@ for the game port.
 7. **The friend appears** on the Host's Overview ("1 friend connected", their address,
    "over the local network", the ping) within 5 s.
 8. **Stop sharing** in the Host: the card goes back to "Share with friends", and the
-   launcher's saved server says "This invite link has ended" (`friends list`: reason
-   `link_ended`). Quitting the Host while sharing instead makes the launcher say "Your
-   friend isn't sharing this server right now" (`host_offline`) within a few seconds,
-   and the same link works again when the Host starts.
+   launcher's saved server says "Your friend stopped sharing this server. Ask them for
+   a new link." (`friends list`: reason `link_ended`). Quitting the Host while sharing
+   instead makes the launcher say "Your friend isn't sharing this server right now"
+   (`host_offline`) within a few seconds, and the same link works again when the Host
+   starts. Sharing again makes a new link; opening it in the launcher replaces the old
+   link of the saved server (by the core's and instance's ids), so it stays one entry.
 
 Not covered by this check: clicking through the launcher's join dialog and pressing
 Play (the CLI drives the same code without the window), and two computers on
@@ -220,7 +222,7 @@ shows for a core with the `macros` capability and then says scripting is unavail
   editor) check `palette::is_light()` where the dashboard has light values of its own.
 - **Text editor** (§5): the dashboard uses Monaco; the Host uses `lodestone-ui`'s
   `TextEditor` (multi-line, virtualized, undo/redo, colours for configuration formats,
-  find and replace in the Files tab). It has no word wrap yet.
+  find and replace and word wrap in the Files tab).
 - **Charts** (§3): `lodestone_ui::components::LineChart` (GPUI `canvas` paths: gaps
   dashed, filled area, grid, hover label), used by the Overview's graphs.
 - **Error messages** of `CoreError` and `ClaimError`: done (D). They name
@@ -785,9 +787,11 @@ Conventions in the code that every area relies on:
   file opens again (while the Host runs, unless the file changed); a file over the core's
   16 MB read limit says so instead of failing; the editor is read-only without
   `can_write_instance_file`.
-- [ ] Editor gaps against Monaco: no word wrap (long lines scroll sideways), no find and
-  replace, and colours for fewer languages.
-  - *Host:* Find and replace is done: ⌘/Ctrl+F opens a bar over the editor (ignores case, highlights every match, Enter / Shift+Enter or the arrows step through them, Replace and Replace all, Esc closes; `pages/files/find.rs`, `TextEditor::find`, `set_highlights`, `replace`). Still open: word wrap (long lines scroll sideways; the editor lays out one row per line, so wrapping needs its own layout pass) and colours for more languages.
+- [x] Editor gaps against Monaco: word wrap, find and replace, and colours for fewer
+  languages.
+  - *Host:* Find and replace: ⌘/Ctrl+F opens a bar over the editor (ignores case, highlights every match, Enter / Shift+Enter or the arrows step through them, Replace and Replace all, Esc closes; `pages/files/find.rs`, `TextEditor::find`, `set_highlights`, `replace`).
+  - *Host:* Word wrap is on by default, as the dashboard's `wordWrap: 'on'`: long lines wrap to the editor's width between words (a word longer than a row breaks inside it). "Wrap lines" under the editor, or ⌥Z / Alt+Z in it, turns it off and on; the choice is kept in the Host's settings (`editor_wrap`). Line numbers count lines, not rows; Up and Down, Page Up and Down, clicks, selection, find highlights and the input method work by rows. The rows are counted in columns (the font is monospaced; tabs take four, East Asian characters and emoji two), only the rows in view are drawn, and an edit lays out only the lines it changed, so a 200,000-line file stays quick (`TextEditor::set_soft_wrap`, `wrap_points`). Unlike Monaco, rows after the first don't take the line's indent, and Home and End go to the line's start and end rather than the row's.
+  - Colours: `.properties`/INI, TOML, YAML and JSON only (Monaco colours many more languages; a server's files are mostly these).
 
 ## 6. Other instance tabs
 
