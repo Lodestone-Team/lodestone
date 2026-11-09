@@ -307,6 +307,18 @@ pub fn page_max_width(route: &Route) -> Option<gpui::Pixels> {
     }
 }
 
+/// Pages that scroll themselves, beside a list that jumps to their sections: they
+/// fill the page's height instead of growing it, so the page doesn't scroll them.
+pub fn page_scrolls_itself(route: &Route) -> bool {
+    matches!(
+        route,
+        Route::Instance {
+            tab: InstanceTab::Settings,
+            ..
+        }
+    )
+}
+
 impl Render for HostShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.page(cx);
@@ -325,6 +337,7 @@ impl Render for HostShell {
         let max_width = page_max_width(&self.route);
         let content = div()
             .flex_1()
+            .when(page_scrolls_itself(&self.route), |this| this.min_h_0())
             .w_full()
             .when_some(max_width, |this, width| this.max_w(width))
             .mx_auto()
