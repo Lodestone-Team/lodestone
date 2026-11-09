@@ -21,6 +21,8 @@
 //! | Settings › Users | [`users`] | D |
 //! | Settings › Profile | [`profile`] | D |
 
+pub mod account_dialogs;
+pub mod api_keys;
 pub mod console;
 pub mod core_settings;
 pub mod create_instance;
@@ -30,10 +32,14 @@ pub mod files;
 pub mod home;
 pub mod instance_settings;
 pub mod macros;
+pub mod minecraft_links;
 pub mod mods;
 pub mod overview;
+pub mod parts;
+pub mod permissions;
 pub mod playit;
 pub mod profile;
+pub mod public_listing;
 pub mod users;
 
 use gpui::{

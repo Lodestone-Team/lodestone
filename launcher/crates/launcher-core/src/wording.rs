@@ -1,6 +1,25 @@
 //! The words for the user's computer and its parts, which differ by platform: "this
 //! Mac", the Keychain and Finder on macOS, "this PC", Credential Manager and File
 //! Explorer on Windows, and plain words on Linux, where they vary by desktop.
+//!
+//! Also the app's own name, which messages shared by Lodestone Launcher and Lodestone
+//! Host use ([`app_name`]).
+
+use std::sync::OnceLock;
+
+static APP_NAME: OnceLock<&'static str> = OnceLock::new();
+
+/// Names the app for the messages this crate writes ("…, so Lodestone Host refuses to
+/// connect"). Call once at startup; the first call wins. Without it, the messages
+/// name Lodestone Launcher.
+pub fn set_app_name(name: &'static str) {
+    let _ = APP_NAME.set(name);
+}
+
+/// The app's name, as [`set_app_name`] set it: "Lodestone Launcher" by default.
+pub fn app_name() -> &'static str {
+    APP_NAME.get().copied().unwrap_or("Lodestone Launcher")
+}
 
 /// The computer, after "this" or "your": "this Mac", "your PC".
 pub const COMPUTER: &str = if cfg!(target_os = "macos") {

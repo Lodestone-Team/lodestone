@@ -990,6 +990,12 @@ impl OverviewPage {
                 .unwrap_or(0.0),
         );
         let max_gib = ((total_ram as f64 / GIB) * 10.0).round() / 10.0;
+        // the light theme's darker green stands out on white, as the dashboard's
+        let (line, fill) = if lodestone_ui::theme::palette::is_light() {
+            (Color::rgb(0x1D7A3A), Color::rgb(0x1D7A3A).opacity(12))
+        } else {
+            (Color::rgb(0x62DD76), colors::GREEN_FADED.opacity(25))
+        };
         let graph = |id: &'static str,
                      title: String,
                      samples: Vec<Option<f32>>,
@@ -1013,10 +1019,7 @@ impl OverviewPage {
                     .into_any_element()
             } else {
                 LineChart::new(id, samples, max)
-                    .colors(
-                        colors::GREEN_200.mix(colors::GREEN_300, 0.5),
-                        colors::GREEN_FADED.opacity(25),
-                    )
+                    .colors(line, fill)
                     .x_labels(tr!(M::GraphSeconds, seconds = SAMPLES - 1), "0")
                     .y_labels(max_label, "0")
                     .hover_label(move |ago, value| {
