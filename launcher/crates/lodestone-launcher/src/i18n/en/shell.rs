@@ -508,9 +508,11 @@ crate::i18n::messages! {
         Skin = "Skin",
         SkinGallery = "Skins",
         SkinImport = "Import…",
-        /// Next to "Import…" on Linux and Windows, whose file dialogs show files or
-        /// folders but not both: imports a skin pack that isn't zipped.
-        SkinImportFolder = "Import folder…",
+        /// On Linux and Windows, whose file dialogs show files or folders but not
+        /// both, "Import…" splits in two: this one imports a skin pack's .zip...
+        SkinImportZip = "Import skin as zip",
+        /// ...and this one a skin pack that isn't zipped.
+        SkinImportFolder = "Import skin as folder",
         /// The file dialog's button that imports a skin.
         SkinImportButton = "Import",
         SkinExport = "Export…",

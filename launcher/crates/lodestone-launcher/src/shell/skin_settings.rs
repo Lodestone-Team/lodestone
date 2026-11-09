@@ -109,8 +109,8 @@ impl SkinSettings {
             .ok();
     }
 
-    /// "Import…" (a skin pack's `.zip`, or on macOS either) or "Import folder…" (an
-    /// unzipped pack, where the dialog can't show both).
+    /// "Import skin as zip" or "Import skin as folder" where the dialog can't show
+    /// both, or on macOS "Import…", which takes either.
     fn import(&mut self, pick: Pick, cx: &mut Context<Self>) {
         let picked = cx.prompt_for_paths(pick.options(false, t(M::SkinImportButton)));
         self._prompt = Some(cx.spawn(async move |this, cx| {
@@ -176,12 +176,13 @@ impl SkinSettings {
     }
 }
 
-/// The id and label of the button that opens `pick`'s dialog: "Import…" for the
-/// pack's `.zip` (or, on macOS, a `.zip` or a folder), "Import folder…" for an
-/// unzipped pack where the dialog can't show both.
+/// The id and label of the button that opens `pick`'s dialog. On macOS one
+/// "Import…" takes a pack's `.zip` or its folder; where the dialog can't show both,
+/// "Import skin as zip" and "Import skin as folder" say which each one takes.
 fn import_button(pick: Pick) -> (&'static str, M) {
     match pick {
-        Pick::Files | Pick::FilesOrFolders => ("skin-import", M::SkinImport),
+        Pick::FilesOrFolders => ("skin-import", M::SkinImport),
+        Pick::Files => ("skin-import", M::SkinImportZip),
         Pick::Folders => ("skin-import-folder", M::SkinImportFolder),
     }
 }
@@ -521,7 +522,7 @@ mod tests {
         assert_eq!(
             buttons(false),
             [
-                (("skin-import", M::SkinImport), true, false),
+                (("skin-import", M::SkinImportZip), true, false),
                 (("skin-import-folder", M::SkinImportFolder), false, true),
             ]
         );
