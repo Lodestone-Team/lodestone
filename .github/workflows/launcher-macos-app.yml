@@ -72,19 +72,25 @@ jobs:
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         prefix-key: rust-cache
-        shared-key: launcher-macos-release
+        # Developer builds use their own cargo profile, so they keep their own cache.
+        shared-key: launcher-macos-${{ inputs.dev && 'dev' || 'release' }}
         workspaces: launcher
 
     # Built before the signing certificate and the Apple account are in reach, so
     # no build script ever runs beside them. The staging step below builds again
-    # with the same settings, which does nothing.
+    # with the same settings, which does nothing. Developer builds use the
+    # `dev-build` profile, as `publish_release.py --dev` does.
     - name: Build
       working-directory: launcher
+      env:
+        PROFILE: ${{ inputs.dev && 'dev-build' || 'release' }}
+        LODESTONE_LAUNCHER_CHANNEL: ${{ inputs.dev && 'dev' || '' }}
       run: |
         export LODESTONE_LAUNCHER_BUILD="$(git rev-list --count HEAD)"
         export LODESTONE_LAUNCHER_COMMIT="$(git rev-parse HEAD)"
+        [ -n "$LODESTONE_LAUNCHER_CHANNEL" ] || unset LODESTONE_LAUNCHER_CHANNEL
         for target in aarch64-apple-darwin x86_64-apple-darwin; do
-          cargo build --release --locked -p lodestone-launcher --target "$target"
+          cargo build --profile "$PROFILE" --locked -p lodestone-launcher --target "$target"
         done
 
     - name: Import the signing certificate

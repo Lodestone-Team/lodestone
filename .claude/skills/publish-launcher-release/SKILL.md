@@ -224,6 +224,11 @@ their own launchers to and debug. Users never get it.
   along with their tags. Never delete or edit one by hand.
 - **Developer builds and versions never mix:** the script refuses to upload a
   `--dev` build to a version's release, or a version's build to a developer one.
+- **They build faster than versions:** `--dev` builds with the `dev-build` cargo
+  profile (`.cargo/config.toml`), the release settings without cross-crate LTO and
+  with parallel code generation, into `target/dev-build`. The Dev build workflow
+  caches its builds (`launcher-windows-dev`, `launcher-macos-dev`, and the Host's)
+  apart from the releases'. A bug that only shows with LTO won't show in one.
 
 To make one:
 
