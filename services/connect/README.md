@@ -74,7 +74,8 @@ Error codes: `bad_candidates` (400), `unauthorized` (401: no `Authorization`),
 ## Limits
 
 - **Per client address, a minute:** 10 invites, 30 joins, 60 other host requests
-  (WebSocket connections, listings, deletes).
+  (WebSocket connections, listings, deletes). Only requests with a JSON body or an
+  `Authorization` header count, so a web page elsewhere can't use up a visitor's limits.
 - **An invite** ends when its host has been quiet (no ping, no listing) for 2 minutes,
   when the host deletes it, or 24 hours after it was made (or last renewed). It takes
   at most 16 joins, a kept invite 64.
