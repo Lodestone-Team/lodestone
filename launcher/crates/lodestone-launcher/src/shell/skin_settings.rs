@@ -10,7 +10,7 @@ use gpui::{
     AnyElement, App, Context, Entity, IntoElement, PathPromptOptions, Render, SharedString, Task,
     WeakEntity, Window, div, prelude::*,
 };
-use launcher_core::ui_skin::{Rgb, Shape, SkinEntry, SkinStore, readable};
+use launcher_core::ui_skin::{Rgb, SKIN_FILE, Shape, SkinEntry, SkinStore, readable};
 
 use super::LauncherShell;
 use crate::{
@@ -109,9 +109,12 @@ impl SkinSettings {
     }
 
     fn import(&mut self, cx: &mut Context<Self>) {
+        // Windows' picker shows either files or folders, never both, and asking
+        // for folders there hides every .zip. Where that's the case, pick files:
+        // a pack's folder is imported by picking the skin.json inside it.
         let picked = cx.prompt_for_paths(PathPromptOptions {
             files: true,
-            directories: true,
+            directories: cx.can_select_mixed_files_and_dirs(),
             multiple: false,
             prompt: Some(t(M::SkinImportButton).into()),
         });
@@ -119,9 +122,14 @@ impl SkinSettings {
             let Ok(Ok(Some(paths))) = picked.await else {
                 return;
             };
-            let Some(path) = paths.into_iter().next() else {
+            let Some(mut path) = paths.into_iter().next() else {
                 return;
             };
+            if path.file_name().is_some_and(|name| name == SKIN_FILE) {
+                if let Some(folder) = path.parent() {
+                    path = folder.to_path_buf();
+                }
+            }
             this.update(cx, |this, cx| {
                 let store = this.store(cx);
                 match store.import(&path) {
