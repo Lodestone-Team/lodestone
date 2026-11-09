@@ -124,13 +124,14 @@ jobs:
       shell: bash
       run: rustup toolchain install --profile minimal --no-self-update
 
+    # Developer builds use their own cargo profile (`dev-build`), so they keep their
+    # own caches, and save them for the next developer build.
     - name: Cache Dependencies (launcher)
       if: inputs.product == 'launcher'
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         prefix-key: rust-cache
-        shared-key: launcher-windows-release
-        save-if: false
+        shared-key: launcher-windows-dev
         workspaces: launcher
 
     - name: Cache Dependencies (Host)
@@ -138,8 +139,7 @@ jobs:
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         prefix-key: rust-cache
-        shared-key: host-windows-release
-        save-if: false
+        shared-key: host-windows-dev
         workspaces: |
           launcher
           .
