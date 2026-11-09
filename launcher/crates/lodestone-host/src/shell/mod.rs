@@ -114,6 +114,11 @@ impl HostShell {
         view
     }
 
+    /// The page shown, for the development screenshots.
+    pub fn page_view(&self) -> Option<AnyView> {
+        self.page.as_ref().map(|(_, view)| view.clone())
+    }
+
     /// The page's heading, as `InstanceTabs.tsx` and the settings show it.
     fn heading(&self, cx: &Context<Self>) -> Option<String> {
         match &self.route {

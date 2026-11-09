@@ -45,10 +45,22 @@ pub enum Icon {
     CircleInfo,
     CircleCheck,
     CircleExclamation,
+    Server,
+    Folder,
+    FolderPlus,
+    File,
+    FilePen,
+    FileCirclePlus,
+    ArrowsRotate,
+    Scissors,
+    Paste,
+    FileZipper,
+    ListCheck,
+    ClipboardQuestion,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 40] = [
+    pub const ALL: [Icon; 52] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -89,6 +101,18 @@ impl Icon {
         Icon::CircleInfo,
         Icon::CircleCheck,
         Icon::CircleExclamation,
+        Icon::Server,
+        Icon::Folder,
+        Icon::FolderPlus,
+        Icon::File,
+        Icon::FilePen,
+        Icon::FileCirclePlus,
+        Icon::ArrowsRotate,
+        Icon::Scissors,
+        Icon::Paste,
+        Icon::FileZipper,
+        Icon::ListCheck,
+        Icon::ClipboardQuestion,
     ];
 
     /// The asset path of the icon's SVG.
@@ -134,6 +158,18 @@ impl Icon {
             Icon::CircleInfo => "icons/circle-info.svg",
             Icon::CircleCheck => "icons/circle-check.svg",
             Icon::CircleExclamation => "icons/circle-exclamation.svg",
+            Icon::Server => "icons/server.svg",
+            Icon::Folder => "icons/folder.svg",
+            Icon::FolderPlus => "icons/folder-plus.svg",
+            Icon::File => "icons/file.svg",
+            Icon::FilePen => "icons/file-pen.svg",
+            Icon::FileCirclePlus => "icons/file-circle-plus.svg",
+            Icon::ArrowsRotate => "icons/arrows-rotate.svg",
+            Icon::Scissors => "icons/scissors.svg",
+            Icon::Paste => "icons/paste.svg",
+            Icon::FileZipper => "icons/file-zipper.svg",
+            Icon::ListCheck => "icons/list-check.svg",
+            Icon::ClipboardQuestion => "icons/clipboard-question.svg",
         }
     }
 
@@ -178,7 +214,19 @@ impl Icon {
             | Icon::CircleUser
             | Icon::CircleInfo
             | Icon::CircleCheck
-            | Icon::CircleExclamation => return format!("{self:?}").into(),
+            | Icon::CircleExclamation
+            | Icon::Server
+            | Icon::Folder
+            | Icon::FolderPlus
+            | Icon::File
+            | Icon::FilePen
+            | Icon::FileCirclePlus
+            | Icon::ArrowsRotate
+            | Icon::Scissors
+            | Icon::Paste
+            | Icon::FileZipper
+            | Icon::ListCheck
+            | Icon::ClipboardQuestion => return format!("{self:?}").into(),
         };
         t(message).into()
     }
