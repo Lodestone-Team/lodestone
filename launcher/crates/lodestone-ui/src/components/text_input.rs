@@ -1891,6 +1891,21 @@ mod keystroke_tests {
         assert_eq!(shown(&input, cx), "a b|");
     }
 
+    /// ⌘C (Ctrl+C) copies the field's selection, not the selected rich text: the
+    /// text fields' bindings come after `RichText`'s context-free one.
+    #[test]
+    fn the_copy_shortcut_copies_the_selection() {
+        let mut cx = TestAppContext::single();
+        let (_input, cx) = field("one two", false, &mut cx);
+        cx.simulate_keystrokes("secondary-a secondary-c");
+        assert_eq!(
+            cx.read_from_clipboard()
+                .and_then(|item| item.text())
+                .as_deref(),
+            Some("one two")
+        );
+    }
+
     #[test]
     fn a_double_click_selects_the_word_and_a_triple_click_all() {
         let mut cx = TestAppContext::single();

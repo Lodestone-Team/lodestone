@@ -402,6 +402,34 @@ pub fn text(message: M) -> &'static str {
         M::BetaBody => {
             "Merci d’utiliser la bêta de Lodestone ! Si vous rencontrez un problème, signalez-le-nous sur notre serveur Discord ou sur Github."
         }
+        M::Cores => "Cores",
+        M::CoresLead => {
+            "Lodestone Host fait tourner le core de cet ordinateur. Vous pouvez aussi gérer un autre core, par exemple sur un serveur."
+        }
+        M::ThisComputerCore => "Cet ordinateur",
+        M::ThisComputerHint => "Le core que Lodestone Host fait tourner.",
+        M::CurrentCore => "Actuel",
+        M::UseCore => "Basculer",
+        M::ChangeCore => "Changer de core",
+        M::ConnectToCore => "Se connecter à un core",
+        M::CoreAddress => "Adresse",
+        M::CoreAddressHint => "Par exemple 192.168.1.5, ou core.example.com:16662.",
+        M::Connect => "Se connecter",
+        M::TrustTitle => "Approuver le certificat de ce core ?",
+        M::TrustBody => {
+            "{host} utilise son propre certificat HTTPS, que cet ordinateur ne connaît pas. Les cores Lodestone créent leur propre certificat, c’est donc normal : vérifiez son empreinte, puis approuvez-le."
+        }
+        M::FingerprintCaption => "Empreinte du certificat (SHA-256)",
+        M::FingerprintHelp => {
+            "Comparez-la à l’empreinte dans Paramètres › Général › Informations de ce core, ou dans son journal à son démarrage."
+        }
+        M::TrustCertificate => "Approuver le certificat",
+        M::SignInTo => "Se connecter à {name}",
+        M::SignIn => "Se connecter",
+        M::RemoveCore => "Retirer",
+        M::RemoteSignedOut => {
+            "Vous avez été déconnecté de {name}. Lodestone Host est revenu au core de cet ordinateur."
+        }
     }
 }
 

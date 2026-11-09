@@ -332,6 +332,32 @@ pub fn text(message: M) -> &'static str {
         M::BetaBody => {
             "感謝使用 Lodestone 測試版！如果你發現任何問題，請在我們的 Discord 伺服器或 Github 上告訴我們。"
         }
+        M::Cores => "核心",
+        M::CoresLead => {
+            "Lodestone Host 執行這台電腦上的核心。你也可以管理另一個核心，例如伺服器上的核心。"
+        }
+        M::ThisComputerCore => "這台電腦",
+        M::ThisComputerHint => "Lodestone Host 執行的核心。",
+        M::CurrentCore => "目前",
+        M::UseCore => "切換",
+        M::ChangeCore => "更換核心",
+        M::ConnectToCore => "連線到核心",
+        M::CoreAddress => "位址",
+        M::CoreAddressHint => "例如 192.168.1.5 或 core.example.com:16662。",
+        M::Connect => "連線",
+        M::TrustTitle => "信任此核心的憑證嗎？",
+        M::TrustBody => {
+            "{host} 使用自己的 HTTPS 憑證，這台電腦不認得它。Lodestone 核心會自己產生憑證，所以這是正常的：請核對它的指紋，然後信任它。"
+        }
+        M::FingerprintCaption => "憑證指紋（SHA-256）",
+        M::FingerprintHelp => {
+            "請將它與該核心「設定 › 一般 › 資訊」中的指紋，或它啟動時日誌中的指紋比對。"
+        }
+        M::TrustCertificate => "信任憑證",
+        M::SignInTo => "登入到 {name}",
+        M::SignIn => "登入",
+        M::RemoveCore => "移除",
+        M::RemoteSignedOut => "你已從 {name} 登出。Lodestone Host 已回到這台電腦的核心。",
     }
 }
 

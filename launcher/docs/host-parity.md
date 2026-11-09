@@ -160,9 +160,9 @@ shows for a core with the `macros` capability and then says scripting is unavail
   switch moving) and opaque `WHITE` (text on accent buttons) aren't mapped. Pages that
   draw their own colours (charts, the console's palette, the editor) should check
   `palette::is_light()` where the dashboard has light values of its own.
-- **Text editor** (§5): the dashboard uses Monaco. `TextInput` is single-line; package
-  B needs a multi-line, scrollable editor (ideally in `lodestone-ui`), with syntax
-  colouring as a later step.
+- **Text editor** (§5): the dashboard uses Monaco; the Host uses `lodestone-ui`'s
+  `TextEditor` (multi-line, virtualized, undo/redo, colours for configuration formats).
+  It has no word wrap and no find and replace yet.
 - **Charts** (§3): `lodestone_ui::components::LineChart` (GPUI `canvas` paths: gaps
   dashed, filled area, grid, hover label), used by the Overview's graphs.
 - **Error messages** of `CoreError` and `ClaimError`: done (D). They name
@@ -270,11 +270,12 @@ Conventions in the code that every area relies on:
     (plug-exclamation, yellow), error (plug-x, red).
   - Hover/focus tooltip: status label + detail text + Address (`proto://addr:port`), Version, Host
     (`host_name`), System (`os arch`, macos→macOS, aarch64→arm64), Uptime (from `up_since`, d/h/m).
-- [ ] Footer: user menu — `components/UserMenu.tsx`
+- [x] Footer: user menu — `components/UserMenu.tsx`
   - Button: avatar (boring-avatars from uid) + username (skeleton while loading, "Guest" if logged out),
     opens upward menu: "Signed in as <name>" / "Not signed in"; **Sign out** (clears token for this core,
     clears `instance` & `user` params → redirected to login); **Change core** (→ `/login/core/select`).
   - Gear icon button → remembers current path, opens `/settings/general`.
+  - *Host:* The footer has Signed in as, Settings and Change core (the Cores dialog). No Sign out: the Host signs in to its own core as the owner by itself.
 - [x] Home page — `pages/home.tsx`
   - Placeholder cube image, title + subtitle, "Create a new server" button (only when logged in; disabled
     without `can_create_instance`). Skeleton while user info loads.
@@ -290,14 +291,18 @@ Conventions in the code that every area relies on:
 ### 1.3 Cores: selecting, adding, persistence (`pages/index.tsx`, `pages/login/*`)  
 **Package: D.**
 
-- [ ] Current core persisted in localStorage keys `address`, `port`, `protocol`, `apiVersion`
+- [x] Current core persisted in localStorage keys `address`, `port`, `protocol`, `apiVersion`
   (defaults localhost/16662/http/v1). Switching core clears the whole query cache and `?instance`.
-- [ ] Saved core list `localStorage.cores` (array of `{address,port,protocol,apiVersion}`); a core is
+  - *Host:* The Host always starts on this computer's core; the other cores are in the Cores dialog.
+- [x] Saved core list `localStorage.cores` (array of `{address,port,protocol,apiVersion}`); a core is
   added after a successful connection; same address+port replaces protocol/apiVersion.
-- [ ] Per-core token map `localStorage.tokens` keyed by `"address:port"`.
-- [ ] Legacy link params `?address&port&protocol&apiVersion`: if equal to current core they are just
+  - *Host:* prefs.rs cores: address and the trusted certificate's fingerprint.
+- [x] Per-core token map `localStorage.tokens` keyed by `"address:port"`.
+  - *Host:* Not kept, on purpose: the Host signs in to another core again each time (no token on disk).
+- [x] Legacy link params `?address&port&protocol&apiVersion`: if equal to current core they are just
   stripped; if different → open `/login/core/new` pre-filled (never switches silently).
-- [ ] **Connect to a core** page — `pages/login/CoreConnect.tsx` (`/login/core/new`)
+  - *Host:* Not applicable: the Host has no URLs.
+- [x] **Connect to a core** page — `pages/login/CoreConnect.tsx` (`/login/core/new`)
   - Fields: API version (select, only `v1`), Protocol (select http/https), Port (number, default 16662),
     Address (text). All required (yup).
   - Protocol auto-follows address (http for localhost/127.0.0.1/::1, https otherwise) until user picks one.
@@ -309,14 +314,17 @@ Conventions in the code that every area relies on:
     `https://addr:port/` + fingerprint hint; http → plain-HTTP hint.
   - https page + http core: warning banner and a "mixed content" danger dialog (wiki link) — browser-only.
   - Buttons: Back, "Download core" (opens GitHub releases), "Add and continue".
-- [ ] **Select a saved core** — `pages/login/CoreSelectExisting.tsx` (`/login/core/select`)
+  - *Host:* pages/cores.rs: the address as typed (parse_address: http for loopback, https otherwise, port 16662 by default), the certificate's fingerprint to trust when the system doesn't (as Lodestone Launcher), then username and password. tests/core_account.rs connects to a real core this way.
+- [x] **Select a saved core** — `pages/login/CoreSelectExisting.tsx` (`/login/core/select`)
   - Select of saved cores (label `address:port`), "or" "Connect to a new core" button, Download core,
     Continue (same `/info` probe and routing as above; help box with `savedCore` wording).
-- [ ] Local-core discovery while signed in to a remote core — `DashboardLayout.tsx`, `data/SystemInfo.ts`
+  - *Host:* The Cores dialog lists this computer's core and the saved ones (Switch, Remove).
+- [x] Local-core discovery while signed in to a remote core — `DashboardLayout.tsx`, `data/SystemInfo.ts`
   - If the local core is reachable (Tauri, or page served over http) and the current core isn't local:
     poll `GET http://localhost:16662/api/v1/info` every 3 s (2.5 s timeout) until it answers.
   - Answer `is_setup:false` → dialog "A local core was found" with **Set up** (switch to local core →
     `/login/core/first_setup`) / **Skip**. `is_setup:true` → silently add local core to saved list.
+  - *Host:* Not applicable: the Host is the local core.
 
 ### 1.4 First run / owner setup / login (`pages/login/*`)  
 **Package: foundation (done, through the local claim).**
@@ -367,14 +375,20 @@ Conventions in the code that every area relies on:
 
 - [ ] Token = JWT (claims `uid`, `exp`), decoded without verification; malformed / no `exp` / no `uid` /
   expired → error toast and sign-out.
+  - *Host:* Not done (D): the Host doesn't read the token's expiry; it signs in again when the core refuses the token (60 days later).
 - [ ] Auto sign-out timer at `exp` with warning toast "Session expired" (toast id `sessionExpired`).
-- [ ] 401 handling: any 401 on a request carrying the current token → re-check `GET /user/info`; if that
+  - *Host:* Not done (D), as above.
+- [x] 401 handling: any 401 on a request carrying the current token → re-check `GET /user/info`; if that
   401s → toast "session invalid" and sign out. No refresh tokens.
-- [ ] Changing token or core clears the whole data cache; notifications cleared on sign-out.
-- [ ] `UserDeleted` event for self → sign out.
-- [ ] Analytics: Google Analytics (`react-ga4`, id `G-LZQ3VZ6N26`) in production builds; events from
+  - *Host:* Any request refused with 401 ends the session (CoreError::SignedOut, state.rs): the Host claims its own core again, and from another core it goes back to this computer's with a warning toast.
+- [x] Changing token or core clears the whole data cache; notifications cleared on sign-out.
+  - *Host:* A new HostState per session and per core; notifications are cleared on sign-out.
+- [x] `UserDeleted` event for self → sign out.
+  - *Host:* state.rs (foundation).
+- [x] Analytics: Google Analytics (`react-ga4`, id `G-LZQ3VZ6N26`) in production builds; events from
   `useAnalyticsEventTracker` in many places (login, create instance, notification panel, instance list…) —
   `utils/hooks.ts`. Decide whether the native app keeps any telemetry.
+  - *Host:* Decision: the Host sends no analytics.
 
 ### 1.6 Connection status, reconnect, global dialogs (`DashboardLayout.tsx`, `data/EventStream.ts`, `data/SystemInfo.ts`, `utils/websocket.ts`)  
 **Package: D (the foundation shows the connection in the sidebar).**
@@ -383,9 +397,12 @@ Conventions in the code that every area relies on:
   - `/info` success → success (unless degraded); `/info` failure → error.
   - Event websocket open → success. Websocket failed before opening → probe `GET /user/info`: OK → degraded
     (REST works, WS doesn't); 401 → sign-out path; network error → error; other → degraded.
-- [ ] Reconnecting websocket helper: exponential backoff 1 s → max 30 s, reset on open; URL rebuilt each
+  - *Host:* Not done as such (D): the footer shows Connecting, Connected, Reconnecting and Signed out from the event stream; there is no degraded state (a browser's WebSocket limit doesn't apply).
+- [x] Reconnecting websocket helper: exponential backoff 1 s → max 30 s, reset on open; URL rebuilt each
   attempt; close code 1000 by client stops it — `utils/websocket.ts`.
-- [ ] After an event-stream reconnect: invalidate instance list, user info, global settings.
+  - *Host:* launcher_core's LiveStream reconnects by itself (foundation).
+- [x] After an event-stream reconnect: invalidate instance list, user info, global settings.
+  - *Host:* state.rs reloads on reconnect (foundation).
 - [x] **Core error dialog** (status `error`): "Can't reach <addr:port>", **Back** (→ `/login/core/select`) /
   **Continue** (reload page).
   - *Host:* The Host's own core: the supervisor's status screen, which restarts it and shows its log.
@@ -395,6 +412,7 @@ Conventions in the code that every area relies on:
 - [ ] **Version mismatch** (`DASHBOARD_VERSION` vs `/info.version`, semver): different major or minor, or
   core 0.4.x with patch < 4 → danger dialog (core/dashboard versions, "incompatible", wiki Updating link,
   "Continue anyway"); patch-only difference → warning toast top-centre 10 s (id `patchVersionMismatch`).
+  - *Host:* Not done (D): the Host bundles its own core. For another core, an older or newer API shows as request errors; a version check belongs with the Cores dialog.
 - [x] **Beta thank-you dialog** once per new core version containing "beta" (`localStorage.latestVersion`).
   - *Host:* notifications.rs; the version thanked for is latest_version in settings.json.
 
@@ -616,8 +634,7 @@ Conventions in the code that every area relies on:
   mode = case-insensitive substring) on the plain text.
 - [x] Auto-scroll sticks to bottom unless user scrolled up (>10 px). *Host: and a "Jump to
   latest" button while scrolled up.*
-- [x] Coloured output (toggle in Profile: *Host: `pages::console::set_colored`, for package D's
-  Profile toggle and settings store; on until then*, `localStorage.coloredConsole`, default on): ANSI SGR (16/256/24-bit
+- [x] Coloured output (toggle in Profile, `localStorage.coloredConsole`, *Host: `Prefs`*, default on): ANSI SGR (16/256/24-bit
   colours, bold, dim, italic, underline, strike, inverse) and Minecraft `§` codes; other escapes stripped;
   low-contrast colours adjusted for the theme (≥4.5:1); text on background colours rendered as badges;
   plain lines coloured by detected log level (WARN/ERROR from `[..]` prefixes or `WARN:`/`ERROR:`).
@@ -634,26 +651,28 @@ Conventions in the code that every area relies on:
 ## 5. Files tab — `components/FileViewer/*`, `utils/apis.ts`, `data/FileSystem.ts`  
 **Package: B.**
 
-- [ ] Permissions: browse/read/download need `can_read_instance_file`; upload/new/rename/move/copy/paste/
+- [x] Permissions: browse/read/download need `can_read_instance_file`; upload/new/rename/move/copy/paste/
   delete/zip/unzip/save need `can_write_instance_file` (per instance). No read perm → "No permission" graphic.
-- [ ] Directory listing: `GET /instance/{uuid}/fs/{b64(path)}/ls` → `ClientFile[]`, sorted by type then
+- [x] Directory listing: `GET /instance/{uuid}/fs/{b64(path)}/ls` → `ClientFile[]`, sorted by type then
   name; root path `.`; current folder in `?path=` (reset to `.` when switching instance); previous folder
-  kept dimmed while the next loads; error text; "Empty folder".
-- [ ] Separator detection: `/` if instance path contains `/`, else `\` (Windows cores).
-- [ ] List row: checkbox, icon by extension (folder, `.lodestone_config`, txt/md/properties/cfg/ini/conf,
+  kept dimmed while the next loads; error text; "Empty folder". *Host: the folder is
+  remembered per instance while the Host runs, not in a URL; the list is virtualized.*
+- [x] Separator detection: `/` if instance path contains `/`, else `\` (Windows cores).
+- [x] List row: checkbox, icon by extension (folder, `.lodestone_config`, txt/md/properties/cfg/ini/conf,
   yml/yaml, exe, images, json/mcmeta, zip/gz/tar, jar, java, class, ts, js, bin/dll/dylib/so/o,
   dat/nbt/mca/obj, lock, log, ps1, sh, mcfunction, unknown → yellow question icon), name (click: folder →
   open, file → open in editor), modified time ("x ago" < 1 day, else date; hidden in narrow widths), size
   (files only). ".." row to go up. Clicking empty space closes editor and clears selection. Cut files
   shown dimmed.
-- [ ] Breadcrumb: instance folder name then each path segment clickable, then opened file name.
-- [ ] Resizable split list/editor (`localStorage.fileListSize`, default 200, min 200).
-- [ ] Toolbar "Add / Remove" menu: Select all / Deselect all; Cut selected (toast "N cut"); Download
+- [x] Breadcrumb: instance folder name then each path segment clickable, then opened file name.
+- [x] Resizable split list/editor (`localStorage.fileListSize`, default 200, min 200). *Host: default
+  300, kept while the Host runs (persisting it is package D's settings store).*
+- [x] Toolbar "Add / Remove" menu: Select all / Deselect all; Cut selected (toast "N cut"); Download
   selected; Unarchive selected (exactly one, Smart); New file; New folder; Delete selected (danger).
-- [ ] Toolbar buttons: Paste (N) when clipboard non-empty; Save / Discard changes when editor open (enabled
+- [x] Toolbar buttons: Paste (N) when clipboard non-empty; Save / Discard changes when editor open (enabled
   only if content changed); Upload.
-- [ ] Status line under the panel: "N selected", "N in clipboard".
-- [ ] Right-click context menu (on a file or empty area; acts on the selection if the clicked file is
+- [x] Status line under the panel: "N selected", "N in clipboard".
+- [x] Right-click context menu (on a file or empty area; acts on the selection if the clicked file is
   selected) — `FileContextMenu.tsx`:
   - Copy, Cut (toasts), Paste / "Paste into <folder>" (needs clipboard).
   - Rename (modal), Delete (confirm dialog).
@@ -665,25 +684,37 @@ Conventions in the code that every area relies on:
     Unsupported extension → error toast.
   - New folder, New file (in right-clicked folder or current folder).
   - Menu positioned to stay inside the list; closes on outside click.
-- [ ] Zip/unzip completion comes back as `ProgressionEnd FSOperationCompleted` events → toast + refresh.
-- [ ] Delete: confirm dialog listing names ("(folder)", "(unknown type)"); files `DELETE
+- [x] Zip/unzip completion comes back as `ProgressionEnd FSOperationCompleted` events → toast + refresh.
+- [x] Delete: confirm dialog listing names ("(folder)", "(unknown type)"); files `DELETE
   /instance/{uuid}/fs/{b64}/rm`, folders `DELETE …/rmdir`; one by one; success toast each; closes editor if
   affected.
-- [ ] New file / New folder modals (name required): `PUT …/fs/{b64(dir/name)}/new` / `…/mkdir`; inline
+- [x] New file / New folder modals (name required): `PUT …/fs/{b64(dir/name)}/new` / `…/mkdir`; inline
   error; refresh folder.
-- [ ] Rename modal (name required): `PUT …/fs/{b64(src)}/move/{b64(dest)}` (same folder); error inline +
+- [x] Rename modal (name required): `PUT …/fs/{b64(src)}/move/{b64(dest)}` (same folder); error inline +
   toast.
-- [ ] Cut+Paste = move each (`…/move/…`); Copy+Paste = `PUT /instance/{uuid}/fs/cpr`
+- [x] Cut+Paste = move each (`…/move/…`); Copy+Paste = `PUT /instance/{uuid}/fs/cpr`
   `CopyInstanceFileRequest {relative_paths_source[], relative_path_dest}`; clipboard cleared after paste.
-- [ ] Upload: file picker (multiple) or drag-and-drop anywhere on the tab (overlay "Drop to upload");
+- [x] Upload: file picker (multiple) or drag-and-drop anywhere on the tab (overlay "Drop to upload");
   folders rejected ("only files"); `PUT …/fs/{b64(dir)}/upload` multipart field `file` (×N), no timeout;
-  toast "Uploading N files"; refresh.
-- [ ] Download: `GET …/fs/{b64}/url` → key string → open `/file/{key}` (new tab / system browser).
-  Folders are zipped by the core (60 s timeout, toast "Zipping for download").
-- [ ] Editor (Monaco): `GET …/fs/{b64}/read` (raw text); language from extension, `.lodestone_config` →
+  toast "Uploading N files"; refresh. *Host: files are read into memory before they are
+  sent, so a very large upload needs as much memory.*
+- [x] Download: `GET …/fs/{b64}/url` → key string → open `/file/{key}` (new tab / system browser).
+  Folders are zipped by the core (60 s timeout, toast "Zipping for download"). *Host: saved
+  where the user picks (one file: a save dialog; several: a folder), through the pinned
+  client, with a "Show in folder" toast.*
+- [x] Editor (Monaco): `GET …/fs/{b64}/read` (raw text); language from extension, `.lodestone_config` →
   JSON, `.toml` → custom TOML grammar (`utils/monaco-languages/toml.ts`); word wrap on, minimap off; themed;
   Ctrl/⌘+S saves; Save → `PUT …/fs/{b64}/write` raw body; updates size/mtime in list; error toast.
-  Skeleton while loading; error graphic with message on read failure.
+  Skeleton while loading; error graphic with message on read failure. *Host: the editor is
+  `lodestone_ui::components::TextEditor` (line numbers, JetBrains Mono, undo/redo, only the
+  lines in view drawn); colours for `.properties`/INI, TOML, YAML and JSON.*
+- [x] *Host, beyond the dashboard:* opening another file or folder with unsaved changes asks
+  (Save / Discard / Keep editing); edits left unsaved when the tab closes come back when the
+  file opens again (while the Host runs, unless the file changed); a file over the core's
+  16 MB read limit says so instead of failing; the editor is read-only without
+  `can_write_instance_file`.
+- [ ] Editor gaps against Monaco: no word wrap (long lines scroll sideways), no find and
+  replace, and colours for fewer languages.
 
 ## 6. Other instance tabs
 
