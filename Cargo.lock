@@ -6807,6 +6807,7 @@ dependencies = [
  "jsonwebtoken",
  "libc",
  "local-ip-address",
+ "lodestone_connect",
  "lodestone_minecraft",
  "lodestone_trace",
  "playit-agent-core",

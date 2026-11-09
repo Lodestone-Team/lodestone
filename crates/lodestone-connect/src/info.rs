@@ -4,7 +4,6 @@
 //! the host core's API, for the shared instance only:
 //!
 //! - `GET /api/v1/connect/info`: [`SharedServer`].
-//! - `GET /api/v1/info`: the core's name, version and id (as the core's own `/info`).
 //! - `GET /api/v1/public/instances`: the shared instance alone, as the core's public
 //!   instance list shows it (no address: the friend plays through the tunnel).
 //! - `GET /api/v1/public/instances/<uuid>/client-pack`: its client modpack (Fabric

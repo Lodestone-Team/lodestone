@@ -897,6 +897,42 @@ export const en = {
   'server.settingField.unknownType': 'Submission Error: Unknown value type.',
 
   // PublicListingSetting: what a server shows without signing in
+  'server.share.title': 'Share with friends',
+  'server.share.lead': 'Friends join from Lodestone Launcher with a link',
+  'server.share.off':
+    'Send friends a link. They open it in Lodestone Launcher, and their game connects straight to this computer. No port forwarding needed.',
+  'server.share.start': 'Share with friends',
+  'server.share.state.starting': 'Starting…',
+  'server.share.state.sharing': 'Sharing',
+  'server.share.state.reconnecting': 'Reconnecting…',
+  'server.share.stableLink': 'The link keeps working after a restart.',
+  'server.share.linkLabel': 'Invite link',
+  'server.share.copy': 'Copy link',
+  'server.share.copied': 'Copied the invite link',
+  'server.share.copyFailed': "Couldn't copy. Select the link and copy it.",
+  'server.share.preparing': 'Getting the link…',
+  'server.share.howFriendsJoin':
+    'Anyone with the link can join this server while it runs. Friends without Lodestone Launcher get a download link.',
+  'server.share.hardNetwork':
+    "This network's router makes direct connections hard. Some friends may not be able to join.",
+  'server.share.connected': {
+    one: '{count} friend connected',
+    other: '{count} friends connected',
+  },
+  'server.share.joins': {
+    one: '({count} join so far)',
+    other: '({count} joins so far)',
+  },
+  /** {connection} is one of server.share.connection.*, {ms} the round trip time */
+  'server.share.friendLine': 'over {connection}, {ms} ms',
+  'server.share.connection.same_computer': 'this computer',
+  'server.share.connection.local_network': 'the local network',
+  'server.share.connection.ipv6': 'IPv6',
+  'server.share.connection.internet': 'the internet',
+  'server.share.stop': 'Stop sharing',
+  'server.share.stopTitle': 'Stop sharing?',
+  'server.share.stopBody':
+    'Friends who are playing are disconnected, and the link stops working. Sharing again makes a new link.',
   'server.publicListing.title': 'Sharing',
   'server.publicListing.lead': 'Who can find this server without signing in.',
   'server.publicListing.listedPublicly': 'Listed publicly',

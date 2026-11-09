@@ -102,6 +102,7 @@ mod deno_ops;
 mod docker_bridge;
 pub mod error;
 // its event filters are used by macros, which need the `deno` feature
+pub mod connect;
 #[cfg_attr(not(feature = "deno"), allow(dead_code))]
 mod event_broadcaster;
 mod events;
@@ -239,6 +240,15 @@ pub(crate) mod test_util {
             )
             .await,
             local_claims: Arc::new(crate::local_claim::LocalClaims::new(dir)),
+            // an address nothing answers on: tests never reach connect.lodestone.cc
+            connect: Arc::new(crate::connect::ConnectShares::new(
+                dir.join("connect"),
+                lodestone_connect::Service::parse("http://127.0.0.1:9").unwrap(),
+                lodestone_connect::GatherOptions {
+                    portmap: false,
+                    loopback_only: true,
+                },
+            )),
             product: crate::product::CoreProduct::Core,
             launched_by: crate::product::LaunchedBy::Direct,
         }
@@ -302,6 +312,8 @@ pub struct AppState {
     minecraft_links: Arc<minecraft_links::MinecraftLinks>,
     /// Owner access claimed through the data folder, see [`local_claim`].
     local_claims: Arc<local_claim::LocalClaims>,
+    /// The instances shared with friends through Lodestone Connect.
+    connect: Arc<connect::ConnectShares>,
     /// Lodestone Host or the standalone core, reported in `/info`. Fixed at startup.
     product: product::CoreProduct,
     /// What started the core, reported in `/info`. Fixed at startup.
@@ -350,6 +362,7 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_instance_routes(shared_state.clone()))
         .merge(get_system_routes(shared_state.clone()))
         .merge(get_checks_routes(shared_state.clone()))
+        .merge(handlers::connect::get_connect_routes(shared_state.clone()))
         .merge(get_user_routes(shared_state.clone()))
         .merge(get_api_key_routes(shared_state.clone()))
         .merge(get_core_info_routes(shared_state.clone()))
@@ -950,6 +963,11 @@ pub async fn run_with(
     local_claims.clean_up().await;
     let shared_state = AppState {
         local_claims: Arc::new(local_claims),
+        connect: Arc::new(connect::ConnectShares::new(
+            connect::connect_dir(path_to_stores()),
+            connect::ConnectShares::service_from_env(),
+            lodestone_connect::GatherOptions::default(),
+        )),
         product,
         launched_by,
         instances: Arc::new(instances),
@@ -1041,6 +1059,12 @@ pub async fn run_with(
     init_app_state(shared_state.clone());
     // mod changes made while an instance runs need a restart; this notices the restart
     tokio::spawn(shared_state.mods.restart.clone().watch(tx.subscribe()));
+
+    // instances shared with friends when the core last stopped
+    {
+        let state = shared_state.clone();
+        tokio::spawn(async move { state.connect.resume_all(&state).await });
+    }
 
     for (_, instance) in snapshot_instances(&shared_state.instances) {
         if instance.auto_start().await {

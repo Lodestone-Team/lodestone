@@ -91,7 +91,6 @@ connection that hasn't sent a stream with the right token within 20 seconds.
   - `GET /api/v1/connect/info`: `SharedServer` as JSON (`core_name`, `core_uuid`,
     `instance_uuid`, `name`, `game_version`, `loader`, `loader_version`, `modpack`,
     `state`, `player_count`, `max_player_count`).
-  - `GET /api/v1/info`: the core's `/info` (name, version, id).
   - `GET /api/v1/public/instances`: a `PublicInstanceList` with just the shared
     instance (no address: the friend plays through the tunnel).
   - `GET /api/v1/public/instances/<uuid>/client-pack`: the instance's client modpack

@@ -781,6 +781,43 @@ export const fr: Messages = {
   'server.settingField.unknownType': 'Erreur d’envoi : type de valeur inconnu.',
 
   // PublicListingSetting
+  'server.share.title': 'Partager avec des amis',
+  'server.share.lead':
+    'Vos amis rejoignent depuis Lodestone Launcher avec un lien',
+  'server.share.off':
+    "Envoyez un lien à vos amis. Ils l'ouvrent dans Lodestone Launcher, et leur jeu se connecte directement à cet ordinateur. Aucune redirection de port nécessaire.",
+  'server.share.start': 'Partager avec des amis',
+  'server.share.state.starting': 'Démarrage…',
+  'server.share.state.sharing': 'Partagé',
+  'server.share.state.reconnecting': 'Reconnexion…',
+  'server.share.stableLink': 'Le lien reste valable après un redémarrage.',
+  'server.share.linkLabel': "Lien d'invitation",
+  'server.share.copy': 'Copier le lien',
+  'server.share.copied': "Lien d'invitation copié",
+  'server.share.copyFailed':
+    'Impossible de copier. Sélectionnez le lien et copiez-le.',
+  'server.share.preparing': 'Création du lien…',
+  'server.share.howFriendsJoin':
+    "Toute personne ayant le lien peut rejoindre ce serveur pendant qu'il tourne. Les amis sans Lodestone Launcher reçoivent un lien de téléchargement.",
+  'server.share.hardNetwork':
+    'Le routeur de ce réseau rend les connexions directes difficiles. Certains amis ne pourront peut-être pas rejoindre.',
+  'server.share.connected': {
+    one: '{count} ami connecté',
+    other: '{count} amis connectés',
+  },
+  'server.share.joins': {
+    one: '({count} connexion jusqu’ici)',
+    other: '({count} connexions jusqu’ici)',
+  },
+  'server.share.friendLine': 'via {connection}, {ms} ms',
+  'server.share.connection.same_computer': 'cet ordinateur',
+  'server.share.connection.local_network': 'le réseau local',
+  'server.share.connection.ipv6': 'IPv6',
+  'server.share.connection.internet': 'Internet',
+  'server.share.stop': 'Arrêter le partage',
+  'server.share.stopTitle': 'Arrêter le partage ?',
+  'server.share.stopBody':
+    'Les amis en train de jouer sont déconnectés et le lien ne fonctionne plus. Partager à nouveau crée un nouveau lien.',
   'server.publicListing.title': 'Partage',
   'server.publicListing.lead': 'Qui peut trouver ce serveur sans se connecter.',
   'server.publicListing.listedPublicly': 'Listé publiquement',

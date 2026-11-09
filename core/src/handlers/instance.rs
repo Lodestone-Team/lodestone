@@ -336,6 +336,8 @@ pub async fn delete_instance(
                     .map_err(Into::into);
             }
 
+            // the link stops working with the server
+            state.connect.stop(&uuid, true).await;
             state
                 .port_manager
                 .lock()
