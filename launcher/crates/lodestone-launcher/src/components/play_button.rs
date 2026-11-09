@@ -3,6 +3,7 @@ use gpui::{
     App, ClickEvent, ElementId, IntoElement, RenderOnce, SharedString, Window, div, prelude::*,
     relative,
 };
+use launcher_core::ui_skin::SurfaceId;
 
 use super::ClickHandler;
 use super::focus::KeyboardFocus;
@@ -41,6 +42,8 @@ pub struct PlayButton {
     /// The skin's look (with the instance's colour), and its progress colour.
     look: PlaySpec,
     progress: Option<Rgb>,
+    /// Whether to show the skin's prepared paint (an image or a rich gradient).
+    layer: bool,
 }
 
 const WIDTH: f32 = 260.;
@@ -56,6 +59,7 @@ impl PlayButton {
             caption: None,
             look: PlaySpec::default(),
             progress: None,
+            layer: false,
         }
     }
 
@@ -63,6 +67,13 @@ impl PlayButton {
     pub fn look(mut self, look: PlaySpec, progress: Option<Rgb>) -> Self {
         self.look = look;
         self.progress = progress;
+        self
+    }
+
+    /// Shows the skin's Play button paint (an image or a rich gradient) under the
+    /// label.
+    pub fn layer(mut self, layer: bool) -> Self {
+        self.layer = layer;
         self
     }
 
@@ -164,7 +175,7 @@ fn side_button(
         .bg(colors::GRAY_800)
         .text_size(theme::text_size(text::SMALL))
         .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_300)
+        .text_color(crate::theme::ink::text())
         .cursor_pointer()
         .hover(|style| style.bg(colors::RED_300).text_color(colors::WHITE))
         .when_some(on_click, |this, on_click| this.on_click(on_click))
@@ -189,7 +200,14 @@ impl RenderOnce for PlayButton {
         let hover = look
             .color
             .map_or(colors::GREEN_300, |c| color(c.mix(Rgb::WHITE, 0.12)));
-        let ink = look.color.map_or(colors::WHITE, |c| color(c.ink()));
+        // white or near-black, whichever reads best over the whole fill
+        let ink = look.color.map_or(colors::WHITE, |from| {
+            let colors = [Some(from), look.gradient].into_iter().flatten();
+            color(launcher_core::ui_skin::readable::best_ink(
+                launcher_core::ui_skin::readable::Backdrop::measure(colors)
+                    .unwrap_or(launcher_core::ui_skin::readable::Backdrop::solid(from)),
+            ))
+        });
         let gradient = look.gradient.map(color);
         let progress = self.progress.map_or(colors::GREEN_400, color);
         match self.state {
@@ -197,7 +215,7 @@ impl RenderOnce for PlayButton {
                 let disabled = self.state == PlayButtonState::Disabled;
                 shell(self.id, shape)
                     .justify_center()
-                    .font_family(fonts::TITLE)
+                    .font_family(fonts::title())
                     .text_size(theme::text_size(text::H1))
                     .line_height(theme::line_height(text::H1, leading::TIGHT))
                     .font_weight(weights::EXTRABOLD.into())
@@ -232,6 +250,19 @@ impl RenderOnce for PlayButton {
                                 .when_some(self.on_click, |this, on_click| this.on_click(on_click))
                         }
                     })
+                    .when(self.layer && !disabled, |this| {
+                        match crate::skin::painted(SurfaceId::PlayButton) {
+                            Some(painted) if painted.paint.is_some() => crate::skin::paint(
+                                this,
+                                &crate::skin::Painted {
+                                    paint: painted.paint,
+                                    radius: painted.radius,
+                                    ..Default::default()
+                                },
+                            ),
+                            _ => this,
+                        }
+                    })
                     .when(shape == Shape::Pixel && !disabled, |this| {
                         this.children(bevel())
                     })
@@ -249,7 +280,7 @@ impl RenderOnce for PlayButton {
                                     div()
                                         .max_w_full()
                                         .truncate()
-                                        .font_family(fonts::SANS)
+                                        .font_family(fonts::body())
                                         .text_size(theme::text_size(text::SMALL))
                                         .line_height(theme::line_height(
                                             text::SMALL,
@@ -300,7 +331,7 @@ impl RenderOnce for PlayButton {
                                     .truncate()
                                     .text_size(theme::text_size(text::SMALL))
                                     .font_weight(weights::MEDIUM.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(detail),
                             )
                         }),
@@ -334,7 +365,7 @@ impl RenderOnce for PlayButton {
                             div()
                                 .min_w_0()
                                 .truncate()
-                                .font_family(fonts::TITLE)
+                                .font_family(fonts::title())
                                 .text_size(theme::text_size(text::H2))
                                 .font_weight(weights::EXTRABOLD.into())
                                 .text_color(colors::GREEN_300)

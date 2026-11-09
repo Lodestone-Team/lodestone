@@ -353,7 +353,7 @@ impl InstanceSharedSettings {
             .child(
                 div()
                     .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_500)
+                    .text_color(crate::theme::ink::muted())
                     .child(summary),
             )
             .when(can_open && expanded, |row| {
@@ -621,7 +621,7 @@ impl Render for InstanceSharedSettings {
                     .border_1()
                     .border_color(colors::YELLOW.opacity(30))
                     .bg(colors::YELLOW.opacity(5))
-                    .child(div().text_color(colors::GRAY_300).child(trn!(
+                    .child(div().text_color(crate::theme::ink::text()).child(trn!(
                         P::ChangedInGame,
                         count,
                         names = labels(&rows, &changed)

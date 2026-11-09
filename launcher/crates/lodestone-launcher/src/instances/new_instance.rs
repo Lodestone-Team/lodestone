@@ -303,7 +303,7 @@ impl NewInstanceDialog {
                 .justify_center()
                 .gap_2()
                 .size_full()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(LoadingDots)
                 .child(t(M::LoadingVersionList))
                 .into_any_element(),
@@ -327,7 +327,7 @@ impl NewInstanceDialog {
                         .items_center()
                         .justify_center()
                         .size_full()
-                        .text_color(colors::GRAY_500)
+                        .text_color(crate::theme::ink::muted())
                         .child(t(M::NoVersionsMatch))
                         .into_any_element()
                 } else {
@@ -419,7 +419,7 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
                 this.bg(crate::theme::accent::base().opacity(35))
                     .text_color(colors::WHITE)
             } else {
-                this.text_color(colors::GRAY_300)
+                this.text_color(crate::theme::ink::text())
                     .hover(|style| style.bg(colors::GRAY_700))
             }
         })
@@ -437,7 +437,7 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
                 .w(px(76.))
                 .truncate()
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(kind_label(version.kind)),
         )
         .child(
@@ -447,7 +447,7 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
                 .flex()
                 .justify_end()
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(date),
         )
 }
@@ -464,7 +464,7 @@ fn form_row(name: impl Into<SharedString>, control: impl IntoElement) -> impl In
                 .flex_none()
                 .w(px(132.))
                 .font_weight(weights::MEDIUM.into())
-                .text_color(colors::GRAY_400)
+                .text_color(crate::theme::ink::secondary())
                 .child(name.into()),
         )
         .child(div().flex_1().min_w_0().child(control))
@@ -487,7 +487,11 @@ fn filter_chip(id: &'static str, caption: &'static str, on: bool) -> gpui::State
         .text_size(theme::text_size(text::SMALL))
         .font_weight(weights::BOLD.into())
         .when(!on, |this| {
-            this.hover(|style| style.text_color(colors::GRAY_300).bg(colors::GRAY_750))
+            this.hover(|style| {
+                style
+                    .text_color(crate::theme::ink::text())
+                    .bg(colors::GRAY_750)
+            })
         })
         .when(on, |this| {
             this.child(Icon::Check.render(px(10.), colors::WHITE))
@@ -585,7 +589,7 @@ fn loader_card(
             div()
                 .text_size(theme::text_size(text::SMALL))
                 .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(t(about)),
         )
 }
@@ -740,7 +744,7 @@ impl NewInstanceDialog {
                     .child(
                         div()
                             .font_weight(weights::MEDIUM.into())
-                            .text_color(colors::GRAY_400)
+                            .text_color(crate::theme::ink::secondary())
                             .child(t(M::ModLoader)),
                     )
                     .child(div().flex().flex_row().gap_2().children(cards)),
@@ -776,7 +780,7 @@ impl NewInstanceDialog {
                 .child(
                     div()
                         .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::GRAY_500)
+                        .text_color(crate::theme::ink::muted())
                         .child(format!(
                             "{} · {}",
                             kind_label(version.kind),
@@ -794,7 +798,7 @@ impl NewInstanceDialog {
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(LoadingDots)
                 .child(t(M::LoadingVersionList))
                 .into_any_element(),

@@ -134,6 +134,11 @@ pub mod colors {
 
 /// `theme.fontFamily`. Each family is embedded from `launcher/assets/fonts`.
 pub mod fonts {
+    use std::sync::RwLock;
+
+    use gpui::SharedString;
+    use launcher_core::ui_skin::FontPart;
+
     /// `font-sans`, the body font.
     pub const SANS: &str = "Satoshi";
     /// `font-heading`.
@@ -142,6 +147,126 @@ pub mod fonts {
     pub const TITLE: &str = "Clash Grotesk";
     /// `font-mono`.
     pub const MONO: &str = "JetBrains Mono";
+
+    /// The skin's families for each part, where it sets one.
+    static CHOSEN: RwLock<[Option<SharedString>; 7]> =
+        RwLock::new([None, None, None, None, None, None, None]);
+
+    fn slot(part: FontPart) -> usize {
+        FontPart::ALL.iter().position(|p| *p == part).unwrap_or(0)
+    }
+
+    /// Uses `family` for `part` (`None`: the launcher's). Windows need a refresh.
+    pub fn set(part: FontPart, family: Option<SharedString>) {
+        if let Ok(mut chosen) = CHOSEN.write() {
+            chosen[slot(part)] = family;
+        }
+    }
+
+    fn chosen(part: FontPart) -> Option<SharedString> {
+        CHOSEN.read().ok().and_then(|c| c[slot(part)].clone())
+    }
+
+    /// The family for `part`: the skin's, else the launcher's.
+    pub fn of(part: FontPart) -> SharedString {
+        chosen(part).unwrap_or_else(|| match part {
+            FontPart::Heading => HEADING.into(),
+            FontPart::Play => TITLE.into(),
+            FontPart::Mono => MONO.into(),
+            FontPart::Sidebar | FontPart::Button | FontPart::Tab => of(FontPart::Body),
+            FontPart::Body => SANS.into(),
+        })
+    }
+
+    pub fn body() -> SharedString {
+        of(FontPart::Body)
+    }
+
+    pub fn heading() -> SharedString {
+        of(FontPart::Heading)
+    }
+
+    pub fn title() -> SharedString {
+        of(FontPart::Play)
+    }
+
+    /// Big page titles: the skin's heading font, else the launcher's title font.
+    pub fn display() -> SharedString {
+        chosen(FontPart::Heading).unwrap_or_else(|| TITLE.into())
+    }
+
+    pub fn mono() -> SharedString {
+        of(FontPart::Mono)
+    }
+
+    /// The family for `part` only when the skin sets one, so a part without one
+    /// keeps inheriting.
+    pub fn own(part: FontPart) -> Option<SharedString> {
+        chosen(part)
+    }
+}
+
+/// The theme's text and border colours, which a skin can change ([`Tokens`]).
+///
+/// [`Tokens`]: launcher_core::ui_skin::Tokens
+pub mod ink {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use launcher_core::ui_skin::Tokens;
+
+    use super::{Color, colors};
+
+    const NONE: u32 = 0;
+
+    static TEXT: AtomicU32 = AtomicU32::new(NONE);
+    static SECONDARY: AtomicU32 = AtomicU32::new(NONE);
+    static MUTED: AtomicU32 = AtomicU32::new(NONE);
+    static FAINT: AtomicU32 = AtomicU32::new(NONE);
+    static BORDER: AtomicU32 = AtomicU32::new(NONE);
+
+    /// Uses the skin's `tokens`. Windows need a refresh to show them.
+    pub fn set(tokens: &Tokens) {
+        let store = |slot: &AtomicU32, rgb: Option<launcher_core::ui_skin::Rgb>| {
+            slot.store(rgb.map_or(NONE, |c| Color::rgb(c.0).0), Ordering::Relaxed)
+        };
+        store(&TEXT, tokens.text);
+        store(&SECONDARY, tokens.secondary);
+        store(&MUTED, tokens.muted);
+        store(&FAINT, tokens.faint);
+        store(&BORDER, tokens.border);
+    }
+
+    fn get(slot: &AtomicU32, default: Color) -> Color {
+        match slot.load(Ordering::Relaxed) {
+            NONE => default,
+            value => Color(value),
+        }
+    }
+
+    /// Names, titles, values (`text-gray-300`).
+    pub fn text() -> Color {
+        get(&TEXT, colors::GRAY_300)
+    }
+
+    /// Labels (`text-gray-400`).
+    pub fn secondary() -> Color {
+        get(&SECONDARY, colors::GRAY_400)
+    }
+
+    /// Descriptions and subtitles (`text-gray-500`).
+    pub fn muted() -> Color {
+        get(&MUTED, colors::GRAY_500)
+    }
+
+    /// Hints and placeholders.
+    pub fn faint() -> Color {
+        get(&FAINT, colors::GRAY_FADED.opacity(50))
+    }
+
+    /// Lines around and between things (`border-fade-700`).
+    pub fn border() -> Color {
+        get(&BORDER, colors::FADE_700)
+    }
 }
 
 /// `theme.fontWeight`, with the dashboard's values.

@@ -1,5 +1,6 @@
 use crate::theme::px;
 use gpui::{App, ElementId, IntoElement, RenderOnce, Window, div, prelude::*};
+use launcher_core::ui_skin::SurfaceId;
 
 use super::focus::KeyboardFocus;
 use crate::theme::colors;
@@ -54,7 +55,12 @@ impl RenderOnce for Toggle {
         let track = if self.disabled {
             colors::GRAY_FADED.opacity(30)
         } else {
-            colors::WHITE.opacity(50).mix(colors::GREEN_400, on)
+            // the skin's colour for a switch that is on
+            let on_color = match crate::skin::painted(SurfaceId::Toggle).and_then(|p| p.paint) {
+                Some(crate::skin::Paint::Solid(color)) => color,
+                _ => colors::GREEN_400,
+            };
+            colors::WHITE.opacity(50).mix(on_color, on)
         };
         let knob = if self.disabled {
             colors::GRAY_FADED.opacity(40)

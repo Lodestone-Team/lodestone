@@ -82,7 +82,7 @@ impl Render for OfflineDialog {
                 .child(
                     div()
                         .text_size(theme::text_size(text::MEDIUM))
-                        .text_color(colors::GRAY_400)
+                        .text_color(crate::theme::ink::secondary())
                         .child(t(M::OfflineDialogBody)),
                 )
                 .child(self.input.clone())
@@ -93,7 +93,9 @@ impl Render for OfflineDialog {
                         .font_weight(weights::BOLD.into())
                         .map(|this| match &self.error {
                             Some(error) => this.text_color(colors::RED_200).child(error.clone()),
-                            None => this.text_color(colors::GRAY_500).child(t(M::UsernameRule)),
+                            None => this
+                                .text_color(crate::theme::ink::muted())
+                                .child(t(M::UsernameRule)),
                         }),
                 )
                 .child(

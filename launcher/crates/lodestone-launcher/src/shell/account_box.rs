@@ -1,12 +1,14 @@
 //! The account box at the top of the sidebar, and its menu: switch, add and
 //! remove accounts.
 
+use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{
     AnyElement, Context, IntoElement, Pixels, SharedString, anchored, deferred, div, img,
     prelude::*,
 };
 use launcher_core::accounts::{Account, AccountKind};
+use launcher_core::ui_skin::SurfaceId;
 
 use super::LauncherShell;
 use crate::{
@@ -102,7 +104,7 @@ pub fn render_compact(shell: &LauncherShell, cx: &mut Context<LauncherShell>) ->
                 this.bg(colors::GRAY_800)
                     .border_color(colors::GRAY_FADED.opacity(30))
             } else {
-                this.border_color(colors::FADE_700)
+                this.border_color(crate::theme::ink::border())
                     .hover(|style| style.bg(colors::GRAY_800))
             }
         })
@@ -152,7 +154,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                     .border_color(colors::GRAY_FADED.opacity(30))
             } else {
                 this.bg(colors::GRAY_875.opacity(0))
-                    .border_color(colors::FADE_700)
+                    .border_color(crate::theme::ink::border())
                     .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
             }
         })
@@ -299,7 +301,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                             .max_w(px(96.))
                             .truncate()
                             .text_size(theme::text_size(text::CAPTION))
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(match account.kind {
                                 AccountKind::Offline => SharedString::from(t(M::Offline)),
                                 AccountKind::Microsoft => short_status(accounts, account),
@@ -336,6 +338,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
         .border_1()
         .border_color(colors::GRAY_FADED.opacity(30))
         .bg(colors::GRAY_800)
+        .surface(SurfaceId::Popover)
         .shadow(vec![gpui::BoxShadow {
             color: shadow::COLOR.into(),
             offset: gpui::point(px(0.), px(4.)),

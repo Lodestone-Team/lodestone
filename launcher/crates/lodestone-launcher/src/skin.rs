@@ -1,10 +1,15 @@
 //! The launcher's skin as the window shows it: the chosen pack's colours right away,
-//! and its images once they are decoded in the background (see
+//! and its images and font files once they are prepared in the background (see
 //! [`launcher_core::ui_skin`] for packs).
 //!
-//! Images are prepared once when a skin is applied: the sidebar's tiled and blurred,
-//! the Play hero's scaled to the hero's size with its scrim worked out. Nothing is
-//! redrawn or animated while the window is idle.
+//! Each surface the skin paints ([`SurfaceId`]) is resolved once into a [`Painted`]:
+//! a colour, a gradient GPUI draws, or an image prepared at the surface's shape
+//! (tiled, blurred and tinted, or a rich gradient drawn once). Elements paint
+//! themselves with [`Skinned::surface`]. Nothing is redrawn or animated while the
+//! window is idle.
+//!
+//! The launcher doesn't adjust a skin's colours for readability unless the pack
+//! opts in (`readability: auto`); [`checks`] says what falls short, for the editor.
 //!
 //! An instance can override the skin's accent and Play button colour; the window
 //! uses the selected instance's ([`resolve`]).
@@ -12,50 +17,143 @@
 //! Safe mode skips the skin: `--no-skin`, `LODESTONE_LAUNCHER_NO_SKIN=1`, or a skin
 //! that fails to load falls back to the default look.
 
-use std::sync::Arc;
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-use gpui::{App, Global, RenderImage, Task};
+use gpui::{App, Global, RenderImage, SharedString, Task};
 use image::RgbaImage;
 use launcher_core::{
     instances::Instance,
     ui_skin::{
-        Fit, ImageRole, PlaySpec, Readability, Rgb, SkinEntry, SkinSpec, SkinStore,
+        Fill, Fit, FontPart, GradientKind, ImageFill, PlaySpec, Readability, Rgb, SkinEntry,
+        SkinSpec, SkinStore, SurfaceId,
         readable::{self, Backdrop, Palette},
     },
 };
 
 use crate::theme::{Color, colors};
 
-use crate::instances::appearance::{Background, scrim_for};
+use crate::instances::appearance::{Background, Scrim, scrim_for};
+
+/// How a surface is filled, ready to draw.
+#[derive(Clone)]
+pub enum Paint {
+    Solid(Color),
+    /// A two-colour linear gradient GPUI draws itself.
+    Gradient(gpui::Background),
+    /// An image prepared at the surface's shape (tiled, blurred, tinted), or a
+    /// gradient GPUI can't draw, drawn once into an image.
+    Image(Arc<RenderImage>),
+}
+
+/// A surface as the skin paints it. What is `None` stays the launcher's.
+#[derive(Clone, Default)]
+pub struct Painted {
+    /// `None` also while its image is being prepared.
+    pub paint: Option<Paint>,
+    pub border: Option<(Color, f32)>,
+    pub radius: Option<f32>,
+    pub text: Option<Color>,
+    pub muted: Option<Color>,
+}
 
 /// The skin the window shows.
 pub struct Look {
     pub id: String,
     pub spec: SkinSpec,
-    /// The sidebar's prepared image: tiled and blurred as the skin says.
-    pub sidebar: Option<Arc<RenderImage>>,
-    /// The Play tab's image for an instance without its own.
+    /// The surfaces the skin paints.
+    pub surfaces: HashMap<SurfaceId, Painted>,
+    /// How each image fill looks behind text, before its tint.
+    pub backdrops: HashMap<SurfaceId, Backdrop>,
+    /// The Play tab's image for an instance without its own, with its shade.
     pub hero: Option<Background>,
-    /// How the sidebar's prepared image looks behind text, before the tint.
-    pub sidebar_backdrop: Option<Backdrop>,
-    /// How the hero's image looks behind text, before its scrim.
-    pub hero_backdrop: Option<Backdrop>,
+    /// The font families the skin uses, by part, once loaded.
+    pub fonts: HashMap<FontPart, SharedString>,
 }
 
 impl Look {
+    /// The skin's colours and bundled fonts, before its images and font files are
+    /// ready.
     fn plain(id: &str, spec: SkinSpec) -> Self {
+        let surfaces = SurfaceId::ALL
+            .into_iter()
+            .filter_map(|surface| {
+                let own = spec.surface(surface)?;
+                let paint = match &own.fill {
+                    Some(Fill::Solid { color, opacity }) => Some(Paint::Solid(
+                        Color::rgb(color.0).opacity(u32::from(*opacity)),
+                    )),
+                    Some(Fill::Gradient(gradient)) if gradient.is_simple() => {
+                        Some(Paint::Gradient(gpui::linear_gradient(
+                            f32::from(gradient.angle),
+                            gpui::linear_color_stop(Color::rgb(gradient.stops[0].color.0), 0.),
+                            gpui::linear_color_stop(Color::rgb(gradient.stops[1].color.0), 1.),
+                        )))
+                    }
+                    _ => None,
+                };
+                Some((
+                    surface,
+                    Painted {
+                        paint,
+                        border: own
+                            .border
+                            .map(|c| (Color::rgb(c.0), f32::from(own.border_width.unwrap_or(1)))),
+                        radius: own.radius.map(f32::from),
+                        // a control's label: as given, else white or near-black,
+                        // whichever its fill takes
+                        text: own
+                            .text
+                            .or_else(|| {
+                                let fill = own.fill.as_ref()?;
+                                surface.is_control().then(|| {
+                                    readable::best_ink(readable::backdrop_of(
+                                        Some(fill),
+                                        surface.base(),
+                                        None,
+                                    ))
+                                })
+                            })
+                            .map(|c| Color::rgb(c.0)),
+                        muted: own.muted.map(|c| Color::rgb(c.0)),
+                    },
+                ))
+            })
+            .collect();
+        let fonts = FontPart::ALL
+            .into_iter()
+            .filter_map(|part| {
+                let name = spec.fonts.get(part)?;
+                (!launcher_core::ui_skin::surface::is_font_file(name))
+                    .then(|| (part, SharedString::from(name.to_string())))
+            })
+            .collect();
         Self {
             id: id.into(),
             spec,
-            sidebar: None,
+            surfaces,
+            backdrops: HashMap::new(),
             hero: None,
-            sidebar_backdrop: None,
-            hero_backdrop: None,
+            fonts,
         }
     }
 
     fn default_look() -> Self {
         Self::plain("default", SkinSpec::default())
+    }
+
+    /// Whether it needs anything prepared in the background.
+    fn needs_preparing(&self) -> bool {
+        !self.spec.images().is_empty()
+            || !self.spec.fonts.files().is_empty()
+            || self
+                .spec
+                .surfaces
+                .values()
+                .any(|s| matches!(&s.fill, Some(Fill::Gradient(g)) if !g.is_simple()))
     }
 }
 
@@ -67,6 +165,8 @@ pub struct SkinState {
     _decode: Option<Task<()>>,
     /// Whether the skin's images are still being prepared.
     decoding: bool,
+    /// The font families already handed to the text system.
+    loaded_fonts: HashSet<String>,
     /// Why the chosen skin couldn't be used, if it couldn't.
     pub error: Option<String>,
 }
@@ -80,6 +180,7 @@ impl Default for SkinState {
             generation: 0,
             _decode: None,
             decoding: false,
+            loaded_fonts: HashSet::new(),
             error: None,
         }
     }
@@ -133,40 +234,35 @@ pub fn apply_entry(
         || ("default".to_string(), SkinSpec::default()),
         |e| (e.id, e.spec),
     );
+    let look = Look::plain(&id, spec.clone());
     let state = cx.default_global::<SkinState>();
     state.generation += 1;
     let generation = state.generation;
     state.error = error;
-    state.look = Arc::new(Look::plain(&id, spec.clone()));
-    if spec.images().is_empty() {
+    if !look.needs_preparing() {
+        state.look = Arc::new(look);
         state._decode = None;
         state.decoding = false;
         cx.refresh_windows();
         return;
     }
+    state.look = Arc::new(look);
     let work = cx.background_executor().spawn({
         let (id, spec) = (id.clone(), spec.clone());
         async move { prepare(&id, &spec, &store) }
     });
     let task = cx.spawn(async move |cx| {
-        let ((sidebar, sidebar_backdrop), (hero, hero_backdrop)) = work.await;
+        let prepared = work.await;
         cx.update(|cx| {
-            let state = cx.default_global::<SkinState>();
-            if state.generation != generation {
+            if cx.default_global::<SkinState>().generation != generation {
                 return;
             }
+            let fonts = load_fonts(&prepared.fonts, cx);
+            let mut look = Look::plain(&id, spec);
+            finish(&mut look, prepared, fonts);
+            let state = cx.default_global::<SkinState>();
             state.decoding = false;
-            state.look = Arc::new(Look {
-                id,
-                spec,
-                sidebar: sidebar.map(crate::images::render_image),
-                hero: hero.map(|(image, scrim)| Background {
-                    image: crate::images::render_image(image),
-                    scrim,
-                }),
-                sidebar_backdrop,
-                hero_backdrop,
-            });
+            state.look = Arc::new(look);
             cx.refresh_windows();
         });
     });
@@ -176,34 +272,113 @@ pub fn apply_entry(
     cx.refresh_windows();
 }
 
+/// Hands the skin's font files to the text system (each family once) and returns
+/// the families that can be used, by file name. A font the system can't use is left
+/// out, so its parts keep the launcher's font.
+fn load_fonts(files: &[(String, String, Vec<u8>)], cx: &mut App) -> HashMap<String, SharedString> {
+    let mut usable = HashMap::new();
+    for (file, family, bytes) in files {
+        let state = cx.default_global::<SkinState>();
+        let new = state.loaded_fonts.insert(family.clone());
+        if new
+            && let Err(err) = cx
+                .text_system()
+                .add_fonts(vec![std::borrow::Cow::Owned(bytes.clone())])
+        {
+            log::warn!("skin font {file} couldn't be loaded: {err}");
+            continue;
+        }
+        let text = cx.text_system();
+        let id = text.resolve_font(&gpui::font(family.clone()));
+        let direct = text
+            .get_font_for_id(id)
+            .is_some_and(|font| font.family.as_ref() == family);
+        if direct {
+            usable.insert(file.clone(), SharedString::from(family.clone()));
+        } else {
+            log::warn!("skin font {file} ({family}) isn't usable; keeping the launcher's");
+        }
+    }
+    usable
+}
+
+/// Puts what was prepared in the background into `look`.
+fn finish(look: &mut Look, prepared: Prepared, fonts: HashMap<String, SharedString>) {
+    for (surface, image, backdrop) in prepared.images {
+        if let Some(backdrop) = backdrop {
+            look.backdrops.insert(surface, backdrop);
+        }
+        let painted = look.surfaces.entry(surface).or_default();
+        painted.paint = Some(Paint::Image(crate::images::render_image(image)));
+    }
+    if let Some((image, scrim, backdrop)) = prepared.hero {
+        look.backdrops.insert(SurfaceId::Hero, backdrop);
+        look.hero = Some(Background {
+            image: crate::images::render_image(image),
+            scrim,
+        });
+    }
+    for part in FontPart::ALL {
+        if let Some(family) = look.spec.fonts.get(part).and_then(|file| fonts.get(file)) {
+            look.fonts.insert(part, family.clone());
+        }
+    }
+}
+
 /// Shows a changed description of the skin on screen: its images are prepared again
-/// only when what they are made from changed (image, fit or blur), so a colour or a
-/// slider doesn't decode anything.
+/// only when what they are made from changed, so a colour or a slider doesn't
+/// decode anything.
 pub fn update(entry: SkinEntry, store: SkinStore, cx: &mut App) {
     let current = look(cx);
-    let same_images = current.id == entry.id
-        && current.spec.sidebar.image == entry.spec.sidebar.image
-        && current.spec.sidebar.fit == entry.spec.sidebar.fit
-        && current.spec.sidebar.blur == entry.spec.sidebar.blur
-        && current.spec.hero.image == entry.spec.hero.image
-        && current.spec.hero.readability == entry.spec.hero.readability;
-    if !same_images {
+    let images = |spec: &SkinSpec| {
+        (
+            SurfaceId::ALL.map(|id| {
+                spec.surface(id).and_then(|s| match s.fill {
+                    Some(Fill::Image(image)) => Some(image),
+                    Some(Fill::Gradient(g)) if !g.is_simple() => Some(ImageFill {
+                        image: format!("{g:?}"),
+                        fit: Fit::Cover,
+                        tint: None,
+                        tint_opacity: 0,
+                        blur: 0,
+                    }),
+                    _ => None,
+                })
+            }),
+            spec.fonts.clone(),
+            spec.hero.readability,
+            spec.hero.scrim,
+        )
+    };
+    if current.id != entry.id || images(&current.spec) != images(&entry.spec) {
         return apply_entry(Some(entry), store, None, cx);
     }
-    let state = cx.default_global::<SkinState>();
-    state.look = Arc::new(Look {
-        id: entry.id,
-        spec: entry.spec,
-        sidebar: current.sidebar.clone(),
-        hero: current.hero.clone(),
-        sidebar_backdrop: current.sidebar_backdrop,
-        hero_backdrop: current.hero_backdrop,
-    });
+    let mut look = Look::plain(&entry.id, entry.spec);
+    // the prepared images and fonts carry over
+    for (surface, painted) in &current.surfaces {
+        if let Some(Paint::Image(image)) = &painted.paint
+            && let Some(next) = look.surfaces.get_mut(surface)
+        {
+            next.paint = Some(Paint::Image(image.clone()));
+        }
+    }
+    look.backdrops = current.backdrops.clone();
+    look.hero = current.hero.clone();
+    look.fonts = current.fonts.clone();
+    cx.default_global::<SkinState>().look = Arc::new(look);
     cx.refresh_windows();
 }
 
-/// An image ready to draw, and how it looks behind text.
-type Prepared<T> = (Option<T>, Option<Backdrop>);
+/// What is prepared in the background when a skin is applied.
+struct Prepared {
+    /// Each image-filled surface's image, at its shape, and its backdrop before the
+    /// tint.
+    images: Vec<(SurfaceId, RgbaImage, Option<Backdrop>)>,
+    /// The hero's image, its shade, and its backdrop.
+    hero: Option<(RgbaImage, Scrim, Backdrop)>,
+    /// The pack's font files: name, family, bytes.
+    fonts: Vec<(String, String, Vec<u8>)>,
+}
 
 /// How `image` looks behind text: every fourth pixel each way is plenty.
 fn measure(image: &RgbaImage) -> Option<Backdrop> {
@@ -215,95 +390,267 @@ fn measure(image: &RgbaImage) -> Option<Backdrop> {
     )
 }
 
-/// The skin's images, ready to draw: the sidebar's and the hero's with its scrim
-/// (none when the hero's readability is off), and how each looks behind text.
-fn prepare(
-    id: &str,
-    spec: &SkinSpec,
-    store: &SkinStore,
-) -> (
-    Prepared<RgbaImage>,
-    Prepared<(RgbaImage, crate::instances::appearance::Scrim)>,
-) {
-    let sidebar = spec.sidebar.image.as_deref().and_then(|name| {
-        let image = load(id, name, store, ImageRole::Sidebar)?;
-        // the sidebar's shape at 2×; a blurred image is made at a quarter of that,
-        // blurred, and scaled up once
-        let (w, h) = (480, 1800);
-        let blur = spec.sidebar.blur;
-        let scale = if blur > 0 { 4 } else { 1 };
-        let image = match spec.sidebar.fit {
-            Fit::Tile if blur == 0 => return Some(tile(&image, w, h)),
-            Fit::Tile => image::imageops::resize(
-                &tile(&image, w, h),
-                w / scale,
-                h / scale,
-                image::imageops::FilterType::Triangle,
-            ),
-            Fit::Cover => image::DynamicImage::ImageRgba8(image)
-                .resize_to_fill(w / scale, h / scale, image::imageops::FilterType::Triangle)
-                .to_rgba8(),
-        };
-        Some(match blur {
-            0 => image,
-            blur => image::imageops::resize(
-                &image::imageops::blur(&image, (blur as f32 / 4.0).max(0.5)),
-                w,
-                h,
-                image::imageops::FilterType::Triangle,
-            ),
-        })
-    });
-    let hero = spec.hero.image.as_deref().and_then(|name| {
-        let image = load(id, name, store, ImageRole::Hero)?;
-        let image = if image.width() > 1920 || image.height() > 1080 {
-            image::DynamicImage::ImageRgba8(image)
-                .resize(1920, 1080, image::imageops::FilterType::Triangle)
-                .to_rgba8()
-        } else {
-            image
-        };
-        let scrim = match spec.hero.readability {
-            Readability::Auto => scrim_for(&image),
-            Readability::Off => crate::instances::appearance::Scrim {
-                text: 0.0,
-                dim: 0.0,
-            },
-        };
-        Some((image, scrim))
-    });
-    let sidebar_backdrop = sidebar.as_ref().and_then(measure);
-    let hero_backdrop = hero.as_ref().and_then(|(image, _)| measure(image));
-    ((sidebar, sidebar_backdrop), (hero, hero_backdrop))
+/// The size a surface's image is prepared at: its usual shape at 2×, or less for
+/// the big ones, which are soft or patterned anyway.
+fn canvas(surface: SurfaceId) -> (u32, u32) {
+    match surface {
+        SurfaceId::Sidebar => (480, 1800),
+        SurfaceId::TopBar | SurfaceId::PlayBar => (2400, 160),
+        SurfaceId::Window | SurfaceId::Main => (1600, 1000),
+        SurfaceId::PlayButton => (640, 160),
+        _ => (1200, 800),
+    }
 }
 
-/// The panel colour the sidebar is drawn on.
-const PANEL: Rgb = Rgb(0x26282C);
+/// `image` fitted to `size` as `fill` says: tiled or covering, blurred, then tinted.
+/// Returns it and its backdrop before the tint.
+fn shape(image: RgbaImage, fill: &ImageFill, (w, h): (u32, u32)) -> (RgbaImage, Option<Backdrop>) {
+    // a blurred image is made at a quarter of the size, blurred, and scaled up once
+    let scale = if fill.blur > 0 { 4 } else { 1 };
+    let mut out = match fill.fit {
+        Fit::Tile if fill.blur == 0 => tile(&image, w, h),
+        Fit::Tile => image::imageops::resize(
+            &tile(&image, w, h),
+            w / scale,
+            h / scale,
+            image::imageops::FilterType::Triangle,
+        ),
+        Fit::Cover => image::DynamicImage::ImageRgba8(image)
+            .resize_to_fill(w / scale, h / scale, image::imageops::FilterType::Triangle)
+            .to_rgba8(),
+    };
+    if fill.blur > 0 {
+        out = image::imageops::resize(
+            &image::imageops::blur(&out, (fill.blur as f32 / 4.0).max(0.5)),
+            w,
+            h,
+            image::imageops::FilterType::Triangle,
+        );
+    }
+    let backdrop = measure(&out);
+    if let Some(tint) = fill.tint.filter(|_| fill.tint_opacity > 0) {
+        let t = f32::from(fill.tint_opacity) / 100.0;
+        let [r, g, b] =
+            [(tint.0 >> 16) & 0xFF, (tint.0 >> 8) & 0xFF, tint.0 & 0xFF].map(|c| c as f32);
+        for p in out.pixels_mut() {
+            p[0] = (p[0] as f32 + (r - p[0] as f32) * t).round() as u8;
+            p[1] = (p[1] as f32 + (g - p[1] as f32) * t).round() as u8;
+            p[2] = (p[2] as f32 + (b - p[2] as f32) * t).round() as u8;
+        }
+    }
+    (out, backdrop)
+}
 
-/// The sidebar's text colours for `look`: `None` for the launcher's own (no image,
-/// no tint, no colours of its own), else worked out from the image under its tint.
+/// A gradient GPUI can't draw itself (more stops, or radial), drawn into a small
+/// image that is stretched over the surface: gradients are smooth, so 256 × 256 is
+/// plenty.
+fn rasterize(gradient: &launcher_core::ui_skin::Gradient) -> RgbaImage {
+    let size = 256u32;
+    let angle = f32::from(gradient.angle).to_radians();
+    // CSS: 0deg points up, 90deg to the right
+    let (dx, dy) = (angle.sin(), -angle.cos());
+    let reach = dx.abs() * 0.5 + dy.abs() * 0.5;
+    RgbaImage::from_fn(size, size, |x, y| {
+        let (fx, fy) = (
+            (x as f32 + 0.5) / size as f32 - 0.5,
+            (y as f32 + 0.5) / size as f32 - 0.5,
+        );
+        let t = match gradient.kind {
+            GradientKind::Linear => (fx * dx + fy * dy) / (2.0 * reach.max(1e-3)) + 0.5,
+            GradientKind::Radial => (fx * fx + fy * fy).sqrt() / std::f32::consts::FRAC_1_SQRT_2,
+        };
+        let c = gradient.at(t).0;
+        image::Rgba([(c >> 16) as u8, (c >> 8) as u8, c as u8, 255])
+    })
+}
+
+/// The skin's images and fonts, ready to use: each image-filled surface's image at
+/// its shape, the hero's with its shade, gradients GPUI can't draw, and the font
+/// files. An image used by several surfaces is read once.
+fn prepare(id: &str, spec: &SkinSpec, store: &SkinStore) -> Prepared {
+    let mut read: HashMap<String, Option<RgbaImage>> = HashMap::new();
+    let mut source = |name: &str| {
+        read.entry(name.to_string())
+            .or_insert_with(|| load(id, name, store))
+            .clone()
+    };
+    let mut images = Vec::new();
+    let mut hero = None;
+    for surface in SurfaceId::ALL {
+        let Some(own) = spec.surface(surface) else {
+            continue;
+        };
+        match own.fill {
+            Some(Fill::Image(fill)) if surface == SurfaceId::Hero => {
+                let Some(image) = source(&fill.image) else {
+                    continue;
+                };
+                let image = crate::instances::appearance::fit_for_hero(
+                    image::DynamicImage::ImageRgba8(image),
+                );
+                let Some(backdrop) = measure(&image) else {
+                    continue;
+                };
+                let scrim = match (spec.hero.readability, spec.hero.scrim) {
+                    (Readability::Auto, _) => scrim_for(&image),
+                    (Readability::Off, Some(n)) => Scrim {
+                        text: f32::from(n) / 100.0,
+                        dim: 0.0,
+                    },
+                    (Readability::Off, None) => Scrim {
+                        text: 0.0,
+                        dim: 0.0,
+                    },
+                };
+                hero = Some((image, scrim, backdrop));
+            }
+            Some(Fill::Image(fill)) => {
+                if let Some(image) = source(&fill.image) {
+                    let (image, backdrop) = shape(image, &fill, canvas(surface));
+                    images.push((surface, image, backdrop));
+                }
+            }
+            Some(Fill::Gradient(gradient)) if !gradient.is_simple() => {
+                images.push((surface, rasterize(&gradient), None));
+            }
+            _ => {}
+        }
+    }
+    Prepared {
+        images,
+        hero,
+        fonts: store.fonts(id, spec),
+    }
+}
+
+/// The sidebar's text colours for `look`: `None` for the launcher's own (nothing
+/// painted, no colours of its own). Worked out from the image only where the skin
+/// asks for it (`readability: auto`); else its own colours, or the theme's.
 pub fn sidebar_palette(look: &Look) -> Option<Palette> {
-    let sidebar = &look.spec.sidebar;
-    if sidebar.image.is_none() && sidebar.tint.is_none() && sidebar.text == Default::default() {
+    let own = look.spec.surface(SurfaceId::Sidebar);
+    let tokens = look.spec.tokens != Default::default();
+    if own.is_none() && !tokens {
         return None;
     }
-    let base = look
-        .sidebar_backdrop
-        .filter(|_| sidebar.image.is_some())
-        .unwrap_or_else(|| Backdrop::solid(PANEL));
-    let seen = match sidebar.tint {
-        Some(tint) => base.under(tint, f32::from(sidebar.tint_opacity) / 100.0),
-        None => base,
+    let own = own.unwrap_or_default();
+    let backdrop = readable::surface_backdrop(&look.spec, SurfaceId::Sidebar, &|surface| {
+        look.backdrops.get(&surface).copied()
+    });
+    let text = launcher_core::ui_skin::TextSpec {
+        primary: own.text,
+        muted: own.muted,
     };
-    Some(readable::derive(seen, &sidebar.text, sidebar.readability))
+    if look.spec.sidebar.readability == Readability::Auto {
+        return Some(readable::derive(backdrop, &text, Readability::Auto));
+    }
+    let mut inks = readable::base_inks_on(&look.spec.tokens, backdrop.mean);
+    if let Some(primary) = text.primary {
+        inks.primary = primary;
+    }
+    // the sidebar's quieter colour covers its labels, hints and icons too
+    if let Some(muted) = text.muted {
+        inks.secondary = muted;
+        inks.muted = muted;
+        inks.faint = muted;
+        inks.icon = muted;
+    }
+    let dark_text = inks.primary.luminance() < 0.3;
+    let contrast = [inks.primary, inks.secondary, inks.muted, inks.faint]
+        .into_iter()
+        .map(|ink| readable::ratio_on(ink, backdrop))
+        .fold(f32::MAX, f32::min);
+    Some(Palette {
+        inks,
+        dark_text,
+        backing: 0.0,
+        contrast,
+    })
 }
 
-/// The hero's text contrast: white over the image's light end, under its scrim.
-pub fn hero_contrast(look: &Look) -> Option<f32> {
-    let backdrop = look.hero_backdrop?;
-    let scrim = look.hero.as_ref()?.scrim;
-    let seen = backdrop.under(readable::DARK, scrim.text.max(scrim.dim));
-    Some(Rgb::WHITE.contrast(seen.light))
+/// The readability checks for `look`: each surface's text against what it shows,
+/// with a suggested fix where it falls short.
+pub fn checks(look: &Look) -> Vec<readable::Check> {
+    readable::checks(&look.spec, &|surface| look.backdrops.get(&surface).copied())
+}
+
+thread_local! {
+    /// The skin as this frame draws it, set by each window's root view.
+    static FRAME: RefCell<Option<Arc<Look>>> = const { RefCell::new(None) };
+}
+
+/// Sets up a frame of `look`: the surfaces' paint, the sidebar's colours, the
+/// theme's text colours and the fonts. Each window's root view calls it first.
+pub fn set_frame(look: &Arc<Look>) {
+    FRAME.with(|frame| *frame.borrow_mut() = Some(look.clone()));
+    let inks = SidebarInks::of(sidebar_palette(look));
+    SIDEBAR_INKS.with(|cell| cell.set(inks));
+    crate::theme::ink::set(&look.spec.tokens);
+    for part in FontPart::ALL {
+        crate::theme::fonts::set(part, look.fonts.get(&part).cloned());
+    }
+}
+
+/// How the skin paints `surface` in this frame, if it does.
+pub fn painted(surface: SurfaceId) -> Option<Painted> {
+    FRAME.with(|frame| {
+        frame
+            .borrow()
+            .as_ref()
+            .and_then(|look| look.surfaces.get(&surface).cloned())
+    })
+}
+
+/// Painting an element as the skin paints one of its surfaces.
+///
+/// Call it before adding the element's children: an image fill goes in as the first
+/// child, under everything else.
+pub trait Skinned: gpui::Styled + gpui::ParentElement + Sized {
+    /// Paints the element as `surface`, when the skin paints it: its fill, border,
+    /// corners and text colour. Otherwise leaves it as it is.
+    fn surface(self, surface: SurfaceId) -> Self {
+        match painted(surface) {
+            Some(painted) => paint(self, &painted),
+            None => self,
+        }
+    }
+}
+
+impl<T: gpui::Styled + gpui::ParentElement + Sized> Skinned for T {}
+
+/// `element` painted as `painted` says.
+pub fn paint<T: gpui::Styled + gpui::ParentElement>(mut element: T, painted: &Painted) -> T {
+    use gpui::{IntoElement, ObjectFit, Styled as _, StyledImage, img};
+    if let Some(radius) = painted.radius {
+        element = element.rounded(crate::theme::px(radius));
+    }
+    if let Some((color, width)) = painted.border {
+        let width: gpui::AbsoluteLength = crate::theme::px(width).into();
+        let style = element.style();
+        style.border_widths.top = Some(width);
+        style.border_widths.right = Some(width);
+        style.border_widths.bottom = Some(width);
+        style.border_widths.left = Some(width);
+        element = element.border_color(color);
+    }
+    if let Some(text) = painted.text {
+        element = element.text_color(text);
+    }
+    match &painted.paint {
+        Some(Paint::Solid(color)) => element.bg(*color),
+        Some(Paint::Gradient(gradient)) => element.bg(*gradient),
+        Some(Paint::Image(image)) => {
+            let mut layer = img(image.clone())
+                .absolute()
+                .inset_0()
+                .size_full()
+                .object_fit(ObjectFit::Cover);
+            if let Some(radius) = painted.radius {
+                layer = layer.rounded(crate::theme::px(radius));
+            }
+            element.overflow_hidden().child(layer.into_any_element())
+        }
+        None => element,
+    }
 }
 
 /// The sidebar's text colours as the sidebar draws them.
@@ -374,12 +721,6 @@ thread_local! {
         std::cell::Cell::new(SidebarInks::default());
 }
 
-/// Works out the sidebar's colours for this frame from `look`.
-pub fn set_sidebar_inks(look: &Look) {
-    let inks = SidebarInks::of(sidebar_palette(look));
-    SIDEBAR_INKS.with(|cell| cell.set(inks));
-}
-
 /// The sidebar's colours for this frame.
 pub fn sidebar_inks() -> SidebarInks {
     SIDEBAR_INKS.with(|cell| cell.get())
@@ -414,7 +755,7 @@ pub fn row_backing(backdrop: Backdrop, inks: &SidebarInks, readability: Readabil
 }
 
 /// Image `name` of skin `id`: drawn for a built-in image, read from the pack else.
-fn load(id: &str, name: &str, store: &SkinStore, _role: ImageRole) -> Option<RgbaImage> {
+fn load(id: &str, name: &str, store: &SkinStore) -> Option<RgbaImage> {
     if let Some(builtin) = name.strip_prefix("builtin:") {
         return art::draw(builtin);
     }
@@ -442,168 +783,55 @@ pub struct Resolved {
     pub accent: Option<Rgb>,
     pub play: PlaySpec,
     pub progress: Option<Rgb>,
+    /// Whether the Play button shows the skin's prepared paint (an image, or a
+    /// gradient GPUI can't draw) rather than `play`'s colours.
+    pub play_layer: bool,
 }
 
 /// What the window shows for `instance` with `spec`: the instance's colours win.
 pub fn resolve(spec: &SkinSpec, instance: Option<&Instance>) -> Resolved {
     let mut play = spec.play.clone();
+    let mut play_layer = false;
+    match spec.surface(SurfaceId::PlayButton).and_then(|s| s.fill) {
+        Some(Fill::Solid { color, .. }) => {
+            play.color = Some(color);
+            play.gradient = None;
+        }
+        Some(Fill::Gradient(gradient)) if gradient.is_simple() => {
+            play.color = Some(gradient.stops[0].color);
+            play.gradient = Some(gradient.stops[1].color);
+        }
+        Some(Fill::Gradient(gradient)) => {
+            play.color = Some(gradient.at(0.5));
+            play.gradient = None;
+            play_layer = true;
+        }
+        Some(Fill::Image(_)) => play_layer = true,
+        None => {}
+    }
     if let Some(color) = instance.and_then(|i| i.play_color) {
         play.color = Some(color);
         play.gradient = None;
+        play_layer = false;
     }
+    let progress = match spec
+        .surfaces
+        .get(&SurfaceId::Progress)
+        .and_then(|s| s.fill.as_ref())
+    {
+        Some(Fill::Solid { color, .. }) => Some(*color),
+        Some(Fill::Gradient(gradient)) => Some(gradient.stops[0].color),
+        _ => spec.progress,
+    };
     Resolved {
         accent: instance.and_then(|i| i.accent).or(spec.accent),
         play,
-        progress: spec.progress,
+        progress,
+        play_layer,
     }
 }
 
-/// The built-in skins' images, drawn in code so they cost nothing to ship.
-pub mod art {
-    use image::{Rgba, RgbaImage};
-
-    /// A small, repeatable hash, for the pixel art's speckles.
-    fn noise(x: u32, y: u32, seed: u32) -> u32 {
-        let mut n = x
-            .wrapping_mul(374_761_393)
-            .wrapping_add(y.wrapping_mul(668_265_263))
-            .wrapping_add(seed.wrapping_mul(2_147_483_647));
-        n = (n ^ (n >> 13)).wrapping_mul(1_274_126_177);
-        n ^ (n >> 16)
-    }
-
-    fn rgb(hex: u32) -> Rgba<u8> {
-        Rgba([(hex >> 16) as u8, (hex >> 8) as u8, hex as u8, 255])
-    }
-
-    fn mix(a: Rgba<u8>, b: Rgba<u8>, t: f32) -> Rgba<u8> {
-        let t = t.clamp(0.0, 1.0);
-        let c = |i: usize| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * t).round() as u8;
-        Rgba([c(0), c(1), c(2), 255])
-    }
-
-    /// Built-in image `name` ("dirt", "sky", "glass", "grid").
-    pub fn draw(name: &str) -> Option<RgbaImage> {
-        Some(match name {
-            "dirt" => dirt(),
-            "sky" => sky(),
-            "glass" => glass(),
-            "grid" => grid(),
-            _ => return None,
-        })
-    }
-
-    /// A 16 × 16 dirt block, each pixel 4 × 4.
-    fn dirt() -> RgbaImage {
-        let palette = [0x7A5536, 0x6B4A2F, 0x8B623F, 0x5C3F28, 0x966B47].map(rgb);
-        RgbaImage::from_fn(64, 64, |x, y| {
-            let n = noise(x / 4, y / 4, 7) as usize;
-            palette[n % palette.len()]
-        })
-    }
-
-    /// Blocky hills of grass and dirt under a pale sky with square clouds.
-    fn sky() -> RgbaImage {
-        let (w, h) = (1600u32, 640u32);
-        let block = 40;
-        let (top, bottom) = (rgb(0x5FA8F0), rgb(0xCBE6FF));
-        let heights: Vec<u32> = (0..w / block + 1)
-            .map(|col| {
-                let wave =
-                    ((col as f32 * 0.35).sin() * 1.6 + (col as f32 * 0.11).cos() * 1.2) as i32;
-                (5 + wave + (noise(col, 0, 3) % 2) as i32).clamp(3, 8) as u32
-            })
-            .collect();
-        RgbaImage::from_fn(w, h, |x, y| {
-            let col = (x / block) as usize;
-            let ground = h - heights[col] * block;
-            let px = (x / 8, y / 8);
-            if y >= ground {
-                let depth = (y - ground) / block;
-                let speck = noise(px.0, px.1, 11) % 5;
-                let base = match depth {
-                    0 if y - ground < 14 => [0x5DB83B, 0x4FA332, 0x6CC748, 0x58B036, 0x4C9C30],
-                    0..=2 => [0x7A5536, 0x6B4A2F, 0x8B623F, 0x5C3F28, 0x966B47],
-                    _ => [0x7D7D7D, 0x6E6E6E, 0x8A8A8A, 0x747474, 0x666666],
-                };
-                rgb(base[speck as usize])
-            } else {
-                let sky = mix(top, bottom, y as f32 / ground.max(1) as f32);
-                // square clouds
-                let (cx, cy) = (x / 32, y / 32);
-                let cloud = (2..=4).contains(&cy)
-                    && noise(cx / 3, cy / 2, 5).is_multiple_of(7)
-                    && y < h / 2;
-                if cloud {
-                    mix(sky, rgb(0xFFFFFF), 0.85)
-                } else {
-                    sky
-                }
-            }
-        })
-    }
-
-    /// Soft colour blobs on dark blue, the Glass skin's backdrop. Drawn small: it is
-    /// soft anyway, and scaled up when shown.
-    fn glass() -> RgbaImage {
-        let (w, h) = (600u32, 400u32);
-        let blobs = [
-            (0.25, 0.30, 0.45, rgb(0x6E56CF)),
-            (0.75, 0.25, 0.40, rgb(0x2BB3C0)),
-            (0.60, 0.80, 0.50, rgb(0xE0607E)),
-            (0.10, 0.85, 0.35, rgb(0x3B6FD8)),
-        ];
-        let base = rgb(0x121624);
-        RgbaImage::from_fn(w, h, |x, y| {
-            let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
-            blobs.iter().fold(base, |color, (bx, by, r, c)| {
-                let d = ((fx - bx).powi(2) + (fy - by).powi(2) * 0.6).sqrt();
-                let t = (1.0 - d / r).max(0.0);
-                mix(color, *c, t * t * 0.85)
-            })
-        })
-    }
-
-    /// A neon grid going to the horizon, on black.
-    fn grid() -> RgbaImage {
-        let (w, h) = (1600u32, 640u32);
-        let horizon = (h as f32 * 0.45) as u32;
-        let ground = (h - horizon) as f32;
-        let (black, pink, cyan) = (rgb(0x07070C), rgb(0xFF2BD6), rgb(0x22D3EE));
-        // the rows' heights on screen: closer together towards the horizon
-        let rows: Vec<f32> = (0..24)
-            .map(|n| horizon as f32 + ground / (1.0 + n as f32 * 0.55))
-            .collect();
-        let centre = w as f32 / 2.0;
-        RgbaImage::from_fn(w, h, |x, y| {
-            if y < horizon {
-                // a glow rising from the horizon
-                let t = 1.0 - (horizon - y) as f32 / horizon as f32;
-                return mix(black, rgb(0x2A0A36), t.powi(3));
-            }
-            // 0 at the horizon, 1 at the bottom
-            let d = (y - horizon) as f32 / ground;
-            let floor = mix(rgb(0x14051C), black, d);
-            if y <= horizon + 1 {
-                return pink;
-            }
-            let width = 0.8 + d * 1.6;
-            let on_row = rows.iter().any(|r| (y as f32 - r).abs() < width);
-            // columns meeting at the middle of the horizon, 180 px apart at the bottom
-            let spacing = 180.0 * d;
-            let offset = x as f32 - centre;
-            let column = (offset / spacing).round();
-            let on_column = (offset - column * spacing).abs() < width;
-            if on_row {
-                mix(floor, pink, 0.55 + d * 0.4)
-            } else if on_column {
-                mix(floor, cyan, 0.45 + d * 0.45)
-            } else {
-                floor
-            }
-        })
-    }
-}
+pub use launcher_core::ui_skin::art;
 
 #[cfg(test)]
 mod tests {
@@ -634,52 +862,58 @@ mod tests {
         assert_eq!(plain.play, PlaySpec::default());
     }
 
+    /// `look` with what `prepare` makes for it, without fonts.
+    fn prepared(id: &str, spec: SkinSpec) -> Look {
+        let store = SkinStore::at(std::path::PathBuf::from("/nonexistent"));
+        let mut look = Look::plain(id, spec.clone());
+        finish(&mut look, prepare(id, &spec, &store), HashMap::new());
+        look
+    }
+
     #[test]
     fn built_in_skins_prepare_their_images() {
         // built-in skins read nothing from the folder
-        let store = SkinStore::at(std::path::PathBuf::from("/nonexistent"));
         for id in ["grassblock", "glass", "neon"] {
             let spec = launcher_core::ui_skin::built_in(id).unwrap();
             let start = std::time::Instant::now();
-            let ((sidebar, _), (hero, _)) = prepare(id, &spec, &store);
+            let look = prepared(id, spec.clone());
             eprintln!("{id}: {:?}", start.elapsed());
-            assert_eq!(sidebar.is_some(), spec.sidebar.image.is_some(), "{id}");
-            assert!(hero.is_some(), "{id}");
+            assert!(look.hero.is_some(), "{id}");
+            for surface in SurfaceId::ALL {
+                if let Some(Fill::Image(_)) = spec.surface(surface).and_then(|s| s.fill) {
+                    assert!(
+                        surface == SurfaceId::Hero
+                            || matches!(look.surfaces[&surface].paint, Some(Paint::Image(_))),
+                        "{id} {surface:?}"
+                    );
+                }
+            }
         }
     }
 
     #[test]
-    fn built_in_skins_keep_text_readable() {
-        let store = SkinStore::at(std::path::PathBuf::from("/nonexistent"));
+    fn built_in_skins_ship_readable() {
+        let mut failing = Vec::new();
         for id in launcher_core::ui_skin::BUILT_IN {
-            let spec = launcher_core::ui_skin::built_in(id).unwrap();
-            let ((_, sidebar_backdrop), (hero, hero_backdrop)) = prepare(id, &spec, &store);
-            let look = Look {
-                id: id.into(),
-                spec: spec.clone(),
-                sidebar: None,
-                hero: hero.map(|(image, scrim)| Background {
-                    image: crate::images::render_image(image),
-                    scrim,
-                }),
-                sidebar_backdrop,
-                hero_backdrop,
-            };
+            let look = prepared(id, launcher_core::ui_skin::built_in(id).unwrap());
+            for check in checks(&look) {
+                eprintln!(
+                    "{id}: {} {} {:.2}:1 {}",
+                    check.surface.key(),
+                    check.role.key(),
+                    check.ratio,
+                    check.fix.as_ref().map(|f| f.describe()).unwrap_or_default()
+                );
+                if !check.passes() {
+                    failing.push(format!("{id} {} {}", check.surface.key(), check.role.key()));
+                }
+            }
             // every sidebar text style: primary, secondary, muted, faint
             if let Some(palette) = sidebar_palette(&look) {
                 assert!(palette.passes(), "{id} sidebar: {palette:?}");
-                eprintln!(
-                    "{id}: sidebar {:.2}:1, backing {:.2}",
-                    palette.contrast, palette.backing
-                );
-            } else {
-                assert_eq!(id, "default");
-            }
-            if let Some(contrast) = hero_contrast(&look) {
-                eprintln!("{id}: hero {contrast:.2}:1");
-                assert!(contrast >= readable::BODY - 0.05, "{id} hero: {contrast}");
             }
         }
+        assert!(failing.is_empty(), "{failing:#?}");
     }
 
     #[test]
@@ -689,30 +923,91 @@ mod tests {
             SidebarInks::of(sidebar_palette(&look)),
             SidebarInks::default()
         );
-        // a bright pack image takes dark text or a backing, and passes
+        // a bright pack image: its colours as given (the launcher doesn't step in),
+        // and the checks say so, with a fix
         let mut spec = SkinSpec::named("Bright");
         spec.sidebar.image = Some("x.png".into());
-        let look = Look {
-            spec,
-            sidebar_backdrop: Some(Backdrop::solid(Rgb(0xF2F2F2))),
-            ..Look::default_look()
-        };
+        let mut look = Look::plain("bright", spec.clone());
+        look.backdrops
+            .insert(SurfaceId::Sidebar, Backdrop::solid(Rgb(0xF2F2F2)));
         let palette = sidebar_palette(&look).unwrap();
-        assert!(palette.passes(), "{palette:?}");
+        assert!(!palette.passes());
+        assert_eq!(palette.backing, 0.0);
+        let failing: Vec<_> = checks(&look).into_iter().filter(|c| !c.passes()).collect();
+        assert!(!failing.is_empty());
+        let mut fixed = spec.clone();
+        readable::apply_all(&mut fixed, &failing);
+        let mut look = Look::plain("bright", fixed);
+        look.backdrops
+            .insert(SurfaceId::Sidebar, Backdrop::solid(Rgb(0xF2F2F2)));
+        assert!(
+            checks(&look).iter().all(|c| c.passes()),
+            "{:?}",
+            checks(&look)
+        );
+        assert!(sidebar_palette(&look).unwrap().passes());
         // dark text sits on light rows, not the launcher's dark ones
-        let inks = SidebarInks::of(Some(palette));
-        assert!(palette.dark_text);
+        let inks = SidebarInks::of(sidebar_palette(&look));
         assert_ne!(inks.fill, colors::GRAY_800);
-        assert_ne!(inks.ghost, SidebarInks::default().ghost);
-        // readability off: the colours as given, and it says so
-        let mut off = look.spec.clone();
-        off.sidebar.readability = Readability::Off;
-        let look = Look {
-            spec: off,
-            sidebar_backdrop: Some(Backdrop::solid(Rgb(0xF2F2F2))),
-            ..Look::default_look()
+        // a pack that opts in gets the launcher's adjustments
+        spec.sidebar.readability = Readability::Auto;
+        let mut look = Look::plain("bright", spec);
+        look.backdrops
+            .insert(SurfaceId::Sidebar, Backdrop::solid(Rgb(0xF2F2F2)));
+        assert!(sidebar_palette(&look).unwrap().passes());
+    }
+
+    #[test]
+    fn gradients_are_drawn_or_left_to_gpui() {
+        let mut spec = SkinSpec::named("G");
+        spec.surfaces.insert(
+            SurfaceId::TopBar,
+            launcher_core::ui_skin::SurfaceSpec {
+                fill: Some(Fill::Gradient(launcher_core::ui_skin::Gradient::vertical(
+                    Rgb::BLACK,
+                    Rgb::WHITE,
+                ))),
+                ..Default::default()
+            },
+        );
+        let three = launcher_core::ui_skin::Gradient {
+            kind: GradientKind::Radial,
+            angle: 180,
+            stops: vec![
+                launcher_core::ui_skin::Stop {
+                    color: Rgb::BLACK,
+                    at: 0,
+                },
+                launcher_core::ui_skin::Stop {
+                    color: Rgb(0xFF0000),
+                    at: 50,
+                },
+                launcher_core::ui_skin::Stop {
+                    color: Rgb::WHITE,
+                    at: 100,
+                },
+            ],
         };
-        assert!(!sidebar_palette(&look).unwrap().passes());
+        spec.surfaces.insert(
+            SurfaceId::Card,
+            launcher_core::ui_skin::SurfaceSpec {
+                fill: Some(Fill::Gradient(three.clone())),
+                ..Default::default()
+            },
+        );
+        let look = prepared("g", spec);
+        assert!(matches!(
+            look.surfaces[&SurfaceId::TopBar].paint,
+            Some(Paint::Gradient(_))
+        ));
+        assert!(matches!(
+            look.surfaces[&SurfaceId::Card].paint,
+            Some(Paint::Image(_))
+        ));
+        let image = rasterize(&three);
+        // black in the middle, white in the corners
+        assert!(image.get_pixel(128, 128)[0] < 20);
+        assert!(image.get_pixel(0, 0)[1] > 200);
     }
 
     #[test]
@@ -728,7 +1023,7 @@ mod tests {
 
     #[test]
     fn built_in_art_is_drawn() {
-        for name in ["dirt", "sky", "glass", "grid"] {
+        for name in art::NAMES {
             let image = art::draw(name).unwrap();
             assert!(image.width() > 0, "{name}");
         }

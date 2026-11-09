@@ -3,6 +3,7 @@
 //! size, and a queue that imports the checked ones one after another with progress and
 //! Cancel. The work is `launcher_core::import`'s.
 
+use crate::skin::Skinned;
 use crate::theme::px;
 use std::{
     collections::{HashMap, HashSet},
@@ -498,14 +499,14 @@ impl ImportDialog {
                         div()
                             .truncate()
                             .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_300)
+                            .text_color(crate::theme::ink::text())
                             .child(found.name.clone()),
                     )
                     .child(
                         div()
                             .truncate()
                             .text_size(theme::text_size(text::SMALL))
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(version_label(found)),
                     )
                     .when_some(note, |this, note| {
@@ -522,7 +523,7 @@ impl ImportDialog {
                 div()
                     .flex_none()
                     .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_400)
+                    .text_color(crate::theme::ink::secondary())
                     .child(size_text),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.toggle(&key, cx)))
@@ -544,7 +545,7 @@ impl ImportDialog {
                             .flex_none()
                             .text_size(theme::text_size(text::SMALL))
                             .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_400)
+                            .text_color(crate::theme::ink::secondary())
                             .child(launcher.source.label().to_uppercase()),
                     )
                     .child(
@@ -563,7 +564,7 @@ impl ImportDialog {
                     div()
                         .px_2()
                         .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::GRAY_500)
+                        .text_color(crate::theme::ink::muted())
                         .child(t(M::NoInstances))
                         .into_any_element(),
                 );
@@ -599,7 +600,7 @@ impl ImportDialog {
                 .justify_center()
                 .gap_2()
                 .h(px(120.))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(LoadingDots)
                 .child(t(M::LookingForLaunchers))
                 .into_any_element()
@@ -614,7 +615,7 @@ impl ImportDialog {
                         .w_full()
                         .text_center()
                         .whitespace_normal()
-                        .text_color(colors::GRAY_500)
+                        .text_color(crate::theme::ink::muted())
                         .child(t(M::NoLaunchersFound)),
                 )
                 .into_any_element()
@@ -711,7 +712,7 @@ impl ImportDialog {
                                         div()
                                             .flex_none()
                                             .font_weight(weights::BOLD.into())
-                                            .text_color(colors::GRAY_300)
+                                            .text_color(crate::theme::ink::text())
                                             .child(item.name.clone()),
                                     )
                                     .child(
@@ -795,6 +796,7 @@ fn progress_bar(fraction: f32) -> impl IntoElement {
                 .h_full()
                 .rounded_full()
                 .bg(crate::theme::accent::light())
+                .surface(launcher_core::ui_skin::SurfaceId::Progress)
                 .w(gpui::relative(fraction.clamp(0., 1.))),
         )
 }
@@ -863,7 +865,9 @@ impl Render for ImportDialog {
                                         Some(error) => {
                                             this.text_color(colors::RED_200).child(error.clone())
                                         }
-                                        None => this.text_color(colors::GRAY_500).child(summary),
+                                        None => this
+                                            .text_color(crate::theme::ink::muted())
+                                            .child(summary),
                                     }),
                             )
                             .child(
@@ -887,7 +891,7 @@ impl Render for ImportDialog {
                                         div()
                                             .text_size(theme::text_size(text::SMALL))
                                             .font_weight(weights::BOLD.into())
-                                            .text_color(colors::GRAY_400)
+                                            .text_color(crate::theme::ink::secondary())
                                             .child(worlds_caption),
                                     ),
                             ),
