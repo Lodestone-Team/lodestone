@@ -2,6 +2,8 @@
 // build.mjs), plus worker.js for the dashboard's routes. See README.md.
 {
   "name": "lodestone-website",
+  // Wenwei's Cloudflare account, which hosts the site.
+  "account_id": "8db4e596671f8d4d9f0e60c129db9f90",
   "main": "worker.js",
   "compatibility_date": "2026-10-01",
   "assets": {
