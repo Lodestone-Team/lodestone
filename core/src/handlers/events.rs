@@ -738,5 +738,89 @@ mod tests {
             );
             assert!(core.lines("b").await.is_empty());
         }
+
+        #[tokio::test]
+        async fn launcher_keys_need_the_console_write_opt_in() {
+            let core = core(false).await;
+            let user = add_user(&core.state, "device", false, console_of(&["a"])).await;
+            let mut keys = Vec::new();
+            for (read, write) in [(false, false), (true, false), (false, true)] {
+                let created = core
+                    .state
+                    .users_manager
+                    .write()
+                    .await
+                    .create_api_key(
+                        &user.uid,
+                        format!("launcher {read} {write}"),
+                        None,
+                        ApiKeyScope::Launcher {
+                            console_read: read,
+                            console_write: write,
+                        },
+                        CausedBy::System,
+                    )
+                    .await
+                    .unwrap();
+                keys.push(created.key);
+            }
+            let [none, read_only, write_only] = &keys[..] else {
+                unreachable!()
+            };
+
+            for key in [none, read_only] {
+                assert_eq!(
+                    core.request(Method::DELETE, "a", Some(key)).await,
+                    StatusCode::FORBIDDEN
+                );
+            }
+            assert_eq!(core.lines("a").await.len(), 3);
+
+            assert_eq!(
+                core.request(Method::DELETE, "b", Some(write_only)).await,
+                StatusCode::FORBIDDEN
+            );
+            assert_eq!(
+                core.request(Method::DELETE, "a", Some(write_only)).await,
+                StatusCode::OK
+            );
+            assert!(core.lines("a").await.is_empty());
+            assert_eq!(core.lines("b").await.len(), 3);
+        }
+
+        #[tokio::test]
+        async fn an_open_console_stream_keeps_streaming_after_a_clear() {
+            crate::test_util::install_crypto_provider();
+            let core = core(false).await;
+            let token: String = url::form_urlencoded::byte_serialize(
+                format!("Bearer {}", core.owner_jwt).as_bytes(),
+            )
+            .collect();
+            let url = format!(
+                "{}/instance/{}/console/stream?token={token}",
+                core.base.replacen("http://", "ws://", 1),
+                instance("a")
+            );
+            let (mut console, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+
+            let status = core
+                .request(Method::DELETE, "a", Some(&core.owner_jwt))
+                .await;
+            assert_eq!(status, StatusCode::OK);
+
+            core.state
+                .event_broadcaster
+                .send(Event::new_instance_output(
+                    instance("a"),
+                    "i".to_string(),
+                    "after the clear".to_string(),
+                ));
+            let frame = tokio::time::timeout(std::time::Duration::from_secs(30), console.next())
+                .await
+                .expect("timed out waiting for a console line")
+                .expect("the stream ended")
+                .expect("WebSocket error");
+            assert!(frame.to_text().unwrap().contains("after the clear"));
+        }
     }
 }

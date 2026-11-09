@@ -1189,6 +1189,7 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 | POST | `/instance/{uuid}/resource_pack/hash` | `{url}` | `ResourcePackHash` |
 | POST | `/instance/{uuid}/console` | str (command) | – |
 | GET | `/instance/{uuid}/console/buffer` | – | `ClientEvent[]` |
+| DELETE | `/instance/{uuid}/console/buffer` | – | – (clears the history for every client) |
 | GET / POST / DELETE | `/instance/{uuid}/share` | – | `InstanceShare` (Share with friends) |
 
 ### 10.5 Instance files (`{b64}` = URL-safe Base64 of the instance-relative path)
