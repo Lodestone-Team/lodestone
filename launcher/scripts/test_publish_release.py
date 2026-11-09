@@ -16,7 +16,7 @@ class Manifest(unittest.TestCase):
     def test_the_first_publish_starts_the_manifest(self):
         m = pr.updated_manifest(None, "windows-x86_64", entry(10), "0.1.0", "now")
         self.assertEqual(m["build"], 10)
-        self.assertEqual(m["assets"]["windows-x86_64"]["name"], "lodestone-launcher-10-windows-x86_64.exe")
+        self.assertEqual(m["assets"]["windows-x86_64"]["name"], "lodestone-launcher-10-windows-x86_64-standalone.exe")
         self.assertEqual(m["version"], "0.1.0")
 
     def test_publishing_one_platform_keeps_the_others(self):
@@ -25,7 +25,7 @@ class Manifest(unittest.TestCase):
         self.assertEqual(set(m["assets"]), {"macos-aarch64", "windows-x86_64"})
         self.assertEqual(m["assets"]["windows-x86_64"]["build"], 10)
         self.assertEqual((m["build"], m["commit"], m["version"]), (12, "d", "0.2.0"))
-        self.assertEqual(m["assets"]["macos-aarch64"]["name"], "lodestone-launcher-12-macos-aarch64")
+        self.assertEqual(m["assets"]["macos-aarch64"]["name"], "lodestone-launcher-12-macos-aarch64-standalone")
 
     def test_an_older_platform_doesnt_lower_the_top_build(self):
         m = pr.updated_manifest(None, "macos-aarch64", entry(12, "macos-aarch64", "d"), "0.2.0", "t1")
@@ -46,12 +46,13 @@ class Cleanup(unittest.TestCase):
         names += [pr.asset_name(4, "macos-aarch64"), "latest.json"]
         self.assertEqual(
             pr.stale_names(names, "windows-x86_64", set()),
-            ["lodestone-launcher-3-windows-x86_64.exe", "lodestone-launcher-5-windows-x86_64.exe"],
+            ["lodestone-launcher-3-windows-x86_64-standalone.exe",
+             "lodestone-launcher-5-windows-x86_64-standalone.exe"],
         )
 
     def test_keeps_the_build_the_manifest_points_at(self):
         names = [pr.asset_name(b, "macos-aarch64") for b in (3, 5, 9, 12)]
-        self.assertEqual(pr.stale_names(names, "macos-aarch64", {3}), ["lodestone-launcher-5-macos-aarch64"])
+        self.assertEqual(pr.stale_names(names, "macos-aarch64", {3}), ["lodestone-launcher-5-macos-aarch64-standalone"])
 
 
 class Candidate(unittest.TestCase):
@@ -139,8 +140,28 @@ class Installer(unittest.TestCase):
         names += [pr.STABLE_INSTALLER, "latest.json"]
         self.assertEqual(
             pr.stale_names(names, "windows-x86_64", set()),
-            ["lodestone-launcher-3-windows-x86_64.exe", "lodestone-launcher-3-windows-x86_64-setup.exe"],
+            ["lodestone-launcher-3-windows-x86_64-standalone.exe",
+             "lodestone-launcher-3-windows-x86_64-setup.exe"],
         )
+
+
+class Names(unittest.TestCase):
+    def test_standalone_and_installer_names_say_which_is_which(self):
+        self.assertEqual(pr.asset_name(7, "windows-x86_64"),
+                         "lodestone-launcher-7-windows-x86_64-standalone.exe")
+        self.assertEqual(pr.asset_name(7, "macos-aarch64"),
+                         "lodestone-launcher-7-macos-aarch64-standalone")
+        self.assertEqual(pr.installer_name(7, "windows-x86_64"),
+                         "lodestone-launcher-7-windows-x86_64-setup.exe")
+
+    def test_files_from_before_the_standalone_suffix_are_cleaned_up_too(self):
+        names = ["lodestone-launcher-531-windows-x86_64.exe",
+                 "lodestone-launcher-554-windows-x86_64.exe",
+                 "lodestone-launcher-554-windows-x86_64-setup.exe",
+                 pr.asset_name(600, "windows-x86_64"), pr.installer_name(600, "windows-x86_64"),
+                 pr.STABLE_INSTALLER, "latest.json"]
+        self.assertEqual(pr.stale_names(names, "windows-x86_64", set()),
+                         ["lodestone-launcher-531-windows-x86_64.exe"])
 
 
 class Platforms(unittest.TestCase):
