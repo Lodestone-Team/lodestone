@@ -357,7 +357,9 @@ impl ContentView {
         let checking = section.checking_updates;
         let search = section.browse.search.clone();
         let busy = self.locked(cx) || self.job.is_some();
-        div()
+        // Two rows: the kinds with the update button and the menu, then the search
+        // across the whole width, so neither runs out of room in a narrow window.
+        let actions = div()
             .flex()
             .flex_row()
             .items_center()
@@ -370,20 +372,7 @@ impl ContentView {
                     entity.update(cx, |this, cx| this.select_kind(ContentKind::ALL[index], cx))
                 },
             ))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(160.))
-                    // Escape empties the search first; an empty one lets it through.
-                    .on_action(cx.listener(move |this, _: &Dismiss, _, cx| {
-                        if this.query(kind, cx).is_empty() {
-                            cx.propagate();
-                        } else {
-                            this.clear_search(kind, cx);
-                        }
-                    }))
-                    .child(search),
-            )
+            .child(div().flex_1())
             .map(|this| {
                 if updates > 0 {
                     this.child(
@@ -407,7 +396,20 @@ impl ContentView {
                     this
                 }
             })
-            .child(self.render_menu(kind, cx))
+            .child(self.render_menu(kind, cx));
+        div().flex().flex_col().gap_3().child(actions).child(
+            div()
+                .w_full()
+                // Escape empties the search first; an empty one lets it through.
+                .on_action(cx.listener(move |this, _: &Dismiss, _, cx| {
+                    if this.query(kind, cx).is_empty() {
+                        cx.propagate();
+                    } else {
+                        this.clear_search(kind, cx);
+                    }
+                }))
+                .child(search),
+        )
     }
 
     /// "⋯": Check for updates, Add file… and Open folder.
