@@ -34,10 +34,13 @@ pub enum Icon {
     WindowMinimize,
     WindowRestore,
     Xmark,
+    CircleInfo,
+    CircleCheck,
+    CircleExclamation,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 29] = [
+    pub const ALL: [Icon; 32] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -67,6 +70,9 @@ impl Icon {
         Icon::WindowMinimize,
         Icon::WindowRestore,
         Icon::Xmark,
+        Icon::CircleInfo,
+        Icon::CircleCheck,
+        Icon::CircleExclamation,
     ];
 
     /// The asset path of the icon's SVG.
@@ -101,6 +107,9 @@ impl Icon {
             Icon::WindowMinimize => "icons/window-minimize.svg",
             Icon::WindowRestore => "icons/window-restore.svg",
             Icon::Xmark => "icons/xmark.svg",
+            Icon::CircleInfo => "icons/circle-info.svg",
+            Icon::CircleCheck => "icons/circle-check.svg",
+            Icon::CircleExclamation => "icons/circle-exclamation.svg",
         }
     }
 
@@ -135,7 +144,10 @@ impl Icon {
             | Icon::User
             | Icon::WindowMaximize
             | Icon::WindowMinimize
-            | Icon::WindowRestore => return format!("{self:?}").into(),
+            | Icon::WindowRestore
+            | Icon::CircleInfo
+            | Icon::CircleCheck
+            | Icon::CircleExclamation => return format!("{self:?}").into(),
         };
         t(message).into()
     }
