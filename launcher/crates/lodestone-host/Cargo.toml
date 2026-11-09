@@ -29,6 +29,8 @@ gpui_platform = { workspace = true, features = ["font-kit"] }
 http_client.workspace = true
 launcher-core.workspace = true
 lodestone-ui.workspace = true
+# The console's regex search.
+regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 url.workspace = true

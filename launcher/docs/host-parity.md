@@ -572,25 +572,31 @@ Conventions in the code that every area relies on:
 ## 4. Console tab — `components/GameConsole.tsx`, `data/ConsoleStream.ts`, `components/ConsoleLine.tsx`, `utils/consoleFormat.ts`  
 **Package: B.**
 
-- [ ] History: `GET /instance/{uuid}/console/buffer` → `ClientEvent[]` (only `InstanceOutput` used).
-- [ ] Live: WS `/instance/{uuid}/console/stream?token=Bearer …`; reconnect with backoff and re-fetch buffer
+- [x] History: `GET /instance/{uuid}/console/buffer` → `ClientEvent[]` (only `InstanceOutput` used).
+- [x] Live: WS `/instance/{uuid}/console/stream?token=Bearer …`; reconnect with backoff and re-fetch buffer
   to fill the gap; merge by snowflake, dedupe, keep newest 5,000 lines; render newest 2,000 with a
-  "N older lines hidden" row.
-- [ ] Status dot (top-right) with tooltip: no permission / loading / buffered / live (green) / live but
+  "N older lines hidden" row. *Host: the list is virtualized, so all 5,000 kept lines are
+  shown and there is no "hidden" row (`pages/console.rs`).*
+- [x] Status dot (top-right) with tooltip: no permission / loading / buffered / live (green) / live but
   history failed (yellow) / closed (red) / error (red); "Server stopped" overrides when Stopped.
-- [ ] Filter box + "Regex" checkbox (default on; case-insensitive; invalid regex matches nothing; plain
+- [x] Filter box + "Regex" checkbox (default on; case-insensitive; invalid regex matches nothing; plain
   mode = case-insensitive substring) on the plain text.
-- [ ] Auto-scroll sticks to bottom unless user scrolled up (>10 px).
-- [ ] Coloured output (toggle in Profile, `localStorage.coloredConsole`, default on): ANSI SGR (16/256/24-bit
+- [x] Auto-scroll sticks to bottom unless user scrolled up (>10 px). *Host: and a "Jump to
+  latest" button while scrolled up.*
+- [x] Coloured output (toggle in Profile: *Host: `pages::console::set_colored`, for package D's
+  Profile toggle and settings store; on until then*, `localStorage.coloredConsole`, default on): ANSI SGR (16/256/24-bit
   colours, bold, dim, italic, underline, strike, inverse) and Minecraft `§` codes; other escapes stripped;
   low-contrast colours adjusted for the theme (≥4.5:1); text on background colours rendered as badges;
   plain lines coloured by detected log level (WARN/ERROR from `[..]` prefixes or `WARN:`/`ERROR:`).
-- [ ] Linked-player badge appended to lines that mention a linked player.
-- [ ] Command input: `POST /instance/{uuid}/console` body JSON string; error toast "Couldn't send: …";
-  history of last ~50 commands per tab session, ↑/↓ navigation.
+- [x] Linked-player badge appended to lines that mention a linked player.
+- [x] Command input: `POST /instance/{uuid}/console` body JSON string; error toast "Couldn't send: …";
+  history of last ~50 commands per tab session, ↑/↓ navigation. *Host: kept per instance
+  while the Host runs.*
   - Input disabled with message when: no `can_access_instance_console`; atom instance and not owner;
     instance Stopped; stream closed.
-- [ ] Empty/no-permission states with server icon graphic; skeleton code lines while loading.
+- [x] Empty/no-permission states with server icon graphic; skeleton code lines while loading.
+- [ ] The instance tab container's Console heading with the state label (§1.2): not done,
+  the heading is the shell's; the sidebar and the status dot show the state.
 
 ## 5. Files tab — `components/FileViewer/*`, `utils/apis.ts`, `data/FileSystem.ts`  
 **Package: B.**
