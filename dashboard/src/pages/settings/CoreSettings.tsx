@@ -281,6 +281,30 @@ export const CoreSettings = () => {
     />
   );
 
+  const localClaimSupported =
+    typeof globalSettings?.allow_local_claim === 'boolean';
+  const allowLocalClaimField = (
+    <ToggleBox
+      label={t('settings.core.localClaim.label')}
+      value={globalSettings?.allow_local_claim === true}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={t('settings.core.localClaim.hint')}
+      onChange={async (value) => {
+        await axiosPutSingleValue('/global_settings/allow_local_claim', value);
+        queryClient.setQueryData(
+          ['global_settings'],
+          (old: GlobalSettingsData | undefined) =>
+            old && { ...old, allow_local_claim: value }
+        );
+        notifySaved();
+      }}
+      optimistic={false}
+    />
+  );
+
   const listPubliclySupported =
     typeof globalSettings?.list_instances_publicly === 'boolean';
   const listInstancesPubliclyField = (
@@ -575,6 +599,9 @@ export const CoreSettings = () => {
             {can_change_core_settings &&
               allowLanHttpSupported &&
               allowLanHttpField}
+            {can_change_core_settings &&
+              localClaimSupported &&
+              allowLocalClaimField}
             {openPortField}
           </SettingsCard>
         </SettingsSection>

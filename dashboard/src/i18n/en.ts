@@ -353,6 +353,13 @@ export const en = {
   'shell.login.signIn': 'Sign in',
 
   // CoreConnect: adding a core
+  'shell.login.withApiKey': 'Sign in with an API key',
+  'shell.login.withPassword': 'Sign in with a username and password',
+  'shell.login.apiKey': 'API key',
+  'shell.login.apiKeyHint':
+    'Paste a key that starts with lsk_. You get the key’s access, and revoking the key signs you out.',
+  'shell.login.apiKeyRequired': 'An API key is required',
+  'shell.login.apiKeyFormat': 'An API key starts with lsk_',
   'shell.coreConnect.pageTitle': 'Connect to Core',
   'shell.coreConnect.title': 'Add a new core',
   'shell.coreConnect.httpErrorTitle': 'HTTP Error',
@@ -483,6 +490,10 @@ export const en = {
   'settings.core.listPublicly.label': 'List servers publicly',
   'settings.core.listPublicly.hint':
     'Anyone who can reach this core sees the servers you make public below.',
+  'settings.core.localClaim.label':
+    'Let apps on this computer claim owner access',
+  'settings.core.localClaim.hint':
+    'Lodestone Launcher can become the owner by proving it can write to this core’s data folder. Anything that can write there can already change every user and setting, so this only matters on a shared computer.',
   'settings.core.safeMode.label': 'Safe mode',
   'settings.core.safeMode.hint':
     'Keeps admin access to this machine for the owner only.',
