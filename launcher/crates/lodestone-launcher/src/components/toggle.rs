@@ -1,5 +1,5 @@
 use crate::theme::px;
-use gpui::{App, ElementId, IntoElement, RenderOnce, Window, div, prelude::*};
+use gpui::{App, ElementId, IntoElement, ObjectFit, RenderOnce, Window, div, img, prelude::*};
 use launcher_core::ui_skin::SurfaceId;
 
 use super::focus::KeyboardFocus;
@@ -52,15 +52,21 @@ impl RenderOnce for Toggle {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         // 0.0 off, 1.0 on, easing between them when the value changes.
         let on = super::motion::switch((self.id.clone(), "switch"), self.value, window, cx);
-        let track = if self.disabled {
-            colors::GRAY_FADED.opacity(30)
+        // The skin's fill for a switch that is on: a colour blends into the track as it
+        // turns on; a gradient or an image is a layer over the track that fades in.
+        let paint = (!self.disabled)
+            .then(|| crate::skin::painted(SurfaceId::Toggle).and_then(|p| p.paint))
+            .flatten();
+        let (track, layer) = if self.disabled {
+            (colors::GRAY_FADED.opacity(30), None)
         } else {
-            // the skin's colour for a switch that is on
-            let on_color = match crate::skin::painted(SurfaceId::Toggle).and_then(|p| p.paint) {
-                Some(crate::skin::Paint::Solid(color)) => color,
-                _ => colors::GREEN_400,
-            };
-            colors::WHITE.opacity(50).mix(on_color, on)
+            match paint {
+                Some(crate::skin::Paint::Solid(color)) => {
+                    (colors::WHITE.opacity(50).mix(color, on), None)
+                }
+                None => (colors::WHITE.opacity(50).mix(colors::GREEN_400, on), None),
+                Some(other) => (colors::WHITE.opacity(50), Some(other)),
+            }
         };
         let knob = if self.disabled {
             colors::GRAY_FADED.opacity(40)
@@ -78,10 +84,33 @@ impl RenderOnce for Toggle {
             .items_center()
             .w(px(44.))
             .h(px(24.))
+            .relative()
+            .overflow_hidden()
             .rounded_full()
             .bg(track)
+            .when_some(layer.filter(|_| on > 0.0), |this, layer| {
+                this.child(match layer {
+                    crate::skin::Paint::Gradient(background) => div()
+                        .absolute()
+                        .inset_0()
+                        .rounded_full()
+                        .opacity(on)
+                        .bg(background)
+                        .into_any_element(),
+                    crate::skin::Paint::Image(image) => img(image)
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .rounded_full()
+                        .object_fit(ObjectFit::Cover)
+                        .opacity(on)
+                        .into_any_element(),
+                    crate::skin::Paint::Solid(_) => div().into_any_element(),
+                })
+            })
             .child(
                 div()
+                    .relative()
                     .size(px(16.))
                     .ml(px(4. + 20. * on))
                     .rounded_full()
