@@ -227,12 +227,23 @@ pub struct DeveloperSettings {
     /// [`ClientIdentity::MinecraftLauncher`]: crate::auth::ClientIdentity::MinecraftLauncher
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub sign_in_as_minecraft_launcher: bool,
+    /// "Offline accounts": "Add offline account" in the account menu and Settings >
+    /// Accounts. Always on in debug builds and with `LODESTONE_LAUNCHER_OFFLINE=1`
+    /// ([`crate::offline_mode_enabled`]); off by default otherwise, and left out of the
+    /// file while off.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub offline_accounts: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl Default for DeveloperSettings {
     fn default() -> Self {
         Self {
             sign_in_as_minecraft_launcher: true,
+            offline_accounts: false,
         }
     }
 }
@@ -503,6 +514,20 @@ mod tests {
         }
         // Left out of the file while on.
         let raw = serde_json::to_value(Settings::default()).unwrap();
+        assert!(raw.get("developer").is_none(), "{raw}");
+    }
+
+    #[test]
+    fn offline_accounts_are_off_by_default_and_saved_only_while_on() {
+        assert!(!Settings::default().developer.offline_accounts);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        update(&path, |s| s.developer.offline_accounts = true).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(raw["developer"], json!({ "offline_accounts": true }));
+        assert!(load_or_default(&path).developer.offline_accounts);
+        update(&path, |s| s.developer.offline_accounts = false).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert!(raw.get("developer").is_none(), "{raw}");
     }
 
