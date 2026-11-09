@@ -20,6 +20,7 @@ use crate::{
         Button, ButtonVariant, Dialog, Icon, IconButton, LoadingDots, TextInput,
         settings::{popover, popover_panel, select_button},
     },
+    file_dialog,
     i18n::{CommonMsg, InstanceSettingsMsg as M, format, t, tr},
     theme::{self, Color, colors, leading, radius, text, weights},
 };
@@ -102,6 +103,13 @@ impl EventEmitter<NewInstanceDismissed> for NewInstanceDialog {}
 impl Focusable for NewInstanceDialog {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.name.focus_handle(cx)
+    }
+}
+
+impl file_dialog::ShowsError for NewInstanceDialog {
+    fn show_error(&mut self, message: SharedString, cx: &mut Context<Self>) {
+        self.error = Some(message);
+        cx.notify();
     }
 }
 
@@ -234,7 +242,7 @@ impl NewInstanceDialog {
             prompt: Some(t(M::Import).into()),
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             this.update(cx, |this, cx| {

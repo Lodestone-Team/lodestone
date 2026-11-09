@@ -26,6 +26,7 @@ use super::Instances;
 use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonVariant, Dialog, Icon, IconButton, LoadingDots, Toggle},
+    file_dialog,
     i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, format, t, tr, trn},
     theme::{self, colors, leading, radius, text, weights},
 };
@@ -121,6 +122,13 @@ impl EventEmitter<ImportDismissed> for ImportDialog {}
 impl Focusable for ImportDialog {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
+    }
+}
+
+impl file_dialog::ShowsError for ImportDialog {
+    fn show_error(&mut self, message: SharedString, cx: &mut Context<Self>) {
+        self.error = Some(message);
+        cx.notify();
     }
 }
 
@@ -283,7 +291,7 @@ impl ImportDialog {
             prompt: Some(t(M::ImportFromHere).into()),
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             let Some(path) = paths.into_iter().next() else {
