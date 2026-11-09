@@ -11,7 +11,7 @@ use std::time::Duration;
 use super::{Accounts, auth_errors};
 use crate::{
     components::{
-        Button, ButtonVariant, Dialog, Icon, TextInput,
+        Button, ButtonVariant, Dialog, Icon, IconButton, RichText, TextInput,
         a11y::{Accessible, Role},
     },
     i18n::{CommonMsg, ShellMsg as M, t, tr},
@@ -71,6 +71,10 @@ pub struct SignInDialog {
     /// The sign-in by pasted link in progress, and the field it is pasted into.
     link: Option<LinkSignIn>,
     link_input: Entity<TextInput>,
+    /// The code was just copied with the button beside it, which shows a check
+    /// for a moment.
+    code_copied: bool,
+    _code_copied_reset: Option<Task<()>>,
 }
 
 impl EventEmitter<SignInEvent> for SignInDialog {}
@@ -97,6 +101,8 @@ impl SignInDialog {
                     .with_placeholder(format!("{}?code=…", auth_errors::LINK_PAGE))
                     .with_automation_id("sign-in-link")
             }),
+            code_copied: false,
+            _code_copied_reset: None,
         }
     }
 
@@ -236,6 +242,24 @@ impl SignInDialog {
         } else {
             self.start_browser(cx);
         }
+    }
+
+    /// The button beside the code: copies it, and shows a check for a moment.
+    fn copy_code(&mut self, cx: &mut Context<Self>) {
+        let Stage::DeviceCode { user_code, .. } = &self.stage else {
+            return;
+        };
+        cx.write_to_clipboard(ClipboardItem::new_string(user_code.to_string()));
+        self.code_copied = true;
+        cx.notify();
+        self._code_copied_reset = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(2)).await;
+            this.update(cx, |this, cx| {
+                this.code_copied = false;
+                cx.notify();
+            })
+            .ok();
+        }));
     }
 
     fn copy_code_and_open(&mut self, cx: &mut Context<Self>) {
@@ -459,12 +483,16 @@ impl Render for SignInDialog {
                             .gap_3()
                             .child(muted(tr!(M::GoToHost, host = host)))
                             .child(
+                                // The code, centred and selectable, with a copy button
+                                // at the box's right edge.
                                 div()
                                     .id("device-code")
                                     .accessible(Role::Label, "device-code", user_code.clone())
+                                    .relative()
                                     .flex()
                                     .justify_center()
                                     .py_3()
+                                    .px(px(56.))
                                     .rounded(radius::LG)
                                     .bg(colors::GRAY_900)
                                     .border_1()
@@ -474,7 +502,36 @@ impl Render for SignInDialog {
                                     .line_height(theme::line_height(text::XLARGE_2, leading::TIGHT))
                                     .font_weight(weights::EXTRABOLD.into())
                                     .text_color(crate::theme::ink::text())
-                                    .child(user_code.clone()),
+                                    .child(RichText::new(user_code.clone()).id("device-code-text"))
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .top_0()
+                                            .bottom_0()
+                                            .right(px(12.))
+                                            .flex()
+                                            .items_center()
+                                            .child(
+                                                IconButton::new(
+                                                    "copy-device-code",
+                                                    if self.code_copied {
+                                                        Icon::Check
+                                                    } else {
+                                                        Icon::Copy
+                                                    },
+                                                )
+                                                .label(if self.code_copied {
+                                                    t(CommonMsg::Copied)
+                                                } else {
+                                                    t(M::CopySignInCode)
+                                                })
+                                                .on_click(
+                                                    cx.listener(|this, _, _, cx| {
+                                                        this.copy_code(cx)
+                                                    }),
+                                                ),
+                                            ),
+                                    ),
                             )
                             .child(waiting(if *opened {
                                 t(M::CodeCopiedWaiting)

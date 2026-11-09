@@ -402,6 +402,7 @@ pub fn text(message: M) -> &'static str {
         M::CodeCopiedWaiting => "Code copié. En attente de sa saisie…",
         M::WaitingForCode => "En attente de la saisie du code…",
         M::CopyCodeAndOpen => "Copier le code et ouvrir {host}",
+        M::CopySignInCode => "Copier le code",
         M::LinkInstructions => {
             "Connectez-vous dans la fenêtre du navigateur qui s’est ouverte. Microsoft affiche ensuite une page indiquant qu’elle n’est normalement pas affichée. Copiez l’adresse complète depuis la barre d’adresse du navigateur et collez-la uniquement dans ce lanceur."
         }
