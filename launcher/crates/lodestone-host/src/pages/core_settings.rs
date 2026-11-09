@@ -18,8 +18,9 @@ use launcher_core::cores::admin::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Dialog, TextInput, Toggle,
+        Button, ButtonVariant, Dialog, DialogSlot, TextInput, Toggle,
         settings::{self, SettingRow},
+        window_layer,
     },
     theme::{colors, ink, text},
 };
@@ -56,8 +57,8 @@ pub struct CoreSettingsPage {
     listing_saving: Option<String>,
     /// A switch being changed.
     switching: Option<CoreSwitch>,
-    asking: Option<(Asking, FocusHandle)>,
-    open_port: Option<OpenPort>,
+    asking: DialogSlot<Self, (Asking, FocusHandle)>,
+    open_port: DialogSlot<Self, OpenPort>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -125,8 +126,8 @@ impl CoreSettingsPage {
             overview: None,
             listing_saving: None,
             switching: None,
-            asking: None,
-            open_port: None,
+            asking: DialogSlot::new(|this: &mut Self| &mut this.asking),
+            open_port: DialogSlot::new(|this: &mut Self| &mut this.open_port),
             _subscriptions: subscriptions,
         };
         this.follow(&this.state.clone(), cx);
@@ -239,8 +240,8 @@ impl CoreSettingsPage {
         };
         match ask {
             Some(ask) => {
-                self.asking = Some((ask, cx.focus_handle()));
-                cx.notify();
+                let focus = cx.focus_handle();
+                self.asking.open((ask, focus), cx);
             }
             None => self.set_switch(switch, value, cx),
         }
@@ -265,7 +266,7 @@ impl CoreSettingsPage {
             },
             move |this, result, cx| {
                 this.switching = None;
-                this.asking = None;
+                this.asking.close(cx);
                 match result {
                     Ok(()) => {
                         this.state.update(cx, |state, cx| {
@@ -322,17 +323,20 @@ impl CoreSettingsPage {
                 .with_label(t(CoreMsg::OpenPortPort))
                 .with_text("25565")
         });
-        self.open_port = Some(OpenPort {
-            focus: cx.focus_handle(),
-            input,
-            error: None,
-            busy: false,
-        });
-        cx.notify();
+        let focus = cx.focus_handle();
+        self.open_port.open(
+            OpenPort {
+                focus,
+                input,
+                error: None,
+                busy: false,
+            },
+            cx,
+        );
     }
 
     fn submit_open_port(&mut self, cx: &mut Context<Self>) {
-        let Some(dialog) = self.open_port.as_mut() else {
+        let Some(dialog) = self.open_port.current_mut() else {
             return;
         };
         if dialog.busy {
@@ -362,7 +366,7 @@ impl CoreSettingsPage {
             async move { admin.open_port(port).await },
             move |this, result, cx| match result {
                 Ok(()) => {
-                    this.open_port = None;
+                    this.open_port.close(cx);
                     parts::toast(
                         &this.state,
                         parts::Level::Info,
@@ -372,7 +376,7 @@ impl CoreSettingsPage {
                 }
                 // the dialog stays open with the error
                 Err(err) => {
-                    if let Some(dialog) = this.open_port.as_mut() {
+                    if let Some(dialog) = this.open_port.current_mut() {
                         dialog.busy = false;
                         dialog.error = Some(err.to_string());
                     }
@@ -451,8 +455,12 @@ impl CoreSettingsPage {
         rows
     }
 
-    fn render_asking(&self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let (asking, focus) = self.asking.clone()?;
+    fn render_asking(
+        &self,
+        (asking, focus): &(Asking, FocusHandle),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let (asking, focus) = (*asking, focus.clone());
         let macros = self.state.read(cx).info.capabilities.macros;
         let (switch, value, title, body, action, danger) = match asking {
             Asking::SafeModeOff => (
@@ -486,76 +494,68 @@ impl CoreSettingsPage {
         };
         let this = cx.entity().downgrade();
         let close = cx.entity().downgrade();
-        Some(parts::overlay(
-            window,
-            Confirm {
-                id: "core-confirm",
-                title: t(title).into(),
-                body: t(body).into(),
-                action: t(action).into(),
-                danger,
-                busy: self.switching.is_some(),
-            }
-            .render(
-                focus,
-                move |_, cx| {
-                    this.update(cx, |this, cx| this.set_switch(switch, value, cx))
-                        .ok();
-                },
-                move |_, cx| {
-                    close
-                        .update(cx, |this, cx| {
-                            this.asking = None;
-                            cx.notify();
-                        })
-                        .ok();
-                },
-            ),
-        ))
+        Confirm {
+            id: "core-confirm",
+            title: t(title).into(),
+            body: t(body).into(),
+            action: t(action).into(),
+            danger,
+            busy: self.switching.is_some(),
+        }
+        .render(
+            focus,
+            move |_, cx| {
+                this.update(cx, |this, cx| this.set_switch(switch, value, cx))
+                    .ok();
+            },
+            move |_, cx| {
+                close
+                    .update(cx, |this, cx| {
+                        this.asking.close(cx);
+                    })
+                    .ok();
+            },
+        )
+        .into_any_element()
     }
 
-    fn render_open_port(&self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let dialog = self.open_port.as_ref()?;
+    fn render_open_port(&self, dialog: &OpenPort, cx: &mut Context<Self>) -> AnyElement {
         let close = cx.entity().downgrade();
-        Some(parts::overlay(
-            window,
-            Dialog::new("open-port", t(CoreMsg::OpenPort), dialog.focus.clone())
-                .on_close(move |_, cx| {
-                    close
-                        .update(cx, |this, cx| {
-                            this.open_port = None;
-                            cx.notify();
-                        })
-                        .ok();
-                })
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
-                            if event.keystroke.key == "enter" {
-                                this.submit_open_port(cx);
-                            }
-                        }))
-                        .child(parts::field(t(CoreMsg::OpenPortPort), &dialog.input))
-                        .children(dialog.error.clone().map(parts::error)),
-                )
-                .footer(
-                    Button::new("open-port-submit", t(CoreMsg::OpenPortButton))
-                        .variant(ButtonVariant::Primary)
-                        .loading(dialog.busy)
-                        .on_click(cx.listener(|this, _, _, cx| this.submit_open_port(cx))),
-                )
-                .footer(
-                    Button::new("open-port-cancel", t(CommonMsg::Cancel)).on_click(cx.listener(
-                        |this, _, _, cx| {
-                            this.open_port = None;
-                            cx.notify();
-                        },
-                    )),
-                ),
-        ))
+        Dialog::new("open-port", t(CoreMsg::OpenPort), dialog.focus.clone())
+            .on_close(move |_, cx| {
+                close
+                    .update(cx, |this, cx| {
+                        this.open_port.close(cx);
+                    })
+                    .ok();
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                        if event.keystroke.key == "enter" {
+                            this.submit_open_port(cx);
+                        }
+                    }))
+                    .child(parts::field(t(CoreMsg::OpenPortPort), &dialog.input))
+                    .children(dialog.error.clone().map(parts::error)),
+            )
+            .footer(
+                Button::new("open-port-submit", t(CoreMsg::OpenPortButton))
+                    .variant(ButtonVariant::Primary)
+                    .loading(dialog.busy)
+                    .on_click(cx.listener(|this, _, _, cx| this.submit_open_port(cx))),
+            )
+            .footer(
+                Button::new("open-port-cancel", t(CommonMsg::Cancel)).on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.open_port.close(cx);
+                    },
+                )),
+            )
+            .into_any_element()
     }
 }
 
@@ -718,12 +718,16 @@ impl Render for CoreSettingsPage {
             .into_any_element(),
         );
 
-        let asking = self.render_asking(window, cx);
-        let open_port = self.render_open_port(window, cx);
+        let mut dialogs = self
+            .asking
+            .render(window, |asking| Some(self.render_asking(asking, cx)));
+        dialogs.extend(
+            self.open_port
+                .render(window, |dialog| Some(self.render_open_port(dialog, cx))),
+        );
         parts::page(sections)
             .text_color(ink::text())
             .text_size(text::MEDIUM)
-            .children(asking)
-            .children(open_port)
+            .children(window_layer(window, dialogs))
     }
 }

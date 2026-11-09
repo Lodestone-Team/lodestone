@@ -23,8 +23,9 @@ use launcher_core::cores::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Dialog, Icon, TextInput, segmented,
+        Button, ButtonVariant, Dialog, DialogSlot, Icon, TextInput, segmented,
         settings::{self, SettingRow},
+        window_layer,
     },
     theme::{colors, fonts, ink, px, radius, text, weights},
 };
@@ -101,9 +102,9 @@ pub struct ApiKeysSection {
     state: Entity<HostState>,
     owner: Owner,
     keys: Option<Result<Vec<ApiKeyInfo>, String>>,
-    revoking: Option<Revoking>,
-    create: Option<Entity<CreateKeyDialog>>,
-    created: Option<Created>,
+    revoking: DialogSlot<Self, Revoking>,
+    create: DialogSlot<Self, Entity<CreateKeyDialog>>,
+    created: DialogSlot<Self, Created>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -125,9 +126,9 @@ impl ApiKeysSection {
             state,
             owner,
             keys: None,
-            revoking: None,
-            create: None,
-            created: None,
+            revoking: DialogSlot::new(|this: &mut Self| &mut this.revoking),
+            create: DialogSlot::new(|this: &mut Self| &mut this.create),
+            created: DialogSlot::new(|this: &mut Self| &mut this.created),
             _subscriptions: vec![subscription],
         };
         this.load(cx);
@@ -150,7 +151,7 @@ impl ApiKeysSection {
     }
 
     fn revoke(&mut self, cx: &mut Context<Self>) {
-        let Some(revoking) = self.revoking.as_mut() else {
+        let Some(revoking) = self.revoking.current_mut() else {
             return;
         };
         if revoking.busy {
@@ -173,7 +174,7 @@ impl ApiKeysSection {
             },
             |this, result, cx| match result {
                 Ok(key) => {
-                    this.revoking = None;
+                    this.revoking.close(cx);
                     if let Some(Ok(keys)) = this.keys.as_mut() {
                         keys.retain(|k| k.id != key.id);
                     }
@@ -185,7 +186,7 @@ impl ApiKeysSection {
                     );
                 }
                 Err(err) => {
-                    if let Some(revoking) = this.revoking.as_mut() {
+                    if let Some(revoking) = this.revoking.current_mut() {
                         revoking.busy = false;
                     }
                     parts::toast(&this.state, parts::Level::Error, error_message(&err), cx);
@@ -198,11 +199,17 @@ impl ApiKeysSection {
         let state = self.state.clone();
         let dialog = cx.new(|cx| CreateKeyDialog::new(state, cx));
         self._subscriptions
-            .push(cx.subscribe(&dialog, |this, _, event, cx| {
+            .push(cx.subscribe(&dialog, |this, dialog, event, cx| {
+                // not one still fading out
+                if this.create.current() != Some(&dialog) {
+                    return;
+                }
                 match event {
-                    CreateKeyEvent::Close => this.create = None,
+                    CreateKeyEvent::Close => {
+                        this.create.close(cx);
+                    }
                     CreateKeyEvent::Created(created) => {
-                        this.create = None;
+                        this.create.close(cx);
                         if let Some(Ok(keys)) = this.keys.as_mut() {
                             keys.retain(|k| k.id != created.info.id);
                             keys.insert(0, created.info.clone());
@@ -213,16 +220,19 @@ impl ApiKeysSection {
                             tr!(CoreMsg::ApiKeyCreated, name = created.info.name),
                             cx,
                         );
-                        this.created = Some(Created {
-                            key: (**created).clone(),
-                            focus: cx.focus_handle(),
-                        });
+                        let focus = cx.focus_handle();
+                        this.created.open(
+                            Created {
+                                key: (**created).clone(),
+                                focus,
+                            },
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
             }));
-        self.create = Some(dialog);
-        cx.notify();
+        self.create.open(dialog, cx);
     }
 
     fn key_row(&self, key: &ApiKeyInfo, cx: &mut Context<Self>) -> AnyElement {
@@ -248,12 +258,15 @@ impl ApiKeysSection {
                 )
                 .variant(ButtonVariant::Danger)
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.revoking = Some(Revoking {
-                        key: revoke_key.clone(),
-                        focus: cx.focus_handle(),
-                        busy: false,
-                    });
-                    cx.notify();
+                    let focus = cx.focus_handle();
+                    this.revoking.open(
+                        Revoking {
+                            key: revoke_key.clone(),
+                            focus,
+                            busy: false,
+                        },
+                        cx,
+                    );
                 })),
             )
             .below(
@@ -292,44 +305,39 @@ impl ApiKeysSection {
             .into_any_element()
     }
 
-    fn render_revoking(&self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let revoking = self.revoking.as_ref()?;
+    fn render_revoking(&self, revoking: &Revoking, cx: &mut Context<Self>) -> AnyElement {
         let this = cx.entity().downgrade();
         let close = cx.entity().downgrade();
-        Some(parts::overlay(
-            window,
-            Confirm {
-                id: "revoke-key",
-                title: t(CoreMsg::RevokeTitle).into(),
-                body: tr!(
-                    CoreMsg::RevokeBody,
-                    name = revoking.key.name,
-                    display = revoking.key.display
-                )
-                .into(),
-                action: t(CoreMsg::Revoke).into(),
-                danger: true,
-                busy: revoking.busy,
-            }
-            .render(
-                revoking.focus.clone(),
-                move |_, cx| {
-                    this.update(cx, |this, cx| this.revoke(cx)).ok();
-                },
-                move |_, cx| {
-                    close
-                        .update(cx, |this, cx| {
-                            this.revoking = None;
-                            cx.notify();
-                        })
-                        .ok();
-                },
-            ),
-        ))
+        Confirm {
+            id: "revoke-key",
+            title: t(CoreMsg::RevokeTitle).into(),
+            body: tr!(
+                CoreMsg::RevokeBody,
+                name = revoking.key.name,
+                display = revoking.key.display
+            )
+            .into(),
+            action: t(CoreMsg::Revoke).into(),
+            danger: true,
+            busy: revoking.busy,
+        }
+        .render(
+            revoking.focus.clone(),
+            move |_, cx| {
+                this.update(cx, |this, cx| this.revoke(cx)).ok();
+            },
+            move |_, cx| {
+                close
+                    .update(cx, |this, cx| {
+                        this.revoking.close(cx);
+                    })
+                    .ok();
+            },
+        )
+        .into_any_element()
     }
 
-    fn render_created(&self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let created = self.created.as_ref()?;
+    fn render_created(&self, created: &Created, cx: &mut Context<Self>) -> AnyElement {
         let key = created.key.key.clone();
         let core = self.state.read(cx).admin.core().base().clone();
         let core_url = format!(
@@ -371,42 +379,39 @@ impl ApiKeysSection {
                         }),
                 )
         };
-        Some(parts::overlay(
-            window,
-            // only Done closes it: the key would be lost
-            Dialog::new(
-                "new-api-key",
-                tr!(CoreMsg::NewKeyTitle, name = created.key.info.name),
-                created.focus.clone(),
-            )
-            .width(px(600.))
-            .keep_open_on_backdrop()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_size(text::H3)
-                            .font_weight(weights::BOLD.face())
-                            .text_color(colors::YELLOW)
-                            .child(t(CoreMsg::NewKeyCopyNow)),
-                    )
-                    .child(code("copy-key", key, CoreMsg::KeyCopied))
-                    .child(parts::paragraph(t(CoreMsg::NewKeyUseWithCli)))
-                    .child(code("copy-cli", cli, CoreMsg::CliCopied))
-                    .child(parts::paragraph(t(CoreMsg::NewKeyStore))),
-            )
-            .footer(
-                Button::new("new-key-done", t(CommonMsg::Done))
-                    .variant(ButtonVariant::Primary)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.created = None;
-                        cx.notify();
-                    })),
-            ),
-        ))
+        // only Done closes it: the key would be lost
+        Dialog::new(
+            "new-api-key",
+            tr!(CoreMsg::NewKeyTitle, name = created.key.info.name),
+            created.focus.clone(),
+        )
+        .width(px(600.))
+        .keep_open_on_backdrop()
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    div()
+                        .text_size(text::H3)
+                        .font_weight(weights::BOLD.face())
+                        .text_color(colors::YELLOW)
+                        .child(t(CoreMsg::NewKeyCopyNow)),
+                )
+                .child(code("copy-key", key, CoreMsg::KeyCopied))
+                .child(parts::paragraph(t(CoreMsg::NewKeyUseWithCli)))
+                .child(code("copy-cli", cli, CoreMsg::CliCopied))
+                .child(parts::paragraph(t(CoreMsg::NewKeyStore))),
+        )
+        .footer(
+            Button::new("new-key-done", t(CommonMsg::Done))
+                .variant(ButtonVariant::Primary)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.created.close(cx);
+                })),
+        )
+        .into_any_element()
     }
 }
 
@@ -454,21 +459,24 @@ impl Render for ApiKeysSection {
                         .on_click(cx.listener(|this, _, _, cx| this.open_create(cx))),
                 )
             });
-        let revoking = self.render_revoking(window, cx);
-        let created = self.render_created(window, cx);
-        let create = self
-            .create
-            .clone()
-            .map(|dialog| parts::overlay(window, dialog));
+        let mut dialogs = self
+            .revoking
+            .render(window, |revoking| Some(self.render_revoking(revoking, cx)));
+        dialogs.extend(
+            self.create
+                .render(window, |dialog| Some(dialog.clone().into_any_element())),
+        );
+        dialogs.extend(
+            self.created
+                .render(window, |created| Some(self.render_created(created, cx))),
+        );
         div()
             .flex()
             .flex_col()
             .gap_2()
             .child(header)
             .child(body)
-            .children(revoking)
-            .children(create)
-            .children(created)
+            .children(window_layer(window, dialogs))
     }
 }
 
