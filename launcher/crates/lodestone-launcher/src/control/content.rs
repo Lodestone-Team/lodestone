@@ -682,7 +682,8 @@ async fn find_items(
         let matches: Vec<&Item> = items
             .iter()
             .filter(|item| {
-                item.file.file_name == wanted
+                item.file.file_name == *name
+                    || item.file.file_name == wanted
                     || launcher_core::content::enabled_name(&item.file.file_name) == plain
                     || item.display_name().eq_ignore_ascii_case(wanted)
                     || item.modrinth.as_ref().is_some_and(|m| {
