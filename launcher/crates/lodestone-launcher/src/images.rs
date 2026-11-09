@@ -84,13 +84,7 @@ pub fn hero(cx: &App) -> ImageSource {
     }
 }
 
-/// A decoded RGBA image, in the BGRA layout GPUI draws.
-pub fn render_image(mut image: image::RgbaImage) -> Arc<RenderImage> {
-    for pixel in image.pixels_mut() {
-        pixel.0.swap(0, 2);
-    }
-    Arc::new(RenderImage::new([image::Frame::new(image)]))
-}
+pub use lodestone_ui::images::render_image;
 
 /// Frees the GPU copies of images the launcher no longer shows. GPUI uploads each
 /// image it draws to the window's sprite atlas and keeps it there until it is told

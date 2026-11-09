@@ -47,6 +47,9 @@ pub fn text(message: M) -> &'static str {
         M::MoveDown => "下移",
         M::MoveUp => "上移",
         M::Yes => "是",
+        M::MinimizeWindow => "最小化",
+        M::MaximizeWindow => "最大化",
+        M::RestoreWindow => "还原",
         M::KeepEditing => "继续编辑",
         M::UnsavedChanges => "你有未保存的更改",
         M::ShowInFileManager => {
