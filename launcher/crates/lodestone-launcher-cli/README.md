@@ -2,8 +2,9 @@
 
 Controls a running Lodestone Launcher from the command line: instances, the game and its
 log, mods and modpacks from Modrinth, worlds and backups, accounts, settings, imports,
-and Lodestone cores and their servers. It does what the launcher's window does, through
-the same code, and the window shows each change as it happens.
+Lodestone cores and their servers, and friends' servers shared with an invite link. It
+does what the launcher's window does, through the same code, and the window shows each
+change as it happens.
 
 ```sh
 cargo build -p lodestone-launcher-cli        # from launcher/

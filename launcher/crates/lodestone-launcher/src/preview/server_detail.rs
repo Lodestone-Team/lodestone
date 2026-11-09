@@ -18,6 +18,7 @@ pub const SCENES: &[&str] = &[
     "server-detail",
     "server-detail-linked",
     "server-detail-no-console",
+    "server-detail-eula",
     "server-sign-in-console",
 ];
 
@@ -140,8 +141,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         };
         let lines = console();
         let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let eula = scene == "server-detail-eula";
         let detail = cx.new(|cx| {
-            ServerDetail::preview(
+            let mut detail = ServerDetail::preview(
                 "Peter's Lodestone Core",
                 "peter",
                 smp(),
@@ -151,7 +153,11 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 links,
                 accounts,
                 cx,
-            )
+            );
+            if eula {
+                detail.preview_eula(crate::servers::detail::EulaState::NotAccepted);
+            }
+            detail
         });
         servers.show_detail(detail, cx);
     });

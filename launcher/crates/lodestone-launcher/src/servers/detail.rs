@@ -87,6 +87,22 @@ pub enum DetailEvent {
     SignedOut,
 }
 
+/// Whether the server's Minecraft EULA is accepted, for those who may start it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum EulaState {
+    /// Not known: not asked yet, a core too old to say, or this key can't start it.
+    #[default]
+    Unknown,
+    Accepted,
+    /// The server can't start until someone accepts it.
+    NotAccepted,
+    Accepting,
+    /// The user just accepted it here.
+    JustAccepted,
+    /// Accepting failed: why, for people.
+    Failed(SharedString),
+}
+
 /// The Minecraft account part of the page.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LinkState {
@@ -117,6 +133,8 @@ pub struct ServerDetail {
     pub chat_error: Option<SharedString>,
     pub links: LinkState,
     pub linking: bool,
+    /// The server's Minecraft EULA.
+    pub eula: EulaState,
     /// The result of the last link or unlink: `(is_error, message)`.
     pub link_notice: Option<(bool, SharedString)>,
     pub scroll: UniformListScrollHandle,
@@ -180,6 +198,7 @@ impl ServerDetail {
             chat_error: None,
             links: LinkState::Loading,
             linking: false,
+            eula: EulaState::Unknown,
             link_notice: None,
             scroll: UniformListScrollHandle::new(),
             follow: true,
@@ -238,11 +257,18 @@ impl ServerDetail {
         let fetch = cx.background_spawn(async move {
             let access = client.access(&key, &uuid).await;
             let players = client.players(&key, &uuid).await.ok();
-            (access, players)
+            // a core too old to say, or a server that isn't Minecraft: nothing to show
+            let eula = client.eula_accepted(&key, &uuid).await.ok();
+            (access, players, eula)
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
-            let (access, players) = fetch.await;
+            let (access, players, eula) = fetch.await;
             this.update(cx, |this, cx| {
+                this.eula = match eula {
+                    Some(true) => EulaState::Accepted,
+                    Some(false) => EulaState::NotAccepted,
+                    None => EulaState::Unknown,
+                };
                 match access {
                     Ok(access) => {
                         // a core without the route: viewing, starting and stopping as the
@@ -276,6 +302,44 @@ impl ServerDetail {
             .ok();
         }));
         self.load_links(cx);
+    }
+
+    /// "Accept the Minecraft EULA": the user agreed, with their own click. Never called
+    /// for them.
+    pub fn accept_eula(&mut self, cx: &mut Context<Self>) {
+        let Some(client) = self.client.clone() else {
+            return;
+        };
+        if !matches!(self.eula, EulaState::NotAccepted | EulaState::Failed(_)) {
+            return;
+        }
+        self.eula = EulaState::Accepting;
+        let key = self.key.clone();
+        let uuid = self.server.uuid.clone();
+        let work = cx.background_spawn(async move { client.accept_eula(&key, &uuid).await });
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.eula = match result {
+                    Ok(()) => EulaState::JustAccepted,
+                    Err(CoreError::SignedOut) => {
+                        cx.emit(DetailEvent::SignedOut);
+                        EulaState::NotAccepted
+                    }
+                    Err(err) => {
+                        EulaState::Failed(tr!(M::EulaAcceptFailed, error = core_error(&err)).into())
+                    }
+                };
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
+    /// Shows the EULA's state, for the offscreen screenshots.
+    pub fn preview_eula(&mut self, eula: EulaState) {
+        self.eula = eula;
     }
 
     fn follow_stream(&mut self, kind: StreamKind, cx: &mut Context<Self>) {

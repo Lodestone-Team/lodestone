@@ -93,6 +93,16 @@ Source: "lodestone.ico"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#ExeName}"; IconFilename: "{app}\lodestone.ico"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#ExeName}"; IconFilename: "{app}\lodestone.ico"; Tasks: desktopicon
 
+[Registry]
+; The lodestone:// URL scheme, for this user only (HKA is HKEY_CURRENT_USER in a
+; per-user install): a friend's invite page opens lodestone://join?invite=… in the
+; launcher, which gets the link as its first argument. A launcher already running is
+; brought forward and takes the link (see the launcher's deep_link module).
+Root: HKA; Subkey: "Software\Classes\lodestone"; ValueType: string; ValueName: ""; ValueData: "URL:Lodestone Launcher"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\lodestone"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\lodestone\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\lodestone.ico"
+Root: HKA; Subkey: "Software\Classes\lodestone\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#ExeName}"" ""%1"""
+
 [Run]
 Filename: "{app}\{#ExeName}"; Description: "Open {#AppName}"; Flags: nowait postinstall skipifsilent
 

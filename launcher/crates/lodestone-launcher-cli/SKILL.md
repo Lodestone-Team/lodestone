@@ -97,7 +97,7 @@ The user also sees each connected program (this CLI says
 - **Destructive commands need `--yes`, and you need the user's OK first.** Without it they
   fail with exit 5 and change nothing; the message says what would happen. These are:
   `instances delete`, `worlds delete`, `worlds delete-backup`, `worlds restore --replace`,
-  `content remove`, `accounts remove`, `cores remove`, `cores trust`, `shared clear`,
+  `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`, `shared clear`,
   `play clear-logs`, `storage clean`, `snapshots revert`, `snapshots delete`, applying `modpacks update`, a `content switch-loader` that leaves mods
   behind, and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
@@ -105,7 +105,8 @@ The user also sees each connected program (this CLI says
   with the user's access. When a core isn't trusted for mods, installing its server's
   mods fails with `untrusted_core` and `data.advisory` (the mods, uploaded jars, scripts).
   Show the advisory to the user. Only if they agree, rerun with `--accept-advisory`
-  (this once) or run `cores trust <core> --yes` (from now on).
+  (this once) or run `cores trust <core> --yes` (from now on). A friend's server
+  (`friends join`) is never trusted unless the user trusts it in the window.
 - **Snapshot files from other people.** `snapshots import` of a `.lodesnap` with mods
   fails with `confirmation_required` and lists the mods: programs that run when the game
   starts. Run `snapshots import <file> --preview` and show the user what it holds; only if
@@ -118,6 +119,10 @@ The user also sees each connected program (this CLI says
 - **EULA:** launching Minecraft and hosting a server accept Mojang's EULA
   (https://aka.ms/MinecraftEULA). Ask before the first `play launch`, and `servers host`
   needs `--accept-eula`, which only the user can give.
+- **Invite links are secrets.** Anyone with a friend's invite link can join their server.
+  Pass it on stdin (`friends join -`), never echo or log it; `friends list` never prints
+  one. A `wrong_host` error means the computer that answered isn't the one in the link:
+  stop, and tell the user to ask their friend for a new link.
 - **No secrets.** The CLI never prints Microsoft tokens, core keys or passwords, and
   never takes a password as an argument: core passwords come on stdin
   (`--password-stdin`) or in `LODESTONE_CORE_PASSWORD`. Don't echo, log or store them.
@@ -323,6 +328,24 @@ printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core 
 lodestone-launcher-cli prompts list                          # questions the window is asking
 lodestone-launcher-cli prompts answer update play
 ```
+
+Friends' servers (Lodestone Connect: a friend shares a server from Lodestone Host and
+sends an invite link, `https://connect.lodestone.cc/j/…`):
+
+```sh
+printf '%s\n' "$LINK" | lodestone-launcher-cli friends join -   # long; connects, matching instance, plays
+printf '%s\n' "$LINK" | lodestone-launcher-cli friends join - --no-play   # only the server's details
+lodestone-launcher-cli friends list                          # joined before; never prints links
+lodestone-launcher-cli friends join "Alex's SMP"             # again, by name
+lodestone-launcher-cli friends remove "Alex's SMP" --yes
+```
+
+`friends join` fails with `data.reason`: `link_ended` (ask for a new link),
+`host_offline` (the friend isn't sharing now), `no_path` (the two networks can't connect
+directly), `wrong_host` (refuse; see the safety rules), `offline` or
+`service_unreachable`. A server with mods gets them as `servers join` does, with
+`untrusted_core` and `--accept-advisory`, and `mods_changed` with `--update-mods` or
+`--skip-update`.
 
 The window shows cores on its **Lodestone Host** page. `cores list` says what each one
 is (`"product": "Lodestone Host"` for the desktop app, `"Lodestone Core"` for a bare

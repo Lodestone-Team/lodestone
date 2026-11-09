@@ -18,7 +18,7 @@ use lodestone_minecraft::console_format::{
 
 use super::{
     core_error,
-    detail::{DetailEvent, LinkState, ServerDetail, StreamStatus},
+    detail::{DetailEvent, EulaState, LinkState, ServerDetail, StreamStatus},
     loader_label, status_label,
 };
 use crate::{
@@ -241,6 +241,105 @@ impl ServerDetail {
             self.follow = true;
         }
         cx.notify();
+    }
+
+    /// "The Minecraft EULA isn't accepted": for those who may start the server, with
+    /// the EULA to read and the button that accepts it. Never accepted for the user.
+    fn eula_card(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let may_start = self.access.is_some_and(|access| access.start);
+        if !may_start {
+            return None;
+        }
+        let (color, title, body) = match &self.eula {
+            EulaState::Unknown | EulaState::Accepted => return None,
+            EulaState::JustAccepted => {
+                return Some(
+                    div()
+                        .id("server-eula")
+                        .accessible(Role::Status, "server-eula", t(M::EulaAccepted))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .px_4()
+                        .py_3()
+                        .rounded(radius::LG)
+                        .border_1()
+                        .border_color(colors::GREEN_300.opacity(30))
+                        .bg(colors::GREEN_300.opacity(8))
+                        .child(Icon::Check.render(px(14.), colors::GREEN_300))
+                        .child(small(t(M::EulaAccepted)).text_color(crate::theme::ink::text()))
+                        .into_any_element(),
+                );
+            }
+            EulaState::Failed(error) => (
+                colors::RED_200,
+                t(M::EulaNotAccepted).to_string(),
+                error.to_string(),
+            ),
+            EulaState::NotAccepted | EulaState::Accepting => (
+                colors::YELLOW,
+                t(M::EulaNotAccepted).to_string(),
+                tr!(M::EulaNotAcceptedBody, url = super::host::EULA_URL),
+            ),
+        };
+        let accepting = self.eula == EulaState::Accepting;
+        Some(
+            div()
+                .id("server-eula")
+                .accessible(Role::Alert, "server-eula", title.clone())
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap_3()
+                .px_4()
+                .py_3()
+                .rounded(radius::LG)
+                .border_1()
+                .border_color(color.opacity(30))
+                .bg(color.opacity(8))
+                .child(
+                    div()
+                        .pt_0p5()
+                        .child(Icon::TriangleExclamation.render(px(14.), color)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_1()
+                        .child(
+                            div()
+                                .font_weight(weights::BOLD.into())
+                                .text_color(crate::theme::ink::text())
+                                .child(title),
+                        )
+                        .child(small(body).text_color(crate::theme::ink::secondary())),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_none()
+                        .gap_2()
+                        .child(
+                            Button::new("server-read-eula", t(M::ReadEula))
+                                .size(ButtonSize::Slim)
+                                .variant(ButtonVariant::Ghost)
+                                .on_click(|_, _, cx| cx.open_url(super::host::EULA_URL)),
+                        )
+                        .child(
+                            Button::new("server-accept-eula", t(M::AcceptEula))
+                                .size(ButtonSize::Slim)
+                                .variant(ButtonVariant::Primary)
+                                .loading(accepting)
+                                .on_click(cx.listener(|this, _, _, cx| this.accept_eula(cx))),
+                        ),
+                )
+                .into_any_element(),
+        )
     }
 
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -631,6 +730,7 @@ impl ServerDetail {
 impl Render for ServerDetail {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let header = self.header(cx);
+        let eula = self.eula_card(cx);
         let console = self.console_card(cx);
         let players = self.players_card();
         let account = self.account_card(cx);
@@ -644,6 +744,7 @@ impl Render for ServerDetail {
             .py_6()
             .gap_5()
             .child(header)
+            .children(eula)
             .child(
                 div()
                     .flex()

@@ -693,6 +693,33 @@ impl CoreClient {
             .await
     }
 
+    /// Whether the Minecraft EULA is accepted for a server: it can't start until it is.
+    pub async fn eula_accepted(&self, key: &Secret, uuid: &str) -> Result<bool, CoreError> {
+        let status: EulaStatus = self
+            .json(
+                Method::GET,
+                &format!("instance/{}/eula", segment(uuid)?),
+                Auth::Bearer(key),
+                None,
+            )
+            .await?;
+        Ok(status.accepted)
+    }
+
+    /// Accepts the Minecraft EULA (https://aka.ms/MinecraftEULA) for a server. Only
+    /// call it after the user agreed to it, with a click of their own: never for them.
+    pub async fn accept_eula(&self, key: &Secret, uuid: &str) -> Result<(), CoreError> {
+        self.put(key, &format!("instance/{}/eula", segment(uuid)?))
+            .await
+    }
+
+    /// The server shared through a Lodestone Connect info port (this client's address
+    /// is `http://127.0.0.1:<the info port>`): its name, version, loader and players.
+    pub async fn connect_info(&self) -> Result<lodestone_connect::SharedServer, CoreError> {
+        self.json(Method::GET, "connect/info", Auth::None, None)
+            .await
+    }
+
     /// The server's client modpack: with `key` through the signed-in route (any
     /// instance the key can view), else through the public one (listed instances).
     /// `etag` is the one of the pack the instance has.
@@ -733,6 +760,12 @@ impl CoreClient {
             }
         }
     }
+}
+
+/// `GET /instance/{uuid}/eula`.
+#[derive(serde::Deserialize)]
+struct EulaStatus {
+    accepted: bool,
 }
 
 #[derive(Clone, Copy)]
