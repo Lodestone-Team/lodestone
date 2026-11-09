@@ -142,6 +142,55 @@ pub fn text(message: M) -> &'static str {
         M::Fullscreen => "Plein écran",
         M::EnvironmentVariables => "Variables d’environnement",
 
+        M::InstanceSnapshots => "Instantanés",
+        M::TakeSnapshotEllipsis => "Prendre un instantané…",
+        M::TakeSnapshotTitle => "Prendre un instantané",
+        M::TakeSnapshot => "Prendre l’instantané",
+        M::SnapshotName => "Nom",
+        M::WhatToInclude => "Contenu à inclure",
+        M::WhatToRestore => "Contenu à restaurer",
+        M::PartMods => "Mods",
+        M::PartResourcePacks => "Packs de ressources",
+        M::PartShaderPacks => "Packs de shaders",
+        M::PartConfigs => "Configurations et options",
+        M::PartWorlds => "Mondes",
+        M::PartScreenshots => "Captures d’écran",
+        M::PartSettings => "Paramètres de l’instance",
+        M::PartOther => "Autres fichiers",
+        M::NoSnapshots => "Aucun instantané pour l’instant.",
+        M::SnapshotSizes => "{total}, dont {new} nouveaux",
+        M::BeforeGoingBack => "Avant le retour à «\u{a0}{name}\u{a0}»",
+        M::RevertEllipsis => "Restaurer…",
+        M::RevertTitle => "Revenir à {name}\u{a0}?",
+        M::RevertBody => {
+            "Les parties choisies sont remplacées par celles de l’instantané. Un instantané en est pris avant, pour pouvoir revenir en arrière."
+        }
+        M::Revert => "Restaurer",
+        M::ShareEllipsis => "Partager…",
+        M::ShareSnapshotTitle => "Partager {name}",
+        M::PreparingFile => "Préparation du fichier…",
+        M::DragToShare => "Faites glisser le fichier dans une autre app, ou\u{a0}:",
+        M::SaveAsEllipsis => "Enregistrer sous…",
+        M::ShowInFolder => "Afficher dans le dossier",
+        M::DeleteSnapshotTitle => "Supprimer {name}\u{a0}?",
+        M::DeleteSnapshotBody => {
+            "Les fichiers qu’aucun autre instantané n’utilise sont supprimés. Cette action est définitive."
+        }
+        M::TakingSnapshot => "Prise de l’instantané…",
+        M::RevertingSnapshot => "Restauration de l’instantané…",
+        M::ImportingSnapshot => "Création de l’instance…",
+        M::ReadingSnapshot => "Lecture de l’instantané…",
+        M::ImportSnapshotTitle => "Nouvelle instance depuis un instantané",
+        M::SnapshotFrom => "{name} · Minecraft {version}",
+        M::SnapshotModsWarning => {
+            "Il contient {count} mods\u{a0}: des programmes qui s’exécutent au lancement du jeu. N’utilisez que des instantanés de personnes de confiance."
+        }
+        M::CreateInstanceButton => "Créer l’instance",
+        M::SnapshotGameRunning => "Arrêtez d’abord le jeu.",
+        M::ChooseSomething => "Choisissez au moins une partie.",
+        M::SnapshotTaken => "Instantané pris.",
+        M::SnapshotReverted => "Instantané restauré.",
+        M::SnapshotsHint => "Des copies de cette instance, pour revenir en arrière ou partager.",
         M::VerifyGameFiles => "Vérifier les fichiers du jeu",
         M::VerifyHint => "Retélécharge les fichiers manquants ou endommagés.",
         M::Verify => "Vérifier",

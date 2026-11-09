@@ -162,7 +162,7 @@ impl Instances {
     }
 
     /// Imports `.mrpack` files and CurseForge packs (`.zip` files with `manifest.json`),
-    /// from "Import…" or a drop. Others are refused.
+    /// from "Import…" or a drop, and offers `.lodesnap` snapshots. Others are refused.
     pub fn import_files(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         for path in paths {
             let extension = path
@@ -170,6 +170,10 @@ impl Instances {
                 .and_then(|e| e.to_str())
                 .map(str::to_ascii_lowercase)
                 .unwrap_or_default();
+            if extension == launcher_core::snapshots::EXTENSION {
+                cx.emit(InstancesEvent::ImportSnapshot(path));
+                continue;
+            }
             let is_pack = extension == "mrpack"
                 || (extension == "zip" && modpack::curseforge::is_curseforge_pack(&path));
             if !is_pack {

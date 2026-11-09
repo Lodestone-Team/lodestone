@@ -56,7 +56,7 @@ pub fn clean(call: Call, cx: &mut App) -> Reply {
         return ready(Err(api_error(
             codes::INVALID_PARAMS,
             format!(
-                "Unknown \"{}\": use game-files, runtimes, cache, leftovers, old-logs or logs.",
+                "Unknown \"{}\": use game-files, runtimes, cache, leftovers, old-logs, logs or snapshots.",
                 params.what
             ),
         )));
@@ -74,6 +74,9 @@ pub fn clean(call: Call, cx: &mut App) -> Reply {
         }
         Clean::OldLogs => "deletes the logs and crash reports older than 30 days, for good",
         Clean::AllLogs => "deletes every log and crash report, for good",
+        Clean::Snapshots => {
+            "deletes automatic snapshots, snapshots of deleted instances and shared snapshot files, for good"
+        }
     }));
     let instances = call.control.instances.read(cx);
     let running: Vec<String> = instances

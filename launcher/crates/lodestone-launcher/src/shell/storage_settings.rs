@@ -277,7 +277,11 @@ impl Render for StorageSettings {
 
         // The total, and a bar by category.
         let parts: Vec<(Color, &'static str, u64)> = vec![
-            (INSTANCES, t(M::StorageInstances), report.instances_total()),
+            (
+                INSTANCES,
+                t(M::StorageInstances),
+                report.instances_total() + report.snapshots.bytes,
+            ),
             (
                 GAME_FILES,
                 t(M::StorageGameFiles),
@@ -366,7 +370,7 @@ impl Render for StorageSettings {
             });
 
         // Instances.
-        let instance_rows: Vec<AnyElement> = if report.instances.is_empty() {
+        let mut instance_rows: Vec<AnyElement> = if report.instances.is_empty() {
             vec![SettingRow::new(t(M::StorageNoInstances)).into_any_element()]
         } else {
             report
@@ -445,6 +449,29 @@ impl Render for StorageSettings {
                 ))
                 .into_any_element(),
         ];
+
+        // Snapshots, shared by every instance.
+        let snapshots = report.snapshots;
+        if snapshots.snapshots > 0 || snapshots.bytes > 0 {
+            instance_rows.push(
+                SettingRow::new(t(M::StorageSnapshots))
+                    .hint(tr!(
+                        M::StorageSnapshotsHint,
+                        count = snapshots.snapshots,
+                        size = format::bytes(snapshots.removable_bytes)
+                    ))
+                    .child(size(snapshots.bytes))
+                    .child(remove_button(
+                        "storage-clean-snapshots",
+                        t(M::StorageRemoveEllipsis),
+                        snapshots.removable_bytes > 0 && !busy,
+                        cx,
+                        Clean::Snapshots,
+                        snapshots.removable_bytes,
+                    ))
+                    .into_any_element(),
+            );
+        }
 
         // Java runtimes.
         let unused_runtimes = report.unused_runtimes();
@@ -604,6 +631,11 @@ impl super::LauncherShell {
                 tr!(M::StorageDeleteAllLogsBody, size = size),
                 M::StorageDeleteConfirm,
             ),
+            Clean::Snapshots => (
+                M::StorageCleanSnapshotsTitle,
+                tr!(M::StorageCleanSnapshotsBody, size = size),
+                M::StorageRemove,
+            ),
         };
         let entity = cx.entity();
         crate::components::Dialog::new("storage-clean", t(title), focus)
@@ -643,6 +675,7 @@ impl super::LauncherShell {
                 Clean::Leftovers => report.leftovers.bytes,
                 Clean::OldLogs => report.logs.old_bytes,
                 Clean::AllLogs => report.logs.bytes,
+                Clean::Snapshots => report.snapshots.removable_bytes,
             };
             let focus = cx.focus_handle();
             self.modal
