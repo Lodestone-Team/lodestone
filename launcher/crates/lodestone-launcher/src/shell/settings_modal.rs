@@ -29,7 +29,9 @@ pub enum SettingsPage {
     Defaults,
     Shared,
     General,
+    Skin,
     Accounts,
+    Storage,
     Developer,
 }
 
@@ -44,6 +46,8 @@ impl SettingsPage {
             M::GroupLauncher,
             &[
                 SettingsPage::General,
+                SettingsPage::Skin,
+                SettingsPage::Storage,
                 SettingsPage::Accounts,
                 SettingsPage::Developer,
             ],
@@ -55,7 +59,9 @@ impl SettingsPage {
             SettingsPage::Defaults => t(M::InstanceDefaults),
             SettingsPage::Shared => t(M::SharedGameSettings),
             SettingsPage::General => t(M::General),
+            SettingsPage::Skin => t(M::Skin),
             SettingsPage::Accounts => t(M::Accounts),
+            SettingsPage::Storage => t(M::Storage),
             SettingsPage::Developer => t(M::Developer),
         }
     }
@@ -64,7 +70,11 @@ impl SettingsPage {
         match self {
             SettingsPage::Defaults => Some(t(M::DefaultsLead)),
             SettingsPage::Shared => Some(t(M::SharedLead)),
-            SettingsPage::General | SettingsPage::Accounts | SettingsPage::Developer => None,
+            SettingsPage::General
+            | SettingsPage::Skin
+            | SettingsPage::Accounts
+            | SettingsPage::Storage
+            | SettingsPage::Developer => None,
         }
     }
 
@@ -73,7 +83,9 @@ impl SettingsPage {
             SettingsPage::Defaults => Icon::Cube,
             SettingsPage::Shared => Icon::Copy,
             SettingsPage::General => Icon::Bars,
+            SettingsPage::Skin => Icon::Palette,
             SettingsPage::Accounts => Icon::User,
+            SettingsPage::Storage => Icon::HardDrive,
             SettingsPage::Developer => Icon::Gear,
         }
     }
@@ -94,7 +106,9 @@ impl LauncherShell {
     ) {
         self.account_menu_open = false;
         if let Some(page) = page {
-            self.settings_page = page;
+            self.set_settings_page(page, cx);
+        } else if self.settings_page == SettingsPage::Storage {
+            self.storage.update(cx, |storage, cx| storage.rescan(cx));
         }
         if !self.settings_modal.is_open() {
             let focus = cx.focus_handle();
@@ -104,6 +118,20 @@ impl LauncherShell {
             self.settings_modal.open(SettingsModal { focus }, cx);
         }
         cx.notify();
+    }
+
+    /// Shows `page`. Storage counts while it is shown, and stops when it is left.
+    pub(super) fn set_settings_page(&mut self, page: SettingsPage, cx: &mut Context<Self>) {
+        let was = self.settings_page;
+        self.settings_page = page;
+        if page == SettingsPage::Skin && was != SettingsPage::Skin {
+            self.skin.update(cx, |skin, cx| skin.refresh(cx));
+        }
+        if page == SettingsPage::Storage && was != SettingsPage::Storage {
+            self.storage.update(cx, |storage, cx| storage.rescan(cx));
+        } else if page != SettingsPage::Storage {
+            self.storage.update(cx, |storage, cx| storage.stop(cx));
+        }
     }
 
     /// Changes Instance defaults without saving, for the offscreen screenshots.
@@ -118,6 +146,7 @@ impl LauncherShell {
     }
 
     pub fn close_settings(&mut self, cx: &mut Context<Self>) {
+        self.storage.update(cx, |storage, cx| storage.stop(cx));
         self.settings_modal.close(cx);
     }
 
@@ -161,6 +190,8 @@ impl LauncherShell {
         let toast = match page {
             SettingsPage::Defaults => self.launcher_settings.read(cx).toast().render(),
             SettingsPage::Shared => self.shared_settings.read(cx).toast().render(),
+            SettingsPage::Storage => self.storage.read(cx).toast().render(),
+            SettingsPage::Skin => self.skin.read(cx).toast().render(),
             _ => None,
         }
         .map(IntoElement::into_any_element);
@@ -199,6 +230,8 @@ impl LauncherShell {
             SettingsPage::Shared => self.shared_settings.clone().into_any_element(),
             SettingsPage::General => self.render_general_page(cx).into_any_element(),
             SettingsPage::Accounts => self.render_accounts_page(cx).into_any_element(),
+            SettingsPage::Storage => self.storage.clone().into_any_element(),
+            SettingsPage::Skin => self.skin.clone().into_any_element(),
             SettingsPage::Developer => developer::render(self, cx).into_any_element(),
         };
         Dialog::new("launcher-settings", t(M::Settings), modal.focus.clone())
@@ -356,7 +389,7 @@ impl LauncherShell {
                             .child(div().flex().child(
                                 muted_link("manage-accounts", t(M::ManageAccounts)).on_click(
                                     cx.listener(|this, _, _, cx| {
-                                        this.settings_page = SettingsPage::Accounts;
+                                        this.set_settings_page(SettingsPage::Accounts, cx);
                                         this.settings_nav_open = false;
                                         cx.notify();
                                     }),
@@ -410,7 +443,7 @@ impl LauncherShell {
                         // Long titles wrap rather than lose their end.
                         .child(div().flex_1().min_w_0().child(page.title()))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.settings_page = page;
+                            this.set_settings_page(page, cx);
                             this.settings_nav_open = false;
                             cx.notify();
                         })),
@@ -698,7 +731,7 @@ impl LauncherShell {
                     .leading(account_box::avatar(accounts, Some(account), px(28.)))
                     .hint(kind)
                     .when(account.uses_launcher_identity(), |row| {
-                        row.child(tag(t(M::LauncherIdentity), colors::BLUE_200))
+                        row.child(tag(t(M::LauncherIdentity), crate::theme::accent::light()))
                     })
                     .when(needs_sign_in, |row| {
                         row.child(

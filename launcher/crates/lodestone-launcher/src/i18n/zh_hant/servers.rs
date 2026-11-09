@@ -12,11 +12,11 @@ pub fn text(message: M) -> &'static str {
         }
 
         M::BadgeTrusted => "已信任",
-        M::BadgePinned => "已釘選憑證",
+        M::BadgePinned => "憑證已釘選",
         M::SignedInAs => "已用 {username} 登入",
         M::SignedIn => "已登入",
         M::NotSignedIn => "未登入：僅顯示公開伺服器",
-        M::TrustedForMods => "信任其模組",
+        M::TrustedForMods => "信任此核心的模組",
         M::Offline => "離線：無法連線到此核心。請確認它正在執行，且位於同一個網路。",
         M::NotListedPublicly => {
             "擁有者尚未在核心設定中開啟「公開列出伺服器」，因此不登入就沒有可顯示的內容。"
@@ -74,7 +74,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::SignedOutOf => "已登出 {name}",
         M::KeyStillValid => {
-            "此裝置的金鑰（lsk_{id}_…）在到期前仍然有效。若要立即讓它失效，請在儀表板的「設定 → API 金鑰」中撤銷它。"
+            "此裝置的金鑰（lsk_{id}_…）在到期前仍然有效。若要立即讓它失效，請在控制面板的「設定 → API 金鑰」中撤銷它。"
         }
         M::KeySaveFailed => "無法將金鑰儲存到{keychain}",
         M::KeySaveFailedError => "無法將金鑰儲存到{keychain}：{error}",
@@ -103,8 +103,8 @@ pub fn text(message: M) -> &'static str {
         M::UpdateInstanceFailed => "無法更新實例",
         M::InstanceNotSaved => "模組已更新，但無法儲存實例：{error}",
         M::BadJoinAddress => "Minecraft 無法加入此伺服器的位址或連接埠。",
-        M::StartCrashed => "伺服器在啟動時當機了。請在儀表板中查看它的主控台。",
-        M::StartStopped => "伺服器在啟動時停止了。請在儀表板中查看它的主控台。",
+        M::StartCrashed => "伺服器在啟動時當機了。請在控制面板中查看它的主控台。",
+        M::StartStopped => "伺服器在啟動時停止了。請在控制面板中查看它的主控台。",
         M::ServerGone => "此伺服器已不存在。",
         M::StartTimedOut => "伺服器未能在 5 分鐘內完成啟動。",
         M::StartFailed => "無法啟動 {name}",
@@ -115,7 +115,7 @@ pub fn text(message: M) -> &'static str {
             "來自 Lodestone 核心的模組會以程式的形式在{computer} 上執行，擁有與你相同的檔案和帳號存取權限。只信任你信得過其擁有者的核心。"
         }
         M::FingerprintHelp => {
-            "請將它與核心顯示的指紋比對：在儀表板的「設定 → 核心設定 → 資訊」中（「憑證指紋（SHA-256）」），或在核心啟動時的日誌中（「TLS certificate SHA-256 fingerprint」）。"
+            "請將它與核心顯示的指紋比對：在控制面板的「設定 → 核心設定 → 資訊」中（「憑證指紋（SHA-256）」），或在核心啟動時的日誌中（「TLS certificate SHA-256 fingerprint」）。"
         }
 
         M::CoreUnreachable => "無法連線到核心。請檢查位址，並確認核心正在執行。（{detail}）",
@@ -146,15 +146,15 @@ pub fn text(message: M) -> &'static str {
         M::ChangeConfig => "設定檔：{name}",
         M::NoChanges => "沒有變更",
         M::UpdateAndPlay => "更新並開始遊戲",
-        M::PlayAnyway => "仍然開始遊戲",
+        M::PlayAnyway => "仍要開始遊戲",
 
         M::CertChangedTitle => "{name} 的憑證已變更",
         M::CertTrustTitle => "要信任此核心的憑證嗎？",
         M::CertChangedIntro => {
-            "位於 {address} 的核心出示了與你信任的不同的 HTTPS 憑證。核心會在內建憑證即將到期或位址變更時產生新憑證，但這也可能表示有人正在攔截連線。"
+            "位於 {address} 的核心出示的 HTTPS 憑證與你信任的不同。核心會在內建憑證即將到期或位址變更時產生新憑證，但這也可能表示有人正在攔截連線。"
         }
         M::CertUntrustedIntro => {
-            "{os} 不信任位於 {address} 的 {name} 的 HTTPS 憑證。Lodestone 核心會自行產生憑證，因此第一次連線時出現這種情況是正常的。"
+            "{os} 不信任 {name} 在 {address} 上使用的 HTTPS 憑證。Lodestone 核心會自行產生憑證，因此第一次連線時出現這種情況是正常的。"
         }
         M::FingerprintTrustedBefore => "先前信任的憑證（SHA-256）",
         M::FingerprintPresented => "目前出示的憑證（SHA-256）",
@@ -185,7 +185,7 @@ pub fn text(message: M) -> &'static str {
         M::AdvisoryUpdate => {
             "更新為 {core} 上 {server} 的模組會安裝這些檔案。模組就是程式：它們執行時擁有與你相同的檔案和帳號存取權限。"
         }
-        M::ModrinthUnreachable => "無法連線到 Modrinth，因此沒有任何檔案能與它核對。",
+        M::ModrinthUnreachable => "無法連線到 Modrinth，因此無法核對任何檔案。",
         M::UploadedNotChecked => "上傳到伺服器的檔案 — 未經 Modrinth 核對（{count}）",
         M::AlsoOnModrinth => "也在 Modrinth 上（{count}）",
         M::AlsoFiles => "另有 {files}。",
@@ -199,7 +199,7 @@ pub fn text(message: M) -> &'static str {
 
         M::KeyDays90 => "90 天",
         M::KeyYear => "1 年",
-        M::KeyNever => "永不",
+        M::KeyNever => "永不到期",
         M::AddressPlaceholder => "192.168.1.20 或 localhost:16662",
         M::UsernameOptional => "使用者名稱（選填）",
         M::Username => "使用者名稱",
@@ -211,17 +211,17 @@ pub fn text(message: M) -> &'static str {
         M::ReadConsole => "讀取主控台",
         M::SendChat => "傳送聊天和指令",
         M::ConsoleAccessHint => {
-            "僅限你的使用者可以使用主控台的伺服器。指令能做管理員能做的任何事，因此只有在你信任所有使用{computer} 的人時才允許。"
+            "僅在你的使用者有權使用主控台的伺服器上有效。指令能做管理員能做的任何事，因此只有在你信任所有使用{computer} 的人時才允許。"
         }
         M::SignInTitle => "登入伺服器",
         M::SignInIntro => {
-            "登入後即可啟動和停止伺服器，並查看沒有公開列出的伺服器。Lodestone Launcher 會為{computer} 產生專用金鑰；你的密碼不會被保存。"
+            "登入後即可啟動和停止伺服器，並查看沒有公開列出的伺服器。Lodestone Launcher 會為{computer} 產生專用金鑰；你的密碼不會被儲存。"
         }
         M::AddIntro => "Lodestone 核心的位址。不登入時，你會看到其擁有者公開列出的伺服器。",
         M::Address => "位址",
         M::SignInOptional => "登入（選填）",
         M::KeyExpiresAfter => "{computer} 上的金鑰有效期限",
-        M::NeverExpiresWarning => "永不到期的金鑰會一直有效，直到你在儀表板中撤銷它。",
+        M::NeverExpiresWarning => "永不到期的金鑰會一直有效，直到你在控制面板中撤銷它。",
 
         M::ChatPlaceholder => "說點什麼，或輸入 /指令 來執行",
         M::ConsoleNotAllowedAtSignIn => "{computer} 登入時未允許讀取主控台。",
@@ -232,7 +232,7 @@ pub fn text(message: M) -> &'static str {
         M::ConsoleKeyCantWrite => {
             "{computer} 上的金鑰無法傳送聊天或指令。如果你的使用者可以使用主控台，請重新登入並允許「{option}」。"
         }
-        M::OfflineCantLink => "離線帳號無法連結：它們的 UUID 是由名稱產生的，因此無法證明任何事。",
+        M::OfflineCantLink => "離線帳號無法連結：它們的 UUID 是由名稱產生的，因此無法證明身分。",
         M::LinkedTo => "已將 {account} 連結到 {user}。",
         M::YourLodestoneUser => "你的 Lodestone 使用者",
         M::Connecting => "正在連線…",
@@ -259,10 +259,10 @@ pub fn text(message: M) -> &'static str {
         M::HostTitle => "在 Lodestone 核心上託管",
         M::ShowOnServersPage => "在「伺服器」頁面查看",
         M::HostIntro => {
-            "以 {name} 的模組和設定檔建立伺服器，形式為 Modrinth 模組包。來自 Modrinth 的僅用戶端模組會被排除。伺服器建立後處於停止狀態。"
+            "以 Modrinth 模組包的形式，用 {name} 的模組和設定檔建立伺服器。來自 Modrinth 的僅用戶端模組會被排除。伺服器建立後處於停止狀態。"
         }
         M::CoreLabel => "核心",
-        M::PasswordNotKept => "你的密碼只會在登入時傳送一次，不會被保存。",
+        M::PasswordNotKept => "你的密碼只會在登入時傳送一次，不會被儲存。",
         M::ServerName => "伺服器名稱",
         M::Memory => "記憶體",
         M::GamePortHint => "遊戲連接埠是核心所在電腦上從 {port} 起第一個空閒的連接埠。",
@@ -270,7 +270,7 @@ pub fn text(message: M) -> &'static str {
         M::CreateServer => "建立伺服器",
         M::NameTheServer => "請為伺服器命名。",
         M::HostNeedsPassword => {
-            "請輸入你在此核心上的使用者名稱和密碼。建立伺服器所需的權限超出{computer} 上的金鑰能做的範圍。"
+            "請輸入你在此核心上的使用者名稱和密碼。建立伺服器需要比{computer} 上的金鑰更高的權限。"
         }
         M::AgreeEulaFirst => "請先同意 Minecraft EULA：核心會為新伺服器接受它。",
         M::StageExporting => "正在匯出實例…",
@@ -296,8 +296,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::LanWorld => "區域網路世界",
         M::Join => "加入",
-        M::OnYourNetwork => "你的網路上",
-        M::OnYourNetworkHint => "此網路上在區域網路公開的世界。",
+        M::OnYourNetwork => "你的網路",
+        M::OnYourNetworkHint => "此網路上已在區域網路上公開的世界。",
         M::JoinWorld => "加入 {world}",
         M::PickInstance => {
             "選擇用來遊玩的實例。它需要與位於 {address} 的世界有相同的 Minecraft 版本和模組。"
@@ -325,7 +325,7 @@ pub fn text(message: M) -> &'static str {
             "伺服器世界的單人遊戲副本，放在新的世界資料夾中。你在其中所做的變更只會保留在{computer} 上。"
         }
         M::StopToDownload => "請先停止伺服器再下載它的世界：執行中的伺服器可能正在寫入它。",
-        M::PasswordNotKeptDownload => "你的密碼只會為這次下載登入時傳送一次，不會被保存。",
+        M::PasswordNotKeptDownload => "你的密碼只會在為這次下載登入時傳送一次，不會被儲存。",
         M::DownloadWorld => "下載世界",
         M::WorldNeedsPassword => {
             "請輸入你在此核心上的使用者名稱和密碼。下載世界需要讀取伺服器檔案的權限，而{computer} 上的金鑰沒有這項權限。"
@@ -333,7 +333,7 @@ pub fn text(message: M) -> &'static str {
         M::SignInToSeePack => "登入此核心即可查看伺服器的資源包。",
         M::CreatingMatching => "正在建立相符的實例",
         M::CreatingMatchingBody => {
-            "它會在伺服器的模組下載完成後建立。屆時請再次開啟伺服器的「{more}」，選擇它，然後重新下載。"
+            "相符實例會在伺服器的模組下載完成後建立。屆時請再次開啟伺服器的「{more}」，選擇它，然後重新下載。"
         }
         M::CouldNotCreateInstance => "無法建立實例。",
         M::QuitGameFirst => "請先結束該實例中的遊戲。",
@@ -346,7 +346,9 @@ pub fn text(message: M) -> &'static str {
         M::WorldImported => {
             "已匯入為 {instance} 中的世界「{folder}」。請從「單人遊戲」開啟它；它是副本，因此變更不會同步回伺服器。"
         }
-        M::PackSaved => "已儲存為實例資源包中的 {file}。在那裡啟用它，即可在其他伺服器上一併使用。",
+        M::PackSaved => {
+            "已儲存到實例的資源包中，檔名為 {file}。在資源包清單中啟用它，也能在其他伺服器上使用。"
+        }
     }
 }
 
@@ -354,7 +356,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::Players => ["{count} 位玩家"; 2],
         P::ReadyBodySkipped => {
-            ["Minecraft {version}，使用 {loader}，並包含伺服器的模組和設定檔。模組包中有 {count} 個檔案未匯入。按下「開始遊戲」即可加入。";
+            ["Minecraft {version}，使用 {loader}，並包含伺服器的模組和設定檔。模組包中有 {count} 個檔案被略過。按下「開始遊戲」即可加入。";
                 2]
         }
         P::ModsAdded => ["新增 {count} 個"; 2],
@@ -365,11 +367,11 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ScriptFiles => ["{count} 個腳本檔案"; 2],
         P::AndMore => ["還有 {count} 個"; 2],
         P::HostDone => {
-            ["{name} 已在 {core} 上，連接埠為 {port}。核心正在進行設定：它會安裝 Fabric，並從 Modrinth 下載 {count} 個模組檔案。\n\n伺服器處於停止狀態。準備好後，可以在「伺服器」頁面或儀表板中啟動它；此實例已可以加入它。";
+            ["{name} 已在 {core} 上，連接埠為 {port}。核心正在進行設定：它會安裝 Fabric，並從 Modrinth 下載 {count} 個模組檔案。\n\n伺服器處於停止狀態。準備好後，可以在「伺服器」頁面或控制面板中啟動它；此實例已準備好加入該伺服器。";
                 2]
         }
         P::HostDoneRelinked => {
-            ["{name} 已在 {core} 上，連接埠為 {port}。核心正在進行設定：它會安裝 Fabric，並從 Modrinth 下載 {count} 個模組檔案。\n\n伺服器處於停止狀態。準備好後，可以在「伺服器」頁面或儀表板中啟動它；此實例已可以加入它。此實例先前連結到 {server}；現在它屬於新的伺服器。";
+            ["{name} 已在 {core} 上，連接埠為 {port}。核心正在進行設定：它會安裝 Fabric，並從 Modrinth 下載 {count} 個模組檔案。\n\n伺服器處於停止狀態。準備好後，可以在「伺服器」頁面或控制面板中啟動它；此實例已準備好加入該伺服器。此實例先前連結到 {server}；現在它屬於新的伺服器。";
                 2]
         }
     }

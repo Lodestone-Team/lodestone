@@ -216,7 +216,7 @@ fn plan_one(
 pub fn main_class(jar: &Path) -> Result<String, LoaderError> {
     let file = std::fs::File::open(jar)
         .map_err(|err| invalid(format!("couldn't open {}: {err}", jar.display())))?;
-    let mut archive = zip::ZipArchive::new(file)
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
         .map_err(|err| invalid(format!("{} is not a jar: {err}", jar.display())))?;
     let mut manifest = String::new();
     archive

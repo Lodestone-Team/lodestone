@@ -211,7 +211,6 @@ pub fn set_mod_enabled(
     file_name: &str,
     enabled: bool,
 ) -> Result<String, ContentError> {
-    let path = existing(dirs, ContentKind::Mod, file_name)?;
     let new_name = if enabled {
         enabled_name(file_name)
     } else {
@@ -220,6 +219,15 @@ pub fn set_mod_enabled(
     if new_name == file_name {
         return Ok(new_name);
     }
+    let path = match existing(dirs, ContentKind::Mod, file_name) {
+        Ok(path) => path,
+        // Already renamed, by an earlier click on a list not yet read again: it is in
+        // the state asked for, which is what was wanted.
+        Err(ContentError::NotFound(_)) if existing(dirs, ContentKind::Mod, &new_name).is_ok() => {
+            return Ok(new_name);
+        }
+        Err(err) => return Err(err),
+    };
     let new_path = dirs.content_dir(ContentKind::Mod).join(&new_name);
     if fs::symlink_metadata(&new_path).is_ok() {
         return Err(ContentError::Conflict(format!(

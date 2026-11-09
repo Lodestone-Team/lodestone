@@ -1,4 +1,3 @@
-use crate::theme::px;
 use std::rc::Rc;
 
 use gpui::{
@@ -42,7 +41,17 @@ impl Tabs {
 
     /// Called with the index of the tab that was clicked.
     pub fn on_select(mut self, handler: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self {
-        self.on_select = Some(Box::new(handler));
+        let (id, labels) = (self.id.clone(), self.labels.clone());
+        self.on_select = Some(Box::new(move |index, window, cx| {
+            let label = labels.get(*index).map(|l| l.to_string());
+            super::trace_ui(
+                "ui.select",
+                "tabs",
+                &id,
+                serde_json::json!({ "index": index, "label": label }),
+            );
+            handler(index, window, cx)
+        }));
         self
     }
 }
@@ -99,22 +108,22 @@ impl RenderOnce for Tabs {
             .children(self.labels.into_iter().enumerate().map(|(index, label)| {
                 let selected = index == self.selected;
                 let on_select = on_select.clone();
+                // The underline and the label's colour fade over to the chosen tab.
+                let t = super::motion::switch(("tab-underline", index), selected, window, cx);
                 div()
                     .id(("tab", index))
                     .track_focus(&handles[index])
                     .focus_visible(focus::inner_ring)
                     .cursor_pointer()
-                    .map(|this| {
-                        if selected {
-                            this.border_b_2()
-                                .border_color(colors::BLUE_200)
-                                .text_color(colors::BLUE_200)
-                        } else {
-                            // mb-0.5 keeps unselected labels level with the selected one.
-                            this.mb(px(2.))
-                                .text_color(colors::GRAY_500)
-                                .hover(|style| style.text_color(colors::GRAY_400))
-                        }
+                    .border_b_2()
+                    .border_color(
+                        crate::theme::accent::light()
+                            .opacity(0)
+                            .mix(crate::theme::accent::light(), t),
+                    )
+                    .text_color(colors::GRAY_500.mix(crate::theme::accent::light(), t))
+                    .when(!selected, |this| {
+                        this.hover(|style| style.text_color(colors::GRAY_400))
                     })
                     .when_some(on_select, |this, on_select| {
                         this.on_click(move |_, window, cx| on_select(&index, window, cx))

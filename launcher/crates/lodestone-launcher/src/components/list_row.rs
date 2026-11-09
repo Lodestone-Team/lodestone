@@ -51,7 +51,16 @@ impl ListRow {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_click = Some(Box::new(handler));
+        let (id, label) = (self.id.clone(), self.label.clone());
+        self.on_click = Some(Box::new(move |event, window, cx| {
+            super::trace_ui(
+                "ui.click",
+                "list_row",
+                &id,
+                serde_json::json!({ "label": label.as_ref() }),
+            );
+            handler(event, window, cx)
+        }));
         self
     }
 }

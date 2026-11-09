@@ -27,6 +27,9 @@ mod instances;
 mod jobs;
 mod servers;
 mod settings;
+mod skins;
+mod storage;
+mod trace;
 mod worlds;
 
 use std::{
@@ -286,6 +289,36 @@ pub const METHODS: &[Method] = &[
         "settings.general.set",
         "Changes general settings.",
         settings::general_set,
+    ),
+    method(
+        "skins.list",
+        "The launcher's skins (built-in and imported packs), and the one in use.",
+        skins::list,
+    ),
+    method(
+        "skins.use",
+        "Uses a skin by id (\"default\" for the default look).",
+        skins::use_skin,
+    ),
+    method(
+        "skins.import",
+        "Imports a skin pack from a .zip file or a folder (absolute path); use: true to use it.",
+        skins::import,
+    ),
+    method(
+        "skins.export",
+        "Writes a skin (the one in use without id) to a .zip file (absolute path).",
+        skins::export,
+    ),
+    method(
+        "storage.show",
+        "What the data folder takes: instances, game files, Java runtimes, cache, logs; and what is unused.",
+        storage::show,
+    ),
+    destructive(
+        "storage.clean",
+        "Removes unused game files or Java runtimes, the cache, old logs or all logs (what: game-files, runtimes, cache, leftovers, old-logs, logs).",
+        storage::clean,
     ),
     method(
         "settings.developer.get",
@@ -581,6 +614,27 @@ pub const METHODS: &[Method] = &[
         "Ends a subscription.",
         events::unsubscribe,
     ),
+    // debug traces
+    method(
+        "trace.topics",
+        "The debug trace topics, what each says, and how many events each had.",
+        trace::topics,
+    ),
+    method(
+        "trace.subscribe",
+        "Streams debug trace events for topic patterns, after the last `backlog` earlier ones.",
+        trace::subscribe,
+    ),
+    method(
+        "trace.unsubscribe",
+        "Ends a trace subscription.",
+        trace::unsubscribe,
+    ),
+    method(
+        "trace.snapshot",
+        "What the window shows now (page, tab, instance, dialog, size, zoom), games and running jobs.",
+        trace::snapshot,
+    ),
 ];
 
 /// A request being handled.
@@ -645,6 +699,8 @@ pub struct Control {
     pub notices: RefCell<events::Notices>,
     /// Running subscriptions by connection, then by number.
     subscriptions: RefCell<HashMap<u64, HashMap<u64, Task<()>>>>,
+    /// Trace subscriptions by connection: (number, the bus's id).
+    trace_subscriptions: RefCell<HashMap<u64, Vec<(u64, u64)>>>,
     next_subscription: RefCell<u64>,
     socket: PathBuf,
     started: Instant,
@@ -686,6 +742,7 @@ impl Control {
                 jobs: RefCell::new(Jobs::default()),
                 notices: RefCell::new(events::Notices::default()),
                 subscriptions: RefCell::new(HashMap::new()),
+                trace_subscriptions: RefCell::new(HashMap::new()),
                 next_subscription: RefCell::new(1),
                 socket,
                 started: Instant::now(),
@@ -726,6 +783,34 @@ impl Control {
 
     fn closed(&self, connection: u64) {
         self.subscriptions.borrow_mut().remove(&connection);
+        for (_, id) in self
+            .trace_subscriptions
+            .borrow_mut()
+            .remove(&connection)
+            .unwrap_or_default()
+        {
+            launcher_core::trace::bus().unsubscribe(id);
+        }
+    }
+
+    pub(crate) fn insert_trace_subscription(&self, connection: u64, number: u64, id: u64) {
+        self.trace_subscriptions
+            .borrow_mut()
+            .entry(connection)
+            .or_default()
+            .push((number, id));
+    }
+
+    pub(crate) fn remove_trace_subscription(&self, connection: u64, number: u64) -> bool {
+        let mut all = self.trace_subscriptions.borrow_mut();
+        let Some(subs) = all.get_mut(&connection) else {
+            return false;
+        };
+        let Some(index) = subs.iter().position(|(n, _)| *n == number) else {
+            return false;
+        };
+        let (_, id) = subs.remove(index);
+        launcher_core::trace::bus().unsubscribe(id)
     }
 
     /// The instance named by `reference`: its id, or its name in any case.

@@ -215,8 +215,10 @@ fn change_profile(
     change: impl FnOnce(&mut Profile),
 ) -> Result<Profile, SharedError> {
     let mut profile = read_profile(data)?;
+    let before = profile.clone();
     change(&mut profile);
     storage::save(&profile_path(data), &profile)?;
+    crate::trace::settings_changed("shared", &before, &profile, serde_json::Value::Null);
     Ok(profile)
 }
 
@@ -251,7 +253,7 @@ pub fn set_preferred(
 /// The data version of a client jar, from its `version.json` (18w47b and later).
 pub fn jar_data_version(jar: &Path) -> Option<u32> {
     let file = std::fs::File::open(jar).ok()?;
-    let mut archive = zip::ZipArchive::new(file).ok()?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).ok()?;
     let mut entry = archive.by_name("version.json").ok()?;
     if entry.size() > 64 * 1024 {
         return None;

@@ -647,7 +647,8 @@ pub(crate) fn is_mac_metadata(name: &str) -> bool {
 /// down (one world only).
 pub fn inspect_zip(path: &Path) -> Result<WorldZip, WorldError> {
     let file = File::open(path).map_err(io_error(path))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(zip_error(path))?;
+    let mut archive =
+        zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(zip_error(path))?;
     if archive.len() > MAX_ZIP_ENTRIES {
         return Err(WorldError::Invalid(format!(
             "The zip has more than {MAX_ZIP_ENTRIES} files."
@@ -762,7 +763,8 @@ pub fn extract_mapped(
         return Err(WorldError::Conflict(format!("{folder} already exists.")));
     }
     let file = File::open(path).map_err(io_error(path))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(zip_error(path))?;
+    let mut archive =
+        zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(zip_error(path))?;
     let entries = plan_extract(path, &mut archive, mappings)?;
     check_collisions(&entries)?;
     fs::create_dir_all(saves).map_err(io_error(saves))?;
@@ -841,7 +843,7 @@ struct PlannedEntry {
 /// The entries of `archive` that go into the world, and where. Fails on an unsafe path.
 fn plan_extract(
     path: &Path,
-    archive: &mut zip::ZipArchive<File>,
+    archive: &mut zip::ZipArchive<std::io::BufReader<File>>,
     mappings: &[(String, String)],
 ) -> Result<Vec<PlannedEntry>, WorldError> {
     let mut entries = Vec::new();

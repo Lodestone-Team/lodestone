@@ -91,7 +91,13 @@ pub fn text(message: M) -> &'static str {
 
         M::NotAModpack => "Ce n’est pas un modpack",
         M::NotMrpack => {
-            "{name} n’est pas un fichier .mrpack. Les modpacks Modrinth se terminent par .mrpack."
+            "{name} n’est pas un modpack. Les modpacks Modrinth se terminent par .mrpack, et ceux de CurseForge sont des fichiers .zip contenant un manifest.json."
+        }
+        M::CurseForgeUnreachable => {
+            "C’est un modpack CurseForge, et cette copie de Lodestone Launcher ne peut pas joindre CurseForge."
+        }
+        M::CurseForgePackOnWebsite => {
+            "Ce modpack ne peut être téléchargé que depuis le site de CurseForge. Téléchargez-le là-bas, puis déposez le .zip sur Lodestone Launcher."
         }
         M::Modpack => "Modpack",
         M::ReadingModpack => "Lecture du modpack",
@@ -118,6 +124,7 @@ pub fn text(message: M) -> &'static str {
         M::UpdatingTo => "Mise à jour vers {version}",
 
         M::SearchModpacks => "Rechercher un modpack sur Modrinth ou coller un lien",
+        M::SearchModpacksCurseForge => "Rechercher un modpack sur CurseForge",
         M::SortRelevance => "Pertinence",
         M::SortDownloads => "Téléchargements",
         M::SortFollows => "Abonnés",
@@ -160,6 +167,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} fichier enregistré dans {path}.",
             "{count} fichiers enregistrés dans {path}.",
         ],
+        P::CurseForgeLeftOut => [
+            "{count} fichier a été ignoré car il n’est que sur CurseForge, dont les fichiers ne peuvent pas aller dans un pack Modrinth\u{a0}: {names}.",
+            "{count} fichiers ont été ignorés car ils ne sont que sur CurseForge, dont les fichiers ne peuvent pas aller dans un pack Modrinth\u{a0}: {names}.",
+        ],
         P::FilesLeftOut => [
             "{count} fichier a été ignoré\u{a0}: {name}.",
             "{count} fichiers ont été ignorés, par exemple {name}.",
@@ -178,6 +189,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} instances à copier, {size}.",
         ],
         P::ImportInstances => ["Importer {count} instance", "Importer {count} instances"],
+        P::PackFilesToDownload => [
+            "{count} fichier doit être téléchargé depuis le site de CurseForge\u{a0}: l’onglet Contenu de l’instance l’affiche.",
+            "{count} fichiers doivent être téléchargés depuis le site de CurseForge\u{a0}: l’onglet Contenu de l’instance les affiche.",
+        ],
         P::PackFilesLeftOut => [
             "{count} fichier du pack a été ignoré\u{a0}: {path}.",
             "{count} fichiers du pack ont été ignorés, par exemple {path}.",

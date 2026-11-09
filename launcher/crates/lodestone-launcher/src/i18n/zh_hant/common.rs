@@ -2,16 +2,16 @@ use crate::i18n::{CommonMsg as M, CommonPlural as P};
 
 pub fn text(message: M) -> &'static str {
     match message {
-        M::Add => "加入",
+        M::Add => "新增",
         M::Apply => "套用",
         M::Back => "返回",
         M::Browse => "瀏覽…",
         M::Cancel => "取消",
-        M::Change => "更改…",
+        M::Change => "變更…",
         M::Close => "關閉",
         M::Continue => "繼續",
-        M::Copy => "拷貝",
-        M::Copied => "已拷貝",
+        M::Copy => "複製",
+        M::Copied => "已複製",
         M::Default => "預設",
         M::Delete => "刪除",
         M::Discard => "捨棄",
@@ -24,10 +24,10 @@ pub fn text(message: M) -> &'static str {
         M::None => "無",
         M::NotNow => "稍後再說",
         M::Off => "關閉",
-        M::Ok => "好",
+        M::Ok => "確定",
         M::On => "開啟",
-        M::Open => "打開",
-        M::OpenFolder => "打開資料夾",
+        M::Open => "開啟",
+        M::OpenFolder => "開啟資料夾",
         M::Previous => "上一頁",
         M::Refresh => "重新整理",
         M::Remove => "移除",
@@ -70,9 +70,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::OpenImage => {
             if cfg!(target_os = "macos") {
-                "在「預覽程式」中打開"
+                "在「預覽程式」中開啟"
             } else {
-                "打開"
+                "開啟"
             }
         }
         M::ThisComputer | M::ThisComputerStart => {

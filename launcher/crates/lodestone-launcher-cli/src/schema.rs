@@ -174,11 +174,20 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ),
     ("prompts list", "prompts.list", false, false),
     ("prompts answer", "prompts.answer", false, false),
+    ("skins list", "skins.list", false, false),
+    ("skins use", "skins.use", false, false),
+    ("skins import", "skins.import", false, false),
+    ("skins export", "skins.export", false, false),
+    ("storage show", "storage.show", false, false),
+    ("storage clean", "storage.clean", false, true),
     ("jobs list", "jobs.list", false, false),
     ("jobs get", "jobs.get", false, false),
     ("jobs wait", "jobs.wait", true, false),
     ("jobs cancel", "jobs.cancel", false, false),
     ("events", "events.subscribe", false, false),
+    ("trace topics", "trace.topics", false, false),
+    ("trace watch", "trace.subscribe", false, false),
+    ("trace snapshot", "trace.snapshot", false, false),
 ];
 
 fn arg_json(arg: &Arg) -> Value {
@@ -269,7 +278,7 @@ pub fn schema() -> Value {
             "json": "One JSON document on stdout (the default when stdout isn't a terminal, or with --json).",
             "progress": "Long commands print progress to stderr, one JSON object per line: {\"progress\": {...}}.",
             "error": "Errors go to stderr as {\"error\": {\"code\", \"message\", \"data\"}}.",
-            "streams": "play logs --follow and events print one JSON object per line on stdout.",
+            "streams": "play logs --follow, events and trace watch print one JSON object per line on stdout (trace watch prints readable lines in a terminal unless --json).",
         },
     })
 }

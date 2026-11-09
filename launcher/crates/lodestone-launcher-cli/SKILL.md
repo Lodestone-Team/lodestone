@@ -71,7 +71,7 @@ The socket is Unix-only (macOS, Linux). On Windows every command fails with exit
   fail with exit 5 and change nothing; the message says what would happen. These are:
   `instances delete`, `worlds delete`, `worlds delete-backup`, `worlds restore --replace`,
   `content remove`, `accounts remove`, `cores remove`, `cores trust`, `shared clear`,
-  `play clear-logs`, applying `modpacks update`, a `content switch-loader` that leaves mods
+  `play clear-logs`, `storage clean`, applying `modpacks update`, a `content switch-loader` that leaves mods
   behind, and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
 - **Trust in a core is the user's decision.** Mods from a Lodestone core run as programs
@@ -112,6 +112,8 @@ lodestone-launcher-cli instances group Survival Friends    # or --none
 lodestone-launcher-cli instances prerelease-updates Survival on   # betas/alphas as updates
 lodestone-launcher-cli instances icon Survival --library grass   # --image FILE, --emoji ⛏ --tile 3A6EA5, --clear
 lodestone-launcher-cli instances background Survival --image ./castle.jpg
+lodestone-launcher-cli instances background Survival --slideshow all       # instance | all | custom | off
+lodestone-launcher-cli instances background Survival --slideshow custom --add ./a.png --add ./b.jpg
 lodestone-launcher-cli instances duplicate Survival
 lodestone-launcher-cli instances select Survival          # shows it in the window
 lodestone-launcher-cli instances export Survival ./survival.mrpack          # long
@@ -249,6 +251,35 @@ lodestone-launcher-cli prompts list                          # questions the win
 lodestone-launcher-cli prompts answer update play
 ```
 
+Disk space (Settings > Storage). Sizes are bytes; `totals` sums them:
+
+```sh
+lodestone-launcher-cli storage show              # instances, game files, runtimes, cache, logs
+lodestone-launcher-cli storage clean game-files --yes   # versions/libraries/assets no instance uses
+lodestone-launcher-cli storage clean runtimes --yes     # Java runtimes no version in use needs
+lodestone-launcher-cli storage clean cache --yes
+lodestone-launcher-cli storage clean leftovers --yes    # unfinished modpack downloads/imports
+lodestone-launcher-cli storage clean old-logs --yes     # older than 30 days; `logs` for all
+```
+
+Game files and runtimes download again when needed; logs are deleted for good. Removing
+game files, runtimes or the cache is refused (`busy`) while a game runs. To free an
+instance's space, `instances delete` moves it to the Trash.
+
+Skins (Settings > Skin), the launcher's look. A skin is a pack: `skin.json` and its
+images (see `launcher/docs/skins.md`). Built-in: `default`, `grassblock`, `glass`, `neon`.
+
+```sh
+lodestone-launcher-cli skins list                     # ids, names, which is in use
+lodestone-launcher-cli skins use neon                 # `default` for the default look
+lodestone-launcher-cli skins import ./Cozy.zip --use  # a .zip or a folder; checked first
+lodestone-launcher-cli skins export ./mine.zip        # the one in use, or --id
+```
+
+An instance's own Play button colour and accent are in `instances show` (`play_color`,
+`accent`). Start the launcher with `--no-skin` (or `LODESTONE_LAUNCHER_NO_SKIN=1`) if a
+skin makes the window unusable.
+
 Jobs and events:
 
 ```sh
@@ -257,6 +288,17 @@ lodestone-launcher-cli jobs list --running
 lodestone-launcher-cli jobs wait 7 --timeout 900
 lodestone-launcher-cli jobs cancel 7
 lodestone-launcher-cli events --topics state,notices,jobs --timeout 60
+```
+
+Debugging (what the user did and what the launcher did, without screenshots):
+
+```sh
+lodestone-launcher-cli trace snapshot                        # page, tab, instance, dialog, size, zoom; games; jobs
+lodestone-launcher-cli trace topics                          # every topic, and how many events so far
+lodestone-launcher-cli trace watch --backlog 100 --count 100 # the last 100 events, then live
+lodestone-launcher-cli trace watch ui nav settings.change    # clicks, keys, dialogs, navigation, settings
+lodestone-launcher-cli trace watch '*.error' log.warn --backlog 200
+lodestone-launcher-cli trace watch game.log --backlog 0 --timeout 60   # console lines, live only
 ```
 
 ## JSON shapes
@@ -294,6 +336,16 @@ Events (`events`): `{"event": "state", "data": {"instance": "survival", "state":
 `event` is `log`, `state`, `progress`, `job`, `job_progress`, `notice` (`kind`:
 `crashed`, `launch_failed`, `notice`, `server_failed`, …) or `lagged`.
 
+Trace events (`trace watch`): `{"seq": 412, "at_ms": 1762611727120, "topic": "ui.click", "data": {"control": "button", "id": "create-instance", "label": "Create instance"}}`.
+Topics: `ui.click`/`ui.toggle`/`ui.select` (shared controls: id, label or value),
+`ui.action` (a key ran an action), `ui.pointer` (where a click landed), `ui.modal`,
+`ui.scope`, `ui.settings`, `ui.window`, `ui.zoom`; `nav.page`, `nav.tab`,
+`nav.instance`, `nav.account`; `settings.change` (`scope`, `path`, `from`, `to`);
+`game.prepare`/`launch`/`exit`/`failed`/`state`/`log`; `job.started`/`finished`;
+`http.response`/`error` (method, host, path, status, ms), `core_http.*`,
+`download.*`; `log.error`/`warn`/`info`; `perf.frame`. In a terminal `trace watch`
+prints `14:02:07.120  ui.click  {...}` (UTC); with `--json` or a pipe, JSON lines.
+
 ## Workflows
 
 Create a Fabric instance, add mods, launch (ask about the EULA first):
@@ -310,6 +362,19 @@ lodestone-launcher-cli play logs Survival --follow --until "Sound engine started
 
 If `play launch` fails, read `message`, then `play logs Survival --lines 100`. A crash
 after launch is a `crashed` notice: `events --topics notices --timeout 600`.
+
+Debug something the user saw ("the button did nothing", "it froze", "the download
+failed"):
+
+```sh
+lodestone-launcher-cli trace snapshot                       # where the window is now
+lodestone-launcher-cli trace watch --backlog 200 --count 200 --timeout 5   # what just happened
+lodestone-launcher-cli trace watch ui nav http '*.error' --backlog 0 --timeout 120   # ask the user to try again
+```
+
+Read the clicks and actions in order, then the `http.*`, `game.*` and `*.error`
+events around them. Traces never hold typed text, passwords, tokens or keys, and
+they stay on this machine (the socket only answers this user).
 
 Join a server on a Lodestone core:
 

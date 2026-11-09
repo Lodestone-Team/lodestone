@@ -97,6 +97,31 @@ pub const CUSTOM_BACKGROUND: &str = "custom";
 pub const BACKGROUND_FILE: &str = "background.jpg";
 /// Backgrounds are stored at most this size, keeping their aspect ratio.
 pub const BACKGROUND_MAX: (u32, u32) = (2560, 1600);
+/// The folder of the images the user added to the instance's slideshow.
+pub const SLIDESHOW_DIR: &str = "backgrounds";
+
+/// Where the Play tab's slideshow takes its images from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlideshowSource {
+    /// The instance's own screenshots.
+    Instance,
+    /// The screenshots of every instance.
+    AllInstances,
+    /// The images added to the instance's slideshow, in its `backgrounds` folder.
+    Custom,
+}
+
+/// What the Play tab shows behind the instance's name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackgroundMode {
+    /// The launcher's artwork.
+    Default,
+    /// The instance's own `background.jpg`.
+    Image,
+    /// Images in turn, crossfading.
+    Slideshow(SlideshowSource),
+}
 /// The instance's own icon, in its folder.
 pub const ICON_FILE: &str = "icon.png";
 /// The size custom icons are stored at.
@@ -118,6 +143,16 @@ pub struct Instance {
     /// launcher's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
+    /// Where the Play tab's slideshow takes its images from, when it shows one; it
+    /// wins over `background`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slideshow: Option<SlideshowSource>,
+    /// The Play button's colour for this instance, over the skin's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub play_color: Option<crate::ui_skin::Rgb>,
+    /// The accent colour while this instance is selected, over the skin's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<crate::ui_skin::Rgb>,
     /// The sidebar group the instance is in. Without one the sidebar puts it in an
     /// automatic group ([`AutoGroup`]) when that setting is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -168,6 +203,9 @@ impl Default for Instance {
             name: String::new(),
             icon: None,
             background: None,
+            slideshow: None,
+            play_color: None,
+            accent: None,
             group: None,
             imported_from: None,
             game_version: String::new(),
@@ -235,6 +273,15 @@ fn migrate_v1(mut fields: Map<String, Value>) -> anyhow::Result<Map<String, Valu
 }
 
 impl Instance {
+    /// What the Play tab shows behind the name. The slideshow wins over the image.
+    pub fn background_mode(&self) -> BackgroundMode {
+        match (self.slideshow, self.background.as_deref()) {
+            (Some(source), _) => BackgroundMode::Slideshow(source),
+            (None, Some(CUSTOM_BACKGROUND)) => BackgroundMode::Image,
+            (None, _) => BackgroundMode::Default,
+        }
+    }
+
     /// The instance's loader and its version, if it has a loader.
     pub fn loader_choice(&self) -> Option<LoaderChoice> {
         Some(LoaderChoice {
@@ -755,13 +802,84 @@ impl InstanceStore {
         Ok(instance)
     }
 
-    /// Goes back to the launcher's Play background.
+    /// Goes back to the launcher's Play background. The slideshow's own images stay,
+    /// for when it is chosen again.
     pub fn clear_background(&self, id: &str) -> Result<Instance, InstanceError> {
         let mut instance = self.get(id)?;
         remove_if_present(&self.dir(id).join(BACKGROUND_FILE))?;
         instance.background = None;
+        instance.slideshow = None;
         self.save(&instance)?;
         Ok(instance)
+    }
+
+    /// Shows a slideshow from `source` behind the name, or, for `None`, the
+    /// instance's own image again (or the launcher's, without one).
+    pub fn set_slideshow(
+        &self,
+        id: &str,
+        source: Option<SlideshowSource>,
+    ) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        instance.slideshow = source;
+        self.save(&instance)?;
+        Ok(instance)
+    }
+
+    /// The images added to the instance's slideshow, by name.
+    pub fn slideshow_images(&self, id: &str) -> Vec<PathBuf> {
+        let dir = self.dir(id).join(SLIDESHOW_DIR);
+        let mut images: Vec<PathBuf> = fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "jpg"))
+            .collect();
+        images.sort();
+        images
+    }
+
+    /// Adds the image at `source` (PNG, JPEG, WebP or GIF) to the instance's slideshow,
+    /// scaled down like a background. Returns where it was saved.
+    pub fn add_slideshow_image(&self, id: &str, source: &Path) -> Result<PathBuf, InstanceError> {
+        check_id(id)?;
+        let error = |reason: String| InstanceError::Background {
+            path: source.to_owned(),
+            reason,
+        };
+        let bytes = fs::read(source).map_err(|err| error(err.to_string()))?;
+        if bytes.len() > 64 * 1024 * 1024 {
+            return Err(error("the image is larger than 64 MB".into()));
+        }
+        let jpeg = background_jpeg(&bytes).map_err(error)?;
+        let dir = self.dir(id).join(SLIDESHOW_DIR);
+        fs::create_dir_all(&dir).map_err(io_error(&dir))?;
+        // Named by when it was added, so the set keeps that order.
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or_default();
+        let mut path = dir.join(format!("{stamp}.jpg"));
+        let mut n = 1;
+        while path.exists() {
+            path = dir.join(format!("{stamp}-{n}.jpg"));
+            n += 1;
+        }
+        storage::write_atomic(&path, &jpeg).map_err(io_error(&path))?;
+        Ok(path)
+    }
+
+    /// Removes one of the slideshow's own images; `name` is its file name.
+    pub fn remove_slideshow_image(&self, id: &str, name: &str) -> Result<(), InstanceError> {
+        check_id(id)?;
+        if name.contains(['/', '\\']) || name.starts_with('.') || !name.ends_with(".jpg") {
+            return Err(InstanceError::Background {
+                path: PathBuf::from(name),
+                reason: "not one of the slideshow's images".into(),
+            });
+        }
+        remove_if_present(&self.dir(id).join(SLIDESHOW_DIR).join(name))
     }
 
     /// Writes the instance's `instance.json`.
@@ -1081,6 +1199,71 @@ mod tests {
         let cleared = store.clear_background(&instance.id).unwrap();
         assert_eq!(cleared.background, None);
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn the_slideshow_keeps_its_own_images_and_wins_over_the_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().join("instances"));
+        let instance = store.create("Shows", "1.20.1", None).unwrap();
+        assert_eq!(instance.background_mode(), BackgroundMode::Default);
+        let source = dir.path().join("photo.png");
+        image::RgbImage::from_pixel(4000, 2000, image::Rgb([90, 120, 150]))
+            .save(&source)
+            .unwrap();
+
+        let image = store.set_background(&instance.id, &source).unwrap();
+        assert_eq!(image.background_mode(), BackgroundMode::Image);
+        let show = store
+            .set_slideshow(&instance.id, Some(SlideshowSource::Custom))
+            .unwrap();
+        assert_eq!(
+            show.background_mode(),
+            BackgroundMode::Slideshow(SlideshowSource::Custom)
+        );
+        // turning the slideshow off shows the image again
+        let back = store.set_slideshow(&instance.id, None).unwrap();
+        assert_eq!(back.background_mode(), BackgroundMode::Image);
+
+        let first = store.add_slideshow_image(&instance.id, &source).unwrap();
+        let second = store.add_slideshow_image(&instance.id, &source).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            store.slideshow_images(&instance.id),
+            vec![first.clone(), second.clone()]
+        );
+        let saved = image::open(&first).unwrap();
+        assert_eq!((saved.width(), saved.height()), (2560, 1280));
+
+        let name = second.file_name().unwrap().to_str().unwrap();
+        store.remove_slideshow_image(&instance.id, name).unwrap();
+        assert_eq!(store.slideshow_images(&instance.id), vec![first]);
+        assert!(
+            store
+                .remove_slideshow_image(&instance.id, "../instance.json")
+                .is_err()
+        );
+
+        // the default clears both, and keeps the set for later
+        let cleared = store.clear_background(&instance.id).unwrap();
+        assert_eq!(cleared.background_mode(), BackgroundMode::Default);
+        assert_eq!(store.slideshow_images(&instance.id).len(), 1);
+    }
+
+    #[test]
+    fn the_slideshow_source_is_stored_by_name_and_left_out_when_off() {
+        let mut instance = Instance {
+            id: "a".into(),
+            name: "A".into(),
+            ..Instance::default()
+        };
+        let json = serde_json::to_value(&instance).unwrap();
+        assert!(json.get("slideshow").is_none());
+        instance.slideshow = Some(SlideshowSource::AllInstances);
+        let json = serde_json::to_value(&instance).unwrap();
+        assert_eq!(json["slideshow"], "all_instances");
+        let back: Instance = serde_json::from_value(json).unwrap();
+        assert_eq!(back.slideshow, Some(SlideshowSource::AllInstances));
     }
 
     use std::cell::RefCell;

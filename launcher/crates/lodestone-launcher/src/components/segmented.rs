@@ -26,25 +26,52 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
         .children(choices.into_iter().enumerate().map(|(i, (value, name))| {
             let is_selected = selected == Some(&value);
             let on_pick = on_pick.clone();
-            div()
+            let item = div()
                 .id(SharedString::from(format!("{id}-{i}")))
                 .px_3()
                 .py_1()
                 .rounded(radius::MD)
                 .text_size(theme::text_size(text::SMALL))
                 .font_weight(weights::BOLD.into())
-                .map(|this| match (is_selected, disabled) {
-                    (true, _) => this.bg(colors::GRAY_700).text_color(colors::GRAY_300),
-                    (false, true) => this.text_color(colors::GRAY_600),
-                    (false, false) => this
-                        .text_color(colors::GRAY_500)
-                        .hover(|s| s.text_color(colors::GRAY_300)),
+                .when(!is_selected, |this| {
+                    this.hover(move |s| {
+                        if disabled {
+                            s
+                        } else {
+                            s.text_color(colors::GRAY_300)
+                        }
+                    })
                 })
-                .child(name)
+                .child(name.clone())
                 .when(!disabled, |this| {
-                    this.keyboard_focus()
-                        .cursor_pointer()
-                        .on_click(move |_, window, cx| on_pick(value.clone(), window, cx))
-                })
+                    this.keyboard_focus().cursor_pointer().on_click({
+                        let (id, name) = (id.clone(), name.clone());
+                        move |_, window, cx| {
+                            super::trace_ui(
+                                "ui.select",
+                                "segmented",
+                                &gpui::ElementId::Name(id.clone()),
+                                serde_json::json!({ "index": i, "label": name.as_ref() }),
+                            );
+                            on_pick(value.clone(), window, cx)
+                        }
+                    })
+                });
+            // The raised background fades in under the chosen one, and out of the
+            // one left.
+            super::motion::Animated::new(
+                ("segmented-choice", i),
+                is_selected,
+                item,
+                move |this, t| {
+                    let rest = if disabled {
+                        colors::GRAY_600
+                    } else {
+                        colors::GRAY_500
+                    };
+                    this.bg(colors::GRAY_700.opacity(0).mix(colors::GRAY_700, t))
+                        .text_color(rest.mix(colors::GRAY_300, t))
+                },
+            )
         }))
 }

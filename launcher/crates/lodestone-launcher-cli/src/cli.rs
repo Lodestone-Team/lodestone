@@ -131,11 +131,21 @@ pub enum Command {
     /// Long operations: list, wait for, cancel.
     #[command(subcommand)]
     Jobs(Jobs),
+    /// Disk space: what the data folder takes, and removing what can go.
+    #[command(subcommand)]
+    Storage(Storage),
+    /// The launcher's look: list skins, use one, import or export a pack.
+    #[command(subcommand)]
+    Skins(Skins),
     /// Streams events as JSON lines: log lines, game states, progress, jobs, notices.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli events --topics state,notices\n  lodestone-launcher-cli events --instance Survival --topics log --count 50"
     )]
     Events(EventsArgs),
+    /// Debug traces: what the user does in the window and what the launcher does, as
+    /// events, without screenshots. Local only.
+    #[command(subcommand)]
+    Trace(Trace),
 }
 
 /// An instance: its id, or its name (any case).
@@ -249,16 +259,24 @@ pub enum Instances {
         #[arg(long)]
         clear: bool,
     },
-    /// Sets or clears an instance's Play background image.
+    /// Sets an instance's Play background: an image, the default, or a slideshow of
+    /// screenshots or of its own images (each shown ~15 s, crossfading).
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli instances background Survival --image ./castle.jpg\n  lodestone-launcher-cli instances background Survival --clear"
+        after_help = "Examples:\n  lodestone-launcher-cli instances background Survival --image ./castle.jpg\n  lodestone-launcher-cli instances background Survival --clear\n  lodestone-launcher-cli instances background Survival --slideshow all\n  lodestone-launcher-cli instances background Survival --slideshow custom --add ./a.png --add ./b.jpg"
     )]
     Background {
         instance: String,
-        #[arg(long, value_name = "FILE", conflicts_with = "clear")]
+        #[arg(long, value_name = "FILE", conflicts_with_all = ["clear", "slideshow", "add"])]
         image: Option<PathBuf>,
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["slideshow", "add"])]
         clear: bool,
+        /// instance (its screenshots), all (every instance's), custom (its own images)
+        /// or off (back to the image).
+        #[arg(long, value_parser = ["instance", "all", "custom", "off"])]
+        slideshow: Option<String>,
+        /// An image to add to the slideshow's own set (repeat for several).
+        #[arg(long, value_name = "FILE")]
+        add: Vec<PathBuf>,
     },
     /// Copies an instance (with its worlds and mods).
     #[command(after_help = "Examples:\n  lodestone-launcher-cli instances duplicate Survival")]
@@ -1033,6 +1051,60 @@ pub enum Prompts {
 }
 
 #[derive(Subcommand, Debug)]
+pub enum Storage {
+    /// What the launcher's data folder takes: each instance (worlds, mods and packs,
+    /// other), game files and how much no instance uses, Java runtimes and which
+    /// versions use them, the cache, and logs. Sizes are in bytes.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli storage show\n  lodestone-launcher-cli --json storage show | jq .totals"
+    )]
+    Show,
+    /// Removes unused game files (versions, libraries, assets) or unused Java runtimes,
+    /// clears the cache, removes leftovers of unfinished downloads and imports, or
+    /// deletes logs and crash reports. Game files and runtimes
+    /// download again when needed; logs are gone for good. Needs --yes.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli storage clean game-files --yes\n  lodestone-launcher-cli storage clean old-logs --yes"
+    )]
+    Clean {
+        #[arg(value_parser = ["game-files", "runtimes", "cache", "leftovers", "old-logs", "logs"])]
+        what: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Skins {
+    /// The skins: built-in ones first, then imported packs, and the one in use.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli skins list")]
+    List,
+    /// Uses a skin by id ("default" for the default look).
+    #[command(
+        name = "use",
+        after_help = "Examples:\n  lodestone-launcher-cli skins use grassblock\n  lodestone-launcher-cli skins use default"
+    )]
+    Use { id: String },
+    /// Imports a skin pack: a .zip file or a folder with skin.json and its images.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli skins import ~/Downloads/Cozy.zip --use"
+    )]
+    Import {
+        path: PathBuf,
+        /// Use it once imported.
+        #[arg(long = "use")]
+        use_it: bool,
+    },
+    /// Writes a skin to a .zip file: the one in use, or --id.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli skins export ~/Desktop/mine.zip\n  lodestone-launcher-cli skins export neon.zip --id neon"
+    )]
+    Export {
+        path: PathBuf,
+        #[arg(long)]
+        id: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 pub enum Jobs {
     /// Long operations, running and finished.
     #[command(
@@ -1051,6 +1123,41 @@ pub enum Jobs {
     /// Cancels a job.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli jobs cancel 3")]
     Cancel { job: u64 },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Trace {
+    /// The trace topics, what each says, and how many events each had so far.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli trace topics\n  lodestone-launcher-cli --json trace topics | jq '.topics[] | select(.events > 0)'"
+    )]
+    Topics,
+    /// Streams trace events: the last earlier ones first (--backlog), then each new one.
+    /// Patterns: `ui` or `ui.*` for everything under ui, `*` for one segment
+    /// (`*.error`); none for everything.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli trace watch\n  lodestone-launcher-cli trace watch ui nav settings.change --backlog 20\n  lodestone-launcher-cli trace watch game.log '*.error' --backlog 0 --count 100\n  lodestone-launcher-cli --json trace watch http --timeout 30"
+    )]
+    Watch(TraceWatchArgs),
+    /// What the window shows now: page, tab, instance, dialog, Settings page, size,
+    /// zoom, account; each instance's game state; running jobs.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli trace snapshot")]
+    Snapshot,
+}
+
+#[derive(Args, Debug)]
+pub struct TraceWatchArgs {
+    /// Topic patterns (all topics without any).
+    pub topics: Vec<String>,
+    /// Earlier events to send first (the launcher keeps the last 2000).
+    #[arg(long, default_value_t = 50)]
+    pub backlog: usize,
+    /// Only earlier events after this sequence number.
+    #[arg(long)]
+    pub since: Option<u64>,
+    /// Stop after this many events.
+    #[arg(long)]
+    pub count: Option<usize>,
 }
 
 #[derive(Args, Debug)]

@@ -18,6 +18,17 @@ crate::i18n::messages! {
         ZoomOut = "Zoom Out",
         /// Back to 100% zoom.
         ActualSize = "Actual Size",
+        /// The menu bar's Edit menu, and its items.
+        EditMenu = "Edit",
+        Undo = "Undo",
+        Redo = "Redo",
+        /// A toast after Undo: {change} says what the setting is now, "Language → Français".
+        Undid = "Undid: {change}",
+        Redid = "Redid: {change}",
+        /// {setting} is a setting's name, {value} its value now.
+        ChangeTo = "{setting} → {value}",
+        /// Several settings of an instance at once.
+        SettingsOf = "Settings of {name}",
 
         // The instance's tabs, and the Play button.
         /// The Play tab, and the large Play button (shown in capitals there).
@@ -406,6 +417,118 @@ crate::i18n::messages! {
         // Shared components.
         /// Under a Modrinth description that is cut short.
         RestOnModrinth = "The rest of the description is on Modrinth.",
+        // Settings > Storage.
+        Storage = "Storage",
+        /// Settings > Skin: the look of the launcher's window.
+        Skin = "Skin",
+        SkinGallery = "Skins",
+        SkinImport = "Import…",
+        /// The file dialog's button that imports a skin.
+        SkinImportButton = "Import",
+        SkinExport = "Export…",
+        SkinNew = "New skin…",
+        SkinDelete = "Delete",
+        /// {name} is the skin's name.
+        SkinDeleteConfirm = "Delete {name}",
+        /// The name of a copy of skin {name}.
+        SkinCopyName = "{name} copy",
+        /// Built-in skins can't change, so a change makes a copy.
+        SkinCopied = "Made a copy of {name} to change it.",
+        SkinImported = "Imported {name}.",
+        SkinExported = "Exported to {path}.",
+        SkinSafeMode = "Started without a skin (--no-skin).",
+        /// {error} is the problem, in English.
+        SkinCouldntLoad = "Couldn't load the skin: {error}",
+        SkinSidebar = "Sidebar",
+        SkinImage = "Image",
+        SkinChoose = "Choose…",
+        /// The file dialog's button that picks an image.
+        SkinUseImage = "Use image",
+        SkinRemove = "Remove",
+        SkinFit = "Fit",
+        SkinFitCover = "Cover",
+        SkinFitTile = "Tile",
+        SkinTint = "Tint",
+        SkinTintStrength = "Tint strength",
+        SkinBlur = "Blur",
+        SkinBanner = "Instance banner",
+        SkinBannerInSidebar = "Show behind sidebar rows",
+        /// The large image on the Play tab.
+        SkinHero = "Play hero",
+        SkinHeroHint = "For instances without their own.",
+        SkinPlayButton = "Play button",
+        SkinColor = "Colour",
+        SkinFadeTo = "Fade to",
+        SkinShape = "Shape",
+        SkinShapeRounded = "Rounded",
+        SkinShapePill = "Pill",
+        SkinShapePixel = "Pixel",
+        SkinLabel = "Label",
+        SkinGlow = "Glow",
+        SkinColors = "Colours",
+        SkinAccent = "Accent",
+        SkinProgress = "Progress bar",
+        SkinDefault = "Default",
+        SkinNone = "None",
+        SkinReadable = "Text stays readable.",
+        SkinAdjusted = "The accent was adjusted to stay readable.",
+        SkinReset = "Reset to Default",
+        /// {ratio} is a contrast ratio, "4.8".
+        SkinContrastSidebar = "Sidebar text {ratio}:1",
+        /// {ratio} is a contrast ratio, "7.1".
+        SkinContrastHero = "Play hero {ratio}:1",
+        SkinFixReadability = "Fix readability",
+        /// An instance's own colour, over the skin's.
+        SkinPlayColor = "Play button colour",
+        /// Use the skin's colour, not the instance's own.
+        SkinUseSkins = "Skin's",
+        StorageInstances = "Instances",
+        StorageGameFiles = "Game files",
+        StorageRuntimes = "Java runtimes",
+        StorageCache = "Cache",
+        StorageLeftovers = "Unfinished downloads and imports",
+        StorageCleanLeftoversTitle = "Remove unfinished downloads?",
+        StorageCleanLeftoversBody = "This frees {size}. These are files of modpack downloads and imports that didn't finish.",
+        StorageOther = "Settings and other files",
+        StorageCacheAndLogs = "Cache and logs",
+        StorageLogs = "Logs and crash reports",
+        StorageOldLogs = "{size} older than 30 days",
+        StorageVersions = "Versions",
+        StorageLibraries = "Libraries",
+        StorageAssets = "Assets",
+        StorageUnused = "Not used by any instance",
+        StorageUnusedTag = "Unused",
+        StorageJava = "Java {major}",
+        StorageWorlds = "Worlds {size}",
+        StorageContent = "Mods and packs {size}",
+        StorageOtherFiles = "Other {size}",
+        StorageNoInstances = "No instances",
+        StorageNoRuntimes = "No Java runtimes",
+        StorageCounting = "Counting…",
+        StorageCouldntCount = "Couldn't count the files: {error}",
+        StorageStopGame = "Stop the game to remove game files, Java runtimes or the cache.",
+        StorageOpenFolder = "Open folder",
+        StorageOpen = "Open",
+        StorageDelete = "Delete…",
+        StorageRemoveEllipsis = "Remove…",
+        StorageClearEllipsis = "Clear…",
+        StorageRemove = "Remove",
+        StorageClear = "Clear",
+        StorageDeleteOld = "Delete old…",
+        StorageDeleteAll = "Delete all…",
+        StorageDeleteConfirm = "Delete",
+        StorageFreed = "Freed {size}",
+        StorageCouldntRemove = "Couldn't remove everything: {error}",
+        StorageCleanGameFilesTitle = "Remove unused game files?",
+        StorageCleanGameFilesBody = "This frees {size}. Versions, libraries and assets no instance uses are deleted, and download again if an instance needs them.",
+        StorageCleanRuntimesTitle = "Remove unused Java runtimes?",
+        StorageCleanRuntimesBody = "This frees {size}. They download again when a Minecraft version needs them.",
+        StorageClearCacheTitle = "Clear the cache?",
+        StorageClearCacheBody = "This frees {size}. The launcher downloads what it needs again.",
+        StorageDeleteOldLogsTitle = "Delete old logs?",
+        StorageDeleteOldLogsBody = "This frees {size}. Logs and crash reports older than 30 days are deleted for good.",
+        StorageDeleteAllLogsTitle = "Delete all logs?",
+        StorageDeleteAllLogsBody = "This frees {size}. Every log and crash report is deleted for good, except a running game's.",
     }
 
     pub enum ShellPlural {

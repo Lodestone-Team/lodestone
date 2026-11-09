@@ -11,6 +11,13 @@ pub fn text(message: M) -> &'static str {
         M::ZoomIn => "放大",
         M::ZoomOut => "缩小",
         M::ActualSize => "实际大小",
+        M::EditMenu => "编辑",
+        M::Undo => "撤销",
+        M::Redo => "重做",
+        M::Undid => "已撤销：{change}",
+        M::Redid => "已重做：{change}",
+        M::ChangeTo => "{setting} → {value}",
+        M::SettingsOf => "{name} 的设置",
 
         M::Play => "开始游戏",
         M::Playing => "游戏中",
@@ -33,7 +40,7 @@ pub fn text(message: M) -> &'static str {
         M::GroupImported => "已导入",
 
         M::NoInstanceSelected => "未选择实例",
-        M::NoInstanceSelectedHint => "创建一个实例，选择 Minecraft 版本和加载器。",
+        M::NoInstanceSelectedHint => "创建一个实例，即可选择 Minecraft 版本和加载器。",
         M::MinecraftVersion => "Minecraft {version}",
         M::MinecraftWith => "Minecraft {version}，{loader}",
         M::HeroPlayed => "{game}。已游玩 {time}。",
@@ -70,7 +77,7 @@ pub fn text(message: M) -> &'static str {
         M::TurningOffRenames => {
             "禁用后，它们会被重命名为 .disabled，你之后可以在“内容”中重新启用。"
         }
-        M::WorldsAtRisk => "使用过这些模组中方块或物品的世界可能会丢失它们。请先备份你的世界。",
+        M::WorldsAtRisk => "使用过这些模组中的方块或物品的世界可能会丢失它们。请先备份你的世界。",
         M::TurnOffAndSave => "禁用并保存",
         M::SaveAndKeep => "保存并保留",
         M::RemoveAccountTitle => "移除“{name}”？",
@@ -89,7 +96,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::CauseOutOfMemory => "内存不足。请在“设置”中提高最大内存，或关闭其他应用。",
         M::CauseNatives => {
-            "本地库缺失或不适用于此处理器。在 Apple 芯片上，1.19 之前的版本会通过 Rosetta 2 在 Intel 版 Java 中运行；请确认已安装 Rosetta，并且自定义 Java 不是 arm64 版。"
+            "本地库缺失，或与处理器架构不符。在 Apple 芯片上，1.19 之前的版本会通过 Rosetta 2 在 Intel 版 Java 中运行；请确认已安装 Rosetta，并且自定义 Java 不是 arm64 版。"
         }
         M::CauseJvmOptions => "Java 拒绝了其中一项设置。请检查“设置”中的 JVM 参数和内存。",
         M::CauseGraphics => {
@@ -107,11 +114,11 @@ pub fn text(message: M) -> &'static str {
         M::UpdatedFiles => "已更新（{count}）",
         M::AddedFiles => "已添加（{count}）",
         M::RemovedFiles => "已移除（{count}）",
-        M::ReplacedOwnFiles => "现由整合包提供的你的文件（{count}）",
+        M::ReplacedOwnFiles => "原本属于你、现由整合包提供的文件（{count}）",
         M::KeptFiles => "保留你的改动（{count}）",
-        M::WrittenFiles => "写入的配置和其他文件（{count}）",
+        M::WrittenFiles => "写入的配置文件和其他文件（{count}）",
         M::ModpackUpdateSafety => {
-            "你自己的模组、世界和改动过的配置不会受影响。每个被替换或移除的文件都会先保存到实例的备份文件夹中。"
+            "你自己的模组、世界和改动过的配置文件不会受影响。每个被替换或移除的文件都会先保存到实例的备份文件夹中。"
         }
         M::BackUpEveryWorld => "先备份所有世界",
 
@@ -152,7 +159,7 @@ pub fn text(message: M) -> &'static str {
         M::GameArguments => "游戏参数",
         M::EnvironmentVariables => "环境变量",
 
-        M::SyncedFrom => "现在，在“{name}”的游戏中更改的设置会更新所有实例。",
+        M::SyncedFrom => "现在，“{name}”中游戏内的更改会同步到所有实例。",
         M::SyncedFromNone => "现在没有实例会更新共享设置，请在这里编辑。",
         M::SharedCleared => "共享值已清除。各实例保留自己的 options.txt。",
         M::NoInstance => "无实例",
@@ -161,7 +168,7 @@ pub fn text(message: M) -> &'static str {
         M::SyncFrom => "同步来源",
         M::SyncFromHint => "在此实例游戏内的更改会同步到其他实例。",
         M::SyncFromNoneHint => "共享值只在这里更改。",
-        M::StartFromInstance => "从实例开始",
+        M::StartFromInstance => "从某个实例开始",
         M::CopyFromInstance => "从实例复制…",
         M::ClearShared => "清除共享值",
         M::ClearSharedHint => "各实例保留自己的 options.txt。",
@@ -174,23 +181,23 @@ pub fn text(message: M) -> &'static str {
         M::ServerListHint => "即将推出。",
         M::Source => "来源",
         M::WhatsShared => "共享内容",
-        M::WhatsSharedLead => "关闭的类别由各实例单独保存。",
+        M::WhatsSharedLead => "关闭的类别仍由各实例单独设置。",
         M::CategoryControls => "控制",
         M::CategoryVideo => "视频",
         M::CategorySound => "声音",
         M::CategoryAccessibility => "辅助功能与聊天",
         M::CategoryLanguage => "语言",
-        M::CategoryControlsHint => "鼠标、按键绑定",
-        M::CategoryVideoHint => "视野、渲染距离、界面尺寸、图像品质",
+        M::CategoryControlsHint => "鼠标、按键",
+        M::CategoryVideoHint => "视场角、渲染距离、界面尺寸、图像品质",
         M::CategorySoundHint => "音量、字幕",
-        M::CategoryAccessibilityHint => "旁白、聊天、文本背景",
+        M::CategoryAccessibilityHint => "复述功能、聊天、文本背景",
         M::CategoryLanguageHint => "游戏语言和字体",
-        M::NarratorSection => "旁白",
-        M::KeepNarratorOff => "始终关闭旁白",
+        M::NarratorSection => "复述功能",
+        M::KeepNarratorOff => "始终关闭复述功能",
         M::KeepNarratorOffHint => "同时跳过首次启动时的辅助功能界面。",
-        M::NarratorNotShared => "“{category}”未共享，因此每个实例保留自己的旁白设置。",
-        M::NarratorKeptOff => "旁白在每个实例中都保持关闭，包括新实例。",
-        M::NarratorPerInstance => "每个实例重新使用自己的旁白设置。",
+        M::NarratorNotShared => "“{category}”未共享，因此每个实例保留自己的复述功能设置。",
+        M::NarratorKeptOff => "复述功能在每个实例中都保持关闭，包括新实例。",
+        M::NarratorPerInstance => "各实例恢复使用自己的复述功能设置。",
 
         M::SigningIn => "正在登录…",
         M::OfflineCouldntConnect => "离线 – 无法连接",
@@ -289,7 +296,7 @@ pub fn text(message: M) -> &'static str {
         M::AuthDeclinedBody => "登录在浏览器中被拒绝。请重试并接受所需权限以继续。",
         M::AuthMicrosoft => "Microsoft 登录失败",
         M::AuthMicrosoftBody => "Microsoft 无法让你登录（{code}）。请稍后重试。",
-        M::AuthMicrosoftSaid => "Microsoft 返回：{description}（{code}）",
+        M::AuthMicrosoftSaid => "Microsoft 表示：{description}（{code}）",
         M::AuthCodeExpired => "代码已过期",
         M::AuthCodeExpiredBody => "代码在登录完成前已过期。请获取新代码后重试。",
         M::AuthSignInExpiredBody => {
@@ -315,9 +322,9 @@ pub fn text(message: M) -> &'static str {
         M::AuthNotOwnedBody => {
             "此 Microsoft 账户没有 Minecraft: Java Edition。如果你通过 Xbox Game Pass 游玩，请先在官方启动器中启动一次 Minecraft，然后重试。"
         }
-        M::AuthNoProfile => "没有 Minecraft 档案",
+        M::AuthNoProfile => "没有 Minecraft 个人资料",
         M::AuthNoProfileBody => {
-            "此账户还没有 Minecraft 档案。如果你通过 Xbox Game Pass 游玩，请先在官方启动器中启动一次 Minecraft 并选择名称，然后重试。"
+            "此账户还没有 Minecraft 个人资料。如果你通过 Xbox Game Pass 游玩，请先在官方启动器中启动一次 Minecraft 并选择名称，然后重试。"
         }
         M::AuthRateLimited => "尝试次数过多",
         M::AuthRateLimitedBody => "登录尝试次数过多。请等待几分钟后重试。",
@@ -343,10 +350,10 @@ pub fn text(message: M) -> &'static str {
         M::StepXsts => "Xbox Live 授权",
         M::StepMinecraftLogin => "Minecraft 登录",
         M::StepEntitlements => "Minecraft 所有权检查",
-        M::StepProfile => "加载 Minecraft 档案",
+        M::StepProfile => "加载 Minecraft 个人资料",
 
         M::AccountsTooNew => {
-            "你的账户由更新版本的 Lodestone Launcher 保存。在这里所做的更改将不会被保存。"
+            "你的账户由较新版本的 Lodestone Launcher 保存。在这里所做的更改将不会被保存。"
         }
         M::AccountsCorrupt => {
             "无法读取 accounts.json，因此 Lodestone Launcher 在没有账户的情况下启动。"
@@ -368,8 +375,8 @@ pub fn text(message: M) -> &'static str {
         M::BuildNumber => "构建 {build}",
         M::BuildNumberCommit => "构建 {build} · {commit}",
         M::DevelopmentBuild => "开发构建",
-        M::UpdatesUnavailable => "此构建并非在 GitHub 上发布，因此不会自动更新。",
-        M::UpdateNotChecked => "每隔几小时在 GitHub 上检查新构建。",
+        M::UpdatesUnavailable => "此构建未在 GitHub 上发布，因此不会自动更新。",
+        M::UpdateNotChecked => "每隔几小时检查一次 GitHub 上是否有新构建。",
         M::UpdateChecking => "正在检查新构建…",
         M::UpToDate => "当前已是最新构建。",
         M::UpdateAvailable => "构建 {build} 现已可用。",
@@ -383,7 +390,112 @@ pub fn text(message: M) -> &'static str {
         M::UpdateReadyBadge => "更新已就绪",
         M::UpdateAvailableBadge => "有可用更新",
 
-        M::RestOnModrinth => "其余描述请在 Modrinth 上查看。",
+        M::RestOnModrinth => "完整简介请在 Modrinth 上查看。",
+        M::Storage => "存储",
+        M::Skin => "皮肤",
+        M::SkinGallery => "皮肤",
+        M::SkinImport => "导入…",
+        M::SkinImportButton => "导入",
+        M::SkinExport => "导出…",
+        M::SkinNew => "新建皮肤…",
+        M::SkinDelete => "删除",
+        M::SkinDeleteConfirm => "删除 {name}",
+        M::SkinCopyName => "{name} 副本",
+        M::SkinCopied => "已复制 {name} 以便修改。",
+        M::SkinImported => "已导入 {name}。",
+        M::SkinExported => "已导出到 {path}。",
+        M::SkinSafeMode => "已在不使用皮肤的情况下启动（--no-skin）。",
+        M::SkinCouldntLoad => "无法加载皮肤：{error}",
+        M::SkinSidebar => "侧边栏",
+        M::SkinImage => "图片",
+        M::SkinChoose => "选择…",
+        M::SkinUseImage => "使用图片",
+        M::SkinRemove => "移除",
+        M::SkinFit => "填充方式",
+        M::SkinFitCover => "铺满",
+        M::SkinFitTile => "平铺",
+        M::SkinTint => "色调",
+        M::SkinTintStrength => "色调强度",
+        M::SkinBlur => "模糊",
+        M::SkinBanner => "实例横幅",
+        M::SkinBannerInSidebar => "显示在侧边栏条目后面",
+        M::SkinHero => "“开始游戏”横幅",
+        M::SkinHeroHint => "用于没有自己图片的实例。",
+        M::SkinPlayButton => "“开始游戏”按钮",
+        M::SkinColor => "颜色",
+        M::SkinFadeTo => "渐变到",
+        M::SkinShape => "形状",
+        M::SkinShapeRounded => "圆角",
+        M::SkinShapePill => "胶囊",
+        M::SkinShapePixel => "像素",
+        M::SkinLabel => "文字",
+        M::SkinGlow => "光晕",
+        M::SkinColors => "颜色",
+        M::SkinAccent => "强调色",
+        M::SkinProgress => "进度条",
+        M::SkinDefault => "默认",
+        M::SkinNone => "无",
+        M::SkinReadable => "文字保持清晰可读。",
+        M::SkinAdjusted => "强调色已调整以保持可读。",
+        M::SkinReset => "恢复默认",
+        M::SkinContrastSidebar => "侧边栏文字 {ratio}:1",
+        M::SkinContrastHero => "“开始游戏”横幅 {ratio}:1",
+        M::SkinFixReadability => "修复可读性",
+        M::SkinPlayColor => "“开始游戏”按钮颜色",
+        M::SkinUseSkins => "跟随皮肤",
+        M::StorageInstances => "实例",
+        M::StorageGameFiles => "游戏文件",
+        M::StorageRuntimes => "Java 运行时",
+        M::StorageCache => "缓存",
+        M::StorageLeftovers => "未完成的下载和导入",
+        M::StorageCleanLeftoversTitle => "移除未完成的下载？",
+        M::StorageCleanLeftoversBody => {
+            "这将释放 {size}。这些是未完成的整合包下载和导入留下的文件。"
+        }
+        M::StorageOther => "设置和其他文件",
+        M::StorageCacheAndLogs => "缓存和日志",
+        M::StorageLogs => "日志和崩溃报告",
+        M::StorageOldLogs => "{size} 超过 30 天",
+        M::StorageVersions => "版本",
+        M::StorageLibraries => "库",
+        M::StorageAssets => "资源",
+        M::StorageUnused => "未被任何实例使用",
+        M::StorageUnusedTag => "未使用",
+        M::StorageJava => "Java {major}",
+        M::StorageWorlds => "世界 {size}",
+        M::StorageContent => "模组和资源包 {size}",
+        M::StorageOtherFiles => "其他 {size}",
+        M::StorageNoInstances => "没有实例",
+        M::StorageNoRuntimes => "没有 Java 运行时",
+        M::StorageCounting => "正在统计…",
+        M::StorageCouldntCount => "无法统计文件：{error}",
+        M::StorageStopGame => "请先停止游戏，再移除游戏文件、Java 运行时或缓存。",
+        M::StorageOpenFolder => "打开文件夹",
+        M::StorageOpen => "打开",
+        M::StorageDelete => "删除…",
+        M::StorageRemoveEllipsis => "移除…",
+        M::StorageClearEllipsis => "清除…",
+        M::StorageRemove => "移除",
+        M::StorageClear => "清除",
+        M::StorageDeleteOld => "删除旧的…",
+        M::StorageDeleteAll => "全部删除…",
+        M::StorageDeleteConfirm => "删除",
+        M::StorageFreed => "已释放 {size}",
+        M::StorageCouldntRemove => "无法全部移除：{error}",
+        M::StorageCleanGameFilesTitle => "移除未使用的游戏文件？",
+        M::StorageCleanGameFilesBody => {
+            "这将释放 {size}。没有实例使用的版本、库和资源会被删除，实例需要时会重新下载。"
+        }
+        M::StorageCleanRuntimesTitle => "移除未使用的 Java 运行时？",
+        M::StorageCleanRuntimesBody => "这将释放 {size}。Minecraft 版本需要时会重新下载。",
+        M::StorageClearCacheTitle => "清除缓存？",
+        M::StorageClearCacheBody => "这将释放 {size}。启动器会重新下载所需内容。",
+        M::StorageDeleteOldLogsTitle => "删除旧日志？",
+        M::StorageDeleteOldLogsBody => "这将释放 {size}。超过 30 天的日志和崩溃报告会被永久删除。",
+        M::StorageDeleteAllLogsTitle => "删除所有日志？",
+        M::StorageDeleteAllLogsBody => {
+            "这将释放 {size}。所有日志和崩溃报告都会被永久删除，正在运行的游戏的除外。"
+        }
     }
 }
 

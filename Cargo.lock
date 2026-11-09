@@ -6784,6 +6784,7 @@ dependencies = [
  "jsonwebtoken",
  "local-ip-address",
  "lodestone_minecraft",
+ "lodestone_trace",
  "playit-agent-core",
  "playit-api-client",
  "rand 0.10.3",
@@ -6844,6 +6845,13 @@ dependencies = [
  "ts-rs",
  "url",
  "zip",
+]
+
+[[package]]
+name = "lodestone_trace"
+version = "0.5.1"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

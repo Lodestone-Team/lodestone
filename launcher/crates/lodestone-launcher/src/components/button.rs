@@ -71,13 +71,13 @@ impl ButtonVariant {
             ButtonVariant::Primary => Colors {
                 text: colors::WHITE,
                 weight: weights::MEDIUM,
-                bg: Some(colors::BLUE),
-                outline: Some(colors::BLUE_FADED.opacity(50)),
+                bg: Some(crate::theme::accent::base()),
+                outline: Some(crate::theme::accent::faded().opacity(50)),
                 hover_text: colors::WHITE,
-                hover_bg: Some(colors::BLUE_400),
-                hover_outline: Some(colors::BLUE_200.opacity(75)),
-                active_bg: Some(colors::BLUE_500),
-                disabled_bg: Some(colors::BLUE_FADED.opacity(50)),
+                hover_bg: Some(crate::theme::accent::hover()),
+                hover_outline: Some(crate::theme::accent::light().opacity(75)),
+                active_bg: Some(crate::theme::accent::pressed()),
+                disabled_bg: Some(crate::theme::accent::faded().opacity(50)),
             },
             ButtonVariant::Danger => Colors {
                 text: colors::RED_200,
@@ -119,6 +119,8 @@ pub struct Button {
     loading: bool,
     full_width: bool,
     pill: bool,
+    /// Text and hover colours in place of the variant's.
+    ink: Option<(Color, Color)>,
     on_click: Option<ClickHandler>,
 }
 
@@ -136,6 +138,7 @@ impl Button {
             loading: false,
             full_width: false,
             pill: false,
+            ink: None,
             on_click: None,
         }
     }
@@ -181,6 +184,12 @@ impl Button {
         self
     }
 
+    /// Text in `text` and a hover in `hover_bg`, for a button on a skin's image.
+    pub fn ink(mut self, text: Color, hover_bg: Color) -> Self {
+        self.ink = Some((text, hover_bg));
+        self
+    }
+
     /// Fully rounded ends, with room for them, for a button inside a pill.
     pub fn pill(mut self) -> Self {
         self.pill = true;
@@ -191,14 +200,29 @@ impl Button {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_click = Some(Box::new(handler));
+        let (id, label) = (self.id.clone(), self.label.clone());
+        self.on_click = Some(Box::new(move |event, window, cx| {
+            super::trace_ui(
+                "ui.click",
+                "button",
+                &id,
+                serde_json::json!({ "label": label.as_ref() }),
+            );
+            handler(event, window, cx)
+        }));
         self
     }
 }
 
 impl RenderOnce for Button {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let palette = self.variant.colors();
+        let mut palette = self.variant.colors();
+        if let Some((text, hover_bg)) = self.ink {
+            palette.text = text;
+            palette.hover_text = text;
+            palette.hover_bg = Some(hover_bg);
+            palette.active_bg = Some(hover_bg);
+        }
         let inactive = self.disabled || self.loading;
         let text_color = if self.disabled {
             colors::WHITE.opacity(50)
@@ -361,7 +385,16 @@ impl IconButton {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_click = Some(Box::new(handler));
+        let (id, icon) = (self.id.clone(), format!("{:?}", self.icon));
+        self.on_click = Some(Box::new(move |event, window, cx| {
+            super::trace_ui(
+                "ui.click",
+                "icon_button",
+                &id,
+                serde_json::json!({ "icon": icon }),
+            );
+            handler(event, window, cx)
+        }));
         self
     }
 }

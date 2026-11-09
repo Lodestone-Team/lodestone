@@ -103,7 +103,7 @@ pub fn is_resource_pack(path: &Path) -> bool {
     let Ok(file) = File::open(path) else {
         return false;
     };
-    let Ok(mut archive) = zip::ZipArchive::new(file) else {
+    let Ok(mut archive) = zip::ZipArchive::new(std::io::BufReader::new(file)) else {
         return false;
     };
     archive.by_name("pack.mcmeta").is_ok()
