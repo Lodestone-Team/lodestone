@@ -1076,6 +1076,12 @@ export const en = {
     one: '{count} older line hidden (showing the newest {max})',
     other: '{count} older lines hidden (showing the newest {max})',
   },
+  /** above the console lines while an older page of them is fetched */
+  'console.loadingOlder': 'Loading older lines…',
+  'console.historyFailed': 'Couldn’t load older lines. Scroll up to try again.',
+  /** at the top of the console; {max} is the number of lines kept */
+  'console.historyLimit':
+    'Older lines aren’t shown: the console keeps at most {max} lines',
   /** {error} is the core's error message */
   'console.sendFailed': 'Failed to send command: {error}',
 
