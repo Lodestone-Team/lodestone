@@ -158,6 +158,39 @@ a {
   padding: clamp(20px, 5vh, 64px) 24px 0;
 }
 
+.eyebrow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 10px;
+  margin-bottom: 20px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(38, 40, 44, 0.7);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.eyebrow:hover {
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.eyebrow-stat {
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  color: var(--accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 h1 {
   margin: 0;
   max-width: 22ch;
@@ -357,6 +390,11 @@ a:focus-visible {
 
   .github-label {
     display: none;
+  }
+
+  .eyebrow-stat {
+    padding-left: 0;
+    border-left: 0;
   }
 
   .hero {
