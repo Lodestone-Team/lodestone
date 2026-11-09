@@ -9,5 +9,26 @@
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS"
+  },
+  // Builds of branches other than main run `wrangler preview`, which needs
+  // this block, even empty, to make a Preview of the branch.
+  "previews": {},
+  // Request logs and traces, kept in the dashboard (Observability). Set here
+  // so a deploy doesn't switch them back off.
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    },
+    "issue_detection": {
+      "enabled": true
+    }
   }
 }
