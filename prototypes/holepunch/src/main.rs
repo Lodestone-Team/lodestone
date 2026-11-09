@@ -59,11 +59,31 @@ fn remove_mapping() {
     }
 }
 
+/// The invite a host has open (service, code, secret), ended on Ctrl-C.
+static INVITE: Mutex<Option<(rendezvous::Service, String, String)>> = Mutex::new(None);
+
+/// Ends the open invite, if any, so friends don't try a host that has gone. Best effort.
+async fn end_invite() {
+    let open = INVITE.lock().unwrap().take();
+    if let Some((service, code, secret)) = open {
+        let path = format!("/v1/invites/{code}");
+        let ended = tokio::time::timeout(
+            Duration::from_secs(3),
+            rendezvous::call(&service, "DELETE", &path, Some(&secret), None),
+        )
+        .await;
+        if matches!(ended, Ok(Ok(_))) {
+            println!("Ended the invite.");
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tokio::spawn(async {
         if tokio::signal::ctrl_c().await.is_ok() {
             remove_mapping();
+            end_invite().await;
             std::process::exit(130);
         }
     });
@@ -88,6 +108,7 @@ async fn main() {
         }
     };
     remove_mapping();
+    end_invite().await;
     if let Err(err) = result {
         eprintln!("error: {err}");
         std::process::exit(1);
@@ -410,7 +431,8 @@ async fn host(args: &[String]) -> Result<(), Error> {
     let created = rendezvous::call(
         &service,
         "POST",
-        "/v1/sessions",
+        "/v1/invites",
+        None,
         Some(serde_json::json!({ "candidates": list })),
     )
     .await?;
@@ -422,6 +444,7 @@ async fn host(args: &[String]) -> Result<(), Error> {
         .as_str()
         .ok_or("no secret from the service")?
         .to_string();
+    *INVITE.lock().unwrap() = Some((service.clone(), code.clone(), secret.clone()));
     println!(
         "\nSend this invite to your friends (the part after # never goes to the service):\n\n  \
          lhp2://{}/{code}#{}.{}\n",
@@ -442,21 +465,41 @@ async fn host(args: &[String]) -> Result<(), Error> {
     println!("Waiting for friends to join...");
     let mut seen = 0usize;
     loop {
-        let path = format!("/v1/sessions/{code}/joins?secret={secret}&after={seen}");
-        let joins = match rendezvous::call(&service, "GET", &path, None).await {
-            Ok(joins) => joins,
+        let mut watch = match rendezvous::watch(&service, &code, &secret, seen).await {
+            Ok(Some(watch)) => watch,
+            Ok(None) => return Err("the invite has ended".into()),
             Err(err) => {
                 println!("  {err}; retrying");
                 tokio::time::sleep(Duration::from_secs(3)).await;
                 continue;
             }
         };
-        for join in joins["joins"].as_array().cloned().unwrap_or_default() {
-            seen += 1;
-            let peers = rendezvous::addrs_of(&join["candidates"]);
-            println!("A friend joined; punching towards {}", addrs(&peers));
-            probe::spray(&sprayer, peers, tag, Duration::from_secs(60))?;
+        loop {
+            match watch.next().await {
+                Ok(rendezvous::Event::Joins(joins)) => {
+                    for (id, peers) in joins {
+                        if id < seen {
+                            continue;
+                        }
+                        seen = id + 1;
+                        println!("A friend joined; punching towards {}", addrs(&peers));
+                        probe::spray(&sprayer, peers, tag, Duration::from_secs(60))?;
+                    }
+                }
+                Ok(rendezvous::Event::Ended) => {
+                    if INVITE.lock().unwrap().take().is_none() {
+                        // Ended by Ctrl-C, which is finishing up and exits.
+                        std::future::pending::<()>().await;
+                    }
+                    return Err("the invite has ended".into());
+                }
+                Err(err) => {
+                    println!("  lost the introduction service ({err}); reconnecting");
+                    break;
+                }
+            }
         }
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
@@ -554,7 +597,8 @@ async fn join(args: &[String]) -> Result<(), Error> {
             let answer = rendezvous::call(
                 &invite.service,
                 "POST",
-                &format!("/v1/sessions/{}/joins", invite.code),
+                &format!("/v1/invites/{}/joins", invite.code),
+                None,
                 Some(serde_json::json!({ "candidates": list })),
             )
             .await?;

@@ -25,4 +25,6 @@ subtle = "=2.6.1"
 socket2 = { version = "=0.6.5", features = ["all"] }
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
 webpki-roots = "=1.0.11"
+tokio-tungstenite = { version = "=0.29.0", default-features = false, features = ["handshake"] }
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "time", "signal", "sync"] }
