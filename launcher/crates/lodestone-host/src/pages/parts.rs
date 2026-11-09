@@ -456,6 +456,13 @@ pub fn ago(seconds: i64) -> String {
     }
 }
 
+/// The address of the core `state` is signed in to, as `display_address` writes it.
+pub fn current_address(state: &Entity<HostState>, cx: &App) -> Option<String> {
+    Some(launcher_core::cores::client::display_address(
+        state.read(cx).admin.core().base(),
+    ))
+}
+
 /// A page's sections, one under the other, as wide as the settings column.
 pub fn page(children: impl IntoIterator<Item = AnyElement>) -> gpui::Div {
     div()

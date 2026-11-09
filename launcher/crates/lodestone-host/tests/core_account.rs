@@ -178,6 +178,31 @@ fn the_settings_pages_calls_work_on_a_real_core() {
         Err(CoreError::NotFound(_) | CoreError::Server { .. } | CoreError::Forbidden(_))
     ));
 
+    // another core, as the Cores dialog connects: over HTTPS, the core's own certificate
+    // isn't trusted until the user trusts its fingerprint, then a password signs in
+    let https = url::Url::parse(&format!("https://127.0.0.1:{}", config.port)).unwrap();
+    let fingerprint = match block_on(CoreClient::new(http.clone(), https.clone()).info()) {
+        Err(CoreError::Untrusted {
+            fingerprint: Some(fingerprint),
+            ..
+        }) => fingerprint,
+        other => panic!(
+            "expected an untrusted certificate, got {:?}",
+            other.map(|_| ())
+        ),
+    };
+    let pin = launcher_core::cores::tls::CertificatePin::new("127.0.0.1", &fingerprint);
+    let pinned = Arc::new(launcher_core::cores::tls::PinnedHttp::new(Some(pin)).unwrap());
+    let remote = CoreClient::new(http.clone(), https).with_pinned(pinned);
+    assert_eq!(block_on(remote.info()).unwrap().core_name, "Test core");
+    let remote_session = block_on(session::sign_in_to(
+        remote,
+        "owner",
+        &Secret::new(String::from("a long test password 123")),
+    ))
+    .expect("the owner signs in to the pinned core");
+    assert!(remote_session.me.is_owner);
+
     // deleting a user
     block_on(admin.delete_user(&alice.uid)).unwrap();
     assert_eq!(block_on(admin.users()).unwrap().len(), 1);

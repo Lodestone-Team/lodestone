@@ -155,6 +155,18 @@ mod screenshot {
                     .timer(Duration::from_millis(2500))
                     .await;
             }
+            // `--cores`: the other cores dialog (package D)
+            if std::env::args().any(|arg| arg == "--cores") {
+                window
+                    .update(cx, |app, _, cx| {
+                        app.shell()?.update(cx, |shell, cx| shell.open_cores(cx));
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
             // `--notifications`: the bell's list, open
             if std::env::args().any(|arg| arg == "--notifications") {
                 window

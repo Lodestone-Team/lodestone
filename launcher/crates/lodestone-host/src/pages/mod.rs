@@ -25,6 +25,7 @@ pub mod account_dialogs;
 pub mod api_keys;
 pub mod console;
 pub mod core_settings;
+pub mod cores;
 pub mod create_instance;
 pub mod eula_prompt;
 pub mod event_logs;

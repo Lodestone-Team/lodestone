@@ -99,6 +99,17 @@ pub async fn sign_in_with_password(
     finish(AdminClient::new(local, Secret::new(reply.token))).await
 }
 
+/// Signs in to another core (`client`, with the certificate the user trusted) with a
+/// username and password (`POST /user/login`), for Settings' other cores.
+pub async fn sign_in_to(
+    client: CoreClient,
+    username: &str,
+    password: &Secret,
+) -> Result<Session, SignInError> {
+    let reply = launcher_core::cores::admin::login(&client, username, password).await?;
+    finish(AdminClient::new(client, Secret::new(reply.token))).await
+}
+
 /// What the shell needs once signed in: the core's details and who is signed in.
 async fn finish(admin: AdminClient) -> Result<Session, SignInError> {
     let info = admin.full_info().await?;

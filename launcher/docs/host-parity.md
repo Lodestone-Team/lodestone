@@ -264,11 +264,12 @@ Conventions in the code that every area relies on:
     (plug-exclamation, yellow), error (plug-x, red).
   - Hover/focus tooltip: status label + detail text + Address (`proto://addr:port`), Version, Host
     (`host_name`), System (`os arch`, macos→macOS, aarch64→arm64), Uptime (from `up_since`, d/h/m).
-- [ ] Footer: user menu — `components/UserMenu.tsx`
+- [x] Footer: user menu — `components/UserMenu.tsx`
   - Button: avatar (boring-avatars from uid) + username (skeleton while loading, "Guest" if logged out),
     opens upward menu: "Signed in as <name>" / "Not signed in"; **Sign out** (clears token for this core,
     clears `instance` & `user` params → redirected to login); **Change core** (→ `/login/core/select`).
   - Gear icon button → remembers current path, opens `/settings/general`.
+  - *Host:* The footer has Signed in as, Settings and Change core (the Cores dialog). No Sign out: the Host signs in to its own core as the owner by itself.
 - [x] Home page — `pages/home.tsx`
   - Placeholder cube image, title + subtitle, "Create a new server" button (only when logged in; disabled
     without `can_create_instance`). Skeleton while user info loads.
@@ -284,14 +285,18 @@ Conventions in the code that every area relies on:
 ### 1.3 Cores: selecting, adding, persistence (`pages/index.tsx`, `pages/login/*`)  
 **Package: D.**
 
-- [ ] Current core persisted in localStorage keys `address`, `port`, `protocol`, `apiVersion`
+- [x] Current core persisted in localStorage keys `address`, `port`, `protocol`, `apiVersion`
   (defaults localhost/16662/http/v1). Switching core clears the whole query cache and `?instance`.
-- [ ] Saved core list `localStorage.cores` (array of `{address,port,protocol,apiVersion}`); a core is
+  - *Host:* The Host always starts on this computer's core; the other cores are in the Cores dialog.
+- [x] Saved core list `localStorage.cores` (array of `{address,port,protocol,apiVersion}`); a core is
   added after a successful connection; same address+port replaces protocol/apiVersion.
-- [ ] Per-core token map `localStorage.tokens` keyed by `"address:port"`.
-- [ ] Legacy link params `?address&port&protocol&apiVersion`: if equal to current core they are just
+  - *Host:* prefs.rs cores: address and the trusted certificate's fingerprint.
+- [x] Per-core token map `localStorage.tokens` keyed by `"address:port"`.
+  - *Host:* Not kept, on purpose: the Host signs in to another core again each time (no token on disk).
+- [x] Legacy link params `?address&port&protocol&apiVersion`: if equal to current core they are just
   stripped; if different → open `/login/core/new` pre-filled (never switches silently).
-- [ ] **Connect to a core** page — `pages/login/CoreConnect.tsx` (`/login/core/new`)
+  - *Host:* Not applicable: the Host has no URLs.
+- [x] **Connect to a core** page — `pages/login/CoreConnect.tsx` (`/login/core/new`)
   - Fields: API version (select, only `v1`), Protocol (select http/https), Port (number, default 16662),
     Address (text). All required (yup).
   - Protocol auto-follows address (http for localhost/127.0.0.1/::1, https otherwise) until user picks one.
@@ -303,14 +308,17 @@ Conventions in the code that every area relies on:
     `https://addr:port/` + fingerprint hint; http → plain-HTTP hint.
   - https page + http core: warning banner and a "mixed content" danger dialog (wiki link) — browser-only.
   - Buttons: Back, "Download core" (opens GitHub releases), "Add and continue".
-- [ ] **Select a saved core** — `pages/login/CoreSelectExisting.tsx` (`/login/core/select`)
+  - *Host:* pages/cores.rs: the address as typed (parse_address: http for loopback, https otherwise, port 16662 by default), the certificate's fingerprint to trust when the system doesn't (as Lodestone Launcher), then username and password. tests/core_account.rs connects to a real core this way.
+- [x] **Select a saved core** — `pages/login/CoreSelectExisting.tsx` (`/login/core/select`)
   - Select of saved cores (label `address:port`), "or" "Connect to a new core" button, Download core,
     Continue (same `/info` probe and routing as above; help box with `savedCore` wording).
-- [ ] Local-core discovery while signed in to a remote core — `DashboardLayout.tsx`, `data/SystemInfo.ts`
+  - *Host:* The Cores dialog lists this computer's core and the saved ones (Switch, Remove).
+- [x] Local-core discovery while signed in to a remote core — `DashboardLayout.tsx`, `data/SystemInfo.ts`
   - If the local core is reachable (Tauri, or page served over http) and the current core isn't local:
     poll `GET http://localhost:16662/api/v1/info` every 3 s (2.5 s timeout) until it answers.
   - Answer `is_setup:false` → dialog "A local core was found" with **Set up** (switch to local core →
     `/login/core/first_setup`) / **Skip**. `is_setup:true` → silently add local core to saved list.
+  - *Host:* Not applicable: the Host is the local core.
 
 ### 1.4 First run / owner setup / login (`pages/login/*`)  
 **Package: foundation (done, through the local claim).**
@@ -361,14 +369,20 @@ Conventions in the code that every area relies on:
 
 - [ ] Token = JWT (claims `uid`, `exp`), decoded without verification; malformed / no `exp` / no `uid` /
   expired → error toast and sign-out.
+  - *Host:* Not done (D): the Host doesn't read the token's expiry; it signs in again when the core refuses the token (60 days later).
 - [ ] Auto sign-out timer at `exp` with warning toast "Session expired" (toast id `sessionExpired`).
-- [ ] 401 handling: any 401 on a request carrying the current token → re-check `GET /user/info`; if that
+  - *Host:* Not done (D), as above.
+- [x] 401 handling: any 401 on a request carrying the current token → re-check `GET /user/info`; if that
   401s → toast "session invalid" and sign out. No refresh tokens.
-- [ ] Changing token or core clears the whole data cache; notifications cleared on sign-out.
-- [ ] `UserDeleted` event for self → sign out.
-- [ ] Analytics: Google Analytics (`react-ga4`, id `G-LZQ3VZ6N26`) in production builds; events from
+  - *Host:* Any request refused with 401 ends the session (CoreError::SignedOut, state.rs): the Host claims its own core again, and from another core it goes back to this computer's with a warning toast.
+- [x] Changing token or core clears the whole data cache; notifications cleared on sign-out.
+  - *Host:* A new HostState per session and per core; notifications are cleared on sign-out.
+- [x] `UserDeleted` event for self → sign out.
+  - *Host:* state.rs (foundation).
+- [x] Analytics: Google Analytics (`react-ga4`, id `G-LZQ3VZ6N26`) in production builds; events from
   `useAnalyticsEventTracker` in many places (login, create instance, notification panel, instance list…) —
   `utils/hooks.ts`. Decide whether the native app keeps any telemetry.
+  - *Host:* Decision: the Host sends no analytics.
 
 ### 1.6 Connection status, reconnect, global dialogs (`DashboardLayout.tsx`, `data/EventStream.ts`, `data/SystemInfo.ts`, `utils/websocket.ts`)  
 **Package: D (the foundation shows the connection in the sidebar).**
@@ -377,9 +391,12 @@ Conventions in the code that every area relies on:
   - `/info` success → success (unless degraded); `/info` failure → error.
   - Event websocket open → success. Websocket failed before opening → probe `GET /user/info`: OK → degraded
     (REST works, WS doesn't); 401 → sign-out path; network error → error; other → degraded.
-- [ ] Reconnecting websocket helper: exponential backoff 1 s → max 30 s, reset on open; URL rebuilt each
+  - *Host:* Not done as such (D): the footer shows Connecting, Connected, Reconnecting and Signed out from the event stream; there is no degraded state (a browser's WebSocket limit doesn't apply).
+- [x] Reconnecting websocket helper: exponential backoff 1 s → max 30 s, reset on open; URL rebuilt each
   attempt; close code 1000 by client stops it — `utils/websocket.ts`.
-- [ ] After an event-stream reconnect: invalidate instance list, user info, global settings.
+  - *Host:* launcher_core's LiveStream reconnects by itself (foundation).
+- [x] After an event-stream reconnect: invalidate instance list, user info, global settings.
+  - *Host:* state.rs reloads on reconnect (foundation).
 - [x] **Core error dialog** (status `error`): "Can't reach <addr:port>", **Back** (→ `/login/core/select`) /
   **Continue** (reload page).
   - *Host:* The Host's own core: the supervisor's status screen, which restarts it and shows its log.
@@ -389,6 +406,7 @@ Conventions in the code that every area relies on:
 - [ ] **Version mismatch** (`DASHBOARD_VERSION` vs `/info.version`, semver): different major or minor, or
   core 0.4.x with patch < 4 → danger dialog (core/dashboard versions, "incompatible", wiki Updating link,
   "Continue anyway"); patch-only difference → warning toast top-centre 10 s (id `patchVersionMismatch`).
+  - *Host:* Not done (D): the Host bundles its own core. For another core, an older or newer API shows as request errors; a version check belongs with the Cores dialog.
 - [x] **Beta thank-you dialog** once per new core version containing "beta" (`localStorage.latestVersion`).
   - *Host:* notifications.rs; the version thanked for is latest_version in settings.json.
 
