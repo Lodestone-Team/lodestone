@@ -137,6 +137,7 @@ crate::i18n::messages! {
         SortUpdated = "Updated",
         SearchingModrinth = "Searching Modrinth",
         NothingMatches = "Nothing on Modrinth matches.",
+        NothingOnCurseForge = "Nothing on CurseForge matches.",
         PageOf = "Page {page} of {pages}",
         /// A project's author.
         ByAuthor = "by {author}",

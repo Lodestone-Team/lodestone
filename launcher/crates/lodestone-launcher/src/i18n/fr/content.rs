@@ -143,6 +143,7 @@ pub fn text(message: M) -> &'static str {
         M::SortUpdated => "Mis à jour",
         M::SearchingModrinth => "Recherche sur Modrinth",
         M::NothingMatches => "Aucun résultat sur Modrinth.",
+        M::NothingOnCurseForge => "Aucun résultat sur CurseForge.",
         M::PageOf => "Page {page} sur {pages}",
         M::ByAuthor => "par {author}",
         M::InstalledBadge => "Installé",

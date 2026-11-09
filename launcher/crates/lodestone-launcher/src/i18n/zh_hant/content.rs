@@ -127,6 +127,7 @@ pub fn text(message: M) -> &'static str {
         M::SortUpdated => "最近更新",
         M::SearchingModrinth => "正在搜尋 Modrinth",
         M::NothingMatches => "Modrinth 上沒有符合的結果。",
+        M::NothingOnCurseForge => "CurseForge 上沒有符合的結果。",
         M::PageOf => "第 {page} 頁，共 {pages} 頁",
         M::ByAuthor => "作者：{author}",
         M::InstalledBadge => "已安裝",

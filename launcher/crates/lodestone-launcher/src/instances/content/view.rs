@@ -1531,7 +1531,7 @@ impl ContentView {
             Entry::CurseForgeFailed(err) => small(err.clone())
                 .text_color(colors::RED_200)
                 .into_any_element(),
-            Entry::CurseForgeNothing => muted(t(M::NothingMatches)).into_any_element(),
+            Entry::CurseForgeNothing => muted(t(M::NothingOnCurseForge)).into_any_element(),
             Entry::CfHit {
                 index, first, last, ..
             } => {
