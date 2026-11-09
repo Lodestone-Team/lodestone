@@ -1,12 +1,14 @@
 # www.lodestone.cc: the Lodestone Launcher landing page at /, and the Lodestone
-# Core web dashboard at /core. See website/README.md.
+# Core web dashboard at /core. See README.md next to this file.
 #
-# The site's Base directory in Netlify's settings must be empty (the repository
-# root), so Netlify reads this file.
+# Netlify reads this file only for a site whose Base directory is `website`, so
+# other Netlify sites built from this repository (such as Storybook) keep their
+# own settings. Paths below are relative to `website/`; the whole repository is
+# still checked out, so the build can reach ../dashboard.
 
 [build]
-  command = "node website/build.mjs"
-  publish = "website/dist"
+  command = "node build.mjs"
+  publish = "dist"
 
 [build.environment]
   # dashboard/package.json needs Node 24.22.1 or later

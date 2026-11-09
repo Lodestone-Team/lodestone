@@ -3,7 +3,7 @@
 //   /       the Lodestone Launcher landing page (website/src, copied as is)
 //   /core   the Lodestone Core web dashboard (dashboard/, built with basePath /core)
 //
-// Netlify runs this (see netlify.toml). Locally:
+// Netlify runs this from website/ (see netlify.toml here). Locally:
 //
 //   node website/build.mjs                  # landing page and dashboard
 //   node website/build.mjs --landing-only   # landing page only, no dashboard build

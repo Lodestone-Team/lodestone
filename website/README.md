@@ -37,8 +37,10 @@ node website/serve.mjs                  # http://localhost:8888, with netlify.to
 
 ## Deploying
 
-Netlify builds the site from `netlify.toml` at the repository root, so the
-site's **Base directory** setting in Netlify must be empty. `netlify.toml` also
-redirects the dashboard's old addresses (`/first_setup`, `/login/*`,
-`/dashboard/*`, `/settings/*`) to `/core`, and sends any other `/core/*` path to
-the dashboard's `index.html`.
+Netlify builds the site from `website/netlify.toml`, so the site's **Base
+directory** setting in Netlify must be `website` (the build and publish paths in
+that file are relative to it). Keeping the file out of the repository root means
+other Netlify sites built from this repository, like Storybook, are unaffected.
+`netlify.toml` also redirects the dashboard's old addresses (`/first_setup`,
+`/login/*`, `/dashboard/*`, `/settings/*`) to `/core`, and sends any other
+`/core/*` path to the dashboard's `index.html`.
