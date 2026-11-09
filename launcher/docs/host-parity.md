@@ -690,7 +690,7 @@ Conventions in the code that every area relies on:
     core's manifest; the dashboard has no hard-coded list.)
 - [x] **Automation** section: Auto start, Restart on crash toggles → `PUT /instance/{uuid}/auto_start` /
   `/restart_on_crash` (JSON bool); refetch list; needs `can_access_instance_setting` (+ owner for atom).
-- [ ] **Sharing / public listing** (Minecraft Java only; hidden on cores without scopes) —
+- [x] **Sharing / public listing** (Minecraft Java only; hidden on cores without scopes) —
   `components/Instance/PublicListingSetting.tsx`
   - `GET /instance/{uuid}/public_listing` → `InstancePublicListing`; "Public" toggle + checkboxes
     Status / Address / Client pack; sentence describing what's shown; only owner can edit; listing can't be
@@ -718,12 +718,12 @@ Conventions in the code that every area relies on:
 ### 6.2 Mods / Plugins tab — `components/Mods/*`, `data/Mods.ts`, `utils/mods.ts`  
 **Package: C.**
 
-- [ ] Shown for Fabric/Forge (mods) and Paper/Spigot (plugins); needs `can_read_instance_file`; changes need
+- [x] Shown for Fabric/Forge (mods) and Paper/Spigot (plugins); needs `can_read_instance_file`; changes need
   `can_write_instance_file` (disabled buttons get a tooltip "No write permission").
-- [ ] "Restart required" yellow banner when `restart_required`.
-- [ ] Sub-views: **Installed** | **Browse** (Browse stays mounted after first open). `?modrinth=<link>`
+- [x] "Restart required" yellow banner when `restart_required`.
+- [x] Sub-views: **Installed** | **Browse** (Browse stays mounted after first open). `?modrinth=<link>`
   opens Browse with the link.
-- [ ] **Installed** — `InstalledMods.tsx`
+- [x] **Installed** — `InstalledMods.tsx`
   - `GET /instance/{uuid}/mods[?check_updates=true]` → `InstalledModList {kind, loader, game_version,
     directory, restart_required, loader_version, client_required_count, mods[]}`.
   - Header: "N mods in <directory>"; buttons **Update all (N)**, **Check for updates** (refetch with
@@ -739,11 +739,11 @@ Conventions in the code that every area relies on:
     "Overwrite?" confirm dialog with the core's message.
   - Result toast lists installed / removed files / skipped (with reasons) / "players need these too".
   - Empty, error and skeleton states.
-- [ ] **Client modpack panel** (Fabric only) — `ClientPackPanel.tsx`: "Players need N mods to join",
+- [x] **Client modpack panel** (Fabric only) — `ClientPackPanel.tsx`: "Players need N mods to join",
   Minecraft version · Fabric loader version, chips of required mods (tooltip "needed by"), **Download client
   modpack** → `GET /instance/{uuid}/mods/client_pack` → `ClientPackDownload {key,…}` → open `/file/{key}`;
   import hint (mentions included jars not on Modrinth). Plain-Fabric one-liner when no mods needed.
-- [ ] **Browse** — `ModsTab.tsx` Browse, `ModrinthSearch.tsx`, `ModrinthProjectView.tsx`
+- [x] **Browse** — `ModsTab.tsx` Browse, `ModrinthSearch.tsx`, `ModrinthProjectView.tsx`
   - Search (debounced 300 ms) `GET /modrinth/search?query&project_type&game_version&loader&index&offset&limit=20`
     → `ModrinthSearchResponse`; pagination prev/next with "Page x of y"; "Only compatible with <gameVersion>
     <loader>" checkbox (default on); sort select.
@@ -765,6 +765,14 @@ Conventions in the code that every area relies on:
   - Paper accepts paper/bukkit/spigot versions (filtered client-side).
   - Warning when project's `server_side === 'unsupported'`; wrong project type warning.
   - Modpack project: **Create server from this modpack** (needs `can_create_instance`) → opens §2.4 preset.
+- Host notes for §6.2 (`pages/mods.rs`, `pages/mods/`): Browse is package A's
+  `ModrinthSearchView` with three options added for the tab (one box for the server's
+  game version and loader, the "Installed" tag, whether players need a mod). The
+  project's description uses the launcher's Markdown renderer, now shared in
+  `lodestone_ui::markdown`. "Download client modpack" saves the `.mrpack` where the user
+  chooses (the dashboard opens the download in the browser). There are no `?modrinth=`
+  deep links: the Host has no URLs. Results and projects aren't cached in the Host (the
+  core caches Modrinth for 5 minutes).
 
 ### 6.3 Macros tab — `pages/macros.tsx`, `components/Table.tsx`, `components/ButtonMenu.tsx`  
 **Package: **out of scope** (needs Deno).**
