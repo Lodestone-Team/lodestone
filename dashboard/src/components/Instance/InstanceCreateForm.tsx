@@ -23,6 +23,7 @@ import { toast } from 'react-toastify';
 import { ModpackPreset } from 'data/InstanceContext';
 import ModpackCreateForm from './Create/ModpackCreateForm';
 import WizardSteps from './Create/WizardSteps';
+import EulaCheckbox from './Create/EulaCheckbox';
 import { useT } from 'i18n';
 
 export type GenericHandlerGameType = 'Generic' | HandlerGameType;
@@ -48,6 +49,8 @@ export default function InstanceCreateForm({
   const [genericFetchReady, setGenericFetchReady] = useState(false); //if the button has been pressed to fetch the manifest -> enables the query
   const [urlValid, setUrlValid] = useState(false); //if the query returned a valid manifest
   const [url, setUrl] = useState<string>(''); //the url the user enters
+  // the user's own agreement to the Minecraft EULA: never ticked for them
+  const [eulaAccepted, setEulaAccepted] = useState(false);
   const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
     null
   );
@@ -130,6 +133,7 @@ export default function InstanceCreateForm({
     t('create.step.autoSettings'),
   ];
   const formReady = activeStep === sections.length - 1;
+  const needsEula = gameType !== 'Generic';
   // throws on failure
   const createInstance = async (value: SetupValue) => {
     if (gameType === 'Generic') {
@@ -165,6 +169,7 @@ export default function InstanceCreateForm({
       auto_start: values.auto_start?.value as boolean,
       restart_on_crash: values.restart_on_crash?.value as boolean,
       setting_sections: sectionValues,
+      accept_eula: needsEula && eulaAccepted,
     };
 
     try {
@@ -208,6 +213,10 @@ export default function InstanceCreateForm({
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
     if (formReady) {
+      if (needsEula && !eulaAccepted) {
+        actions.setSubmitting(false);
+        return;
+      }
       await submitForm(values, actions);
     } else {
       if (setup_manifest) {
@@ -296,6 +305,15 @@ export default function InstanceCreateForm({
                   )}
                 </FormFromManifest>
               )}
+              {formReady && needsEula && (
+                <div className="pt-6">
+                  <EulaCheckbox
+                    checked={eulaAccepted}
+                    onChange={setEulaAccepted}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              )}
               <div className="flex flex-row justify-between pt-6">
                 {activeStep !== 0 ? (
                   <Button onClick={handleBack} label={t('common.back')} />
@@ -308,7 +326,10 @@ export default function InstanceCreateForm({
                     formReady ? t('create.createServer') : t('common.next')
                   }
                   loading={isSubmitting}
-                  disabled={gameType === 'Generic' && !urlValid}
+                  disabled={
+                    (gameType === 'Generic' && !urlValid) ||
+                    (formReady && needsEula && !eulaAccepted)
+                  }
                 />
               </div>
             </div>

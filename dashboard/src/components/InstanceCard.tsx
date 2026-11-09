@@ -25,7 +25,10 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Menu, Transition } from '@headlessui/react';
 import Avatar from 'boring-avatars';
 import Button from './Atoms/Button';
-import { useT } from 'i18n';
+import { useI18n } from 'i18n';
+import ConfirmDialog from './Atoms/ConfirmDialog';
+import { MinecraftEulaLink } from './Instance/Create/EulaCheckbox';
+import { acceptInstanceEula, getInstanceEula } from 'data/MinecraftEula';
 
 // // for the css style of the double border when focused
 // const stateToBorderMap: { [key in InstanceState]: string[] } = {
@@ -63,8 +66,10 @@ export default function InstanceCard({
   focus = false,
   onClick: cardOnClick,
 }: InstanceCardProps) {
-  const t = useT();
+  const { t, rich } = useI18n();
   const [loading, setLoading] = useState(false);
+  // open when a start failed because the Minecraft EULA isn't accepted
+  const [eulaDialogOpen, setEulaDialogOpen] = useState(false);
 
   const { core } = useContext(LodestoneContext);
   const { address } = core;
@@ -147,6 +152,41 @@ export default function InstanceCard({
     }
   };
 
+  // A start (or restart) failed. If it's a Minecraft server whose EULA isn't
+  // accepted, ask the user to agree to it; otherwise show the error.
+  const onStartFailed = async (error: unknown) => {
+    if (game_type.type === 'MinecraftJava') {
+      try {
+        const eula = await getInstanceEula(uuid);
+        if (!eula.accepted) {
+          setEulaDialogOpen(true);
+          return;
+        }
+      } catch {
+        // show the start error below
+      }
+    }
+    toast.error(errorToString(error));
+  };
+
+  const acceptEulaAndStart = async () => {
+    try {
+      await acceptInstanceEula(uuid);
+    } catch (error) {
+      toast.error(
+        t('server.eula.acceptFailed', { error: errorToString(error) })
+      );
+      return;
+    }
+    setEulaDialogOpen(false);
+    gaEventTracker('Started Instance');
+    try {
+      await axios.put(`/instance/${uuid}/start`);
+    } catch (error) {
+      toast.error(errorToString(error));
+    }
+  };
+
   const restartButtonOnClick = () => {
     if (loading) return;
     if (disabled) return;
@@ -162,7 +202,7 @@ export default function InstanceCard({
       })
       .catch((error) => {
         console.log(error);
-        toast.error(errorToString(error));
+        return onStartFailed(error);
       })
       .finally(() => {
         setLoading(false);
@@ -187,6 +227,8 @@ export default function InstanceCard({
         response.data;
       })
       .catch((error) => {
+        if (stateToApiEndpointMap[state] === '/start')
+          return onStartFailed(error);
         toast.error(errorToString(error));
       })
       .finally(() => {
@@ -198,6 +240,16 @@ export default function InstanceCard({
 
   return (
     <div className="my-2 border-b-2 border-gray-faded/30 pb-2">
+      <ConfirmDialog
+        title={t('server.eula.title')}
+        type="info"
+        isOpen={eulaDialogOpen}
+        onClose={() => setEulaDialogOpen(false)}
+        onConfirm={acceptEulaAndStart}
+        confirmButtonText={t('server.eula.accept')}
+      >
+        {rich('server.eula.body', { name, link: <MinecraftEulaLink /> })}
+      </ConfirmDialog>
       <div
         className={clsx(
           'flex flex-row items-center gap-x-1.5',

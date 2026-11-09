@@ -66,6 +66,10 @@ pub struct CreateModpackInstanceRequest {
     #[serde(default)]
     #[ts(optional)]
     pub restart_on_crash: Option<bool>,
+    /// Whether the user agreed to the Minecraft EULA (https://aka.ms/MinecraftEULA).
+    /// The server is only created with the EULA accepted when this is `true`.
+    #[serde(default)]
+    pub accept_eula: bool,
 }
 
 /// The pack of a Modrinth modpack version: a stored copy, or a new download.
@@ -284,6 +288,7 @@ async fn create_modpack_instance(
         restart_on_crash: request.restart_on_crash,
         backup_period: None,
         modpack: Some(origin),
+        accept_eula: request.accept_eula,
     };
     let title = format!(
         "Setting up Minecraft server {} from {}",

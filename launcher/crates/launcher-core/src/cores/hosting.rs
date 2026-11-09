@@ -7,8 +7,10 @@
 //!    these calls use a session token from `POST /user/login`, which is dropped after.
 //! 3. A free game port is found with the core's port manager (`/check/port/{port}`).
 //! 4. The pack goes to `POST /modpack/upload`, then `POST /instance/create_modpack`
-//!    makes the server, with `auto_start: false`. The server is never started here:
-//!    its owner accepts the Minecraft EULA by creating it, and starts it themselves.
+//!    makes the server, with `auto_start: false`. The server is never started here.
+//!    `accept_eula: true` is only sent after the user ticked "I agree to the Minecraft
+//!    EULA": without it the core creates the server with the EULA not accepted, and
+//!    the server can't start until someone accepts it.
 //! 5. The launcher instance is linked to the new server ([`ServerLink`]). Its mods are
 //!    already the pack's, so the first Play only compares them with the server's
 //!    client pack.
@@ -78,6 +80,9 @@ pub struct HostSettings {
     /// In MB.
     pub min_ram: u32,
     pub max_ram: u32,
+    /// Whether the user agreed to the Minecraft EULA (https://aka.ms/MinecraftEULA).
+    /// Only the user can: never set it to `true` for them.
+    pub accept_eula: bool,
 }
 
 #[derive(Deserialize)]
@@ -186,6 +191,7 @@ impl CoreClient {
             "max_ram": settings.max_ram,
             "auto_start": false,
             "restart_on_crash": false,
+            "accept_eula": settings.accept_eula,
         });
         let uuid: String = self
             .json(

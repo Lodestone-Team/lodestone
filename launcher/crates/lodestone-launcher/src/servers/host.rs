@@ -39,6 +39,8 @@ pub struct HostRequest {
     pub password: Secret,
     pub name: String,
     pub max_ram: u32,
+    /// The user ticked "I agree to the Minecraft EULA".
+    pub accept_eula: bool,
 }
 
 /// What hosting is doing.
@@ -241,6 +243,7 @@ impl HostDialog {
             password: Secret::new(password),
             name,
             max_ram: self.max_ram,
+            accept_eula: self.eula,
         }));
         cx.notify();
     }
@@ -337,6 +340,11 @@ impl Render for HostDialog {
                                     )
                                     .child(
                                         note(tr!(M::EulaAgree, url = EULA_URL)).flex_1().min_w_0(),
+                                    )
+                                    .child(
+                                        Button::new("host-read-eula", t(M::ReadEula))
+                                            .variant(ButtonVariant::Ghost)
+                                            .on_click(|_, _, cx| cx.open_url(EULA_URL)),
                                     ),
                             )
                     })
@@ -471,6 +479,7 @@ impl Servers {
                 port,
                 min_ram: hosting::DEFAULT_MIN_RAM.min(request.max_ram),
                 max_ram: request.max_ram,
+                accept_eula: request.accept_eula,
             };
             let uuid = client
                 .create_server(&session, &upload_id, &settings)

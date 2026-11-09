@@ -314,6 +314,7 @@ pub fn text(message: M) -> &'static str {
         M::Memory => "記憶體",
         M::GamePortHint => "遊戲連接埠是核心所在電腦上從 {port} 起第一個空閒的連接埠。",
         M::EulaAgree => "我同意 Minecraft EULA（{url}）。Lodestone Core 會為新伺服器接受它。",
+        M::ReadEula => "閱讀 EULA",
         M::CreateServer => "建立伺服器",
         M::NameTheServer => "請為伺服器命名。",
         M::HostNeedsPassword => {

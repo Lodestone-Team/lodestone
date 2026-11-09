@@ -7,4 +7,9 @@ export type SetupValue = {
   auto_start: boolean;
   restart_on_crash: boolean;
   setting_sections: { [key in string]: SectionManifestValue };
+  /**
+   * Whether the user agreed to the Minecraft EULA (https://aka.ms/MinecraftEULA).
+   * Minecraft instances are only created with the EULA accepted when this is `true`.
+   */
+  accept_eula: boolean;
 };

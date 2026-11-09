@@ -480,6 +480,7 @@ fn hosting_finds_a_port_uploads_and_creates_a_stopped_server() {
                     port,
                     min_ram: 1024,
                     max_ram: 4096,
+                    accept_eula: true,
                 },
             )
             .await
@@ -517,6 +518,8 @@ fn hosting_finds_a_port_uploads_and_creates_a_stopped_server() {
             "source": {"type": "upload", "upload_id": "upload-1"},
             "name": "My Pack", "port": 25567, "min_ram": 1024, "max_ram": 4096,
             "auto_start": false, "restart_on_crash": false,
+            // the user ticked "I agree to the Minecraft EULA"
+            "accept_eula": true,
         })
     );
     // the password went only to the login, and the session nowhere but this core

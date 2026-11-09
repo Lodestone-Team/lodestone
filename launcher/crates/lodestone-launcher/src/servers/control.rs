@@ -63,6 +63,8 @@ pub struct HostCore {
     pub password: Secret,
     pub name: String,
     pub max_ram: u32,
+    /// The user agreed to the Minecraft EULA.
+    pub accept_eula: bool,
 }
 
 /// Fingerprints compare without separators and case: `AB:CD…` and `abcd…` are one.
@@ -450,6 +452,7 @@ impl Servers {
                 port,
                 min_ram: hosting::DEFAULT_MIN_RAM.min(request.max_ram),
                 max_ram: request.max_ram,
+                accept_eula: request.accept_eula,
             };
             let uuid = client
                 .create_server(&session, &upload_id, &settings)
