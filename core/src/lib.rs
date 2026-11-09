@@ -1142,7 +1142,7 @@ pub async fn run(
                             );
                             info!("Lodestone Core live on {listen_description}, over plain HTTP");
                         }
-                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc/core for setup instructions.");
+                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc/host for setup instructions.");
                         // one server per listener (two only where there are no dual-stack
                         // sockets), all behind the same acceptor, so the same TLS and
                         // LAN-HTTP rules apply whichever address family a client uses

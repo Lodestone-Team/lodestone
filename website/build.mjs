@@ -2,7 +2,8 @@
 //
 //   /           the Lodestone home page, with all the products (website/src)
 //   /launcher   the Lodestone Launcher page (website/src/launcher)
-//   /host       the Lodestone Host web dashboard (dashboard/, built with basePath /host)
+//   /host       the Lodestone Host page (website/src/host)
+//   /host/app   the Lodestone Host web dashboard (dashboard/, built with basePath /host/app)
 //
 // Cloudflare's build runs this from website/, then deploys dist with
 // wrangler.jsonc. Locally:
@@ -21,7 +22,7 @@ const dashboardDir = join(websiteDir, '..', 'dashboard');
 const dist = join(websiteDir, 'dist');
 const landingOnly = process.argv.includes('--landing-only');
 
-export const DASHBOARD_BASE_PATH = '/host';
+export const DASHBOARD_BASE_PATH = '/host/app';
 
 function run(command, cwd, env = {}) {
   console.log(`\n$ ${command}  (in ${cwd})`);
@@ -37,8 +38,9 @@ console.log(`Copied the pages to ${dist}`);
 // deploy or lowers the number.
 const downloads = await coreDownloads();
 if (downloads !== null) {
-  // Both pages show the count in a <span data-core-downloads>.
-  for (const page of [join(dist, 'index.html'), join(dist, 'launcher', 'index.html')]) {
+  // The pages show the count in a <span data-core-downloads>.
+  const pages = ['index.html', 'launcher/index.html', 'host/index.html'];
+  for (const page of pages.map((p) => join(dist, p))) {
     const html = readFileSync(page, 'utf8');
     const marker = /(<span data-core-downloads>)[^<]*(<\/span>)/g;
     if (!marker.test(html)) throw new Error(`${page} has no data-core-downloads span`);
