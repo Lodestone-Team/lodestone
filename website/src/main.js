@@ -1,33 +1,15 @@
-// Points the download button at the visitor's platform and shows the repo's
-// star count. Both come from the GitHub API. The page works without them: the
-// button falls back to the Windows installer and the star count stays hidden.
+// lodestone.cc home page. Everything here is decoration on top of a page that
+// works without it: the star count, the iron filings behind the logo, the
+// tilt of the logo, the light on the cards, the Core card's chart and the CLI
+// card's typing.
 
 const REPO = 'Lodestone-Team/lodestone';
-const RELEASE_TAG = 'launcher-latest';
-const RELEASE_PAGE = `https://github.com/${REPO}/releases/tag/${RELEASE_TAG}`;
 const CACHE_MS = 60 * 60 * 1000; // the unauthenticated API allows 60 calls an hour
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const finePointer = window.matchMedia('(pointer: fine)').matches;
 
-const PLATFORMS = {
-  windows: { name: 'Windows', note: 'Windows 10 and 11' },
-  macos: { name: 'macOS', note: 'macOS' },
-  linux: { name: 'Linux', note: 'Linux' },
-};
-
-function detectPlatform() {
-  const ua = navigator.userAgent;
-  const hint = (navigator.userAgentData && navigator.userAgentData.platform) || '';
-  if (/android|iphone|ipad|ipod/i.test(ua)) return null;
-  if (/win/i.test(hint) || /windows/i.test(ua)) return 'windows';
-  if (/mac/i.test(hint) || /macintosh|mac os x/i.test(ua)) return 'macos';
-  if (/linux/i.test(hint) || /linux|x11/i.test(ua)) return 'linux';
-  return null;
-}
-
-function detectArch() {
-  const ua = navigator.userAgent;
-  if (/arm64|aarch64/i.test(ua)) return 'aarch64';
-  return 'x86_64';
-}
+// Star count. Same cache as the launcher page (launcher/main.js), so moving
+// between the two pages costs one API call an hour.
 
 function readCache(key) {
   try {
@@ -43,20 +25,8 @@ function writeCache(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify({ at: Date.now(), value }));
   } catch (e) {
-    // storage blocked: nothing to do
+    // storage blocked: skip caching
   }
-}
-
-async function githubJson(path, cacheKey) {
-  const cached = readCache(cacheKey);
-  if (cached !== undefined) return cached;
-  const res = await fetch(`https://api.github.com/${path}`, {
-    headers: { Accept: 'application/vnd.github+json' },
-  });
-  if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-  const value = await res.json();
-  writeCache(cacheKey, value);
-  return value;
 }
 
 function formatCount(n) {
@@ -67,7 +37,15 @@ function formatCount(n) {
 
 async function showStars() {
   try {
-    const repo = await githubJson(`repos/${REPO}`, 'lodestone:repo');
+    let repo = readCache('lodestone:repo');
+    if (repo === undefined) {
+      const res = await fetch(`https://api.github.com/repos/${REPO}`, {
+        headers: { Accept: 'application/vnd.github+json' },
+      });
+      if (!res.ok) return;
+      repo = await res.json();
+      writeCache('lodestone:repo', repo);
+    }
     const count = repo && repo.stargazers_count;
     if (typeof count !== 'number') return;
     const el = document.querySelector('[data-stars]');
@@ -79,129 +57,332 @@ async function showStars() {
   }
 }
 
-// Release files are named lodestone-launcher-<build>-<os>-<arch>-standalone[.exe],
-// on Windows lodestone-launcher-<build>-windows-<arch>-setup.exe, and on macOS
-// lodestone-launcher-<build>-macos-universal.dmg (see
-// launcher/scripts/publish_release.py). LodestoneLauncherSetup.exe and
-// LodestoneLauncher.dmg are the newest installer and disk image under names that
-// never change.
-function pickAsset(assets, platform, arch) {
-  const byName = (re) =>
-    assets
-      .map((a) => ({ asset: a, m: a.name.match(re) }))
-      .filter((x) => x.m)
-      .sort((a, b) => Number(b.m[1]) - Number(a.m[1]))[0];
+// Iron filings. A grid of short strokes, each turned along the field of a
+// magnet at the logo (a dipole whose axis sways a little). The pointer is a
+// second, weaker magnet. On load the strokes start at random angles and swing
+// into line, nearest the logo first.
 
-  if (platform === 'windows') {
-    const stable = assets.find((a) => a.name === 'LodestoneLauncherSetup.exe');
-    const setup = byName(new RegExp(`^lodestone-launcher-(\\d+)-windows-${arch}-setup\\.exe$`));
-    if (stable) return { url: stable.browser_download_url, build: setup && setup.m[1] };
-    if (setup) return { url: setup.asset.browser_download_url, build: setup.m[1] };
-  }
-  if (platform === 'macos') {
-    const stable = assets.find((a) => a.name === 'LodestoneLauncher.dmg');
-    const dmg = byName(new RegExp(`^lodestone-launcher-(\\d+)-macos-(universal|${arch})\\.dmg$`));
-    if (stable) return { url: stable.browser_download_url, build: dmg && dmg.m[1] };
-    if (dmg) return { url: dmg.asset.browser_download_url, build: dmg.m[1] };
-  }
-  const archs = arch === 'aarch64' && platform === 'macos' ? [arch, 'x86_64'] : [arch];
-  for (const a of archs) {
-    const hit = byName(new RegExp(`^lodestone-launcher-(\\d+)-${platform}-${a}-standalone(\\.exe)?$`));
-    if (hit) return { url: hit.asset.browser_download_url, build: hit.m[1] };
-  }
-  return null;
-}
+function startField() {
+  const canvas = document.querySelector('[data-field]');
+  const mark = document.querySelector('[data-mark]');
+  if (!canvas || !mark || !canvas.getContext) return;
+  const hero = canvas.parentElement;
+  const ctx = canvas.getContext('2d');
 
-async function setUpDownload() {
-  const button = document.querySelector('[data-download]');
-  const label = document.querySelector('[data-download-label]');
-  const note = document.querySelector('[data-download-note]');
-  const platform = detectPlatform();
+  // Strokes are drawn in batches by brightness and by color: the gem's
+  // gradient, green at the top left to violet at the bottom right.
+  const BUCKETS = 10;
+  const BAND_COLORS = [
+    [79, 224, 165],
+    [74, 196, 200],
+    [106, 174, 238],
+    [125, 158, 242],
+    [154, 143, 245],
+  ];
+  const BANDS = BAND_COLORS.length;
+  const CLEAR_RADIUS = 84; // no filings under the logo
+  let width = 0;
+  let height = 0;
+  let spacing = 22;
+  let filings = [];
+  let center = { x: 0, y: 0 };
+  const pointer = { x: 0, y: 0, tx: 0, ty: 0, strength: 0, target: 0 };
+  let start = performance.now();
+  let running = false;
+  let visible = true;
 
-  if (!platform) {
-    // Phones and anything unrecognised: point at the full list.
-    label.textContent = 'Download';
-    note.textContent = 'For Windows';
-    return;
-  }
+  function layout() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    width = hero.clientWidth;
+    height = hero.clientHeight;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const info = PLATFORMS[platform];
-  label.textContent = `Download for ${info.name}`;
-  note.textContent = info.note;
-
-  let release;
-  try {
-    release = await githubJson(`repos/${REPO}/releases/tags/${RELEASE_TAG}`, 'lodestone:release');
-  } catch (e) {
-    // Offline or rate limited. Windows keeps the default installer link;
-    // other platforms go to the release page.
-    if (platform !== 'windows') button.href = RELEASE_PAGE;
-    return;
-  }
-
-  const picked = pickAsset((release && release.assets) || [], platform, detectArch());
-  if (picked) {
-    button.href = picked.url;
-    if (picked.build) note.textContent = `${info.note} · Build ${picked.build}`;
-    return;
-  }
-
-  // No build for this platform yet.
-  label.textContent = `Coming soon to ${info.name}`;
-  button.removeAttribute('href');
-  button.setAttribute('aria-disabled', 'true');
-  button.setAttribute('role', 'link');
-  note.textContent = 'Available for Windows today';
-}
-
-// The tabs above the screenshot swap it for another view of the launcher.
-function setUpTour() {
-  const tabs = [...document.querySelectorAll('[data-shot]')];
-  const panel = document.getElementById('shot');
-  const img = panel.querySelector('img');
-
-  function select(tab, focus) {
-    const name = tab.dataset.shot;
-    for (const t of tabs) {
-      const selected = t === tab;
-      t.setAttribute('aria-selected', String(selected));
-      t.tabIndex = selected ? 0 : -1;
-    }
-    panel.setAttribute('aria-labelledby', tab.id);
-    if (focus) tab.focus();
-    const next = new Image();
-    next.srcset = `/images/${name}-1120.webp 1120w, /images/${name}.webp 2240w`;
-    next.sizes = img.sizes;
-    img.classList.add('is-loading');
-    const show = () => {
-      img.srcset = next.srcset;
-      img.src = `/images/${name}.webp`;
-      img.alt = tab.dataset.alt;
-      img.classList.remove('is-loading');
+    const heroBox = hero.getBoundingClientRect();
+    const markBox = mark.getBoundingClientRect();
+    center = {
+      x: markBox.left + markBox.width / 2 - heroBox.left,
+      y: markBox.top + markBox.height / 2 - heroBox.top,
     };
-    next.decode().then(show, show);
+
+    spacing = width < 600 ? 24 : 22;
+    const old = filings;
+    filings = [];
+    const cols = Math.ceil(width / spacing) + 1;
+    const rows = Math.ceil(height / spacing) + 1;
+    const ox = (width - (cols - 1) * spacing) / 2;
+    const oy = (height - (rows - 1) * spacing) / 2;
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const x = ox + i * spacing;
+        const y = oy + j * spacing;
+        const d = Math.hypot(x - center.x, y - center.y);
+        if (d < CLEAR_RADIUS) continue;
+        const prev = old[filings.length];
+        filings.push({
+          x,
+          y,
+          angle: prev ? prev.angle : Math.random() * Math.PI,
+          // the ripple: strokes near the logo line up first
+          delay: 250 + d * 0.9,
+          rate: 0.05 + Math.random() * 0.05,
+          band: Math.max(
+            0,
+            Math.min(BANDS - 1, Math.floor(((x - center.x + (y - center.y)) / 900 + 0.5) * BANDS))
+          ),
+        });
+      }
+    }
   }
 
-  tabs.forEach((tab, i) => {
-    tab.tabIndex = i === 0 ? 0 : -1;
-    tab.addEventListener('click', () => select(tab, false));
-    tab.addEventListener('keydown', (e) => {
-      const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
-      if (!step) return;
-      e.preventDefault();
-      select(tabs[(i + step + tabs.length) % tabs.length], true);
-    });
+  // Field of a dipole with moment (mx, my) and strength k at (cx, cy), at (x, y).
+  function dipole(x, y, cx, cy, mx, my, k, out) {
+    const rx = (x - cx) / 100;
+    const ry = (y - cy) / 100;
+    const r2 = rx * rx + ry * ry + 0.05;
+    const r = Math.sqrt(r2);
+    const ux = rx / r;
+    const uy = ry / r;
+    const dot = mx * ux + my * uy;
+    const s = k / (r2 * r);
+    out.x += s * (3 * dot * ux - mx);
+    out.y += s * (3 * dot * uy - my);
+  }
+
+  const b = { x: 0, y: 0 };
+  const paths = Array.from({ length: BUCKETS * BANDS }, () => []);
+
+  function frame(now) {
+    const t = (now - start) / 1000;
+    const sway = -Math.PI / 2 + (reducedMotion ? 0 : 0.28 * Math.sin(t * 0.18));
+    const mx = Math.cos(sway);
+    const my = Math.sin(sway);
+
+    pointer.x += (pointer.tx - pointer.x) * 0.12;
+    pointer.y += (pointer.ty - pointer.y) * 0.12;
+    pointer.strength += (pointer.target - pointer.strength) * 0.06;
+    // the pointer's magnet points at the logo, so the two pull together
+    const px = center.x - pointer.x;
+    const py = center.y - pointer.y;
+    const pl = Math.hypot(px, py) || 1;
+
+    for (const p of paths) p.length = 0;
+
+    for (const f of filings) {
+      b.x = 0;
+      b.y = 0;
+      dipole(f.x, f.y, center.x, center.y, mx, my, 1, b);
+      if (pointer.strength > 0.01) {
+        dipole(f.x, f.y, pointer.x, pointer.y, px / pl, py / pl, 0.12 * pointer.strength, b);
+      }
+      const target = Math.atan2(b.y, b.x);
+      const elapsed = now - start - f.delay;
+      if (reducedMotion) {
+        f.angle = target;
+      } else if (elapsed > 0) {
+        // strokes have no head or tail: turn the short way, modulo half a turn
+        let d = target - f.angle;
+        d = ((((d + Math.PI / 2) % Math.PI) + Math.PI) % Math.PI) - Math.PI / 2;
+        f.angle += d * f.rate;
+      }
+      const appear = reducedMotion ? 1 : Math.min(1, Math.max(0, elapsed / 600));
+      if (appear <= 0) continue;
+      const strength = Math.min(1, Math.pow(Math.hypot(b.x, b.y), 0.3) * 0.7);
+      const level = Math.min(BUCKETS - 1, Math.floor(strength * appear * BUCKETS));
+      const half = (spacing * (0.24 + 0.14 * strength)) / 1;
+      const cx = Math.cos(f.angle) * half;
+      const cy = Math.sin(f.angle) * half;
+      paths[f.band * BUCKETS + level].push(f.x - cx, f.y - cy, f.x + cx, f.y + cy);
+    }
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 1.5;
+    for (let band = 0; band < BANDS; band++) {
+      const [hr, hg, hb] = BAND_COLORS[band];
+      for (let i = 0; i < BUCKETS; i++) {
+        const seg = paths[band * BUCKETS + i];
+        if (!seg.length) continue;
+        const s = (i + 0.5) / BUCKETS;
+        // slate when weak, the gem's colors when strong
+        const r = Math.round(104 + (hr - 104) * s);
+        const g = Math.round(116 + (hg - 116) * s);
+        const bl = Math.round(134 + (hb - 134) * s);
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${bl}, ${0.16 + 0.6 * s})`;
+        ctx.beginPath();
+        for (let k = 0; k < seg.length; k += 4) {
+          ctx.moveTo(seg[k], seg[k + 1]);
+          ctx.lineTo(seg[k + 2], seg[k + 3]);
+        }
+        ctx.stroke();
+      }
+    }
+
+    if (running) requestAnimationFrame(frame);
+  }
+
+  function setRunning(on) {
+    if (reducedMotion) return;
+    if (on && !running) {
+      running = true;
+      requestAnimationFrame(frame);
+    } else if (!on) {
+      running = false;
+    }
+  }
+
+  layout();
+  if (reducedMotion) {
+    frame(performance.now() + 1e6);
+  } else {
+    setRunning(true);
+  }
+
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      layout();
+      if (reducedMotion) frame(performance.now() + 1e6);
+    }, 100);
   });
 
-  // Warm the cache for the other views once the page has settled.
-  window.addEventListener('load', () => {
-    const wide = window.matchMedia('(min-width: 1129px)').matches || devicePixelRatio > 1;
-    for (const tab of tabs.slice(1)) {
-      new Image().src = `/images/${tab.dataset.shot}${wide ? '' : '-1120'}.webp`;
-    }
+  if (!reducedMotion && finePointer) {
+    hero.addEventListener('pointermove', (e) => {
+      const box = hero.getBoundingClientRect();
+      pointer.tx = e.clientX - box.left;
+      pointer.ty = e.clientY - box.top;
+      if (pointer.target === 0) {
+        pointer.x = pointer.tx;
+        pointer.y = pointer.ty;
+      }
+      pointer.target = 1;
+    });
+    hero.addEventListener('pointerleave', () => {
+      pointer.target = 0;
+    });
+  }
+
+  new IntersectionObserver(([entry]) => {
+    visible = entry.isIntersecting;
+    setRunning(visible && !document.hidden);
+  }).observe(hero);
+  document.addEventListener('visibilitychange', () => setRunning(visible && !document.hidden));
+}
+
+// The logo leans toward the pointer.
+function tiltMark() {
+  const mark = document.querySelector('[data-mark]');
+  if (!mark || reducedMotion || !finePointer) return;
+  window.addEventListener('pointermove', (e) => {
+    const box = mark.getBoundingClientRect();
+    const dx = (e.clientX - (box.left + box.width / 2)) / window.innerWidth;
+    const dy = (e.clientY - (box.top + box.height / 2)) / window.innerHeight;
+    mark.style.setProperty('--tilt-y', `${(dx * 24).toFixed(2)}deg`);
+    mark.style.setProperty('--tilt-x', `${(-dy * 24).toFixed(2)}deg`);
   });
+}
+
+// A light follows the pointer over each card (see .card::before).
+function lightCards() {
+  if (!finePointer) return;
+  for (const card of document.querySelectorAll('[data-card]')) {
+    card.addEventListener('pointermove', (e) => {
+      const box = card.getBoundingClientRect();
+      card.style.setProperty('--mx', `${e.clientX - box.left}px`);
+      card.style.setProperty('--my', `${e.clientY - box.top}px`);
+    });
+  }
+}
+
+// The Core card's CPU chart: a random walk that moves along every second.
+function chartCore() {
+  const line = document.querySelector('[data-spark-line]');
+  const fill = document.querySelector('[data-spark-fill]');
+  if (!line || !fill) return;
+  const N = 40;
+  let v = 0.45;
+  const points = [];
+  const next = () => {
+    v += (Math.random() - 0.5) * 0.22 + (0.42 - v) * 0.12;
+    v = Math.min(0.9, Math.max(0.12, v));
+    return v;
+  };
+  for (let i = 0; i < N; i++) points.push(next());
+
+  function draw() {
+    const step = 300 / (N - 1);
+    const d = points
+      .map((p, i) => `${i ? 'L' : 'M'}${(i * step).toFixed(1)},${(48 - p * 40).toFixed(1)}`)
+      .join(' ');
+    line.setAttribute('d', d);
+    fill.setAttribute('d', `${d} L300,48 L0,48 Z`);
+  }
+
+  draw();
+  if (reducedMotion) return;
+  setInterval(() => {
+    if (document.hidden) return;
+    points.shift();
+    points.push(next());
+    draw();
+  }, 1000);
+}
+
+// The CLI card types its commands out, then starts over.
+function typeTerminal() {
+  const term = document.querySelector('[data-term]');
+  if (!term || reducedMotion) return;
+  const lines = [...term.children].map((el) => ({ cls: el.className, text: el.textContent }));
+  term.style.minHeight = `${term.offsetHeight}px`;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const caret = document.createElement('span');
+  caret.className = 'caret';
+  let started = false;
+
+  async function play() {
+    for (;;) {
+      term.textContent = '';
+      for (const [i, line] of lines.entries()) {
+        if (i) term.append('\n');
+        const span = document.createElement('span');
+        span.className = line.cls;
+        term.append(span);
+        if (line.cls === 't-cmd') {
+          span.after(caret);
+          await wait(500);
+          for (const ch of line.text) {
+            span.textContent += ch;
+            await wait(18 + Math.random() * 40);
+          }
+          await wait(300);
+        } else {
+          caret.remove();
+          await wait(250 + Math.random() * 300);
+          span.textContent = line.text;
+        }
+      }
+      term.append('\n');
+      const prompt = document.createElement('span');
+      prompt.className = 't-cmd';
+      term.append(prompt);
+      prompt.after(caret);
+      await wait(4000);
+    }
+  }
+
+  new IntersectionObserver(([entry]) => {
+    if (entry.isIntersecting && !started) {
+      started = true;
+      play();
+    }
+  }).observe(term);
 }
 
 showStars();
-setUpDownload();
-setUpTour();
+startField();
+tiltMark();
+lightCards();
+chartCore();
+typeTerminal();

@@ -1,13 +1,14 @@
 // Builds www.lodestone.cc into website/dist:
 //
-//   /       the Lodestone Launcher landing page (website/src, copied as is)
-//   /core   the Lodestone Core web dashboard (dashboard/, built with basePath /core)
+//   /           the Lodestone home page, with all the products (website/src)
+//   /launcher   the Lodestone Launcher page (website/src/launcher)
+//   /core       the Lodestone Core web dashboard (dashboard/, built with basePath /core)
 //
 // Cloudflare's build runs this from website/, then deploys dist with
 // wrangler.jsonc. Locally:
 //
-//   node website/build.mjs                  # landing page and dashboard
-//   node website/build.mjs --landing-only   # landing page only, no dashboard build
+//   node website/build.mjs                  # the pages and the dashboard
+//   node website/build.mjs --landing-only   # the pages only, no dashboard build
 //   node website/serve.mjs                  # preview dist with the same redirects
 import { execSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -29,18 +30,20 @@ function run(command, cwd, env = {}) {
 
 rmSync(dist, { recursive: true, force: true });
 cpSync(join(websiteDir, 'src'), dist, { recursive: true });
-console.log(`Copied the landing page to ${dist}`);
+console.log(`Copied the pages to ${dist}`);
 
 // Lodestone Core's download count. Sources that can't be read fall back to
 // their last known counts (see stats.mjs), so a GitHub hiccup never fails the
 // deploy or lowers the number.
 const downloads = await coreDownloads();
 if (downloads !== null) {
-  const page = join(dist, 'index.html');
-  const html = readFileSync(page, 'utf8');
-  const marker = /(<span data-core-downloads>)[^<]*(<\/span>)/;
-  if (!marker.test(html)) throw new Error('index.html has no data-core-downloads span');
-  writeFileSync(page, html.replace(marker, `$1${formatDownloads(downloads)}$2`));
+  // Both pages show the count in a <span data-core-downloads>.
+  for (const page of [join(dist, 'index.html'), join(dist, 'launcher', 'index.html')]) {
+    const html = readFileSync(page, 'utf8');
+    const marker = /(<span data-core-downloads>)[^<]*(<\/span>)/g;
+    if (!marker.test(html)) throw new Error(`${page} has no data-core-downloads span`);
+    writeFileSync(page, html.replace(marker, `$1${formatDownloads(downloads)}$2`));
+  }
 }
 
 if (!landingOnly) {
