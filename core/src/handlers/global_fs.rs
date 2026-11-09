@@ -219,8 +219,12 @@ fn touches_lodestone_secret(
 
 /// What the file API never reads or changes, in the data folder `root` with its `stores`
 /// folder: `stores` (users.json with every user's password hash and token secret, the API
-/// keys), the playit.gg key, `local_claim`, whose files grant owner access (see
-/// [`crate::local_claim`]), and `tls`, the web server's certificate and private key.
+/// keys), `local_claim`, whose files grant owner access (see [`crate::local_claim`]),
+/// `tls`, the web server's certificate and private key, and `playit.toml`.
+///
+/// Compatibility: cores before Lodestone Connect saved a playit.gg secret key in
+/// `playit.toml`. Playit.gg support is gone, but the file can still be on disk (the core
+/// never deletes it), so it stays protected.
 fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 4] {
     [
         stores.to_path_buf(),
@@ -259,7 +263,7 @@ async fn reject_protected_change(path: &std::path::Path) -> Result<(), Error> {
 
 /// Canonicalizes `path` and rejects it if it is Lodestone's own data: the `stores` folder,
 /// which holds users.json with every user's password hash and token secret and the API
-/// keys, the playit.gg key, and the `local_claim` folder. This applies to every user, including users with `ReadGlobalFile`.
+/// keys, the old playit.gg key file, and the `local_claim` folder. This applies to every user, including users with `ReadGlobalFile`.
 async fn canonicalize_global_read(
     path: &std::path::Path,
     include_parents: bool,

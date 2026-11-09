@@ -53,16 +53,14 @@ lodestone_minecraft = { path = "../crates/lodestone-minecraft", features = ["ts-
 lodestone_connect = { path = "../crates/lodestone-connect", features = ["host"] }
 # Debug traces (local, owner only), shared with the launcher.
 lodestone_trace = { path = "../crates/lodestone-trace" }
-playit-agent-core = "=0.20.1"
-playit-api-client = "=0.1.2"
 rand = "0.10.3"
 rcon = { version = "0.6.0", features = ["rt-tokio"] }
 reqwest = { version = "0.13.5", features = ["stream", "json"] }
 ringbuffer = "0.16.0"
 rs-snowflake = "0.6.0"
-# Several dependencies enable different rustls crypto providers (deno: aws-lc-rs,
-# playit-api-client: ring), so rustls cannot pick a default on its own. `run()` installs
-# aws-lc-rs explicitly; without it deno's fetch() and the TLS listener panic.
+# Dependencies can enable different rustls crypto providers, so rustls may not pick a
+# default on its own. `run()` installs aws-lc-rs explicitly; without it deno's fetch() and
+# the TLS listener panic.
 rustls = { version = "0.23.40", default-features = false, features = ["std", "aws_lc_rs"] }
 safe-path = { git = "https://github.com/Lodestone-Team/safe_path_subset", rev = "f87a38f1ffe6e8eb3c602d3602e971750cf01fbc" }
 sanitize-filename = "0.6.0"
@@ -94,7 +92,6 @@ time = { version = "0.3.55", features = ["macros"] }
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-stream = "0.1.19"
 tokio-util = "0.7.20"
-toml = "1.1.8"
 tower-http = { version = "0.7.1", features = ["trace", "cors"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"

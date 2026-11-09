@@ -2,8 +2,7 @@
 import type { FSEvent } from "./FSEvent";
 import type { InstanceEvent } from "./InstanceEvent";
 import type { MacroEvent } from "./MacroEvent";
-import type { PlayitggRunnerEvent } from "./PlayitggRunnerEvent";
 import type { ProgressionEvent } from "./ProgressionEvent";
 import type { UserEvent } from "./UserEvent";
 
-export type EventInner = { "type": "InstanceEvent" } & InstanceEvent | { "type": "UserEvent" } & UserEvent | { "type": "MacroEvent" } & MacroEvent | { "type": "FSEvent" } & FSEvent | { "type": "ProgressionEvent" } & ProgressionEvent | { "type": "PlayitggRunnerEvent" } & PlayitggRunnerEvent | { "type": "GlobalSettingsChanged" };
+export type EventInner = { "type": "InstanceEvent" } & InstanceEvent | { "type": "UserEvent" } & UserEvent | { "type": "MacroEvent" } & MacroEvent | { "type": "FSEvent" } & FSEvent | { "type": "ProgressionEvent" } & ProgressionEvent | { "type": "GlobalSettingsChanged" };

@@ -109,7 +109,6 @@ const InstanceTabList = [
   'mods',
   'macros',
   'logs',
-  'playitgg',
 ];
 
 export const CoreSettingsTabList = [

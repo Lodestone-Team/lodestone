@@ -3,8 +3,8 @@
 //
 // Style: standard French UI wording, vouvoiement, infinitives on buttons
 // (« Enregistrer »), sentence case. A non-breaking space before : ; ! ? and
-// inside « ». Product names (Lodestone, Lodestone Core, Minecraft, Modrinth,
-// Playit) stay as they are. « Core » is kept for Lodestone Core (masculine).
+// inside « ». Product names (Lodestone, Lodestone Core, Minecraft, Modrinth)
+// stay as they are. « Core » is kept for Lodestone Core (masculine).
 //
 // Glossary:
 //   server (a game server)           serveur
@@ -28,7 +28,6 @@
 //   memory (RAM)                     mémoire
 //   start / stop / restart / kill    démarrer / arrêter / redémarrer / forcer l’arrêt
 //   running / stopped                en marche / arrêté
-//   tunnel (Playit)                  tunnel
 //   log / event                      journal / événement
 //   save / delete / remove           enregistrer / supprimer / retirer
 //   enable / disable                 activer / désactiver
@@ -230,9 +229,6 @@ export const fr: Messages = {
   'shell.event.macroDetached': 'Macro {pid} détachée sur {server}',
   'shell.event.macroStopped':
     'Macro {pid} arrêtée sur {server} avec l’état {status}',
-  'shell.event.playitStarted': 'Agent Playitgg démarré !',
-  'shell.event.playitLoading': 'Chargement de l’agent Playitgg…',
-  'shell.event.playitStopped': 'Agent Playitgg arrêté !',
   'shell.event.loadFailed': 'Impossible de charger les notifications : {error}',
 
   'shell.noScripting':
@@ -396,9 +392,6 @@ export const fr: Messages = {
     'Le domaine ne peut pas dépasser {max} caractères',
   'settings.core.domain.tooltip':
     'C’est votre IP publique si vous avez configuré une redirection de port. Sinon, laissez tel quel.',
-  'settings.core.playit.label': 'Activer l’intégration Playit',
-  'settings.core.playit.hint':
-    'Ouvre les serveurs à Internet sans redirection de port.',
   'settings.core.listPublicly.label': 'Lister les serveurs publiquement',
   'settings.core.listPublicly.hint':
     'Toute personne qui peut joindre ce core voit les serveurs que vous rendez publics ci-dessous.',
@@ -692,7 +685,6 @@ export const fr: Messages = {
   'server.tab.mods': 'Mods',
   'server.tab.macros': 'Macros',
   'server.tab.logs': 'Journal d’événements',
-  'server.tab.playitgg': 'Playitgg',
 
   // InstanceTabs
   'server.notFound': 'Serveur introuvable',
@@ -919,7 +911,7 @@ export const fr: Messages = {
   'server.api.loginFailed': 'Échec de la connexion : {message}',
   'server.api.loginError': 'Erreur : {message}',
 
-  // ===== Console, macros and Playit =====
+  // ===== Console and macros =====
 
   // GameConsole: a server's console tab
   'console.pageTitle': 'Console du serveur',
@@ -1003,46 +995,6 @@ export const fr: Messages = {
   'console.macros.create.args': 'Arguments',
   'console.macros.create.submit': 'Créer la macro',
   'console.macros.create.nameRequired': 'Le nom de la macro est obligatoire',
-
-  // PlayitggOverview: the Playit integration page
-  'console.playit.loading': 'Chargement de playit.gg',
-  'console.playit.loadFailed':
-    'Impossible de charger l’état de playit.gg : {error}',
-  'console.playit.signupFailed':
-    'Impossible de générer un lien d’inscription : {error}',
-  'console.playit.verifyFailed':
-    'Impossible de vérifier le compte playit.gg : {error}',
-  'console.playit.startFailed':
-    'Impossible de démarrer l’agent playit.gg : {error}',
-  'console.playit.stopFailed':
-    'Impossible d’arrêter l’agent playit.gg : {error}',
-  'console.playit.setupTitle': 'Configurer Playitgg',
-  'console.playit.setupIntro':
-    'Vous devez vous inscrire à Playitgg avant de pouvoir utiliser cette fonctionnalité. Générez un lien d’inscription avec le bouton ci-dessous !',
-  'console.playit.generateLink': 'Générer le lien',
-  'console.playit.setupFollowLink':
-    'Suivez le lien ci-dessous et créez un compte ! Après avoir créé le compte et ouvert le tableau de bord, appuyez sur Vérifier ci-dessous.',
-  'console.playit.verify': 'Vérifier',
-  'console.playit.runnerTitle': 'Agent Playitgg',
-  'console.playit.runner.Stopped': 'Arrêté',
-  'console.playit.runner.Loading': 'Chargement',
-  'console.playit.runner.Started': 'Démarré',
-  'console.playit.trouble':
-    'En cas de problème, vérifiez que votre tunnel est correctement configuré sur le site et que {running} !',
-  'console.playit.troubleRunning': 'votre serveur est bien en marche',
-  'console.playit.signupRequired':
-    'Vous devez vous inscrire à Playitgg avant de pouvoir utiliser cette fonction.',
-  'console.playit.signupLink': 'Cliquez ici pour vous inscrire.',
-  'console.playit.tunnels': 'Tunnels',
-  'console.playit.refreshTunnels': 'Actualiser les tunnels',
-  'console.playit.tunnelsIntro':
-    'Vos tunnels sont listés ci-dessous. Vous pouvez en créer d’autres et modifier leurs paramètres dans votre tableau de bord sur le site {link}.',
-  'console.playit.loadingTunnels': 'Chargement des tunnels',
-  'console.playit.localServer': 'Serveur local à l’adresse {address}',
-  'console.playit.copyAddress': 'Copier l’adresse',
-  'console.playit.noTunnels': 'Vous n’avez encore créé aucun tunnel',
-  'console.playit.notSignedUp': 'Vous n’êtes pas encore inscrit',
-  'console.playit.help': 'Besoin d’aide ?',
 
   // ===== Creating a server =====
 

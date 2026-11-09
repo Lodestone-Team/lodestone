@@ -51,6 +51,26 @@ fn build_search_query(event_query: &EventQuery) -> Option<QueryBuilder<Sqlite>> 
     Some(builder)
 }
 
+/// Event types that older cores stored but this core no longer has. Such rows stay in the
+/// database (the core never deletes them) and are skipped quietly when read.
+///
+/// Compatibility: `PlayitggRunnerEvent` came from the playit.gg integration, which
+/// Lodestone Connect replaced.
+const REMOVED_EVENT_TYPES: &[&str] = &["PlayitggRunnerEvent"];
+
+/// Whether the stored event `event_value` is of a type in [`REMOVED_EVENT_TYPES`].
+fn is_removed_event_type(event_value: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(event_value)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer("/event_inner/type")
+                .and_then(|kind| kind.as_str())
+                .map(|kind| REMOVED_EVENT_TYPES.contains(&kind))
+        })
+        .unwrap_or(false)
+}
+
 /// Returns the stored events that match `event_query`, oldest first. At most
 /// [`MAX_SEARCH_ROWS`] rows are read (the newest ones).
 pub async fn search_events(
@@ -71,6 +91,7 @@ pub async fn search_events(
         let event_value: String = row.try_get("event_value").context("Bad event row")?;
         match serde_json::from_str(&event_value) {
             Ok(client_event) => parsed_client_events.push(client_event),
+            Err(_) if is_removed_event_type(&event_value) => {}
             Err(_) => error!("Failed to parse client event: {}", event_value),
         }
     }
@@ -198,5 +219,49 @@ mod tests {
         .await
         .unwrap();
         assert!(out_of_range.is_empty());
+    }
+
+    /// Events of a removed type, stored by an older core (here a playit.gg runner event),
+    /// are skipped; the events around them are still returned.
+    #[tokio::test]
+    async fn events_of_removed_types_are_skipped() {
+        let (_dir, pool) = temp_pool().await;
+        let uuid = InstanceUuid::default();
+        let before = instance_event(&uuid, EventLevel::Info);
+        write_client_events(&pool, std::slice::from_ref(&before))
+            .await
+            .unwrap();
+        let old = serde_json::json!({
+            "event_inner": {
+                "type": "PlayitggRunnerEvent",
+                "playitgg_runner_event_inner": { "type": "RunnerStarted" }
+            },
+            "details": "",
+            "snowflake": Snowflake::new(),
+            "level": "Info",
+            "caused_by": { "type": "System" }
+        });
+        assert!(is_removed_event_type(&old.to_string()));
+        sqlx::query(
+            "INSERT INTO ClientEvents (event_value, details, snowflake, level) VALUES (?1, '', ?2, 'Info')",
+        )
+        .bind(old.to_string())
+        .bind(Snowflake::new())
+        .execute(&pool)
+        .await
+        .unwrap();
+        let after = instance_event(&uuid, EventLevel::Info);
+        write_client_events(&pool, std::slice::from_ref(&after))
+            .await
+            .unwrap();
+
+        let all = search_events(&pool, query()).await.unwrap();
+        assert_eq!(
+            all.iter().map(|e| e.snowflake).collect::<Vec<_>>(),
+            vec![before.snowflake, after.snowflake]
+        );
+        assert!(!is_removed_event_type(
+            &serde_json::to_string(&before).unwrap()
+        ));
     }
 }

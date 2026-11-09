@@ -9,7 +9,7 @@
  * |---------------|-------------------------------------------------|
  * | `listed`      | `uuid`, `name`, `game_version`, `loader`, `loader_version`, `listed` |
  * | `status`      | `state`, `player_count`, `max_player_count`     |
- * | `address`     | `port`, `playit_address`                        |
+ * | `address`     | `port`                                          |
  * | `client_pack` | `has_client_pack`, and the client-pack download |
  *
  * Without `listed` nothing is shown, whatever the other flags say. The fields of a flag
