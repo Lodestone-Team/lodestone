@@ -2940,6 +2940,7 @@ dependencies = [
  "lodestone_minecraft",
  "lodestone_trace",
  "log",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "url",

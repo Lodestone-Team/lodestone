@@ -1790,6 +1790,7 @@ impl Render for LauncherShell {
             .children(modal)
             .child(self.servers_overlay.clone())
             .children(self.undo_toast.render())
+            .children(top_bar::window_controls(window, cx))
     }
 }
 
