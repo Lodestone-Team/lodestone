@@ -5,7 +5,10 @@
   "name": "lodestone-rendezvous",
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
-  "workers_dev": true,
+  // Only on lodestone.cc: the account's workers.dev address carries a personal name.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "connect.lodestone.cc", "custom_domain": true }],
   "durable_objects": {
     "bindings": [{ "name": "SESSIONS", "class_name": "Session" }]
   },

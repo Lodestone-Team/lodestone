@@ -35,8 +35,8 @@ only passes addresses along (never game traffic), and gets an invite link to sen
 number of friends. It runs on Cloudflare Workers (`rendezvous-worker/`), over HTTPS:
 
 ```sh
-holepunch host --target 127.0.0.1:25565 --via https://lodestone-rendezvous.wenwei-jiang2002.workers.dev
-holepunch join "lhp2://lodestone-rendezvous.wenwei-jiang2002.workers.dev/<code>#<fingerprint>.<token>"
+holepunch host --target 127.0.0.1:25565 --via https://connect.lodestone.cc
+holepunch join "lhp2://connect.lodestone.cc/<code>#<fingerprint>.<token>"
 ```
 
 `holepunch rendezvous --listen 0.0.0.0:8080` runs the same service locally, over plain
