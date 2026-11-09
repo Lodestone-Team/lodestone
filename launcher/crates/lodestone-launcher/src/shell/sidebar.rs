@@ -8,7 +8,10 @@ use launcher_core::instances::{AutoGroup, Instance, last_played};
 use launcher_core::ui_skin::{FontPart, SurfaceId};
 
 use super::{LauncherShell, Page, account_box};
-use crate::components::KeyboardFocus;
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role},
+};
 use crate::skin::Skinned;
 use crate::{
     components::{Align, Button, ButtonVariant, Icon},
@@ -25,6 +28,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
     let dragging = shell.sidebar_dragging();
     div()
         .id("sidebar")
+        .role(Role::Navigation)
+        .accessibility_id("sidebar")
         .relative()
         .flex()
         .flex_col()
@@ -80,7 +85,7 @@ fn resize_handle(dragging: bool, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 this.start_sidebar_drag(cx);
             }),
         )
-        .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+        .on_press(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
             if event.click_count() >= 2 {
                 this.reset_sidebar(cx);
             }
@@ -283,6 +288,7 @@ fn rail_button(
 ) -> impl IntoElement {
     div()
         .id(id)
+        .accessible(Role::Button, id, label)
         .keyboard_focus()
         .size(px(40.))
         .flex()
@@ -306,7 +312,7 @@ fn rail_button(
                 crate::skin::sidebar_inks().icon
             },
         ))
-        .on_click(on_click)
+        .on_press(on_click)
 }
 
 /// An instance in the rail: its icon, highlighted when it's the one shown, with a
@@ -334,8 +340,18 @@ fn rail_instance(
         RowPlace::List => format!("instance-{id}"),
         RowPlace::LastPlayed => format!("last-played-{id}"),
     };
+    let description: Option<SharedString> = match (running, active) {
+        (true, _) => Some(t(M::Playing).into()),
+        _ => played_summary(instance).map(Into::into),
+    };
+    let element_id = SharedString::from(element_id);
     div()
-        .id(SharedString::from(element_id))
+        .id(element_id.clone())
+        .accessible(Role::ListItem, element_id, instance.name.clone())
+        .aria_selected(is_selected)
+        .when_some(description, |this, description| {
+            this.aria_description(description)
+        })
         .keyboard_focus()
         .relative()
         .size(px(44.))
@@ -370,7 +386,7 @@ fn rail_instance(
             )
         })
         .tooltip(crate::components::text_tooltip(tooltip))
-        .on_click(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
+        .on_press(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
         .into_any_element()
 }
 
@@ -514,8 +530,17 @@ fn instance_row(
         .then(|| instances.sidebar_banner(&id))
         .flatten();
     let banner_readability = crate::skin::look(cx).spec.banner.readability;
+    let description: SharedString = if running {
+        format!("{detail} · {}", t(M::Playing)).into()
+    } else {
+        detail.clone().into()
+    };
+    let element_id = SharedString::from(element_id);
     div()
-        .id(SharedString::from(element_id))
+        .id(element_id.clone())
+        .accessible(Role::ListItem, element_id, instance.name.clone())
+        .aria_selected(is_selected)
+        .aria_description(description)
         .keyboard_focus()
         .relative()
         .overflow_hidden()
@@ -589,7 +614,7 @@ fn instance_row(
         .when_some(tooltip, |this, tooltip| {
             this.tooltip(crate::components::text_tooltip(tooltip))
         })
-        .on_click(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
+        .on_press(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
         .into_any_element()
 }
 
@@ -627,8 +652,28 @@ fn group_header(
     } else {
         caret
     };
+    let header_id = SharedString::from(format!("group-{name}"));
+    let toggle = {
+        let group = group.clone();
+        let shell = cx.entity().downgrade();
+        move |_: &mut gpui::Window, cx: &mut gpui::App| {
+            let group = group.clone();
+            shell
+                .update(cx, |this, cx| {
+                    this.instances
+                        .update(cx, |instances, cx| instances.toggle_group(&group, cx))
+                })
+                .ok();
+        }
+    };
     div()
-        .id(SharedString::from(format!("group-{name}")))
+        .id(header_id.clone())
+        .accessible(
+            Role::Button,
+            header_id,
+            format!("{} ({count})", group_label(name)),
+        )
+        .expandable(!collapsed, toggle)
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -658,7 +703,7 @@ fn group_header(
                 .text_color(crate::skin::sidebar_inks().faint)
                 .child(count.to_string()),
         )
-        .on_click(cx.listener(move |this, _, _, cx| {
+        .on_press(cx.listener(move |this, _, _, cx| {
             this.instances
                 .update(cx, |instances, cx| instances.toggle_group(&group, cx))
         }))
@@ -802,6 +847,7 @@ fn page_link(
 ) -> impl IntoElement {
     div()
         .id(id)
+        .accessible(Role::Link, id, label)
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -827,7 +873,7 @@ fn page_link(
         })
         .child(icon.render(px(14.), crate::skin::sidebar_inks().icon))
         .child(div().min_w_0().truncate().child(label))
-        .on_click(cx.listener(move |this, _, _, cx| {
+        .on_press(cx.listener(move |this, _, _, cx| {
             this.show(if open { Page::Instance } else { page }, cx)
         }))
 }
@@ -857,6 +903,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .child(
             div()
                 .id("settings")
+                .accessible(Role::Button, "settings", t(M::Settings))
                 .keyboard_focus()
                 .flex()
                 .flex_row()
@@ -882,7 +929,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 })
                 .child(Icon::Gear.render(px(14.), crate::skin::sidebar_inks().icon))
                 .child(div().min_w_0().truncate().child(t(M::Settings)))
-                .on_click(
+                .on_press(
                     cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
                 ),
         )

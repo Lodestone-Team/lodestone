@@ -224,7 +224,11 @@ impl SnapshotDialog {
         request: SnapshotRequest,
         cx: &mut Context<Self>,
     ) -> Self {
-        let name = cx.new(|cx| TextInput::new(cx).with_placeholder(M::InstanceSnapshots));
+        let name = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::InstanceSnapshots)
+                .with_automation_id("snapshot-name")
+        });
         let (mode, instance_id, snapshot_id, import_path) = match request {
             SnapshotRequest::Take(id) => (Mode::Take, Some(id), None, None),
             SnapshotRequest::Revert(id, s) => (Mode::Revert, Some(id), Some(s), None),
@@ -687,22 +691,24 @@ impl SnapshotDialog {
                 } else {
                     format::bytes(part.bytes)
                 };
-                SettingRow::new(part_label(part))
+                let label = part_label(part);
+                SettingRow::new(label.clone())
+                    .key(("snapshot-part-row", index))
                     .when(part.world.is_some(), |row| row.indent())
                     .when(!size.is_empty(), |row| {
                         row.child(div().text_color(colors::GRAY_500).child(size))
                     })
                     .child(
-                        Toggle::new(("snapshot-part", index), on).on_change(cx.listener(
-                            move |this, value: &bool, _, cx| {
+                        Toggle::new(("snapshot-part", index), on)
+                            .label(label)
+                            .on_change(cx.listener(move |this, value: &bool, _, cx| {
                                 if *value {
                                     this.chosen.insert(key.clone());
                                 } else {
                                     this.chosen.remove(&key);
                                 }
                                 cx.notify();
-                            },
-                        )),
+                            })),
                     )
                     .into_any_element()
             });

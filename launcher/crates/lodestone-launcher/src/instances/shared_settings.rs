@@ -2,6 +2,7 @@
 //! and read back after the game exits ([`launcher_core::shared_options`]), and the
 //! "Shared game settings" section of an instance's Settings tab.
 
+use crate::components::a11y::Accessible as _;
 use crate::theme::px;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -289,7 +290,13 @@ impl InstanceSharedSettings {
 
     fn edit(&mut self, row: &Row, cx: &mut Context<Self>) {
         let text = row.local.clone().unwrap_or_default();
-        let input = super::fields::input_with(cx, text, M::Value);
+        let input = super::fields::labeled(
+            cx,
+            text,
+            M::Value,
+            "shared-option-value",
+            shared_options_i18n::label(row),
+        );
         self.editing = Some((row.key.clone(), input));
         cx.notify();
     }
@@ -367,7 +374,7 @@ impl InstanceSharedSettings {
                         }),
                     )
                     .when(!busy, |link| {
-                        link.on_click(cx.listener(move |this, _, _, cx| {
+                        link.on_press(cx.listener(move |this, _, _, cx| {
                             this.set_overrides(keys.clone(), !all_overridden, cx)
                         }))
                     }),
@@ -379,7 +386,7 @@ impl InstanceSharedSettings {
                         ("shared-category", category as usize),
                         t(if expanded { M::Hide } else { M::Show }),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_press(cx.listener(move |this, _, _, cx| {
                         if !this.expanded.remove(&category) {
                             this.expanded.insert(category);
                         }
@@ -415,7 +422,9 @@ impl InstanceSharedSettings {
             |v| shared_options_i18n::show(row, v),
         );
         let edit_row = row.clone();
-        let line = SettingRow::new(shared_options_i18n::label(row)).indent();
+        let line = SettingRow::new(shared_options_i18n::label(row))
+            .key(SharedString::from(format!("shared-option-{}", row.key)))
+            .indent();
         let line =
             match (row.overridden, editing) {
                 (true, Some(input)) => line
@@ -427,7 +436,7 @@ impl InstanceSharedSettings {
                             .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
                     )
                     .child(
-                        muted_link(("shared-cancel", id), t(CommonMsg::Cancel)).on_click(
+                        muted_link(("shared-cancel", id), t(CommonMsg::Cancel)).on_press(
                             cx.listener(|this, _, _, cx| {
                                 this.editing = None;
                                 cx.notify();
@@ -456,13 +465,13 @@ impl InstanceSharedSettings {
                     .child(tag(t(M::ThisInstance), crate::theme::accent::light()))
                     .when(!busy, |line| {
                         line.when(typed, |line| {
-                            line.child(link(("shared-edit", id), t(CommonMsg::Edit)).on_click(
+                            line.child(link(("shared-edit", id), t(CommonMsg::Edit)).on_press(
                                 cx.listener(move |this, _, _, cx| this.edit(&edit_row, cx)),
                             ))
                         })
                         .child(
                             muted_link(("shared-use", id), tr!(M::UseShared, value = shared_text))
-                                .on_click(cx.listener(move |this, _, _, cx| {
+                                .on_press(cx.listener(move |this, _, _, cx| {
                                     this.set_overrides(vec![key.clone()], false, cx)
                                 })),
                         )
@@ -472,7 +481,7 @@ impl InstanceSharedSettings {
                     .child(value(shared_text, true))
                     .child(tag(t(M::Shared), colors::GRAY_500))
                     .when(!busy, |line| {
-                        line.child(link(("shared-override", id), t(M::Override)).on_click(
+                        line.child(link(("shared-override", id), t(M::Override)).on_press(
                             cx.listener(move |this, _, _, cx| {
                                 this.set_overrides(vec![key.clone()], true, cx)
                             }),
@@ -579,11 +588,12 @@ impl Render for InstanceSharedSettings {
                     row.child(
                         link("make-preferred", t(M::MakePreferred))
                             .tooltip(crate::components::text_tooltip(t(M::PreferredExplained)))
-                            .on_click(cx.listener(|this, _, _, cx| this.make_preferred(cx))),
+                            .on_press(cx.listener(|this, _, _, cx| this.make_preferred(cx))),
                     )
                 })
                 .child(
                     Toggle::new("use-shared-settings", enabled)
+                        .label(t(M::UseSharedSettings))
                         .disabled(busy)
                         .on_change(
                             cx.listener(|this, value: &bool, _, cx| this.set_enabled(*value, cx)),
@@ -639,7 +649,7 @@ impl Render for InstanceSharedSettings {
                                     .on_click(cx.listener(|this, _, _, cx| this.keep_changes(cx))),
                             )
                             .child(
-                                muted_link("dismiss-changes", t(M::Dismiss)).on_click(
+                                muted_link("dismiss-changes", t(M::Dismiss)).on_press(
                                     cx.listener(|this, _, _, cx| this.dismiss_changes(cx)),
                                 ),
                             ),
@@ -675,10 +685,12 @@ pub(crate) fn value_control(
 ) -> Option<AnyElement> {
     let (name, index) = id;
     let on_set = std::rc::Rc::new(on_set);
+    let label = shared_options_i18n::label(row);
     Some(match row.control() {
         Control::Toggle => {
             let on = value == Some("true");
             Toggle::new((name, index), on)
+                .label(label)
                 .on_change(move |on: &bool, window, cx| {
                     on_set(&if *on { "true" } else { "false" }.to_string(), window, cx)
                 })
@@ -709,6 +721,7 @@ pub(crate) fn value_control(
                 .unwrap_or(min);
             let shown = row.clone();
             Slider::new((name, index), current, min, max, step)
+                .label(label)
                 .format(move |n| {
                     shared_options_i18n::show(&shown, &slider_text(min, max, step, n)).into()
                 })

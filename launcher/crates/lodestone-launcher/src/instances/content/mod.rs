@@ -137,6 +137,7 @@ impl Section {
             TextInput::new(cx)
                 .with_placeholder(M::SearchInstalledOrModrinth)
                 .with_leading_icon(Icon::MagnifyingGlass)
+                .with_automation_id(format!("{}-search", kind.dir()))
         });
         Self {
             kind,

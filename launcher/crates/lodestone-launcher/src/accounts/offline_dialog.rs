@@ -9,7 +9,10 @@ use launcher_core::accounts::Account;
 
 use super::Accounts;
 use crate::{
-    components::{Button, ButtonVariant, Dialog, TextInput},
+    components::{
+        Button, ButtonVariant, Dialog, TextInput,
+        a11y::{Accessible, Role},
+    },
     i18n::{CommonMsg, ShellMsg as M, t},
     theme::{self, colors, leading, text, weights},
 };
@@ -36,7 +39,11 @@ impl OfflineDialog {
     pub fn new(accounts: Entity<Accounts>, cx: &mut Context<Self>) -> Self {
         Self {
             accounts,
-            input: cx.new(|cx| TextInput::new(cx).with_placeholder(M::Username)),
+            input: cx.new(|cx| {
+                TextInput::new(cx)
+                    .with_placeholder(M::Username)
+                    .with_automation_id("offline-username")
+            }),
             focus_handle: cx.focus_handle(),
             error: None,
         }
@@ -88,6 +95,14 @@ impl Render for OfflineDialog {
                 .child(self.input.clone())
                 .child(
                     div()
+                        .id("offline-username-note")
+                        .accessible(
+                            Role::Status,
+                            "offline-username-note",
+                            self.error
+                                .clone()
+                                .unwrap_or_else(|| t(M::UsernameRule).into()),
+                        )
                         .text_size(theme::text_size(text::SMALL))
                         .line_height(theme::line_height(text::SMALL, leading::NORMAL))
                         .font_weight(weights::BOLD.into())

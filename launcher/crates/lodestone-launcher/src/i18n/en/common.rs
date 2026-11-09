@@ -44,6 +44,10 @@ crate::i18n::messages! {
         Stop = "Stop",
         TryAgain = "Try again",
         Update = "Update",
+        Menu = "Menu",
+        MoreActions = "More actions",
+        MoveDown = "Move down",
+        MoveUp = "Move up",
         Yes = "Yes",
         /// "Save your changes?" and the like, when leaving with unsaved changes.
         KeepEditing = "Keep editing",

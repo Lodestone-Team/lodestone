@@ -137,10 +137,24 @@ pub fn input_with<V: 'static>(
     text: String,
     placeholder: impl Into<Text>,
 ) -> Entity<TextInput> {
-    let placeholder = placeholder.into();
+    labeled(cx, text, placeholder, "", Text::default())
+}
+
+/// A text field named `label` for assistive technology and automation, which find it
+/// by `automation_id`.
+pub fn labeled<V: 'static>(
+    cx: &mut Context<V>,
+    text: String,
+    placeholder: impl Into<Text>,
+    automation_id: &'static str,
+    label: impl Into<Text>,
+) -> Entity<TextInput> {
+    let (placeholder, label) = (placeholder.into(), label.into());
     cx.new(|cx| {
         TextInput::new(cx)
             .with_placeholder(placeholder)
+            .with_label(label)
+            .with_automation_id(automation_id)
             .with_text(text)
     })
 }
@@ -162,17 +176,37 @@ impl Fields {
             .map(|r| (r.width.to_string(), r.height.to_string()))
             .unwrap_or_default();
         Self {
-            min_ram: input(cx, values.memory.0.to_string(), "512"),
-            max_ram: input(cx, values.memory.1.to_string(), "4096"),
-            jvm_args: input(cx, values.jvm_args.to_string(), "-XX:+UseG1GC"),
-            game_args: input(
+            min_ram: labeled(cx, values.memory.0.to_string(), "512", "min-ram", M::Memory),
+            max_ram: labeled(
+                cx,
+                values.memory.1.to_string(),
+                "4096",
+                "max-ram",
+                M::Memory,
+            ),
+            jvm_args: labeled(
+                cx,
+                values.jvm_args.to_string(),
+                "-XX:+UseG1GC",
+                "jvm-args",
+                M::JvmArguments,
+            ),
+            game_args: labeled(
                 cx,
                 values.game_args.to_string(),
                 "--quickPlaySingleplayer World",
+                "game-args",
+                M::GameArguments,
             ),
-            width: input(cx, width, "854"),
-            height: input(cx, height, "480"),
-            env: input_with(cx, format_env(values.env), M::EnvPlaceholder),
+            width: labeled(cx, width, "854", "window-width", M::Window),
+            height: labeled(cx, height, "480", "window-height", M::Window),
+            env: labeled(
+                cx,
+                format_env(values.env),
+                M::EnvPlaceholder,
+                "environment-variables",
+                M::EnvironmentVariables,
+            ),
             fullscreen: values.window.fullscreen,
         }
     }

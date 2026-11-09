@@ -328,12 +328,12 @@ impl Render for LauncherSettings {
                             .child(t(M::Fullscreen)),
                     )
                     .child(
-                        Toggle::new("default-fullscreen", self.fields.fullscreen).on_change(
-                            cx.listener(|this, value: &bool, _, cx| {
+                        Toggle::new("default-fullscreen", self.fields.fullscreen)
+                            .label(t(M::Fullscreen))
+                            .on_change(cx.listener(|this, value: &bool, _, cx| {
                                 this.fields.fullscreen = *value;
                                 cx.notify();
-                            }),
-                        ),
+                            })),
                     )
                     .note_opt(window_error.map(|e| (e.into(), colors::RED_200)))
                     .into_any_element(),

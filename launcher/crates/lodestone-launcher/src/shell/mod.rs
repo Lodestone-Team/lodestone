@@ -746,6 +746,7 @@ impl LauncherShell {
                         .gap_2()
                         .child(
                             crate::components::Toggle::new("modpack-update-backup", backup_worlds)
+                                .label(t(M::BackUpEveryWorld))
                                 .on_change(cx.listener(|this, value: &bool, _, cx| {
                                     if let Some(Modal::ModpackUpdate { backup_worlds, .. }) =
                                         this.modal.current_mut()
