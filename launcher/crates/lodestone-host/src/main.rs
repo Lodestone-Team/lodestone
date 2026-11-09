@@ -135,6 +135,24 @@ mod screenshot {
                     )
                     .await;
             }
+            // `--settings general|users|profile`: a Settings page
+            if let Some(page) = arg_after("--settings").and_then(|name| {
+                lodestone_host::routes::SettingsPage::ALL
+                    .into_iter()
+                    .find(|page| format!("{page:?}").eq_ignore_ascii_case(&name))
+            }) {
+                window
+                    .update(cx, |app, _, cx| {
+                        app.shell()?.update(cx, |shell, cx| {
+                            shell.navigate(lodestone_host::routes::Route::Settings(page), cx)
+                        });
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(2500))
+                    .await;
+            }
             if toasts {
                 use lodestone_ui::components::Toast;
                 window

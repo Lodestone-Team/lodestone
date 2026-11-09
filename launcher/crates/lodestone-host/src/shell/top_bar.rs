@@ -44,7 +44,7 @@ pub fn render(_window: &Window, cx: &mut Context<HostShell>) -> impl IntoElement
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, _, cx| this.navigate(Route::Home, cx)))
                 .child(
-                    img("images/logo.svg")
+                    img(lodestone_ui::theme::palette::logo())
                         .w(layout::logo_width())
                         .h(gpui::px(26.)),
                 )

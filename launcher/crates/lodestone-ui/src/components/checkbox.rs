@@ -57,7 +57,10 @@ impl RenderOnce for Checkbox {
         let value = self.value;
         let (fill, border) = match (value, self.disabled) {
             (true, false) => (theme::accent::base(), theme::accent::base()),
-            (true, true) => (colors::GRAY_FADED.opacity(40), colors::GRAY_FADED.opacity(40)),
+            (true, true) => (
+                colors::GRAY_FADED.opacity(40),
+                colors::GRAY_FADED.opacity(40),
+            ),
             (false, _) => (colors::GRAY_900, colors::GRAY_FADED.opacity(50)),
         };
         div()

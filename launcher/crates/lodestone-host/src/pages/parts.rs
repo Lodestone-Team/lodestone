@@ -11,7 +11,10 @@ use gpui::{
     deferred, div, point, prelude::*,
 };
 use lodestone_ui::{
-    components::{Button, ButtonSize, ButtonVariant, Dialog, TextInput, settings::SettingRow},
+    components::{
+        Button, ButtonSize, ButtonVariant, Dialog, TextInput, Toast, ToastLevel,
+        settings::SettingRow,
+    },
     theme::{Color, colors, fonts, ink, leading, px, radius, text, weights},
 };
 
@@ -36,15 +39,23 @@ pub fn toast(
     message: impl Into<SharedString>,
     cx: &mut App,
 ) {
-    let message: SharedString = message.into();
-    // until the shared toasts land (package B)
-    let _ = (state, cx);
-    eprintln!("toast {level:?}: {message}");
+    let level = match level {
+        Level::Info => ToastLevel::Info,
+        Level::Success => ToastLevel::Success,
+        Level::Warning => ToastLevel::Warning,
+        Level::Error => ToastLevel::Error,
+    };
+    let toast = Toast::new(level, message);
+    state.update(cx, |state, cx| state.toast(toast, cx));
 }
 
-/// The small "Saved" toast after a setting changed (`savedToast.ts`): one at a time.
+/// The small "Saved" toast after a setting changed (`savedToast.ts`): one at a time,
+/// for 1.5 s.
 pub fn saved(state: &Entity<HostState>, cx: &mut App) {
-    toast(state, Level::Success, t(CommonMsg::Saved), cx);
+    let toast = Toast::success(t(CommonMsg::Saved))
+        .key("settings-saved")
+        .duration(std::time::Duration::from_millis(1500));
+    state.update(cx, |state, cx| state.toast(toast, cx));
 }
 
 /// Copies `text`. Never put what was copied in a toast: it may be a key.
@@ -107,7 +118,10 @@ impl Confirm {
 pub fn paragraph(text_: impl Into<SharedString>) -> AnyElement {
     div()
         .text_size(text::MEDIUM)
-        .line_height(lodestone_ui::theme::line_height(text::MEDIUM, leading::NORMAL))
+        .line_height(lodestone_ui::theme::line_height(
+            text::MEDIUM,
+            leading::NORMAL,
+        ))
         .text_color(ink::secondary())
         .child(text_.into())
         .into_any_element()
@@ -123,7 +137,10 @@ pub fn notice(text_: impl Into<SharedString>, color: Color) -> AnyElement {
         .border_color(color.opacity(40))
         .bg(color.opacity(10))
         .text_size(text::MEDIUM)
-        .line_height(lodestone_ui::theme::line_height(text::MEDIUM, leading::NORMAL))
+        .line_height(lodestone_ui::theme::line_height(
+            text::MEDIUM,
+            leading::NORMAL,
+        ))
         .text_color(color)
         .child(text_.into())
         .into_any_element()
@@ -221,6 +238,9 @@ pub enum TextSettingEvent {
     Submit(String),
 }
 
+/// Checks a typed value: why it can't be saved, or `None`.
+type Check = Box<dyn Fn(&str) -> Option<String>>;
+
 /// A setting typed as text, after the dashboard's `InputBox`: Enter (or Save) checks
 /// and saves it, Escape (or Reset) puts back the saved value.
 pub struct TextSetting {
@@ -232,7 +252,7 @@ pub struct TextSetting {
     error: Option<String>,
     saving: bool,
     disabled: bool,
-    check: Box<dyn Fn(&str) -> Option<String>>,
+    check: Check,
 }
 
 impl EventEmitter<TextSettingEvent> for TextSetting {}
@@ -408,6 +428,32 @@ pub fn spawn<V: 'static, T: Send + 'static>(
         .ok();
     })
     .detach();
+}
+
+/// A date from unix seconds, as "Mar 12" (with the year when it isn't this year's).
+pub fn date(seconds: i64) -> String {
+    use chrono::{Datelike as _, Local, TimeZone as _};
+    let Some(time) = Local.timestamp_opt(seconds, 0).single() else {
+        return String::new();
+    };
+    let day = time.date_naive();
+    lodestone_ui::i18n::format::short_date(day, day.year() != Local::now().year())
+}
+
+/// How long ago unix second `seconds` was: "Just now", "5 minutes ago", "Yesterday",
+/// "3 days ago", or the date.
+pub fn ago(seconds: i64) -> String {
+    use crate::i18n::{FormatMsg, FormatPlural, trn};
+    let now = chrono::Local::now().timestamp();
+    let elapsed = (now - seconds).max(0) as u64;
+    match elapsed {
+        0..60 => t(FormatMsg::JustNow).to_string(),
+        60..3600 => trn!(FormatPlural::MinutesAgo, elapsed / 60),
+        3600..86_400 => trn!(FormatPlural::HoursAgo, elapsed / 3600),
+        86_400..172_800 => t(FormatMsg::Yesterday).to_string(),
+        _ if elapsed < 7 * 86_400 => trn!(FormatPlural::DaysAgo, elapsed / 86_400),
+        _ => date(seconds),
+    }
 }
 
 /// A page's sections, one under the other, as wide as the settings column.

@@ -11,8 +11,8 @@ use gpui::{
 };
 use launcher_core::cores::admin::{
     core_settings::{
-        CoreNameProblem, CoreSwitch, PortProblem, PublicListingOverview, PublicScopeChange,
-        core_name_problem, domain_too_long, parse_port, CORE_NAME_MAX, DOMAIN_MAX,
+        CORE_NAME_MAX, CoreNameProblem, CoreSwitch, DOMAIN_MAX, PortProblem, PublicListingOverview,
+        PublicScopeChange, core_name_problem, domain_too_long, parse_port,
     },
     models::TlsMode,
 };
@@ -64,21 +64,38 @@ pub struct CoreSettingsPage {
 impl CoreSettingsPage {
     pub fn new(state: Entity<HostState>, cx: &mut Context<Self>) -> Self {
         let settings = state.read(cx).settings.clone().unwrap_or_default();
-        let address = state.read(cx).admin.core().base().host_str().unwrap_or("").to_string();
+        let address = state
+            .read(cx)
+            .admin
+            .core()
+            .base()
+            .host_str()
+            .unwrap_or("")
+            .to_string();
         let name = cx.new(|cx| {
-            TextSetting::new("core-name", t(CoreMsg::CoreName), &settings.core_name, |name| {
-                core_name_problem(name).map(|problem| match problem {
-                    CoreNameProblem::Empty => t(CoreMsg::CoreNameEmpty).to_string(),
-                    CoreNameProblem::TooLong => tr!(CoreMsg::CoreNameTooLong, max = CORE_NAME_MAX),
-                })
-            }, cx)
+            TextSetting::new(
+                "core-name",
+                t(CoreMsg::CoreName),
+                &settings.core_name,
+                |name| {
+                    core_name_problem(name).map(|problem| match problem {
+                        CoreNameProblem::Empty => t(CoreMsg::CoreNameEmpty).to_string(),
+                        CoreNameProblem::TooLong => {
+                            tr!(CoreMsg::CoreNameTooLong, max = CORE_NAME_MAX)
+                        }
+                    })
+                },
+                cx,
+            )
         });
         let domain = cx.new(|cx| {
             TextSetting::new(
                 "core-domain",
                 t(CoreMsg::Domain),
                 settings.domain.as_deref().unwrap_or(""),
-                |domain| domain_too_long(domain).then(|| tr!(CoreMsg::DomainTooLong, max = DOMAIN_MAX)),
+                |domain| {
+                    domain_too_long(domain).then(|| tr!(CoreMsg::DomainTooLong, max = DOMAIN_MAX))
+                },
                 cx,
             )
             .with_hint(t(CoreMsg::DomainHint))
@@ -377,12 +394,15 @@ impl CoreSettingsPage {
         SettingRow::new(t(label))
             .hint(hint)
             .child(
-                Toggle::new(SharedString::from(format!("{switch:?}")), switch.get(&settings))
-                    .label(t(label))
-                    .disabled(!owner || locked || self.switching.is_some())
-                    .on_change(cx.listener(move |this, value: &bool, _, cx| {
-                        this.flip(switch, *value, cx)
-                    })),
+                Toggle::new(
+                    SharedString::from(format!("{switch:?}")),
+                    switch.get(&settings),
+                )
+                .label(t(label))
+                .disabled(!owner || locked || self.switching.is_some())
+                .on_change(
+                    cx.listener(move |this, value: &bool, _, cx| this.flip(switch, *value, cx)),
+                ),
             )
             .into_any_element()
     }
@@ -479,7 +499,8 @@ impl CoreSettingsPage {
             .render(
                 focus,
                 move |_, cx| {
-                    this.update(cx, |this, cx| this.set_switch(switch, value, cx)).ok();
+                    this.update(cx, |this, cx| this.set_switch(switch, value, cx))
+                        .ok();
                 },
                 move |_, cx| {
                     close

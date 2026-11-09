@@ -19,27 +19,43 @@ pub fn text(message: M) -> &'static str {
         M::ListPublicly => "公开列出服务器",
         M::ListPubliclyHint => "任何能访问此核心的人都能看到你在下方设为公开的服务器。",
         M::LocalClaim => "允许本机上的应用获取所有者权限",
-        M::LocalClaimHint => "Lodestone Launcher 可以通过证明自己能写入此核心的数据文件夹来成为所有者。能写入该文件夹的程序本来就能修改所有用户和设置，所以这只在共用电脑上有影响。",
+        M::LocalClaimHint => {
+            "Lodestone Launcher 可以通过证明自己能写入此核心的数据文件夹来成为所有者。能写入该文件夹的程序本来就能修改所有用户和设置，所以这只在共用电脑上有影响。"
+        }
         M::SafeMode => "安全模式",
         M::SafeModeHint => "仅所有者可获得此计算机的管理权限。",
         M::SafeModeOffTitle => "关闭安全模式？",
-        M::SafeModeOffBody => "确定要关闭安全模式吗？这样你就可以让自己以外的用户运行可能有危险的命令。请确保你信任所有获得这些权限的用户。",
+        M::SafeModeOffBody => {
+            "确定要关闭安全模式吗？这样你就可以让自己以外的用户运行可能有危险的命令。请确保你信任所有获得这些权限的用户。"
+        }
         M::TurnOff => "关闭",
         M::CodeExecution => "代码执行",
         M::CodeExecutionHint => "宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令。",
         M::CodeExecutionHintJavaOnly => "自定义 Java 命令。",
-        M::CodeExecutionLocked => "已被此核心的管理员锁定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。",
+        M::CodeExecutionLocked => {
+            "已被此核心的管理员锁定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。"
+        }
         M::CodeExecutionOffTitle => "关闭代码执行？",
-        M::CodeExecutionOffBody => "正在运行的宏和 Atom 服务器将被停止。在你重新开启代码执行之前，宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令都不会在此核心上运行。任何内容都不会自动重新启动。",
-        M::CodeExecutionOffBodyJavaOnly => "在你重新开启代码执行之前，自定义 Java 命令不会在此核心上运行。任何内容都不会自动重新启动。",
+        M::CodeExecutionOffBody => {
+            "正在运行的宏和 Atom 服务器将被停止。在你重新开启代码执行之前，宏、Atom 服务器、扩展、服务器脚本和自定义 Java 命令都不会在此核心上运行。任何内容都不会自动重新启动。"
+        }
+        M::CodeExecutionOffBodyJavaOnly => {
+            "在你重新开启代码执行之前，自定义 Java 命令不会在此核心上运行。任何内容都不会自动重新启动。"
+        }
         M::NoScripting => "此核心构建时未包含脚本支持（Deno），因此无法使用宏。",
         M::LanHttp => "允许通过明文 HTTP 进行局域网访问",
         M::LanHttpHint => "未加密。你网络中的其他人可以读取密码。",
         M::LanHttpConfirmTitle => "允许其他设备使用明文 HTTP？",
-        M::LanHttpConfirmBody => "你网络中的设备将能够通过明文 HTTP 连接。以这种方式发送的密码和会话令牌会以未加密的方式经过网络，网络中的其他任何人都可以读取它们并接管此核心上的账户。仅在某台设备无法使用 https:// 时才允许此项。",
+        M::LanHttpConfirmBody => {
+            "你网络中的设备将能够通过明文 HTTP 连接。以这种方式发送的密码和会话令牌会以未加密的方式经过网络，网络中的其他任何人都可以读取它们并接管此核心上的账户。仅在某台设备无法使用 https:// 时才允许此项。"
+        }
         M::LanHttpAllow => "允许",
-        M::LanHttpWarningOwner => "其他设备可以通过明文 HTTP 连接到此核心，因此密码和会话令牌可能以未加密的方式经过你的网络。请在下方关闭“{setting}”，并改用 https:// 连接。",
-        M::LanHttpWarningOther => "其他设备可以通过明文 HTTP 连接到此核心，因此密码和会话令牌可能以未加密的方式经过你的网络。请使用 https:// 连接，并请所有者关闭明文 HTTP 访问。",
+        M::LanHttpWarningOwner => {
+            "其他设备可以通过明文 HTTP 连接到此核心，因此密码和会话令牌可能以未加密的方式经过你的网络。请在下方关闭“{setting}”，并改用 https:// 连接。"
+        }
+        M::LanHttpWarningOther => {
+            "其他设备可以通过明文 HTTP 连接到此核心，因此密码和会话令牌可能以未加密的方式经过你的网络。请使用 https:// 连接，并请所有者关闭明文 HTTP 访问。"
+        }
         M::OpenPort => "开放端口",
         M::OpenPortHint => "使用 {upnp} 在路由器上设置端口转发。",
         M::OpenPortNoPermission => "没有权限",
@@ -123,8 +139,12 @@ pub fn text(message: M) -> &'static str {
         M::PermStopInstanceUser => "该用户可以停止这些服务器。",
         M::PermStopInstanceKey => "该密钥可以停止这些服务器。",
         M::PermConsole => "访问服务器控制台",
-        M::PermConsoleUser => "该用户可以读取这些服务器的控制台并向其发送命令。这实际上相当于授予服务器的管理员（OP）权限。",
-        M::PermConsoleKey => "该密钥可以读取这些服务器的控制台并向其发送命令。这实际上相当于授予服务器的管理员（OP）权限。",
+        M::PermConsoleUser => {
+            "该用户可以读取这些服务器的控制台并向其发送命令。这实际上相当于授予服务器的管理员（OP）权限。"
+        }
+        M::PermConsoleKey => {
+            "该密钥可以读取这些服务器的控制台并向其发送命令。这实际上相当于授予服务器的管理员（OP）权限。"
+        }
         M::PermInstanceSettings => "访问服务器设置",
         M::PermInstanceSettingsUser => "该用户可以读取和更改这些服务器的设置。",
         M::PermInstanceSettingsKey => "该密钥可以读取和更改这些服务器的设置。",
@@ -161,7 +181,7 @@ pub fn text(message: M) -> &'static str {
         M::ProfilePassword => "密码",
         M::ChangePassword => "更改密码",
         M::Appearance => "外观",
-        M::AppearanceLead => "保存在这台电脑上，而不是 core 上。",
+        M::AppearanceLead => "保存在这台电脑上，而不是核心上。",
         M::ColoredConsole => "彩色控制台",
         M::Language => "语言",
         M::LanguageAuto => "系统默认（{language}）",
@@ -184,7 +204,9 @@ pub fn text(message: M) -> &'static str {
         M::LoadingApiKeys => "正在加载 API 密钥",
         M::Revoke => "吊销",
         M::RevokeTitle => "吊销 API 密钥",
-        M::RevokeBody => "吊销“{name}”（{display}）？使用此密钥的所有程序将立即失去访问权限。此操作无法撤销。",
+        M::RevokeBody => {
+            "吊销“{name}”（{display}）？使用此密钥的所有程序将立即失去访问权限。此操作无法撤销。"
+        }
         M::ApiKeyRevoked => "已吊销 API 密钥“{name}”",
         M::CreatedOn => "创建于 {date}",
         M::ExpiresOn => "{date} 过期",
@@ -218,18 +240,24 @@ pub fn text(message: M) -> &'static str {
         M::NotYours => "你没有此权限。",
         M::NoServers => "没有你可以看到的服务器。",
         M::KeyUnsafe => "不安全设置",
-        M::KeyUnsafeSafeMode => "安全模式已开启，因此在核心设置中关闭安全模式之前，核心会拒绝为自定义访问的密钥授予这些权限。",
+        M::KeyUnsafeSafeMode => {
+            "安全模式已开启，因此在核心设置中关闭安全模式之前，核心会拒绝为自定义访问的密钥授予这些权限。"
+        }
         M::KeyOwnerOnly => "宏、扩展和 Atom 服务器",
         M::KeyOwnerOnlyHint => "只有完全访问的密钥才能使用宏、扩展和 Atom 服务器。",
         M::NewKeyTitle => "已创建 API 密钥“{name}”",
         M::NewKeyCopyNow => "请立即复制此密钥。之后将无法再次查看。",
         M::NewKeyUseWithCli => "在 Lodestone CLI 中使用：",
-        M::NewKeyStore => "请像保管密码一样保管此密钥。在它过期或被你吊销之前，任何拥有它的人都可以凭它的权限使用 Lodestone。",
+        M::NewKeyStore => {
+            "请像保管密码一样保管此密钥。在它过期或被你吊销之前，任何拥有它的人都可以凭它的权限使用 Lodestone。"
+        }
         M::KeyCopied => "已将 API 密钥复制到剪贴板",
         M::CliCopied => "已将 CLI 示例复制到剪贴板",
         M::MinecraftAccounts => "Minecraft 账户",
         M::MinecraftOwnLead => "从 Lodestone Launcher 关联。",
-        M::MinecraftOwnEmpty => "尚未关联 Minecraft 账户。在 Lodestone Launcher 中登录此核心即可关联。",
+        M::MinecraftOwnEmpty => {
+            "尚未关联 Minecraft 账户。在 Lodestone Launcher 中登录此核心即可关联。"
+        }
         M::MinecraftUserLead => "{username} 从 Lodestone Launcher 关联的 Minecraft 账户。",
         M::MinecraftUserEmpty => "{username} 没有关联的 Minecraft 账户。",
         M::MinecraftTooOld => "此核心版本太旧，无法关联 Minecraft 账户。",

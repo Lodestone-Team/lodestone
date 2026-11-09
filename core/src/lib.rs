@@ -657,6 +657,23 @@ fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
     _guard
 }
 
+/// What the core prints about the first-time setup key, which lets whoever has it
+/// create the owner account.
+///
+/// It goes to the console only (`println!`), never through the logger, so the key is
+/// not written to the log files. Under Lodestone Host (`is_host`) nothing is printed:
+/// the Host makes the owner account through the local claim and doesn't need the key,
+/// and it keeps the core's console output in a log file of its own.
+fn setup_key_notice(key: &str, is_host: bool) -> Option<String> {
+    (!is_host).then(|| {
+        format!(
+            "First time setup key: {key}\n\
+             This is a one-time, in-memory randomly generated key that allows you to create the owner account.\n\
+             DO NOT SHARE THIS KEY WITH ANYONE!"
+        )
+    })
+}
+
 fn output_sys_info() {
     info!("lodestone_core version {}", VERSION.with(|v| v.clone()));
     // output system info
@@ -920,9 +937,11 @@ pub async fn run_with(
 
     let first_time_setup_key = if !users_manager.as_ref().iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
-        info!("First time setup key: {key}");
-        info!("This is a one-time, in-memory randomly generated key that allows you to create the owner account.");
-        info!("DO NOT SHARE THIS KEY WITH ANYONE!");
+        info!("No owner account yet");
+        // The key goes to the console only: the log files keep no secret.
+        if let Some(notice) = setup_key_notice(&key, args.is_host) {
+            println!("{notice}");
+        }
         Some(key)
     } else {
         None
@@ -1468,5 +1487,17 @@ mod restore_tests {
         }
 
         assert_eq!(snapshot_files(&instances), before);
+    }
+}
+
+#[cfg(test)]
+mod setup_key_tests {
+    use super::setup_key_notice;
+
+    #[test]
+    fn the_setup_key_goes_to_the_console_but_never_under_the_host() {
+        let notice = setup_key_notice("abc123", false).expect("a standalone core shows it");
+        assert!(notice.contains("First time setup key: abc123"));
+        assert_eq!(setup_key_notice("abc123", true), None);
     }
 }

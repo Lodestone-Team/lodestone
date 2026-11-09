@@ -19,27 +19,43 @@ pub fn text(message: M) -> &'static str {
         M::ListPublicly => "公開列出伺服器",
         M::ListPubliclyHint => "任何能連到此核心的人都能看到你在下方設為公開的伺服器。",
         M::LocalClaim => "允許本機上的應用程式取得擁有者權限",
-        M::LocalClaimHint => "Lodestone Launcher 可以藉由證明自己能寫入此核心的資料夾來成為擁有者。能寫入該資料夾的程式本來就能修改所有使用者和設定，所以這只在共用電腦上有影響。",
+        M::LocalClaimHint => {
+            "Lodestone Launcher 可以藉由證明自己能寫入此核心的資料夾來成為擁有者。能寫入該資料夾的程式本來就能修改所有使用者和設定，所以這只在共用電腦上有影響。"
+        }
         M::SafeMode => "安全模式",
         M::SafeModeHint => "僅擁有者可取得此電腦的管理權限。",
         M::SafeModeOffTitle => "要關閉安全模式嗎？",
-        M::SafeModeOffBody => "確定要關閉安全模式嗎？這樣你就能讓自己以外的使用者執行可能有危險的指令。請確認你信任所有取得這些權限的使用者。",
+        M::SafeModeOffBody => {
+            "確定要關閉安全模式嗎？這樣你就能讓自己以外的使用者執行可能有危險的指令。請確認你信任所有取得這些權限的使用者。"
+        }
         M::TurnOff => "關閉",
         M::CodeExecution => "程式碼執行",
         M::CodeExecutionHint => "巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令。",
         M::CodeExecutionHintJavaOnly => "自訂 Java 指令。",
-        M::CodeExecutionLocked => "已被此核心的管理員鎖定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。",
+        M::CodeExecutionLocked => {
+            "已被此核心的管理員鎖定（LODESTONE_DISABLE_CODE_EXECUTION 或 --disable-code-execution）。"
+        }
         M::CodeExecutionOffTitle => "要關閉程式碼執行嗎？",
-        M::CodeExecutionOffBody => "執行中的巨集和 Atom 伺服器將會停止。在你重新開啟程式碼執行之前，巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令都不會在此核心上執行。任何項目都不會自動重新啟動。",
-        M::CodeExecutionOffBodyJavaOnly => "在你重新開啟程式碼執行之前，自訂 Java 指令不會在此核心上執行。任何項目都不會自動重新啟動。",
+        M::CodeExecutionOffBody => {
+            "執行中的巨集和 Atom 伺服器將會停止。在你重新開啟程式碼執行之前，巨集、Atom 伺服器、擴充功能、伺服器指令碼和自訂 Java 指令都不會在此核心上執行。任何項目都不會自動重新啟動。"
+        }
+        M::CodeExecutionOffBodyJavaOnly => {
+            "在你重新開啟程式碼執行之前，自訂 Java 指令不會在此核心上執行。任何項目都不會自動重新啟動。"
+        }
         M::NoScripting => "此核心建置時未包含指令碼支援（Deno），因此無法使用巨集。",
         M::LanHttp => "允許透過未加密 HTTP 進行區域網路存取",
         M::LanHttpHint => "未加密。你網路中的其他人可以讀取密碼。",
         M::LanHttpConfirmTitle => "要允許其他裝置使用未加密 HTTP 嗎？",
-        M::LanHttpConfirmBody => "你網路中的裝置將能透過未加密 HTTP 連線。以這種方式傳送的密碼和工作階段權杖會以未加密的方式經過網路，網路上的其他任何人都能讀取並接管此核心上的帳戶。只有在某台裝置無法使用 https:// 時才允許此項。",
+        M::LanHttpConfirmBody => {
+            "你網路中的裝置將能透過未加密 HTTP 連線。以這種方式傳送的密碼和工作階段權杖會以未加密的方式經過網路，網路上的其他任何人都能讀取並接管此核心上的帳戶。只有在某台裝置無法使用 https:// 時才允許此項。"
+        }
         M::LanHttpAllow => "允許",
-        M::LanHttpWarningOwner => "其他裝置可以透過未加密 HTTP 連線到此核心，因此密碼和工作階段權杖可能以未加密的方式經過你的網路。請在下方關閉「{setting}」，並改用 https:// 連線。",
-        M::LanHttpWarningOther => "其他裝置可以透過未加密 HTTP 連線到此核心，因此密碼和工作階段權杖可能以未加密的方式經過你的網路。請使用 https:// 連線，並請擁有者關閉未加密 HTTP 存取。",
+        M::LanHttpWarningOwner => {
+            "其他裝置可以透過未加密 HTTP 連線到此核心，因此密碼和工作階段權杖可能以未加密的方式經過你的網路。請在下方關閉「{setting}」，並改用 https:// 連線。"
+        }
+        M::LanHttpWarningOther => {
+            "其他裝置可以透過未加密 HTTP 連線到此核心，因此密碼和工作階段權杖可能以未加密的方式經過你的網路。請使用 https:// 連線，並請擁有者關閉未加密 HTTP 存取。"
+        }
         M::OpenPort => "開放連接埠",
         M::OpenPortHint => "使用 {upnp} 在路由器上設定連接埠轉送。",
         M::OpenPortNoPermission => "沒有權限",
@@ -123,8 +139,12 @@ pub fn text(message: M) -> &'static str {
         M::PermStopInstanceUser => "此使用者可以停止這些伺服器。",
         M::PermStopInstanceKey => "此金鑰可以停止這些伺服器。",
         M::PermConsole => "存取伺服器主控台",
-        M::PermConsoleUser => "此使用者可以讀取這些伺服器的主控台並傳送指令。這實際上等於授予伺服器的管理員（OP）權限。",
-        M::PermConsoleKey => "此金鑰可以讀取這些伺服器的主控台並傳送指令。這實際上等於授予伺服器的管理員（OP）權限。",
+        M::PermConsoleUser => {
+            "此使用者可以讀取這些伺服器的主控台並傳送指令。這實際上等於授予伺服器的管理員（OP）權限。"
+        }
+        M::PermConsoleKey => {
+            "此金鑰可以讀取這些伺服器的主控台並傳送指令。這實際上等於授予伺服器的管理員（OP）權限。"
+        }
         M::PermInstanceSettings => "存取伺服器設定",
         M::PermInstanceSettingsUser => "此使用者可以讀取和變更這些伺服器的設定。",
         M::PermInstanceSettingsKey => "此金鑰可以讀取和變更這些伺服器的設定。",
@@ -161,7 +181,7 @@ pub fn text(message: M) -> &'static str {
         M::ProfilePassword => "密碼",
         M::ChangePassword => "變更密碼",
         M::Appearance => "外觀",
-        M::AppearanceLead => "儲存在這台電腦上，而不是 core 上。",
+        M::AppearanceLead => "儲存在這台電腦上，而不是核心上。",
         M::ColoredConsole => "彩色主控台",
         M::Language => "語言",
         M::LanguageAuto => "系統預設（{language}）",
@@ -184,7 +204,9 @@ pub fn text(message: M) -> &'static str {
         M::LoadingApiKeys => "正在載入 API 金鑰",
         M::Revoke => "撤銷",
         M::RevokeTitle => "撤銷 API 金鑰",
-        M::RevokeBody => "要撤銷「{name}」（{display}）嗎？使用此金鑰的所有程式將立即失去存取權。此操作無法復原。",
+        M::RevokeBody => {
+            "要撤銷「{name}」（{display}）嗎？使用此金鑰的所有程式將立即失去存取權。此操作無法復原。"
+        }
         M::ApiKeyRevoked => "已撤銷 API 金鑰「{name}」",
         M::CreatedOn => "建立於 {date}",
         M::ExpiresOn => "{date} 到期",
@@ -198,7 +220,9 @@ pub fn text(message: M) -> &'static str {
         M::ScopeLauncherConsoleRead => "Launcher：檢視、啟動和停止伺服器，讀取主控台",
         M::ScopeLauncherConsoleWrite => "Launcher：檢視、啟動和停止伺服器，傳送主控台指令",
         M::ScopeCustom => "自訂：{servers}，{permissions}",
-        M::PasswordSessionOnly => "只有使用密碼登入時才能管理 API 金鑰，使用 API 金鑰登入時無法管理。",
+        M::PasswordSessionOnly => {
+            "只有使用密碼登入時才能管理 API 金鑰，使用 API 金鑰登入時無法管理。"
+        }
         M::CreateApiKeyLead => "為每個金鑰設定較短的有效期限，並只授予需要的存取權。",
         M::ApiKeyName => "名稱",
         M::ApiKeyNameRequired => "請輸入名稱",
@@ -208,7 +232,9 @@ pub fn text(message: M) -> &'static str {
         M::Expiry90d => "90 天",
         M::Expiry1y => "1 年",
         M::ExpiryNever => "永不到期",
-        M::NeverWarning => "永不到期的金鑰在你撤銷之前會一直有效。除非確實需要，否則請設定有效期限。",
+        M::NeverWarning => {
+            "永不到期的金鑰在你撤銷之前會一直有效。除非確實需要，否則請設定有效期限。"
+        }
         M::Access => "存取權",
         M::AccessFull => "完整存取（你能做的一切）",
         M::AccessCustom => "自訂",
@@ -218,23 +244,31 @@ pub fn text(message: M) -> &'static str {
         M::NotYours => "你沒有此權限。",
         M::NoServers => "沒有你可以看到的伺服器。",
         M::KeyUnsafe => "不安全的設定",
-        M::KeyUnsafeSafeMode => "安全模式已開啟，因此在核心設定中關閉安全模式之前，核心會拒絕將這些權限授予自訂存取的金鑰。",
+        M::KeyUnsafeSafeMode => {
+            "安全模式已開啟，因此在核心設定中關閉安全模式之前，核心會拒絕將這些權限授予自訂存取的金鑰。"
+        }
         M::KeyOwnerOnly => "巨集、擴充功能和 Atom 伺服器",
         M::KeyOwnerOnlyHint => "只有完整存取的金鑰才能使用巨集、擴充功能和 Atom 伺服器。",
         M::NewKeyTitle => "已建立 API 金鑰「{name}」",
         M::NewKeyCopyNow => "請立即複製此金鑰。之後將無法再次檢視。",
         M::NewKeyUseWithCli => "在 Lodestone CLI 中使用：",
-        M::NewKeyStore => "請像保管密碼一樣保管此金鑰。在它到期或被你撤銷之前，任何擁有它的人都能以它的權限使用 Lodestone。",
+        M::NewKeyStore => {
+            "請像保管密碼一樣保管此金鑰。在它到期或被你撤銷之前，任何擁有它的人都能以它的權限使用 Lodestone。"
+        }
         M::KeyCopied => "已將 API 金鑰複製到剪貼簿",
         M::CliCopied => "已將 CLI 範例複製到剪貼簿",
         M::MinecraftAccounts => "Minecraft 帳戶",
         M::MinecraftOwnLead => "從 Lodestone Launcher 連結。",
-        M::MinecraftOwnEmpty => "尚未連結 Minecraft 帳戶。在 Lodestone Launcher 中登入此核心即可連結。",
+        M::MinecraftOwnEmpty => {
+            "尚未連結 Minecraft 帳戶。在 Lodestone Launcher 中登入此核心即可連結。"
+        }
         M::MinecraftUserLead => "{username} 從 Lodestone Launcher 連結的 Minecraft 帳戶。",
         M::MinecraftUserEmpty => "{username} 沒有連結的 Minecraft 帳戶。",
         M::MinecraftTooOld => "此核心版本太舊，無法連結 Minecraft 帳戶。",
         M::MinecraftRemoveTitle => "移除 Minecraft 帳戶",
-        M::MinecraftRemoveBody => "要移除與 {name} 的連結嗎？之後可以從 Lodestone Launcher 重新連結。",
+        M::MinecraftRemoveBody => {
+            "要移除與 {name} 的連結嗎？之後可以從 Lodestone Launcher 重新連結。"
+        }
         M::MinecraftRemoved => "已移除 {name}",
     }
 }

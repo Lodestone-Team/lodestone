@@ -88,6 +88,16 @@ pub mod palette {
         LIGHT.load(Ordering::Relaxed)
     }
 
+    /// The logo for the current theme: a dark wordmark on the light theme
+    /// (`components/Atoms/Logo.tsx`).
+    pub fn logo() -> &'static str {
+        if is_light() {
+            "images/logo_light.svg"
+        } else {
+            "images/logo.svg"
+        }
+    }
+
     /// `color` as the current theme draws it.
     pub fn map(color: Color) -> Color {
         if is_light() { light(color) } else { color }
@@ -99,25 +109,25 @@ pub mod palette {
         let alpha = color.0 & 0xff;
         if alpha == 0xff {
             return match rgb {
-                0xE3E3E4 => Color::rgb(0x14171C), // gray-300: text
-                0xA5A5AC => Color::rgb(0x474D58), // gray-400 (and gray-faded)
-                0x767A82 => Color::rgb(0x5E6470), // gray-500
-                0x67686A => Color::rgb(0xB9C0CB), // gray-550
-                0x44464B => Color::rgb(0xE1E5EB), // gray-600: selection
-                0x36393F => Color::rgb(0xF1F4F7), // gray-700: hover
-                0x303338 => Color::rgb(0xF7F8FA), // gray-750
-                0x2B2D32 => Color::rgb(0xFFFFFF), // gray-800: cards, rows, buttons
-                0x26282C => Color::rgb(0xF7F8FA), // gray-850: side panels, top bar
-                0x212327 => Color::rgb(0xECEFF3), // gray-875: the page
-                0x1D1E21 => Color::rgb(0xF3F5F8), // gray-900: inputs, console
-                0x69C9FF => Color::rgb(0x0E5D7D), // blue-150
-                0x59B2F3 => Color::rgb(0x0F6E92), // blue-200: links
-                0x1D8EB2 => Color::rgb(0x167FA3), // blue-300
-                0x037AA0 => Color::rgb(0x126E8E), // blue-400
+                0xE3E3E4 => Color::rgb(0x14171C),            // gray-300: text
+                0xA5A5AC => Color::rgb(0x474D58),            // gray-400 (and gray-faded)
+                0x767A82 => Color::rgb(0x5E6470),            // gray-500
+                0x67686A => Color::rgb(0xB9C0CB),            // gray-550
+                0x44464B => Color::rgb(0xE1E5EB),            // gray-600: selection
+                0x36393F => Color::rgb(0xF1F4F7),            // gray-700: hover
+                0x303338 => Color::rgb(0xF7F8FA),            // gray-750
+                0x2B2D32 => Color::rgb(0xFFFFFF),            // gray-800: cards, rows, buttons
+                0x26282C => Color::rgb(0xF7F8FA),            // gray-850: side panels, top bar
+                0x212327 => Color::rgb(0xECEFF3),            // gray-875: the page
+                0x1D1E21 => Color::rgb(0xF3F5F8),            // gray-900: inputs, console
+                0x69C9FF => Color::rgb(0x0E5D7D),            // blue-150
+                0x59B2F3 => Color::rgb(0x0F6E92),            // blue-200: links
+                0x1D8EB2 => Color::rgb(0x167FA3),            // blue-300
+                0x037AA0 => Color::rgb(0x126E8E),            // blue-400
                 0x2AF588 | 0x6DD277 => Color::rgb(0x1D7A3A), // green-200, green-300
                 0xFF5C5C | 0xCF4545 => Color::rgb(0xB4282C), // red-200, red
-                0xEFB440 => Color::rgb(0x8A5A00), // yellow-300
-                0x111114 => Color::rgba(0x141E2D29), // the shadows
+                0xEFB440 => Color::rgb(0x8A5A00),            // yellow-300
+                0x111114 => Color::rgba(0x141E2D29),         // the shadows
                 _ => color,
             };
         }
@@ -886,7 +896,10 @@ mod tests {
         assert_eq!(palette::light(WHITE), WHITE);
         assert_eq!(palette::light(BLUE_FADED), BLUE_FADED);
         assert_eq!(palette::light(WHITE.opacity(50)), Color::rgba(0x14171C80));
-        assert_eq!(palette::light(GRAY_FADED.opacity(30)).to_hex(), light["line"]);
+        assert_eq!(
+            palette::light(GRAY_FADED.opacity(30)).to_hex(),
+            light["line"]
+        );
         // the dark theme is the default, and unchanged
         assert!(!palette::is_light());
         assert_eq!(palette::map(GRAY_800), GRAY_800);

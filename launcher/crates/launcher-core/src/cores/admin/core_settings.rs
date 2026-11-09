@@ -326,9 +326,10 @@ mod tests {
         }))
         .unwrap();
         assert!(overview.instances[0].scope.listed && overview.instances[0].scope.status);
-        let old: InstancePublicListing =
-            serde_json::from_value(serde_json::json!({ "list_instances_publicly": false, "listed": true }))
-                .unwrap();
+        let old: InstancePublicListing = serde_json::from_value(
+            serde_json::json!({ "list_instances_publicly": false, "listed": true }),
+        )
+        .unwrap();
         assert!(!old.has_scopes());
         let new: InstancePublicListing = serde_json::from_value(serde_json::json!({
             "list_instances_publicly": false, "listed": true, "status": false,
@@ -364,7 +365,10 @@ mod tests {
     #[test]
     fn checks_names_and_ports_as_the_dashboard() {
         assert_eq!(core_name_problem(""), Some(CoreNameProblem::Empty));
-        assert_eq!(core_name_problem(&"x".repeat(33)), Some(CoreNameProblem::TooLong));
+        assert_eq!(
+            core_name_problem(&"x".repeat(33)),
+            Some(CoreNameProblem::TooLong)
+        );
         assert_eq!(core_name_problem("Home"), None);
         assert!(domain_too_long(&"a".repeat(254)));
         assert!(!domain_too_long(""));

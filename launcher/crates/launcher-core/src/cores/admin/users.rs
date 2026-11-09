@@ -6,8 +6,9 @@ use http_client::Method;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    AdminClient, segment,
+    AdminClient,
     models::{PublicUser, UserPermission},
+    segment,
 };
 use crate::cores::CoreError;
 
@@ -39,8 +40,12 @@ impl AdminClient {
 
     /// `DELETE /user/{uid}`.
     pub async fn delete_user(&self, uid: &str) -> Result<(), CoreError> {
-        self.call(Method::DELETE, &format!("user/{}", segment(uid)), None::<()>)
-            .await
+        self.call(
+            Method::DELETE,
+            &format!("user/{}", segment(uid)),
+            None::<()>,
+        )
+        .await
     }
 
     /// `PUT /user/{uid}/password`. Users changing their own password give the old one;
@@ -155,6 +160,7 @@ impl AdminClient {
 }
 
 /// What an API key may do (`ApiKeyScope`).
+#[allow(clippy::large_enum_variant)] // a value read once, not stored in bulk
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ApiKeyScope {

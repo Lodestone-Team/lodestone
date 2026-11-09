@@ -7,7 +7,7 @@
 
 use std::rc::Rc;
 
-use gpui::{App, ElementId, IntoElement, ParentElement, SharedString, Styled, Window, div};
+use gpui::{App, ParentElement, SharedString, Styled, Window, div};
 use launcher_core::cores::admin::core_settings::{PublicScope, PublicScopeChange, ScopeFlag};
 use lodestone_ui::{
     components::{Checkbox, Toggle, settings::SettingRow},
@@ -65,7 +65,7 @@ fn flag_label(flag: ScopeFlag) -> &'static str {
 /// publicly"; only the owner (`can_edit`) changes anything; `saving` disables it while
 /// a change is sent. `on_change` sends the change (`set_public_scope`).
 pub fn scope_row(
-    id: impl Into<ElementId>,
+    id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     scope: PublicScope,
     switch_on: bool,
@@ -73,19 +73,15 @@ pub fn scope_row(
     saving: bool,
     on_change: impl Fn(PublicScopeChange, &mut Window, &mut App) + 'static,
 ) -> SettingRow {
-    let id: ElementId = id.into();
+    let id: SharedString = id.into();
     let label: SharedString = label.into();
     let on_change = Rc::new(on_change);
     let toggle_change = on_change.clone();
     let boxes = ScopeFlag::ALL.into_iter().enumerate().map(|(index, flag)| {
         let on_change = on_change.clone();
-        Checkbox::new(
-            (id.clone(), index),
-            flag_label(flag),
-            flag.get(&scope),
-        )
-        .disabled(!can_edit || saving)
-        .on_change(move |value, window, cx| on_change(flag.change(*value), window, cx))
+        Checkbox::new((id.clone(), index), flag_label(flag), flag.get(&scope))
+            .disabled(!can_edit || saving)
+            .on_change(move |value, window, cx| on_change(flag.change(*value), window, cx))
     });
     SettingRow::new(label.clone())
         .key(id.clone())
@@ -131,7 +127,10 @@ mod tests {
     fn the_sentence_says_what_is_shown() {
         lodestone_ui::i18n::force(lodestone_ui::i18n::Locale::En);
         let mut scope = PublicScope::default();
-        assert_eq!(description(&scope, true, false), t(CoreMsg::ListingOwnerOnly));
+        assert_eq!(
+            description(&scope, true, false),
+            t(CoreMsg::ListingOwnerOnly)
+        );
         assert_eq!(description(&scope, false, true), t(CoreMsg::TurnOnFirst));
         assert_eq!(description(&scope, true, true), t(CoreMsg::NotShown));
         scope.listed = true;
