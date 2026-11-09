@@ -349,8 +349,11 @@ impl Element for RichText {
             })
         });
         if let Some(position) = menu_at {
-            // Over everything else, as popovers are.
-            window.defer_draw(copy_menu(position), Point::default(), 2, None);
+            // Over everything else, as popovers are. Laid out on its own here: the
+            // text's layout is a measured leaf with no room for a child.
+            let mut menu = copy_menu(position);
+            menu.layout_as_root(window.viewport_size().into(), window, cx);
+            window.defer_draw(menu, Point::default(), 2, None);
         }
         Some(window.insert_hitbox(bounds, HitboxBehavior::Normal))
     }
@@ -652,5 +655,69 @@ mod tests {
         // Light colours are as the game draws them.
         assert_eq!(readable(0xFFAA00), 0xFFAA00);
         assert_eq!(readable(0x55FF55), 0x55FF55);
+    }
+}
+
+#[cfg(all(test, feature = "screenshot"))]
+mod ui_tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use gpui::{
+        Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render,
+        StatefulInteractiveElement, Styled, TestAppContext, Window, div, point, px,
+    };
+
+    use super::RichText;
+
+    /// A clickable row with selectable text in it.
+    struct Row {
+        clicks: Rc<Cell<usize>>,
+    }
+
+    impl Render for Row {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let clicks = self.clicks.clone();
+            div().size_full().child(
+                div()
+                    .id("row")
+                    .w(px(400.))
+                    .on_click(move |_, _, _| clicks.set(clicks.get() + 1))
+                    .child(RichText::minecraft("§6Hello §lworld")),
+            )
+        }
+    }
+
+    #[test]
+    fn a_drag_selects_and_copies_while_a_click_reaches_the_row() {
+        let mut cx = TestAppContext::single();
+        cx.update(super::init);
+        let clicks = Rc::new(Cell::new(0));
+        let (_, cx) = cx.add_window_view({
+            let clicks = clicks.clone();
+            |_, _| Row { clicks }
+        });
+        let none = Modifiers::default();
+        let start = point(px(1.), px(5.));
+        // A plain click is the row's.
+        cx.simulate_click(start, none);
+        assert_eq!(clicks.get(), 1);
+        // Nothing selected: copying copies nothing.
+        cx.simulate_keystrokes("secondary-c");
+        assert!(cx.read_from_clipboard().is_none());
+
+        // A drag past the end selects the whole text and isn't a click.
+        let end = point(px(390.), px(5.));
+        cx.simulate_mouse_down(start, MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(100.), px(5.)), MouseButton::Left, none);
+        cx.simulate_mouse_move(end, MouseButton::Left, none);
+        cx.simulate_mouse_up(end, MouseButton::Left, none);
+        assert_eq!(clicks.get(), 1, "a selecting drag doesn't click the row");
+        cx.simulate_keystrokes("secondary-c");
+        let copied = cx.read_from_clipboard().and_then(|item| item.text());
+        assert_eq!(copied.as_deref(), Some("Hello world"), "copied without codes");
+
+        // A click outside clears it.
+        cx.simulate_click(point(px(450.), px(200.)), none);
+        assert!(super::SELECTION.with(|s| s.borrow().is_none()));
     }
 }
