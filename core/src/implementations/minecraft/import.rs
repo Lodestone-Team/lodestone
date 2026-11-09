@@ -349,19 +349,40 @@ fn copy_file_no_follow(from: &Path, to: &Path) -> Result<(), Error> {
         from.display(),
         to.display()
     ))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = input
-            .metadata()
-            .context(format!("Failed to read {}", from.display()))?
-            .permissions()
-            .mode()
-            & 0o777;
-        output
-            .set_permissions(std::fs::Permissions::from_mode(mode))
-            .context(format!("Failed to set the permissions of {}", to.display()))?;
+    let metadata = input
+        .metadata()
+        .context(format!("Failed to read {}", from.display()))?;
+    set_mode(&output, unix_mode(&metadata), to)
+}
+
+#[cfg(unix)]
+fn unix_mode(metadata: &std::fs::Metadata) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    Some(metadata.permissions().mode())
+}
+
+#[cfg(not(unix))]
+fn unix_mode(_metadata: &std::fs::Metadata) -> Option<u32> {
+    None
+}
+
+/// Gives `file` the permission bits of `mode` (never setuid, setgid or sticky). Does
+/// nothing on Windows.
+#[cfg(unix)]
+fn set_mode(file: &std::fs::File, mode: Option<u32>, path: &Path) -> Result<(), Error> {
+    use std::os::unix::fs::PermissionsExt;
+    if let Some(mode) = mode {
+        file.set_permissions(std::fs::Permissions::from_mode(mode & 0o777))
+            .context(format!(
+                "Failed to set the permissions of {}",
+                path.display()
+            ))?;
     }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_mode(_file: &std::fs::File, _mode: Option<u32>, _path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
@@ -576,16 +597,7 @@ fn extract_zip(source: &Path, staging: &Path, allow_scripts: bool) -> Result<(),
         output
             .flush()
             .context(format!("Failed to write {}", entry.relative.display()))?;
-        #[cfg(unix)]
-        if let Some(mode) = file.unix_mode() {
-            use std::os::unix::fs::PermissionsExt;
-            output
-                .set_permissions(std::fs::Permissions::from_mode(mode & 0o777))
-                .context(format!(
-                    "Failed to set the permissions of {}",
-                    entry.relative.display()
-                ))?;
-        }
+        set_mode(&output, file.unix_mode(), &entry.relative)?;
     }
     Ok(())
 }

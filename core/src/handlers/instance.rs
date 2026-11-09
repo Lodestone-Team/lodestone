@@ -595,7 +595,6 @@ mod tests {
 
         // Lodestone's data folder, or anything holding or in its secrets, even for the owner
         let lodestone = crate::prelude::lodestone_path().clone();
-        std::fs::write(lodestone.join("server.jar"), b"jar").unwrap();
         for path in [
             lodestone.clone(),
             lodestone.join("stores"),
