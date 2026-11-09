@@ -1,0 +1,24 @@
+[package]
+name = "lodestone-holepunch"
+version = "0.0.1"
+edition = "2024"
+publish = false
+description = "Prototype: a direct, encrypted tunnel between two computers behind NAT (UDP hole punching + QUIC), for Minecraft without a relay."
+
+# A workspace of its own: an experiment, kept out of the core's and the launcher's builds.
+[workspace]
+
+[[bin]]
+name = "holepunch"
+path = "src/main.rs"
+
+# Only crates already in the repository's Cargo.lock, at the versions there (that lockfile
+# is copied here before the first build, so cargo keeps its versions).
+[dependencies]
+quinn = { version = "=0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std"] }
+rcgen = { version = "=0.14.10", default-features = false, features = ["ring"] }
+ring = "=0.17.14"
+sha2 = "=0.10.9"
+subtle = "=2.6.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "time"] }
