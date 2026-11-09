@@ -156,6 +156,32 @@ pub fn text(message: M) -> &'static str {
         M::Release => "正式版",
         M::Beta => "測試版",
         M::Alpha => "早期測試版",
+
+        M::ModrinthTab => "Modrinth",
+        M::CurseForgeTab => "CurseForge",
+        M::SearchingCurseForge => "正在搜尋 CurseForge",
+        M::ViewOnCurseForge => "在 CurseForge 上檢視",
+        M::NotOnEitherPlatform => "不在 Modrinth 或 CurseForge 上",
+        M::SortPopular => "熱門",
+        M::SortName => "名稱",
+        M::WebsiteDownload => "僅限網站下載",
+        M::GetOnCurseForge => "在 CurseForge 上取得",
+        M::BlockedTitle => "請從 CurseForge 下載這些檔案",
+        M::BlockedLead => {
+            "這些檔案的作者不允許啟動器下載。請在瀏覽器中逐一下載，檔案一出現在 {folder} 中，Lodestone 就會加入它。"
+        }
+        M::BlockedNoFolder => {
+            "這些檔案的作者不允許啟動器下載。請在瀏覽器中逐一下載，然後選擇儲存它們的資料夾。"
+        }
+        M::BlockedOpen => "開啟下載頁面",
+        M::BlockedOpenAll => "開啟所有頁面",
+        M::BlockedAdded => "已加入",
+        M::BlockedWaiting => "正在等待 {file}",
+        M::BlockedChangeFolder => "監視其他資料夾…",
+        M::BlockedSkip => "略過其餘檔案",
+        M::WatchFolderPrompt => "監視此資料夾",
+        M::CouldntAddDownload => "無法加入 {name}：{error}",
+        M::AddedDownloads => "已加入 {names}。",
     }
 }
 

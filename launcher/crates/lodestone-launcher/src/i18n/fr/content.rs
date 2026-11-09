@@ -176,6 +176,32 @@ pub fn text(message: M) -> &'static str {
         M::Release => "Stable",
         M::Beta => "Bêta",
         M::Alpha => "Alpha",
+
+        M::ModrinthTab => "Modrinth",
+        M::CurseForgeTab => "CurseForge",
+        M::SearchingCurseForge => "Recherche sur CurseForge",
+        M::ViewOnCurseForge => "Voir sur CurseForge",
+        M::NotOnEitherPlatform => "Absent de Modrinth et de CurseForge",
+        M::SortPopular => "Populaires",
+        M::SortName => "Nom",
+        M::WebsiteDownload => "Sur le site uniquement",
+        M::GetOnCurseForge => "L’obtenir sur CurseForge",
+        M::BlockedTitle => "À télécharger depuis CurseForge",
+        M::BlockedLead => {
+            "Leurs auteurs ne permettent pas aux lanceurs de les télécharger. Téléchargez-les dans votre navigateur\u{a0}: Lodestone les ajoute dès qu’ils apparaissent dans {folder}."
+        }
+        M::BlockedNoFolder => {
+            "Leurs auteurs ne permettent pas aux lanceurs de les télécharger. Téléchargez-les dans votre navigateur, puis choisissez le dossier où ils ont été enregistrés."
+        }
+        M::BlockedOpen => "Ouvrir la page de téléchargement",
+        M::BlockedOpenAll => "Ouvrir toutes les pages",
+        M::BlockedAdded => "Ajouté",
+        M::BlockedWaiting => "En attente de {file}",
+        M::BlockedChangeFolder => "Surveiller un autre dossier…",
+        M::BlockedSkip => "Ignorer le reste",
+        M::WatchFolderPrompt => "Surveiller ce dossier",
+        M::CouldntAddDownload => "Impossible d’ajouter {name}\u{a0}: {error}",
+        M::AddedDownloads => "{names} ajouté(s).",
     }
 }
 

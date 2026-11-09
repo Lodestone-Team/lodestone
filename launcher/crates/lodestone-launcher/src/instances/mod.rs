@@ -29,7 +29,7 @@ use std::{
 use futures::StreamExt as _;
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, RenderImage, SharedString, Task};
 use launcher_core::{
-    content::{InstanceDirs, Modrinth, Target},
+    content::{CurseForge, InstanceDirs, Modrinth, Target},
     export,
     game::{
         crash::{self, CrashSummary, Outcome},
@@ -283,6 +283,9 @@ pub struct Instances {
     /// The Modrinth client the Content tab shares, with its cache. `None` keeps the
     /// offscreen screenshots offline.
     modrinth: Option<Arc<Modrinth>>,
+    /// The CurseForge client: `None` without Lodestone's API key (in builds made without
+    /// it) or offline.
+    curseforge: Option<Arc<CurseForge>>,
     /// The downloader for content files.
     content_downloader: Downloader,
     /// "Switch to Fabric" in progress.
@@ -325,6 +328,7 @@ impl Instances {
         let download_http =
             launcher_core::http::download_client().expect("could not start the HTTP client");
         let modrinth = Arc::new(Modrinth::production(http.clone()));
+        let curseforge = CurseForge::production(http.clone()).map(Arc::new);
         let content_downloader = Downloader::new(download_http.clone(), gpui_sleep(cx));
         let installer = Installer::new(
             http,
@@ -366,6 +370,7 @@ impl Instances {
             preview_state: None,
             shared_revision: 0,
             modrinth: Some(modrinth),
+            curseforge,
             content_downloader,
             loader_switch: None,
             imports: Vec::new(),
@@ -856,6 +861,11 @@ impl Instances {
         self.modrinth.clone()
     }
 
+    /// The CurseForge client, when this build has an API key and the app is online.
+    pub fn curseforge(&self) -> Option<Arc<CurseForge>> {
+        self.curseforge.clone()
+    }
+
     /// The installer, for resolving imported instances' versions and loaders.
     pub fn installer(&self) -> Installer {
         self.installer.clone()
@@ -869,6 +879,7 @@ impl Instances {
     /// Keeps the Content tab off the network, for the offscreen screenshots.
     pub fn preview_offline(&mut self) {
         self.modrinth = None;
+        self.curseforge = None;
     }
 
     pub fn content_downloader(&self) -> Downloader {

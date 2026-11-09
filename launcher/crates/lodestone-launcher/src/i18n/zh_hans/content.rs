@@ -152,6 +152,32 @@ pub fn text(message: M) -> &'static str {
         M::Release => "正式版",
         M::Beta => "测试版",
         M::Alpha => "早期测试版",
+
+        M::ModrinthTab => "Modrinth",
+        M::CurseForgeTab => "CurseForge",
+        M::SearchingCurseForge => "正在搜索 CurseForge",
+        M::ViewOnCurseForge => "在 CurseForge 上查看",
+        M::NotOnEitherPlatform => "不在 Modrinth 或 CurseForge 上",
+        M::SortPopular => "热门",
+        M::SortName => "名称",
+        M::WebsiteDownload => "仅限网站下载",
+        M::GetOnCurseForge => "在 CurseForge 上获取",
+        M::BlockedTitle => "请从 CurseForge 下载这些文件",
+        M::BlockedLead => {
+            "这些文件的作者不允许启动器下载。请在浏览器中逐个下载，文件一出现在 {folder} 中，Lodestone 就会添加它。"
+        }
+        M::BlockedNoFolder => {
+            "这些文件的作者不允许启动器下载。请在浏览器中逐个下载，然后选择保存它们的文件夹。"
+        }
+        M::BlockedOpen => "打开下载页面",
+        M::BlockedOpenAll => "打开所有页面",
+        M::BlockedAdded => "已添加",
+        M::BlockedWaiting => "正在等待 {file}",
+        M::BlockedChangeFolder => "监视其他文件夹…",
+        M::BlockedSkip => "跳过其余文件",
+        M::WatchFolderPrompt => "监视此文件夹",
+        M::CouldntAddDownload => "无法添加 {name}：{error}",
+        M::AddedDownloads => "已添加 {names}。",
     }
 }
 

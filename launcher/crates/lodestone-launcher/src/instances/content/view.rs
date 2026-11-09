@@ -31,7 +31,7 @@ use crate::{
 
 /// A count of downloads, follows or followers: the plural `exact` for a small count,
 /// else `shortened` with the count shortened ("1.2k downloads").
-fn counted(value: u64, exact: P, shortened: M) -> String {
+pub(crate) fn counted(value: u64, exact: P, shortened: M) -> String {
     let short = format::compact(value);
     if short == format::number(value) {
         trn!(exact, value)
@@ -278,7 +278,7 @@ impl ContentView {
         }
     }
 
-    fn target_label(&self, kind: ContentKind, cx: &gpui::App) -> String {
+    pub(crate) fn target_label(&self, kind: ContentKind, cx: &gpui::App) -> String {
         let Some((_, _, target)) = self.context(cx) else {
             return String::new();
         };
@@ -306,6 +306,22 @@ impl ContentView {
         let entity = cx.entity();
         let view = self.section(kind).view;
         let entity2 = entity.clone();
+        // With CurseForge: Installed / Modrinth / CurseForge.
+        let curseforge = self.curseforge(cx).is_some();
+        let views: Vec<(SubView, SharedString)> = if curseforge {
+            vec![
+                (SubView::Installed, t(M::InstalledTab).into()),
+                (SubView::Browse, t(M::ModrinthTab).into()),
+                (SubView::BrowseCurseForge, t(M::CurseForgeTab).into()),
+            ]
+        } else {
+            vec![
+                (SubView::Installed, t(M::InstalledTab).into()),
+                (SubView::Browse, t(M::BrowseModrinth).into()),
+            ]
+        };
+        let selected_view = views.iter().position(|(v, _)| *v == view).unwrap_or(0);
+        let view_values: Vec<SubView> = views.iter().map(|(v, _)| *v).collect();
         div()
             .flex()
             .flex_row()
@@ -323,14 +339,10 @@ impl ContentView {
             ))
             .child(pills(
                 "content-views",
-                vec![t(M::InstalledTab).into(), t(M::BrowseModrinth).into()],
-                if view == SubView::Installed { 0 } else { 1 },
+                views.into_iter().map(|(_, label)| label).collect(),
+                selected_view,
                 move |index, _, cx| {
-                    let view = if index == 0 {
-                        SubView::Installed
-                    } else {
-                        SubView::Browse
-                    };
+                    let view = view_values[index];
                     entity2.update(cx, |this, cx| this.set_view(kind, view, cx))
                 },
             ))
@@ -494,7 +506,7 @@ impl ContentView {
         let count = section.items().len();
         let updates = section.updates.len();
         let checking = section.checking_updates;
-        let online = self.modrinth(cx).is_some();
+        let online = self.modrinth(cx).is_some() || self.curseforge(cx).is_some();
         let summary = match (kind, count) {
             (_, 0) => String::new(),
             (ContentKind::ResourcePack, _) => {
@@ -577,7 +589,11 @@ impl ContentView {
         if let Some(icon) = self.section(kind).icons.get(&item.file.file_name) {
             return Some(icon.clone());
         }
-        let url = item.modrinth.as_ref()?.icon_url.clone()?;
+        let url = item
+            .modrinth
+            .as_ref()
+            .and_then(|m| m.icon_url.clone())
+            .or_else(|| item.curseforge.as_ref().and_then(|c| c.icon_url.clone()))?;
         self.remote_icon(&url, cx)
     }
 
@@ -597,6 +613,14 @@ impl ContentView {
         let name = item.file.file_name.clone();
         let icon = self.item_icon(kind, item, cx);
         let update = self.section(kind).updates.get(&name).cloned();
+        // A Modrinth update takes the row's button when there are both.
+        let cf_update = self
+            .section(kind)
+            .cf_updates
+            .get(&name)
+            .cloned()
+            .filter(|_| update.is_none());
+        let curseforge_on = self.curseforge(cx).is_some();
         let confirming = self.confirm_delete.as_ref() == Some(&(kind, name.clone()));
         let title = item.display_name();
         let version = item.display_version();
@@ -628,6 +652,12 @@ impl ContentView {
                     },
                     &m.slug,
                 )
+            })
+            .or_else(|| {
+                item.curseforge
+                    .as_ref()
+                    .map(|c| c.page_url.clone())
+                    .filter(|p| !p.is_empty())
             });
         let enabled = item.enabled;
         let compatibility = item.compatibility;
@@ -681,8 +711,19 @@ impl ContentView {
                                     colors::YELLOW_300,
                                 ))
                             })
-                            .when(item.modrinth.is_none() && !item.file.is_dir, |this| {
-                                this.child(badge(t(M::NotOnModrinth), colors::GRAY_500))
+                            .when(
+                                item.modrinth.is_none() && item.curseforge.is_some(),
+                                |this| this.child(badge(t(M::CurseForgeTab), colors::YELLOW_300)),
+                            )
+                            .when(!item.identified() && !item.file.is_dir, |this| {
+                                this.child(badge(
+                                    t(if curseforge_on {
+                                        M::NotOnEitherPlatform
+                                    } else {
+                                        M::NotOnModrinth
+                                    }),
+                                    colors::GRAY_500,
+                                ))
                             }),
                     )
                     .child(
@@ -717,6 +758,29 @@ impl ContentView {
                             Button::new(
                                 ("update-one", id_base),
                                 tr!(M::UpdateTo, version = update.version_number),
+                            )
+                            .variant(ButtonVariant::Primary)
+                            .icon(Icon::CircleUp)
+                            .size(ButtonSize::Slim)
+                            .disabled(busy)
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.update_one(kind, &name, cx)),
+                            ),
+                        )
+                    })
+                    .when_some(cf_update, |this, cf_update| {
+                        let name = name.clone();
+                        this.child(
+                            Button::new(
+                                ("cf-update-one", id_base),
+                                if cf_update.downloadable() {
+                                    tr!(
+                                        M::UpdateTo,
+                                        version = cf_update.file.display_name_or_file()
+                                    )
+                                } else {
+                                    t(M::GetOnCurseForge).to_string()
+                                },
                             )
                             .variant(ButtonVariant::Primary)
                             .icon(Icon::CircleUp)
@@ -939,7 +1003,7 @@ impl ContentView {
     }
 
     /// The Shaders section's card: the shader mod in use, or the one to install.
-    fn render_shader_mod(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_shader_mod(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let busy = self.locked(cx) || self.job.is_some();
         if let Some(loader) = self.shaders.loader {
             let using = match (
@@ -2047,6 +2111,14 @@ impl Render for ContentView {
                 .into_any_element()
             }
             SubView::Browse => self.render_browse(kind, cx),
+            SubView::BrowseCurseForge => {
+                if matches!(self.section(kind).cf.results, Load::NotLoaded)
+                    && self.section(kind).cf.project.is_none()
+                {
+                    self.cf_search(kind, cx);
+                }
+                self.render_cf_browse(kind, cx)
+            }
         };
         let accepts_drop = view == SubView::Installed;
         div()
@@ -2056,6 +2128,7 @@ impl Render for ContentView {
             .gap_3()
             .child(self.render_header(cx))
             .child(self.render_banners(cx))
+            .children(self.render_blocked(cx))
             .child(
                 div()
                     .id(("content-body", kind as usize))

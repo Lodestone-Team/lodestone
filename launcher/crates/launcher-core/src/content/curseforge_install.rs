@@ -557,6 +557,11 @@ fn finish(
     })
 }
 
+/// The user's Downloads folder, where browsers save files unless told otherwise.
+pub fn downloads_folder() -> Option<PathBuf> {
+    dirs::download_dir()
+}
+
 /// Whether the file at `path` is `planned`'s file: its SHA-1 matches CurseForge's (or
 /// its fingerprint, when CurseForge gave no SHA-1).
 pub fn is_planned_file(path: &Path, planned: &CfPlannedFile) -> bool {

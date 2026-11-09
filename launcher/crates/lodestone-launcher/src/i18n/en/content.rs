@@ -165,6 +165,40 @@ crate::i18n::messages! {
         Release = "Release",
         Beta = "Beta",
         Alpha = "Alpha",
+
+        // CurseForge.
+        /// The sub-view switch with CurseForge: Installed / Modrinth / CurseForge.
+        ModrinthTab = "Modrinth",
+        /// The switch, and the badge of a file that came from CurseForge.
+        CurseForgeTab = "CurseForge",
+        SearchingCurseForge = "Searching CurseForge",
+        ViewOnCurseForge = "View on CurseForge",
+        /// A file neither platform knows (added by hand).
+        NotOnEitherPlatform = "Not on Modrinth or CurseForge",
+        /// CurseForge's sort orders, with SortDownloads and SortUpdated.
+        SortPopular = "Popular",
+        SortName = "Name",
+        /// A CurseForge file the author only lets people download from curseforge.com.
+        WebsiteDownload = "Website download",
+        /// An update that has to be downloaded from curseforge.com.
+        GetOnCurseForge = "Get it on CurseForge",
+        /// The card for files downloaded from curseforge.com by hand.
+        BlockedTitle = "Download these from CurseForge",
+        /// {folder} is the folder watched for the downloads.
+        BlockedLead = "Their authors don't let launchers download them. Download each one in your browser; Lodestone adds it as soon as it appears in {folder}.",
+        BlockedNoFolder = "Their authors don't let launchers download them. Download each one in your browser, then choose the folder it was saved to.",
+        BlockedOpen = "Open download page",
+        BlockedOpenAll = "Open all pages",
+        BlockedAdded = "Added",
+        /// {file} is the file name to download.
+        BlockedWaiting = "Waiting for {file}",
+        BlockedChangeFolder = "Watch another folder…",
+        BlockedSkip = "Skip the rest",
+        /// The folder dialog's button.
+        WatchFolderPrompt = "Watch this folder",
+        CouldntAddDownload = "Couldn't add {name}: {error}",
+        /// {names} is the list of files the user downloaded.
+        AddedDownloads = "Added {names}.",
     }
 
     pub enum ContentPlural {

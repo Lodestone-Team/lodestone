@@ -1,9 +1,11 @@
 //! The Content tab: an instance's mods, resource packs and shader packs, each with what
-//! is installed and a Modrinth browser, after the dashboard's Mods tab.
+//! is installed and a Modrinth browser (and a CurseForge one, in builds with
+//! Lodestone's CurseForge key; see [`curseforge`]), after the dashboard's Mods tab.
 //!
 //! The work is done by `launcher-core::content`; this view keeps the state of each
 //! section, runs that work in the background and refuses changes while the game runs.
 
+pub(crate) mod curseforge;
 pub(crate) mod view;
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
@@ -14,9 +16,11 @@ use gpui::{
 };
 use launcher_core::{
     content::{
-        ContentKind, InstanceDirs, Modrinth, Target, files,
+        ContentKind, InstanceDirs, Modrinth, Platforms, Target,
+        curseforge_install::CfInstallRequest,
+        files,
         install::{self, InstallOutcome, InstallProgress, InstallRequest},
-        listing::{self, Item, Listing, ShaderState},
+        listing::{self, CurseForgeUpdate, Item, Listing, ShaderState},
         options::PackChange,
         packs::Compatibility,
         shaders::{self, ShaderModOffer},
@@ -65,6 +69,7 @@ pub enum SubView {
     #[default]
     Installed,
     Browse,
+    BrowseCurseForge,
 }
 
 /// The parts of a project's page.
@@ -109,6 +114,9 @@ pub struct Section {
     pub icons: HashMap<String, Arc<RenderImage>>,
     /// Newer versions, by file name.
     pub updates: HashMap<String, RawVersion>,
+    /// Newer CurseForge files, by file name.
+    pub cf_updates: HashMap<String, CurseForgeUpdate>,
+    pub cf: curseforge::CfBrowse,
     pub checking_updates: bool,
     /// Whether updates were looked for once on their own, after the first listing.
     auto_checked: bool,
@@ -134,6 +142,8 @@ impl Section {
             listing: Load::NotLoaded,
             icons: HashMap::new(),
             updates: HashMap::new(),
+            cf_updates: HashMap::new(),
+            cf: curseforge::CfBrowse::default(),
             checking_updates: false,
             auto_checked: false,
             view: SubView::Installed,
@@ -210,6 +220,10 @@ pub struct ContentView {
     pub mod_loader_offer: Load<Option<LoaderKind>>,
     mod_loader_offer_task: Option<Task<()>>,
     pub job: Option<Job>,
+    /// CurseForge updates to install once the Modrinth ones of "Update all" are in.
+    queued_cf: Vec<CfInstallRequest>,
+    /// Files to download from curseforge.com by hand, and the folder watched for them.
+    pub blocked: Option<curseforge::BlockedDownloads>,
     /// The last result or error.
     pub message: Option<(SharedString, bool)>,
     /// The file whose Delete was clicked once.
@@ -259,6 +273,8 @@ impl ContentView {
             mod_loader_offer: Load::NotLoaded,
             mod_loader_offer_task: None,
             job: None,
+            queued_cf: Vec::new(),
+            blocked: None,
             message: None,
             confirm_delete: None,
             remote_icons: HashMap::new(),
@@ -277,7 +293,7 @@ impl ContentView {
         &self.sections[index_of(kind)]
     }
 
-    fn section_mut(&mut self, kind: ContentKind) -> &mut Section {
+    pub(crate) fn section_mut(&mut self, kind: ContentKind) -> &mut Section {
         &mut self.sections[index_of(kind)]
     }
 
@@ -348,6 +364,8 @@ impl ContentView {
         self.mod_loader_offer = Load::NotLoaded;
         self.mod_loader_offer_task = None;
         self.job = None;
+        self.queued_cf.clear();
+        self.blocked = None;
         self.message = None;
         self.confirm_delete = None;
     }
@@ -372,7 +390,7 @@ impl ContentView {
             .is_some_and(|i| i.prerelease_updates)
     }
 
-    fn modrinth(&self, cx: &gpui::App) -> Option<Arc<Modrinth>> {
+    pub(crate) fn modrinth(&self, cx: &gpui::App) -> Option<Arc<Modrinth>> {
         self.instances.read(cx).modrinth()
     }
 
@@ -384,7 +402,7 @@ impl ContentView {
     }
 
     /// Whether a change can be made now, saying why not if it can't.
-    fn can_change(&mut self, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn can_change(&mut self, cx: &mut Context<Self>) -> bool {
         if self.locked(cx) {
             self.set_message(t(M::StopGameFirst), true, cx);
             return false;
@@ -417,6 +435,11 @@ impl ContentView {
         if view == SubView::Browse && matches!(self.section(kind).browse.results, Load::NotLoaded) {
             self.search(kind, cx);
         }
+        if view == SubView::BrowseCurseForge
+            && matches!(self.section(kind).cf.results, Load::NotLoaded)
+        {
+            self.cf_search(kind, cx);
+        }
         cx.notify();
     }
 
@@ -433,6 +456,7 @@ impl ContentView {
             return;
         };
         let api = self.modrinth(cx);
+        let cf = self.curseforge(cx);
         if matches!(
             self.section(kind).listing,
             Load::NotLoaded | Load::Failed(_)
@@ -443,7 +467,13 @@ impl ContentView {
             let shaders = listing::shader_state(&dirs)?;
             let mut target = target;
             target.shader_loader = shaders.loader;
-            let listing = listing::list(api.as_deref(), &dirs, &target, kind).await?;
+            let listing = listing::list(
+                Platforms::new(api.as_deref(), cf.as_deref()),
+                &dirs,
+                &target,
+                kind,
+            )
+            .await?;
             Ok::<_, launcher_core::content::ContentError>((listing, shaders))
         });
         let task = cx.spawn(async move |this, cx| {
@@ -468,9 +498,9 @@ impl ContentView {
                                 ))
                             })
                             .collect();
-                        let from_modrinth = listing.items.iter().any(|i| i.modrinth.is_some());
+                        let from_platform = listing.items.iter().any(|i| i.identified());
                         section.listing = Load::Ready(listing);
-                        if from_modrinth && !section.auto_checked {
+                        if from_platform && !section.auto_checked {
                             section.auto_checked = true;
                             this.look_for_updates(kind, true, cx);
                         }
@@ -527,16 +557,30 @@ impl ContentView {
         self.look_for_updates(kind, false, cx);
     }
 
-    /// Asks Modrinth for newer versions. `quiet` (the check after the first listing)
-    /// says nothing when there are none or Modrinth can't be reached.
+    /// Asks Modrinth and CurseForge for newer versions. `quiet` (the check after the
+    /// first listing) says nothing when there are none or they can't be reached.
     fn look_for_updates(&mut self, kind: ContentKind, quiet: bool, cx: &mut Context<Self>) {
-        let (Some((id, dirs, target)), Some(api)) = (self.context(cx), self.modrinth(cx)) else {
+        let Some((id, dirs, target)) = self.context(cx) else {
             return;
         };
+        let (api, cf) = (self.modrinth(cx), self.curseforge(cx));
+        if api.is_none() && cf.is_none() {
+            return;
+        }
         let prerelease = self.prerelease_updates(cx);
         self.section_mut(kind).checking_updates = true;
         let work = cx.background_spawn(async move {
-            listing::check_updates(&api, &dirs, &target, kind, prerelease).await
+            let modrinth = match &api {
+                Some(api) => listing::check_updates(api, &dirs, &target, kind, prerelease).await?,
+                None => HashMap::new(),
+            };
+            let curseforge = match &cf {
+                Some(cf) => {
+                    listing::check_curseforge_updates(cf, &dirs, &target, kind, prerelease).await?
+                }
+                None => HashMap::new(),
+            };
+            Ok::<_, launcher_core::content::ContentError>((modrinth, curseforge))
         });
         let task = cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -547,9 +591,10 @@ impl ContentView {
                 let section = this.section_mut(kind);
                 section.checking_updates = false;
                 match result {
-                    Ok(updates) => {
-                        let count = updates.len();
+                    Ok((updates, cf_updates)) => {
+                        let count = updates.len() + cf_updates.len();
                         section.updates = updates;
+                        section.cf_updates = cf_updates;
                         if count == 0 && !quiet {
                             let message = match kind {
                                 ContentKind::Mod => M::AllModsUpToDate,
@@ -625,6 +670,7 @@ impl ContentView {
                 if this.instance_id.as_deref() != Some(id.as_str()) {
                     return;
                 }
+                let succeeded = result.is_ok();
                 match result {
                     Ok(outcome) => {
                         let message = outcome_message(&outcome);
@@ -634,6 +680,11 @@ impl ContentView {
                         }
                     }
                     Err(err) => this.set_message(err.to_string(), true, cx),
+                }
+                // "Update all": the CurseForge updates follow the Modrinth ones.
+                let queued = std::mem::take(&mut this.queued_cf);
+                if succeeded && !queued.is_empty() {
+                    this.cf_install(queued, cx);
                 }
                 let mut reload: Vec<ContentKind> = kinds.clone();
                 reload.push(ContentKind::ShaderPack);
@@ -725,8 +776,14 @@ impl ContentView {
         }
     }
 
-    /// Installs every update the last check found.
+    /// Installs every update the last check found: Modrinth's, then CurseForge's.
     pub fn update_all(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        let cf_requests = self.cf_update_requests(kind);
+        if self.section(kind).updates.is_empty() {
+            self.cf_install(cf_requests, cx);
+            return;
+        }
+        self.queued_cf = cf_requests;
         let mut versions: Vec<RawVersion> = self.section(kind).updates.values().cloned().collect();
         versions.sort_by(|a, b| a.project_id.cmp(&b.project_id));
         let requests = versions
@@ -743,6 +800,10 @@ impl ContentView {
     }
 
     pub fn update_one(&mut self, kind: ContentKind, file_name: &str, cx: &mut Context<Self>) {
+        if !self.section(kind).updates.contains_key(file_name) {
+            self.cf_update_one(kind, file_name, cx);
+            return;
+        }
         if let Some(version) = self.section(kind).updates.get(file_name).cloned() {
             self.install(
                 vec![InstallRequest {
@@ -1006,7 +1067,10 @@ impl ContentView {
         let task = cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SEARCH_DELAY).await;
             this.update(cx, |this, cx| {
-                if text.contains("modrinth.com/") {
+                if this.section(kind).view == SubView::BrowseCurseForge {
+                    this.section_mut(kind).cf.offset = 0;
+                    this.cf_search(kind, cx);
+                } else if text.contains("modrinth.com/") {
                     this.open_link(kind, &text, cx);
                 } else {
                     this.search(kind, cx);
@@ -1198,19 +1262,32 @@ impl ContentView {
         self.section_mut(kind).browse.project.as_mut()
     }
 
-    /// The icon at a Modrinth CDN URL, fetched the first time it is asked for.
+    /// The icon at a Modrinth or CurseForge CDN URL, fetched the first time it is asked
+    /// for.
     pub fn remote_icon(&mut self, url: &str, cx: &mut Context<Self>) -> Option<Arc<RenderImage>> {
         match self.remote_icons.get(url) {
             Some(RemoteIcon::Ready(image)) => return Some(image.clone()),
             Some(_) => return None,
             None => {}
         }
-        let api = self.modrinth(cx)?;
+        let from_curseforge = url.starts_with(&format!(
+            "https://{}/",
+            launcher_core::content::curseforge::MEDIA_HOST
+        ));
+        let (api, cf) = if from_curseforge {
+            (None, Some(self.curseforge(cx)?))
+        } else {
+            (Some(self.modrinth(cx)?), None)
+        };
         self.remote_icons
             .insert(url.to_string(), RemoteIcon::Loading);
         let key = url.to_string();
         let work = cx.background_spawn(async move {
-            let bytes = api.image(&key).await.ok()?;
+            let bytes = match (api, cf) {
+                (Some(api), _) => api.image(&key).await.ok()?,
+                (_, Some(cf)) => cf.image(&key).await.ok()?,
+                _ => return None,
+            };
             let icon = launcher_core::content::scan::decode_icon(&bytes)?;
             Some((key, icon))
         });
@@ -1370,7 +1447,7 @@ impl ContentView {
 }
 
 /// "Installed Iris and Sodium. Replaced …", for the message line.
-fn outcome_message(outcome: &InstallOutcome) -> String {
+pub(crate) fn outcome_message(outcome: &InstallOutcome) -> String {
     let titles: Vec<&str> = outcome
         .installed
         .iter()
