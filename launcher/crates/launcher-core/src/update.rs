@@ -6,6 +6,15 @@
 //! platform's file with its build number, commit, size and SHA-256. Platforms are
 //! published separately (each from a machine of its own), so each has its own build.
 //!
+//! There are two channels, chosen in Settings > General > "Beta builds"
+//! ([`UpdateChannel`]). Stable launchers read the `launcher-latest` release
+//! ([`MANIFEST_URL`]); beta launchers read the `launcher-beta` release
+//! ([`BETA_MANIFEST_URL`]) and the stable one, and take whichever has the newer
+//! build for their platform ([`newest`]), so a beta launcher is never behind stable.
+//! Stable builds are beta builds promoted unchanged, so both share build numbers.
+//! Leaving the beta keeps the running build until a stable one is newer: updates
+//! never go back.
+//!
 //! A build's number is the count of commits in its history (`git rev-list --count`),
 //! which grows along `main`. The script compiles it in as `LODESTONE_LAUNCHER_BUILD`;
 //! a plain `cargo build` has none, and never updates itself.
@@ -33,12 +42,17 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 use crate::USER_AGENT;
+pub use crate::settings::UpdateChannel;
 
 /// Where releases are published.
 pub const MANIFEST_URL: &str =
     "https://github.com/Lodestone-Team/lodestone/releases/download/launcher-latest/latest.json";
 
-/// Overrides [`MANIFEST_URL`], to test updating against a local server.
+/// Where beta builds are published.
+pub const BETA_MANIFEST_URL: &str =
+    "https://github.com/Lodestone-Team/lodestone/releases/download/launcher-beta/latest.json";
+
+/// Overrides [`MANIFEST_URL`] and [`BETA_MANIFEST_URL`], to test updating against a local server.
 pub const MANIFEST_URL_ENV: &str = "LODESTONE_LAUNCHER_UPDATE_URL";
 
 /// The argument a restarted launcher gets: the process id of the launcher that
@@ -180,10 +194,71 @@ impl UpdateError {
 
 /// The manifest URL in use: [`MANIFEST_URL`], or the one in [`MANIFEST_URL_ENV`].
 pub fn manifest_url() -> String {
+    url_override().unwrap_or_else(|| MANIFEST_URL.to_string())
+}
+
+/// The manifests `channel` reads, most specific first: the beta's and then the
+/// stable one for [`UpdateChannel::Beta`]. [`MANIFEST_URL_ENV`], when set, replaces
+/// them all.
+pub fn manifest_urls(channel: UpdateChannel) -> Vec<String> {
+    if let Some(url) = url_override() {
+        return vec![url];
+    }
+    match channel {
+        UpdateChannel::Stable => vec![MANIFEST_URL.to_string()],
+        UpdateChannel::Beta => vec![BETA_MANIFEST_URL.to_string(), MANIFEST_URL.to_string()],
+    }
+}
+
+fn url_override() -> Option<String> {
     std::env::var(MANIFEST_URL_ENV)
         .ok()
         .filter(|url| !url.trim().is_empty())
-        .unwrap_or_else(|| MANIFEST_URL.to_string())
+}
+
+/// A manifest and the URL it was read from, which its files are next to
+/// ([`Manifest::asset_url`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Found {
+    pub url: String,
+    pub manifest: Manifest,
+}
+
+impl Found {
+    /// This platform's build in it, or 0 if it has none.
+    pub fn build(&self) -> u64 {
+        self.manifest.for_platform().map_or(0, |(build, _)| build)
+    }
+}
+
+/// Of each URL's fetch, in [`manifest_urls`] order, the manifest with the newest
+/// build for this platform; the earlier URL wins a tie. A URL that failed is
+/// skipped while another answered (the beta release may not exist yet); if all
+/// failed, the first error.
+pub fn newest(
+    results: impl IntoIterator<Item = (String, Result<Manifest, UpdateError>)>,
+) -> Result<Found, UpdateError> {
+    let mut best: Option<Found> = None;
+    let mut first_error = None;
+    for (url, result) in results {
+        match result {
+            Ok(manifest) => {
+                let found = Found { url, manifest };
+                if best
+                    .as_ref()
+                    .is_none_or(|best| found.build() > best.build())
+                {
+                    best = Some(found);
+                }
+            }
+            Err(err) => {
+                first_error.get_or_insert(err);
+            }
+        }
+    }
+    best.ok_or_else(|| {
+        first_error.unwrap_or_else(|| UpdateError::Manifest("no address to check".into()))
+    })
 }
 
 /// Updates are fetched over HTTPS; plain HTTP only from this machine, for tests.
@@ -659,6 +734,61 @@ mod tests {
             published: None,
             assets,
         }
+    }
+
+    #[test]
+    fn the_newest_channel_wins_and_failures_are_skipped() {
+        let beta = || ("beta".to_string(), Ok(manifest(12)));
+        let stable = |build| ("stable".to_string(), Ok(manifest(build)));
+        let missing = || ("beta".to_string(), Err(UpdateError::Status(404)));
+
+        // The beta is ahead.
+        let found = newest([beta(), stable(10)]).unwrap();
+        assert_eq!((found.url.as_str(), found.build()), ("beta", 12));
+        // Stable caught up and passed it.
+        let found = newest([beta(), stable(15)]).unwrap();
+        assert_eq!((found.url.as_str(), found.build()), ("stable", 15));
+        // A tie goes to the first.
+        let found = newest([beta(), stable(12)]).unwrap();
+        assert_eq!(found.url, "beta");
+        // No beta published yet.
+        let found = newest([missing(), stable(10)]).unwrap();
+        assert_eq!((found.url.as_str(), found.build()), ("stable", 10));
+        // Nothing answered: the first error.
+        let err = newest([
+            missing(),
+            (
+                "stable".to_string(),
+                Err(UpdateError::Network("offline".into())),
+            ),
+        ])
+        .unwrap_err();
+        assert!(matches!(err, UpdateError::Status(404)));
+        assert!(newest(Vec::new()).is_err());
+    }
+
+    #[test]
+    fn a_manifest_without_this_platform_counts_as_build_zero() {
+        let mut other = manifest(99);
+        other.assets.clear();
+        let found = newest([
+            ("beta".to_string(), Ok(other)),
+            ("stable".to_string(), Ok(manifest(3))),
+        ])
+        .unwrap();
+        assert_eq!((found.url.as_str(), found.build()), ("stable", 3));
+    }
+
+    #[test]
+    fn channels_read_their_releases() {
+        if std::env::var_os(MANIFEST_URL_ENV).is_some() {
+            return;
+        }
+        assert_eq!(manifest_urls(UpdateChannel::Stable), vec![MANIFEST_URL]);
+        assert_eq!(
+            manifest_urls(UpdateChannel::Beta),
+            vec![BETA_MANIFEST_URL, MANIFEST_URL]
+        );
     }
 
     #[test]

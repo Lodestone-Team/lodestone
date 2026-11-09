@@ -53,6 +53,10 @@ pub struct Settings {
     /// default; left out of the file while on.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub auto_update: bool,
+    /// Settings > General > "Beta builds": which release the launcher updates from
+    /// ([`crate::update`]). Stable by default; left out of the file while stable.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub update_channel: UpdateChannel,
     /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
@@ -82,6 +86,7 @@ impl Default for Settings {
             auto_groups: true,
             language: Language::System,
             auto_update: true,
+            update_channel: UpdateChannel::Stable,
             zoom: 1.0,
             skin: None,
             sidebar_width: None,
@@ -110,6 +115,21 @@ pub enum Language {
     #[default]
     #[serde(rename = "system", other)]
     System,
+}
+
+/// Which builds the launcher updates to, from Settings > General > "Beta builds".
+///
+/// A value this build does not know reads as [`UpdateChannel::Stable`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum UpdateChannel {
+    /// The `launcher-beta` release, and the stable one whenever it is newer.
+    #[serde(rename = "beta")]
+    Beta,
+    /// The `launcher-latest` release: builds that were tested as betas first. Last,
+    /// as serde wants of the variant that reads unknown values.
+    #[default]
+    #[serde(rename = "stable", other)]
+    Stable,
 }
 
 impl Language {
@@ -324,6 +344,25 @@ mod tests {
                 "instance_defaults": {"max_ram": 3072, "later": true, "jvm_args": "", "game_args": "", "fullscreen": false},
             })
         );
+    }
+
+    #[test]
+    fn update_channel_defaults_to_stable_and_stays_out_of_the_file() {
+        let settings: Settings = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(settings.update_channel, UpdateChannel::Stable);
+        let raw = serde_json::to_value(&settings).unwrap();
+        assert!(raw.get("update_channel").is_none());
+
+        let beta: Settings = serde_json::from_value(json!({"update_channel": "beta"})).unwrap();
+        assert_eq!(beta.update_channel, UpdateChannel::Beta);
+        assert_eq!(
+            serde_json::to_value(&beta).unwrap()["update_channel"],
+            json!("beta")
+        );
+
+        let unknown: Settings =
+            serde_json::from_value(json!({"update_channel": "nightly"})).unwrap();
+        assert_eq!(unknown.update_channel, UpdateChannel::Stable);
     }
 
     #[test]
