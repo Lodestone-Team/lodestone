@@ -148,12 +148,12 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .cursor_pointer()
         .map(|this| {
             if menu_open {
-                this.bg(colors::GRAY_800)
+                this.bg(crate::skin::sidebar_inks().fill)
                     .border_color(colors::GRAY_FADED.opacity(30))
             } else {
                 this.bg(colors::GRAY_875.opacity(0))
                     .border_color(colors::FADE_700)
-                    .hover(|style| style.bg(colors::GRAY_800))
+                    .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
             }
         })
         .on_click(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
@@ -168,7 +168,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                     div()
                         .truncate()
                         .font_weight(weights::EXTRABOLD.into())
-                        .text_color(colors::GRAY_300)
+                        .text_color(crate::skin::sidebar_inks().primary)
                         .child(name),
                 )
                 .child(
@@ -180,12 +180,16 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                         .text_size(theme::text_size(text::SMALL))
                         .line_height(theme::line_height(text::SMALL, leading::SNUG))
                         .font_weight(weights::BOLD.into())
-                        .text_color(detail_color)
+                        .text_color(if detail_color == colors::GRAY_500 {
+                            crate::skin::sidebar_inks().muted
+                        } else {
+                            detail_color
+                        })
                         .child(div().truncate().child(detail))
                         .when(refreshing, |this| this.child(LoadingDots)),
                 ),
         )
-        .child(Icon::CaretDown.render(px(12.), colors::GRAY_FADED.opacity(50)));
+        .child(Icon::CaretDown.render(px(12.), crate::skin::sidebar_inks().icon));
 
     div()
         .w_full()

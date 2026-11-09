@@ -711,7 +711,8 @@ pub fn export(call: Call, cx: &mut App) -> Reply {
     // the steps of `Instances::export`, with the outcome returned
     let work = cx.background_spawn(async move {
         let on_modrinth = export::modrinth_files(&instance_dir);
-        let plan = export::plan(&exported, &game_dir, &on_modrinth)
+        let curseforge_only = export::curseforge_only_files(&instance_dir);
+        let plan = export::plan_leaving_out(&exported, &game_dir, &on_modrinth, &curseforge_only)
             .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
         export::write(&plan, &out).map_err(|err| api_error(codes::FAILED, err.to_string()))?;
         Ok(json!({

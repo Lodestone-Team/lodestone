@@ -31,7 +31,7 @@ use std::{
 use futures::StreamExt as _;
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, RenderImage, SharedString, Task};
 use launcher_core::{
-    content::{InstanceDirs, Modrinth, Target},
+    content::{CurseForge, InstanceDirs, Modrinth, Target},
     export,
     game::{
         crash::{self, CrashSummary, Outcome},
@@ -278,7 +278,14 @@ pub struct Instances {
     background_tasks: HashMap<String, appearance::BackgroundTask>,
     /// Small copies of the instances' Play backgrounds, for a skin that shows them
     /// behind the sidebar's rows: by id, with the file's modification time.
-    sidebar_banners: HashMap<String, (Option<std::time::SystemTime>, Arc<RenderImage>)>,
+    sidebar_banners: HashMap<
+        String,
+        (
+            Option<std::time::SystemTime>,
+            Arc<RenderImage>,
+            launcher_core::ui_skin::readable::Backdrop,
+        ),
+    >,
     sidebar_banner_tasks: HashMap<String, Task<()>>,
     /// Goes up when an instance's slideshow changes, so the Play tab lists it again.
     slideshow_revision: u64,
@@ -297,6 +304,9 @@ pub struct Instances {
     /// The Modrinth client the Content tab shares, with its cache. `None` keeps the
     /// offscreen screenshots offline.
     modrinth: Option<Arc<Modrinth>>,
+    /// The CurseForge client: `None` without Lodestone's API key (in builds made without
+    /// it) or offline.
+    curseforge: Option<Arc<CurseForge>>,
     /// The downloader for content files.
     content_downloader: Downloader,
     /// "Switch to Fabric" in progress.
@@ -304,6 +314,10 @@ pub struct Instances {
     /// Modpacks being made into instances.
     imports: Vec<modpacks::ImportJob>,
     next_import: u64,
+    /// Files of an imported CurseForge pack the user downloads from curseforge.com, by
+    /// instance; the Content tab takes them when it shows that instance.
+    pending_downloads:
+        HashMap<String, Vec<launcher_core::content::curseforge_install::CfPlannedFile>>,
     /// Modpack updates in progress, by instance.
     modpack_updates: HashMap<String, modpacks::UpdateJob>,
     /// Redraws while imports and updates run.
@@ -339,6 +353,7 @@ impl Instances {
         let download_http =
             launcher_core::http::download_client().expect("could not start the HTTP client");
         let modrinth = Arc::new(Modrinth::production(http.clone()));
+        let curseforge = CurseForge::production(http.clone()).map(Arc::new);
         let content_downloader = Downloader::new(download_http.clone(), gpui_sleep(cx));
         let installer = Installer::new(
             http,
@@ -395,10 +410,12 @@ impl Instances {
             preview_state: None,
             shared_revision: 0,
             modrinth: Some(modrinth),
+            curseforge,
             content_downloader,
             loader_switch: None,
             imports: Vec::new(),
             next_import: 0,
+            pending_downloads: HashMap::new(),
             modpack_updates: HashMap::new(),
             import_ticker: None,
         };
@@ -601,8 +618,13 @@ impl Instances {
     }
 
     /// The small copy of an instance's Play background for its sidebar row.
-    pub fn sidebar_banner(&self, id: &str) -> Option<Arc<RenderImage>> {
-        self.sidebar_banners.get(id).map(|(_, image)| image.clone())
+    pub fn sidebar_banner(
+        &self,
+        id: &str,
+    ) -> Option<(Arc<RenderImage>, launcher_core::ui_skin::readable::Backdrop)> {
+        self.sidebar_banners
+            .get(id)
+            .map(|(_, image, backdrop)| (image.clone(), *backdrop))
     }
 
     /// Makes the sidebar rows' copies of the Play backgrounds that are missing or
@@ -619,7 +641,7 @@ impl Instances {
             })
             .collect();
         self.sidebar_banners
-            .retain(|id, (time, _)| wanted.iter().any(|(w, _, m)| w == id && m == time));
+            .retain(|id, (time, _, _)| wanted.iter().any(|(w, _, m)| w == id && m == time));
         for (id, path, modified) in wanted {
             if self.sidebar_banners.contains_key(&id) || self.sidebar_banner_tasks.contains_key(&id)
             {
@@ -627,21 +649,29 @@ impl Instances {
             }
             let decode = cx.background_spawn(async move {
                 let image = image::open(&path).ok()?;
-                // the row's size at 2×, cropped to fill it
-                Some(
-                    image
-                        .resize_to_fill(440, 96, image::imageops::FilterType::Triangle)
-                        .to_rgba8(),
-                )
+                // the row's size at 2×, cropped to fill it, and how it looks behind
+                // the row's text
+                let thumb = image
+                    .resize_to_fill(440, 96, image::imageops::FilterType::Triangle)
+                    .to_rgba8();
+                let backdrop =
+                    launcher_core::ui_skin::readable::Backdrop::measure(thumb.pixels().map(|p| {
+                        launcher_core::ui_skin::Rgb(
+                            ((p[0] as u32) << 16) | ((p[1] as u32) << 8) | p[2] as u32,
+                        )
+                    }))?;
+                Some((thumb, backdrop))
             });
             let task_id = id.clone();
             let task = cx.spawn(async move |this, cx| {
                 let decoded = decode.await;
                 this.update(cx, |this, cx| {
                     this.sidebar_banner_tasks.remove(&task_id);
-                    if let Some(image) = decoded {
-                        this.sidebar_banners
-                            .insert(task_id, (modified, crate::images::render_image(image)));
+                    if let Some((image, backdrop)) = decoded {
+                        this.sidebar_banners.insert(
+                            task_id,
+                            (modified, crate::images::render_image(image), backdrop),
+                        );
                         cx.notify();
                     }
                 })
@@ -923,8 +953,11 @@ impl Instances {
         let instance_dir = self.store.dir(id);
         let write = cx.background_spawn(async move {
             // Files that came from Modrinth are listed by URL; the rest are copied.
+            // Files only on CurseForge are left out rather than handed out.
             let on_modrinth = export::modrinth_files(&instance_dir);
-            let plan = export::plan(&instance, &game_dir, &on_modrinth)?;
+            let curseforge_only = export::curseforge_only_files(&instance_dir);
+            let plan =
+                export::plan_leaving_out(&instance, &game_dir, &on_modrinth, &curseforge_only)?;
             export::write(&plan, &out)?;
             Ok::<_, export::ExportError>((plan, out))
         });
@@ -938,18 +971,33 @@ impl Instances {
                             plan.overrides.len() + plan.index.files.len(),
                             path = out.display()
                         );
+                        let others = plan.skipped.len() - plan.curseforge_left_out.len();
+                        let mut message = match plan
+                            .skipped
+                            .iter()
+                            .find(|(_, why)| !why.contains("CurseForge"))
+                        {
+                            Some((first, _)) if others > 0 => tr!(
+                                M::TwoSentences,
+                                first = saved,
+                                second = trn!(P::FilesLeftOut, others, name = first)
+                            ),
+                            _ => saved,
+                        };
+                        if !plan.curseforge_left_out.is_empty() {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(
+                                    P::CurseForgeLeftOut,
+                                    plan.curseforge_left_out.len(),
+                                    names = crate::i18n::format::list(&plan.curseforge_left_out)
+                                )
+                            );
+                        }
                         InstancesEvent::Notice {
                             title: t(M::ModpackExported).into(),
-                            message: match plan.skipped.first() {
-                                None => saved,
-                                Some((first, _)) => tr!(
-                                    M::TwoSentences,
-                                    first = saved,
-                                    second =
-                                        trn!(P::FilesLeftOut, plan.skipped.len(), name = first)
-                                ),
-                            }
-                            .into(),
+                            message: message.into(),
                         }
                     }
                     Err(err) => InstancesEvent::LaunchFailed {
@@ -1016,6 +1064,23 @@ impl Instances {
         self.modrinth.clone()
     }
 
+    /// Whether an imported pack left files for the user to download into `id`.
+    pub fn has_pending_downloads(&self, id: &str) -> bool {
+        self.pending_downloads.contains_key(id)
+    }
+
+    pub fn take_pending_downloads(
+        &mut self,
+        id: &str,
+    ) -> Option<Vec<launcher_core::content::curseforge_install::CfPlannedFile>> {
+        self.pending_downloads.remove(id)
+    }
+
+    /// The CurseForge client, when this build has an API key and the app is online.
+    pub fn curseforge(&self) -> Option<Arc<CurseForge>> {
+        self.curseforge.clone()
+    }
+
     /// The installer, for resolving imported instances' versions and loaders.
     pub fn installer(&self) -> Installer {
         self.installer.clone()
@@ -1029,6 +1094,7 @@ impl Instances {
     /// Keeps the Content tab off the network, for the offscreen screenshots.
     pub fn preview_offline(&mut self) {
         self.modrinth = None;
+        self.curseforge = None;
     }
 
     pub fn content_downloader(&self) -> Downloader {

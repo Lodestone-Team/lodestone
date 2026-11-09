@@ -88,7 +88,15 @@ pub fn text(message: M) -> &'static str {
         M::StopAndClose => "停止並關閉",
 
         M::NotAModpack => "不是模組包",
-        M::NotMrpack => "{name} 不是 .mrpack 檔案。Modrinth 模組包的副檔名為 .mrpack。",
+        M::NotMrpack => {
+            "{name} 不是模組包。Modrinth 模組包的副檔名為 .mrpack，CurseForge 模組包是含有 manifest.json 的 .zip 檔案。"
+        }
+        M::CurseForgeUnreachable => {
+            "這是 CurseForge 模組包，而此 Lodestone Launcher 無法連線至 CurseForge。"
+        }
+        M::CurseForgePackOnWebsite => {
+            "此模組包只能從 CurseForge 網站下載。請在網站上下載，然後將 .zip 拖曳到 Lodestone Launcher 上。"
+        }
         M::Modpack => "模組包",
         M::ReadingModpack => "正在讀取模組包",
         M::ModpackReady => "{name} 已準備就緒",
@@ -112,6 +120,7 @@ pub fn text(message: M) -> &'static str {
         M::UpdatingTo => "正在更新至 {version}",
 
         M::SearchModpacks => "在 Modrinth 上搜尋模組包，或貼上 Modrinth 連結",
+        M::SearchModpacksCurseForge => "在 CurseForge 上搜尋模組包",
         M::SortRelevance => "相關性",
         M::SortDownloads => "下載次數",
         M::SortFollows => "追蹤數",
@@ -143,12 +152,19 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FilesRepaired => ["已重新下載 {count} 個遺失或損毀的檔案。{summary}"; 2],
         P::BrokenFolders => ["有 {count} 個實例資料夾無法讀取，例如 {path}。"; 2],
         P::FilesSaved => ["已將 {count} 個檔案儲存至 {path}。"; 2],
+        P::CurseForgeLeftOut => {
+            ["有 {count} 個檔案僅在 CurseForge 上，CurseForge 的檔案不能放進 Modrinth 模組包，因此已略過：{names}。";
+                2]
+        }
         P::FilesLeftOut => ["有 {count} 個檔案被略過，例如 {name}。"; 2],
         P::LinesShown => ["顯示 {shown} 行，共 {count} 行"; 2],
         P::LinesShownFollowing => ["顯示 {shown} 行，共 {count} 行 · 自動捲動"; 2],
         P::ProblemAndMore => ["{problem}（另有 {count} 個問題）"; 2],
         P::InstancesToCopy => ["將複製 {count} 個實例，共 {size}。"; 2],
         P::ImportInstances => ["匯入 {count} 個實例"; 2],
+        P::PackFilesToDownload => {
+            ["有 {count} 個檔案需要從 CurseForge 網站下載：實例的「內容」分頁會列出它們。"; 2]
+        }
         P::PackFilesLeftOut => ["模組包中有 {count} 個檔案被略過，例如 {path}。"; 2],
         P::WorldsBackedUp => ["已先備份 {count} 個世界。"; 2],
         P::DownloadingFiles => ["正在下載 {count} 個檔案"; 2],

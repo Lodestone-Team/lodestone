@@ -88,7 +88,15 @@ pub fn text(message: M) -> &'static str {
         M::StopAndClose => "停止并关闭",
 
         M::NotAModpack => "不是整合包",
-        M::NotMrpack => "{name} 不是 .mrpack 文件。Modrinth 整合包的扩展名为 .mrpack。",
+        M::NotMrpack => {
+            "{name} 不是整合包。Modrinth 整合包的扩展名为 .mrpack，CurseForge 整合包是包含 manifest.json 的 .zip 文件。"
+        }
+        M::CurseForgeUnreachable => {
+            "这是 CurseForge 整合包，而此 Lodestone Launcher 无法连接 CurseForge。"
+        }
+        M::CurseForgePackOnWebsite => {
+            "此整合包只能从 CurseForge 网站下载。请在网站上下载，然后将 .zip 拖到 Lodestone Launcher 上。"
+        }
         M::Modpack => "整合包",
         M::ReadingModpack => "正在读取整合包",
         M::ModpackReady => "{name} 已就绪",
@@ -112,6 +120,7 @@ pub fn text(message: M) -> &'static str {
         M::UpdatingTo => "正在更新到 {version}",
 
         M::SearchModpacks => "在 Modrinth 上搜索整合包，或粘贴 Modrinth 链接",
+        M::SearchModpacksCurseForge => "在 CurseForge 上搜索整合包",
         M::SortRelevance => "相关性",
         M::SortDownloads => "下载量",
         M::SortFollows => "关注数",
@@ -143,12 +152,19 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FilesRepaired => ["已重新下载 {count} 个缺失或损坏的文件。{summary}"; 2],
         P::BrokenFolders => ["有 {count} 个实例文件夹无法读取，例如 {path}。"; 2],
         P::FilesSaved => ["已将 {count} 个文件保存到 {path}。"; 2],
+        P::CurseForgeLeftOut => {
+            ["有 {count} 个文件仅在 CurseForge 上，CurseForge 的文件不能放进 Modrinth 整合包，因此已跳过：{names}。";
+                2]
+        }
         P::FilesLeftOut => ["有 {count} 个文件被跳过，例如 {name}。"; 2],
         P::LinesShown => ["显示 {shown} 行，共 {count} 行"; 2],
         P::LinesShownFollowing => ["显示 {shown} 行，共 {count} 行 · 自动滚动"; 2],
         P::ProblemAndMore => ["{problem}（另有 {count} 个问题）"; 2],
         P::InstancesToCopy => ["将复制 {count} 个实例，共 {size}。"; 2],
         P::ImportInstances => ["导入 {count} 个实例"; 2],
+        P::PackFilesToDownload => {
+            ["有 {count} 个文件需要从 CurseForge 网站下载：实例的“内容”标签页会列出它们。"; 2]
+        }
         P::PackFilesLeftOut => ["整合包中有 {count} 个文件被跳过，例如 {path}。"; 2],
         P::WorldsBackedUp => ["已先备份 {count} 个世界。"; 2],
         P::DownloadingFiles => ["正在下载 {count} 个文件"; 2],

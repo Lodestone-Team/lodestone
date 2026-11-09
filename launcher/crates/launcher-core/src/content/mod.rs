@@ -2,15 +2,25 @@
 //! packs (`shaderpacks/`), all in the instance's game folder.
 //!
 //! - [`scan`] lists what is there, with the metadata that is cheap to read;
-//! - [`provenance`] remembers which Modrinth version each file came from (`content.json`);
-//! - [`modrinth`] is the Modrinth API client, [`install`] installs versions from it with
-//!   their dependencies, and [`files`] adds, enables, disables and deletes files;
+//! - [`provenance`] remembers which Modrinth version or CurseForge file each file came
+//!   from (`content.json`);
+//! - [`modrinth`] and [`curseforge`] are the two platforms' API clients; [`install`]
+//!   installs Modrinth versions and [`curseforge_install`] CurseForge files, with their
+//!   dependencies, and [`files`] adds, enables, disables and deletes files;
+//!
+//! An instance can hold content from both platforms. Mods are told apart by the id in
+//! their metadata (`fabric.mod.json`, `mods.toml`): the same mod from the other platform
+//! has the same id, and the game refuses two mods with one id, so installing one replaces
+//! the other, and a dependency already installed from either platform isn't installed
+//! again.
 //! - [`options`] edits the resource packs in `options.txt`, [`packs`] reads `pack.mcmeta`,
 //!   and [`shaders`] finds the shader mod and edits its selected pack.
 //!
 //! Nothing here checks whether the game is running; the app refuses changes then, since
 //! the game rewrites `options.txt` and the shader configs when it exits.
 
+pub mod curseforge;
+pub mod curseforge_install;
 pub mod files;
 pub mod install;
 pub mod listing;
@@ -29,8 +39,11 @@ use std::{
 
 use lodestone_minecraft::modrinth::{ClientProjectType, RawVersion};
 
+use self::curseforge::CfFile;
+
 use crate::{game::download::DownloadError, instances::Loader};
 
+pub use curseforge::{CurseForge, CurseForgeError};
 pub use modrinth::{Modrinth, ModrinthError};
 pub use shaders::ShaderLoader;
 
@@ -180,6 +193,38 @@ pub fn safe_download_name(kind: ContentKind, name: &str) -> Option<String> {
     (lower.ends_with(kind.extension()) && is_content_name(kind, &cleaned, false)).then_some(cleaned)
 }
 
+/// The content platforms to ask, each `None` when unavailable (offline, or no
+/// CurseForge key). `Option<&Modrinth>` converts to one without CurseForge.
+#[derive(Clone, Copy, Default)]
+pub struct Platforms<'a> {
+    pub modrinth: Option<&'a Modrinth>,
+    pub curseforge: Option<&'a CurseForge>,
+}
+
+impl<'a> Platforms<'a> {
+    pub fn new(modrinth: Option<&'a Modrinth>, curseforge: Option<&'a CurseForge>) -> Self {
+        Self {
+            modrinth,
+            curseforge,
+        }
+    }
+}
+
+impl<'a> From<Option<&'a Modrinth>> for Platforms<'a> {
+    fn from(modrinth: Option<&'a Modrinth>) -> Self {
+        Self {
+            modrinth,
+            curseforge: None,
+        }
+    }
+}
+
+impl<'a> From<&'a Modrinth> for Platforms<'a> {
+    fn from(modrinth: &'a Modrinth) -> Self {
+        Some(modrinth).into()
+    }
+}
+
 /// What an instance accepts: its Minecraft version, loader and shader mod.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
@@ -230,6 +275,45 @@ impl Target {
             ContentKind::ResourcePack => Vec::new(),
             ContentKind::Mod => self.accepted_loaders(kind),
         }
+    }
+
+    /// Why a CurseForge `file` doesn't fit this instance as `kind`, or `None` if it does.
+    /// A file tagged with no Minecraft version or no loader isn't refused for it; Quilt
+    /// takes Fabric files and NeoForge on 1.20.1 takes Forge files.
+    pub fn curseforge_incompatibility(&self, kind: ContentKind, file: &CfFile) -> Option<String> {
+        let tags = file.tags();
+        if !tags.game_versions.is_empty() && !tags.game_versions.contains(&self.game_version) {
+            let mut shown: Vec<&str> = tags
+                .game_versions
+                .iter()
+                .take(5)
+                .map(String::as_str)
+                .collect();
+            if tags.game_versions.len() > 5 {
+                shown.push("…");
+            }
+            return Some(format!(
+                "{} is for Minecraft {}, not {}",
+                file.display_name_or_file(),
+                shown.join(", "),
+                self.game_version
+            ));
+        }
+        if kind == ContentKind::Mod {
+            if self.loader == Loader::None {
+                return Some("This instance has no mod loader".to_string());
+            }
+            if !tags.fits_loader(self.loader, &self.game_version) {
+                let names: Vec<&str> = tags.loaders.iter().map(|l| l.label()).collect();
+                return Some(format!(
+                    "{} is for {}, not {}",
+                    file.display_name_or_file(),
+                    names.join(", "),
+                    self.loader.label()
+                ));
+            }
+        }
+        None
     }
 
     /// Why `version` doesn't fit this instance as `kind`, or `None` if it does.
@@ -308,6 +392,8 @@ pub enum ContentError {
     },
     #[error(transparent)]
     Modrinth(#[from] ModrinthError),
+    #[error(transparent)]
+    CurseForge(#[from] CurseForgeError),
     #[error("{0}")]
     Invalid(String),
     #[error("{0}")]

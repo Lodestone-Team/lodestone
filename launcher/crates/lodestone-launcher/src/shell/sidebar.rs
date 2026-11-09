@@ -53,6 +53,10 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
             )
         })
         .children(tint)
+        // a backing, when the skin's text colours alone can't stay readable
+        .when_some(crate::skin::sidebar_inks().backing, |this, backing| {
+            this.child(div().absolute().inset_0().bg(backing))
+        })
         .map(|this| {
             if collapsed {
                 this.child(rail(shell, cx))
@@ -298,15 +302,19 @@ fn rail_button(
         .cursor_pointer()
         .map(|this| {
             if open {
-                this.bg(colors::GRAY_800)
+                this.bg(crate::skin::sidebar_inks().fill)
             } else {
-                this.hover(|style| style.bg(colors::GRAY_800))
+                this.hover(|style| style.bg(crate::skin::sidebar_inks().fill))
             }
         })
         .tooltip(crate::components::text_tooltip(label))
         .child(icon.render(
             px(16.),
-            colors::GRAY_FADED.opacity(if open { 80 } else { 50 }),
+            if open {
+                crate::skin::sidebar_inks().primary
+            } else {
+                crate::skin::sidebar_inks().icon
+            },
         ))
         .on_click(on_click)
 }
@@ -348,9 +356,10 @@ fn rail_instance(
         .border_1()
         .border_color(colors::TRANSPARENT)
         .cursor_pointer()
-        .hover(|style| style.bg(colors::GRAY_800))
+        .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .when(is_selected, |this| {
-            this.bg(colors::GRAY_800).border_color(colors::FADE_700)
+            this.bg(crate::skin::sidebar_inks().fill)
+                .border_color(colors::FADE_700)
         })
         .child(icon)
         .when(active, |this| {
@@ -415,7 +424,7 @@ fn import_row(
                         .min_w_0()
                         .truncate()
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_300)
+                        .text_color(crate::skin::sidebar_inks().primary)
                         .child(name),
                 )
                 .child(
@@ -430,7 +439,7 @@ fn import_row(
             div()
                 .truncate()
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::skin::sidebar_inks().muted)
                 .child(match fraction {
                     Some(f) => tr!(
                         M::ImportProgress,
@@ -513,6 +522,7 @@ fn instance_row(
         .in_sidebar
         .then(|| instances.sidebar_banner(&id))
         .flatten();
+    let banner_readability = crate::skin::look(cx).spec.banner.readability;
     div()
         .id(SharedString::from(element_id))
         .keyboard_focus()
@@ -529,11 +539,12 @@ fn instance_row(
         .border_1()
         .border_color(colors::TRANSPARENT)
         .cursor_pointer()
-        .hover(|style| style.bg(colors::GRAY_800))
+        .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .when(is_selected, |this| {
-            this.bg(colors::GRAY_800).border_color(colors::FADE_700)
+            this.bg(crate::skin::sidebar_inks().fill)
+                .border_color(colors::FADE_700)
         })
-        .when_some(banner, |this, banner| {
+        .when_some(banner, |this, (banner, backdrop)| {
             this.child(
                 img(banner)
                     .absolute()
@@ -542,10 +553,11 @@ fn instance_row(
                     .object_fit(ObjectFit::Cover)
                     .opacity(0.45),
             )
-            .child(div().absolute().inset_0().bg(gpui::linear_gradient(
-                90.,
-                gpui::linear_color_stop(colors::GRAY_900.opacity(92), 0.),
-                gpui::linear_color_stop(colors::GRAY_900.opacity(55), 1.),
+            // as dark (or light) as the row's text needs over this image
+            .child(div().absolute().inset_0().bg(crate::skin::row_backing(
+                backdrop,
+                &crate::skin::sidebar_inks(),
+                banner_readability,
             )))
         })
         .child(icon)
@@ -559,14 +571,14 @@ fn instance_row(
                     div()
                         .truncate()
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_300)
+                        .text_color(crate::skin::sidebar_inks().primary)
                         .child(instance.name.clone()),
                 )
                 .child(
                     div()
                         .truncate()
                         .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::GRAY_500)
+                        .text_color(crate::skin::sidebar_inks().muted)
                         .child(detail),
                 ),
         )
@@ -616,7 +628,7 @@ fn group_header(
     cx: &mut Context<LauncherShell>,
 ) -> AnyElement {
     let group = name.to_string();
-    let caret = Icon::CaretDown.render(px(10.), colors::GRAY_FADED.opacity(50));
+    let caret = Icon::CaretDown.render(px(10.), crate::skin::sidebar_inks().icon);
     let caret = if collapsed {
         caret.with_transformation(Transformation::rotate(radians(
             -std::f32::consts::FRAC_PI_2,
@@ -636,7 +648,7 @@ fn group_header(
         .py_0p5()
         .rounded(radius::MD)
         .cursor_pointer()
-        .hover(|style| style.bg(colors::GRAY_800))
+        .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .child(caret)
         .child(
             div()
@@ -645,14 +657,14 @@ fn group_header(
                 .truncate()
                 .text_size(theme::text_size(text::SMALL))
                 .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_400)
+                .text_color(crate::skin::sidebar_inks().secondary)
                 .child(group_label(name).to_uppercase()),
         )
         .child(
             div()
                 .text_size(theme::text_size(text::CAPTION))
                 .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_FADED.opacity(30))
+                .text_color(crate::skin::sidebar_inks().faint)
                 .child(count.to_string()),
         )
         .on_click(cx.listener(move |this, _, _, cx| {
@@ -734,13 +746,13 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
                     .border_2()
                     .border_dashed()
                     .border_color(colors::GRAY_FADED.opacity(10))
-                    .child(Icon::Expand.render(px(28.), colors::GRAY_FADED.opacity(30)))
+                    .child(Icon::Expand.render(px(28.), crate::skin::sidebar_inks().faint))
                     .child(
                         div()
                             .text_center()
                             .italic()
                             .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_FADED.opacity(30))
+                            .text_color(crate::skin::sidebar_inks().faint)
                             .child(t(M::NoInstancesYet)),
                     ),
             )
@@ -749,6 +761,10 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
             div().w_full().pt_1().child(
                 Button::new("new-instance", t(M::NewInstance))
                     .variant(ButtonVariant::Ghost)
+                    .ink(
+                        crate::skin::sidebar_inks().ghost,
+                        crate::skin::sidebar_inks().fill,
+                    )
                     .icon(Icon::SquarePlus)
                     .align(Align::Start)
                     .full_width()
@@ -761,6 +777,10 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
             div().w_full().pb_8().child(
                 Button::new("import-instances", t(M::ImportInstances))
                     .variant(ButtonVariant::Ghost)
+                    .ink(
+                        crate::skin::sidebar_inks().ghost,
+                        crate::skin::sidebar_inks().fill,
+                    )
                     .icon(Icon::Download)
                     .align(Align::Start)
                     .full_width()
@@ -776,7 +796,7 @@ fn section_label(label: &'static str) -> impl IntoElement {
         .text_size(theme::text_size(text::SMALL))
         .line_height(theme::line_height(text::SMALL, leading::SNUG))
         .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_FADED.opacity(30))
+        .text_color(crate::skin::sidebar_inks().faint)
         .child(label.to_uppercase())
 }
 
@@ -803,13 +823,18 @@ fn page_link(
         .font_weight(weights::BOLD.into())
         .map(|this| {
             if open {
-                this.bg(colors::GRAY_800).text_color(colors::GRAY_300)
+                this.bg(crate::skin::sidebar_inks().fill)
+                    .text_color(crate::skin::sidebar_inks().primary)
             } else {
-                this.text_color(colors::GRAY_400)
-                    .hover(|style| style.bg(colors::GRAY_800).text_color(colors::GRAY_300))
+                this.text_color(crate::skin::sidebar_inks().secondary)
+                    .hover(|style| {
+                        style
+                            .bg(crate::skin::sidebar_inks().fill)
+                            .text_color(crate::skin::sidebar_inks().primary)
+                    })
             }
         })
-        .child(icon.render(px(14.), colors::GRAY_FADED.opacity(50)))
+        .child(icon.render(px(14.), crate::skin::sidebar_inks().icon))
         .child(div().min_w_0().truncate().child(label))
         .on_click(cx.listener(move |this, _, _, cx| {
             this.show(if open { Page::Instance } else { page }, cx)
@@ -853,13 +878,18 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 .font_weight(weights::BOLD.into())
                 .map(|this| {
                     if settings_open {
-                        this.bg(colors::GRAY_800).text_color(colors::GRAY_300)
+                        this.bg(crate::skin::sidebar_inks().fill)
+                            .text_color(crate::skin::sidebar_inks().primary)
                     } else {
-                        this.text_color(colors::GRAY_400)
-                            .hover(|style| style.bg(colors::GRAY_800).text_color(colors::GRAY_300))
+                        this.text_color(crate::skin::sidebar_inks().secondary)
+                            .hover(|style| {
+                                style
+                                    .bg(crate::skin::sidebar_inks().fill)
+                                    .text_color(crate::skin::sidebar_inks().primary)
+                            })
                     }
                 })
-                .child(Icon::Gear.render(px(14.), colors::GRAY_FADED.opacity(50)))
+                .child(Icon::Gear.render(px(14.), crate::skin::sidebar_inks().icon))
                 .child(div().min_w_0().truncate().child(t(M::Settings)))
                 .on_click(
                     cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
@@ -870,7 +900,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 .px_2()
                 .text_size(theme::text_size(text::CAPTION))
                 .font_weight(weights::MEDIUM.into())
-                .text_color(colors::GRAY_FADED.opacity(30))
+                .text_color(crate::skin::sidebar_inks().faint)
                 .truncate()
                 .child(tr!(M::AppVersion, version = env!("CARGO_PKG_VERSION"))),
         )
