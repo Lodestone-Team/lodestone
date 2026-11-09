@@ -553,6 +553,18 @@ Conventions in the code that every area relies on:
   (`creation_time`), Auto start, Restart on crash, RAM (min–max MB), Folder path (copy), Modpack (link to
   modrinth.com/modpack/<id> if from Modrinth). Rows without value hidden.
 - [ ] Ports / playit tunnels are not on Overview (Playit is its own tab, §6.7).
+- [ ] **Share with friends** (Lodestone Connect, added after the inventory) —
+  `components/Instance/ShareWithFriends.tsx`, `data/InstanceShare.ts`, core `src/connect.rs`
+  - `GET /instance/{uuid}/share` → `InstanceShare` (fails for users who can't manage the
+    instance, and on cores without sharing: then hidden); polled every 5 s while sharing,
+    2 s while starting or reconnecting.
+  - Off: lead text and **Start sharing** → `POST /instance/{uuid}/share` (answers once the
+    link is known). On: state label (sharing green / reconnecting yellow / starting gray),
+    the stable link (read-only field, select on focus, **Copy** with toasts), "preparing"
+    note, how friends join, a "hard network" note, "N connected" and "N joins", one line per
+    friend with its connection kind, **Stop sharing** → danger confirm →
+    `DELETE /instance/{uuid}/share` (the link stops working for good).
+  - Messages: `server.share.*` in `i18n/en.ts`.
 
 ## 4. Console tab — `components/GameConsole.tsx`, `data/ConsoleStream.ts`, `components/ConsoleLine.tsx`, `utils/consoleFormat.ts`  
 **Package: B.**
@@ -1066,6 +1078,7 @@ All paths are under `/api/v1`. Bodies are JSON unless noted. Types are in `dashb
 | POST | `/instance/{uuid}/resource_pack/hash` | `{url}` | `ResourcePackHash` |
 | POST | `/instance/{uuid}/console` | str (command) | – |
 | GET | `/instance/{uuid}/console/buffer` | – | `ClientEvent[]` |
+| GET / POST / DELETE | `/instance/{uuid}/share` | – | `InstanceShare` (Share with friends) |
 
 ### 10.5 Instance files (`{b64}` = URL-safe Base64 of the instance-relative path)
 

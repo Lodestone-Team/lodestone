@@ -23,7 +23,9 @@ pub fn text(message: M) -> &'static str {
         M::PublicAddress => "公開網域或 IP 位址",
         M::PublicAddressHint => "玩家用這個位址加入你的伺服器。可以留空。",
         M::SignInTitle => "登入",
-        M::SignInIntro => "此 Core 不允許本機上的應用程式取得擁有者權限。請用你的 Lodestone 帳戶登入。",
+        M::SignInIntro => {
+            "此 Core 不允許本機上的應用程式取得擁有者權限。請用你的 Lodestone 帳戶登入。"
+        }
         M::SelectedInstance => "已選實例",
         M::AllInstances => "所有實例",
         M::NoInstanceSelected => "未選擇實例",

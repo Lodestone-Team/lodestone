@@ -410,7 +410,10 @@ mod tests {
         let game: Game = serde_json::from_str(r#"{"type":"Terraria"}"#).unwrap();
         assert_eq!(game, Game::Unknown);
         let info: FullCoreInfo = serde_json::from_str(r#"{"uuid":"u","version":"0.5.1"}"#).unwrap();
-        assert!(info.capabilities.macros, "an older core has every capability");
+        assert!(
+            info.capabilities.macros,
+            "an older core has every capability"
+        );
     }
 
     #[test]

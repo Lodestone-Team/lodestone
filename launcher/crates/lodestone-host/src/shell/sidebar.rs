@@ -177,7 +177,13 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                         this.bg(colors::GRAY_750)
                     })
                     .child(Icon::Cube.render(px(14.), ink::faint()))
-                    .child(div().flex_1().min_w_0().truncate().child(instance.name.clone()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(instance.name.clone()),
+                    )
                     .child(dot(state_color(instance.state)))
                     .tooltip(text_tooltip(state_name(instance.state)))
                     .on_click(cx.listener(move |this, _, _, cx| this.select(&uuid, cx)))
@@ -196,10 +202,13 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                     .py(px(6.))
                     .text_size(text::MEDIUM)
                     .text_color(ink::muted())
-                    .child(div().flex_1().min_w_0().truncate().child(tr!(
-                        ShellMsg::SettingUp,
-                        name = creating.name
-                    )))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(tr!(ShellMsg::SettingUp, name = creating.name)),
+                    )
                     .when_some(percent, |this, percent| {
                         this.child(lodestone_ui::i18n::format::percent(percent.into()))
                     })
@@ -300,7 +309,10 @@ fn connection_row(connection: &Connection, core_name: String, version: String) -
     };
     let detail = match connection {
         Connection::Reconnecting(reason) => format!("{label}: {reason}"),
-        _ => format!("{label} · {}", tr!(ShellMsg::CoreVersion, version = version)),
+        _ => format!(
+            "{label} · {}",
+            tr!(ShellMsg::CoreVersion, version = version)
+        ),
     };
     div()
         .id("connection")
@@ -424,11 +436,7 @@ fn selected_card(
                         .child(dot(state_color(instance.state)))
                         .child(state_name(instance.state))
                         .child("·")
-                        .child(
-                            div()
-                                .truncate()
-                                .child(instance.game_type.title()),
-                        ),
+                        .child(div().truncate().child(instance.game_type.title())),
                 )
                 .when_some(players, |this, players| {
                     this.child(

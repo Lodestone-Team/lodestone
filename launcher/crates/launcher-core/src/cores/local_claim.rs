@@ -871,11 +871,7 @@ pub async fn claim_session(
         info,
     };
     // the core at the HTTPS address, with that certificate, must be the claimed one
-    let verified = session
-        .client()?
-        .info()
-        .await
-        .map_err(ClaimError::Core)?;
+    let verified = session.client()?.info().await.map_err(ClaimError::Core)?;
     if verified.uuid != session.info.uuid {
         return Err(ClaimError::NotThisCore);
     }
@@ -1406,7 +1402,10 @@ mod tests {
             "tls_fingerprint_sha256": FINGERPRINT,
         }));
         let result = read_result(&claim).unwrap().unwrap();
-        assert_eq!(check_result_for(&result, "mine", true).unwrap(), FINGERPRINT);
+        assert_eq!(
+            check_result_for(&result, "mine", true).unwrap(),
+            FINGERPRINT
+        );
         // a key claim needs its key
         assert!(matches!(
             check_result_for(&result, "mine", false),

@@ -7,8 +7,8 @@
 //! [`CreateInstanceEvent::Close`]; it renders its own `Dialog`.
 
 use gpui::{
-    Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement, Render, Styled,
-    Window, div,
+    Context, Entity, EventEmitter, FocusHandle, IntoElement, ParentElement, Render, Styled, Window,
+    div,
 };
 use lodestone_ui::components::Dialog;
 
@@ -42,12 +42,16 @@ impl Render for CreateInstance {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity().downgrade();
         div().absolute().inset_0().child(
-            Dialog::new("create-instance", t(ShellMsg::NewServer), self.focus.clone())
-                .on_close(move |_, cx| {
-                    this.update(cx, |_, cx| cx.emit(CreateInstanceEvent::Close))
-                        .ok();
-                })
-                .child(super::not_built("A")),
+            Dialog::new(
+                "create-instance",
+                t(ShellMsg::NewServer),
+                self.focus.clone(),
+            )
+            .on_close(move |_, cx| {
+                this.update(cx, |_, cx| cx.emit(CreateInstanceEvent::Close))
+                    .ok();
+            })
+            .child(super::not_built("A")),
         )
     }
 }

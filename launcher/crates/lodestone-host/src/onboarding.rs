@@ -106,29 +106,25 @@ pub fn core_status(
     retry: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let waiting = |message: SharedString| {
-        card([
-            div()
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .child(lodestone_ui::components::LoadingDots)
-                .child(
-                    div()
-                        .text_size(text::H3)
-                        .text_color(ink::text())
-                        .child(message),
-                )
-                .into_any_element(),
-        ])
+        card([div()
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .child(lodestone_ui::components::LoadingDots)
+            .child(
+                div()
+                    .text_size(text::H3)
+                    .text_color(ink::text())
+                    .child(message),
+            )
+            .into_any_element()])
         .into_any_element()
     };
     match status {
         CoreStatus::Starting => waiting(t(ShellMsg::StartingCore).into()),
         CoreStatus::Restarting { .. } => waiting(t(ShellMsg::RestartingCore).into()),
         CoreStatus::Running { .. } => waiting(t(ShellMsg::SigningIn).into()),
-        CoreStatus::Stopping | CoreStatus::Stopped => {
-            waiting(t(ShellMsg::StoppingCore).into())
-        }
+        CoreStatus::Stopping | CoreStatus::Stopped => waiting(t(ShellMsg::StoppingCore).into()),
         CoreStatus::Failed { reason, log } => card([
             title(t(ShellMsg::CoreFailed)),
             paragraph(reason.clone()),
@@ -172,10 +168,7 @@ pub fn core_status(
 }
 
 /// A sign-in or setup error, with a button to try again.
-pub fn sign_in_failed(
-    error: &str,
-    retry: impl Fn(&mut Window, &mut App) + 'static,
-) -> AnyElement {
+pub fn sign_in_failed(error: &str, retry: impl Fn(&mut Window, &mut App) + 'static) -> AnyElement {
     card([
         title(t(ShellMsg::SignInTitle)),
         paragraph(error.to_string()),

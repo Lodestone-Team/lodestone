@@ -29,11 +29,19 @@ pub enum CoreStatus {
     /// Started, not answering yet.
     Starting,
     /// Answering at its address on this computer.
-    Running { config: CoreConfig },
+    Running {
+        config: CoreConfig,
+    },
     /// Exited on its own; starting again after a pause.
-    Restarting { reason: String, attempt: u32 },
+    Restarting {
+        reason: String,
+        attempt: u32,
+    },
     /// Gave up: why, and the end of the core's log.
-    Failed { reason: String, log: Vec<String> },
+    Failed {
+        reason: String,
+        log: Vec<String>,
+    },
     /// Stopping, because the Host is quitting.
     Stopping,
     Stopped,
@@ -79,10 +87,7 @@ impl Supervisor {
         self._task = Some(cx.spawn(async move |this, cx| {
             let mut quick_exits = 0;
             loop {
-                let config = match cx
-                    .background_spawn(async { prepare() })
-                    .await
-                {
+                let config = match cx.background_spawn(async { prepare() }).await {
                     Ok(config) => config,
                     Err(reason) => {
                         this.update(cx, |this, cx| this.fail(reason, cx)).ok();

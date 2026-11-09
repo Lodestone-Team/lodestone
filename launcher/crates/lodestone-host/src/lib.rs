@@ -30,7 +30,10 @@ use gpui::{
     px, size,
 };
 
-actions!(lodestone_host, [Quit, ShowWindow, ZoomIn, ZoomOut, ResetZoom]);
+actions!(
+    lodestone_host,
+    [Quit, ShowWindow, ZoomIn, ZoomOut, ResetZoom]
+);
 
 /// The window's title and the app menu's name.
 pub const APP_NAME: &str = "Lodestone Host";

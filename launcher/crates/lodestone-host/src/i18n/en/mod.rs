@@ -2,8 +2,8 @@
 //! edits its own (see `launcher/docs/host-parity.md`). Write messages as the
 //! interface shows them, with `{name}` for what is filled in.
 
-pub mod shell;
-pub mod instances;
 pub mod console_files;
-pub mod instance;
 pub mod core;
+pub mod instance;
+pub mod instances;
+pub mod shell;

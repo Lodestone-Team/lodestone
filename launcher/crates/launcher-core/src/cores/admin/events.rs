@@ -80,7 +80,9 @@ fn snowflake<'de, D: serde::Deserializer<'de>>(de: D) -> Result<i64, D::Error> {
         Value::Number(number) => number
             .as_i64()
             .ok_or_else(|| serde::de::Error::custom("snowflake out of range")),
-        _ => Err(serde::de::Error::custom("a snowflake is a string or number")),
+        _ => Err(serde::de::Error::custom(
+            "a snowflake is a string or number",
+        )),
     }
 }
 
@@ -171,10 +173,20 @@ pub enum UserEventInner {
     UserDeleted,
     UserLoggedIn,
     UserLoggedOut,
-    UsernameChanged { new_username: String },
-    PermissionChanged { new_permissions: UserPermission },
-    ApiKeyCreated { key_id: String, name: String },
-    ApiKeyRevoked { key_id: String, name: String },
+    UsernameChanged {
+        new_username: String,
+    },
+    PermissionChanged {
+        new_permissions: UserPermission,
+    },
+    ApiKeyCreated {
+        key_id: String,
+        name: String,
+    },
+    ApiKeyRevoked {
+        key_id: String,
+        name: String,
+    },
     #[serde(other)]
     Unknown,
 }

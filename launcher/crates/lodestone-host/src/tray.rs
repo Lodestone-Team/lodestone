@@ -26,7 +26,11 @@ pub struct Tray {
 
 /// Shows the icon, sending what its menu asks for to `tx`. `None` where there is no
 /// icon (Windows and Linux, for now).
-pub fn install(show_label: &str, quit_label: &str, tx: UnboundedSender<TrayCommand>) -> Option<Tray> {
+pub fn install(
+    show_label: &str,
+    quit_label: &str,
+    tx: UnboundedSender<TrayCommand>,
+) -> Option<Tray> {
     #[cfg(target_os = "macos")]
     {
         macos::install(show_label, quit_label, tx).map(|item| Tray { _item: item })

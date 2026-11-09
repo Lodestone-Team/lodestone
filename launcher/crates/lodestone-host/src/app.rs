@@ -18,11 +18,7 @@ use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, IntoElement, ParentElement,
     Render, Styled, Subscription, Task, Window, div, prelude::*,
 };
-use launcher_core::{
-    Secret,
-    cores::local_claim::OwnerCredentials,
-    game::download::Sleep,
-};
+use launcher_core::{Secret, cores::local_claim::OwnerCredentials, game::download::Sleep};
 use lodestone_ui::{
     components::focus,
     theme::{self, colors, fonts},
@@ -47,7 +43,7 @@ enum Phase {
     Owner(Entity<OwnerForm>),
     FirstConfig {
         form: Entity<CoreConfigForm>,
-        session: Session,
+        session: Box<Session>,
     },
     Password(Entity<PasswordForm>),
     Failed(String),
@@ -78,10 +74,7 @@ impl HostApp {
             SupervisorEvent::Status => {
                 // the core went away: back to its status, until it answers again
                 if !matches!(this.phase, Phase::Quitting)
-                    && !matches!(
-                        this.supervisor.read(cx).status,
-                        CoreStatus::Running { .. }
-                    )
+                    && !matches!(this.supervisor.read(cx).status, CoreStatus::Running { .. })
                 {
                     this.phase = Phase::Core;
                 }
@@ -109,7 +102,12 @@ impl HostApp {
     }
 
     /// Claims owner access to the core, with `owner` to make on a core without one.
-    fn sign_in(&mut self, config: CoreConfig, owner: Option<OwnerCredentials>, cx: &mut Context<Self>) {
+    fn sign_in(
+        &mut self,
+        config: CoreConfig,
+        owner: Option<OwnerCredentials>,
+        cx: &mut Context<Self>,
+    ) {
         let first_run = owner.is_some();
         if !first_run {
             self.phase = Phase::SigningIn;
@@ -135,7 +133,10 @@ impl HostApp {
                         let form = cx.new(|cx| CoreConfigForm::new(&settings, "", cx));
                         let subscription = cx.subscribe(&form, Self::save_core_config);
                         this._subscriptions.push(subscription);
-                        this.phase = Phase::FirstConfig { form, session };
+                        this.phase = Phase::FirstConfig {
+                            form,
+                            session: Box::new(session),
+                        };
                     }
                     Ok(session) => this.show_shell(session, cx),
                     Err(SignInError::NeedsOwner) => {
@@ -171,7 +172,12 @@ impl HostApp {
         }));
     }
 
-    fn create_owner(&mut self, _: Entity<OwnerForm>, event: &OwnerSubmitted, cx: &mut Context<Self>) {
+    fn create_owner(
+        &mut self,
+        _: Entity<OwnerForm>,
+        event: &OwnerSubmitted,
+        cx: &mut Context<Self>,
+    ) {
         let Some(config) = self.config(cx) else {
             return;
         };
@@ -191,7 +197,7 @@ impl HostApp {
         let Phase::FirstConfig { session, .. } = &self.phase else {
             return;
         };
-        let session = session.clone();
+        let session = (**session).clone();
         let admin = session.admin.clone();
         let (name, domain) = (event.name.clone(), event.domain.clone());
         let work = cx.background_spawn(async move {

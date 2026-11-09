@@ -4,8 +4,7 @@
 //! the left column and the bar moves the window.
 
 use gpui::{
-    Context, IntoElement, ParentElement, Styled, Window, WindowControlArea, div, img,
-    prelude::*,
+    Context, IntoElement, ParentElement, Styled, Window, WindowControlArea, div, img, prelude::*,
 };
 use lodestone_ui::theme::{colors, layout, px, radius, text, weights};
 

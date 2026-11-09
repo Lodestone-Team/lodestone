@@ -12,9 +12,7 @@ pub struct CoreSettingsPage {
 
 impl CoreSettingsPage {
     pub fn new(state: Entity<HostState>, _cx: &mut Context<Self>) -> Self {
-        Self {
-            state,
-        }
+        Self { state }
     }
 }
 

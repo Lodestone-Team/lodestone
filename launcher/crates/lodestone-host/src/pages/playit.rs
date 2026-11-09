@@ -14,10 +14,7 @@ pub struct PlayitPage {
 
 impl PlayitPage {
     pub fn new(state: Entity<HostState>, uuid: String, _cx: &mut Context<Self>) -> Self {
-        Self {
-            state,
-            uuid,
-        }
+        Self { state, uuid }
     }
 }
 

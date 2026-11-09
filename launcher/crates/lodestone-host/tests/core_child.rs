@@ -110,7 +110,10 @@ fn the_host_runs_and_signs_in_to_its_own_core() {
         !session.info.capabilities.macros,
         "the Host's core is built without Deno"
     );
-    assert!(session.admin.core().is_strict(), "the token only goes over HTTPS");
+    assert!(
+        session.admin.core().is_strict(),
+        "the token only goes over HTTPS"
+    );
     assert!(block_on(session.admin.instances()).unwrap().is_empty());
     // nothing to start: an unknown instance is refused, and no server starts
     assert!(matches!(

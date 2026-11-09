@@ -35,7 +35,10 @@ pub mod playit;
 pub mod profile;
 pub mod users;
 
-use gpui::{AnyElement, AnyView, App, AppContext as _, Entity, IntoElement, ParentElement, Styled, div};
+use gpui::{
+    AnyElement, AnyView, App, AppContext as _, Entity, IntoElement, ParentElement, Styled, div,
+    prelude::FluentBuilder as _,
+};
 use lodestone_ui::theme::{ink, px, text};
 
 use crate::{
@@ -62,15 +65,11 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
                     .into(),
                 InstanceTab::Files => cx.new(|cx| files::FilesPage::new(state, uuid, cx)).into(),
                 InstanceTab::Mods => cx.new(|cx| mods::ModsPage::new(state, uuid, cx)).into(),
-                InstanceTab::Macros => cx
-                    .new(|cx| macros::MacrosPage::new(state, uuid, cx))
-                    .into(),
+                InstanceTab::Macros => cx.new(|cx| macros::MacrosPage::new(state, uuid, cx)).into(),
                 InstanceTab::EventLogs => cx
                     .new(|cx| event_logs::EventLogsPage::new(state, uuid, cx))
                     .into(),
-                InstanceTab::Playit => cx
-                    .new(|cx| playit::PlayitPage::new(state, uuid, cx))
-                    .into(),
+                InstanceTab::Playit => cx.new(|cx| playit::PlayitPage::new(state, uuid, cx)).into(),
             }
         }
         Route::Settings(page) => match page {
@@ -98,10 +97,10 @@ pub fn not_built(package: &'static str) -> AnyElement {
                 div()
                     .text_size(text::SMALL)
                     .text_color(ink::faint())
-                    .child(format!("Work package {package}: launcher/docs/host-parity.md")),
+                    .child(format!(
+                        "Work package {package}: launcher/docs/host-parity.md"
+                    )),
             )
         })
         .into_any_element()
 }
-
-use gpui::prelude::FluentBuilder as _;

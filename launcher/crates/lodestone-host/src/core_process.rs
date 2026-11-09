@@ -52,7 +52,9 @@ pub mod env {
 }
 
 fn var(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|value| !value.trim().is_empty())
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
 /// The core's data folder: `LODESTONE_PATH`, else `~/.lodestone` (the Tauri Host's
@@ -160,10 +162,8 @@ fn choose_port(scan: bool, is_free: impl Fn(u16) -> bool) -> Result<u16, String>
     if is_free(DEFAULT_PORT) {
         return Ok(DEFAULT_PORT);
     }
-    if scan {
-        if let Some(port) = (DEFAULT_PORT + 1..DEFAULT_PORT + 100).find(|&port| is_free(port)) {
-            return Ok(port);
-        }
+    if scan && let Some(port) = (DEFAULT_PORT + 1..DEFAULT_PORT + 100).find(|&port| is_free(port)) {
+        return Ok(port);
     }
     Err(format!(
         "Port {DEFAULT_PORT} is in use. Is another Lodestone Core running on this computer? Stop it, then try again."

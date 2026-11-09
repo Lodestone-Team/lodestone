@@ -21,53 +21,53 @@ fn main() {
     // a click on the Dock icon brings the window back
     app.on_reopen(|cx| cx.dispatch_action(&ShowWindow));
     app.run(move |cx| {
-            lodestone_host::init(cx);
-            tray::set_dev_dock_icon();
-            let options = lodestone_host::window_options(cx);
-            let window: WindowHandle<HostApp> = cx
-                .open_window(options, |window, cx| cx.new(|cx| HostApp::new(window, cx)))
-                .expect("could not open the Lodestone Host window");
+        lodestone_host::init(cx);
+        tray::set_dev_dock_icon();
+        let options = lodestone_host::window_options(cx);
+        let window: WindowHandle<HostApp> = cx
+            .open_window(options, |window, cx| cx.new(|cx| HostApp::new(window, cx)))
+            .expect("could not open the Lodestone Host window");
+        cx.activate(true);
+
+        let show = move |cx: &mut gpui::App| {
             cx.activate(true);
+            window
+                .update(cx, |_, window, _| window.activate_window())
+                .ok();
+        };
+        let quit = move |cx: &mut gpui::App| {
+            window.update(cx, |app, _, cx| app.quit(cx)).ok();
+        };
 
-            let show = move |cx: &mut gpui::App| {
-                cx.activate(true);
-                window
-                    .update(cx, |_, window, _| window.activate_window())
-                    .ok();
-            };
-            let quit = move |cx: &mut gpui::App| {
-                window.update(cx, |app, _, cx| app.quit(cx)).ok();
-            };
+        cx.on_action(move |_: &Quit, cx| quit(cx));
+        cx.on_action(move |_: &ShowWindow, cx| show(cx));
 
-            cx.on_action(move |_: &Quit, cx| quit(cx));
-            cx.on_action(move |_: &ShowWindow, cx| show(cx));
+        // the menu bar icon
+        let (tray_tx, mut tray_rx) = futures::channel::mpsc::unbounded();
+        let tray = tray::install(t(ShellMsg::ShowHost), t(ShellMsg::QuitHost), tray_tx);
+        cx.spawn(async move |cx| {
+            let _tray = tray;
+            while let Some(command) = tray_rx.next().await {
+                cx.update(|cx| match command {
+                    TrayCommand::Show => show(cx),
+                    TrayCommand::Quit => quit(cx),
+                });
+            }
+        })
+        .detach();
+        // a second start of the Host
+        cx.spawn(async move |cx| {
+            while show_rx.next().await.is_some() {
+                cx.update(|cx| show(cx));
+            }
+        })
+        .detach();
+        let _ = APP_NAME;
 
-            // the menu bar icon
-            let (tray_tx, mut tray_rx) = futures::channel::mpsc::unbounded();
-            let tray = tray::install(t(ShellMsg::ShowHost), t(ShellMsg::QuitHost), tray_tx);
-            cx.spawn(async move |cx| {
-                let _tray = tray;
-                while let Some(command) = tray_rx.next().await {
-                    cx.update(|cx| match command {
-                        TrayCommand::Show => show(cx),
-                        TrayCommand::Quit => quit(cx),
-                    });
-                }
-            })
-            .detach();
-            // a second start of the Host
-            cx.spawn(async move |cx| {
-                while show_rx.next().await.is_some() {
-                    cx.update(|cx| show(cx));
-                }
-            })
-            .detach();
-            let _ = APP_NAME;
-
-            // `--screenshot <file.png>` (development): the window, once it has settled
-            #[cfg(feature = "screenshot")]
-            screenshot::schedule(window, cx);
-        });
+        // `--screenshot <file.png>` (development): the window, once it has settled
+        #[cfg(feature = "screenshot")]
+        screenshot::schedule(window, cx);
+    });
 }
 
 /// `--screenshot <file.png> [--wait <seconds>] [--select-first]`, with the `screenshot`
