@@ -17,8 +17,9 @@ use launcher_core::cores::admin::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Icon, IconButton,
+        Button, ButtonVariant, DialogSlot, Icon, IconButton,
         settings::{self, SettingRow},
+        window_layer,
     },
     theme::{colors, ink, px, text, weights},
 };
@@ -54,8 +55,8 @@ pub struct UsersPage {
     selected: Option<Selected>,
     /// The user whose "…" menu is open.
     menu: Option<String>,
-    dialog: Option<Entity<AccountDialog>>,
-    deleting: Option<Deleting>,
+    dialog: DialogSlot<Self, Entity<AccountDialog>>,
+    deleting: DialogSlot<Self, Deleting>,
     /// A permission change is on its way; `dirty` users changed again meanwhile.
     sending: bool,
     dirty: Vec<String>,
@@ -84,8 +85,8 @@ impl UsersPage {
             users: None,
             selected: None,
             menu: None,
-            dialog: None,
-            deleting: None,
+            dialog: DialogSlot::new(|this: &mut Self| &mut this.dialog),
+            deleting: DialogSlot::new(|this: &mut Self| &mut this.deleting),
             sending: false,
             dirty: Vec::new(),
             _subscriptions: vec![subscription],
@@ -164,7 +165,10 @@ impl UsersPage {
                 Some(uid) => AccountDialog::change_password(state, uid, cx),
                 None => AccountDialog::create_user(state, cx),
             },
-            |this: &mut Self, event, cx| {
+            |this: &mut Self, dialog, event, cx| {
+                if this.dialog.current() != Some(dialog) {
+                    return;
+                }
                 match event {
                     AccountDialogEvent::Close => {}
                     AccountDialogEvent::Created(user) => {
@@ -176,18 +180,17 @@ impl UsersPage {
                     }
                     AccountDialogEvent::Changed => parts::saved(&this.state, cx),
                 }
-                this.dialog = None;
+                this.dialog.close(cx);
                 cx.notify();
             },
             cx,
         );
         self._subscriptions.push(subscription);
-        self.dialog = Some(dialog);
-        cx.notify();
+        self.dialog.open(dialog, cx);
     }
 
     fn delete(&mut self, cx: &mut Context<Self>) {
-        let Some(deleting) = self.deleting.as_mut() else {
+        let Some(deleting) = self.deleting.current_mut() else {
             return;
         };
         if deleting.busy {
@@ -200,7 +203,7 @@ impl UsersPage {
             cx,
             async move { admin.delete_user(&uid).await.map(|()| uid) },
             |this, result, cx| {
-                this.deleting = None;
+                this.deleting.close(cx);
                 match result {
                     Ok(uid) => {
                         if let Some(Ok(users)) = this.users.as_mut() {
@@ -335,12 +338,15 @@ impl UsersPage {
                         .disabled(is_self)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.menu = None;
-                            this.deleting = Some(Deleting {
-                                user: delete_user.clone(),
-                                focus: cx.focus_handle(),
-                                busy: false,
-                            });
-                            cx.notify();
+                            let focus = cx.focus_handle();
+                            this.deleting.open(
+                                Deleting {
+                                    user: delete_user.clone(),
+                                    focus,
+                                    busy: false,
+                                },
+                                cx,
+                            );
                         })),
                     ),
                 {
@@ -553,15 +559,13 @@ impl Render for UsersPage {
             }
             None => self.list_view(cx),
         };
-        let dialog = self
+        let mut dialogs = self
             .dialog
-            .clone()
-            .map(|dialog| parts::overlay(window, dialog));
-        let deleting = self.deleting.as_ref().map(|deleting| {
+            .render(window, |dialog| Some(dialog.clone().into_any_element()));
+        dialogs.extend(self.deleting.render(window, |deleting| {
             let this = cx.entity().downgrade();
             let close = cx.entity().downgrade();
-            parts::overlay(
-                window,
+            Some(
                 Confirm {
                     id: "delete-user",
                     title: t(CoreMsg::DeleteUserTitle).into(),
@@ -578,14 +582,14 @@ impl Render for UsersPage {
                     move |_, cx| {
                         close
                             .update(cx, |this, cx| {
-                                this.deleting = None;
-                                cx.notify();
+                                this.deleting.close(cx);
                             })
                             .ok();
                     },
-                ),
+                )
+                .into_any_element(),
             )
-        });
-        parts::page(sections).children(dialog).children(deleting)
+        }));
+        parts::page(sections).children(window_layer(window, dialogs))
     }
 }

@@ -205,14 +205,18 @@ impl Render for AccountDialog {
     }
 }
 
-/// Makes the dialog and calls `on_event` with what it says.
+/// Makes the dialog and calls `on_event` with the dialog and what it says. The owner
+/// keeps it in a `DialogSlot`, so it fades out when closed; `on_event` should check
+/// that the dialog is still the slot's open one.
 pub fn open<V: 'static>(
     make: impl FnOnce(&mut Context<AccountDialog>) -> AccountDialog,
-    on_event: impl Fn(&mut V, &AccountDialogEvent, &mut Context<V>) + 'static,
+    on_event: impl Fn(&mut V, &Entity<AccountDialog>, &AccountDialogEvent, &mut Context<V>) + 'static,
     cx: &mut Context<V>,
 ) -> (Entity<AccountDialog>, gpui::Subscription) {
     let dialog = cx.new(make);
-    let subscription = cx.subscribe(&dialog, move |this, _, event, cx| on_event(this, event, cx));
+    let subscription = cx.subscribe(&dialog, move |this, dialog, event, cx| {
+        on_event(this, &dialog, event, cx)
+    });
     (dialog, subscription)
 }
 

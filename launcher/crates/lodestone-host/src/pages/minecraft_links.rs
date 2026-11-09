@@ -9,8 +9,9 @@ use gpui::{
 };
 use launcher_core::cores::{CoreError, admin::users::MinecraftLink};
 use lodestone_ui::components::{
-    Button, ButtonVariant,
+    Button, ButtonVariant, DialogSlot,
     settings::{self, SettingRow},
+    window_layer,
 };
 
 use super::parts::{self, Confirm};
@@ -37,7 +38,7 @@ pub struct MinecraftLinksSection {
     state: Entity<HostState>,
     owner: Owner,
     links: Option<Result<Vec<MinecraftLink>, String>>,
-    removing: Option<Removing>,
+    removing: DialogSlot<Self, Removing>,
 }
 
 impl MinecraftLinksSection {
@@ -46,7 +47,7 @@ impl MinecraftLinksSection {
             state,
             owner,
             links: None,
-            removing: None,
+            removing: DialogSlot::new(|this: &mut Self| &mut this.removing),
         };
         this.load(cx);
         this
@@ -77,7 +78,7 @@ impl MinecraftLinksSection {
     }
 
     fn remove(&mut self, cx: &mut Context<Self>) {
-        let Some(removing) = self.removing.as_mut() else {
+        let Some(removing) = self.removing.current_mut() else {
             return;
         };
         if removing.busy {
@@ -97,7 +98,7 @@ impl MinecraftLinksSection {
             },
             |this, result, cx| match result {
                 Ok(link) => {
-                    this.removing = None;
+                    this.removing.close(cx);
                     parts::toast(
                         &this.state,
                         parts::Level::Success,
@@ -107,7 +108,7 @@ impl MinecraftLinksSection {
                     this.load(cx);
                 }
                 Err(err) => {
-                    if let Some(removing) = this.removing.as_mut() {
+                    if let Some(removing) = this.removing.current_mut() {
                         removing.busy = false;
                     }
                     parts::toast(&this.state, parts::Level::Error, err.to_string(), cx);
@@ -148,12 +149,15 @@ impl Render for MinecraftLinksSection {
                             .variant(ButtonVariant::Danger)
                             .on_click(cx.listener(
                                 move |this, _, _, cx| {
-                                    this.removing = Some(Removing {
-                                        link: to_remove.clone(),
-                                        focus: cx.focus_handle(),
-                                        busy: false,
-                                    });
-                                    cx.notify();
+                                    let focus = cx.focus_handle();
+                                    this.removing.open(
+                                        Removing {
+                                            link: to_remove.clone(),
+                                            focus,
+                                            busy: false,
+                                        },
+                                        cx,
+                                    );
                                 },
                             )),
                         )
@@ -161,11 +165,10 @@ impl Render for MinecraftLinksSection {
                 })
                 .collect(),
         };
-        let confirm = self.removing.as_ref().map(|removing| {
+        let confirm = self.removing.render(window, |removing| {
             let this = cx.entity().downgrade();
             let close = cx.entity().downgrade();
-            parts::overlay(
-                window,
+            Some(
                 Confirm {
                     id: "unlink-minecraft",
                     title: t(CoreMsg::MinecraftRemoveTitle).into(),
@@ -186,12 +189,12 @@ impl Render for MinecraftLinksSection {
                     move |_, cx| {
                         close
                             .update(cx, |this, cx| {
-                                this.removing = None;
-                                cx.notify();
+                                this.removing.close(cx);
                             })
                             .ok();
                     },
-                ),
+                )
+                .into_any_element(),
             )
         });
         div()
@@ -203,6 +206,6 @@ impl Render for MinecraftLinksSection {
                 Some(lead.into()),
             ))
             .when(!rows.is_empty(), |this| this.child(settings::card(rows)))
-            .children(confirm)
+            .children(window_layer(window, confirm))
     }
 }

@@ -28,7 +28,8 @@
 //!    kept in `T`), not one handle the owner reuses: a dialog fading out must not share
 //!    its handle with the one opened after it, or the slot can't tell which has focus.
 //!
-//! A closing dialog fades out and rises for [`EXIT`](super::EXIT) (a fade only, over
+//! A closing dialog plays its entrance backwards: it fades out and rises back up for
+//! [`EXIT`](super::EXIT), as long as it took to appear (a fade only, over
 //! [`EXIT_REDUCED`](super::EXIT_REDUCED), with reduced motion). It takes no clicks, and
 //! blocks them from the page until it is gone; if it had focus, focus leaves it. Nothing
 //! changes in the dialog's own code: an unmigrated `Option` still compiles and opens
@@ -53,14 +54,16 @@ use crate::theme::{self, colors, layout, leading, radius, shadow, text, weights}
 type CloseHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
 /// How long a dialog takes to appear, like the dashboard's modals (`duration-200`).
-const ENTER: Duration = Duration::from_millis(200);
+/// It takes as long to close ([`EXIT`](super::EXIT)).
+pub(super) const ENTER: Duration = Duration::from_millis(200);
 /// The shorter fade that replaces the slide when the system asks for reduced motion.
-const ENTER_REDUCED: Duration = Duration::from_millis(150);
-/// How far above its place the panel starts (the dashboard's `-translate-y-3`).
-const SLIDE: f32 = 12.;
+pub(super) const ENTER_REDUCED: Duration = Duration::from_millis(150);
+/// How far above its place the panel starts (the dashboard's `-translate-y-3`), and
+/// where it goes back to as it closes.
+pub(super) const SLIDE: f32 = 12.;
 
 /// A cubic ease-out, close to the CSS `ease-out` the dashboard's modals use.
-fn ease_out_cubic(delta: f32) -> f32 {
+pub(super) fn ease_out_cubic(delta: f32) -> f32 {
     1. - (1. - delta).powi(3)
 }
 
@@ -526,7 +529,6 @@ mod tests {
     use super::{Dialog, UnderDialogs};
     use crate::components::Button;
     use crate::theme::px;
-    use gpui::Element as _;
 
     #[derive(Clone, Copy, Debug)]
     enum Variant {
@@ -701,6 +703,112 @@ mod tests {
         });
         cx.run_until_parked();
         assert!(!content_hidden(), "shown while the dialog fades out");
+    }
+
+    /// A dialog in a slot that closes it on Escape, the × and the backdrop.
+    struct Exiting {
+        slot: crate::components::DialogSlot<Exiting, FocusHandle>,
+    }
+
+    impl Render for Exiting {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let this = cx.entity().downgrade();
+            let dialogs = self.slot.render(window, |focus| {
+                let this = this.clone();
+                Some(
+                    Dialog::new("dialog", "Dialog", focus.clone())
+                        .on_close(move |_, cx| {
+                            this.update(cx, |this, cx| {
+                                this.slot.close(cx);
+                            })
+                            .ok();
+                        })
+                        .child(div().child("Body"))
+                        .into_any_element(),
+                )
+            });
+            div().relative().size_full().children(dialogs)
+        }
+    }
+
+    fn exiting(cx: &mut TestAppContext) -> (Entity<Exiting>, &mut VisualTestContext) {
+        cx.update(crate::components::init);
+        let (view, cx) = cx.add_window_view(|_, _| Exiting {
+            slot: crate::components::DialogSlot::new(|this: &mut Exiting| &mut this.slot),
+        });
+        view.update(cx, |this, cx| {
+            let focus = cx.focus_handle();
+            this.slot.open(focus, cx);
+        });
+        cx.run_until_parked();
+        (view, cx)
+    }
+
+    /// Whether the last frame drew the dialog (its ×).
+    fn drawn(cx: &mut VisualTestContext) -> bool {
+        cx.debug_bounds("dialog-close").is_some()
+    }
+
+    #[test]
+    fn a_dialog_stays_drawn_while_it_animates_closed_whichever_way_it_closes() {
+        type Close = fn(&Entity<Exiting>, &mut VisualTestContext);
+        let ways: [(&str, Close); 4] = [
+            ("escape", |_, cx| cx.simulate_keystrokes("escape")),
+            ("the ×", |_, cx| {
+                let bounds = cx.debug_bounds("dialog-close").unwrap();
+                cx.simulate_click(bounds.center(), Modifiers::none());
+            }),
+            ("the backdrop", |_, cx| {
+                cx.simulate_click(gpui::point(px(4.), px(4.)), Modifiers::none())
+            }),
+            ("its owner", |view, cx| {
+                view.update(cx, |this, cx| {
+                    this.slot.close(cx);
+                })
+            }),
+        ];
+        for (way, close) in ways {
+            let mut cx = TestAppContext::single();
+            let (view, cx) = exiting(&mut cx);
+            assert!(drawn(cx), "open");
+            close(&view, cx);
+            cx.run_until_parked();
+            assert!(
+                !view.read_with(cx, |this, _| this.slot.is_open()),
+                "{way} closes it"
+            );
+            assert!(drawn(cx), "still drawn, fading out, after {way}");
+            cx.executor().advance_clock(crate::components::EXIT);
+            cx.run_until_parked();
+            assert!(!drawn(cx), "gone once the exit is over, after {way}");
+        }
+    }
+
+    #[test]
+    fn a_dialog_reopened_while_it_closes_is_open_and_closes_again() {
+        let mut cx = TestAppContext::single();
+        let (view, cx) = exiting(&mut cx);
+        view.update(cx, |this, cx| {
+            this.slot.close(cx);
+        });
+        cx.run_until_parked();
+        cx.executor().advance_clock(crate::components::EXIT / 2);
+        view.update(cx, |this, cx| {
+            let focus = cx.focus_handle();
+            this.slot.open(focus, cx);
+        });
+        cx.run_until_parked();
+        cx.executor().advance_clock(crate::components::EXIT);
+        cx.run_until_parked();
+        // the first one is gone, the new one stays and takes Escape
+        assert!(drawn(cx));
+        assert!(view.read_with(cx, |this, _| this.slot.is_open()));
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        assert!(!view.read_with(cx, |this, _| this.slot.is_open()));
+        cx.executor().advance_clock(crate::components::EXIT);
+        cx.run_until_parked();
+        assert!(!drawn(cx));
     }
 
     #[test]
