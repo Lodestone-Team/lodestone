@@ -109,6 +109,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                             _ => instance
                                 .as_ref()
                                 .and_then(|i| shell.instances.read(cx).background(&i.id).cloned())
+                                // the skin's hero for an instance without its own image
+                                .or_else(|| crate::skin::look(cx).hero.clone())
                                 .map_or(Backdrop::Artwork, Backdrop::Image),
                         };
                         hero(instance.as_ref(), backdrop, cx).into_any_element()
@@ -256,14 +258,14 @@ fn linked_to(link: &InstanceLink) -> impl IntoElement + use<> {
                 .flex_none()
                 .size(px(6.))
                 .rounded_full()
-                .bg(colors::BLUE_200),
+                .bg(crate::theme::accent::light()),
         )
         .child(
             div()
                 .truncate()
                 .text_size(theme::text_size(text::SMALL))
                 .font_weight(weights::BOLD.into())
-                .text_color(colors::BLUE_200)
+                .text_color(crate::theme::accent::light())
                 .child(tr!(
                     if link.core_known {
                         M::LinkedTo
@@ -317,7 +319,11 @@ fn picker(
         .flex_row()
         .items_center()
         .gap_3()
+        // 200 wide when there's room; narrower (the value truncating) when the
+        // window isn't, so the bar never spills under the sidebar.
         .w(px(200.))
+        .min_w_0()
+        .flex_shrink(1.)
         .px_3()
         .py_2()
         .rounded(radius::LG)
@@ -386,6 +392,7 @@ fn play_bar(
         _ => (state, None),
     };
     let single_id = id.clone();
+    let resolved = crate::skin::resolve(&crate::skin::look(cx).spec, instance);
     div()
         .flex()
         .flex_row()
@@ -394,6 +401,7 @@ fn play_bar(
         .justify_center()
         .gap_6()
         .w_full()
+        .overflow_hidden()
         .px_8()
         .py_4()
         .border_t_1()
@@ -409,11 +417,13 @@ fn play_bar(
             div()
                 .flex()
                 .flex_col()
+                .flex_none()
                 .items_center()
                 .gap_1()
                 .child(
                     PlayButton::new("play")
                         .state(state)
+                        .look(resolved.play, resolved.progress)
                         .when_some(caption, |button, caption| button.caption(caption))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let Some(id) = &id else {

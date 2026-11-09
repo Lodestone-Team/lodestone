@@ -52,6 +52,17 @@ pub struct Settings {
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
     pub zoom: f32,
+    /// Settings > Launcher > Skin: the id of the launcher's skin
+    /// ([`crate::ui_skin`]). Left out of the file for the default look.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skin: Option<String>,
+    /// The sidebar's width, dragged from its edge, in logical pixels at 100% zoom.
+    /// Left out of the file at the default width.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidebar_width: Option<f32>,
+    /// The sidebar is folded into a rail of icons (dragged narrower than it goes).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sidebar_collapsed: bool,
     #[serde(flatten)]
     pub other: Map<String, Value>,
 }
@@ -66,6 +77,9 @@ impl Default for Settings {
             language: Language::System,
             auto_update: true,
             zoom: 1.0,
+            skin: None,
+            sidebar_width: None,
+            sidebar_collapsed: false,
             other: Map::new(),
         }
     }

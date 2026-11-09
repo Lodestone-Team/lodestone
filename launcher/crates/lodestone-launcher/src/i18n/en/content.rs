@@ -11,7 +11,7 @@ crate::i18n::messages! {
 
         /// The search over the list: it filters what is installed and searches
         /// Modrinth too.
-        SearchInstalledOrModrinth = "Search installed or Modrinth",
+        SearchInstalledOrModrinth = "Search",
         /// Headings over the list, with how many rows follow.
         InstalledCount = "Installed · {count}",
         /// Resource packs in use; the top one wins where they overlap.

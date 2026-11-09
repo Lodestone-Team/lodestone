@@ -416,7 +416,8 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
         .cursor_pointer()
         .map(|this| {
             if selected {
-                this.bg(colors::BLUE.opacity(35)).text_color(colors::WHITE)
+                this.bg(crate::theme::accent::base().opacity(35))
+                    .text_color(colors::WHITE)
             } else {
                 this.text_color(colors::GRAY_300)
                     .hover(|style| style.bg(colors::GRAY_700))
@@ -717,8 +718,10 @@ impl NewInstanceDialog {
                 ));
                 // The chosen card's tint and border fade in, the last one's out.
                 Animated::new(("loader-card-state", index), selected, card, |this, t| {
-                    this.bg(colors::GRAY_800.mix(colors::BLUE.opacity(15), t))
-                        .border_color(colors::FADE_700.mix(colors::BLUE_200.opacity(70), t))
+                    this.bg(colors::GRAY_800.mix(crate::theme::accent::base().opacity(15), t))
+                        .border_color(
+                            colors::FADE_700.mix(crate::theme::accent::light().opacity(70), t),
+                        )
                 })
                 .into_any_element()
             })
@@ -845,8 +848,12 @@ impl NewInstanceDialog {
                 on,
                 chip,
                 |this, t| {
-                    this.bg(colors::BLUE.opacity(0).mix(colors::BLUE.opacity(25), t))
-                        .border_color(colors::FADE_700.mix(colors::BLUE_200.opacity(60), t))
+                    this.bg(crate::theme::accent::base()
+                        .opacity(0)
+                        .mix(crate::theme::accent::base().opacity(25), t))
+                        .border_color(
+                            colors::FADE_700.mix(crate::theme::accent::light().opacity(60), t),
+                        )
                         .text_color(colors::GRAY_400.mix(colors::WHITE, t))
                 },
             )

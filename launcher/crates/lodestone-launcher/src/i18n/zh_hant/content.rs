@@ -6,7 +6,7 @@ pub fn text(message: M) -> &'static str {
         M::KindResourcePacks => "資源包",
         M::KindShaders => "光影",
         M::Vanilla => "原版",
-        M::SearchInstalledOrModrinth => "搜尋已安裝內容或 Modrinth",
+        M::SearchInstalledOrModrinth => "搜尋",
         M::InstalledCount => "已安裝 · {count}",
         M::EnabledCount => "已啟用 · {count} · 重疊時以最上面的包為準",
         M::AvailableCount => "可用 · {count}",

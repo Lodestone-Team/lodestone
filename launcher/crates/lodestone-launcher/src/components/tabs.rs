@@ -116,8 +116,12 @@ impl RenderOnce for Tabs {
                     .focus_visible(focus::inner_ring)
                     .cursor_pointer()
                     .border_b_2()
-                    .border_color(colors::BLUE_200.opacity(0).mix(colors::BLUE_200, t))
-                    .text_color(colors::GRAY_500.mix(colors::BLUE_200, t))
+                    .border_color(
+                        crate::theme::accent::light()
+                            .opacity(0)
+                            .mix(crate::theme::accent::light(), t),
+                    )
+                    .text_color(colors::GRAY_500.mix(crate::theme::accent::light(), t))
                     .when(!selected, |this| {
                         this.hover(|style| style.text_color(colors::GRAY_400))
                     })
