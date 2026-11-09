@@ -284,6 +284,48 @@ pub struct HeroSpec {
     pub readability: Readability,
 }
 
+/// How much of what is behind the window shows through it: Settings > General >
+/// Transparency, or a skin's `material`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Material {
+    /// Nothing shows through.
+    #[default]
+    Opaque,
+    /// The desktop shows through, sharp.
+    Clear,
+    /// The desktop shows through, blurred.
+    Frosted,
+    /// Frosted, with lit edges on panels and cards.
+    Glass,
+}
+
+impl Material {
+    /// The choices, in the order Settings lists them.
+    pub const ALL: [Material; 4] = [
+        Material::Opaque,
+        Material::Clear,
+        Material::Frosted,
+        Material::Glass,
+    ];
+
+    /// Whether anything shows through.
+    pub fn is_see_through(self) -> bool {
+        self != Material::Opaque
+    }
+
+    /// Whether what shows through is blurred.
+    pub fn is_blurred(self) -> bool {
+        matches!(self, Material::Frosted | Material::Glass)
+    }
+}
+
+/// The lowest opacity a see-through window takes, in percent: below it text gets
+/// hard to read over a busy desktop.
+pub const MIN_OPACITY: u8 = 20;
+/// The opacity a see-through window takes unless a setting or skin says otherwise.
+pub const DEFAULT_OPACITY: u8 = 60;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlaySpec {
@@ -335,6 +377,13 @@ pub struct SkinSpec {
     /// Play backgrounds the skin gives instances: a new instance takes one at random.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub banners: Vec<SkinBanner>,
+    /// What shows through the window while the skin is used, unless Settings >
+    /// General > Transparency says otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<Material>,
+    /// How opaque the window is while see-through, [`MIN_OPACITY`] to 100 percent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<u8>,
 }
 
 impl Default for SkinSpec {
@@ -364,6 +413,8 @@ impl SkinSpec {
             tokens: Tokens::default(),
             fonts: Fonts::default(),
             banners: Vec::new(),
+            material: None,
+            opacity: None,
         }
     }
 
@@ -487,6 +538,14 @@ impl SkinSpec {
         if self.sidebar.blur > MAX_BLUR {
             return Err(SkinError::Invalid(format!(
                 "sidebar.blur must be 0 to {MAX_BLUR}"
+            )));
+        }
+        if self
+            .opacity
+            .is_some_and(|o| !(MIN_OPACITY..=100).contains(&o))
+        {
+            return Err(SkinError::Invalid(format!(
+                "opacity must be {MIN_OPACITY} to 100"
             )));
         }
         if self.hero.scrim.is_some_and(|s| s > 100) {
@@ -1549,6 +1608,27 @@ mod tests {
         }
         zip.finish().unwrap();
         file
+    }
+
+    #[test]
+    fn material_and_opacity_are_checked() {
+        let mut spec: SkinSpec = serde_json::from_str(
+            r#"{"schema": 1, "name": "See-through", "material": "frosted", "opacity": 50,
+                "surfaces": {"card": {"opacity": 30}}}"#,
+        )
+        .unwrap();
+        assert_eq!(spec.material, Some(Material::Frosted));
+        assert_eq!(spec.surface(SurfaceId::Card).unwrap().opacity, Some(30));
+        assert!(spec.validate().is_ok());
+        spec.opacity = Some(MIN_OPACITY - 1);
+        assert!(spec.validate().is_err());
+        spec.opacity = Some(100);
+        spec.surfaces.get_mut(&SurfaceId::Card).unwrap().opacity = Some(101);
+        assert!(spec.validate().is_err());
+        assert!(
+            serde_json::from_str::<SkinSpec>(r#"{"schema": 1, "name": "x", "material": "liquid"}"#)
+                .is_err()
+        );
     }
 
     #[test]

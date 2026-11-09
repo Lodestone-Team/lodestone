@@ -545,6 +545,10 @@ pub struct SurfaceSpec {
     /// Its quieter text: subtitles, headers, hints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub muted: Option<Rgb>,
+    /// How opaque it is while the window is see-through, 0 to 100 percent, instead
+    /// of the launcher's choice for the surface.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<u8>,
 }
 
 impl SurfaceSpec {
@@ -571,6 +575,11 @@ impl SurfaceSpec {
         if self.muted.is_some() && id != SurfaceId::Sidebar {
             return Err(SkinError::Invalid(format!(
                 "{at}.muted is only for the sidebar; use tokens.muted"
+            )));
+        }
+        if self.opacity.is_some_and(|o| o > 100) {
+            return Err(SkinError::Invalid(format!(
+                "{at}.opacity must be 0 to 100"
             )));
         }
         if self.border_width.is_some_and(|w| w > MAX_BORDER) {
