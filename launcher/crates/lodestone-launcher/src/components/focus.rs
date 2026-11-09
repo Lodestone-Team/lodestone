@@ -574,9 +574,6 @@ pub fn step_within(group: &FocusHandle, forward: bool, window: &mut Window, cx: 
     }
 }
 
-/// Tab, Escape and focus on open, in a test window. GPUI's test platform comes with
-/// its `test-support` feature, which the `screenshot` feature turns on:
-/// `cargo test -p lodestone-launcher --features screenshot`.
 /// Presses and releases Enter, which clicks the focused control: GPUI clicks on the
 /// release, which `simulate_keystrokes` doesn't send.
 #[cfg(all(test, feature = "screenshot"))]
@@ -588,6 +585,9 @@ pub(crate) fn press_enter(cx: &mut gpui::VisualTestContext) {
     cx.run_until_parked();
 }
 
+/// Tab, Escape and focus on open, in a test window. GPUI's test platform comes with
+/// its `test-support` feature, which the `screenshot` feature turns on:
+/// `cargo test -p lodestone-launcher --features screenshot`.
 #[cfg(all(test, feature = "screenshot"))]
 mod tests {
     use gpui::{

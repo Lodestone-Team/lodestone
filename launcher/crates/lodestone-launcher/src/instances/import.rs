@@ -461,11 +461,20 @@ impl ImportDialog {
                         Err(err) => QueueState::Failed(err.to_string().into()),
                     };
                 }
-                this.run_next(cx);
-                cx.notify();
+                this.advance(cx);
             })
             .ok();
         }));
+    }
+
+    /// After an import ends: starts the next one, and puts away "Stop importing?"
+    /// if nothing is importing any more, since its question no longer applies.
+    fn advance(&mut self, cx: &mut Context<Self>) {
+        self.run_next(cx);
+        if !self.is_running() && self.stop_prompt.is_open() {
+            self.stop_prompt.close(cx);
+        }
+        cx.notify();
     }
 
     fn cancel(&mut self, key: &str, cx: &mut Context<Self>) {
@@ -1234,6 +1243,30 @@ mod stop_prompt_tests {
         opened.settle();
         opened.cx.simulate_keystrokes("escape");
         assert!(opened.asking());
+    }
+
+    #[test]
+    fn the_question_goes_away_when_the_last_import_ends() {
+        let mut cx = TestAppContext::single();
+        let mut opened = open(true, &mut cx);
+        opened.cx.simulate_keystrokes("escape");
+        assert!(opened.asking());
+        // The import finishes while the question is showing.
+        opened.dialog.update(opened.cx, |this, cx| {
+            this.queue[0].state = QueueState::Done {
+                id: "survival".into(),
+                notes: Vec::new(),
+            };
+            this.advance(cx);
+        });
+        opened.cx.run_until_parked();
+        assert!(!opened.asking(), "nothing to stop any more");
+        assert_eq!(opened.dismissed(), 0, "the dialog stays open");
+        // And the next close is immediate.
+        opened.settle();
+        opened.cx.simulate_keystrokes("escape");
+        assert!(!opened.asking());
+        assert_eq!(opened.dismissed(), 1);
     }
 
     #[test]
