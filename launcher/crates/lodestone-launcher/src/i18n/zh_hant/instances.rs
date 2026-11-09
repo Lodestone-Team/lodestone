@@ -88,7 +88,15 @@ pub fn text(message: M) -> &'static str {
         M::StopAndClose => "停止並關閉",
 
         M::NotAModpack => "不是模組包",
-        M::NotMrpack => "{name} 不是 .mrpack 檔案。Modrinth 模組包的副檔名為 .mrpack。",
+        M::NotMrpack => {
+            "{name} 不是模組包。Modrinth 模組包的副檔名為 .mrpack，CurseForge 模組包是含有 manifest.json 的 .zip 檔案。"
+        }
+        M::CurseForgeUnreachable => {
+            "這是 CurseForge 模組包，而此 Lodestone Launcher 無法連線至 CurseForge。"
+        }
+        M::CurseForgePackOnWebsite => {
+            "此模組包只能從 CurseForge 網站下載。請在網站上下載，然後將 .zip 拖曳到 Lodestone Launcher 上。"
+        }
         M::Modpack => "模組包",
         M::ReadingModpack => "正在讀取模組包",
         M::ModpackReady => "{name} 已準備就緒",
@@ -149,6 +157,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ProblemAndMore => ["{problem}（另有 {count} 個問題）"; 2],
         P::InstancesToCopy => ["將拷貝 {count} 個實例，共 {size}。"; 2],
         P::ImportInstances => ["匯入 {count} 個實例"; 2],
+        P::PackFilesToDownload => {
+            ["有 {count} 個檔案需要從 CurseForge 網站下載：實例的「內容」分頁會列出它們。"; 2]
+        }
         P::PackFilesLeftOut => ["模組包中有 {count} 個檔案被略過，例如 {path}。"; 2],
         P::WorldsBackedUp => ["已先備份 {count} 個世界。"; 2],
         P::DownloadingFiles => ["正在下載 {count} 個檔案"; 2],

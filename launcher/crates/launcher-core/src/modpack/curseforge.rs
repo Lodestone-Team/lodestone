@@ -32,6 +32,40 @@ use crate::{
 };
 
 pub const MANIFEST_FILE: &str = "manifest.json";
+
+/// Downloads the modpack `file` from CurseForge's CDN into `dir`, checked by SHA-1.
+/// A pack whose author keeps it on CurseForge's website can't be: the user downloads it
+/// there and imports the `.zip`.
+pub async fn download(
+    cf: &CurseForge,
+    downloader: &crate::game::download::Downloader,
+    file: &curseforge::CfFile,
+    dir: &Path,
+    progress: &crate::content::install::InstallProgress,
+    cancel: &crate::game::download::CancelToken,
+) -> Result<PathBuf, ModpackError> {
+    let url = cf.download_url(file)?;
+    let sha1 = file
+        .sha1()
+        .ok_or_else(|| invalid(format!("CurseForge sent no SHA-1 for {}", file.file_name)))?;
+    let dest = dir.join(format!(".lodestone-pack-{}.zip", file.id));
+    progress.set_label(format!("Downloading {}", file.display_name_or_file()));
+    let item = crate::game::download::DownloadItem {
+        url,
+        dest: dest.clone(),
+        sha1,
+        size: (file.file_length > 0).then_some(file.file_length),
+        executable: false,
+    };
+    if let Err(err) = downloader.fetch(&item, &progress.downloads, cancel).await {
+        let _ = std::fs::remove_file(&dest);
+        return Err(match err {
+            crate::game::download::DownloadError::Cancelled => ModpackError::Cancelled,
+            other => other.into(),
+        });
+    }
+    Ok(dest)
+}
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Deserialize)]

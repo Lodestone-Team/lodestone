@@ -293,6 +293,10 @@ pub struct Instances {
     /// Modpacks being made into instances.
     imports: Vec<modpacks::ImportJob>,
     next_import: u64,
+    /// Files of an imported CurseForge pack the user downloads from curseforge.com, by
+    /// instance; the Content tab takes them when it shows that instance.
+    pending_downloads:
+        HashMap<String, Vec<launcher_core::content::curseforge_install::CfPlannedFile>>,
     /// Modpack updates in progress, by instance.
     modpack_updates: HashMap<String, modpacks::UpdateJob>,
     /// Redraws while imports and updates run.
@@ -375,6 +379,7 @@ impl Instances {
             loader_switch: None,
             imports: Vec::new(),
             next_import: 0,
+            pending_downloads: HashMap::new(),
             modpack_updates: HashMap::new(),
             import_ticker: None,
         };
@@ -859,6 +864,18 @@ impl Instances {
     /// The Modrinth client, unless the app is offline (the offscreen screenshots).
     pub fn modrinth(&self) -> Option<Arc<Modrinth>> {
         self.modrinth.clone()
+    }
+
+    /// Whether an imported pack left files for the user to download into `id`.
+    pub fn has_pending_downloads(&self, id: &str) -> bool {
+        self.pending_downloads.contains_key(id)
+    }
+
+    pub fn take_pending_downloads(
+        &mut self,
+        id: &str,
+    ) -> Option<Vec<launcher_core::content::curseforge_install::CfPlannedFile>> {
+        self.pending_downloads.remove(id)
     }
 
     /// The CurseForge client, when this build has an API key and the app is online.

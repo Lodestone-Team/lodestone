@@ -340,6 +340,19 @@ impl ContentView {
             }
         }
         self.was_active = active;
+        // Files an imported CurseForge pack left for the user to download.
+        if self.blocked.is_none()
+            && let Some(id) = self.instance_id.clone()
+            && self.instances.read(cx).has_pending_downloads(&id)
+        {
+            let files = self
+                .instances
+                .update(cx, |instances, _| instances.take_pending_downloads(&id))
+                .unwrap_or_default();
+            if !files.is_empty() {
+                self.show_blocked(files, cx);
+            }
+        }
         cx.notify();
     }
 

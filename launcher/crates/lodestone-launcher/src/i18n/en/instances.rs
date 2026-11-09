@@ -106,7 +106,10 @@ crate::i18n::messages! {
 
         // Modpacks.
         NotAModpack = "Not a modpack",
-        NotMrpack = "{name} isn't a .mrpack file. Modrinth modpacks end in .mrpack.",
+        NotMrpack = "{name} isn't a modpack. Modrinth modpacks end in .mrpack, and CurseForge modpacks are .zip files with a manifest.json in them.",
+        /// A CurseForge modpack while this build can't reach CurseForge (no API key).
+        CurseForgeUnreachable = "This is a CurseForge modpack, and this copy of Lodestone Launcher can't reach CurseForge.",
+        CurseForgePackOnWebsite = "This modpack can only be downloaded from CurseForge's website. Download it there, then drop the .zip on Lodestone Launcher.",
         /// The name of a modpack whose file has no name.
         Modpack = "Modpack",
         ReadingModpack = "Reading the modpack",
@@ -191,6 +194,11 @@ crate::i18n::messages! {
         InstancesToCopy = ("{count} instance to copy, {size}.", "{count} instances to copy, {size}."),
         /// The import button, for two instances or more.
         ImportInstances = ("Import {count} instance", "Import {count} instances"),
+        /// After importing a CurseForge pack: files to download from curseforge.com.
+        PackFilesToDownload = (
+            "{count} file has to be downloaded from CurseForge's website: the instance's Content tab shows it.",
+            "{count} files have to be downloaded from CurseForge's website: the instance's Content tab shows them."
+        ),
         PackFilesLeftOut = (
             "{count} file of the pack was left out: {path}.",
             "{count} files of the pack were left out, such as {path}."
