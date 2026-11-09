@@ -169,6 +169,9 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
     let sink = {
         let (gate, outbox) = (gate.clone(), outbox.clone());
         Box::new(move |event: &Event| {
+            if event.topic == "game.log" && !super::game_logs_allowed() {
+                return !outbox.is_closed();
+            }
             let mut gate = gate.lock().unwrap_or_else(|p| p.into_inner());
             if gate.open {
                 send(&outbox, number, event)

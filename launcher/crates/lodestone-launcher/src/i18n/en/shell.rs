@@ -289,6 +289,41 @@ crate::i18n::messages! {
         TurnOffLauncherAccounts = "{accounts} Kept accounts go on working until Microsoft blocks this. Signing out removes them from Lodestone Launcher and deletes their saved sign-ins from your {keychain}.",
         TurnOffAndSignOut = "Turn off and sign out",
         TurnOffOnly = "Turn off only",
+        /// Settings > Developer: the section of "Sign in as the Minecraft Launcher".
+        SignInSection = "Microsoft sign-in",
+        /// Settings > Developer: what lodestone-launcher-cli may do.
+        CommandLineSection = "Command line",
+        CommandLineLead = "lodestone-launcher-cli and other programs you run reach the launcher through a socket in its data folder. Only your user account can connect. These settings change only here, never from the command line.",
+        AllowCli = "Allow command-line connections",
+        AllowCliHint = "Off, the socket is closed and connected programs are dropped.",
+        /// What command-line programs may do.
+        CliAccess = "Access",
+        CliAccessHint = "Read only answers questions but refuses anything that changes instances, settings, accounts or files.",
+        CliFullControl = "Full control",
+        CliReadOnly = "Read only",
+        DebugTraces = "Debug traces",
+        DebugTracesHint = "Records what you click and what the launcher does, for lodestone-launcher-cli trace. Off, nothing is recorded.",
+        /// Whether command-line programs may read game output.
+        CliGameLogs = "Game logs",
+        CliGameLogsHint = "Programs may read the game’s console output.",
+        /// The control socket's file.
+        SocketPath = "Socket",
+        CopyPath = "Copy path",
+        OpenDataFolder = "Open data folder",
+        /// The socket row while connections are off.
+        SocketClosed = "Closed",
+        /// {error} says why.
+        SocketError = "The socket couldn’t open: {error}",
+        ConnectedClients = "Connected programs",
+        NoClients = "No programs are connected.",
+        /// A connected program that didn't say what it is.
+        UnnamedClient = "Unnamed program",
+        /// {time} is "Today, 14:30".
+        ClientSince = "Connected {time}",
+        /// {pid} is a process number.
+        ClientPid = "Process {pid}",
+        Disconnect = "Disconnect",
+        CliUnavailable = "Command-line control isn’t available on Windows yet.",
 
         // Signing in with Microsoft.
         SignInWithMicrosoft = "Sign in with Microsoft",
@@ -645,5 +680,7 @@ crate::i18n::messages! {
             "{count} account is signed in as the Minecraft Launcher: {names}.",
             "{count} accounts are signed in as the Minecraft Launcher: {names}."
         ),
+        /// Event and trace subscriptions a connected program has.
+        Subscriptions = ("{count} subscription", "{count} subscriptions"),
     }
 }

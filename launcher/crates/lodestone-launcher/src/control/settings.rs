@@ -385,6 +385,7 @@ pub fn general_get(call: Call, cx: &mut App) -> Reply {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct GeneralParams {
     #[serde(default)]
     auto_groups: Option<bool>,
@@ -417,7 +418,14 @@ pub fn general_set(call: Call, cx: &mut App) -> Reply {
 
 fn developer_json(control: &Control, cx: &App) -> Value {
     let accounts = control.accounts.read(cx);
+    let cli = control.instances.read(cx).settings().cli;
     json!({
+        "command_line": {
+            "access": cli.access.as_str(),
+            "traces": cli.traces,
+            "game_logs": cli.game_logs,
+            "changed_in": "the launcher's Settings → Developer only",
+        },
         "sign_in_as_minecraft_launcher": accounts.launcher_identity_enabled(),
         "accounts_signed_in_with_it": accounts
             .launcher_identity_accounts()
@@ -433,16 +441,37 @@ pub fn developer_get(call: Call, cx: &mut App) -> Reply {
     ))
 }
 
-#[derive(Deserialize)]
-struct DeveloperParams {
+/// Only these: the command-line settings (socket, access, traces, game logs) are
+/// changed in the launcher's window, so a client can't widen its own access.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DeveloperParams {
     sign_in_as_minecraft_launcher: bool,
     /// Turning it off: also sign out the accounts that used it.
     #[serde(default)]
     sign_out_accounts: bool,
+    /// Read by [`Call::confirm`].
+    #[serde(default, rename = "confirm")]
+    _confirm: Option<bool>,
+}
+
+/// Reads `settings.developer.set`'s parameters.
+pub(super) fn developer_params(params: Value) -> Result<DeveloperParams, serde_json::Error> {
+    serde_json::from_value(params)
 }
 
 pub fn developer_set(call: Call, cx: &mut App) -> Reply {
-    let params: DeveloperParams = params!(call);
+    let params: DeveloperParams = match developer_params(call.params.clone()) {
+        Ok(params) => params,
+        Err(err) => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                format!(
+                    "Bad parameters: {err}. The command-line settings change only in the launcher's Settings → Developer."
+                ),
+            )));
+        }
+    };
     let control = &call.control;
     let enabled = control.accounts.read(cx).launcher_identity_enabled();
     if params.sign_in_as_minecraft_launcher && !enabled {

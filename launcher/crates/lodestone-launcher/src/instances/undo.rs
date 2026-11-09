@@ -4,7 +4,7 @@
 use gpui::{App, Context, Entity};
 use launcher_core::{
     instances::{BACKGROUND_FILE, ICON_FILE, Instance},
-    settings::{InstanceDefaults, Settings},
+    settings::{CliAccess, CliSettings, InstanceDefaults, Settings},
 };
 
 use super::{Instances, fields};
@@ -22,8 +22,8 @@ fn on_off(on: bool) -> &'static str {
     t(if on { CommonMsg::On } else { CommonMsg::Off })
 }
 
-/// The settings in `settings.json` that Undo puts back. Developer options aren't
-/// among them: turning one on needs its warning answered first.
+/// The settings in `settings.json` that Undo puts back. "Sign in as the Minecraft
+/// Launcher" isn't among them: turning it on needs its warning answered first.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct LauncherValues {
     language: Language,
@@ -32,6 +32,7 @@ pub(crate) struct LauncherValues {
     auto_update: bool,
     skin: Option<String>,
     instance_defaults: InstanceDefaults,
+    cli: CliSettings,
 }
 
 impl LauncherValues {
@@ -43,6 +44,7 @@ impl LauncherValues {
             auto_update: settings.auto_update,
             skin: settings.skin.clone(),
             instance_defaults: settings.instance_defaults.clone(),
+            cli: settings.cli,
         }
     }
 
@@ -53,6 +55,7 @@ impl LauncherValues {
         settings.auto_update = self.auto_update;
         settings.skin = self.skin.clone();
         settings.instance_defaults = self.instance_defaults.clone();
+        settings.cli = self.cli;
     }
 
     /// What `self` says where it differs from `other`.
@@ -77,6 +80,18 @@ impl LauncherValues {
                 .map(|spec| spec.name)
                 .unwrap_or_else(|| self.skin.clone().unwrap_or_default());
             arrow(t(SM::Skin), &name)
+        } else if self.cli.enabled != other.cli.enabled {
+            arrow(t(SM::AllowCli), on_off(self.cli.enabled))
+        } else if self.cli.access != other.cli.access {
+            let level = match self.cli.access {
+                CliAccess::Full => t(SM::CliFullControl),
+                CliAccess::ReadOnly => t(SM::CliReadOnly),
+            };
+            arrow(t(SM::CliAccess), level)
+        } else if self.cli.traces != other.cli.traces {
+            arrow(t(SM::DebugTraces), on_off(self.cli.traces))
+        } else if self.cli.game_logs != other.cli.game_logs {
+            arrow(t(SM::CliGameLogs), on_off(self.cli.game_logs))
         } else {
             t(SM::InstanceDefaults).to_string()
         }

@@ -182,13 +182,16 @@ struct SubscribeParams {
     /// Console rows from before the subscription to send first.
     #[serde(default)]
     backlog: usize,
+    #[serde(skip)]
+    topics_were_empty: bool,
 }
 
 pub fn subscribe(call: Call, cx: &mut App) -> Reply {
-    let params: SubscribeParams = match call.params() {
+    let mut params: SubscribeParams = match call.params() {
         Ok(params) => params,
         Err(err) => return ready(Err(err)),
     };
+    params.topics_were_empty = params.topics.is_empty();
     let topics: Vec<String> = if params.topics.is_empty() {
         TOPICS.iter().map(|t| t.to_string()).collect()
     } else {
@@ -198,6 +201,13 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
         return ready(Err(api_error(
             codes::INVALID_PARAMS,
             format!("No topic \"{bad}\". Topics: {}.", TOPICS.join(", ")),
+        )));
+    }
+    let explicit_log = topics.iter().any(|t| t == "log") && !params.topics_were_empty;
+    if explicit_log && !super::game_logs_allowed() {
+        return ready(Err(api_error(
+            codes::PERMISSION_DENIED,
+            "Game logs over the command line are off in Settings → Developer.",
         )));
     }
     let control = call.control.clone();
@@ -253,8 +263,11 @@ pub fn subscribe(call: Call, cx: &mut App) -> Reply {
                     if log {
                         let cursor = cursors.get(&id).copied().unwrap_or(0);
                         let (rows, next) = instances.log_since(&id, cursor);
-                        for row in &rows {
-                            events.push(("log", row_json(&id, row)));
+                        // skipped, not held, while game logs are off
+                        if super::game_logs_allowed() {
+                            for row in &rows {
+                                events.push(("log", row_json(&id, row)));
+                            }
                         }
                         cursors.insert(id.clone(), next);
                     }

@@ -252,6 +252,35 @@ pub fn text(message: M) -> &'static str {
         }
         M::TurnOffAndSignOut => "关闭并退出登录",
         M::TurnOffOnly => "仅关闭",
+        M::SignInSection => "Microsoft 登录",
+        M::CommandLineSection => "命令行",
+        M::CommandLineLead => {
+            "lodestone-launcher-cli 和你运行的其他程序通过启动器数据文件夹中的套接字与它通信。只有你的用户账户可以连接。这些设置只能在这里更改，不能通过命令行更改。"
+        }
+        M::AllowCli => "允许命令行连接",
+        M::AllowCliHint => "关闭后，套接字会关闭，已连接的程序会被断开。",
+        M::CliAccess => "权限",
+        M::CliAccessHint => "只读会回答查询，但拒绝任何会更改实例、设置、账户或文件的操作。",
+        M::CliFullControl => "完全控制",
+        M::CliReadOnly => "只读",
+        M::DebugTraces => "调试跟踪",
+        M::DebugTracesHint => {
+            "记录你的点击和启动器的操作，供 lodestone-launcher-cli trace 使用。关闭后不记录任何内容。"
+        }
+        M::CliGameLogs => "游戏日志",
+        M::CliGameLogsHint => "程序可以读取游戏的控制台输出。",
+        M::SocketPath => "套接字",
+        M::CopyPath => "复制路径",
+        M::OpenDataFolder => "打开数据文件夹",
+        M::SocketClosed => "已关闭",
+        M::SocketError => "套接字无法打开：{error}",
+        M::ConnectedClients => "已连接的程序",
+        M::NoClients => "没有已连接的程序。",
+        M::UnnamedClient => "未命名的程序",
+        M::ClientSince => "连接于 {time}",
+        M::ClientPid => "进程 {pid}",
+        M::Disconnect => "断开连接",
+        M::CliUnavailable => "Windows 上暂不支持命令行控制。",
 
         M::SignInWithMicrosoft => "使用 Microsoft 登录",
         M::LauncherIdentityNote => {
@@ -601,5 +630,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Values => ["{count} 个值"; 2],
         P::CopiedValues => ["已从“{name}”复制 {count} 个值。"; 2],
         P::LauncherAccounts => ["有 {count} 个账户正以 Minecraft Launcher 身份登录：{names}。"; 2],
+        P::Subscriptions => ["{count} 个订阅"; 2],
     }
 }

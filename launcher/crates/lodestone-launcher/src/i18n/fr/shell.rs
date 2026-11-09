@@ -304,6 +304,41 @@ pub fn text(message: M) -> &'static str {
         }
         M::TurnOffAndSignOut => "Désactiver et déconnecter",
         M::TurnOffOnly => "Désactiver seulement",
+        M::SignInSection => "Connexion Microsoft",
+        M::CommandLineSection => "Ligne de commande",
+        M::CommandLineLead => {
+            "lodestone-launcher-cli et les autres programmes que vous lancez joignent le lanceur par un socket dans son dossier de données. Seul votre compte utilisateur peut s’y connecter. Ces réglages ne se changent qu’ici, jamais depuis la ligne de commande."
+        }
+        M::AllowCli => "Autoriser les connexions en ligne de commande",
+        M::AllowCliHint => {
+            "Désactivé, le socket est fermé et les programmes connectés sont déconnectés."
+        }
+        M::CliAccess => "Accès",
+        M::CliAccessHint => {
+            "Lecture seule répond aux questions mais refuse tout ce qui modifie les instances, les réglages, les comptes ou les fichiers."
+        }
+        M::CliFullControl => "Contrôle total",
+        M::CliReadOnly => "Lecture seule",
+        M::DebugTraces => "Traces de débogage",
+        M::DebugTracesHint => {
+            "Enregistre ce sur quoi vous cliquez et ce que fait le lanceur, pour lodestone-launcher-cli trace. Désactivé, rien n’est enregistré."
+        }
+        M::CliGameLogs => "Journaux du jeu",
+        M::CliGameLogsHint => "Les programmes peuvent lire la sortie de la console du jeu.",
+        M::SocketPath => "Socket",
+        M::CopyPath => "Copier le chemin",
+        M::OpenDataFolder => "Ouvrir le dossier de données",
+        M::SocketClosed => "Fermé",
+        M::SocketError => "Le socket n’a pas pu s’ouvrir : {error}",
+        M::ConnectedClients => "Programmes connectés",
+        M::NoClients => "Aucun programme n’est connecté.",
+        M::UnnamedClient => "Programme sans nom",
+        M::ClientSince => "Connecté · {time}",
+        M::ClientPid => "Processus {pid}",
+        M::Disconnect => "Déconnecter",
+        M::CliUnavailable => {
+            "Le contrôle en ligne de commande n’est pas encore disponible sur Windows."
+        }
 
         M::SignInWithMicrosoft => "Se connecter avec Microsoft",
         M::LauncherIdentityNote => {
@@ -717,5 +752,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} compte est connecté en tant que Minecraft Launcher\u{a0}: {names}.",
             "{count} comptes sont connectés en tant que Minecraft Launcher\u{a0}: {names}.",
         ],
+        P::Subscriptions => ["{count} abonnement", "{count} abonnements"],
     }
 }

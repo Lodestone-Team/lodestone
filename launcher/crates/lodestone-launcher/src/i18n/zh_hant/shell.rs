@@ -252,6 +252,35 @@ pub fn text(message: M) -> &'static str {
         }
         M::TurnOffAndSignOut => "關閉並登出",
         M::TurnOffOnly => "只關閉",
+        M::SignInSection => "Microsoft 登入",
+        M::CommandLineSection => "命令列",
+        M::CommandLineLead => {
+            "lodestone-launcher-cli 和你執行的其他程式透過啟動器資料夾中的通訊端與它溝通。只有你的使用者帳號可以連線。這些設定只能在這裡變更，無法透過命令列變更。"
+        }
+        M::AllowCli => "允許命令列連線",
+        M::AllowCliHint => "關閉後，通訊端會關閉，已連線的程式會被中斷。",
+        M::CliAccess => "權限",
+        M::CliAccessHint => "唯讀會回答查詢，但拒絕任何會變更實例、設定、帳號或檔案的操作。",
+        M::CliFullControl => "完全控制",
+        M::CliReadOnly => "唯讀",
+        M::DebugTraces => "偵錯追蹤",
+        M::DebugTracesHint => {
+            "記錄你的點擊和啟動器的操作，供 lodestone-launcher-cli trace 使用。關閉後不記錄任何內容。"
+        }
+        M::CliGameLogs => "遊戲日誌",
+        M::CliGameLogsHint => "程式可以讀取遊戲的主控台輸出。",
+        M::SocketPath => "通訊端",
+        M::CopyPath => "複製路徑",
+        M::OpenDataFolder => "開啟資料夾",
+        M::SocketClosed => "已關閉",
+        M::SocketError => "通訊端無法開啟：{error}",
+        M::ConnectedClients => "已連線的程式",
+        M::NoClients => "沒有已連線的程式。",
+        M::UnnamedClient => "未命名的程式",
+        M::ClientSince => "連線於 {time}",
+        M::ClientPid => "處理程序 {pid}",
+        M::Disconnect => "中斷連線",
+        M::CliUnavailable => "Windows 上暫不支援命令列控制。",
 
         M::SignInWithMicrosoft => "使用 Microsoft 登入",
         M::LauncherIdentityNote => {
@@ -603,5 +632,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::Values => ["{count} 個值"; 2],
         P::CopiedValues => ["已從「{name}」複製 {count} 個值。"; 2],
         P::LauncherAccounts => ["有 {count} 個帳號正以 Minecraft Launcher 身分登入：{names}。"; 2],
+        P::Subscriptions => ["{count} 個訂閱"; 2],
     }
 }
