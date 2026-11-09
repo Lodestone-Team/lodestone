@@ -10,7 +10,10 @@ use launcher_core::accounts::AccountKind;
 use launcher_core::ui_skin::SurfaceId;
 
 use super::{LauncherShell, account_box, developer};
-use crate::components::KeyboardFocus;
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role},
+};
 use crate::{
     accounts::SessionState,
     components::{
@@ -291,6 +294,11 @@ impl LauncherShell {
                                     .gap_1()
                                     .child(
                                         div()
+                                            .id("settings-page-title")
+                                            .role(Role::Heading)
+                                            .aria_level(1)
+                                            .aria_label(page.title())
+                                            .accessibility_id("settings-page-title")
                                             .font_family(fonts::heading())
                                             .text_size(theme::text_size(text::H2))
                                             .line_height(theme::line_height(
@@ -388,7 +396,7 @@ impl LauncherShell {
                                     .child(name),
                             )
                             .child(div().flex().child(
-                                muted_link("manage-accounts", t(M::ManageAccounts)).on_click(
+                                muted_link("manage-accounts", t(M::ManageAccounts)).on_press(
                                     cx.listener(|this, _, _, cx| {
                                         this.set_settings_page(SettingsPage::Accounts, cx);
                                         this.settings_nav_open = false;
@@ -414,6 +422,12 @@ impl LauncherShell {
                 sidebar = sidebar.child(
                     div()
                         .id(("settings-nav", page as usize))
+                        .accessible(
+                            Role::Tab,
+                            format!("settings-nav-{page:?}").to_lowercase(),
+                            page.title(),
+                        )
+                        .aria_selected(selected)
                         .keyboard_focus()
                         .flex()
                         .flex_row()
@@ -447,7 +461,7 @@ impl LauncherShell {
                         ))
                         // Long titles wrap rather than lose their end.
                         .child(div().flex_1().min_w_0().child(page.title()))
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_press(cx.listener(move |this, _, _, cx| {
                             this.set_settings_page(page, cx);
                             this.settings_nav_open = false;
                             cx.notify();
@@ -488,9 +502,24 @@ impl LauncherShell {
                 .child(
                     select_button(
                         "language",
-                        div().font_weight(weights::BOLD.into()).child(current),
+                        div()
+                            .font_weight(weights::BOLD.into())
+                            .child(current.clone()),
                     )
-                    .on_click(cx.listener(|this, _, _, cx| {
+                    .aria_label(t(ShellMsg::Language))
+                    .aria_value(current)
+                    .expandable(self.language_menu_open, {
+                        let shell = cx.entity().downgrade();
+                        move |_, cx| {
+                            shell
+                                .update(cx, |this, cx| {
+                                    this.language_menu_open = !this.language_menu_open;
+                                    cx.notify();
+                                })
+                                .ok();
+                        }
+                    })
+                    .on_press(cx.listener(|this, _, _, cx| {
                         this.language_menu_open = !this.language_menu_open;
                         cx.notify();
                     })),
@@ -518,6 +547,7 @@ impl LauncherShell {
             .hint(format!("{key}+  {key}−  {key}0"))
             .child(
                 Button::new("zoom-out", "−")
+                    .accessible_label(t(ShellMsg::ZoomOut))
                     .variant(ButtonVariant::Secondary)
                     .size(ButtonSize::Slim)
                     .disabled(zoom <= levels[0])
@@ -533,6 +563,7 @@ impl LauncherShell {
             )
             .child(
                 Button::new("zoom-in", "+")
+                    .accessible_label(t(ShellMsg::ZoomIn))
                     .variant(ButtonVariant::Secondary)
                     .size(ButtonSize::Slim)
                     .disabled(zoom >= levels[levels.len() - 1])
@@ -540,7 +571,7 @@ impl LauncherShell {
             )
             .when(zoom != 1.0, |row| {
                 row.child(
-                    muted_link("zoom-reset", t(CommonMsg::Reset)).on_click(cx.listener(
+                    muted_link("zoom-reset", t(CommonMsg::Reset)).on_press(cx.listener(
                         |this, _, _, cx| {
                             this.instances
                                 .update(cx, |instances, cx| instances.set_zoom(1.0, cx))
@@ -554,13 +585,13 @@ impl LauncherShell {
             SettingRow::new(t(M::GroupAutomatically))
                 .hint(t(M::GroupAutomaticallyHint))
                 .child(
-                    Toggle::new("auto-groups", auto_groups).on_change(cx.listener(
-                        |this, value: &bool, _, cx| {
+                    Toggle::new("auto-groups", auto_groups)
+                        .label(t(M::GroupAutomatically))
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
                             let on = *value;
                             this.instances
                                 .update(cx, |instances, cx| instances.set_auto_groups(on, cx));
-                        },
-                    )),
+                        })),
                 )
                 .into_any_element(),
         );
@@ -739,6 +770,7 @@ impl LauncherShell {
                 .hint(t(M::UpdateAutomaticallyHint))
                 .child(
                     Toggle::new("auto-update", auto_update)
+                        .label(t(M::UpdateAutomatically))
                         .disabled(build.is_none())
                         .on_change(cx.listener(|this, value: &bool, _, cx| {
                             let on = *value;
@@ -804,6 +836,7 @@ impl LauncherShell {
             rows.push(
                 SettingRow::new(account.username.clone())
                     .selectable_label()
+                    .key(SharedString::from(format!("account-{}", account.id)))
                     .leading(account_box::avatar(accounts, Some(account), px(28.)))
                     .hint(kind)
                     .when(account.uses_launcher_identity(), |row| {
@@ -811,7 +844,7 @@ impl LauncherShell {
                     })
                     .when(needs_sign_in, |row| {
                         row.child(
-                            link(("account-sign-in", index), t(M::SignInAgain)).on_click(
+                            link(("account-sign-in", index), t(M::SignInAgain)).on_press(
                                 cx.listener(|this, _, window, cx| {
                                     this.open_sign_in(Some(window), cx)
                                 }),
@@ -822,7 +855,7 @@ impl LauncherShell {
                         if in_use {
                             row.child(tag(t(M::InUse), colors::GREEN_300))
                         } else {
-                            row.child(link(("account-use", index), t(M::Use)).on_click(
+                            row.child(link(("account-use", index), t(M::Use)).on_press(
                                 cx.listener(move |this, _, _, cx| {
                                     this.accounts
                                         .update(cx, |accounts, cx| accounts.switch(&switch_id, cx));
@@ -831,7 +864,7 @@ impl LauncherShell {
                         }
                     })
                     .child(
-                        muted_link(("account-remove", index), t(CommonMsg::Remove)).on_click(
+                        muted_link(("account-remove", index), t(CommonMsg::Remove)).on_press(
                             cx.listener(move |this, _, window, cx| {
                                 this.confirm_remove(&remove_id, Some(window), cx)
                             }),

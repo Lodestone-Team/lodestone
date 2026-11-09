@@ -58,9 +58,11 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
     let sign_in = card([SettingRow::new(t(M::SignInAsLauncher))
         .hint(t(M::SignInAsLauncherHint))
         .child(
-            Toggle::new("launcher-identity", enabled).on_change(cx.listener(
-                |this, value: &bool, window, cx| this.request_launcher_identity(*value, window, cx),
-            )),
+            Toggle::new("launcher-identity", enabled)
+                .label(t(M::SignInAsLauncher))
+                .on_change(cx.listener(|this, value: &bool, window, cx| {
+                    this.request_launcher_identity(*value, window, cx)
+                })),
         )
         .into_any_element()]);
     div()

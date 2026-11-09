@@ -171,7 +171,11 @@ impl ServerDetail {
             events_status: StreamStatus::Connecting,
             console_status: StreamStatus::Connecting,
             console: Vec::new(),
-            chat: cx.new(|cx| TextInput::new(cx).with_placeholder(M::ChatPlaceholder)),
+            chat: cx.new(|cx| {
+                TextInput::new(cx)
+                    .with_placeholder(M::ChatPlaceholder)
+                    .with_automation_id("server-chat")
+            }),
             sending: false,
             chat_error: None,
             links: LinkState::Loading,

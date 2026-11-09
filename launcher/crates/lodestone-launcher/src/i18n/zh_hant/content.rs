@@ -54,6 +54,7 @@ pub fn text(message: M) -> &'static str {
         M::CheckForUpdates => "檢查更新",
         M::UpdateAll => "全部更新（{count}）",
         M::AddFile => "加入檔案…",
+        M::AddFolder => "加入資料夾…",
         M::ItemFolder => "{name} · 資料夾",
         M::Compatible => "相容",
         M::OlderVersion => "較舊版本",

@@ -2,6 +2,7 @@
 //!
 //! Run `cargo run --example components` to see each one.
 
+pub mod a11y;
 mod button;
 mod dialog;
 mod dialog_slot;
@@ -20,6 +21,7 @@ mod toggle;
 mod tooltip;
 pub mod window_frame;
 
+pub use a11y::Accessible;
 pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
 pub use dialog::Dialog;
 pub(crate) use dialog::prefers_reduced_motion;

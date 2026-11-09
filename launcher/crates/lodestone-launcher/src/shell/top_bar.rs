@@ -12,6 +12,7 @@ use super::{LauncherShell, Page};
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, KeyboardFocus,
+        a11y::{Accessible, AccessibleAction, Role},
         window_frame::{self, Side},
     },
     i18n::{ShellMsg as M, t},
@@ -94,7 +95,7 @@ pub fn render(
                 window.start_window_move();
             }
         }))
-        .on_click(move |event, window, _| {
+        .on_press(move |event, window, _| {
             if event.click_count() == 2 {
                 if double_click_zooms {
                     window.zoom_window();
@@ -125,6 +126,7 @@ pub fn render(
         .child(
             div()
                 .id("logo")
+                .accessible(Role::Button, "logo", "Lodestone Launcher")
                 .keyboard_focus()
                 .rounded(radius::DEFAULT)
                 .flex_none()
@@ -133,7 +135,7 @@ pub fn render(
                 // open Windows' system menu or the compositor's window menu.
                 .when(windows || own_frame, |logo| logo.occlude())
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .on_click(cx.listener(|this, _, _, cx| this.show(Page::Instance, cx)))
+                .on_press(cx.listener(|this, _, _, cx| this.show(Page::Instance, cx)))
                 .child(
                     img(crate::images::logo(cx))
                         .w(layout::logo_width())
@@ -286,8 +288,26 @@ impl CaptionButton {
         } else {
             colors::GRAY_500
         };
+        // Windows handles their clicks itself (they are caption areas), so assistive
+        // technology gets its own: Minimize and Maximize here, and Close through the
+        // window's own Close (UI Automation's `WindowPattern`), which asks first.
+        let name = match self {
+            Self::Minimize => t(M::MinimizeWindow),
+            Self::Maximize => t(M::MaximizeWindow),
+            Self::Restore => t(M::RestoreWindow),
+            Self::Close => t(crate::i18n::CommonMsg::Close),
+        };
         div()
             .id(id)
+            .accessible(Role::Button, id, name)
+            .map(|this| match self {
+                Self::Minimize => this.on_a11y_action(AccessibleAction::Click, |_, window, _| {
+                    window.minimize_window()
+                }),
+                Self::Maximize | Self::Restore => this
+                    .on_a11y_action(AccessibleAction::Click, |_, window, _| window.zoom_window()),
+                Self::Close => this,
+            })
             .flex()
             .items_center()
             .justify_center()
@@ -418,6 +438,7 @@ fn update_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Opti
     Some(
         div()
             .id("update-notice")
+            .accessible(Role::Status, "update-notice", label)
             .flex()
             .flex_row()
             .flex_none()

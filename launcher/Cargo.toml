@@ -48,6 +48,10 @@ reqwest = { git = "https://github.com/zed-industries/reqwest.git", rev = "33bc76
 
 # Third-party crates. Each resolves to the version in Zed v1.27.0's Cargo.lock, and
 # uses the requirement and features Zed declares where Zed declares it.
+# The accessibility tree GPUI reports to the system (`components::a11y`): the launcher
+# names `ActionData`, which GPUI doesn't re-export, to set values from assistive
+# technology. Zed's requirement and features; 0.24.1 in its lockfile, as here.
+accesskit = { version = "0.24.0", features = ["enumn"] }
 anyhow = "1.0.86"
 # lodestone-launcher-cli's command line. Zed's requirement and features; 4.5.49 in its
 # lockfile, as here (GPUI's build tools already lock it). `wrap_help` adds terminal_size

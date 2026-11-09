@@ -7,6 +7,7 @@ use gpui::{
     prelude::*,
 };
 
+use super::a11y::{Accessible, AccessibleAction, ActionData, Role};
 use super::focus::KeyboardFocus;
 use crate::theme::{self, colors, text};
 
@@ -35,6 +36,7 @@ pub struct Slider {
     step: f64,
     width: Pixels,
     disabled: bool,
+    label: Option<SharedString>,
     format: Option<Formatter>,
     on_change: Option<ChangeHandler>,
 }
@@ -49,9 +51,17 @@ impl Slider {
             step,
             width: px(180.),
             disabled: false,
+            label: None,
             format: None,
             on_change: None,
         }
+    }
+
+    /// What the slider sets, for assistive technology and automation. In a settings
+    /// row it is the row's name.
+    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = Some(label.into());
+        self
     }
 
     pub fn width(mut self, width: Pixels) -> Self {
@@ -96,6 +106,7 @@ impl RenderOnce for Slider {
             step,
             width,
             disabled,
+            label: name,
             format,
             on_change,
         } = self;
@@ -118,7 +129,13 @@ impl RenderOnce for Slider {
         };
 
         let track = div()
-            .id(id)
+            .id(id.clone())
+            .accessible_id(Role::Slider, &id, name.unwrap_or_default())
+            .aria_numeric_value(shown)
+            .aria_min_numeric_value(min)
+            .aria_max_numeric_value(max)
+            .when(step > 0.0, |this| this.aria_numeric_value_step(step))
+            .aria_value(label.clone())
             .relative()
             .flex_none()
             .w(width)
@@ -197,6 +214,39 @@ impl RenderOnce for Slider {
                 )
                 .absolute()
                 .size_full()
+            })
+            .when(!disabled, |this| {
+                // Assistive technology sets the value, or moves it a step.
+                let set = |target: fn(f64, f64, f64, f64, Option<&ActionData>) -> Option<f64>| {
+                    let on_change = on_change.clone();
+                    move |data: Option<&ActionData>, window: &mut Window, cx: &mut App| {
+                        let Some(next) = target(value, min, max, step, data) else {
+                            return;
+                        };
+                        let next = snap(next, min, max, step);
+                        if next != value
+                            && let Some(on_change) = on_change.as_ref()
+                        {
+                            on_change(next, window, cx);
+                        }
+                    }
+                };
+                this.on_a11y_action(
+                    AccessibleAction::SetValue,
+                    set(|_, _, _, _, data| match data {
+                        Some(ActionData::NumericValue(value)) => Some(*value),
+                        Some(ActionData::Value(text)) => text.trim().parse().ok(),
+                        _ => None,
+                    }),
+                )
+                .on_a11y_action(
+                    AccessibleAction::Increment,
+                    set(|value, _, _, step, _| Some(value + step)),
+                )
+                .on_a11y_action(
+                    AccessibleAction::Decrement,
+                    set(|value, _, _, step, _| Some(value - step)),
+                )
             })
             .when(!disabled, |this| {
                 let pressed = drag.clone();

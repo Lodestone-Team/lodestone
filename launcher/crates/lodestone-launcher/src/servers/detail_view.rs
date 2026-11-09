@@ -22,7 +22,10 @@ use super::{
     loader_label, status_label,
 };
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots},
+    components::{
+        Button, ButtonSize, ButtonVariant, Icon, LoadingDots,
+        a11y::{Accessible, Role},
+    },
     i18n::{CommonMsg, ServersMsg as M, t, tr},
     theme::{self, Color, colors, fonts, leading, radius, text, weights},
 };
@@ -151,6 +154,11 @@ fn console_row(index: usize, line: &ParsedConsoleLine) -> AnyElement {
     };
     div()
         .id(("console-row", index))
+        .accessible(
+            Role::ListItem,
+            format!("console-row-{index}"),
+            content.clone(),
+        )
         .h(px(ROW_HEIGHT))
         .px_3()
         .flex()
@@ -265,6 +273,10 @@ impl ServerDetail {
                     .min_w_0()
                     .child(
                         div()
+                            .id("server-detail-name")
+                            .role(Role::Heading)
+                            .aria_level(1)
+                            .aria_label(server.name.clone())
                             .truncate()
                             .font_family(fonts::heading())
                             .text_size(theme::text_size(text::H1))
@@ -283,6 +295,8 @@ impl ServerDetail {
             )
             .child(
                 div()
+                    .id("server-detail-status")
+                    .accessible(Role::Status, "server-detail-status", status.clone())
                     .flex()
                     .flex_row()
                     .items_center()
@@ -480,6 +494,7 @@ impl ServerDetail {
             .child(
                 div()
                     .id("server-console")
+                    .accessible(Role::Log, "server-console", t(M::Console))
                     .flex_1()
                     .min_h_0()
                     .rounded(radius::LG)
@@ -514,8 +529,14 @@ impl ServerDetail {
                 }))
                 .text_color(crate::theme::ink::muted()),
             ),
-            Some(players) => card.children(players.iter().map(|player| {
+            Some(players) => card.children(players.iter().enumerate().map(|(index, player)| {
                 div()
+                    .id(("player", index))
+                    .accessible(
+                        Role::ListItem,
+                        format!("player-{index}"),
+                        player.name.clone(),
+                    )
                     .flex()
                     .flex_row()
                     .items_center()

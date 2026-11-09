@@ -15,7 +15,11 @@ use gpui::{
 };
 
 use crate::{
-    components::{ArrowGroup, FocusScope, Icon, focus::KeyboardFocus},
+    components::{
+        ArrowGroup, FocusScope, Icon,
+        a11y::{Accessible, Role, automation_id},
+        focus::KeyboardFocus,
+    },
     i18n::{CommonMsg, t},
     theme::{self, Color, colors, fonts, leading, radius, shadow, text, weights},
 };
@@ -31,6 +35,7 @@ pub fn nav_width() -> Pixels {
 
 /// A section: its heading and an optional line under it, then its cards.
 pub fn section(title: impl Into<SharedString>, lead: Option<SharedString>) -> Div {
+    let title: SharedString = title.into();
     div().flex().flex_col().gap_2().w_full().child(
         div()
             .flex()
@@ -38,11 +43,15 @@ pub fn section(title: impl Into<SharedString>, lead: Option<SharedString>) -> Di
             .gap_0p5()
             .child(
                 div()
+                    .id(title.clone())
+                    .role(Role::Heading)
+                    .aria_level(2)
+                    .aria_label(title.clone())
                     .font_family(fonts::heading())
                     .text_size(theme::text_size(text::H3))
                     .font_weight(weights::BOLD.into())
                     .text_color(crate::theme::ink::text())
-                    .child(title.into()),
+                    .child(title),
             )
             .when_some(lead, |this, lead| {
                 this.child(
@@ -84,6 +93,9 @@ pub fn card(rows: impl IntoIterator<Item = AnyElement>) -> Div {
 /// optional note (an error or a warning) and content under them.
 #[derive(IntoElement)]
 pub struct SettingRow {
+    /// Its element id, when its name may not be unique (rows named after instances or
+    /// accounts); the name otherwise.
+    key: Option<ElementId>,
     label: SharedString,
     label_color: Color,
     hint: Option<SharedString>,
@@ -99,6 +111,7 @@ pub struct SettingRow {
 impl SettingRow {
     pub fn new(label: impl Into<SharedString>) -> Self {
         Self {
+            key: None,
             label: label.into(),
             label_color: colors::GRAY_300,
             hint: None,
@@ -114,6 +127,13 @@ impl SettingRow {
     /// Lets the name be selected and copied. Not for names that label a control.
     pub fn selectable_label(mut self) -> Self {
         self.selectable_label = true;
+        self
+    }
+
+    /// An element id for a row whose name another row may share, such as one named
+    /// after an instance: assistive technology needs each row to be unique.
+    pub fn key(mut self, key: impl Into<ElementId>) -> Self {
+        self.key = Some(key.into());
         self
     }
 
@@ -170,7 +190,18 @@ impl SettingRow {
 
 impl RenderOnce for SettingRow {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        // A group named after the row, so its controls (a switch, a slider, a value)
+        // are found under the setting they change.
+        let id = self
+            .key
+            .clone()
+            .unwrap_or_else(|| self.label.clone().into());
         div()
+            .id(id.clone())
+            .role(Role::Group)
+            .accessibility_id(automation_id(&id))
+            .aria_label(self.label.clone())
+            .when_some(self.hint.clone(), |this, hint| this.aria_description(hint))
             .flex()
             .flex_col()
             .gap_2()
@@ -288,8 +319,11 @@ fn link_colored(
     label: impl Into<SharedString>,
     color: Color,
 ) -> Stateful<Div> {
+    let id = id.into();
+    let label: SharedString = label.into();
     div()
-        .id(id)
+        .id(id.clone())
+        .accessible_id(Role::Button, &id, label.clone())
         .keyboard_focus()
         // Room for the focus ring around the text, without moving it.
         .px_1()
@@ -303,13 +337,17 @@ fn link_colored(
         .text_size(theme::text_size(text::SMALL))
         .text_color(color)
         .hover(|style| style.text_color(crate::theme::ink::text()))
-        .child(label.into())
+        .child(label)
 }
 
-/// A button that opens a list, styled like a text field.
+/// A button that opens a list, styled like a text field. Name it for assistive
+/// technology with `.aria_label(…)` and give the choice shown as `.aria_value(…)`.
 pub fn select_button(id: impl Into<ElementId>, label: impl IntoElement) -> Stateful<Div> {
+    let id = id.into();
     div()
-        .id(id)
+        .id(id.clone())
+        .role(Role::ComboBox)
+        .accessibility_id(automation_id(&id))
         .keyboard_focus_outer()
         .flex()
         .flex_row()
@@ -356,8 +394,11 @@ pub fn popover(
 
 /// The box a popover's list sits in.
 pub fn popover_panel(id: impl Into<ElementId>) -> Stateful<Div> {
+    let id = id.into();
     div()
-        .id(id)
+        .id(id.clone())
+        .role(Role::List)
+        .accessibility_id(automation_id(&id))
         .occlude()
         .flex()
         .flex_col()
@@ -417,7 +458,9 @@ pub fn section_list(
     on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     let on_pick = Rc::new(on_pick);
+    let count = titles.len();
     ArrowGroup::new((id, usize::MAX))
+        .group_role(Role::TabList)
         .flex()
         .flex_col()
         .flex_none()
@@ -428,6 +471,10 @@ pub fn section_list(
             let selected = index == active;
             div()
                 .id((id, index))
+                .accessible(Role::Tab, format!("{id}-{index}"), title.clone())
+                .aria_selected(selected)
+                .aria_position_in_set(index + 1)
+                .aria_size_of_set(count)
                 .keyboard_focus()
                 .px_2p5()
                 .py_1p5()
@@ -444,7 +491,7 @@ pub fn section_list(
                     }
                 })
                 .child(title.clone())
-                .on_click(move |_, window, cx| on_pick(index, window, cx))
+                .on_press(move |_, window, cx| on_pick(index, window, cx))
         }))
 }
 
@@ -534,6 +581,8 @@ impl Toast {
             gpui::Animation::new(TOAST_ENTER).with_easing(|t| 1. - (1. - t).powi(3))
         };
         let pill = div()
+            .id("toast")
+            .accessible(Role::Status, "toast", message.clone())
             .relative()
             .occlude()
             .flex()
@@ -576,7 +625,7 @@ impl Toast {
                 pill.child(
                     link("toast-action", label)
                         .ml_1()
-                        .on_click(move |_, window, cx| action(window, cx)),
+                        .on_press(move |_, window, cx| action(window, cx)),
                 )
             })
             .with_animation(
@@ -608,8 +657,11 @@ pub fn section_menu_button(
     id: impl Into<ElementId>,
     title: impl Into<SharedString>,
 ) -> Stateful<Div> {
+    let id = id.into();
+    let title: SharedString = title.into();
     div()
-        .id(id)
+        .id(id.clone())
+        .accessible_id(Role::Button, &id, title.clone())
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -624,7 +676,7 @@ pub fn section_menu_button(
         .text_color(crate::theme::ink::text())
         .hover(|style| style.bg(colors::GRAY_800))
         .child(Icon::Bars.render(px(13.), colors::GRAY_500))
-        .child(title.into())
+        .child(title)
 }
 
 /// A panel over the left of an area, with the rest dimmed; a click on the dimmed
@@ -646,10 +698,11 @@ pub fn left_overlay(
         .child(
             div()
                 .id((id, 0usize))
+                .accessible(Role::Button, format!("{id}-close"), t(CommonMsg::Close))
                 .absolute()
                 .inset_0()
                 .bg(colors::GRAY_900.opacity(60))
-                .on_click(move |event, window, cx| on_close(event, window, cx)),
+                .on_press(move |event, window, cx| on_close(event, window, cx)),
         )
         .child(
             div()
@@ -687,6 +740,7 @@ pub fn unsaved_bar(
     on_save: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
     let reduce_motion = super::dialog::prefers_reduced_motion();
+    let message: SharedString = message.into();
     div()
         .absolute()
         .bottom_5()
@@ -699,6 +753,7 @@ pub fn unsaved_bar(
         .child(
             div()
                 .id(id)
+                .accessible(Role::Status, id, message.clone())
                 .occlude()
                 .relative()
                 .flex()
@@ -728,9 +783,9 @@ pub fn unsaved_bar(
                         .min_w_0()
                         .font_weight(weights::BOLD.into())
                         .text_color(crate::theme::ink::text())
-                        .child(message.into()),
+                        .child(message),
                 )
-                .child(muted_link((id, 0usize), t(CommonMsg::Discard)).on_click(on_discard))
+                .child(muted_link((id, 0usize), t(CommonMsg::Discard)).on_press(on_discard))
                 .child(
                     crate::components::Button::new((id, 1usize), t(CommonMsg::Save))
                         .variant(crate::components::ButtonVariant::Primary)

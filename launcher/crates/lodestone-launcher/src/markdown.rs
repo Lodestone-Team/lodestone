@@ -15,7 +15,10 @@ use gpui::{
 use launcher_core::markdown::{Block, Inline};
 
 use crate::{
-    components::KeyboardFocus,
+    components::{
+        KeyboardFocus,
+        a11y::{Accessible, Role},
+    },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -158,11 +161,13 @@ impl Renderer<'_> {
         match link {
             Some(link) => {
                 let link = link.clone();
+                let (prefix, index) = self.id();
                 div()
-                    .id(self.id())
+                    .id((prefix.clone(), index))
+                    .accessible(Role::Link, format!("{prefix}-{index}"), link.clone())
                     .keyboard_focus()
                     .cursor_pointer()
-                    .on_click(move |_, _, cx| cx.open_url(&link))
+                    .on_press(move |_, _, cx| cx.open_url(&link))
                     .child(element)
                     .into_any_element()
             }

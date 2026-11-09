@@ -25,7 +25,10 @@ use super::{
         view::{badge, icon_box, pills, short_list, small, version_label},
     },
 };
-use crate::components::KeyboardFocus;
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role},
+};
 use crate::{
     components::{LoadingDots, TextInput},
     i18n::{ContentMsg as C, InstancesMsg as M, format, t, tr},
@@ -113,7 +116,11 @@ pub struct ModpackBrowser {
 
 impl ModpackBrowser {
     pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| TextInput::new(cx).with_placeholder(M::SearchModpacks));
+        let search = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::SearchModpacks)
+                .with_automation_id("modpack-search")
+        });
         let observe = vec![cx.observe(&search, |this, _, cx| this.search_changed(cx))];
         Self {
             instances,
@@ -591,6 +598,9 @@ impl ModpackBrowser {
             list = list.child(
                 div()
                     .id(("cf-pack-hit", index))
+                    .accessible(Role::ListItem, format!("cf-pack-{id}"), hit.name.clone())
+                    .aria_selected(selected)
+                    .aria_description(author.clone())
                     .keyboard_focus()
                     .flex()
                     .flex_row()
@@ -607,7 +617,7 @@ impl ModpackBrowser {
                             this.hover(|style| style.bg(colors::GRAY_800))
                         }
                     })
-                    .on_click(cx.listener(move |this, _, _, cx| this.pick_cf(id, cx)))
+                    .on_press(cx.listener(move |this, _, _, cx| this.pick_cf(id, cx)))
                     .child(icon_box(icon, 36.))
                     .child(
                         div()
@@ -695,6 +705,7 @@ impl ModpackBrowser {
                     "cf-pack-page",
                     crate::components::Icon::ArrowUpRightFromSquare,
                 )
+                .label(t(C::ViewOnCurseForge))
                 .on_click(move |_, _, cx| cx.open_url(&page)),
             );
         let body: AnyElement = match files {
@@ -717,6 +728,13 @@ impl ModpackBrowser {
                     rows = rows.child(
                         div()
                             .id(("cf-pack-file", index))
+                            .accessible(
+                                Role::ListItem,
+                                format!("cf-pack-file-{id}"),
+                                file.display_name_or_file().to_string(),
+                            )
+                            .aria_selected(selected)
+                            .aria_description(label)
                             .keyboard_focus()
                             .flex()
                             .flex_row()
@@ -733,7 +751,7 @@ impl ModpackBrowser {
                                     this.hover(|style| style.bg(colors::GRAY_800))
                                 }
                             })
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                            .on_press(cx.listener(move |this, _, _, cx| {
                                 if let Some(picked) = &mut this.cf_picked {
                                     picked.file = Some(id);
                                 }
@@ -831,6 +849,9 @@ impl ModpackBrowser {
             list = list.child(
                 div()
                     .id(("pack-hit", index))
+                    .accessible(Role::ListItem, format!("pack-{id}"), hit.title.clone())
+                    .aria_selected(selected)
+                    .aria_description(hit.description.clone())
                     .keyboard_focus()
                     .flex()
                     .flex_row()
@@ -847,7 +868,7 @@ impl ModpackBrowser {
                             this.hover(|style| style.bg(colors::GRAY_800))
                         }
                     })
-                    .on_click(cx.listener(move |this, _, _, cx| this.pick(id.clone(), None, cx)))
+                    .on_press(cx.listener(move |this, _, _, cx| this.pick(id.clone(), None, cx)))
                     .child(icon_box(icon, 36.))
                     .child(
                         div()
@@ -982,6 +1003,13 @@ impl ModpackBrowser {
                         rows = rows.child(
                             div()
                                 .id(("pack-version", index))
+                                .accessible(
+                                    Role::ListItem,
+                                    format!("pack-version-{id}"),
+                                    version.version_number.clone(),
+                                )
+                                .aria_selected(selected)
+                                .aria_description(label)
                                 .keyboard_focus()
                                 .flex()
                                 .flex_row()
@@ -998,7 +1026,7 @@ impl ModpackBrowser {
                                         this.hover(|style| style.bg(colors::GRAY_800))
                                     }
                                 })
-                                .on_click(cx.listener(move |this, _, _, cx| {
+                                .on_press(cx.listener(move |this, _, _, cx| {
                                     if let Some(picked) = &mut this.picked {
                                         picked.version = Some(id.clone());
                                     }

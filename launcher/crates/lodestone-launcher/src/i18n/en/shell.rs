@@ -520,6 +520,11 @@ crate::i18n::messages! {
         Skin = "Skin",
         SkinGallery = "Skins",
         SkinImport = "Import…",
+        /// On Linux and Windows, whose file dialogs show files or folders but not
+        /// both, "Import…" splits in two: this one imports a skin pack's .zip...
+        SkinImportZip = "Import skin as zip",
+        /// ...and this one a skin pack that isn't zipped.
+        SkinImportFolder = "Import skin as folder",
         /// The file dialog's button that imports a skin.
         SkinImportButton = "Import",
         SkinExport = "Export…",
@@ -531,6 +536,9 @@ crate::i18n::messages! {
         SkinCopyName = "{name} copy",
         /// Built-in skins can't change, so a change makes a copy.
         SkinCopied = "Made a copy of {name} to change it.",
+        /// While a skin pack is being imported or exported, in the background.
+        SkinImporting = "Importing…",
+        SkinExporting = "Exporting…",
         SkinImported = "Imported {name}.",
         SkinExported = "Exported to {path}.",
         SkinSafeMode = "Started without a skin (--no-skin).",
