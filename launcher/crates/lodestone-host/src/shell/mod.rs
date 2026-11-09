@@ -159,6 +159,7 @@ impl Render for HostShell {
             _ => None,
         };
         let error = self.state.read(cx).error.clone();
+        let toasts = self.state.read(cx).toasts.clone();
         div()
             .relative()
             .size_full()
@@ -212,6 +213,7 @@ impl Render for HostShell {
                     ),
             )
             .when_some(self.create.clone(), |this, dialog| this.child(dialog))
+            .child(toasts)
             .min_w(layout::sidebar_width())
     }
 }

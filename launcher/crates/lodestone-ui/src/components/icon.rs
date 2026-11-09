@@ -42,10 +42,13 @@ pub enum Icon {
     Pen,
     FloppyDisk,
     CircleUser,
+    CircleInfo,
+    CircleCheck,
+    CircleExclamation,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 37] = [
+    pub const ALL: [Icon; 40] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -83,6 +86,9 @@ impl Icon {
         Icon::Pen,
         Icon::FloppyDisk,
         Icon::CircleUser,
+        Icon::CircleInfo,
+        Icon::CircleCheck,
+        Icon::CircleExclamation,
     ];
 
     /// The asset path of the icon's SVG.
@@ -125,6 +131,9 @@ impl Icon {
             Icon::Pen => "icons/pen.svg",
             Icon::FloppyDisk => "icons/floppy-disk.svg",
             Icon::CircleUser => "icons/circle-user.svg",
+            Icon::CircleInfo => "icons/circle-info.svg",
+            Icon::CircleCheck => "icons/circle-check.svg",
+            Icon::CircleExclamation => "icons/circle-exclamation.svg",
         }
     }
 
@@ -166,7 +175,10 @@ impl Icon {
             | Icon::UserGroup
             | Icon::ChevronDown
             | Icon::ChevronRight
-            | Icon::CircleUser => return format!("{self:?}").into(),
+            | Icon::CircleUser
+            | Icon::CircleInfo
+            | Icon::CircleCheck
+            | Icon::CircleExclamation => return format!("{self:?}").into(),
         };
         t(message).into()
     }
