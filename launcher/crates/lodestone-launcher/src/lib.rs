@@ -472,6 +472,29 @@ mod screenshot {
                     .timer(Duration::from_millis(300))
                     .await;
             }
+            // `--type TEXT`: types the text into the focused field, a key at a time,
+            // after the clicks (click into the field first).
+            if let Some(text) = arg_after("--type") {
+                window
+                    .update(cx, |_, window, cx| {
+                        let os = cx.platform_info().os;
+                        for c in text.chars() {
+                            let key = if c == ' ' {
+                                "space".to_string()
+                            } else {
+                                c.to_string()
+                            };
+                            if let Ok(keystroke) = gpui::Keystroke::parse_with_os(&key, os) {
+                                window.dispatch_keystroke(keystroke, cx);
+                            }
+                        }
+                        window.draw(cx).clear(cx);
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(300))
+                    .await;
+            }
             if let Some(steps) = arg_after("--bench-scroll").and_then(|n| n.parse().ok()) {
                 bench_scroll(window, steps, cx);
             }
