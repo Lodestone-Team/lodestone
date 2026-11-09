@@ -520,6 +520,40 @@ pub fn text(message: M) -> &'static str {
         M::UpdateReady => "构建 {build} 已安装，重启后即可使用。",
         M::UpdateReadyPlaying => "构建 {build} 已安装，关闭游戏后即可重启。",
         M::UpdateFailed => "无法更新：{error}",
+        M::DiscordSection => "Discord",
+        M::DiscordShowPlaying => "显示正在玩的内容",
+        M::DiscordShowPlayingHint => {
+            "你的 Discord 状态会显示你正在玩的实例或整合包、版本以及游玩时长。需要在这台电脑上打开 Discord 应用。"
+        }
+        M::DiscordShowWorld => "显示世界和维度",
+        M::DiscordShowWorldHint => {
+            "单人游戏中：世界名称和你所在的维度。游戏保存时更新，暂停时也会保存。"
+        }
+        M::DiscordShowCoordinates => "显示坐标",
+        M::DiscordShowCoordinatesHint => "能看到你 Discord 状态的人都会看到你的位置。",
+        M::DiscordShowServer => "显示服务器名称",
+        M::DiscordShowServerHint => "多人游戏中：服务器地址。从不显示 IP 地址和本地服务器。",
+        M::DiscordShowStats => "显示统计信息",
+        M::DiscordShowStatsHint => "世界的天数，以及你在其中的死亡次数和击杀的生物数。",
+        M::DiscordConnected => "你的 Discord 状态正在显示你玩的内容。",
+        M::DiscordIdle => "游戏运行时，你的 Discord 状态会显示出来。",
+        M::DiscordNotRunning => "Discord 未打开。打开后会显示你的状态。",
+        M::DiscordUnavailable => "此构建没有 Discord 应用，因此无法设置你的状态。",
+        M::DiscordStarting => "正在启动游戏",
+        M::DiscordInMenus => "在菜单中",
+        M::DiscordSingleplayer => "单人游戏",
+        M::DiscordSingleplayerIn => "单人游戏：{world}",
+        M::DiscordHardcoreIn => "极限模式：{world}",
+        M::DiscordLanIn => "局域网世界：{world}",
+        M::DiscordMultiplayer => "多人游戏",
+        M::DiscordMultiplayerOn => "多人游戏：{server}",
+        M::DiscordOverworld => "主世界",
+        M::DiscordNether => "下界",
+        M::DiscordEnd => "末地",
+        M::DiscordDay => "第 {day} 天",
+        M::DiscordMinecraft => "Minecraft {version}",
+        M::DiscordPlayedTotal => "已玩 {time}",
+        M::DiscordViewModpack => "查看整合包",
         M::CheckForUpdates => "立即检查",
         M::DownloadUpdate => "下载",
         M::RestartToUpdate => "重启",
@@ -751,5 +785,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::LauncherAccounts => ["有 {count} 个账户正以 Minecraft Launcher 身份登录：{names}。"; 2],
         P::Subscriptions => ["{count} 个订阅"; 2],
         P::PerfEntries => ["{count} 个条目"; 2],
+        P::DiscordDeaths => ["死亡 {count} 次"; 2],
+        P::DiscordMobsKilled => ["击杀 {count} 个生物"; 2],
+        P::DiscordBlocksMined => ["挖掘 {count} 个方块"; 2],
+        P::DiscordMods => ["{count} 个模组"; 2],
     }
 }

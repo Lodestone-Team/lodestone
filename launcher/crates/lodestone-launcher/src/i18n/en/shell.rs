@@ -560,6 +560,49 @@ crate::i18n::messages! {
         UpdateReadyPlaying = "Build {build} is installed. You can restart once the game is closed.",
         /// {error} is in English, from the updater.
         UpdateFailed = "Couldn't update: {error}",
+
+        // Settings > General > Discord, and the Discord status itself.
+        /// Settings > General: the section about the Discord status.
+        DiscordSection = "Discord",
+        /// Settings > General > Discord: set the Discord status while playing.
+        DiscordShowPlaying = "Show what you're playing",
+        DiscordShowPlayingHint = "Your Discord status shows the instance or modpack you're playing, its version, and for how long. Needs the Discord app open on this computer.",
+        DiscordShowWorld = "Show world and dimension",
+        DiscordShowWorldHint = "In single player: the world's name and the dimension you're in. They update when the game saves, as it does when you pause.",
+        DiscordShowCoordinates = "Show coordinates",
+        DiscordShowCoordinatesHint = "Everyone who can see your Discord status sees where you are.",
+        DiscordShowServer = "Show server name",
+        DiscordShowServerHint = "In multiplayer: the server's address. IP addresses and local servers are never shown.",
+        DiscordShowStats = "Show stats",
+        DiscordShowStatsHint = "The world's day, and your deaths and mobs killed in it.",
+        DiscordConnected = "Your Discord status shows what you're playing.",
+        DiscordIdle = "Your Discord status shows while a game runs.",
+        DiscordNotRunning = "Discord isn't open. Your status shows once it is.",
+        DiscordUnavailable = "This build has no Discord application, so it can't set your status.",
+        /// The Discord status: the game is loading.
+        DiscordStarting = "Starting the game",
+        /// The Discord status: the title screen and other menus.
+        DiscordInMenus = "In the menus",
+        DiscordSingleplayer = "Single player",
+        /// {world} is the world's name.
+        DiscordSingleplayerIn = "Single player: {world}",
+        DiscordHardcoreIn = "Hardcore: {world}",
+        /// A single-player world opened to LAN; {world} is its name.
+        DiscordLanIn = "LAN world: {world}",
+        DiscordMultiplayer = "Multiplayer",
+        /// {server} is the server's address.
+        DiscordMultiplayerOn = "Multiplayer: {server}",
+        DiscordOverworld = "Overworld",
+        DiscordNether = "The Nether",
+        DiscordEnd = "The End",
+        /// The in-game day.
+        DiscordDay = "Day {day}",
+        /// {version} is a Minecraft version.
+        DiscordMinecraft = "Minecraft {version}",
+        /// The time played in an instance in total: {time} is "2 h 5 min".
+        DiscordPlayedTotal = "{time} played",
+        /// The status's button to the modpack's page.
+        DiscordViewModpack = "View modpack",
         CheckForUpdates = "Check now",
         DownloadUpdate = "Download",
         RestartToUpdate = "Restart",
@@ -812,5 +855,10 @@ crate::i18n::messages! {
         /// Event and trace subscriptions a connected program has.
         Subscriptions = ("{count} subscription", "{count} subscriptions"),
         PerfEntries = ("{count} entry", "{count} entries"),
+        /// The Discord status's stats.
+        DiscordDeaths = ("{count} death", "{count} deaths"),
+        DiscordMobsKilled = ("{count} mob killed", "{count} mobs killed"),
+        DiscordBlocksMined = ("{count} block mined", "{count} blocks mined"),
+        DiscordMods = ("{count} mod", "{count} mods"),
     }
 }

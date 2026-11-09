@@ -40,6 +40,7 @@ use gpui::{App, AppContext as _, Context, Entity, EventEmitter, RenderImage, Sha
 use launcher_core::settings::AfterLaunch;
 use launcher_core::{
     content::{CurseForge, InstanceDirs, Modrinth, Target},
+    discord::activity::GameActivity,
     export,
     game::{
         crash::{self, CrashSummary, Outcome},
@@ -223,6 +224,8 @@ struct Run {
     /// Sends [`InstancesEvent::GameWindowOpened`] after a while if the log never
     /// says the window opened.
     window_wait: Option<Task<()>>,
+    /// Where the player is, for the Discord status.
+    activity: GameActivity,
 }
 
 impl Default for Run {
@@ -236,6 +239,7 @@ impl Default for Run {
             ticker: None,
             window_opened: false,
             window_wait: None,
+            activity: GameActivity::default(),
         }
     }
 }
@@ -308,6 +312,8 @@ pub enum InstancesEvent {
     GameWindowOpened(String),
     /// A game exited, after any [`InstancesEvent::Crashed`] for it.
     GameExited(String),
+    /// A game started, or where its player is changed (see [`Instances::playing`]).
+    ActivityChanged(String),
     /// A new instance, with no main instance yet: offer to make it the main one.
     OfferMain(String),
     /// `id` is to become the main instance, but `current` is: ask first.
@@ -665,6 +671,38 @@ impl Instances {
         self.runs
             .values()
             .any(|run| matches!(run.state, RunState::Preparing { .. }))
+    }
+
+    /// The game the Discord status shows, the one started last of those running: its
+    /// instance, when it started (Unix seconds) and where its player is.
+    pub fn playing(&self) -> Option<(&str, u64, &GameActivity)> {
+        let now = launcher_core::instances::now();
+        self.runs
+            .iter()
+            .filter_map(|(id, run)| match &run.state {
+                RunState::Running { started, .. } => Some((id, *started, &run.activity)),
+                _ => None,
+            })
+            .max_by_key(|(_, started, _)| *started)
+            .map(|(id, started, activity)| {
+                let since = now.saturating_sub(started.elapsed().as_secs());
+                (id.as_str(), since, activity)
+            })
+    }
+
+    /// Settings > General > Discord.
+    pub fn discord_settings(&self) -> launcher_settings::DiscordSettings {
+        self.settings.discord
+    }
+
+    pub fn set_discord_settings(
+        &mut self,
+        discord: launcher_settings::DiscordSettings,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(err) = self.update_settings(|settings| settings.discord = discord, cx) {
+            self.notice = Some(err.into());
+        }
     }
 
     /// Whether any game is running.
@@ -1767,6 +1805,7 @@ impl Instances {
         };
         run.ticker = None;
         run.window_opened = false;
+        run.activity = GameActivity::default();
         run.window_wait = Some(cx.spawn({
             let id = id.to_string();
             async move |this, cx| {
@@ -1792,14 +1831,17 @@ impl Instances {
                 let mut exited = None;
                 let alive = this.update(cx, |this, cx| {
                     let mut milestones = Vec::new();
+                    let mut activity_changed = false;
                     if let Some(run) = this.runs.get_mut(&id) {
                         for event in batch {
                             match event {
                                 GameEvent::Line(line) => {
                                     if !run.reached_menu && crash::reached_menu(&line.message) {
                                         run.reached_menu = true;
+                                        activity_changed |= run.activity.reached_menu();
                                         milestones.push(InstancesEvent::ReachedMenu(id.clone()));
                                     }
+                                    activity_changed |= run.activity.observe(&line.message);
                                     if !run.mods_refused
                                         && (crash::mods_refused(&line.message)
                                             || line
@@ -1839,6 +1881,9 @@ impl Instances {
                     for milestone in milestones {
                         cx.emit(milestone);
                     }
+                    if activity_changed {
+                        cx.emit(InstancesEvent::ActivityChanged(id.clone()));
+                    }
                     cx.notify();
                 });
                 if alive.is_err() {
@@ -1864,6 +1909,7 @@ impl Instances {
             Ok(instance) => self.update_listed(instance, cx),
             Err(err) => self.notice = Some(tr!(M::CouldntSavePlayed, error = err).into()),
         }
+        cx.emit(InstancesEvent::ActivityChanged(started_id));
         cx.notify();
     }
 

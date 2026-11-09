@@ -635,6 +635,100 @@ impl LauncherShell {
             .w_full()
             .child(general)
             .child(section(t(M::UpdatesSection), None).child(self.render_updates(cx)))
+            .child(section(t(M::DiscordSection), None).child(self.render_discord(cx)))
+    }
+
+    /// Settings > General > Discord: whether the Discord status shows the game, what it
+    /// shows, and whether it can.
+    fn render_discord(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        use crate::discord::Status;
+        let settings = self.instances.read(cx).discord_settings();
+        let status = self.discord.read(cx).status();
+        let unavailable = status == Status::Unavailable;
+        let off = unavailable || !settings.enabled;
+        let toggle = |id: &'static str,
+                      label: M,
+                      hint: M,
+                      on: bool,
+                      disabled: bool,
+                      set: fn(&mut launcher_core::settings::DiscordSettings, bool),
+                      cx: &mut Context<Self>| {
+            SettingRow::new(t(label))
+                .hint(t(hint))
+                .child(
+                    Toggle::new(id, on)
+                        .label(t(label))
+                        .disabled(disabled)
+                        .on_change(cx.listener(move |this, value: &bool, _, cx| {
+                            let mut settings = this.instances.read(cx).discord_settings();
+                            set(&mut settings, *value);
+                            this.instances.update(cx, |instances, cx| {
+                                instances.set_discord_settings(settings, cx)
+                            });
+                        })),
+                )
+                .into_any_element()
+        };
+        let mut rows = vec![toggle(
+            "discord-enabled",
+            M::DiscordShowPlaying,
+            M::DiscordShowPlayingHint,
+            settings.enabled && !unavailable,
+            unavailable,
+            |s, on| s.enabled = on,
+            cx,
+        )];
+        rows.push(toggle(
+            "discord-world",
+            M::DiscordShowWorld,
+            M::DiscordShowWorldHint,
+            settings.show_world,
+            off,
+            |s, on| s.show_world = on,
+            cx,
+        ));
+        rows.push(toggle(
+            "discord-coordinates",
+            M::DiscordShowCoordinates,
+            M::DiscordShowCoordinatesHint,
+            settings.show_coordinates,
+            off,
+            |s, on| s.show_coordinates = on,
+            cx,
+        ));
+        rows.push(toggle(
+            "discord-server",
+            M::DiscordShowServer,
+            M::DiscordShowServerHint,
+            settings.show_server,
+            off,
+            |s, on| s.show_server = on,
+            cx,
+        ));
+        rows.push(toggle(
+            "discord-stats",
+            M::DiscordShowStats,
+            M::DiscordShowStatsHint,
+            settings.show_stats,
+            off,
+            |s, on| s.show_stats = on,
+            cx,
+        ));
+        let note = match status {
+            Status::Unavailable => Some(t(M::DiscordUnavailable)),
+            Status::Off => None,
+            Status::Idle => Some(t(M::DiscordIdle)),
+            Status::NotRunning => Some(t(M::DiscordNotRunning)),
+            Status::Connected => Some(t(M::DiscordConnected)),
+        };
+        if let Some(note) = note {
+            rows.push(
+                SettingRow::new(t(M::DiscordSection))
+                    .hint(note)
+                    .into_any_element(),
+            );
+        }
+        card(rows)
     }
 
     /// Settings > General > Updates: "Update automatically", and the running build

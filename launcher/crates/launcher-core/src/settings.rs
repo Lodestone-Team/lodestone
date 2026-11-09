@@ -67,6 +67,9 @@ pub struct Settings {
     /// once the game's window opens. Minimize by default; left out of the file then.
     #[serde(default, skip_serializing_if = "is_default")]
     pub after_launch: AfterLaunch,
+    /// Settings > General > Discord. Left out of the file while untouched.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub discord: DiscordSettings,
     /// The launcher has offered to make a new instance the main one for shared game
     /// settings, which it does once (Settings > Developer can ask again). Left out of
     /// the file until then.
@@ -109,6 +112,7 @@ impl Default for Settings {
             auto_update: true,
             update_channel: UpdateChannel::Stable,
             after_launch: AfterLaunch::Minimize,
+            discord: DiscordSettings::default(),
             main_instance_offered: false,
             narrator_offered: false,
             zoom: 1.0,
@@ -264,6 +268,41 @@ impl Default for CliSettings {
             access: CliAccess::Full,
             traces: true,
             game_logs: true,
+        }
+    }
+}
+
+/// Settings > General > Discord: what the Discord status ([`crate::discord`]) shows
+/// while a game runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscordSettings {
+    /// "Show what you're playing": the status is set at all. On by default.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub enabled: bool,
+    /// The single-player world's name and the dimension the player is in. On by
+    /// default.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub show_world: bool,
+    /// The player's coordinates. Off by default: everyone who can see the status
+    /// would see where the player's base is.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub show_coordinates: bool,
+    /// The multiplayer server's name (never an IP address). On by default.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub show_server: bool,
+    /// The world's day, deaths and mobs killed. On by default.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub show_stats: bool,
+}
+
+impl Default for DiscordSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            show_world: true,
+            show_coordinates: false,
+            show_server: true,
+            show_stats: true,
         }
     }
 }

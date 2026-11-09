@@ -526,6 +526,40 @@ pub fn text(message: M) -> &'static str {
         M::UpdateReady => "組建 {build} 已安裝，重新啟動後即可使用。",
         M::UpdateReadyPlaying => "組建 {build} 已安裝，關閉遊戲後即可重新啟動。",
         M::UpdateFailed => "無法更新：{error}",
+        M::DiscordSection => "Discord",
+        M::DiscordShowPlaying => "顯示正在玩的內容",
+        M::DiscordShowPlayingHint => {
+            "你的 Discord 狀態會顯示你正在玩的實例或模組包、版本以及遊玩時間。需要在這台電腦上開啟 Discord 應用程式。"
+        }
+        M::DiscordShowWorld => "顯示世界和維度",
+        M::DiscordShowWorldHint => {
+            "單人遊戲中：世界名稱和你所在的維度。遊戲儲存時更新，暫停時也會儲存。"
+        }
+        M::DiscordShowCoordinates => "顯示座標",
+        M::DiscordShowCoordinatesHint => "能看到你 Discord 狀態的人都會看到你的位置。",
+        M::DiscordShowServer => "顯示伺服器名稱",
+        M::DiscordShowServerHint => "多人遊戲中：伺服器位址。絕不顯示 IP 位址和本機伺服器。",
+        M::DiscordShowStats => "顯示統計資料",
+        M::DiscordShowStatsHint => "世界的天數，以及你在其中的死亡次數和擊殺的生物數。",
+        M::DiscordConnected => "你的 Discord 狀態正在顯示你玩的內容。",
+        M::DiscordIdle => "遊戲執行時，你的 Discord 狀態會顯示出來。",
+        M::DiscordNotRunning => "Discord 未開啟。開啟後會顯示你的狀態。",
+        M::DiscordUnavailable => "此組建沒有 Discord 應用程式，因此無法設定你的狀態。",
+        M::DiscordStarting => "正在啟動遊戲",
+        M::DiscordInMenus => "在選單中",
+        M::DiscordSingleplayer => "單人遊戲",
+        M::DiscordSingleplayerIn => "單人遊戲：{world}",
+        M::DiscordHardcoreIn => "極限模式：{world}",
+        M::DiscordLanIn => "區域網路世界：{world}",
+        M::DiscordMultiplayer => "多人遊戲",
+        M::DiscordMultiplayerOn => "多人遊戲：{server}",
+        M::DiscordOverworld => "主世界",
+        M::DiscordNether => "地獄",
+        M::DiscordEnd => "終界",
+        M::DiscordDay => "第 {day} 天",
+        M::DiscordMinecraft => "Minecraft {version}",
+        M::DiscordPlayedTotal => "已玩 {time}",
+        M::DiscordViewModpack => "查看模組包",
         M::CheckForUpdates => "立即檢查",
         M::DownloadUpdate => "下載",
         M::RestartToUpdate => "重新啟動",
@@ -757,5 +791,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::LauncherAccounts => ["有 {count} 個帳號正以 Minecraft Launcher 身分登入：{names}。"; 2],
         P::Subscriptions => ["{count} 個訂閱"; 2],
         P::PerfEntries => ["{count} 個項目"; 2],
+        P::DiscordDeaths => ["死亡 {count} 次"; 2],
+        P::DiscordMobsKilled => ["擊殺 {count} 個生物"; 2],
+        P::DiscordBlocksMined => ["挖掘 {count} 個方塊"; 2],
+        P::DiscordMods => ["{count} 個模組"; 2],
     }
 }

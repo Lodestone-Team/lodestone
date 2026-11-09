@@ -119,7 +119,9 @@ impl Notices {
             // The dialog it opens records itself in traces.
             InstancesEvent::ImportSnapshot(_) => {}
             // Traced as game.window and game.exit.
-            InstancesEvent::GameWindowOpened(_) | InstancesEvent::GameExited(_) => {}
+            InstancesEvent::GameWindowOpened(_)
+            | InstancesEvent::GameExited(_)
+            | InstancesEvent::ActivityChanged(_) => {}
             // The dialogs they open record themselves in traces.
             InstancesEvent::OfferMain(_) | InstancesEvent::ConfirmMain { .. } => {}
             InstancesEvent::LoaderChanged(id) => self.push(
