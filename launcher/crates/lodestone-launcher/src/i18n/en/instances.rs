@@ -135,6 +135,7 @@ crate::i18n::messages! {
 
         // New instance > Modpack.
         SearchModpacks = "Search modpacks on Modrinth, or paste a Modrinth link",
+        SearchModpacksCurseForge = "Search modpacks on CurseForge",
         /// How search results are sorted.
         SortRelevance = "Relevance",
         SortDownloads = "Downloads",

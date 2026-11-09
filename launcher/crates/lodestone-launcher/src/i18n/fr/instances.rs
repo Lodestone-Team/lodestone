@@ -124,6 +124,7 @@ pub fn text(message: M) -> &'static str {
         M::UpdatingTo => "Mise à jour vers {version}",
 
         M::SearchModpacks => "Rechercher un modpack sur Modrinth ou coller un lien",
+        M::SearchModpacksCurseForge => "Rechercher un modpack sur CurseForge",
         M::SortRelevance => "Pertinence",
         M::SortDownloads => "Téléchargements",
         M::SortFollows => "Abonnés",

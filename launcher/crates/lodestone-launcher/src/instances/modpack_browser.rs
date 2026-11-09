@@ -175,6 +175,13 @@ impl ModpackBrowser {
 
     pub fn set_curseforge(&mut self, on: bool, cx: &mut Context<Self>) {
         self.curseforge = on;
+        let placeholder = if on {
+            M::SearchModpacksCurseForge
+        } else {
+            M::SearchModpacks
+        };
+        self.search
+            .update(cx, |search, cx| search.set_placeholder(placeholder, cx));
         if on && matches!(self.cf_results, Load::NotLoaded) {
             self.run_cf_search(cx);
         }

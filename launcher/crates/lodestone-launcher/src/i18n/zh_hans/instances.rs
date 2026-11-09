@@ -120,6 +120,7 @@ pub fn text(message: M) -> &'static str {
         M::UpdatingTo => "正在更新到 {version}",
 
         M::SearchModpacks => "在 Modrinth 上搜索整合包，或粘贴 Modrinth 链接",
+        M::SearchModpacksCurseForge => "在 CurseForge 上搜索整合包",
         M::SortRelevance => "相关性",
         M::SortDownloads => "下载量",
         M::SortFollows => "关注数",
