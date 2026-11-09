@@ -8,7 +8,9 @@
 //! draws a transparent band around the window that resizes it and holds its shadow,
 //! rounds its top corners, and puts minimize, maximize and close buttons in the top
 //! bar ([`controls`]). On X11 GPUI asks the window manager for decorations, and macOS
-//! and Windows always draw their own, so there this module changes nothing.
+//! always draws its own, so there this module changes nothing. Windows draws the
+//! frame too; the launcher's top bar replaces only its title bar, with caption buttons
+//! of Windows' own look (`shell::top_bar`), so this module changes nothing there either.
 //!
 //! Set `LODESTONE_LAUNCHER_CLIENT_DECORATIONS=1` to ask for the app's own frame on a
 //! desktop that would draw one (KDE), to see it there (see `crate::window_options`).
@@ -56,19 +58,29 @@ pub fn client_tiling(window: &Window) -> Option<Tiling> {
 /// outline on each untiled edge while the launcher draws its own frame. Use it, not
 /// `window.viewport_size()`, to size or lay out anything by the window's size.
 pub fn content_size(window: &Window) -> Size<Pixels> {
+    content_bounds(window).size
+}
+
+/// Where the window's content is, in window coordinates (those of mouse events):
+/// inside the frame's shadow band and outline while the launcher draws its own frame,
+/// or the whole viewport.
+pub fn content_bounds(window: &Window) -> Bounds<Pixels> {
     let viewport = window.viewport_size();
     match client_tiling(window) {
         Some(tiling) => inside_frame(viewport, tiling),
-        None => viewport,
+        None => Bounds::new(Point::default(), viewport),
     }
 }
 
 /// `viewport` less what [`frame`] puts around the content for `tiling`.
-fn inside_frame(viewport: Size<Pixels>, tiling: Tiling) -> Size<Pixels> {
+fn inside_frame(viewport: Size<Pixels>, tiling: Tiling) -> Bounds<Pixels> {
     let edge = |tiled: bool| if tiled { Pixels::ZERO } else { SHADOW + BORDER };
-    size(
-        (viewport.width - edge(tiling.left) - edge(tiling.right)).max(Pixels::ZERO),
-        (viewport.height - edge(tiling.top) - edge(tiling.bottom)).max(Pixels::ZERO),
+    Bounds::new(
+        point(edge(tiling.left), edge(tiling.top)),
+        size(
+            (viewport.width - edge(tiling.left) - edge(tiling.right)).max(Pixels::ZERO),
+            (viewport.height - edge(tiling.top) - edge(tiling.bottom)).max(Pixels::ZERO),
+        ),
     )
 }
 
@@ -303,17 +315,38 @@ fn buttons_on(
         .collect()
 }
 
-/// The window's buttons on `side` of the top bar, while the launcher draws its frame
-/// and the desktop puts buttons on that side.
-pub fn controls(side: Side, window: &Window, cx: &App) -> Option<AnyElement> {
-    client_tiling(window)?;
-    let buttons = buttons_on(
+/// The window's buttons for `side` of the top bar, while the launcher draws its frame:
+/// empty without its own frame, or where the desktop puts none on that side.
+fn window_buttons(side: Side, window: &Window, cx: &App) -> Vec<WindowButton> {
+    if client_tiling(window).is_none() {
+        return Vec::new();
+    }
+    buttons_on(
         side,
         cx.button_layout(),
         window.window_controls(),
         window.is_resizable(),
         window.is_minimizable(),
-    );
+    )
+}
+
+/// The width of `count` buttons side by side.
+fn row_width(count: usize) -> Pixels {
+    BUTTON * count as f32 + BUTTON_GAP * count.saturating_sub(1) as f32
+}
+
+/// The width of [`controls`] for `side`, for the top bar to leave room for them, or
+/// `None` where there are none.
+pub fn controls_width(side: Side, window: &Window, cx: &App) -> Option<Pixels> {
+    let count = window_buttons(side, window, cx).len();
+    (count > 0).then(|| row_width(count))
+}
+
+/// The window's buttons for `side` of the top bar in a row, while the launcher draws
+/// its frame and the desktop puts buttons on that side. The top bar places them (see
+/// `shell::top_bar::window_controls`).
+pub fn controls(side: Side, window: &Window, cx: &App) -> Option<AnyElement> {
+    let buttons = window_buttons(side, window, cx);
     if buttons.is_empty() {
         return None;
     }
@@ -329,13 +362,9 @@ pub fn controls(side: Side, window: &Window, cx: &App) -> Option<AnyElement> {
             .flex_none()
             .items_center()
             .gap(BUTTON_GAP)
-            // Apart from the bar's other controls.
-            .map(|this| match side {
-                Side::Left => this.mr(gpui::px(12.)),
-                Side::Right => this.ml(gpui::px(12.)),
-            })
-            // Clicks here don't move the window.
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            // The pointer is over the buttons, not the top bar under them: a press
+            // between two buttons doesn't move the window.
+            .occlude()
             .children(
                 buttons
                     .into_iter()
@@ -485,17 +514,26 @@ mod tests {
     fn the_content_is_inside_the_band_and_the_outline() {
         assert_eq!(
             inside_frame(WINDOW, Tiling::default()),
-            size(gpui::px(778.), gpui::px(578.))
+            Bounds::new(at(11., 11.), size(gpui::px(778.), gpui::px(578.)))
         );
-        assert_eq!(inside_frame(WINDOW, Tiling::tiled()), WINDOW);
+        assert_eq!(
+            inside_frame(WINDOW, Tiling::tiled()),
+            Bounds::new(at(0., 0.), WINDOW)
+        );
         let left = Tiling {
             left: true,
             ..Tiling::default()
         };
         assert_eq!(
             inside_frame(WINDOW, left),
-            size(gpui::px(789.), gpui::px(578.))
+            Bounds::new(at(0., 11.), size(gpui::px(789.), gpui::px(578.)))
         );
+    }
+
+    #[test]
+    fn the_top_bar_leaves_room_for_each_button_and_the_gaps() {
+        assert_eq!(row_width(1), gpui::px(24.));
+        assert_eq!(row_width(3), gpui::px(88.));
     }
 
     #[test]

@@ -456,8 +456,11 @@ impl LauncherShell {
             return self.end_sidebar_drag(cx);
         }
         let zoom = theme::zoom::get();
-        let x = f32::from(event.position.x) / zoom;
-        let width = f32::from(window.viewport_size().width) / zoom;
+        // From the content's left edge: inside the launcher's own frame, when it
+        // draws one.
+        let content = window_frame::content_bounds(window);
+        let x = f32::from(event.position.x - content.origin.x) / zoom;
+        let width = f32::from(content.size.width) / zoom;
         let next = theme::layout::sidebar_drag(x, width);
         if self.sidebar_drag != Some(next) {
             self.sidebar_drag = Some(next);

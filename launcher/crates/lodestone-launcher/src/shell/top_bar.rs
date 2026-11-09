@@ -41,9 +41,10 @@ const CAPTION_BUTTONS_WIDTH: f32 = 3.0 * CAPTION_BUTTON_WIDTH;
 /// maximizes and dragging snaps to screen edges. A right click there opens the
 /// window's system menu (see [`system_menu`]).
 ///
-/// On Linux desktops that leave the window's frame to the app (GNOME), it holds the
-/// window's buttons where the desktop puts them (see [`window_frame`]), a double click
-/// maximizes, and a right click opens the window menu.
+/// On Linux desktops that leave the window's frame to the app (GNOME), the logo is
+/// centred as on macOS, and the side columns leave room for the window's buttons
+/// where the desktop puts them (see [`window_frame`] and [`window_controls`]). A
+/// double click maximizes, and a right click opens the window menu.
 pub fn render(
     shell: &LauncherShell,
     window: &Window,
@@ -108,19 +109,15 @@ pub fn render(
                     system_menu::show(window, event.position, cx)
                 })
         })
-        .when(own_frame && offered.window_menu, |this| {
-            this.on_mouse_down(MouseButton::Right, |event, window, _| {
+        // With its own frame on Linux, the compositor opens the window menu. It opens
+        // on the press, as Zed's does: Wayland asks for the press that opened it.
+        .when(own_frame && offered.window_menu, |bar| {
+            bar.on_mouse_down(MouseButton::Right, |event, window, _| {
                 window.show_window_menu(event.position)
             })
         })
         .when(!windows, |bar| {
-            bar.child(
-                side()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .children(window_frame::controls(Side::Left, window, cx)),
-            )
+            bar.child(side().children(controls_room(Side::Left, window, cx)))
         })
         .child(
             div()
@@ -148,49 +145,94 @@ pub fn render(
                 .items_center()
                 .justify_end()
                 .children(update_notice(shell, cx))
-                .children(window_frame::controls(Side::Right, window, cx))
-                // Room for the caption buttons, which `window_controls` draws above
+                // Room for the window's buttons, which `window_controls` draws above
                 // everything else, with a gap before them.
-                .when(windows, |side| {
-                    side.child(div().flex_none().w(gpui::px(CAPTION_BUTTONS_WIDTH + 8.0)))
-                }),
+                .children(controls_room(Side::Right, window, cx)),
         )
 }
 
+/// Windows: the gap between the caption buttons and the bar's other controls.
+const CAPTION_GAP: f32 = 8.0;
+
+/// Linux: the gap between the round buttons of the launcher's own frame and the bar's
+/// other controls.
+const FRAME_BUTTONS_GAP: f32 = 12.0;
+
+/// An empty block in `side`'s column of the bar, as wide as the window's buttons that
+/// [`window_controls`] draws over that end of the bar, and the gap before them.
+fn controls_room(side: Side, window: &Window, cx: &App) -> Option<impl IntoElement> {
+    let width = if cfg!(target_os = "windows") {
+        (side == Side::Right).then_some(gpui::px(CAPTION_BUTTONS_WIDTH + CAPTION_GAP))
+    } else {
+        window_frame::controls_width(side, window, cx)
+            .map(|buttons| buttons + gpui::px(FRAME_BUTTONS_GAP))
+    }?;
+    Some(div().flex_none().w(width))
+}
+
+/// The window's own buttons, where the launcher draws them in place of a title bar's:
+/// Windows' caption buttons (see [`caption_buttons`]), or the buttons of the
+/// launcher's own frame on Linux desktops that leave it to apps (see
+/// [`window_frame::controls`]). Nothing on macOS, or where the Linux desktop draws the
+/// frame.
+///
+/// The window's root adds them last, over the top bar, which leaves room for them (see
+/// `controls_room`). So they stay above dialogs' backdrops and keep working while a
+/// dialog is open, as macOS's traffic lights do.
+pub fn window_controls(window: &Window, cx: &App) -> Vec<AnyElement> {
+    if cfg!(target_os = "windows") {
+        return vec![caption_buttons(window, cx)];
+    }
+    [Side::Left, Side::Right]
+        .into_iter()
+        .filter_map(|side| {
+            let row = window_frame::controls(side, window, cx)?;
+            Some(
+                div()
+                    .absolute()
+                    .top_0()
+                    // Inside the bar's padding, where its own controls end.
+                    .map(|this| match side {
+                        Side::Left => this.left_4(),
+                        Side::Right => this.right_4(),
+                    })
+                    .flex()
+                    .items_center()
+                    .h(gpui::px(TOP_BAR_HEIGHT))
+                    .child(row)
+                    .into_any_element(),
+            )
+        })
+        .collect()
+}
+
 /// Windows: the minimize, maximize (or restore) and close buttons at the top right,
-/// in place of the system's title bar. `None` elsewhere.
+/// in place of the system's title bar.
 ///
 /// They are marked as the window's caption buttons, so Windows handles them as its
-/// own: their clicks, and the snap layouts shown on hovering maximize. The window's
-/// root adds them last, so they stay above dialogs' backdrops and keep working while
-/// a dialog is open, as macOS's traffic lights do.
-pub fn window_controls(window: &Window, cx: &App) -> Option<AnyElement> {
-    if !cfg!(target_os = "windows") {
-        return None;
-    }
+/// own: their clicks, and the snap layouts shown on hovering maximize.
+fn caption_buttons(window: &Window, cx: &App) -> AnyElement {
     let maximize = if window.is_maximized() {
         CaptionButton::Restore
     } else {
         CaptionButton::Maximize
     };
     let active = window.is_window_active();
-    Some(
-        div()
-            .id("window-controls")
-            .absolute()
-            .top_0()
-            .right_0()
-            .flex()
-            .flex_row()
-            // The buttons fill the bar above its bottom border, at any zoom.
-            .h(gpui::px(TOP_BAR_HEIGHT))
-            .font_family(caption_font(cx))
-            .children(
-                [CaptionButton::Minimize, maximize, CaptionButton::Close]
-                    .map(|button| button.render(active)),
-            )
-            .into_any_element(),
-    )
+    div()
+        .id("window-controls")
+        .absolute()
+        .top_0()
+        .right_0()
+        .flex()
+        .flex_row()
+        // The buttons fill the bar above its bottom border, at any zoom.
+        .h(gpui::px(TOP_BAR_HEIGHT))
+        .font_family(caption_font(cx))
+        .children(
+            [CaptionButton::Minimize, maximize, CaptionButton::Close]
+                .map(|button| button.render(active)),
+        )
+        .into_any_element()
 }
 
 /// The icon font of Windows' own caption buttons: Segoe Fluent Icons on Windows 11,
