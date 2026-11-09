@@ -198,6 +198,10 @@ pub struct CoreClient {
     base: Url,
     /// The client that accepts the core's pinned certificate, tried first.
     pinned: Option<Arc<PinnedHttp>>,
+    /// Only the pinned certificate: no fallback to the platform's trust, and nothing
+    /// without HTTPS. For keys that must reach only that core (a local claim's owner
+    /// key, see [`super::local_claim`]).
+    strict: bool,
 }
 
 impl CoreClient {
@@ -208,7 +212,20 @@ impl CoreClient {
             http,
             base,
             pinned: None,
+            strict: false,
         }
+    }
+
+    /// Talks only to the core that presents the pinned certificate, over HTTPS: a
+    /// request without a pin, over plain HTTP, or to another certificate fails before
+    /// anything (a key included) is sent.
+    pub fn strict(mut self) -> Self {
+        self.strict = true;
+        self
+    }
+
+    pub fn is_strict(&self) -> bool {
+        self.strict
     }
 
     /// The certificate the user trusted for this core, if any: the live streams use it
@@ -365,6 +382,9 @@ impl CoreClient {
             host: self.host(),
             fingerprint,
         };
+        if self.strict {
+            return self.send_strict(request).await;
+        }
         if let Some(pinned) = &self.pinned {
             pinned.take_presented();
             let err = match pinned.http().send(request()?).await {
@@ -399,6 +419,39 @@ impl CoreClient {
                 Err(untrusted(self.probe_fingerprint().await))
             }
             Err(err) => Err(CoreError::Unreachable(format!("{err:#}"))),
+        }
+    }
+
+    /// [`Self::send_checked`] for a strict client: the pinned certificate over HTTPS, or
+    /// nothing.
+    async fn send_strict(
+        &self,
+        request: impl Fn() -> Result<Request<AsyncBody>, CoreError>,
+    ) -> Result<http_client::Response<AsyncBody>, CoreError> {
+        let pinned = match &self.pinned {
+            Some(pinned) if pinned.pin().is_some() && self.base.scheme() == "https" => pinned,
+            _ => {
+                return Err(CoreError::Untrusted {
+                    host: self.host(),
+                    fingerprint: None,
+                });
+            }
+        };
+        pinned.take_presented();
+        match pinned.http().send(request()?).await {
+            Ok(response) => Ok(response),
+            Err(err) => match (pinned.take_presented(), pinned.pin()) {
+                (Some(presented), Some(pin))
+                    if !same_fingerprint(&pin.sha256, &presented.sha256) =>
+                {
+                    Err(CoreError::CertificateChanged {
+                        host: presented.host,
+                        pinned: pin.sha256.clone(),
+                        presented: presented.sha256,
+                    })
+                }
+                _ => Err(CoreError::Unreachable(format!("{err:#}"))),
+            },
         }
     }
 
@@ -523,6 +576,84 @@ impl CoreClient {
                 err => err,
             })?;
         Ok((Secret::new(created.key), created.info))
+    }
+
+    /// `POST /local_claim/start`: begins a claim of owner access by a launcher on the
+    /// core's computer (see [`super::local_claim`]). Needs no sign-in.
+    pub async fn local_claim_start(&self) -> Result<super::local_claim::ClaimStart, CoreError> {
+        self.json(
+            Method::POST,
+            "local_claim/start",
+            Auth::None,
+            Some(b"{}".to_vec()),
+        )
+        .await
+    }
+
+    /// `POST /local_claim/finish`: the core checks the files the launcher wrote and
+    /// writes the key into the claim's folder. Nothing secret is in the reply.
+    pub async fn local_claim_finish(&self, id: &str, key_name: &str) -> Result<(), CoreError> {
+        let body = serde_json::json!({ "id": id, "name": key_name });
+        let response = self
+            .send(
+                Method::POST,
+                "local_claim/finish",
+                Auth::None,
+                Some(body.to_string().into_bytes()),
+                None,
+                MAX_JSON_BYTES,
+                REQUEST_TIMEOUT,
+            )
+            .await?;
+        check(&response, Auth::None)
+    }
+
+    /// Revokes the API key `id` with the key itself. Cores that only let a sign-in
+    /// session revoke keys refuse it; [`Self::revoke_key_signed_in`] works there.
+    pub async fn revoke_key(&self, key: &Secret, id: &str) -> Result<(), CoreError> {
+        let response = self
+            .send(
+                Method::DELETE,
+                &format!("user/api_keys/{}", segment(id)?),
+                Auth::Bearer(key),
+                None,
+                None,
+                MAX_JSON_BYTES,
+                REQUEST_TIMEOUT,
+            )
+            .await?;
+        check(&response, Auth::Bearer(key))
+    }
+
+    /// Signs in with a username and password and revokes the API key `id` with that
+    /// session, which is then dropped.
+    pub async fn revoke_key_signed_in(
+        &self,
+        username: &str,
+        password: &Secret,
+        id: &str,
+    ) -> Result<(), CoreError> {
+        let login: LoginReply = self
+            .json(
+                Method::POST,
+                "user/login",
+                Auth::Basic(username, password),
+                None,
+            )
+            .await?;
+        let session = Secret::new(login.token);
+        let response = self
+            .send(
+                Method::DELETE,
+                &format!("user/api_keys/{}", segment(id)?),
+                Auth::Bearer(&session),
+                None,
+                None,
+                MAX_JSON_BYTES,
+                REQUEST_TIMEOUT,
+            )
+            .await?;
+        check(&response, Auth::Bearer(&session))
     }
 
     /// A JSON request with this device's key, for the routes in [`super::live`].
@@ -727,5 +858,40 @@ mod tests {
         assert!(!is_certificate_error(&anyhow::anyhow!(
             "connection refused"
         )));
+    }
+
+    /// An HTTP client that fails the test if anything is sent through it.
+    struct NothingSent;
+
+    impl HttpClient for NothingSent {
+        fn user_agent(&self) -> Option<&http_client::http::HeaderValue> {
+            None
+        }
+
+        fn proxy(&self) -> Option<&Url> {
+            None
+        }
+
+        fn send(
+            &self,
+            req: Request<AsyncBody>,
+        ) -> futures::future::BoxFuture<'static, anyhow::Result<http_client::Response<AsyncBody>>>
+        {
+            panic!("a strict client sent {}", req.uri());
+        }
+    }
+
+    #[test]
+    fn a_strict_client_sends_nothing_without_a_pinned_https_connection() {
+        let key = Secret::new("lsk_k_secret");
+        for address in ["http://127.0.0.1:16662", "https://127.0.0.1:16662"] {
+            let client =
+                CoreClient::new(Arc::new(NothingSent), Url::parse(address).unwrap()).strict();
+            let result = futures::executor::block_on(client.servers(&key));
+            assert!(
+                matches!(result, Err(CoreError::Untrusted { .. })),
+                "{address}: {result:?}"
+            );
+        }
     }
 }

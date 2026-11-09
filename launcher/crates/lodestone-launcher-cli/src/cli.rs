@@ -979,6 +979,22 @@ pub enum Cores {
     /// Forgets this device's key (it stays valid on the core until revoked).
     #[command(after_help = "Examples:\n  lodestone-launcher-cli cores sign-out \"Home core\"")]
     SignOut { core: String },
+    /// Connects as owner to the Lodestone Host or Lodestone Core on this computer: proves
+    /// the launcher can write the core's data folder, and gets an owner-level key. A core
+    /// without an owner gets one the launcher makes up (`owner_xxxxx`); the key and that
+    /// account are kept in plain text in the launcher's `cores/local_credentials.json`.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli cores claim-local\n  lodestone-launcher-cli cores claim-local --folder ~/lodestone-data"
+    )]
+    ClaimLocal {
+        /// The core's data folder (its LODESTONE_PATH), when it isn't $LODESTONE_PATH or
+        /// ~/.lodestone: a core in Docker keeps it where its volume is mounted.
+        #[arg(long)]
+        folder: Option<PathBuf>,
+        /// The core's id, when more than one core runs on this computer.
+        #[arg(long)]
+        core: Option<String>,
+    },
 }
 
 #[derive(Args, Debug, Clone)]

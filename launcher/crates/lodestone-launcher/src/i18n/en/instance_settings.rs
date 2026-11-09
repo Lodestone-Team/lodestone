@@ -130,7 +130,7 @@ crate::i18n::messages! {
         // Linked server.
         /// {core} is a Lodestone Core's name.
         LinkedServerHint = "On {core}. Play joins it and syncs its mods.",
-        LinkedServerCoreRemoved = "On {core}, which was removed from the Servers page. Add the core again there to join the server.",
+        LinkedServerCoreRemoved = "On {core}, which was removed from the Lodestone Host page. Add the core again there to join the server.",
         CoreRemoved = "Core removed",
         Unlink = "Unlink",
         Unlinked = "Unlinked",

@@ -85,6 +85,8 @@ fn core_json(core: &CoreEntry, servers: &Servers, with_servers: bool) -> Value {
         "key_expires_at": saved.key_expires_at,
         "trusted_for_mods": saved.is_trusted(),
         "certificate_pinned": saved.certificate.is_some(),
+        "product": saved.product.label(),
+        "launched_by": (!saved.launched_by.is_unknown()).then_some(saved.launched_by),
     });
     if with_servers {
         value["servers"] = Value::Array(
@@ -312,6 +314,50 @@ pub fn cores_add(call: Call, cx: &mut App) -> Reply {
                 "trusted_for_mods": added.trusted,
             },
             "trust": if added.trusted { Value::Null } else { json!(format!("Not trusted for mods: installing a server's mods asks first. {} To trust it, the user decides and runs `cores trust <core> --yes`.", trust_explanation())) },
+        }))
+    })
+}
+
+#[derive(Deserialize)]
+struct ClaimParams {
+    #[serde(default)]
+    folder: Option<String>,
+    #[serde(default)]
+    core: Option<String>,
+}
+
+/// "Connect as owner" for the core on this computer. The key and any owner account the
+/// launcher made stay in the launcher: the reply names the file they are kept in.
+pub fn cores_claim_local(call: Call, cx: &mut App) -> Reply {
+    let params: ClaimParams = params!(call);
+    let task = call.control.servers.update(cx, |servers, cx| {
+        servers.claim_local(
+            params.core.as_deref().unwrap_or_default(),
+            params.folder.map(std::path::PathBuf::from),
+            cx,
+        )
+    });
+    cx.spawn(async move |_| {
+        let claimed = task.await.map_err(|err| {
+            use launcher_core::cores::local_claim::ClaimError;
+            let code = match err {
+                ClaimError::NoCore | ClaimError::FolderNotFound => codes::NOT_FOUND,
+                ClaimError::Refused => codes::PERMISSION_DENIED,
+                ClaimError::Core(ref err) => return core_error(err.clone()),
+                _ => codes::FAILED,
+            };
+            api_error(code, crate::servers::local::claim_error(&err))
+        })?;
+        Ok(json!({
+            "core": {
+                "id": claimed.uuid,
+                "name": claimed.name,
+                "product": claimed.product.label(),
+                "signed_in": true,
+            },
+            "owner_username": claimed.owner_username,
+            "owner_created": claimed.owner_created,
+            "credentials_file": claimed.credentials_file,
         }))
     })
 }

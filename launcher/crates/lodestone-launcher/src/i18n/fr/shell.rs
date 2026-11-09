@@ -32,7 +32,7 @@ pub fn text(message: M) -> &'static str {
         M::NoInstancesYet => "Aucune instance pour l’instant.",
         M::NewInstance => "Nouvelle instance…",
         M::ImportInstances => "Importer…",
-        M::Servers => "Serveurs",
+        M::Servers => "Lodestone Host",
         M::AppVersion => "Lodestone Launcher v{version}",
         M::PlayedInTotal => "{when} · {time} au total",
         M::ImportProgress => "{percent} · {label}",
@@ -60,7 +60,7 @@ pub fn text(message: M) -> &'static str {
         M::LogsPlaceholder => "Les journaux s’affichent ici une fois que vous avez une instance.",
         M::LinkedTo => "Liée à {server} sur {core}",
         M::LinkedToRemoved => {
-            "Liée à {server} sur {core} (ce core a été retiré de la page Serveurs)"
+            "Liée à {server} sur {core} (ce core a été retiré de la page Lodestone Host)"
         }
         M::NoInstances => "Aucune instance",
         M::AndJoin => "et rejoindre {server}",

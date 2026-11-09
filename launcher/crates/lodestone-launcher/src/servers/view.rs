@@ -1,5 +1,6 @@
-//! How the Servers page looks: each core as a card with its servers, and the dialogs
-//! over the window (Add server, the mod update prompt).
+//! How the Lodestone Host page looks: the cores on this computer, each core as a card
+//! with its servers, and the dialogs over the window (Add server, the mod update
+//! prompt).
 
 use crate::components::RichText;
 use crate::skin::Skinned;
@@ -9,8 +10,8 @@ use gpui::{
     prelude::*,
 };
 use launcher_core::cores::{
-    CoreError, ServerInstance, ServerLoader, ServerState, client::display_address,
-    sync::PackChanges, trust::Advisory,
+    CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerLoader, ServerState,
+    client::display_address, local_claim::ClaimError, sync::PackChanges, trust::Advisory,
 };
 use launcher_core::ui_skin::SurfaceId;
 use launcher_core::wording;
@@ -507,6 +508,7 @@ impl Servers {
                                             .text_color(crate::theme::ink::text())
                                             .child(RichText::new(core.saved.name.clone())),
                                     )
+                                    .child(product_badge(core.saved.product))
                                     .when(trusted, |this| {
                                         this.child(badge(t(M::BadgeTrusted), colors::GREEN_300))
                                     })
@@ -526,7 +528,10 @@ impl Servers {
                                     )))
                                     .truncate()
                                     .text_color(crate::theme::ink::muted()),
-                            ),
+                            )
+                            .children(started_by(core.saved.launched_by).map(|started| {
+                                small(started).text_color(crate::theme::ink::muted())
+                            })),
                     )
                     .child(
                         div()
@@ -575,9 +580,376 @@ impl Servers {
                         .on_click(cx.listener(move |this, _, _, cx| this.remove(index, cx))),
                     ),
             )
+            .children(self.owner_row(index, core, cx))
+            .when(core.saved.launched_by == LaunchedBy::Direct, |this| {
+                this.child(direct_note(index))
+            })
             .child(body)
             .into_any_element()
     }
+
+    /// What claiming the core here gave: the owner account the launcher made (its
+    /// password hidden until Show) and the owner key, to copy.
+    fn owner_row(
+        &self,
+        index: usize,
+        core: &CoreEntry,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let credentials = self.local_credentials(&core.saved.uuid)?;
+        let account = credentials
+            .owner_username
+            .clone()
+            .zip(credentials.owner_password.clone());
+        let key = credentials.api_key.clone();
+        if account.is_none() && key.is_none() {
+            return None;
+        }
+        let uuid = core.saved.uuid.clone();
+        let shown = self.local.shown.contains(&uuid);
+        let copy = |id: String, label: &'static str, value: String| {
+            Button::new(SharedString::from(id), label)
+                .size(ButtonSize::Slim)
+                .icon(Icon::Copy)
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(value.clone()))
+                })
+        };
+        let row = div()
+            .id(SharedString::from(format!("owner-sign-in-{index}")))
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
+            .px_4()
+            .py_3()
+            .border_t_1()
+            .border_color(crate::theme::ink::border())
+            .child(
+                small(t(if account.is_some() {
+                    M::OwnerSignIn
+                } else {
+                    M::OwnerKey
+                }))
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::text()),
+            )
+            .children(account.map(|(username, password)| {
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_1()
+                    .min_w_0()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        small(username.clone())
+                            .font_family(fonts::mono())
+                            .text_color(crate::theme::ink::secondary()),
+                    )
+                    .child(
+                        small(if shown {
+                            password.clone()
+                        } else {
+                            "••••••••••••".to_string()
+                        })
+                        .font_family(fonts::mono())
+                        .text_color(crate::theme::ink::secondary()),
+                    )
+                    .child(
+                        Button::new(
+                            SharedString::from(format!("owner-show-{index}")),
+                            t(if shown {
+                                M::HidePassword
+                            } else {
+                                M::ShowPassword
+                            }),
+                        )
+                        .size(ButtonSize::Slim)
+                        .variant(ButtonVariant::Ghost)
+                        .on_click(cx.listener({
+                            let uuid = uuid.clone();
+                            move |this, _, _, cx| this.toggle_owner_password(&uuid, cx)
+                        })),
+                    )
+                    .child(copy(
+                        format!("owner-copy-user-{index}"),
+                        t(M::CopyUsername),
+                        username,
+                    ))
+                    .child(copy(
+                        format!("owner-copy-password-{index}"),
+                        t(M::CopyPassword),
+                        password,
+                    ))
+            }))
+            .when(
+                key.is_some() && credentials.owner_password.is_none(),
+                |this| this.child(div().flex_1()),
+            )
+            .children(
+                key.map(|key| copy(format!("owner-copy-key-{index}"), t(M::CopyApiKey), key)),
+            );
+        Some(row.into_any_element())
+    }
+
+    /// "On this computer": the cores found here, with "Connect as owner".
+    fn render_local(&self, cx: &mut Context<Self>) -> AnyElement {
+        let local = &self.local;
+        let busy = local.claiming.is_some();
+        let rows: Vec<AnyElement> = local
+            .found
+            .iter()
+            .enumerate()
+            .map(|(index, found)| {
+                let uuid = found.info.uuid.clone();
+                let connected = self.is_connected(&uuid, &found.url);
+                let claiming = local.claiming.as_deref() == Some(uuid.as_str());
+                let error = local
+                    .error
+                    .as_ref()
+                    .filter(|(failed, _)| *failed == uuid || failed.is_empty())
+                    .map(|(_, err)| err.clone());
+                let action: AnyElement = if connected {
+                    badge(t(M::Connected), colors::GREEN_300).into_any_element()
+                } else {
+                    Button::new(
+                        SharedString::from(format!("connect-local-{index}")),
+                        t(M::ConnectAsOwner),
+                    )
+                    .size(ButtonSize::Slim)
+                    .variant(ButtonVariant::Primary)
+                    .loading(claiming)
+                    .disabled(busy)
+                    .on_click(cx.listener({
+                        let uuid = uuid.clone();
+                        move |this, _, _, cx| this.connect_local(&uuid, None, cx)
+                    }))
+                    .into_any_element()
+                };
+                div()
+                    .id(SharedString::from(format!("local-core-{index}")))
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .px_4()
+                    .py_3()
+                    .when(index > 0, |this| {
+                        this.border_t_1().border_color(crate::theme::ink::border())
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_3()
+                            .child(Icon::Cube.render(px(18.), crate::theme::ink::muted()))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .truncate()
+                                                    .font_weight(weights::BOLD.into())
+                                                    .text_color(crate::theme::ink::text())
+                                                    .child(RichText::new(
+                                                        found.info.core_name.clone(),
+                                                    )),
+                                            )
+                                            .child(product_badge(found.info.product)),
+                                    )
+                                    .child(
+                                        small(format!(
+                                            "{} · {}",
+                                            display_address(&found.url),
+                                            started_by(found.info.launched_by).unwrap_or_else(
+                                                || t(match found.info.product {
+                                                    CoreProduct::Host => M::ProductHostHint,
+                                                    CoreProduct::Core => M::ProductCoreHint,
+                                                })
+                                                .to_string()
+                                            )
+                                        ))
+                                        .text_color(crate::theme::ink::muted()),
+                                    ),
+                            )
+                            .child(action),
+                    )
+                    .children(error.map(|err| {
+                        let folder = matches!(err, ClaimError::FolderNotFound);
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_start()
+                            .gap_2()
+                            .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW))
+                            .child(
+                                small(super::local::claim_error(&err))
+                                    .flex_1()
+                                    .min_w_0()
+                                    .whitespace_normal()
+                                    .text_color(colors::RED_200),
+                            )
+                            .when(folder, |this| {
+                                this.child(
+                                    div().flex_none().child(
+                                        Button::new(
+                                            SharedString::from(format!("choose-folder-{index}")),
+                                            t(M::ChooseDataFolder),
+                                        )
+                                        .size(ButtonSize::Slim)
+                                        .icon(Icon::HardDrive)
+                                        .disabled(busy)
+                                        .on_click(
+                                            cx.listener({
+                                                let uuid = uuid.clone();
+                                                move |this, _, _, cx| {
+                                                    this.choose_local_folder(uuid.clone(), cx)
+                                                }
+                                            }),
+                                        ),
+                                    ),
+                                )
+                            })
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+        let empty_text = if local.scanning || !local.scanned {
+            Some(t(M::ScanningLocal))
+        } else if local.found.is_empty() {
+            Some(t(M::NoLocalCores))
+        } else {
+            None
+        };
+        div()
+            .id("local-cores")
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .child(
+                                div()
+                                    .id("local-cores-title")
+                                    .role(Role::Heading)
+                                    .aria_level(2)
+                                    .aria_label(t(M::OnThisComputer))
+                                    .font_family(fonts::heading())
+                                    .text_size(theme::text_size(text::H3))
+                                    .font_weight(weights::BOLD.into())
+                                    .text_color(crate::theme::ink::text())
+                                    .child(t(M::OnThisComputer)),
+                            )
+                            .child(
+                                small(t(M::OnThisComputerHint))
+                                    .text_color(crate::theme::ink::muted()),
+                            ),
+                    )
+                    .child(
+                        Button::new("rescan-local", t(M::Rescan))
+                            .size(ButtonSize::Slim)
+                            .variant(ButtonVariant::Ghost)
+                            .loading(local.scanning)
+                            .disabled(local.scanning)
+                            .on_click(cx.listener(|this, _, _, cx| this.scan_local(true, cx))),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w_full()
+                    .rounded(radius::XL)
+                    .border_1()
+                    .border_color(crate::theme::ink::border())
+                    .bg(colors::GRAY_850)
+                    .surface(SurfaceId::Card)
+                    .children(rows)
+                    .children(empty_text.map(|text| {
+                        div()
+                            .px_4()
+                            .py_3()
+                            .text_color(crate::theme::ink::muted())
+                            .child(small(text))
+                    })),
+            )
+            .into_any_element()
+    }
+}
+
+/// Where lodestone_cli, which runs Lodestone Core and keeps it updated, is downloaded.
+const LODESTONE_CLI_RELEASES: &str = "https://github.com/Lodestone-Team/lodestone_cli/releases";
+
+/// "Started by …", or nothing when the core doesn't say.
+fn started_by(launched_by: LaunchedBy) -> Option<String> {
+    let who = match launched_by {
+        LaunchedBy::Host => "Lodestone Host",
+        LaunchedBy::LodestoneCli => "Lodestone CLI",
+        LaunchedBy::Docker => "Docker",
+        LaunchedBy::Direct => return Some(t(M::StartedDirectly).into()),
+        LaunchedBy::Unknown => return None,
+    };
+    Some(tr!(M::StartedBy, who = who))
+}
+
+/// Under a core started directly: Lodestone Core is meant to be run with lodestone_cli,
+/// which keeps it updated.
+fn direct_note(index: usize) -> gpui::Div {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .px_4()
+        .py_2()
+        .border_t_1()
+        .border_color(crate::theme::ink::border())
+        .child(
+            small(t(M::DirectNote))
+                .flex_1()
+                .text_color(crate::theme::ink::secondary()),
+        )
+        .child(
+            Button::new(
+                SharedString::from(format!("get-lodestone-cli-{index}")),
+                t(M::GetLodestoneCli),
+            )
+            .size(ButtonSize::Slim)
+            .variant(ButtonVariant::Ghost)
+            .icon(Icon::ArrowUpRightFromSquare)
+            .on_click(|_, _, cx| cx.open_url(LODESTONE_CLI_RELEASES)),
+        )
+}
+
+/// "Lodestone Host" or "Lodestone Core", beside a core's name.
+fn product_badge(product: CoreProduct) -> gpui::Div {
+    badge(
+        product.label(),
+        match product {
+            CoreProduct::Host => crate::theme::accent::light(),
+            CoreProduct::Core => colors::GRAY_400,
+        },
+    )
 }
 
 impl Render for Servers {
@@ -676,6 +1048,7 @@ impl Render for Servers {
                             .on_click(cx.listener(|this, _, _, cx| this.dismiss_notice(cx))),
                     )
             }))
+            .child(self.render_local(cx))
             .when(empty, |this| {
                 this.child(
                     div()

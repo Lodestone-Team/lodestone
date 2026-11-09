@@ -21,6 +21,7 @@ mod detail_view;
 pub mod extras;
 pub mod host;
 pub mod lan;
+pub mod local;
 pub mod tools;
 pub mod view;
 // What the control API (`crate::control`) does with cores and servers.
@@ -474,6 +475,8 @@ pub struct Servers {
     _poller: Option<Task<()>>,
     /// World downloads, resource packs, hosting and LAN worlds.
     extras: extras::Extras,
+    /// "On this computer": cores found here, and what claiming them gave.
+    pub local: local::LocalCores,
 }
 
 impl EventEmitter<ServersEvent> for Servers {}
@@ -511,6 +514,7 @@ impl Servers {
             tasks: Vec::new(),
             _poller: None,
             extras: Default::default(),
+            local: Default::default(),
         };
         this.load(cx);
         this.reload_links(cx);
@@ -541,11 +545,13 @@ impl Servers {
             self.merged(merged, cx);
             self.save();
         }
+        // cores claimed on this computer keep their key in plain text, not the Keychain
+        self.load_local_credentials(cx);
         let secrets = self.accounts.read(cx).secrets().clone();
         let signed_in: Vec<String> = self
             .cores
             .iter()
-            .filter(|c| c.saved.signed_in())
+            .filter(|c| c.saved.signed_in() && !self.has_local_key(&c.saved.uuid))
             .map(|c| c.saved.uuid.clone())
             .collect();
         if signed_in.is_empty() {
@@ -593,6 +599,9 @@ impl Servers {
         }
         self.visible = visible;
         self.lan_visible(visible, cx);
+        if visible {
+            self.scan_local(false, cx);
+        }
         if !visible || self.preview {
             self._poller = None;
             return;
@@ -688,10 +697,27 @@ impl Servers {
 
     fn client(&self, core: &CoreEntry) -> CoreClient {
         let client = CoreClient::new(self.http.clone(), core.url.clone());
-        match &core.pinned {
+        let client = match &core.pinned {
             Some(pinned) => client.with_pinned(pinned.clone()),
             None => client,
+        };
+        // a claimed core's owner key goes only to its certificate
+        if core.saved.local_claim {
+            client.strict()
+        } else {
+            client
         }
+    }
+
+    /// The key an entry keeps when its core is added again at `address` without signing
+    /// in: only a key for this very address, and never a claimed one (it is tied to
+    /// the claim's address and certificate).
+    fn carried_key(&self, existing: Option<usize>, address: &str) -> Option<Secret> {
+        let core = self.cores.get(existing?)?;
+        if display_address(&core.url) != address || core.saved.local_claim {
+            return None;
+        }
+        core.key.clone()
     }
 
     fn refresh(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -753,7 +779,9 @@ impl Servers {
         self.cores[index].status = CoreStatus::Online(list);
         if let Some((old, _)) = renamed {
             // the key this device had is saved under the old id
-            if let Some(key) = self.cores[index].key.clone() {
+            if self.cores[index].saved.local_claim {
+                self.rename_local_credentials(&old.uuid, &uuid, cx);
+            } else if let Some(key) = self.cores[index].key.clone() {
                 self.save_key(uuid.clone(), key, cx);
             }
             let mut merged = store::dedupe(&mut self.cores, |c| &c.saved, Some(index));
@@ -1020,10 +1048,20 @@ impl Servers {
                 saved.uuid = info.uuid.clone();
                 saved.url = address.clone();
                 saved.name = info.core_name.clone();
+                saved.product = info.product;
+                saved.launched_by = info.launched_by;
+                let kept_key = this.carried_key(existing, &address);
                 if key.is_some() {
                     saved.username = request.username.clone();
                     saved.key_id = key.as_ref().map(|(_, info)| info.id.clone());
                     saved.key_expires_at = key.as_ref().and_then(|(_, info)| info.expires_at);
+                    saved.local_claim = false;
+                } else if kept_key.is_none() {
+                    // no key goes with the entry to another address
+                    saved.username = None;
+                    saved.key_id = None;
+                    saved.key_expires_at = None;
+                    saved.local_claim = false;
                 }
                 if let Some(pin) = pin.clone()
                     && saved.pin_certificate(pin)
@@ -1036,7 +1074,6 @@ impl Servers {
                         )
                     }));
                 }
-                let kept_key = existing.and_then(|i| this.cores[i].key.clone());
                 let signed_in_now = key.is_some();
                 let entry = CoreEntry::new(
                     saved,
@@ -1201,9 +1238,15 @@ impl Servers {
     /// Forgets the core's key on this device. The key stays valid on the core until it
     /// is revoked in the dashboard, which the notice says.
     pub fn sign_out(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(uuid) = self.cores.get(index).map(|c| c.saved.uuid.clone()) else {
+            return;
+        };
+        // a key claimed on this computer is revoked on the core first, best effort
+        self.revoke_local_key(&uuid, cx);
         let Some(core) = self.cores.get_mut(index) else {
             return;
         };
+        core.saved.local_claim = false;
         let name = core.saved.name.clone();
         let key_id = core.saved.key_id.take();
         core.key = None;
@@ -1211,6 +1254,7 @@ impl Servers {
         core.saved.key_expires_at = None;
         let uuid = core.saved.uuid.clone();
         self.save();
+        self.forget_local_key(&uuid, cx);
         self.forget_key(uuid, cx);
         if let Some(id) = key_id {
             self.notice = Some(Notice::info(move || {
@@ -1228,9 +1272,12 @@ impl Servers {
         if index >= self.cores.len() {
             return;
         }
+        let uuid = self.cores[index].saved.uuid.clone();
+        self.revoke_local_key(&uuid, cx);
         let core = self.cores.remove(index);
         self.save();
         if core.signed_in() {
+            self.forget_local_key(&core.saved.uuid, cx);
             self.forget_key(core.saved.uuid, cx);
         }
         cx.notify();
@@ -2095,6 +2142,7 @@ impl Servers {
     ) {
         self.preview = true;
         self._poller = None;
+        self.local.scanned = true;
         self.cores = cores
             .into_iter()
             .filter_map(|(saved, status, signed_in)| {

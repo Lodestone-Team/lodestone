@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::models::{CoreProduct, LaunchedBy};
 use super::tls::{CertificatePin, same_fingerprint};
 use crate::{
     Secret, SecretStore,
@@ -43,6 +44,18 @@ pub struct SavedCore {
     /// The core the trust was given to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_as: Option<TrustKey>,
+    /// Lodestone Host or a bare core, as `/info` said when it was added or found on
+    /// this computer. Left out of the file for a bare core.
+    #[serde(default, skip_serializing_if = "CoreProduct::is_core")]
+    pub product: CoreProduct,
+    /// What started the core, as `/info` said last. Left out of the file while unknown.
+    #[serde(default, skip_serializing_if = "LaunchedBy::is_unknown")]
+    pub launched_by: LaunchedBy,
+    /// Signed in by claiming owner access on this computer (`super::local_claim`): the
+    /// key is kept in `local_credentials.json` and only ever sent to the pinned
+    /// certificate. Left out of the file otherwise.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub local_claim: bool,
 }
 
 /// What trust in a core is tied to: its id, its address and, for HTTPS cores with a

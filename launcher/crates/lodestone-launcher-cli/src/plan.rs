@@ -677,6 +677,10 @@ pub fn plan(
                 vec![("core", json!(core)), ("fingerprint", json!(fingerprint))],
             ),
             Cores::SignOut { core } => call("cores.sign_out", vec![("core", json!(core))]),
+            Cores::ClaimLocal { folder, core } => call(
+                "cores.claim_local",
+                vec![("folder", path_value(folder)?), ("core", json!(core))],
+            ),
         },
         Command::Servers(c) => match c {
             Servers::List { core, cached } => call(

@@ -2,8 +2,55 @@ use crate::i18n::{ServersMsg as M, ServersPlural as P};
 
 pub fn text(message: M) -> &'static str {
     match message {
-        M::ServersTitle => "服务器",
+        M::ServersTitle => "Lodestone Host",
         M::PageHint => "你的 Lodestone 核心上的服务器。创建与其中一个匹配的实例，然后在上面游玩。",
+        M::OnThisComputer => "这台电脑上",
+        M::OnThisComputerHint => {
+            "在这里运行的 Lodestone Host 和 Lodestone Core。以所有者身份连接时，启动器会证明它能访问核心的文件，因此不需要密码。"
+        }
+        M::Rescan => "重新扫描",
+        M::ScanningLocal => "正在查找这台电脑上的核心…",
+        M::NoLocalCores => "这台电脑上没有正在运行的 Lodestone Host 或 Lodestone Core。",
+        M::ConnectAsOwner => "以所有者身份连接",
+        M::Connected => "已连接",
+        M::ChooseDataFolder => "选择文件夹…",
+        M::ChooseDataFolderPrompt => "选择",
+        M::ProductHostHint => "桌面应用，控制面板在窗口中",
+        M::ProductCoreHint => "独立的核心（服务器程序或 Docker）",
+        M::ConnectedAsOwner => "已以所有者身份连接到 {name}",
+        M::ConnectedMadeOwner => {
+            "它还没有所有者，因此 Lodestone Launcher 创建了所有者账户 {username}。密码显示在核心的卡片上，请妥善保存。"
+        }
+        M::ConnectedOwnerKey => "此启动器现在拥有它的所有者密钥。你可以在核心的控制面板中撤销它。",
+        M::OwnerSignIn => "所有者登录",
+        M::OwnerKey => "所有者密钥",
+        M::ShowPassword => "显示",
+        M::HidePassword => "隐藏",
+        M::CopyUsername => "复制用户名",
+        M::CopyPassword => "复制密码",
+        M::CopyApiKey => "复制 API 密钥",
+        M::StartedBy => "由 {who} 启动",
+        M::StartedDirectly => "直接启动",
+        M::DirectNote => {
+            "此核心是直接启动的。Lodestone Core 应通过 lodestone_cli 运行，它会安装核心并保持更新。"
+        }
+        M::GetLodestoneCli => "获取 lodestone_cli",
+        M::CredentialsReadFailed => "无法读取这台电脑上核心的所有者密钥",
+        M::CredentialsSaveFailed => "无法保存所有者密钥",
+        M::ClaimNoCore => "这台电脑上没有正在运行的 Lodestone Host 或 Lodestone Core。",
+        M::ClaimRefused => {
+            "核心拒绝授予所有者权限。请在它的设置中打开“允许这台电脑上的应用获取所有者权限”，或更新它。"
+        }
+        M::ClaimFolderNotFound => {
+            "找不到此核心的数据文件夹。请选择它存放数据的文件夹（它的 LODESTONE_PATH）。在 Docker 中运行的核心需要从这台电脑挂载数据文件夹。"
+        }
+        M::ClaimNotThisCore => "应答的核心并不是找到的文件夹所属的核心，因此没有保存任何内容。",
+        M::ClaimNoResult => "核心没有完成认领。请重试。",
+        M::ClaimNoCertificate => {
+            "此核心没有 HTTPS 证书，因此 Lodestone Launcher 无法确保它的所有者密钥只会发送给它。请在核心的设置中打开 HTTPS，然后重新连接。"
+        }
+        M::ClaimFiles => "无法使用核心的数据文件夹：{error}",
+        M::ClaimInvalid => "核心发送了 Lodestone Launcher 无法理解的内容：{error}",
         M::AddServer => "添加服务器",
         M::Dismiss => "关闭",
         M::NoServersYet => "还没有服务器",
@@ -93,11 +140,11 @@ pub fn text(message: M) -> &'static str {
         M::CheckModsFailed => "无法检查服务器的模组",
         M::JoinFailed => "无法加入 {name}",
         M::CoreRemoved => {
-            "创建此实例所对应的核心（{address}）已不在 Lodestone Launcher 中。请在“服务器”页面重新添加它，或直接点击“开始游戏”而不加入服务器。"
+            "创建此实例所对应的核心（{address}）已不在 Lodestone Launcher 中。请在“Lodestone Host”页面重新添加它，或直接点击“开始游戏”而不加入服务器。"
         }
         M::ServerNotShown => "核心不再向你显示此服务器：它已被删除，或者它未公开列出而你没有登录。",
         M::NotRunning => "{name} 未在运行",
-        M::AskOwnerToStart => "请让其所有者启动它，或在“服务器”页面登录核心后自行启动。",
+        M::AskOwnerToStart => "请让其所有者启动它，或在“Lodestone Host”页面登录核心后自行启动。",
         M::UpdateModsFailed => "无法更新模组",
         M::StopGameFirst => "请先退出游戏。",
         M::UpdateInstanceFailed => "无法更新实例",
@@ -253,7 +300,7 @@ pub fn text(message: M) -> &'static str {
         M::SignInMicrosoftToLink => "使用 Microsoft 账户登录，即可将其关联到你的 Lodestone 用户。",
 
         M::HostTitle => "在 Lodestone 核心上托管",
-        M::ShowOnServersPage => "在“服务器”页面查看",
+        M::ShowOnServersPage => "在“Lodestone Host”页面查看",
         M::HostIntro => {
             "以 Modrinth 整合包的形式，用 {name} 的模组和配置文件创建一个服务器。来自 Modrinth 的仅客户端模组会被排除。服务器创建后处于停止状态。"
         }
@@ -277,7 +324,7 @@ pub fn text(message: M) -> &'static str {
         M::InstanceGone => "该实例已不存在。",
         M::PackNotKept => "核心没有保留该整合包。",
         M::SignedOutRightAway => "核心在你登录后立即让你退出登录。请重试。",
-        M::AddCoreFirst => "请先在“服务器”页面添加你的 Lodestone 核心。",
+        M::AddCoreFirst => "请先在“Lodestone Host”页面添加你的 Lodestone 核心。",
 
         M::LanListenFailed => "无法监听局域网世界：{error}",
         M::LanLooking => "正在查找对局域网开放的世界…",
@@ -363,11 +410,11 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ScriptFiles => ["{count} 个脚本文件"; 2],
         P::AndMore => ["还有 {count} 个"; 2],
         P::HostDone => {
-            ["{name} 已位于 {core} 上，端口为 {port}。核心正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“服务器”页面或控制面板中启动它；此实例已准备好加入该服务器。";
+            ["{name} 已位于 {core} 上，端口为 {port}。核心正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“Lodestone Host”页面或控制面板中启动它；此实例已准备好加入该服务器。";
                 2]
         }
         P::HostDoneRelinked => {
-            ["{name} 已位于 {core} 上，端口为 {port}。核心正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“服务器”页面或控制面板中启动它；此实例已准备好加入该服务器。此实例之前关联到 {server}；现在它属于新服务器。";
+            ["{name} 已位于 {core} 上，端口为 {port}。核心正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“Lodestone Host”页面或控制面板中启动它；此实例已准备好加入该服务器。此实例之前关联到 {server}；现在它属于新服务器。";
                 2]
         }
     }

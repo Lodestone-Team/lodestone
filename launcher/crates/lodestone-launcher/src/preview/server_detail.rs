@@ -87,6 +87,7 @@ fn core(servers: &mut crate::servers::Servers) {
                 certificate: None,
                 trusted: false,
                 trusted_as: None,
+                ..SavedCore::default()
             },
             CoreStatus::Online(ServerList {
                 core_name: "Peter's Lodestone Core".into(),

@@ -14,7 +14,8 @@
 //! - [`worlds`]: a server's world as a singleplayer copy;
 //! - [`hosting`]: "Host this modpack", a launcher instance as a new server;
 //! - [`resource_pack`]: a server's resource pack;
-//! - [`lan`]: worlds opened to LAN on this network.
+//! - [`lan`]: worlds opened to LAN on this network;
+//! - [`local_claim`]: "Connect as owner" for a core on this computer.
 
 pub mod client;
 pub mod hosting;
@@ -22,6 +23,7 @@ pub mod join;
 pub mod lan;
 pub mod link;
 pub mod live;
+pub mod local_claim;
 pub mod models;
 pub mod resource_pack;
 pub mod store;
@@ -31,7 +33,9 @@ pub mod trust;
 pub mod worlds;
 
 pub use client::{CoreClient, CoreError, PackFetch, parse_address};
-pub use models::{CoreInfo, ServerInstance, ServerList, ServerLoader, ServerState};
+pub use models::{
+    CoreInfo, CoreProduct, LaunchedBy, ServerInstance, ServerList, ServerLoader, ServerState,
+};
 
 use crate::game::loaders::{LoaderChoice, LoaderKind};
 

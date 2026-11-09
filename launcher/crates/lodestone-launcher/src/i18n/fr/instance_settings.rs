@@ -115,7 +115,7 @@ pub fn text(message: M) -> &'static str {
 
         M::LinkedServerHint => "Sur {core}. Jouer le rejoint et synchronise ses mods.",
         M::LinkedServerCoreRemoved => {
-            "Sur {core}, qui a été retiré de la page Serveurs. Ajoutez de nouveau ce core sur cette page pour rejoindre le serveur."
+            "Sur {core}, qui a été retiré de la page Lodestone Host. Ajoutez de nouveau ce core sur cette page pour rejoindre le serveur."
         }
         M::CoreRemoved => "Core retiré",
         M::Unlink => "Délier",

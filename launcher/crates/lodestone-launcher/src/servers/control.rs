@@ -322,10 +322,20 @@ impl Servers {
                 saved.uuid = info.uuid.clone();
                 saved.url = address.clone();
                 saved.name = info.core_name.clone();
+                saved.product = info.product;
+                saved.launched_by = info.launched_by;
+                let kept_key = this.carried_key(existing, &address);
                 if key.is_some() {
                     saved.username = sign_in_as.clone();
                     saved.key_id = key.as_ref().map(|(_, info)| info.id.clone());
                     saved.key_expires_at = key.as_ref().and_then(|(_, info)| info.expires_at);
+                    saved.local_claim = false;
+                } else if kept_key.is_none() {
+                    // no key goes with the entry to another address
+                    saved.username = None;
+                    saved.key_id = None;
+                    saved.key_expires_at = None;
+                    saved.local_claim = false;
                 }
                 if let Some(pin) = pin.clone()
                     && saved.pin_certificate(pin)
@@ -339,12 +349,7 @@ impl Servers {
                     }));
                 }
                 let signed_in = key.is_some();
-                let entry = CoreEntry::new(
-                    saved,
-                    url,
-                    key.map(|(secret, _)| secret)
-                        .or_else(|| existing.and_then(|i| this.cores[i].key.clone())),
-                );
+                let entry = CoreEntry::new(saved, url, key.map(|(secret, _)| secret).or(kept_key));
                 let added = Added {
                     uuid: entry.saved.uuid.clone(),
                     name: entry.saved.name.clone(),

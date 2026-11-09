@@ -611,6 +611,11 @@ pub const METHODS: &[Method] = &[
         servers::cores_sign_out,
     ),
     method(
+        "cores.claim_local",
+        "Connects as owner to the core on this computer, through its data folder.",
+        servers::cores_claim_local,
+    ),
+    method(
         "servers.list",
         "Servers on the cores.",
         servers::servers_list,
@@ -1686,6 +1691,7 @@ mod tests {
         "cores.untrust",
         "cores.trust_certificate",
         "cores.sign_out",
+        "cores.claim_local",
         "servers.start",
         "servers.stop",
         "servers.join",
