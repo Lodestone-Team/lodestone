@@ -77,6 +77,7 @@ pub const SCENES: &[&str] = &[
     "playing",
     "launching",
     "logs",
+    "logs-select",
     "instance-settings",
     "crash",
     "crash-mods",
@@ -457,6 +458,7 @@ fn has_instances(scene: &str) -> bool {
             | "offer-main"
             | "confirm-main"
             | "logs"
+            | "logs-select"
             | "instance-settings"
             | "crash"
             | "crash-mods"
@@ -751,7 +753,9 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 });
                 instances.preview_preparing(&first.id, progress);
             }
-            "logs" | "crash" | "crash-mods" => instances.preview_log(&first.id, sample_log()),
+            "logs" | "logs-select" | "crash" | "crash-mods" => {
+                instances.preview_log(&first.id, sample_log())
+            }
             "playing" => instances.preview_play_state(crate::instances::PlayState::Playing),
             "launching" => instances.preview_play_state(crate::instances::PlayState::Preparing {
                 label: crate::i18n::t(crate::i18n::InstancesMsg::StageLaunching).into(),
@@ -918,6 +922,11 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.show_share(dialog, cx);
         }
         "logs" => shell.select_tab(InstanceTab::Logs, cx),
+        "logs-select" => {
+            shell.select_tab(InstanceTab::Logs, cx);
+            let console = shell.console().clone();
+            console.update(cx, |console, cx| console.preview_select(cx));
+        }
         "sidebar-groups-settings" => shell.select_tab(InstanceTab::Settings, cx),
         "instance-settings" => {
             shell.select_tab(InstanceTab::Settings, cx);
