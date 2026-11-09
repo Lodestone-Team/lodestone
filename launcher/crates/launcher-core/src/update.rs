@@ -29,6 +29,11 @@
 //! not replacing it), to `<exe>.old`, which the next start removes ([`clean_up`]).
 //! The process keeps running the old build until it restarts ([`restart`]); a plain
 //! quit and start also runs the new one.
+//!
+//! Lodestone Host updates the same way, from its own releases ([`Product::HOST`]:
+//! `host-vX.Y.Z`, `lodestone-host-<build>-<platform>-standalone`). Its manifest also
+//! lists the Lodestone Core program it runs ([`Asset::core`]), which is installed next
+//! to it.
 
 use std::{
     collections::BTreeMap,
@@ -86,6 +91,55 @@ const MAX_BINARY_BYTES: u64 = 512 * 1024 * 1024;
 /// How long a restarted launcher waits for the old one to exit.
 const WAIT_FOR_PREVIOUS: Duration = Duration::from_secs(15);
 
+/// The start of a Lodestone Host version's tag.
+pub const HOST_TAG_PREFIX: &str = "host-v";
+
+/// Which app is updating: each has its own releases, file names and test overrides.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Product {
+    /// The start of its versions' tags: `launcher-v`.
+    pub tag_prefix: &'static str,
+    /// The start of its files' names: `lodestone-launcher-`.
+    pub file_prefix: &'static str,
+    /// Overrides [`RELEASES_URL`] for it.
+    pub releases_url_env: &'static str,
+    /// Replaces the release lookup with a manifest's address, for it.
+    pub manifest_url_env: &'static str,
+}
+
+impl Product {
+    /// Lodestone Launcher.
+    pub const LAUNCHER: Product = Product {
+        tag_prefix: TAG_PREFIX,
+        file_prefix: "lodestone-launcher-",
+        releases_url_env: RELEASES_URL_ENV,
+        manifest_url_env: MANIFEST_URL_ENV,
+    };
+
+    /// Lodestone Host.
+    pub const HOST: Product = Product {
+        tag_prefix: HOST_TAG_PREFIX,
+        file_prefix: "lodestone-host-",
+        releases_url_env: "LODESTONE_HOST_RELEASES_URL",
+        manifest_url_env: "LODESTONE_HOST_UPDATE_URL",
+    };
+
+    /// The build of `name` if it is `platform`'s standalone binary:
+    /// `<file_prefix><build>-<platform>-standalone[.exe]`.
+    pub fn asset_build(&self, name: &str, platform: &str) -> Option<u64> {
+        let rest = name.strip_prefix(self.file_prefix)?;
+        let (build, rest) = rest.split_once('-')?;
+        let rest = rest.strip_prefix(platform)?;
+        if !matches!(rest, "-standalone" | "-standalone.exe") || build.is_empty() {
+            return None;
+        }
+        if !build.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        build.parse().ok()
+    }
+}
+
 /// This build's number and commit, as the publish script compiled them in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Build {
@@ -103,7 +157,9 @@ impl Build {
         )
     }
 
-    fn parse(number: Option<&str>, commit: Option<&'static str>) -> Option<Build> {
+    /// A build from the values the publish script compiled in, such as
+    /// `option_env!("LODESTONE_HOST_BUILD")`; `None` without a number.
+    pub fn parse(number: Option<&str>, commit: Option<&'static str>) -> Option<Build> {
         let number = number?.trim().parse().ok()?;
         let commit = commit.map(str::trim).filter(|commit| !commit.is_empty());
         Some(Build { number, commit })
@@ -159,6 +215,33 @@ pub struct Asset {
     pub build: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
+    /// Lodestone Host's: the Lodestone Core program it runs, next to it in the
+    /// release, of the same build. It is installed next to the Host's executable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub core: Option<Companion>,
+}
+
+/// A second file that goes with a platform's binary ([`Asset::core`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Companion {
+    pub name: String,
+    pub size: u64,
+    /// Lowercase hex.
+    pub sha256: String,
+}
+
+impl Companion {
+    /// It as an [`Asset`], to [`download`] it.
+    pub fn as_asset(&self) -> Asset {
+        Asset {
+            name: self.name.clone(),
+            size: self.size,
+            sha256: self.sha256.clone(),
+            build: None,
+            commit: None,
+            core: None,
+        }
+    }
 }
 
 impl Manifest {
@@ -266,19 +349,10 @@ pub struct Candidate {
     pub manifest_url: String,
 }
 
-/// The build of `name` if it is `platform`'s standalone binary:
+/// The build of `name` if it is `platform`'s standalone launcher binary:
 /// `lodestone-launcher-<build>-<platform>-standalone[.exe]`.
 pub fn asset_build(name: &str, platform: &str) -> Option<u64> {
-    let rest = name.strip_prefix("lodestone-launcher-")?;
-    let (build, rest) = rest.split_once('-')?;
-    let rest = rest.strip_prefix(platform)?;
-    if !matches!(rest, "-standalone" | "-standalone.exe") || build.is_empty() {
-        return None;
-    }
-    if !build.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    build.parse().ok()
+    Product::LAUNCHER.asset_build(name, platform)
 }
 
 /// Of `releases`, the published launcher release that `channel` reads with the
@@ -289,9 +363,19 @@ pub fn pick_release(
     channel: UpdateChannel,
     platform: &str,
 ) -> Option<Candidate> {
+    pick_release_for(Product::LAUNCHER, releases, channel, platform)
+}
+
+/// [`pick_release`] for `product`'s releases.
+pub fn pick_release_for(
+    product: Product,
+    releases: &[Release],
+    channel: UpdateChannel,
+    platform: &str,
+) -> Option<Candidate> {
     let mut best: Option<Candidate> = None;
     for release in releases {
-        if !release.tag_name.starts_with(TAG_PREFIX)
+        if !release.tag_name.starts_with(product.tag_prefix)
             || release.draft
             || (release.prerelease && channel != UpdateChannel::Beta)
         {
@@ -303,7 +387,7 @@ pub fn pick_release(
         let Some(build) = release
             .assets
             .iter()
-            .filter_map(|asset| asset_build(&asset.name, platform))
+            .filter_map(|asset| product.asset_build(&asset.name, platform))
             .max()
         else {
             continue;
@@ -326,14 +410,23 @@ pub async fn find_update(
     http: &dyn HttpClient,
     channel: UpdateChannel,
 ) -> Result<Option<Found>, UpdateError> {
-    if let Some(url) = env_url(MANIFEST_URL_ENV) {
+    find_update_for(Product::LAUNCHER, http, channel).await
+}
+
+/// [`find_update`] for `product`'s releases.
+pub async fn find_update_for(
+    product: Product,
+    http: &dyn HttpClient,
+    channel: UpdateChannel,
+) -> Result<Option<Found>, UpdateError> {
+    if let Some(url) = env_url(product.manifest_url_env) {
         let manifest = fetch_manifest(http, &url).await?;
         let tag = manifest.tag.clone();
         return Ok(Some(Found { url, manifest, tag }));
     }
-    let list = env_url(RELEASES_URL_ENV).unwrap_or_else(|| RELEASES_URL.to_string());
+    let list = env_url(product.releases_url_env).unwrap_or_else(|| RELEASES_URL.to_string());
     let releases = fetch_releases(http, &list).await?;
-    let Some(candidate) = pick_release(&releases, channel, &platform()) else {
+    let Some(candidate) = pick_release_for(product, &releases, channel, &platform()) else {
         return Ok(None);
     };
     let manifest = fetch_manifest(http, &candidate.manifest_url).await?;
@@ -450,31 +543,29 @@ fn parse_manifest(body: &[u8]) -> Result<Manifest, UpdateError> {
     let manifest: Manifest =
         serde_json::from_slice(body).map_err(|err| UpdateError::Manifest(err.to_string()))?;
     for asset in manifest.assets.values() {
-        // Only a plain file name, so it can't point outside the release.
-        let plain = !asset.name.is_empty()
-            && !asset.name.contains(['/', '\\', '?', '#'])
-            && asset.name != "."
-            && asset.name != "..";
-        if !plain {
-            return Err(UpdateError::Manifest(format!(
-                "bad file name {:?}",
-                asset.name
-            )));
-        }
-        if asset.sha256.len() != 64 || !asset.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(UpdateError::Manifest(format!(
-                "bad SHA-256 for {}",
-                asset.name
-            )));
-        }
-        if asset.size == 0 || asset.size > MAX_BINARY_BYTES {
-            return Err(UpdateError::Manifest(format!(
-                "bad size for {}",
-                asset.name
-            )));
+        check_file(&asset.name, asset.size, &asset.sha256)?;
+        if let Some(core) = &asset.core {
+            check_file(&core.name, core.size, &core.sha256)?;
         }
     }
     Ok(manifest)
+}
+
+/// A file a manifest lists: a plain name, a SHA-256 and a believable size.
+fn check_file(name: &str, size: u64, sha256: &str) -> Result<(), UpdateError> {
+    // Only a plain file name, so it can't point outside the release.
+    let plain =
+        !name.is_empty() && !name.contains(['/', '\\', '?', '#']) && name != "." && name != "..";
+    if !plain {
+        return Err(UpdateError::Manifest(format!("bad file name {name:?}")));
+    }
+    if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(UpdateError::Manifest(format!("bad SHA-256 for {name}")));
+    }
+    if size == 0 || size > MAX_BINARY_BYTES {
+        return Err(UpdateError::Manifest(format!("bad size for {name}")));
+    }
+    Ok(())
 }
 
 /// Downloads `asset` from `url` to `dest`, calling `progress` with the bytes read so
@@ -709,6 +800,9 @@ fn wait_for_exit(_pid: u32, _timeout: Duration) {}
 /// The Windows installer's AppId (launcher/installer/windows/lodestone-launcher.iss).
 pub const WINDOWS_APP_ID: &str = "{19BD6256-FCCA-4D23-B640-06275F57BD67}";
 
+/// Lodestone Host's Windows installer's AppId (launcher/installer/windows/lodestone-host.iss).
+pub const HOST_WINDOWS_APP_ID: &str = "{6F0B2C55-4E0A-4D6B-9C8E-3B1A7D2E5F40}";
+
 /// How Settings > Apps shows a build. The installer writes it the same way.
 pub fn display_version(version: &str, build: u64) -> String {
     format!("{version} (build {build})")
@@ -730,8 +824,13 @@ fn is_install_location(install_location: &str, exe: &Path) -> bool {
 /// there. Only changes the entry if it points at the folder `exe` is in, so a
 /// launcher run from elsewhere leaves an installed one alone. Returns whether it
 /// changed anything.
-#[cfg(windows)]
 pub fn refresh_uninstall_entry(exe: &Path, display: &str) -> bool {
+    refresh_uninstall_entry_for(WINDOWS_APP_ID, exe, display)
+}
+
+/// [`refresh_uninstall_entry`] for the installer with AppId `app_id`.
+#[cfg(windows)]
+pub fn refresh_uninstall_entry_for(app_id: &str, exe: &Path, display: &str) -> bool {
     use windows_sys::Win32::{
         Foundation::ERROR_SUCCESS,
         System::Registry::{
@@ -741,7 +840,7 @@ pub fn refresh_uninstall_entry(exe: &Path, display: &str) -> bool {
     };
 
     let subkey = wide(&format!(
-        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{WINDOWS_APP_ID}_is1"
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{app_id}_is1"
     ));
     let mut key: HKEY = std::ptr::null_mut();
     // SAFETY: the strings are NUL-terminated UTF-16, and the key is closed below.
@@ -786,7 +885,7 @@ pub fn refresh_uninstall_entry(exe: &Path, display: &str) -> bool {
 }
 
 #[cfg(not(windows))]
-pub fn refresh_uninstall_entry(_exe: &Path, _display: &str) -> bool {
+pub fn refresh_uninstall_entry_for(_app_id: &str, _exe: &Path, _display: &str) -> bool {
     false
 }
 
@@ -859,6 +958,7 @@ mod tests {
                 sha256: format!("{:x}", Sha256::digest(b"new")),
                 build: None,
                 commit: None,
+                core: None,
             },
         );
         Manifest {
@@ -1120,6 +1220,85 @@ mod tests {
         let mut extra = serde_json::to_value(&good).unwrap();
         extra["channel"] = "nightly".into();
         assert!(parse_manifest(&serde_json::to_vec(&extra).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn host_manifests_list_the_core_too() {
+        let mut host = manifest(7);
+        let core = Companion {
+            name: "lodestone-host-7-macos-aarch64-core".into(),
+            size: 5,
+            sha256: format!("{:x}", Sha256::digest(b"core!")),
+        };
+        host.assets.get_mut(&platform()).unwrap().core = Some(core.clone());
+        let body = serde_json::to_vec(&host).unwrap();
+        let read = parse_manifest(&body).unwrap();
+        assert_eq!(read.for_platform().unwrap().1.core.as_ref(), Some(&core));
+        assert_eq!(core.as_asset().sha256, core.sha256);
+
+        let mut bad = host.clone();
+        bad.assets.get_mut(&platform()).unwrap().core = Some(Companion {
+            name: "../lodestone_core".into(),
+            ..core
+        });
+        assert!(parse_manifest(&serde_json::to_vec(&bad).unwrap()).is_err());
+        // A launcher's manifest has no core, and doesn't write one.
+        let launcher = serde_json::to_value(manifest(7)).unwrap();
+        assert!(launcher["assets"][platform()].get("core").is_none());
+    }
+
+    #[test]
+    fn the_host_reads_its_own_releases() {
+        let platform = "macos-aarch64";
+        let host_release = |tag: &str, prerelease: bool, build: u64| Release {
+            tag_name: tag.into(),
+            draft: false,
+            prerelease,
+            assets: [
+                format!("lodestone-host-{build}-{platform}-standalone"),
+                format!("lodestone-host-{build}-{platform}-core"),
+                format!("lodestone-host-{build}-macos-universal.dmg"),
+                MANIFEST_NAME.into(),
+            ]
+            .into_iter()
+            .map(|name| ReleaseAsset {
+                browser_download_url: format!("{DOWNLOAD}/{tag}/{name}"),
+                name,
+            })
+            .collect(),
+        };
+        let releases = [
+            release("launcher-v9.0.0", false, &[(platform, 900)]),
+            host_release("host-v0.7.0-beta.1", true, 60),
+            host_release("host-v0.6.0", false, 50),
+            // the Tauri Host's and the core's own releases
+            release("v0.5.1", false, &[(platform, 800)]),
+        ];
+        let stable =
+            pick_release_for(Product::HOST, &releases, UpdateChannel::Stable, platform).unwrap();
+        assert_eq!((stable.tag.as_str(), stable.build), ("host-v0.6.0", 50));
+        let beta =
+            pick_release_for(Product::HOST, &releases, UpdateChannel::Beta, platform).unwrap();
+        assert_eq!((beta.tag.as_str(), beta.build), ("host-v0.7.0-beta.1", 60));
+        // and launchers never take the Host's
+        assert_eq!(
+            pick_release(&releases, UpdateChannel::Beta, platform).map(|c| c.tag),
+            Some("launcher-v9.0.0".into())
+        );
+        assert_eq!(
+            Product::HOST.asset_build(
+                "lodestone-host-12-windows-x86_64-standalone.exe",
+                "windows-x86_64"
+            ),
+            Some(12)
+        );
+        assert_eq!(
+            Product::HOST.asset_build(
+                "lodestone-host-12-windows-x86_64-core.exe",
+                "windows-x86_64"
+            ),
+            None
+        );
     }
 
     #[test]

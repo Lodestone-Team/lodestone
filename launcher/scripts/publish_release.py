@@ -62,6 +62,16 @@ LODESTONE_MACOS_SIGN_IDENTITY (a "Developer ID Application" certificate), or
 ad hoc without one. With APPLE_ID, APPLE_TEAM_ID and APPLE_APP_PASSWORD set too,
 the disk image is notarized and stapled.
 
+Lodestone Host releases the same way with `--product host` (`host-vX.Y.Z` tags,
+`lodestone-host-<build>-<platform>-standalone` files, "Host - Release"). Each of its
+builds is two programs: the Host and the Lodestone Core it runs as a child process,
+built from the repository's root workspace without the `deno` feature, uploaded as
+`lodestone-host-<build>-<platform>-core[.exe]` and listed in the manifest beside the
+Host as its `core`. The Windows installer and "Lodestone Host.app" hold both. See
+.claude/skills/publish-host-release/SKILL.md.
+
+    python3 launcher/scripts/publish_release.py --product host --dry-run --tag host-v0.6.0 --open
+
 Needs Python 3.9+, the Rust toolchain, and the GitHub CLI (`gh`) signed in with
 write access to the repository; on Windows also Inno Setup 6 (`winget install
 --id JRSoftware.InnoSetup -e --scope user`). Uses only the standard library.
@@ -80,6 +90,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 REPO = "Lodestone-Team/lodestone"
@@ -101,7 +112,7 @@ ROOT = LAUNCHER.parent
 # (`-setup.exe`) and the macOS disk image (`.dmg`, `macos-universal` when it holds
 # both architectures). Builds published before the standalone suffix have none.
 ASSET_NAME = re.compile(
-    r"^lodestone-launcher-(\d+)-([a-z0-9]+-[a-z0-9_]+)(-standalone|-setup)?(\.exe|\.dmg)?$"
+    r"^lodestone-launcher-(\d+)-([a-z0-9]+-[a-z0-9_]+)(-standalone|-setup|-core)?(\.exe|\.dmg)?$"
 )
 INSTALLER_SCRIPT = LAUNCHER / "installer" / "windows" / "lodestone-launcher.iss"
 MACOS = LAUNCHER / "installer" / "macos"
@@ -115,6 +126,106 @@ SIGN_IDENTITY_ENV = "LODESTONE_MACOS_SIGN_IDENTITY"
 NOTARY_ENV = ("APPLE_ID", "APPLE_TEAM_ID", "APPLE_APP_PASSWORD")
 # What a staged folder holds, beside its files.
 STAGE_RECORD = "stage.json"
+
+
+@dataclass(frozen=True)
+class Product:
+    """An app this script releases. The module's constants above are the launcher's;
+    `use_product` swaps them for another's."""
+    key: str
+    # "Lodestone Launcher": release titles, the app's name.
+    name: str
+    tag_prefix: str
+    # The start of every release file's name: `lodestone-launcher-`.
+    file_prefix: str
+    # The cargo package in launcher/, and its executable's name.
+    package: str
+    # The environment variables the build number and commit are compiled in from.
+    build_env: str
+    commit_env: str
+    installer_script: Path
+    stable_installer: str
+    stable_dmg: str
+    bundle_id: str
+    app_icon: Path
+    entitlements: Path
+    legacy_tag: str | None
+    # Paths whose changes make a release of it.
+    paths: tuple
+    # The release workflow, as GitHub's Actions page names it.
+    workflow: str
+    # Whether it ships Lodestone Core beside it (`lodestone_core`, without Deno).
+    core: bool
+
+
+PRODUCTS = {
+    "launcher": Product(
+        key="launcher",
+        name="Lodestone Launcher",
+        tag_prefix="launcher-v",
+        file_prefix="lodestone-launcher-",
+        package="lodestone-launcher",
+        build_env="LODESTONE_LAUNCHER_BUILD",
+        commit_env="LODESTONE_LAUNCHER_COMMIT",
+        installer_script=INSTALLER_SCRIPT,
+        stable_installer=STABLE_INSTALLER,
+        stable_dmg=STABLE_DMG,
+        bundle_id=BUNDLE_ID,
+        app_icon=MACOS / "AppIcon.icns",
+        entitlements=MACOS / "entitlements.plist",
+        legacy_tag=LEGACY_TAG,
+        paths=("launcher", "crates"),
+        workflow="Launcher - Release",
+        core=False,
+    ),
+    "host": Product(
+        key="host",
+        name="Lodestone Host",
+        tag_prefix="host-v",
+        file_prefix="lodestone-host-",
+        package="lodestone-host",
+        build_env="LODESTONE_HOST_BUILD",
+        commit_env="LODESTONE_HOST_COMMIT",
+        installer_script=LAUNCHER / "installer" / "windows" / "lodestone-host.iss",
+        stable_installer="LodestoneHostSetup.exe",
+        stable_dmg="LodestoneHost.dmg",
+        # The Tauri Host's, so the new app replaces it in place and keeps what macOS
+        # granted it (notifications, the firewall). Neither keeps data by it: the
+        # core's is in ~/.lodestone, the Host's in "Lodestone Host" folders.
+        bundle_id="com.lodestone.cc",
+        app_icon=MACOS / "HostIcon.icns",
+        entitlements=MACOS / "host-entitlements.plist",
+        legacy_tag=None,
+        paths=("launcher", "core", "crates"),
+        workflow="Host - Release",
+        core=True,
+    ),
+}
+PRODUCT = PRODUCTS["launcher"]
+# The core's program, from the repository's root workspace.
+CORE_PACKAGE = "lodestone_core"
+
+
+def use_product(key: str) -> None:
+    """Makes the script release `key` ("launcher" or "host")."""
+    global PRODUCT, TAG_PREFIX, TAG, LEGACY_TAG, ASSET_NAME, INSTALLER_SCRIPT
+    global STABLE_INSTALLER, STABLE_DMG, APP_NAME, BUNDLE_ID, LAUNCHER_PATHS
+    product = PRODUCTS[key]
+    PRODUCT = product
+    TAG_PREFIX = product.tag_prefix
+    TAG = re.compile("^" + re.escape(product.tag_prefix)
+                     + r"(\d+\.\d+\.\d+)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$")
+    LEGACY_TAG = product.legacy_tag
+    ASSET_NAME = re.compile(
+        "^" + re.escape(product.file_prefix)
+        + r"(\d+)-([a-z0-9]+-[a-z0-9_]+)(-standalone|-setup|-core)?(\.exe|\.dmg)?$"
+    )
+    INSTALLER_SCRIPT = product.installer_script
+    STABLE_INSTALLER = product.stable_installer
+    STABLE_DMG = product.stable_dmg
+    APP_NAME = product.name
+    BUNDLE_ID = product.bundle_id
+    LAUNCHER_PATHS = list(product.paths)
 
 
 class Failure(Exception):
@@ -180,9 +291,18 @@ def key_for_target(triple: str) -> str:
     return f"{os_name}-{arch}"
 
 
+def version_file() -> Path:
+    """Where the version the app shows is: the launcher's workspace, or the Host's own
+    crate (its versions carry on from the Tauri Host's)."""
+    if PRODUCT.key == "host":
+        return LAUNCHER / "crates" / "lodestone-host" / "Cargo.toml"
+    return LAUNCHER / "Cargo.toml"
+
+
 def workspace_version() -> str:
-    text = (LAUNCHER / "Cargo.toml").read_text(encoding="utf-8")
-    match = re.search(r'^\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"', text, re.M | re.S)
+    text = version_file().read_text(encoding="utf-8")
+    section = r"\[package\]" if PRODUCT.key == "host" else r"\[workspace\.package\]"
+    match = re.search("^" + section + r'[^\[]*?^version\s*=\s*"([^"]+)"', text, re.M | re.S)
     return match.group(1) if match else ""
 
 
@@ -196,8 +316,8 @@ def check_clean() -> None:
 def check_tag(tag: str) -> None:
     if not TAG.match(tag):
         raise Failure(
-            f"{tag!r} isn't a launcher version: use launcher-vX.Y.Z, or launcher-vX.Y.Z-beta.N "
-            "(or another -suffix) for a beta"
+            f"{tag!r} isn't a {PRODUCT.name} version: use {TAG_PREFIX}X.Y.Z, or "
+            f"{TAG_PREFIX}X.Y.Z-beta.N (or another -suffix) for a beta"
         )
 
 
@@ -211,16 +331,18 @@ def tag_version_note(tag: str, version: str) -> str | None:
     """A note when the tag's version isn't the workspace's (which the build shows)."""
     match = TAG.match(tag)
     if match and version and match.group(1) != version.split("-", 1)[0]:
-        return (f"{tag} is version {match.group(1)}, but launcher/Cargo.toml says {version}, "
-                "which the launcher and its installer show. Bump [workspace.package] version "
-                "on the release branch to match, if it should.")
+        file = version_file().relative_to(ROOT).as_posix()
+        return (f"{tag} is version {match.group(1)}, but {file} says {version}, "
+                f"which {PRODUCT.name} and its installer show. Bump its version on the release "
+                "branch to match, if it should.")
     return None
 
 
 def normalize_tag(value: str) -> str:
-    """`1.0.0`, `v1.0.0` and `launcher-v1.0.0` all name launcher-v1.0.0; `draft` stays."""
+    """`1.0.0`, `v1.0.0` and `launcher-v1.0.0` all name launcher-v1.0.0 (`host-v1.0.0`
+    for the Host); `draft` stays."""
     value = value.strip()
-    if value == "draft" or value.startswith("launcher-"):
+    if value == "draft" or value.startswith(PRODUCT.key + "-"):
         return value
     return TAG_PREFIX + value.removeprefix("v")
 
@@ -309,7 +431,8 @@ def suggest_version(tags: list[str], commits: list[tuple[str, str, str]], worksp
         numbers = tuple(int(n) for n in (workspace or "0.1.0").split("-")[0].split("."))
         base = ".".join(map(str, numbers))
         tag = f"{TAG_PREFIX}{base}" + ("-beta.1" if beta else "")
-        return tag, f"the launcher's first versioned release; launcher/Cargo.toml says {workspace}"
+        return tag, (f"{PRODUCT.name}'s first versioned release; "
+                     f"{version_file().relative_to(ROOT).as_posix()} says {workspace}")
     newest = versions[-1]
     stables = [t for t in versions if parse_version(t)[1] is None]
     numbers, pre = parse_version(newest)
@@ -326,7 +449,7 @@ def suggest_version(tags: list[str], commits: list[tuple[str, str, str]], worksp
         return (f"{TAG_PREFIX}{version}",
                 f"{newest} is the newest; {version} without a suffix finishes its betas")
     if level == "none":
-        level_reason = "no launcher changes since; a patch release"
+        level_reason = f"no {PRODUCT.key} changes since; a patch release"
         level = "fix"
     else:
         level_reason = {"breaking": "a breaking change", "feature": "new features",
@@ -344,7 +467,7 @@ def version_problem(tag: str, tags: list[str]) -> tuple[str | None, str | None]:
     note (it skips versions) is only worth mentioning."""
     parsed = parse_version(tag)
     if not parsed:
-        return f"{tag} isn't a launcher version", None
+        return f"{tag} isn't a {PRODUCT.name} version", None
     numbers, pre = parsed
     if tag in tags:
         return None, (f"{tag} already exists: builds go into its release while it's a draft "
@@ -429,7 +552,7 @@ def show_next_version(tag: str | None, commit_ref: str, beta: bool) -> int:
     print(f"why: {reason}")
     print(f"commit: {commit}")
     if commits:
-        print(f"launcher changes since {newest or 'the start'} ({len(commits)}):")
+        print(f"{PRODUCT.key} changes since {newest or 'the start'} ({len(commits)}):")
         for sha, subject, body in commits[:40]:
             print(f"  {sha[:7]} [{classify(subject, body)}] {subject}")
         if len(commits) > 40:
@@ -445,17 +568,23 @@ def asset_name(build: int, key: str) -> str:
     """The standalone binary: runs from anywhere, without installing, and updates itself.
     It's the file `latest.json` points the updater at, installed or not."""
     exe = ".exe" if key.startswith("windows-") else ""
-    return f"lodestone-launcher-{build}-{key}-standalone{exe}"
+    return f"{PRODUCT.file_prefix}{build}-{key}-standalone{exe}"
+
+
+def core_name(build: int, key: str) -> str:
+    """The Host's Lodestone Core, which the updater installs next to the Host."""
+    exe = ".exe" if key.startswith("windows-") else ""
+    return f"{PRODUCT.file_prefix}{build}-{key}-core{exe}"
 
 
 def installer_name(build: int, key: str) -> str:
-    return f"lodestone-launcher-{build}-{key}-setup.exe"
+    return f"{PRODUCT.file_prefix}{build}-{key}-setup.exe"
 
 
 def dmg_name(build: int, keys: list[str]) -> str:
     """The disk image: `macos-universal` when the app holds more than one architecture."""
     key = keys[0] if len(keys) == 1 else "macos-universal"
-    return f"lodestone-launcher-{build}-{key}.dmg"
+    return f"{PRODUCT.file_prefix}{build}-{key}.dmg"
 
 
 def has_installer(key: str) -> bool:
@@ -506,7 +635,8 @@ def file_key(name: str) -> str | None:
 def file_build(name: str, key: str) -> int | None:
     """The build of `name` if it's this platform's standalone binary."""
     match = ASSET_NAME.match(name)
-    if match and match.group(2) == key and match.group(3) != "-setup" and match.group(4) != ".dmg":
+    if (match and match.group(2) == key and match.group(3) not in ("-setup", "-core")
+            and match.group(4) != ".dmg"):
         return int(match.group(1))
     return None
 
@@ -547,7 +677,7 @@ def launcher_releases(repo: str) -> list[dict]:
     """Every launcher release, drafts too (seeing those needs write access), newest
     first, as GitHub's API lists them."""
     out = run(["gh", "api", "--paginate", f"repos/{repo}/releases?per_page=100", "--jq",
-               '.[] | select(.tag_name | startswith("launcher-v")) '
+               f'.[] | select(.tag_name | startswith("{TAG_PREFIX}")) '
                '| {tag_name, draft, prerelease, created_at, target_commitish, html_url, '
                'assets: [.assets[] | {name}]}'])
     return [json.loads(line) for line in out.splitlines() if line.strip()]
@@ -574,8 +704,10 @@ def pick_draft(releases: list[dict]) -> tuple[dict, list[dict]]:
     drafts = open_drafts(releases)
     if not drafts:
         raise Failure(
-            "there's no launcher draft release. A developer starts one by pushing a "
-            "launcher-vX.Y.Z tag or running Launcher - Release by hand"
+            f"there's no {PRODUCT.key} draft release. A developer starts one by "
+            + ("pushing a launcher-vX.Y.Z tag" if PRODUCT.key == "launcher"
+               else f"running this script with --start {TAG_PREFIX}X.Y.Z")
+            + f" or running {PRODUCT.workflow} by hand"
         )
     return drafts[0], drafts[1:]
 
@@ -613,22 +745,35 @@ def describe(path: Path, build: int, commit: str) -> dict:
 
 
 def build_binary(target: str | None, build: int, commit: str, key: str, into: Path) -> Path:
-    """Builds the launcher for `target` (None: this machine); returns a copy named for upload."""
-    env = dict(os.environ, LODESTONE_LAUNCHER_BUILD=str(build), LODESTONE_LAUNCHER_COMMIT=commit)
-    cmd = ["cargo", "build", "--release", "--locked", "-p", "lodestone-launcher"]
+    """Builds the app for `target` (None: this machine); returns a copy named for upload."""
+    env = dict(os.environ, **{PRODUCT.build_env: str(build), PRODUCT.commit_env: commit})
+    cmd = ["cargo", "build", "--release", "--locked", "-p", PRODUCT.package]
     if target:
         cmd += ["--target", target]
     run(cmd, cwd=LAUNCHER, env=env, quiet=False)
-    metadata = json.loads(run(["cargo", "metadata", "--format-version", "1", "--no-deps"], cwd=LAUNCHER))
+    return copy_built(LAUNCHER, PRODUCT.package, target, key, into / asset_name(build, key))
+
+
+def build_core(target: str | None, build: int, key: str, into: Path) -> Path:
+    """Builds Lodestone Core, which the Host runs, for `target`, from the repository's
+    root workspace. Never with Deno: `--no-default-features`."""
+    cmd = ["cargo", "build", "--release", "--locked", "-p", CORE_PACKAGE, "--no-default-features"]
+    if target:
+        cmd += ["--target", target]
+    run(cmd, cwd=ROOT, quiet=False)
+    return copy_built(ROOT, CORE_PACKAGE, target, key, into / core_name(build, key))
+
+
+def copy_built(workspace: Path, program: str, target: str | None, key: str, copy: Path) -> Path:
+    """Copies `workspace`'s release build of `program` to `copy`."""
+    metadata = json.loads(run(["cargo", "metadata", "--format-version", "1", "--no-deps"],
+                              cwd=workspace))
     out = Path(metadata["target_directory"])
     if target:
         out = out / target
-    exe = out / "release" / (
-        "lodestone-launcher.exe" if key.startswith("windows-") else "lodestone-launcher"
-    )
+    exe = out / "release" / (program + (".exe" if key.startswith("windows-") else ""))
     if not exe.is_file():
         raise Failure(f"the build finished but {exe} is missing")
-    copy = into / asset_name(build, key)
     shutil.copyfile(exe, copy)
     if not key.startswith("windows-"):
         copy.chmod(0o755)
@@ -657,10 +802,12 @@ def find_iscc() -> Path:
     )
 
 
-def build_installer(exe: Path, build: int, version: str, key: str, into: Path) -> Path:
-    """Wraps `exe` in the Windows installer; returns the installer."""
+def build_installer(exe: Path, build: int, version: str, key: str, into: Path,
+                    core: Path | None = None) -> Path:
+    """Wraps `exe` (and the Host's `core`) in the Windows installer; returns the installer."""
     name = installer_name(build, key)
-    run([str(find_iscc()), "/Q", f"/DSourceExe={exe}", f"/DBuild={build}",
+    extra = [f"/DSourceCore={core}"] if core else []
+    run([str(find_iscc()), "/Q", f"/DSourceExe={exe}", *extra, f"/DBuild={build}",
          f"/DVersion={version}", f"/DOutputDir={into}", f"/DOutputName={Path(name).stem}",
          str(INSTALLER_SCRIPT)], cwd=INSTALLER_SCRIPT.parent)
     installer = into / name
@@ -686,11 +833,13 @@ def codesign(path: Path, identity: str, identifier: str | None = None) -> None:
         cmd += ["--identifier", identifier]
     if identity != "-":
         cmd += ["--options", "runtime", "--timestamp",
-                "--entitlements", str(MACOS / "entitlements.plist")]
+                "--entitlements", str(PRODUCT.entitlements)]
     run(cmd + [str(path)])
 
 
 def info_plist(build: int, version: str) -> dict:
+    if PRODUCT.key == "host":
+        return host_info_plist(build, version)
     return {
         "CFBundleDevelopmentRegion": "en",
         "CFBundleDisplayName": APP_NAME,
@@ -718,6 +867,29 @@ def info_plist(build: int, version: str) -> dict:
     }
 
 
+def host_info_plist(build: int, version: str) -> dict:
+    """Lodestone Host's: the Tauri Host's name and bundle id, so it replaces that app."""
+    return {
+        "CFBundleDevelopmentRegion": "en",
+        "CFBundleDisplayName": APP_NAME,
+        "CFBundleExecutable": PRODUCT.package,
+        "CFBundleIconFile": "AppIcon",
+        "CFBundleIdentifier": BUNDLE_ID,
+        "CFBundleInfoDictionaryVersion": "6.0",
+        "CFBundleName": APP_NAME,
+        "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": version or "0.0.0",
+        "CFBundleVersion": str(build),
+        "LSApplicationCategoryType": "public.app-category.developer-tools",
+        "LSMinimumSystemVersion": "10.15.7",
+        "NSHighResolutionCapable": True,
+        "NSSupportsAutomaticGraphicsSwitching": True,
+        # The core, the Host's child, serves the Minecraft servers to the network.
+        "NSLocalNetworkUsageDescription":
+            "Lodestone Host runs your Minecraft servers for players on your network.",
+    }
+
+
 # The URL scheme the launcher opens, for Info.plist.
 URL_TYPE = {
     "CFBundleURLName": BUNDLE_ID,
@@ -726,24 +898,35 @@ URL_TYPE = {
 }
 
 
-def build_app(binaries: list[Path], build: int, version: str, identity: str, into: Path) -> Path:
+def build_app(binaries: list[Path], build: int, version: str, identity: str, into: Path,
+              cores: list[Path] | None = None) -> Path:
     """`Lodestone Launcher.app` around the (already signed) binaries, one per architecture.
 
     With more than one, the app's executable is a universal binary of them all. An
     update later replaces it with the standalone binary for the Mac's own architecture.
+    Lodestone Host's app also holds the core (`cores`, one per architecture) next to its
+    executable, where the Host looks for it, signed before the app.
     """
     app = into / f"{APP_NAME}.app"
     if app.exists():
         shutil.rmtree(app)
     (app / "Contents" / "MacOS").mkdir(parents=True)
     (app / "Contents" / "Resources").mkdir()
-    exe = app / "Contents" / "MacOS" / "lodestone-launcher"
-    if len(binaries) == 1:
-        shutil.copyfile(binaries[0], exe)
-    else:
-        run(["lipo", "-create", *map(str, binaries), "-output", str(exe)])
-    exe.chmod(0o755)
-    shutil.copyfile(MACOS / "AppIcon.icns", app / "Contents" / "Resources" / "AppIcon.icns")
+
+    def universal(parts: list[Path], out: Path) -> None:
+        if len(parts) == 1:
+            shutil.copyfile(parts[0], out)
+        else:
+            run(["lipo", "-create", *map(str, parts), "-output", str(out)])
+        out.chmod(0o755)
+
+    exe = app / "Contents" / "MacOS" / PRODUCT.package
+    universal(binaries, exe)
+    if cores:
+        core = app / "Contents" / "MacOS" / CORE_PACKAGE
+        universal(cores, core)
+        codesign(core, identity, core_identifier())
+    shutil.copyfile(PRODUCT.app_icon, app / "Contents" / "Resources" / "AppIcon.icns")
     with (app / "Contents" / "Info.plist").open("wb") as file:
         plistlib.dump(info_plist(build, version), file)
     (app / "Contents" / "PkgInfo").write_text("APPL????", encoding="ascii")
@@ -843,6 +1026,11 @@ def build_dmg(app: Path, name: str, identity: str, into: Path) -> Path:
     return dmg
 
 
+def core_identifier() -> str:
+    """The code signing identifier of the Host's core."""
+    return f"{BUNDLE_ID}.core"
+
+
 def notarize(dmg: Path) -> bool:
     """Notarizes and staples the disk image, when the Apple account is configured."""
     values = [os.environ.get(name, "").strip() for name in NOTARY_ENV]
@@ -871,20 +1059,32 @@ def stage(targets: list[str | None], build: int, commit: str, version: str, into
     record: dict = {"build": build, "commit": commit, "version": version,
                     "assets": {}, "files": {}}
     macs: list[tuple[str, Path]] = []
+    mac_cores: list[Path] = []
     for target in targets:
         key = key_for_target(target or host)
-        step(f"Building the launcher for {key} (release)")
+        step(f"Building {PRODUCT.name} for {key} (release)")
         binary = build_binary(target, build, commit, key, into)
+        core = None
+        if PRODUCT.core:
+            step(f"Building Lodestone Core for {key} (release, without Deno)")
+            core = build_core(target, build, key, into)
         if key.startswith("macos-"):
             if not host.endswith("apple-darwin"):
                 raise Failure("macOS builds are signed and bundled on a Mac")
             codesign(binary, sign_identity(), BUNDLE_ID)
             macs.append((key, binary))
+            if core:
+                codesign(core, sign_identity(), core_identifier())
+                mac_cores.append(core)
         record["assets"][key] = describe(binary, build, commit)
         record["files"][binary.name] = sha256(binary)
+        if core:
+            record["assets"][key]["core"] = {"name": core.name, "size": core.stat().st_size,
+                                             "sha256": sha256(core)}
+            record["files"][core.name] = sha256(core)
         if has_installer(key) and installer:
             step("Building the Windows installer")
-            setup = build_installer(binary, build, version, key, into)
+            setup = build_installer(binary, build, version, key, into, core)
             record["files"][setup.name] = sha256(setup)
     if macs:
         identity = sign_identity()
@@ -892,7 +1092,8 @@ def stage(targets: list[str | None], build: int, commit: str, version: str, into
         step(f"Building {APP_NAME}.app ({', '.join(keys)}), "
              + ("signed ad hoc" if identity == "-" else f"signed by {identity}"))
         with tempfile.TemporaryDirectory() as tmp:
-            app = build_app([binary for _, binary in macs], build, version, identity, Path(tmp))
+            app = build_app([binary for _, binary in macs], build, version, identity, Path(tmp),
+                            mac_cores or None)
             dmg = build_dmg(app, dmg_name(build, keys), identity, into)
         if not notarize(dmg) and identity != "-":
             print("    Not notarized: set " + ", ".join(NOTARY_ENV) + " to notarize it.")
@@ -916,6 +1117,9 @@ def read_stage(folder: Path) -> dict:
     for key, entry in record.get("assets", {}).items():
         if record["files"].get(entry["name"]) != entry["sha256"]:
             raise Failure(f"{folder}'s {key} binary doesn't match its record")
+        core = entry.get("core")
+        if core and record["files"].get(core["name"]) != core["sha256"]:
+            raise Failure(f"{folder}'s {key} core doesn't match its record")
     return record
 
 
@@ -959,9 +1163,25 @@ TEST_CHECKLIST = [
 ]
 
 
+# The same for Lodestone Host (`--product host`).
+HOST_TEST_CHECKLIST = [
+    "Quit any other Lodestone Host first (the old Tauri one too): the core needs port 16662.",
+    "The window opens, the core starts and the Host signs in; servers and Settings load.",
+    "Settings › Updates shows this build and commit (\"Build {build} · {commit}\").",
+    "A server's Overview, Console, Files and Settings open. Starting one is the developer's "
+    "call (it accepts Minecraft's EULA); agents never start one.",
+    "Quit from the menu bar or tray icon: the core stops, its servers first.",
+    "Whatever this release changes works.",
+    "Windows: the installer installs without an administrator prompt, asks to quit a running "
+    "Host first, the Start Menu shortcut opens the Host, and Settings › Apps lists it with "
+    "this build.",
+    "macOS: the disk image shows the app, an arrow and Applications, and the app opens from it.",
+]
+
+
 def checklist(build: int, commit: str, key: str) -> list[str]:
     lines = []
-    for line in TEST_CHECKLIST:
+    for line in (HOST_TEST_CHECKLIST if PRODUCT.key == "host" else TEST_CHECKLIST):
         if (line.startswith("Windows:") and not key.startswith("windows-")) or \
                 (line.startswith("macOS:") and not key.startswith("macos-")):
             continue
@@ -981,14 +1201,14 @@ def running_launchers() -> list[str]:
             out = run(["tasklist", "/FO", "CSV", "/NH"])
             for line in out.splitlines():
                 parts = [p.strip('"') for p in line.split('","')]
-                if len(parts) > 1 and parts[0].lower().startswith("lodestone-launcher"):
+                if len(parts) > 1 and parts[0].lower().startswith(PRODUCT.package):
                     found.append(f"{parts[1]} {parts[0]}")
         else:
             out = run(["ps", "-axo", "pid=,comm="])
             for line in out.splitlines():
                 pid, _, command = line.strip().partition(" ")
                 # Linux cuts process names to 15 characters.
-                if Path(command.strip()).name.startswith("lodestone-launc"):
+                if Path(command.strip()).name.startswith(PRODUCT.package[:15]):
                     found.append(f"{pid} {command.strip()}")
     except Failure:
         pass
@@ -1005,18 +1225,21 @@ def test_binary(test_dir: Path, record: dict, key: str) -> Path:
     return binary
 
 
-def open_test_copy(binary: Path, wait: float = 4.0) -> int:
+def open_test_copy(binary: Path, wait: float = 4.0, core: Path | None = None) -> int:
     """Starts the test copy on its own, with the person's normal data, and returns
-    its process id once it has kept running for `wait` seconds."""
+    its process id once it has kept running for `wait` seconds. The Host's test copy
+    runs the dry run's core (`core`), through LODESTONE_HOST_CORE."""
     running = running_launchers()
     if running:
         raise Failure(
-            "a launcher is already running (" + "; ".join(running) + "), so the test copy "
-            "wouldn't open. Ask the developer to quit it (Lodestone Launcher's window, or its "
+            f"{PRODUCT.name} is already running (" + "; ".join(running) + "), so the test copy "
+            f"wouldn't open. Ask the developer to quit it ({PRODUCT.name}'s window, or its "
             "icon in the tray), then open the test copy again with --open"
         )
     kwargs: dict = {"cwd": binary.parent, "stdin": subprocess.DEVNULL,
                     "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if core:
+        kwargs["env"] = dict(os.environ, LODESTONE_HOST_CORE=str(core))
     if os.name == "nt":
         kwargs["creationflags"] = (subprocess.DETACHED_PROCESS
                                    | subprocess.CREATE_NEW_PROCESS_GROUP)
@@ -1028,7 +1251,7 @@ def open_test_copy(binary: Path, wait: float = 4.0) -> int:
     except subprocess.TimeoutExpired:
         return process.pid
     raise Failure(
-        f"the test copy quit straight away (exit code {code}). Another launcher may have been "
+        f"the test copy quit straight away (exit code {code}). Another one may have been "
         "starting, or it crashed: run it from a terminal to see its output"
     )
 
@@ -1313,12 +1536,14 @@ class Folder:
 
 def release_title(tag: str) -> str:
     match = TAG.match(tag)
-    return f"Lodestone Launcher {tag[len('launcher-v'):] if match else tag}"
+    return f"{PRODUCT.name} {tag[len(TAG_PREFIX):] if match else tag}"
 
 
 def release_notes(tag: str, commit: str) -> str:
     """A new draft's notes, for a developer to finish (the release workflow's
     release-draft.yml writes the same)."""
+    if PRODUCT.key == "host":
+        return host_release_notes(tag, commit)
     channel = ("launchers with Settings › General › Beta builds on" if is_prerelease_tag(tag)
                else "every installed launcher")
     return "\n".join([
@@ -1333,6 +1558,30 @@ def release_notes(tag: str, commit: str) -> str:
         "administrator rights.",
         f"- **macOS:** `{STABLE_DMG}`. Open it and drag Lodestone Launcher into Applications.",
         "- The `-standalone` files run without installing, from wherever you put them.",
+        "",
+        f"Once this release is published, {channel} updates to it.",
+        "",
+        f"Built from {commit}.",
+    ])
+
+
+def host_release_notes(tag: str, commit: str) -> str:
+    """Lodestone Host's draft notes (release-draft.yml writes the same)."""
+    channel = ("Lodestone Host with Settings › Updates › Beta builds on" if is_prerelease_tag(tag)
+               else "every installed Lodestone Host")
+    return "\n".join([
+        "## What's new",
+        "",
+        "<!-- Write what changed. A developer publishes this by hand once every platform's "
+        f"build is in (publish_release.py --product host --find-draft {tag} lists them). -->",
+        "",
+        "## Download",
+        "",
+        f"- **Windows:** `{STABLE_INSTALLER}`. It installs for your account, without "
+        "administrator rights.",
+        f"- **macOS:** `{STABLE_DMG}`. Open it and drag Lodestone Host into Applications. It "
+        "replaces the old Lodestone Host app; your servers stay where they are.",
+        "- The `-standalone` and `-core` files are what the Host updates itself with.",
         "",
         f"Once this release is published, {channel} updates to it.",
         "",
@@ -1481,9 +1730,12 @@ def copy_release(source, dest, platforms: list[str] | None, force: bool,
             step(f"Downloading {name}")
             source.download(name, folder)
         for key, entry in assets.items():
-            path = folder / entry["name"]
-            if path.stat().st_size != entry["size"] or sha256(path) != entry["sha256"]:
-                raise Failure(f"{entry['name']} doesn't match its manifest; not copying it")
+            for file in [entry] + ([entry["core"]] if entry.get("core") else []):
+                path = folder / file["name"]
+                if not path.is_file():
+                    raise Failure(f"{file['name']} is missing from the release; not copying it")
+                if path.stat().st_size != file["size"] or sha256(path) != file["sha256"]:
+                    raise Failure(f"{file['name']} doesn't match its manifest; not copying it")
         newest = max(assets.values(), key=lambda e: e["build"])
         record = {"build": newest["build"],
                   "commit": newest["commit"],
@@ -1543,7 +1795,8 @@ def show_draft(repo: str, draft: dict, others: list[dict]) -> None:
 
 def open_and_explain(test_dir: Path, record: dict, key: str) -> None:
     binary = test_binary(test_dir, record, key)
-    pid = open_test_copy(binary)
+    core = record["assets"][key].get("core")
+    pid = open_test_copy(binary, core=test_dir / core["name"] if core else None)
     step(f"Opened the test copy (process {pid}): {binary}")
     print("    Check, and quit it when done:")
     for line in checklist(record["build"], record["commit"], key):
@@ -1563,7 +1816,12 @@ def report(target, manifest: dict | None, build: int | None = None) -> None:
 def main(argv: list[str]) -> int:
     # Keep our lines in order with cargo's and gh's output when piped.
     sys.stdout.reconfigure(line_buffering=True)
-    parser = argparse.ArgumentParser(description="Build and upload Lodestone Launcher versions.")
+    parser = argparse.ArgumentParser(
+        description="Build and upload Lodestone Launcher (or, with --product host, Lodestone "
+                    "Host) versions.")
+    parser.add_argument("--product", choices=sorted(PRODUCTS), default="launcher",
+                        help="which app: the launcher (launcher-v* tags) or Lodestone Host "
+                             "(host-v* tags, with Lodestone Core beside it)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true",
                       help="stage this machine's build to test (with --tag: and check it against the release)")
@@ -1612,6 +1870,9 @@ def main(argv: list[str]) -> int:
     # Another repository (a fork) to rehearse in.
     parser.add_argument("--repo", default=REPO, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    use_product(args.product)
+    if args.bridge and not LEGACY_TAG:
+        raise Failure(f"{PRODUCT.name} has no old update channel to bridge")
     for name in ("tag", "find_draft", "next_version", "start", "promote_from", "bridge"):
         value = getattr(args, name)
         if value:
@@ -1644,8 +1905,12 @@ def main(argv: list[str]) -> int:
             created = release.tag_commit() is None
             release.create(commit, args.force)
             if created:
-                print("    The new tag starts Launcher - Release, which builds macOS and Windows "
-                      "into the draft too.")
+                if PRODUCT.key == "launcher":
+                    print("    The new tag starts Launcher - Release, which builds macOS and "
+                          "Windows into the draft too.")
+                else:
+                    print(f"    Run {PRODUCT.workflow} by hand with this tag to build macOS and "
+                          "Windows into the draft too.")
         else:
             tagged = release.tag_commit()
             if args.commit and tagged and tagged != commit:
@@ -1687,7 +1952,7 @@ def main(argv: list[str]) -> int:
 
     if args.promote_from:
         if not args.tag:
-            raise Failure("say which version to make: --tag launcher-vX.Y.Z")
+            raise Failure(f"say which version to make: --tag {TAG_PREFIX}X.Y.Z")
         check_tag(args.promote_from)
         source = VersionRelease(args.repo, args.promote_from)
         source.check()
@@ -1700,7 +1965,7 @@ def main(argv: list[str]) -> int:
 
     if args.sources:
         if not args.tag:
-            raise Failure("say which version these are: --tag launcher-vX.Y.Z")
+            raise Failure(f"say which version these are: --tag {TAG_PREFIX}X.Y.Z")
         target = VersionRelease(args.repo, args.tag)
         target.check()
         stages = [(folder, read_stage(folder)) for folder in args.sources]
@@ -1710,7 +1975,7 @@ def main(argv: list[str]) -> int:
 
     publishing = not (args.dry_run or args.stage or args.output)
     if publishing and not args.tag:
-        raise Failure("say which version to upload to: --tag launcher-vX.Y.Z")
+        raise Failure(f"say which version to upload to: --tag {TAG_PREFIX}X.Y.Z")
     if args.build is not None and publishing:
         raise Failure("--build is for tests; use it with --output, --dry-run or --stage")
 
@@ -1746,7 +2011,9 @@ def main(argv: list[str]) -> int:
             manifest = publish(folder, [(Path(tmp), record)], args.force)
         step(f"Published build {build} into {folder.url()}")
         print("\n".join(summary(manifest, build)))
-        print(f"    Serve {folder.url()} over HTTP and set LODESTONE_LAUNCHER_UPDATE_URL to its "
+        update_env = ("LODESTONE_HOST_UPDATE_URL" if PRODUCT.key == "host"
+                      else "LODESTONE_LAUNCHER_UPDATE_URL")
+        print(f"    Serve {folder.url()} over HTTP and set {update_env} to its "
               f"{MANIFEST} to test updating against it.")
         return 0
 
@@ -1772,7 +2039,7 @@ def main(argv: list[str]) -> int:
         step("Test this build on this machine before publishing it:")
         for copy in copies:
             print(f"    {copy}")
-        print("    Then upload it from this checkout without changes (--tag launcher-vX.Y.Z);")
+        print(f"    Then upload it from this checkout without changes (--tag {TAG_PREFIX}X.Y.Z);")
         print("    the script uploads exactly these files.")
         if args.open:
             open_and_explain(test_dir, record, key_for_target(host_target()))
