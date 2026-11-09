@@ -599,7 +599,10 @@ pub(crate) mod tests {
             names,
             ["Faithful.zip", "Folder pack", "Nested.zip", "Nothing.zip"]
         );
-        assert_eq!(files[0].meta.description.as_deref(), Some("Faithful 32x"));
+        assert_eq!(
+            files[0].meta.description.as_deref().map(crate::mc_text::strip),
+            Some("Faithful 32x".to_string())
+        );
         assert_eq!(files[0].meta.formats.unwrap().min.major, 15);
         assert!(files[0].meta.icon.is_some());
         assert_eq!(files[0].display_name(), "Faithful");

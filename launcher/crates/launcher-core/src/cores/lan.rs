@@ -37,7 +37,8 @@ pub const DEFAULT_PORT: u16 = 25565;
 /// One announcement.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Announcement {
-    /// Without formatting codes; `None` when the packet has no MOTD.
+    /// With its `§` formatting codes (see `mc_text`), without control characters;
+    /// `None` when the packet has no MOTD.
     pub motd: Option<String>,
     pub port: u16,
 }
@@ -93,13 +94,15 @@ pub fn parse_packet(bytes: &[u8]) -> Option<Announcement> {
     };
     let motd = motd
         .map(|motd| {
-            strip_formatting(motd)
+            motd.chars()
+                .filter(|c| !c.is_control())
+                .collect::<String>()
                 .trim()
                 .chars()
                 .take(MAX_MOTD_CHARS)
                 .collect::<String>()
         })
-        .filter(|motd| !motd.is_empty());
+        .filter(|motd| !crate::mc_text::strip(motd).trim().is_empty());
     Some(Announcement { motd, port })
 }
 
@@ -114,8 +117,11 @@ pub struct LanWorld {
 }
 
 impl LanWorld {
+    /// The MOTD as plain text, or "LAN world".
     pub fn title(&self) -> String {
-        self.motd.clone().unwrap_or_else(|| "LAN world".into())
+        self.motd
+            .as_deref()
+            .map_or_else(|| "LAN world".into(), crate::mc_text::strip)
     }
 
     pub fn address(&self) -> String {
@@ -344,14 +350,13 @@ mod tests {
     }
 
     #[test]
-    fn strips_formatting_codes() {
-        assert_eq!(
-            parse("[MOTD]§aGreen §lbold§r world§[/MOTD][AD]1[/AD]")
-                .unwrap()
-                .motd
-                .unwrap(),
-            "Green bold world"
-        );
+    fn keeps_formatting_codes() {
+        let motd = parse("[MOTD]§aGreen §lbold§r world\u{7}[/MOTD][AD]1[/AD]")
+            .unwrap()
+            .motd
+            .unwrap();
+        assert_eq!(motd, "§aGreen §lbold§r world");
+        assert_eq!(crate::mc_text::strip(&motd), "Green bold world");
         assert_eq!(strip_formatting("a\u{7}b\nc§"), "abc");
         // only formatting: no MOTD
         assert_eq!(parse("[MOTD]§a§l[/MOTD][AD]1[/AD]").unwrap().motd, None);
@@ -433,7 +438,7 @@ mod tests {
             .unwrap();
         let (host, announcement) = rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(host, IpAddr::V4(Ipv4Addr::LOCALHOST));
-        assert_eq!(announcement.motd.as_deref(), Some("LAN world"));
+        assert_eq!(announcement.motd.as_deref(), Some("§eLAN world"));
         assert_eq!(announcement.port, 40000);
         drop(listener);
     }

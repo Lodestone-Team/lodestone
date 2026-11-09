@@ -61,8 +61,13 @@ impl Formatted {
         let offset = self.text.len();
         self.text.push_str(&other.text);
         for (range, style) in other.spans {
-            self.spans
-                .push((range.start + offset..range.end + offset, style));
+            let range = range.start + offset..range.end + offset;
+            match self.spans.last_mut() {
+                Some((last_range, last)) if last_range.end == range.start && *last == style => {
+                    last_range.end = range.end;
+                }
+                _ => self.spans.push((range, style)),
+            }
         }
     }
 
@@ -303,6 +308,61 @@ fn apply_styles(map: &serde_json::Map<String, Value>, inherited: Style) -> Style
     style
 }
 
+/// `formatted` written back as legacy `§` codes, which [`parse`] reads back the same.
+/// For keeping a JSON component's formatting in a plain string field.
+pub fn to_legacy(formatted: &Formatted) -> String {
+    let mut out = String::with_capacity(formatted.text.len() + formatted.spans.len() * 6);
+    let mut at = 0;
+    let mut styled = false;
+    for (range, style) in &formatted.spans {
+        if range.start > at {
+            if styled {
+                out.push_str("§r");
+            }
+            out.push_str(&formatted.text[at..range.start]);
+        }
+        out.push_str("§r");
+        styled = true;
+        if let Some(rgb) = style.color {
+            match COLORS.iter().find(|(_, _, c)| *c == rgb) {
+                Some((code, _, _)) => {
+                    out.push('§');
+                    out.push(*code);
+                }
+                None => {
+                    out.push_str("§x");
+                    for digit in format!("{rgb:06x}").chars() {
+                        out.push('§');
+                        out.push(digit);
+                    }
+                }
+            }
+        }
+        for (on, code) in [
+            (style.obfuscated, 'k'),
+            (style.bold, 'l'),
+            (style.strikethrough, 'm'),
+            (style.underlined, 'n'),
+            (style.italic, 'o'),
+        ] {
+            if on {
+                out.push('§');
+                out.push(code);
+            }
+        }
+        out.push_str(&formatted.text[range.clone()]);
+        at = range.end;
+    }
+    // A plain tail needs a reset after a styled span.
+    if at < formatted.text.len() {
+        if styled {
+            out.push_str("§r");
+        }
+        out.push_str(&formatted.text[at..]);
+    }
+    out
+}
+
 /// The text without `§` codes.
 pub fn strip(text: &str) -> String {
     if text.contains('§') {
@@ -454,6 +514,22 @@ mod tests {
             deep = json!({"text": "", "extra": [deep]});
         }
         let _ = parse_component(&deep);
+    }
+
+    #[test]
+    fn legacy_round_trip() {
+        let value = json!([
+            "",
+            {"text": "Gold ", "color": "gold", "bold": true},
+            "plain ",
+            {"text": "hex", "color": "#123456", "italic": true, "underlined": true},
+            {"text": "?", "obfuscated": true, "strikethrough": true}
+        ]);
+        let formatted = parse_component(&value);
+        let legacy = to_legacy(&formatted);
+        assert_eq!(parse(&legacy), formatted);
+        assert_eq!(strip(&legacy), "Gold plain hex?");
+        assert_eq!(to_legacy(&parse("no codes")), "no codes");
     }
 
     #[test]
