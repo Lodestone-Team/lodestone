@@ -33,6 +33,7 @@ use crate::{
         Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, Slider, TextInput, Toggle,
         segmented,
         settings::{SettingRow, Toast, card, muted_link, section},
+        window_frame::Side,
     },
     i18n::{ShellMsg as M, t, tr},
     instances::Instances,
@@ -1778,6 +1779,7 @@ impl Render for SkinEditor {
             Pane::Readability => self.readability_pane(&look, cx),
         };
         let mac = cfg!(target_os = "macos");
+        let windows = cfg!(target_os = "windows");
         div()
             .id("skin-editor")
             .track_focus(&self.focus)
@@ -1810,8 +1812,13 @@ impl Render for SkinEditor {
                     .items_center()
                     .gap_3()
                     .h(gpui::px(super::top_bar::TOP_BAR_HEIGHT + 1.0))
+                    // macOS's traffic lights sit at the left end. Elsewhere the
+                    // window's own buttons, drawn over the bar by `window_controls`,
+                    // take room at either end, as in the main window's top bar.
                     .pl(px(if mac { 84. } else { 16. }))
-                    .pr_4()
+                    // On Windows the caption buttons end the bar, flush with the edge.
+                    .when(!windows, |bar| bar.pr_4())
+                    .children(super::top_bar::controls_room(Side::Left, window, cx))
                     .bg(colors::GRAY_800)
                     .border_b_1()
                     .border_color(colors::GRAY_FADED.opacity(30))
@@ -1856,7 +1863,8 @@ impl Render for SkinEditor {
                             .size(ButtonSize::Slim)
                             .icon(Icon::Upload)
                             .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
-                    ),
+                    )
+                    .children(super::top_bar::controls_room(Side::Right, window, cx)),
             )
             .child(
                 div()

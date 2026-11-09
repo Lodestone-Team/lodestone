@@ -163,7 +163,11 @@ const FRAME_BUTTONS_GAP: f32 = 12.0;
 
 /// An empty block in `side`'s column of the bar, as wide as the window's buttons that
 /// [`window_controls`] draws over that end of the bar, and the gap before them.
-fn controls_room(side: Side, window: &Window, cx: &App) -> Option<impl IntoElement> {
+pub(crate) fn controls_room(
+    side: Side,
+    window: &Window,
+    cx: &App,
+) -> Option<impl IntoElement + use<>> {
     let width = if cfg!(target_os = "windows") {
         (side == Side::Right).then_some(gpui::px(CAPTION_BUTTONS_WIDTH + CAPTION_GAP))
     } else {
