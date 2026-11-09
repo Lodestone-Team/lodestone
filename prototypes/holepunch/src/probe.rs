@@ -98,6 +98,67 @@ pub fn run(
     found
 }
 
+/// The friend's side when the host is already a QUIC server: probes `peers` (to open
+/// this side's router towards the host) and stops at the first probe or answer from the
+/// host, which shows packets get through on that path.
+pub fn run_until_heard(
+    socket: &UdpSocket,
+    peers: &[SocketAddr],
+    tag: [u8; 8],
+    window: Duration,
+) -> Option<SocketAddr> {
+    socket
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .ok()?;
+    let until = Instant::now() + window;
+    let mut next_send = Instant::now();
+    let mut buf = [0u8; 64];
+    let mut found = None;
+    while Instant::now() < until {
+        if Instant::now() >= next_send {
+            for peer in peers {
+                let _ = socket.send_to(&message(tag, PROBE), to_socket(*peer));
+            }
+            next_send = Instant::now() + EVERY;
+        }
+        if let Ok((len, from)) = socket.recv_from(&mut buf)
+            && read(&buf[..len], tag).is_some()
+        {
+            let from = canonical(from);
+            println!("  heard the host at {from}");
+            found = Some(from);
+            break;
+        }
+    }
+    if found.is_none() {
+        println!("  nothing arrived from the host");
+    }
+    socket.set_read_timeout(None).ok()?;
+    found
+}
+
+/// The host's side when it's already a QUIC server: sends probes to `peers` for `how_long`
+/// from a clone of the socket, opening the router towards the friend and telling the
+/// friend which address reaches the host.
+pub fn spray(
+    socket: &UdpSocket,
+    peers: Vec<SocketAddr>,
+    tag: [u8; 8],
+    how_long: Duration,
+) -> std::io::Result<()> {
+    let socket = socket.try_clone()?;
+    std::thread::spawn(move || {
+        let until = Instant::now() + how_long;
+        while Instant::now() < until {
+            for peer in &peers {
+                let _ = socket.send_to(&message(tag, PROBE), to_socket(*peer));
+            }
+            std::thread::sleep(EVERY);
+        }
+    });
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

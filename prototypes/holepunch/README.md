@@ -28,7 +28,28 @@ success there doesn't promise one between two homes.
 No Minecraft on that side? Check the tunnel with `nc`: `nc -l 25565` on the host, then
 `nc 127.0.0.1 25566` on the joining side once it says Connected, and type a line.
 
-## Try it
+## With the introduction service (version 3)
+
+Instead of swapping tickets, run the introduction service somewhere both sides can
+reach over TCP (it only passes addresses along, never game traffic):
+
+```sh
+holepunch rendezvous --listen 0.0.0.0:8080
+```
+
+Then the host registers with it and gets an invite link to send to any number of
+friends:
+
+```sh
+holepunch host --target 127.0.0.1:25565 --via <service ip>:8080
+holepunch join "lhp2://<service ip>:8080/<code>#<fingerprint>.<token>"
+```
+
+The part after `#` (the host's certificate fingerprint and the token) is never sent to
+the service, so the service can't pretend to be the host or join itself. The prototype
+service speaks plain HTTP; a real one would be behind HTTPS.
+
+## Try it (tickets by hand)
 
 On the computer with the Minecraft server (the host):
 

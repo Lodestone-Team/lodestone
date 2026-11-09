@@ -16,11 +16,16 @@
 //!    port becomes a QUIC stream, which the host connects to its Minecraft server.
 //!
 //! Usage:
-//!   holepunch host [--target 127.0.0.1:25565] [--no-portmap] [--local]
-//!   holepunch join <host ticket> [--listen 127.0.0.1:25566] [--no-portmap] [--local]
+//!   holepunch host [--target 127.0.0.1:25565] [--via <service ip:port>] [--no-portmap] [--local]
+//!   holepunch join <invite or host ticket> [--listen 127.0.0.1:25566] [--no-portmap] [--local]
+//!   holepunch rendezvous [--listen 0.0.0.0:8080]   (the introduction service, [`rendezvous`])
+//!
+//! With `--via`, the host registers with the introduction service and prints an invite
+//! link; friends join with it and no tickets are swapped by hand.
 
 mod portmap;
 mod probe;
+mod rendezvous;
 mod stun;
 
 use std::{
@@ -66,10 +71,18 @@ async fn main() {
     let result = match args.first().map(String::as_str) {
         Some("host") => host(&args[1..]).await,
         Some("join") => join(&args[1..]).await,
+        Some("rendezvous") => {
+            let listen = flag(&args[1..], "--listen").unwrap_or_else(|| "0.0.0.0:8080".into());
+            match listen.parse() {
+                Ok(listen) => rendezvous::serve(listen).await,
+                Err(err) => Err(err.into()),
+            }
+        }
         _ => {
             eprintln!(
-                "usage:\n  holepunch host [--target 127.0.0.1:25565] [--no-portmap] [--local]\n  \
-                 holepunch join <host ticket> [--listen 127.0.0.1:25566] [--no-portmap] [--local]"
+                "usage:\n  holepunch host [--target 127.0.0.1:25565] [--via <service ip:port>] [--no-portmap] [--local]\n  \
+                 holepunch join <invite or host ticket> [--listen 127.0.0.1:25566] [--no-portmap] [--local]\n  \
+                 holepunch rendezvous [--listen 0.0.0.0:8080]"
             );
             std::process::exit(2);
         }
@@ -328,6 +341,7 @@ async fn host(args: &[String]) -> Result<(), Error> {
     let target: SocketAddr = flag(args, "--target")
         .unwrap_or_else(|| "127.0.0.1:25565".into())
         .parse()?;
+    let via: Option<SocketAddr> = flag(args, "--via").map(|v| v.parse()).transpose()?;
     println!("Finding the ways in to this computer...");
     let side = gather(has(args, "--local"), !has(args, "--no-portmap"))?;
 
@@ -352,26 +366,63 @@ async fn host(args: &[String]) -> Result<(), Error> {
     ));
     server.transport_config(transport());
 
-    let ticket = HostTicket {
-        candidates: side.candidates.clone(),
-        fingerprint,
-        token,
-    }
-    .encode();
-    println!("\nSend this ticket to your friend:\n\n  {ticket}\n");
-    let peers = loop {
-        let line = read_line("Paste your friend's ticket: ")?;
-        match parse_join_ticket(&line) {
-            Some(peers) => break peers,
-            None => println!("  that isn't a join ticket (it starts with lhp2|join|)"),
+    let Some(service) = via else {
+        // Tickets swapped by hand.
+        let ticket = HostTicket {
+            candidates: side.candidates.clone(),
+            fingerprint,
+            token,
         }
+        .encode();
+        println!("\nSend this ticket to your friend:\n\n  {ticket}\n");
+        let peers = loop {
+            let line = read_line("Paste your friend's ticket: ")?;
+            match parse_join_ticket(&line) {
+                Some(peers) => break peers,
+                None => println!("  that isn't a join ticket (it starts with lhp2|join|)"),
+            }
+        };
+        println!("Probing your friend's addresses: {}", addrs(&peers));
+        let path = probe::run(&side.socket, &peers, tag, WINDOW).ok_or(
+            "no probe got through in either direction. This pair of networks needs a relay",
+        )?;
+        println!("Path found: {path}. Waiting for your friend's connection...");
+        keep_open(&side.socket, path, tag)?;
+        side.socket.set_nonblocking(true)?;
+        let endpoint = Endpoint::new(
+            EndpointConfig::default(),
+            Some(server),
+            side.socket,
+            Arc::new(quinn::TokioRuntime),
+        )?;
+        accept_loop(endpoint, token, target).await;
+        return Ok(());
     };
 
-    println!("Probing your friend's addresses: {}", addrs(&peers));
-    let path = probe::run(&side.socket, &peers, tag, WINDOW)
-        .ok_or("no probe got through in either direction. This pair of networks needs a relay")?;
-    println!("Path found: {path}. Waiting for your friend's connection...");
-    keep_open(&side.socket, path, tag)?;
+    // Through the introduction service: an invite link, and any number of friends.
+    let list: Vec<String> = side.candidates.iter().map(ToString::to_string).collect();
+    let created = rendezvous::call(
+        service,
+        "POST",
+        "/v1/sessions",
+        Some(serde_json::json!({ "candidates": list })),
+    )
+    .await?;
+    let code = created["code"]
+        .as_str()
+        .ok_or("no code from the service")?
+        .to_string();
+    let secret = created["secret"]
+        .as_str()
+        .ok_or("no secret from the service")?
+        .to_string();
+    println!(
+        "\nSend this invite to your friends (the part after # never goes to the service):\n\n  \
+         lhp2://{service}/{code}#{}.{}\n",
+        hex(&fingerprint),
+        hex(&token)
+    );
+    let sprayer = side.socket.try_clone()?;
     side.socket.set_nonblocking(true)?;
     let endpoint = Endpoint::new(
         EndpointConfig::default(),
@@ -379,7 +430,30 @@ async fn host(args: &[String]) -> Result<(), Error> {
         side.socket,
         Arc::new(quinn::TokioRuntime),
     )?;
+    tokio::spawn(accept_loop(endpoint, token, target));
 
+    println!("Waiting for friends to join...");
+    let mut seen = 0usize;
+    loop {
+        let path = format!("/v1/sessions/{code}/joins?secret={secret}&after={seen}");
+        let joins = match rendezvous::call(service, "GET", &path, None).await {
+            Ok(joins) => joins,
+            Err(err) => {
+                println!("  {err}; retrying");
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                continue;
+            }
+        };
+        for join in joins["joins"].as_array().cloned().unwrap_or_default() {
+            seen += 1;
+            let peers = rendezvous::addrs_of(&join["candidates"]);
+            println!("A friend joined; punching towards {}", addrs(&peers));
+            probe::spray(&sprayer, peers, tag, Duration::from_secs(60))?;
+        }
+    }
+}
+
+async fn accept_loop(endpoint: Endpoint, token: [u8; TOKEN_LEN], target: SocketAddr) {
     while let Some(incoming) = endpoint.accept().await {
         tokio::spawn(async move {
             let connection = match incoming.await {
@@ -415,34 +489,84 @@ async fn host(args: &[String]) -> Result<(), Error> {
             }
         });
     }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
 // Join: the friend's computer
 
+/// `lhp2://<service>/<code>#<fingerprint>.<token>`
+struct Invite {
+    service: SocketAddr,
+    code: String,
+    fingerprint: [u8; 32],
+    token: [u8; TOKEN_LEN],
+}
+
+impl Invite {
+    fn parse(text: &str) -> Option<Self> {
+        let rest = text.trim().strip_prefix("lhp2://")?;
+        let (place, secret) = rest.split_once('#')?;
+        let (service, code) = place.split_once('/')?;
+        let (fingerprint, token) = secret.split_once('.')?;
+        let code = code.trim_end_matches('/');
+        if code.is_empty() || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return None;
+        }
+        Some(Self {
+            service: service.parse().ok()?,
+            code: code.to_string(),
+            fingerprint: unhex(fingerprint)?.try_into().ok()?,
+            token: unhex(token)?.try_into().ok()?,
+        })
+    }
+}
+
 async fn join(args: &[String]) -> Result<(), Error> {
-    let ticket = args
+    let first = args
         .first()
-        .and_then(|text| HostTicket::decode(text))
-        .ok_or("pass the host's ticket (it starts with lhp2|host|), in quotes")?;
+        .ok_or("pass the host's invite (lhp2://…) or ticket (lhp2|host|…), in quotes")?;
     let listen: SocketAddr = flag(args, "--listen")
         .unwrap_or_else(|| "127.0.0.1:25566".into())
         .parse()?;
-    let tag: [u8; 8] = ticket.token[..8].try_into().expect("16 bytes");
+    let invite = Invite::parse(first);
+    let ticket = HostTicket::decode(first);
+    let (fingerprint, token) = match (&invite, &ticket) {
+        (Some(invite), _) => (invite.fingerprint, invite.token),
+        (None, Some(ticket)) => (ticket.fingerprint, ticket.token),
+        (None, None) => {
+            return Err("that isn't an invite (lhp2://…) or a host ticket (lhp2|host|…)".into());
+        }
+    };
+    let tag: [u8; 8] = token[..8].try_into().expect("16 bytes");
 
     println!("Finding the ways in to this computer...");
     let side = gather(has(args, "--local"), !has(args, "--no-portmap"))?;
-    println!(
-        "\nSend this ticket back to the host:\n\n  {}\n",
-        join_ticket(&side.candidates)
-    );
+    let host_candidates = match &invite {
+        Some(invite) => {
+            let list: Vec<String> = side.candidates.iter().map(ToString::to_string).collect();
+            let answer = rendezvous::call(
+                invite.service,
+                "POST",
+                &format!("/v1/sessions/{}/joins", invite.code),
+                Some(serde_json::json!({ "candidates": list })),
+            )
+            .await?;
+            rendezvous::addrs_of(&answer["host"])
+        }
+        None => {
+            println!(
+                "\nSend this ticket back to the host:\n\n  {}\n",
+                join_ticket(&side.candidates)
+            );
+            ticket.map(|t| t.candidates).unwrap_or_default()
+        }
+    };
 
     let mut crypto = rustls::ClientConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])?
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(PinnedCert {
-            fingerprint: ticket.fingerprint,
+            fingerprint,
             provider: provider(),
         }))
         .with_no_client_auth();
@@ -455,10 +579,16 @@ async fn join(args: &[String]) -> Result<(), Error> {
     println!(
         "Probing the host's addresses (up to {} s): {}",
         WINDOW.as_secs(),
-        addrs(&ticket.candidates)
+        addrs(&host_candidates)
     );
-    let path = probe::run(&side.socket, &ticket.candidates, tag, WINDOW)
-        .ok_or("no probe got through in either direction. This pair of networks needs a relay")?;
+    // With an invite, the host's side is already a QUIC server and only sends probes,
+    // so hearing one is the answer.
+    let path = if invite.is_some() {
+        probe::run_until_heard(&side.socket, &host_candidates, tag, WINDOW)
+    } else {
+        probe::run(&side.socket, &host_candidates, tag, WINDOW)
+    }
+    .ok_or("no probe got through in either direction. This pair of networks needs a relay")?;
     println!("Path found: {path}. Connecting...");
     keep_open(&side.socket, path, tag)?;
     side.socket.set_nonblocking(true)?;
@@ -476,7 +606,7 @@ async fn join(args: &[String]) -> Result<(), Error> {
         match tokio::time::timeout(Duration::from_secs(5), attempt).await {
             Ok(Ok(connection)) => break connection,
             Ok(Err(err)) if err.to_string().contains("not the host from the ticket") => {
-                return Err("the host's certificate doesn't match the ticket. Ask for a fresh ticket; if it still fails, someone may be in the way".into());
+                return Err("the host's certificate doesn't match the invite. Ask for a fresh one; if it still fails, someone may be in the way".into());
             }
             Ok(Err(err)) => println!("  not yet: {err}"),
             Err(_) => println!("  not yet: no answer"),
@@ -494,7 +624,6 @@ async fn join(args: &[String]) -> Result<(), Error> {
     loop {
         let (mut tcp, _) = listener.accept().await?;
         let connection = connection.clone();
-        let token = ticket.token;
         tokio::spawn(async move {
             let Ok((mut send, recv)) = connection.open_bi().await else {
                 return println!("  the tunnel closed");
@@ -590,6 +719,20 @@ mod tests {
         let join = join_ticket(&host.candidates);
         assert_eq!(parse_join_ticket(&join), Some(host.candidates));
         assert!(HostTicket::decode(&join).is_none());
+    }
+
+    #[test]
+    fn invites_parse() {
+        let text = format!(
+            "lhp2://16.146.26.94:8080/ABCDEFGH23#{}.{}",
+            "ab".repeat(32),
+            "01".repeat(16)
+        );
+        let invite = Invite::parse(&text).unwrap();
+        assert_eq!(invite.service, "16.146.26.94:8080".parse().unwrap());
+        assert_eq!(invite.code, "ABCDEFGH23");
+        assert_eq!(invite.fingerprint, [0xab; 32]);
+        assert!(Invite::parse("lhp2://16.146.26.94:8080/AB/../x#00.00").is_none());
     }
 
     #[test]
