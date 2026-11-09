@@ -2061,7 +2061,13 @@ impl Servers {
     ) {
         if cores::friends::is_friend_id(core_uuid) {
             // the tunnel closed meanwhile (the dialog was closed): nothing to join
-            let Some(target) = self.friend_join_target(core_uuid, instance_id) else {
+            let game_dir = {
+                let instances = self.instances.read(cx);
+                (!self.preview && !instances.is_active(instance_id))
+                    .then(|| instances.game_dir(instance_id))
+            };
+            let Some(target) = self.friend_join_target(core_uuid, instance_id, game_dir.as_deref())
+            else {
                 return;
             };
             let id = instance_id.to_string();

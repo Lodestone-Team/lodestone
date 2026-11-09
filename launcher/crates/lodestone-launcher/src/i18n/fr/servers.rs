@@ -557,6 +557,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsReadFailed => "Impossible de lire les serveurs de vos amis",
         M::FriendsSaveFailed => "Impossible d’enregistrer les serveurs de vos amis",
+        M::FriendAddress => "Adresse\u{a0}: {address} (une fois connecté)",
+        M::FriendPortTaken => "Le port {port} était occupé",
+        M::FriendPortTakenBody => {
+            "Un autre programme de cet ordinateur l’utilise, donc cette fois l’adresse est {address}. La prochaine fois, Lodestone Launcher essaiera de nouveau le port {port}."
+        }
         M::EulaNotAccepted => "Le CLUF de Minecraft n’est pas accepté pour ce serveur",
         M::EulaNotAcceptedBody => {
             "Le serveur ne peut pas démarrer tant que quelqu’un n’a pas accepté le CLUF de Minecraft de Mojang ({url}). Lisez-le, et ne l’acceptez que si vous êtes d’accord."

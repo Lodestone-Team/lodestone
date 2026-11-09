@@ -19,7 +19,8 @@ use super::{
     Servers,
     extras::note,
     friends::{
-        FriendEntry, FriendStatus, JoinPrompt, JoinStage, connection_label, join_error_text,
+        FriendEntry, FriendStatus, JoinPrompt, JoinStage, connection_label, game_address,
+        join_error_text, port_taken_text,
     },
     status_label,
     view::server_detail,
@@ -32,6 +33,17 @@ use crate::{
     i18n::{CommonMsg, ServersMsg as M, t, tr},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
+
+/// A small Copy button that puts `value` on the clipboard.
+fn copy_button(id: impl Into<SharedString>, value: String) -> Button {
+    Button::new(id.into(), t(CommonMsg::Copy))
+        .size(ButtonSize::Slim)
+        .variant(ButtonVariant::Ghost)
+        .icon(Icon::Copy)
+        .on_click(move |_, _, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(value.clone()))
+        })
+}
 
 fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
     div()
@@ -200,6 +212,17 @@ impl Servers {
                         tr!(M::SharedBy, name = saved.core_name)
                     )))
                     .children(status.map(|(line, color)| note(line).text_color(color)))
+                    // the same every session: for Minecraft's server list
+                    .children(saved.game_port.map(|port| {
+                        let address = game_address(port);
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(note(tr!(M::FriendAddress, address = address)))
+                            .child(copy_button(format!("copy-address-{row_id}"), address))
+                    }))
                     .when(saved.is_trusted(), |this| {
                         this.child(
                             div()
@@ -532,6 +555,14 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                         ms = session.rtt().as_millis().to_string()
                     ),
                 ))
+                .child(
+                    fact(t(M::Address), session.address.clone())
+                        .items_center()
+                        .child(copy_button(
+                            "join-friend-copy-address",
+                            session.address.clone(),
+                        )),
+                )
                 .child(fact(t(M::FactInstance), instance_line));
             dialog
                 .child(
@@ -540,6 +571,10 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
                         .flex_col()
                         .gap_3()
                         .child(card)
+                        .children(session.port_taken.map(|saved| {
+                            let (title, body) = port_taken_text(saved, &session.address);
+                            problem(title, body, colors::YELLOW)
+                        }))
                         .when(stopped, |this| {
                             this.child(problem(
                                 t(M::FriendServerStopped).into(),
