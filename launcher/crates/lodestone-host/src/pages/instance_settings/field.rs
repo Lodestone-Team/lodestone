@@ -249,7 +249,7 @@ impl Field {
             .when(self.saving, |this| this.child(LoadingDots))
             .when(touched && !self.saving, |this| {
                 this.child(
-                    IconButton::new(sub(&id, "save"), Icon::Check)
+                    IconButton::new(sub(&id, "save"), Icon::FloppyDisk)
                         .label(t(CommonMsg::Save))
                         .on_click(cx.listener(move |this, _, _, cx| this.submit(save.clone(), cx))),
                 )

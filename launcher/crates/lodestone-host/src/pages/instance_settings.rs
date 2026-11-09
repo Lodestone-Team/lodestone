@@ -230,8 +230,10 @@ impl InstanceSettingsPage {
         let can_edit = self.can_edit(cx);
         let blocked = self.command_line_blocked(cx);
         self.fields.clear();
-        for (section_id, section) in &manifest.setting_sections {
-            for (setting_id, setting) in &section.settings {
+        for section in &manifest.setting_sections {
+            let section_id = &section.section_id;
+            for setting in &section.settings {
+                let setting_id = &setting.setting_id;
                 let Some(kind) = FieldKind::of(&setting.value_type, setting.is_secret) else {
                     continue;
                 };
@@ -389,11 +391,11 @@ impl InstanceSettingsPage {
         let Load::Ready(manifest) = &self.manifest else {
             return None;
         };
-        let (_, section) = manifest
+        let section = manifest
             .setting_sections
             .iter()
-            .find(|(id, _)| *id == key.0)?;
-        let (_, setting) = section.settings.iter().find(|(id, _)| *id == key.1)?;
+            .find(|s| s.section_id == key.0)?;
+        let setting = section.settings.iter().find(|s| s.setting_id == key.1)?;
         Some(setting.value_type.clone())
     }
 
@@ -630,7 +632,8 @@ impl InstanceSettingsPage {
         let can_control = self.can_control(cx);
         let blocked = self.command_line_blocked(cx);
         let mut sections = Vec::new();
-        for (section_id, section_) in &manifest.setting_sections {
+        for section_ in &manifest.setting_sections {
+            let section_id = &section_.section_id;
             let rows: Vec<AnyElement> = if section_.settings.is_empty() {
                 vec![
                     SettingRow::new(t(M::NotAvailable))
@@ -642,7 +645,8 @@ impl InstanceSettingsPage {
                 section_
                     .settings
                     .iter()
-                    .map(|(setting_id, setting)| {
+                    .map(|setting| {
+                        let setting_id = &setting.setting_id;
                         let key = (section_id.clone(), setting_id.clone());
                         // why it is read-only, after its description
                         let reason = if !can_control {

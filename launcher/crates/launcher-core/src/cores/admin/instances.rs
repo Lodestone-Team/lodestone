@@ -185,7 +185,7 @@ pub struct SetupManifest {
 
 /// A JSON object's values in the order the core sent them (the launcher's
 /// `serde_json` keeps it).
-fn ordered<'de, D: Deserializer<'de>, T: DeserializeOwned>(
+pub(super) fn ordered<'de, D: Deserializer<'de>, T: DeserializeOwned>(
     deserializer: D,
 ) -> Result<Vec<T>, D::Error> {
     let map = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;

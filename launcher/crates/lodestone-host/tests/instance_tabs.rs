@@ -159,11 +159,11 @@ fn a_fabric_instances_settings() {
     let (section, max_ram) = manifest
         .setting_sections
         .iter()
-        .find_map(|(id, s)| {
+        .find_map(|s| {
             s.settings
                 .iter()
-                .find(|(k, _)| k == "max_ram")
-                .map(|(_, v)| (id.clone(), v.clone()))
+                .find(|v| v.setting_id == "max_ram")
+                .map(|v| (s.section_id.clone(), v.clone()))
         })
         .expect("a max_ram setting");
     assert_eq!(
@@ -181,9 +181,9 @@ fn a_fabric_instances_settings() {
     let saved = again
         .setting_sections
         .iter()
-        .flat_map(|(_, s)| s.settings.iter())
-        .find(|(k, _)| k == "max_ram")
-        .and_then(|(_, v)| v.value.clone());
+        .flat_map(|s| s.settings.iter())
+        .find(|v| v.setting_id == "max_ram")
+        .and_then(|v| v.value.clone());
     assert_eq!(saved, Some(ConfigurableValue::UnsignedInteger(3072)));
 
     block_on(admin.set_auto_start(&uuid, true)).unwrap();

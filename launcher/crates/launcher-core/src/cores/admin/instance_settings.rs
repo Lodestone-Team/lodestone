@@ -10,28 +10,14 @@
 //!   user's own click)
 //! - `DELETE /instance/{uuid}` (the danger zone)
 
-use std::{fmt, marker::PhantomData};
-
 use http_client::Method;
-use serde::{
-    Deserialize, Deserializer, Serialize,
-    de::{MapAccess, Visitor},
-};
+use serde::{Deserialize, Serialize};
 
+pub use super::instances::{
+    ConfigurableValue, ConfigurableValueType, SectionManifest, SettingManifest,
+};
 use super::{AdminClient, segment};
 use crate::cores::CoreError;
-
-/// A setting's value (`ConfigurableValue`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "value")]
-pub enum ConfigurableValue {
-    String(String),
-    Integer(i64),
-    UnsignedInteger(u64),
-    Float(f64),
-    Boolean(bool),
-    Enum(String),
-}
 
 impl ConfigurableValue {
     /// The value as a text field shows it.
@@ -46,76 +32,6 @@ impl ConfigurableValue {
     }
 }
 
-/// What kind of value a setting holds, and its limits (`ConfigurableValueType`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ConfigurableValueType {
-    String {
-        #[serde(default)]
-        regex: Option<String>,
-    },
-    Integer {
-        #[serde(default)]
-        min: Option<i64>,
-        #[serde(default)]
-        max: Option<i64>,
-    },
-    UnsignedInteger {
-        #[serde(default)]
-        min: Option<u64>,
-        #[serde(default)]
-        max: Option<u64>,
-    },
-    Float {
-        #[serde(default)]
-        min: Option<f64>,
-        #[serde(default)]
-        max: Option<f64>,
-    },
-    Boolean,
-    Enum {
-        options: Vec<String>,
-    },
-    #[serde(other)]
-    Unknown,
-}
-
-/// One setting of an instance (`SettingManifest`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SettingManifest {
-    pub setting_id: String,
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub value: Option<ConfigurableValue>,
-    pub value_type: ConfigurableValueType,
-    #[serde(default)]
-    pub default_value: Option<ConfigurableValue>,
-    #[serde(default)]
-    pub is_secret: bool,
-    #[serde(default)]
-    pub is_required: bool,
-    #[serde(default = "yes")]
-    pub is_mutable: bool,
-}
-
-fn yes() -> bool {
-    true
-}
-
-/// A section of an instance's settings (`SectionManifest`), its settings in the
-/// core's order.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct SectionManifest {
-    pub section_id: String,
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default, deserialize_with = "ordered")]
-    pub settings: Vec<(String, SettingManifest)>,
-}
-
 /// An instance's settings (`ConfigurableManifest`), its sections in the core's order.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct ConfigurableManifest {
@@ -123,46 +39,26 @@ pub struct ConfigurableManifest {
     pub auto_start: bool,
     #[serde(default)]
     pub restart_on_crash: bool,
-    #[serde(default, deserialize_with = "ordered")]
-    pub setting_sections: Vec<(String, SectionManifest)>,
+    /// The setting's types are the setup manifest's ([`super::instances`]).
+    #[serde(default, deserialize_with = "super::instances::ordered")]
+    pub setting_sections: Vec<SectionManifest>,
 }
 
 impl ConfigurableManifest {
     /// Sets a setting's value, after it was saved.
     pub fn set(&mut self, section: &str, setting: &str, value: ConfigurableValue) {
-        if let Some((_, section)) = self
+        if let Some(section) = self
             .setting_sections
             .iter_mut()
-            .find(|(id, _)| id == section)
-            && let Some((_, setting)) = section.settings.iter_mut().find(|(id, _)| id == setting)
+            .find(|s| s.section_id == section)
+            && let Some(setting) = section
+                .settings
+                .iter_mut()
+                .find(|s| s.setting_id == setting)
         {
             setting.value = Some(value);
         }
     }
-}
-
-/// A JSON object as its entries, in the order the core wrote them (the core keeps its
-/// settings in an `IndexMap`).
-fn ordered<'de, D, T>(deserializer: D) -> Result<Vec<(String, T)>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    struct Entries<T>(PhantomData<T>);
-    impl<'de, T: Deserialize<'de>> Visitor<'de> for Entries<T> {
-        type Value = Vec<(String, T)>;
-        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            f.write_str("an object")
-        }
-        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-            let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0));
-            while let Some(entry) = map.next_entry()? {
-                entries.push(entry);
-            }
-            Ok(entries)
-        }
-    }
-    deserializer.deserialize_map(Entries(PhantomData))
 }
 
 /// The server resource pack lines of `server.properties` (`ServerResourcePack`).
@@ -366,13 +262,13 @@ mod tests {
         let ids: Vec<_> = manifest
             .setting_sections
             .iter()
-            .map(|(id, _)| id.as_str())
+            .map(|s| s.section_id.as_str())
             .collect();
         assert_eq!(ids, ["zeta", "alpha"]);
-        let settings = &manifest.setting_sections[0].1.settings;
-        assert_eq!(settings[0].0, "port");
+        let settings = &manifest.setting_sections[0].settings;
+        assert_eq!(settings[0].setting_id, "port");
         assert_eq!(
-            settings[0].1.value_type,
+            settings[0].value_type,
             ConfigurableValueType::UnsignedInteger {
                 min: Some(0),
                 max: Some(65535)
@@ -384,7 +280,7 @@ mod tests {
             ConfigurableValue::Enum("peaceful".into()),
         );
         assert_eq!(
-            manifest.setting_sections[0].1.settings[1].1.value,
+            manifest.setting_sections[0].settings[1].value,
             Some(ConfigurableValue::Enum("peaceful".into()))
         );
     }
