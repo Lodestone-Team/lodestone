@@ -393,6 +393,38 @@ mod tests {
     }
 
     #[test]
+    fn lists_toggles_and_deletes_names_with_spaces() {
+        let (_dir, dirs, target) = setup(Loader::Fabric);
+        let mods = dirs.content_dir(ContentKind::Mod);
+        write_zip(&mods.join(" leather.jar"), &[("fabric.mod.json", b"{}")]);
+        let names = |dirs: &InstanceDirs| -> Vec<String> {
+            crate::content::scan::scan(dirs, ContentKind::Mod)
+                .unwrap()
+                .into_iter()
+                .map(|file| file.file_name)
+                .collect()
+        };
+        assert_eq!(names(&dirs), [" leather.jar"]);
+        assert_eq!(
+            set_mod_enabled(&dirs, " leather.jar", false).unwrap(),
+            " leather.jar.disabled"
+        );
+        assert!(mods.join(" leather.jar.disabled").is_file());
+        assert_eq!(names(&dirs), [" leather.jar.disabled"]);
+        assert_eq!(
+            set_mod_enabled(&dirs, " leather.jar.disabled", true).unwrap(),
+            " leather.jar"
+        );
+        // The trimmed name is a different file.
+        assert!(set_mod_enabled(&dirs, "leather.jar", false).is_err());
+        delete_with(&dirs, &target, ContentKind::Mod, " leather.jar", |path| {
+            fs::remove_file(path).map_err(|e| e.to_string())
+        })
+        .unwrap();
+        assert!(names(&dirs).is_empty());
+    }
+
+    #[test]
     fn checks_added_files() {
         let (dir, dirs, fabric) = setup(Loader::Fabric);
         let downloads = dir.path().join("Downloads");
