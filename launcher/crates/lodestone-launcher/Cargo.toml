@@ -38,5 +38,14 @@ serde.workspace = true
 # Writes the sample mods and packs of the offscreen screenshots.
 zip = { workspace = true, optional = true }
 
+[target.'cfg(windows)'.dependencies]
+# The system menu of the window's own title bar (`shell::top_bar`).
+raw-window-handle.workspace = true
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [[example]]
 name = "components"

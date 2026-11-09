@@ -105,7 +105,8 @@ pub fn set_menus(cx: &mut App) {
 /// Options for a launcher window with the given title and size, centred on screen.
 ///
 /// On macOS the title bar is transparent so the app's top bar can sit under the
-/// traffic-light buttons, as in the dashboard's Tauri app.
+/// traffic-light buttons, as in the dashboard's Tauri app. On Windows the top bar
+/// replaces the title bar.
 pub fn window_options(title: &str, width: f32, height: f32, cx: &App) -> WindowOptions {
     let title = SharedString::from(title.to_string());
     let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
@@ -130,10 +131,14 @@ fn titlebar(title: SharedString) -> gpui::TitlebarOptions {
     }
 }
 
+/// On Windows the system's title bar is hidden and the top bar takes its place, with
+/// its own caption buttons (`shell::top_bar::window_controls`). The title still names
+/// the window in the taskbar and Alt-Tab.
 #[cfg(not(target_os = "macos"))]
 fn titlebar(title: SharedString) -> gpui::TitlebarOptions {
     gpui::TitlebarOptions {
         title: Some(title),
+        appears_transparent: cfg!(target_os = "windows"),
         ..Default::default()
     }
 }

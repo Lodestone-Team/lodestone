@@ -69,6 +69,8 @@ pulldown-cmark = { version = "0.13.0", default-features = false }
 # Zed's requirement and features.
 regex = { version = "1.5", default-features = false, features = ["std", "perf"] }
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "os_rng"] }
+# The launcher's window handle on Windows, for its system menu. Already in GPUI's tree.
+raw-window-handle = "0.6"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
 sha1 = "0.10.6"
@@ -83,8 +85,8 @@ tungstenite = { version = "0.28", default-features = false, features = ["handsha
 trash = { git = "https://github.com/zed-industries/trash-rs", rev = "41c6c800d884a89351f3b8856d12894cccee261d" }
 url = "2.2"
 uuid = { version = "1.1", features = ["serde"] }
-# Windows-only system calls libc lacks there (host name, memory, OS version). Zed locks
-# 0.61; each crate enables only the API features it calls.
+# Windows-only system calls libc lacks there (host name, memory, OS version, the window's
+# system menu). Zed locks 0.61; each crate enables only the API features it calls.
 windows-sys = "0.61"
 # Extracting natives from library jars. Zed locks zip 0.6.6 (through webrtc-sys-build);
 # only the deflate method is enabled, which is what Mojang's native jars use.
