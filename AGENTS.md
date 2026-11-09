@@ -26,8 +26,9 @@ Tags are never moved: a different commit is a different version.
 **Developer builds** are for Lodestone's developers to update their own Launcher or
 Host to a commit's build and debug it; users never get them. Each commit's build goes to
 its own release, `launcher-dev-<build>-<commit>` (`host-dev-...`), which is
-published at once as a pre-release, from the **Dev build** workflow
-(`.github/workflows/dev-build.yml`) or `publish_release.py --dev`. Only copies with
+published at once as a pre-release, by `publish_release.py --dev`. They're built
+locally, never on GitHub's machines (they cost money): each developer builds their
+own platform, so a Mac developer makes the Mac build. Only copies with
 Settings › Updates › **Developer builds** on read them, and that setting only shows
 in a developer build or once it's on. Only the newest 5 of each product's are kept.
 Make one only when a developer asks for it.
