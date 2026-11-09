@@ -193,9 +193,10 @@ fn hero(
                         .absolute()
                         .inset_0()
                         .size_full()
+                        .rounded(radius::XL)
                         .object_fit(ObjectFit::Cover),
                 )
-                .children(scrim_layers(background.scrim)),
+                .children(scrim_layers(background.scrim, radius::XL)),
             // the skin's colour or gradient, or the launcher's artwork
             Backdrop::Artwork => match crate::skin::painted(SurfaceId::Hero) {
                 Some(painted) if painted.paint.is_some() => crate::skin::paint(this, &painted),
@@ -204,6 +205,7 @@ fn hero(
                         .absolute()
                         .inset_0()
                         .size_full()
+                        .rounded(radius::XL)
                         .object_fit(ObjectFit::Cover),
                 ),
             },
