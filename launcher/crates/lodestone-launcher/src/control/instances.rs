@@ -557,12 +557,70 @@ struct BackgroundParams {
     image: Option<PathBuf>,
     #[serde(default)]
     clear: bool,
+    /// "instance", "all_instances" or "custom" for a slideshow; "off" for the image.
+    #[serde(default)]
+    slideshow: Option<String>,
+    /// Images to add to the slideshow's own set, absolute.
+    #[serde(default)]
+    add: Vec<PathBuf>,
 }
 
 pub fn set_background(call: Call, cx: &mut App) -> Reply {
     let params: BackgroundParams = params!(call);
     let instance = tri!(call.control.instance_param(&call, cx));
     let id = instance.id.clone();
+    if params.slideshow.is_some() || !params.add.is_empty() {
+        if params.image.is_some() || params.clear {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                "Give an image or clear, or the slideshow's settings; not both.",
+            )));
+        }
+        for path in &params.add {
+            tri!(absolute(path));
+        }
+        if !params.add.is_empty() {
+            let added = call.control.instances.update(cx, |instances, cx| {
+                instances.add_slideshow_images(&id, &params.add, cx)
+            });
+            tri!(failed(added));
+        }
+        if let Some(source) = params.slideshow.as_deref() {
+            let source = match source {
+                "off" => None,
+                other => match serde_json::from_value(json!(other)) {
+                    Ok(source) => Some(source),
+                    Err(_) => {
+                        return ready(Err(api_error(
+                            codes::INVALID_PARAMS,
+                            "The slideshow is instance, all_instances, custom or off.",
+                        )));
+                    }
+                },
+            };
+            let result = call
+                .control
+                .instances
+                .update(cx, |instances, cx| instances.set_slideshow(&id, source, cx));
+            tri!(failed(result));
+        }
+        let current = tri!(call.control.instance(&id, cx));
+        let images: Vec<String> = call
+            .control
+            .instances
+            .read(cx)
+            .store()
+            .slideshow_images(&id)
+            .iter()
+            .filter_map(|p| p.file_name()?.to_str().map(str::to_string))
+            .collect();
+        return ready(Ok(json!({ "instance": {
+            "id": id,
+            "background": current.background,
+            "slideshow": current.slideshow,
+            "slideshow_images": images,
+        } })));
+    }
     let result = match (params.image, params.clear) {
         (Some(image), false) => {
             tri!(absolute(&image));
@@ -584,7 +642,7 @@ pub fn set_background(call: Call, cx: &mut App) -> Reply {
     tri!(failed(result));
     let current = tri!(call.control.instance(&id, cx));
     ready(Ok(
-        json!({ "instance": { "id": id, "background": current.background } }),
+        json!({ "instance": { "id": id, "background": current.background, "slideshow": current.slideshow } }),
     ))
 }
 

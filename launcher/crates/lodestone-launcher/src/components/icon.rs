@@ -12,10 +12,12 @@ pub enum Icon {
     Check,
     CircleUp,
     Copy,
+    Ellipsis,
     Cube,
     Download,
     Expand,
     Gear,
+    HardDrive,
     MagnifyingGlass,
     Plus,
     RightFromBracket,
@@ -28,7 +30,7 @@ pub enum Icon {
 }
 
 impl Icon {
-    pub const ALL: [Icon; 22] = [
+    pub const ALL: [Icon; 24] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -38,10 +40,12 @@ impl Icon {
         Icon::Check,
         Icon::CircleUp,
         Icon::Copy,
+        Icon::Ellipsis,
         Icon::Cube,
         Icon::Download,
         Icon::Expand,
         Icon::Gear,
+        Icon::HardDrive,
         Icon::MagnifyingGlass,
         Icon::Plus,
         Icon::RightFromBracket,
@@ -65,10 +69,12 @@ impl Icon {
             Icon::Check => "icons/check.svg",
             Icon::CircleUp => "icons/circle-up.svg",
             Icon::Copy => "icons/copy.svg",
+            Icon::Ellipsis => "icons/ellipsis.svg",
             Icon::Cube => "icons/cube.svg",
             Icon::Download => "icons/download.svg",
             Icon::Expand => "icons/expand.svg",
             Icon::Gear => "icons/gear.svg",
+            Icon::HardDrive => "icons/hard-drive.svg",
             Icon::MagnifyingGlass => "icons/magnifying-glass.svg",
             Icon::Plus => "icons/plus.svg",
             Icon::RightFromBracket => "icons/right-from-bracket.svg",

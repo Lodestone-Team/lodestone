@@ -5,17 +5,19 @@ pub fn text(message: M) -> &'static str {
         M::KindMods => "Mods",
         M::KindResourcePacks => "Packs de ressources",
         M::KindShaders => "Shaders",
-        M::InstalledTab => "Installés",
-        M::BrowseModrinth => "Parcourir Modrinth",
         M::Vanilla => "Vanilla",
-
-        M::SearchModsPlaceholder => "Rechercher des mods sur Modrinth, ou coller un lien Modrinth",
-        M::SearchResourcePacksPlaceholder => {
-            "Rechercher des packs de ressources sur Modrinth, ou coller un lien Modrinth"
+        M::SearchInstalledOrModrinth => "Rechercher dans les installés ou sur Modrinth",
+        M::InstalledCount => "Installés · {count}",
+        M::EnabledCount => "Activés · {count} · le pack du haut l’emporte en cas de chevauchement",
+        M::AvailableCount => "Disponibles · {count}",
+        M::OnModrinthCount => "Sur Modrinth · {count}",
+        M::OnModrinth => "Sur Modrinth",
+        M::OnCurseForgeCount => "Sur CurseForge · {count}",
+        M::OnCurseForge => "Sur CurseForge",
+        M::NoInstalledMatch => {
+            "Installés · {count} · Aucun élément installé ne correspond ({kind})."
         }
-        M::SearchShaderPacksPlaceholder => {
-            "Rechercher des packs de shaders sur Modrinth, ou coller un lien Modrinth"
-        }
+        M::OnlyTarget => "{target} uniquement",
 
         M::StopGameFirst => {
             "Arrêtez d’abord le jeu\u{a0}: il réécrit ces fichiers lorsqu’il se ferme."
@@ -62,8 +64,6 @@ pub fn text(message: M) -> &'static str {
         M::Compatible => "Compatible",
         M::OlderVersion => "Version plus ancienne",
         M::NewerVersion => "Version plus récente",
-        M::MadeForOlder => "Conçu pour une version plus ancienne de Minecraft",
-        M::MadeForNewer => "Conçu pour une version plus récente de Minecraft",
         M::NotOnModrinth => "Absent de Modrinth",
         M::UpdateTo => "Passer à {version}",
         M::NoModsYet => {
@@ -80,8 +80,6 @@ pub fn text(message: M) -> &'static str {
         M::SomeFilesNotMatched => {
             "Certains fichiers n’ont pas pu être associés à Modrinth\u{a0}: {error}"
         }
-        M::EnabledHeader => "ACTIVÉS · le pack du haut l’emporte quand des packs se chevauchent",
-        M::AvailableHeader => "DISPONIBLES",
         M::ShadersOff => "Shaders désactivés",
         M::NormalLook => "L’apparence normale de Minecraft.",
 
@@ -143,9 +141,6 @@ pub fn text(message: M) -> &'static str {
         M::SortFollows => "Abonnés",
         M::SortNewest => "Récents",
         M::SortUpdated => "Mis à jour",
-        M::OnlyShowModsFor => "Afficher uniquement les mods pour {target}",
-        M::OnlyShowResourcePacksFor => "Afficher uniquement les packs de ressources pour {target}",
-        M::OnlyShowShaderPacksFor => "Afficher uniquement les packs de shaders pour {target}",
         M::SearchingModrinth => "Recherche sur Modrinth",
         M::NothingMatches => "Aucun résultat sur Modrinth.",
         M::PageOf => "Page {page} sur {pages}",
@@ -156,7 +151,6 @@ pub fn text(message: M) -> &'static str {
         M::FollowsCompact => "{count} abonnés",
         M::FollowersCompact => "{count} abonnés",
 
-        M::BackToResults => "Retour aux résultats",
         M::LoadingProject => "Chargement du projet",
         M::ViewOnModrinth => "Voir sur Modrinth",
         M::Versions => "Versions",
@@ -207,15 +201,6 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ResourcePacksEnabled => [
-            "{count} pack de ressources (activés\u{a0}: {enabled})",
-            "{count} packs de ressources (activés\u{a0}: {enabled})",
-        ],
-        P::ModsEnabled => [
-            "{count} mod (activés\u{a0}: {enabled})",
-            "{count} mods (activés\u{a0}: {enabled})",
-        ],
-        P::ShaderPacks => ["{count} pack de shaders", "{count} packs de shaders"],
         P::Downloads => ["{count} téléchargement", "{count} téléchargements"],
         P::Follows => ["{count} abonné", "{count} abonnés"],
         P::Followers => ["{count} abonné", "{count} abonnés"],

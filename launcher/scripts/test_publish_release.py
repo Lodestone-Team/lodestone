@@ -70,12 +70,12 @@ class Candidate(unittest.TestCase):
             pr.check_candidate(self.target, self.entry, "windows-x86_64")
 
     def test_the_dry_runs_file_can_be_published(self):
-        copy = pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64")
+        copy, _ = pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64")
         self.assertEqual(copy.read_bytes(), b"tested")
         pr.check_candidate(self.target, self.entry, "windows-x86_64")
 
     def test_a_tested_copy_that_updated_itself_doesnt_matter(self):
-        copy = pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64")
+        copy, _ = pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64")
         copy.write_bytes(b"downloaded by the updater")
         pr.check_candidate(self.target, self.entry, "windows-x86_64")
 
@@ -91,6 +91,56 @@ class Candidate(unittest.TestCase):
         other = dict(self.entry, build=8)
         with self.assertRaisesRegex(pr.Failure, "last dry run was build 7"):
             pr.check_candidate(self.target, other, "windows-x86_64")
+
+
+class Installer(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.target = Path(self.tmp.name)
+        self.binary = self.target / pr.asset_name(7, "windows-x86_64")
+        self.binary.write_bytes(b"tested")
+        self.entry = pr.describe(self.binary, 7, "abc")
+        self.installer = self.target / pr.installer_name(7, "windows-x86_64")
+        self.installer.write_bytes(b"setup")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_only_x64_windows_has_an_installer(self):
+        self.assertTrue(pr.has_installer("windows-x86_64"))
+        self.assertFalse(pr.has_installer("windows-aarch64"))
+        self.assertFalse(pr.has_installer("macos-aarch64"))
+        self.assertEqual(pr.installer_name(7, "windows-x86_64"),
+                         "lodestone-launcher-7-windows-x86_64-setup.exe")
+
+    def test_publishing_uploads_the_dry_runs_installer(self):
+        _, kept = pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64",
+                                    self.installer)
+        found = pr.check_candidate(self.target, self.entry, "windows-x86_64", want_installer=True)
+        self.assertEqual(found, kept)
+        self.assertEqual(found.read_bytes(), b"setup")
+
+    def test_a_changed_installer_is_refused(self):
+        _, kept = pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64",
+                                    self.installer)
+        kept.write_bytes(b"something else")
+        with self.assertRaisesRegex(pr.Failure, "installer has changed"):
+            pr.check_candidate(self.target, self.entry, "windows-x86_64", want_installer=True)
+
+    def test_a_dry_run_without_an_installer_is_refused_when_one_is_wanted(self):
+        pr.save_candidate(self.target, self.binary, self.entry, "windows-x86_64")
+        with self.assertRaisesRegex(pr.Failure, "didn't keep an installer"):
+            pr.check_candidate(self.target, self.entry, "windows-x86_64", want_installer=True)
+
+    def test_old_installers_are_cleaned_up_with_their_builds(self):
+        names = []
+        for build in (3, 5, 9):
+            names += [pr.asset_name(build, "windows-x86_64"), pr.installer_name(build, "windows-x86_64")]
+        names += [pr.STABLE_INSTALLER, "latest.json"]
+        self.assertEqual(
+            pr.stale_names(names, "windows-x86_64", set()),
+            ["lodestone-launcher-3-windows-x86_64.exe", "lodestone-launcher-3-windows-x86_64-setup.exe"],
+        )
 
 
 class Platforms(unittest.TestCase):

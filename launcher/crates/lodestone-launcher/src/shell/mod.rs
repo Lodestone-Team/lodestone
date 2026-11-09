@@ -9,6 +9,7 @@ mod play;
 mod settings_modal;
 mod shared_settings;
 mod sidebar;
+mod storage_settings;
 mod top_bar;
 mod trace_state;
 mod unsaved;
@@ -18,6 +19,7 @@ pub use launcher_settings::LauncherSettings;
 use settings_modal::SettingsModal;
 pub use settings_modal::SettingsPage;
 pub use shared_settings::SharedSettings;
+pub use storage_settings::{StorageEvent, StorageSettings};
 pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
@@ -185,6 +187,12 @@ enum Modal {
         focus: FocusHandle,
         target: unsaved::UnsavedTarget,
     },
+    /// Removing files from Settings > Storage.
+    StorageClean {
+        what: launcher_core::disk::Clean,
+        bytes: u64,
+        focus: FocusHandle,
+    },
 }
 
 /// The root view of the launcher window.
@@ -201,8 +209,12 @@ pub struct LauncherShell {
     /// The Servers page, and its dialogs over the window.
     servers: Entity<Servers>,
     servers_overlay: Entity<ServersOverlay>,
+    /// The Play tab's slideshow, for an instance that shows one.
+    slideshow: Entity<crate::instances::slideshow::Slideshow>,
     /// Settings > Shared game settings.
     shared_settings: Entity<SharedSettings>,
+    /// Settings > Storage.
+    storage: Entity<StorageSettings>,
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
@@ -325,12 +337,36 @@ impl LauncherShell {
         // The Settings dialog draws their "Saved" notices.
         observe.push(cx.observe(&launcher_settings, |_, _, cx| cx.notify()));
         observe.push(cx.observe(&shared_settings, |_, _, cx| cx.notify()));
+        let storage = {
+            let instances = instances.clone();
+            cx.new(|_| StorageSettings::new(instances))
+        };
+        observe.push(cx.observe(&storage, |_, _, cx| cx.notify()));
+        observe.push(cx.subscribe(&storage, |this, _, event, cx| match event {
+            StorageEvent::DeleteInstance(id) => this.confirm_delete_instance(id, cx),
+            StorageEvent::Confirm { what, bytes } => {
+                let focus = cx.focus_handle();
+                this.modal.open(
+                    Modal::StorageClean {
+                        what: *what,
+                        bytes: *bytes,
+                        focus,
+                    },
+                    cx,
+                );
+            }
+        }));
         let updater = {
             let instances = instances.clone();
             cx.new(|cx| Updater::new(instances, cx))
         };
         observe.push(cx.observe(&updater, |_, _, cx| cx.notify()));
+        let slideshow = {
+            let instances = instances.clone();
+            cx.new(|_| crate::instances::slideshow::Slideshow::new(instances))
+        };
         let mut this = Self {
+            slideshow,
             accounts,
             instances,
             console,
@@ -340,6 +376,7 @@ impl LauncherShell {
             servers,
             servers_overlay,
             shared_settings,
+            storage,
             updater,
             settings: None,
             page: Page::default(),
@@ -1320,6 +1357,11 @@ impl LauncherShell {
                                 Ok(()) => {
                                     this.tab = InstanceTab::Play;
                                     this.close_modal(cx);
+                                    if this.settings_open()
+                                        && this.settings_page == SettingsPage::Storage
+                                    {
+                                        this.storage.update(cx, |storage, cx| storage.rescan(cx));
+                                    }
                                 }
                                 Err(err) => {
                                     if let Some(Modal::DeleteInstance { error, .. }) =
@@ -1341,6 +1383,9 @@ impl LauncherShell {
             }
             Modal::LoaderChange { prompt, focus } => {
                 self.render_loader_change(prompt, focus.clone(), cx)
+            }
+            Modal::StorageClean { what, bytes, focus } => {
+                self.render_storage_clean(*what, *bytes, focus.clone(), cx)
             }
             Modal::DeleteWorld { .. } | Modal::ReplaceWorld { .. } => {
                 self.render_world_dialog(modal, cx)?
@@ -1555,6 +1600,28 @@ impl LauncherShell {
     }
 }
 
+impl LauncherShell {
+    /// Points the slideshow at the selected instance, and runs it only while the Play
+    /// tab is on screen.
+    fn sync_slideshow(&mut self, cx: &mut Context<Self>) {
+        use launcher_core::instances::BackgroundMode;
+        let target = self.instances.read(cx).selected().and_then(|instance| {
+            match instance.background_mode() {
+                BackgroundMode::Slideshow(source) => Some((instance.id.clone(), source)),
+                _ => None,
+            }
+        });
+        let shown = self.page == Page::Instance && self.tab == InstanceTab::Play;
+        self.slideshow
+            .update(cx, |slideshow, cx| slideshow.sync(target, shown, cx));
+    }
+
+    /// The Play tab's slideshow, for the offscreen screenshots.
+    pub fn slideshow(&self) -> &Entity<crate::instances::slideshow::Slideshow> {
+        &self.slideshow
+    }
+}
+
 impl Render for LauncherShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.trace_frame(window, cx);
@@ -1563,6 +1630,7 @@ impl Render for LauncherShell {
         }
         // Text and spacing are in rems: zoom them with everything else.
         window.set_rem_size(theme::zoom::rem_size());
+        self.sync_slideshow(cx);
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),
             Page::Servers => self.servers.clone().into_any_element(),

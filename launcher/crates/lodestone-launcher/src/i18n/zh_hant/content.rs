@@ -5,13 +5,17 @@ pub fn text(message: M) -> &'static str {
         M::KindMods => "模組",
         M::KindResourcePacks => "資源包",
         M::KindShaders => "光影",
-        M::InstalledTab => "已安裝",
-        M::BrowseModrinth => "瀏覽 Modrinth",
         M::Vanilla => "原版",
-
-        M::SearchModsPlaceholder => "在 Modrinth 上搜尋模組，或貼上 Modrinth 連結",
-        M::SearchResourcePacksPlaceholder => "在 Modrinth 上搜尋資源包，或貼上 Modrinth 連結",
-        M::SearchShaderPacksPlaceholder => "在 Modrinth 上搜尋光影包，或貼上 Modrinth 連結",
+        M::SearchInstalledOrModrinth => "搜尋已安裝內容或 Modrinth",
+        M::InstalledCount => "已安裝 · {count}",
+        M::EnabledCount => "已啟用 · {count} · 重疊時以最上面的包為準",
+        M::AvailableCount => "可用 · {count}",
+        M::OnModrinthCount => "Modrinth 上 · {count}",
+        M::OnModrinth => "Modrinth 上",
+        M::OnCurseForgeCount => "CurseForge 上 · {count}",
+        M::OnCurseForge => "CurseForge 上",
+        M::NoInstalledMatch => "已安裝 · {count} · 沒有符合的已安裝{kind}。",
+        M::OnlyTarget => "僅限 {target}",
 
         M::StopGameFirst => "請先停止遊戲：遊戲結束時會覆寫這些檔案。",
         M::WaitForInstall => "請等候安裝完成。",
@@ -54,8 +58,6 @@ pub fn text(message: M) -> &'static str {
         M::Compatible => "相容",
         M::OlderVersion => "較舊版本",
         M::NewerVersion => "較新版本",
-        M::MadeForOlder => "為較舊的 Minecraft 版本製作",
-        M::MadeForNewer => "為較新的 Minecraft 版本製作",
         M::NotOnModrinth => "不在 Modrinth 上",
         M::UpdateTo => "更新至 {version}",
         M::NoModsYet => "還沒有模組。瀏覽 Modrinth，或將 .jar 檔案拖放到這裡。",
@@ -64,8 +66,6 @@ pub fn text(message: M) -> &'static str {
         M::ReadingFolder => "正在讀取 {folder} 資料夾",
         M::CouldntReadFolder => "無法讀取 {folder} 資料夾：{error}",
         M::SomeFilesNotMatched => "部分檔案無法與 Modrinth 比對：{error}",
-        M::EnabledHeader => "已啟用 · 資源包重疊時，以上方的為準",
-        M::AvailableHeader => "可用",
         M::ShadersOff => "關閉光影",
         M::NormalLook => "Minecraft 的原始畫面。",
 
@@ -78,10 +78,10 @@ pub fn text(message: M) -> &'static str {
             "此實例是原版 Minecraft。光影需要透過 {loader} 等模組載入器執行；切換會保留你的世界和設定，{loader} 會在你下次按下「開始遊戲」時安裝。"
         }
         M::VanillaNoLoaderMods => {
-            "此實例是原版 Minecraft {version}。模組需要模組載入器，但 Lodestone Launcher 支援的載入器都無法在此版本上執行：Fabric 從 1.14 開始支援，Forge 也沒有適用於此版本的建置。使用較新版本的新實例即可使用模組。"
+            "此實例是原版 Minecraft {version}。模組需要模組載入器，但 Lodestone Launcher 支援的載入器都無法在此版本上執行：Fabric 從 1.14 開始支援，Forge 也沒有適用於此版本的組建。新增一個較新版本的實例即可使用模組。"
         }
         M::VanillaNoLoaderShaders => {
-            "此實例是原版 Minecraft {version}。光影需要模組載入器，但 Lodestone Launcher 支援的載入器都無法在此版本上執行：Fabric 從 1.14 開始支援，Forge 也沒有適用於此版本的建置。使用較新版本的新實例即可使用光影。"
+            "此實例是原版 Minecraft {version}。光影需要模組載入器，但 Lodestone Launcher 支援的載入器都無法在此版本上執行：Fabric 從 1.14 開始支援，Forge 也沒有適用於此版本的組建。新增一個較新版本的實例即可使用光影。"
         }
         M::VanillaCheckFailedMods => {
             "此實例是原版 Minecraft。模組需要模組載入器，但無法檢查哪個載入器適用：{error}"
@@ -109,7 +109,7 @@ pub fn text(message: M) -> &'static str {
             "OptiFine 也能使用，但它不在 Modrinth 上，且其授權條款不允許 Lodestone 下載。如果你偏好使用它，請從 optifine.net 下載，然後在「{mods}」中用「{add_file}」加入 jar 檔（Fabric 還需要 OptiFabric）。"
         }
         M::LookingForShaderMod => "正在 Modrinth 上尋找適用於此版本的光影模組",
-        M::CouldntAskModrinth => "無法連線至 Modrinth：{error}",
+        M::CouldntAskModrinth => "無法向 Modrinth 查詢：{error}",
         M::InstallShaderMod => "安裝 {shader_mod} {version}",
         M::ShaderModRunsOn => {
             "Minecraft 本身無法載入光影包，需要借助光影模組。{shader_mod} 可在此實例的 {loader} 上執行。"
@@ -120,14 +120,11 @@ pub fn text(message: M) -> &'static str {
         }
 
         M::BrowsingNeedsNetwork => "瀏覽 Modrinth 需要網路連線。",
-        M::SortRelevance => "關聯性",
+        M::SortRelevance => "相關性",
         M::SortDownloads => "下載次數",
         M::SortFollows => "追蹤數",
         M::SortNewest => "最新",
         M::SortUpdated => "最近更新",
-        M::OnlyShowModsFor => "僅顯示適用於 {target} 的模組",
-        M::OnlyShowResourcePacksFor => "僅顯示適用於 {target} 的資源包",
-        M::OnlyShowShaderPacksFor => "僅顯示適用於 {target} 的光影包",
         M::SearchingModrinth => "正在搜尋 Modrinth",
         M::NothingMatches => "Modrinth 上沒有符合的結果。",
         M::PageOf => "第 {page} 頁，共 {pages} 頁",
@@ -138,11 +135,10 @@ pub fn text(message: M) -> &'static str {
         M::FollowsCompact => "{count}人追蹤",
         M::FollowersCompact => "{count}位追蹤者",
 
-        M::BackToResults => "返回結果",
         M::LoadingProject => "正在載入專案",
         M::ViewOnModrinth => "在 Modrinth 上檢視",
         M::Versions => "版本",
-        M::Description => "介紹",
+        M::Description => "簡介",
         M::LoadingVersions => "正在載入版本",
         M::ShowAllVersions => "顯示適用於其他載入器和 Minecraft 版本的版本",
         M::AlsoInstallDependencies => "一併安裝必要的相依項目",
@@ -187,9 +183,6 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ResourcePacksEnabled => ["{count} 個資源包，已啟用 {enabled} 個"; 2],
-        P::ModsEnabled => ["{count} 個模組，已啟用 {enabled} 個"; 2],
-        P::ShaderPacks => ["{count} 個光影包"; 2],
         P::Downloads => ["{count} 次下載"; 2],
         P::Follows => ["{count} 人追蹤"; 2],
         P::Followers => ["{count} 位追蹤者"; 2],

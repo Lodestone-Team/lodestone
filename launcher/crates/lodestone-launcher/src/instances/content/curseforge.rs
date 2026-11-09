@@ -29,7 +29,7 @@ use crate::components::{
     Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, LoadingDots, Toggle,
 };
 use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr};
-use crate::theme::{self, colors, fonts, px, radius, text, weights};
+use crate::theme::{self, colors, fonts, text, weights};
 
 /// How often the folder is looked at for files downloaded by hand.
 const WATCH_EVERY: Duration = Duration::from_secs(2);
@@ -625,217 +625,177 @@ impl ContentView {
         )
     }
 
-    pub(super) fn render_cf_browse(
+    /// "Install" on a CurseForge result: the newest file that fits (a release when there
+    /// is one, and one the launcher may download over one it may not), with its
+    /// dependencies. When none fits, its page opens instead, with every file listed.
+    pub fn cf_install_hit(&mut self, kind: ContentKind, project_id: u64, cx: &mut Context<Self>) {
+        let (Some((id, _, target)), Some(cf)) = (self.context(cx), self.curseforge(cx)) else {
+            return;
+        };
+        if !self.can_change(cx) || !self.section_mut(kind).cf_resolving.insert(project_id) {
+            return;
+        }
+        let loaders = curseforge::accepted_loaders(target.loader, &target.game_version);
+        let loader = match (kind, loaders.as_slice()) {
+            (ContentKind::Mod, [only]) => Some(*only),
+            _ => None,
+        };
+        let work = cx.background_spawn(async move {
+            let files = cf
+                .files(project_id, Some(&target.game_version), loader)
+                .await?;
+            Ok::<_, launcher_core::content::CurseForgeError>(curseforge_install::pick_file(
+                &target, kind, files,
+            ))
+        });
+        cx.spawn(async move |this, cx| {
+            let picked = work.await;
+            this.update(cx, |this, cx| {
+                this.section_mut(kind).cf_resolving.remove(&project_id);
+                if this.instance_id.as_deref() != Some(id.as_str()) {
+                    return;
+                }
+                match picked {
+                    Ok(Some(file)) => this.install_cf_file(kind, file, None, false, cx),
+                    Ok(None) => this.open_cf_project(kind, project_id, cx),
+                    Err(err) => this.set_message(err.to_string(), true, cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// "On CurseForge · n", with CurseForge's sorts (the compatibility filter is the one
+    /// on Modrinth's heading, shared by both).
+    pub(super) fn render_cf_heading(
         &mut self,
         kind: ContentKind,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if self.section(kind).cf.project.is_some() {
-            return self.render_cf_project(kind, cx);
-        }
-        let browse = &self.section(kind).browse;
-        let search = browse.search.clone();
-        let only = browse.only_compatible;
         let cf = &self.section(kind).cf;
         let sort = cf.sort;
-        let offset = cf.offset;
-        let results = cf.results.clone();
-        let target_label = self.target_label(kind, cx);
+        let title = match cf.results.ready() {
+            Some(results) => tr!(
+                M::OnCurseForgeCount,
+                count = format::number(results.total as u64)
+            ),
+            None => t(M::OnCurseForge).to_string(),
+        };
         let sorts = [
             (CfSort::Popularity, M::SortPopular),
             (CfSort::TotalDownloads, M::SortDownloads),
             (CfSort::LastUpdated, M::SortUpdated),
             (CfSort::Name, M::SortName),
         ];
-        let selected_sort = sorts.iter().position(|(s, _)| *s == sort).unwrap_or(0);
+        let selected = sorts.iter().position(|(s, _)| *s == sort).unwrap_or(0);
         let entity = cx.entity();
-        let installed: Vec<u64> = self
-            .section(kind)
-            .items()
-            .iter()
-            .filter_map(|i| i.curseforge.as_ref().map(|c| c.project_id))
-            .collect();
-        let mut column = div()
+        div()
             .flex()
-            .flex_col()
-            .gap_3()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(Icon::MagnifyingGlass.render(px(14.), colors::GRAY_500))
-                    .child(div().flex_1().child(search)),
+                div().flex_1().min_w_0().child(
+                    small(title)
+                        .font_weight(weights::BOLD.into())
+                        .text_color(colors::GRAY_500),
+                ),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                Toggle::new(("cf-only-compatible", kind as usize), only).on_change(
-                                    cx.listener(move |this, value: &bool, _, cx| {
-                                        this.section_mut(kind).browse.only_compatible = *value;
-                                        this.section_mut(kind).cf.offset = 0;
-                                        this.cf_search(kind, cx)
-                                    }),
-                                ),
-                            )
-                            .child(
-                                small(tr!(
-                                    match kind {
-                                        ContentKind::Mod => M::OnlyShowModsFor,
-                                        ContentKind::ResourcePack => M::OnlyShowResourcePacksFor,
-                                        ContentKind::ShaderPack => M::OnlyShowShaderPacksFor,
-                                    },
-                                    target = target_label
-                                ))
-                                .text_color(colors::GRAY_400),
-                            ),
-                    )
-                    .child(pills(
-                        "cf-sort",
-                        sorts
-                            .iter()
-                            .map(|(_, label)| SharedString::from(t(*label)))
-                            .collect(),
-                        selected_sort,
-                        move |i, _, cx| {
-                            let sort = sorts[i].0;
-                            entity.update(cx, |this, cx| this.cf_set_sort(kind, sort, cx))
-                        },
-                    )),
-            );
-        if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
-            column = column.child(self.render_shader_mod(cx));
-        }
-        match results {
-            Load::NotLoaded | Load::Loading => {
-                column = column.child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .justify_center()
-                        .gap_2()
-                        .py_6()
-                        .text_color(colors::GRAY_500)
-                        .child(LoadingDots)
-                        .child(t(M::SearchingCurseForge)),
-                );
-            }
-            Load::Failed(err) => column = column.child(small(err).text_color(colors::RED_200)),
-            Load::Ready(results) => {
-                if results.hits.is_empty() {
-                    column = column.child(muted(t(M::NothingMatches)));
-                }
-                let mut cards = div().flex().flex_col().gap_2();
-                for (i, hit) in results.hits.iter().enumerate() {
-                    cards = cards.child(self.render_cf_hit(
-                        kind,
-                        i,
-                        hit,
-                        installed.contains(&hit.id),
-                        cx,
-                    ));
-                }
-                column = column.child(cards);
-                let page_size = PAGE_SIZE as usize;
-                let pages = results.total.div_ceil(page_size).max(1);
-                let page = offset / page_size + 1;
-                if results.total > page_size {
-                    column = column.child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_center()
-                            .gap_3()
-                            .child(
-                                Button::new(
-                                    ("cf-previous-page", kind as usize),
-                                    t(CommonMsg::Previous),
-                                )
-                                .variant(ButtonVariant::Secondary)
-                                .size(ButtonSize::Slim)
-                                .disabled(offset == 0)
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.cf_set_page(kind, offset.saturating_sub(page_size), cx)
-                                    },
-                                )),
-                            )
-                            .child(
-                                small(tr!(
-                                    M::PageOf,
-                                    page = format::number(page as u64),
-                                    pages = format::number(pages as u64)
-                                ))
-                                .text_color(colors::GRAY_500),
-                            )
-                            .child(
-                                Button::new(("cf-next-page", kind as usize), t(CommonMsg::Next))
-                                    .variant(ButtonVariant::Secondary)
-                                    .size(ButtonSize::Slim)
-                                    .disabled(page >= pages)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.cf_set_page(kind, offset + page_size, cx)
-                                    })),
-                            ),
-                    );
-                }
-            }
-        }
-        column.into_any_element()
+            .child(pills(
+                "cf-sort",
+                sorts
+                    .iter()
+                    .map(|(_, label)| SharedString::from(t(*label)))
+                    .collect(),
+                selected,
+                move |i, _, cx| {
+                    let sort = sorts[i].0;
+                    entity.update(cx, |this, cx| this.cf_set_sort(kind, sort, cx))
+                },
+            ))
+            .into_any_element()
     }
 
-    fn render_cf_hit(
+    /// Previous and next page of the CurseForge results.
+    pub(super) fn render_cf_pager(
+        &mut self,
+        kind: ContentKind,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let cf = &self.section(kind).cf;
+        let offset = cf.offset;
+        let total = cf.results.ready().map_or(0, |r| r.total);
+        let page_size = PAGE_SIZE as usize;
+        let pages = total.div_ceil(page_size).max(1);
+        let page = offset / page_size + 1;
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .child(
+                Button::new(("cf-previous-page", kind as usize), t(CommonMsg::Previous))
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .disabled(offset == 0)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.cf_set_page(kind, offset.saturating_sub(page_size), cx)
+                    })),
+            )
+            .child(
+                small(tr!(
+                    M::PageOf,
+                    page = format::number(page as u64),
+                    pages = format::number(pages as u64)
+                ))
+                .text_color(colors::GRAY_500),
+            )
+            .child(
+                Button::new(("cf-next-page", kind as usize), t(CommonMsg::Next))
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .disabled(page >= pages)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.cf_set_page(kind, offset + page_size, cx)
+                    })),
+            )
+            .into_any_element()
+    }
+
+    /// A CurseForge result as a row of the list: opens its page, or installs it.
+    pub(super) fn render_cf_hit(
         &mut self,
         kind: ContentKind,
         index: usize,
         hit: &CfMod,
-        installed: bool,
+        first: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let icon = hit.icon_url().and_then(|url| self.remote_icon(url, cx));
         let id = hit.id;
+        let resolving = self.section(kind).cf_resolving.contains(&hit.id);
+        let busy = self.locked(cx) || self.job.is_some();
         let author = hit
             .authors
             .first()
             .map(|a| a.name.clone())
             .unwrap_or_default();
-        div()
-            .id(("cf-hit", index))
+        row_base(("cf-hit", index), first)
             .keyboard_focus()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_3()
-            .p_3()
-            .rounded(radius::LG)
-            .bg(colors::GRAY_800)
-            .border_1()
-            .border_color(colors::FADE_700)
             .cursor_pointer()
             .hover(|style| style.bg(colors::GRAY_750))
             .on_click(cx.listener(move |this, _, _, cx| this.open_cf_project(kind, id, cx)))
-            .child(icon_box(icon, 48.))
+            .child(icon_box(icon, 36.))
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .gap_0p5()
                     .child(
                         div()
                             .flex()
@@ -856,15 +816,12 @@ impl ContentView {
                                         .flex_none()
                                         .text_color(colors::WHITE.opacity(50)),
                                 )
-                            })
-                            .when(installed, |this| {
-                                this.child(badge(t(M::InstalledBadge), colors::GREEN_300))
                             }),
                     )
                     .child(
                         small(hit.summary.clone())
-                            .text_color(colors::GRAY_400)
-                            .line_clamp(2),
+                            .truncate()
+                            .text_color(colors::GRAY_400),
                     ),
             )
             .child(
@@ -874,12 +831,28 @@ impl ContentView {
                     M::DownloadsCompact,
                 ))
                 .flex_none()
-                .text_color(colors::GRAY_400),
+                .text_color(colors::GRAY_500),
+            )
+            .child(
+                Button::new(("cf-install-hit", index), t(CommonMsg::Install))
+                    .variant(ButtonVariant::Primary)
+                    .size(ButtonSize::Slim)
+                    .loading(resolving)
+                    .disabled(busy || resolving)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        // Not also the row's click, which opens the page.
+                        cx.stop_propagation();
+                        this.cf_install_hit(kind, id, cx)
+                    })),
             )
             .into_any_element()
     }
 
-    fn render_cf_project(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_cf_project(
+        &mut self,
+        kind: ContentKind,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(view) = self.section(kind).cf.project.as_ref() else {
             return div().into_any_element();
         };
@@ -888,7 +861,7 @@ impl ContentView {
         let show_all = view.show_all;
         let with_dependencies = view.with_dependencies;
         let confirm_force = view.confirm_force;
-        let back = Button::new(("cf-back", kind as usize), t(M::BackToResults))
+        let back = Button::new(("cf-back", kind as usize), t(CommonMsg::Back))
             .variant(ButtonVariant::Ghost)
             .icon(Icon::ArrowLeft)
             .size(ButtonSize::Slim)
