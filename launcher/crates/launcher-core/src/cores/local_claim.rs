@@ -6,8 +6,9 @@
 //! 1. `POST /local_claim/start` (no sign-in): the core makes `<LODESTONE_PATH>/
 //!    local_claim/<id>/`, which only its user can open, with an empty `claim` file, and
 //!    answers the folder (relative to its data folder), a value and its id.
-//! 2. The launcher finds which of its candidate folders ([`candidate_folders`]) holds
-//!    that `claim` file, and writes into `<id>/`: the value into `claim`, a random value
+//! 2. The launcher finds which of its candidate folders ([`candidate_folders`]), or the
+//!    data folder the core names ([`reported_folder`]), holds that `claim` file, and
+//!    writes into `<id>/`: the value into `claim`, a random value
 //!    of its own into `reply`, and `owner.json`, an owner account it made up
 //!    ([`OwnerCredentials`]), which the core uses only when it has no owner yet.
 //! 3. `POST /local_claim/finish` with the id. The core checks `claim`, makes the owner
@@ -124,6 +125,10 @@ pub struct ClaimStart {
     pub core_uuid: String,
     #[serde(default)]
     pub expires_in: Option<u64>,
+    /// The core's data folder, absolute, which a core tells programs on its own
+    /// computer. Only a hint ([`reported_folder`]): the claim must still be found there.
+    #[serde(default)]
+    pub data_folder: Option<String>,
 }
 
 /// `result.json`. No `Debug`: it holds the key.
@@ -543,13 +548,38 @@ mod claim_dir {
 
 pub use claim_dir::ClaimDir;
 
-/// The first of `folders` that holds the claim the core just made, and its folder.
+/// The data folder the core named in `start`, when the launcher may look in it: an
+/// absolute path without `..`. Whoever answers on the port names it, so it gets the
+/// same checks as any folder ([`ClaimDir::open`]): on Unix the claim's folders must
+/// belong to this user and be closed to others, so a folder another user prepared is
+/// never written to. Windows has no such check here, so there the folder must be inside
+/// this user's profile folder (`home`), which only the user can open.
+pub fn reported_folder(start: &ClaimStart, home: Option<&Path>) -> Option<PathBuf> {
+    let path = PathBuf::from(start.data_folder.as_deref().filter(|p| !p.is_empty())?);
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    if cfg!(unix) {
+        return Some(path);
+    }
+    let home = fs::canonicalize(home?).ok()?;
+    let real = fs::canonicalize(&path).ok()?;
+    (real.starts_with(&home) && real != home).then_some(path)
+}
+
+/// The first of `folders`, then the folder the core named ([`reported_folder`]), that
+/// holds the claim the core just made, and its folder.
 pub fn find_claim_folder(
     folders: &[PathBuf],
     start: &ClaimStart,
 ) -> Result<(PathBuf, ClaimDir), ClaimError> {
     let id = claim_id(start)?;
-    for folder in folders {
+    let reported = reported_folder(start, dirs::home_dir().as_deref());
+    for folder in folders.iter().chain(reported.as_ref()) {
         if let Ok(dir) = ClaimDir::open(folder, id)
             && dir.claim_is_fresh().unwrap_or(false)
         {
@@ -890,6 +920,7 @@ mod tests {
             value: "v4lue".into(),
             core_uuid: "core".into(),
             expires_in: Some(60),
+            data_folder: None,
         }
     }
 
@@ -959,6 +990,86 @@ mod tests {
         fs::write(dir.join("claim"), "taken").unwrap();
         assert!(matches!(
             find_claim_folder(&[core], &start("c1")),
+            Err(ClaimError::FolderNotFound)
+        ));
+    }
+
+    #[test]
+    fn the_folder_the_core_names_is_looked_in_last() {
+        let tmp = tempfile::tempdir().unwrap();
+        let elsewhere = tmp.path().join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        let core = tmp.path().join("core");
+        core_folder(&core, "c1");
+        let mut told = start("c1");
+        told.data_folder = Some(core.to_str().unwrap().into());
+        // on Windows only inside the profile folder, which a temp folder may not be
+        if cfg!(unix) {
+            let (found, _) = find_claim_folder(&[elsewhere], &told).unwrap();
+            assert_eq!(found, core);
+        }
+        // a folder the core names but that doesn't hold the claim is no help
+        told.data_folder = Some(tmp.path().to_str().unwrap().into());
+        assert!(matches!(
+            find_claim_folder(&[], &told),
+            Err(ClaimError::FolderNotFound)
+        ));
+    }
+
+    #[test]
+    fn only_a_plain_absolute_folder_is_taken_from_the_core() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        let inside = home.join("lodestone");
+        fs::create_dir_all(&inside).unwrap();
+        let told = |path: &str| ClaimStart {
+            data_folder: Some(path.into()),
+            ..start("c1")
+        };
+        let inside_text = inside.to_str().unwrap().to_string();
+        assert_eq!(
+            reported_folder(&told(&inside_text), Some(&home)),
+            Some(inside.clone())
+        );
+        assert_eq!(reported_folder(&start("c1"), Some(&home)), None);
+        assert_eq!(reported_folder(&told(""), Some(&home)), None);
+        assert_eq!(reported_folder(&told("lodestone"), Some(&home)), None);
+        assert_eq!(reported_folder(&told("./lodestone"), Some(&home)), None);
+        let climbing = home.join("lodestone").join("..").join("..");
+        assert_eq!(
+            reported_folder(&told(climbing.to_str().unwrap()), Some(&home)),
+            None
+        );
+        // Windows: inside the profile folder only
+        if !cfg!(unix) {
+            let outside = tmp.path().join("shared");
+            fs::create_dir_all(&outside).unwrap();
+            assert_eq!(
+                reported_folder(&told(outside.to_str().unwrap()), Some(&home)),
+                None
+            );
+            assert_eq!(
+                reported_folder(&told(home.to_str().unwrap()), Some(&home)),
+                None
+            );
+            assert_eq!(reported_folder(&told(&inside_text), None), None);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_named_folder_someone_else_could_open_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let core = tmp.path().join("core");
+        let dir = core_folder(&core, "c1");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).unwrap();
+        let told = ClaimStart {
+            data_folder: Some(core.to_str().unwrap().into()),
+            ..start("c1")
+        };
+        assert!(matches!(
+            find_claim_folder(&[], &told),
             Err(ClaimError::FolderNotFound)
         ));
     }
