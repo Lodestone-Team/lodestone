@@ -126,9 +126,9 @@ pub fn render(
                 .rounded(radius::DEFAULT)
                 .flex_none()
                 .cursor_pointer()
-                // On Windows the logo is not part of the caption: a right click on it
-                // doesn't open the system menu.
-                .when(windows, |logo| logo.occlude())
+                // The logo is not part of the caption: a right click on it doesn't
+                // open Windows' system menu or the compositor's window menu.
+                .when(windows || own_frame, |logo| logo.occlude())
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(|this, _, _, cx| this.show(Page::Instance, cx)))
                 .child(
