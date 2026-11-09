@@ -364,6 +364,13 @@ impl Render for TextSetting {
         let changed = self.changed(cx);
         let id = self.id.clone();
         div()
+            // In the Settings dialog, Escape in a changed field puts the value back
+            // first; the next one closes the dialog.
+            .when(changed && !self.disabled, |this| {
+                this.on_action(cx.listener(
+                    |this, _: &lodestone_ui::components::focus::Dismiss, _, cx| this.reset(cx),
+                ))
+            })
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
                 match event.keystroke.key.as_str() {
                     "enter" => this.submit(cx),

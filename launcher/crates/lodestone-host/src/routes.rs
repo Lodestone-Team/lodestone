@@ -1,7 +1,8 @@
 //! Where the window is: the dashboard's routes, as values.
 //!
 //! The shell shows one [`Route`] at a time; [`crate::pages::open`] makes its page.
-//! Adding a page means a variant here, an arm there, and the page's own file.
+//! Adding a page means a variant here, an arm there, and the page's own file. The
+//! settings aren't a route: they open in a dialog over the page ([`SettingsPage`]).
 
 use launcher_core::cores::admin::{
     FullCoreInfo, InstanceInfo, PublicUser,
@@ -15,8 +16,6 @@ pub enum Route {
     Home,
     /// An instance's tab (`/dashboard/<tab>?instance=<uuid>`).
     Instance { uuid: String, tab: InstanceTab },
-    /// The settings (`/settings/<page>`).
-    Settings(SettingsPage),
 }
 
 /// An instance's tabs, in the sidebar's order (`pages/InstanceTabs/tabList.tsx`).
@@ -88,7 +87,8 @@ impl InstanceTab {
     }
 }
 
-/// The settings' pages (`SettingsLeftNav.tsx`).
+/// The settings' pages (`SettingsLeftNav.tsx`), shown in the Settings dialog over the
+/// page (`crate::shell::settings`), as the dashboard's settings modal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SettingsPage {
     /// Core › General.

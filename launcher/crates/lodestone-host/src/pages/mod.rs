@@ -84,14 +84,18 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
                     .into(),
             }
         }
-        Route::Settings(page) => match page {
-            SettingsPage::General => cx
-                .new(|cx| core_settings::CoreSettingsPage::new(state, cx))
-                .into(),
-            SettingsPage::Users => cx.new(|cx| users::UsersPage::new(state, cx)).into(),
-            SettingsPage::Profile => cx.new(|cx| profile::ProfilePage::new(state, cx)).into(),
-            SettingsPage::Updates => cx.new(|cx| updates::UpdatesPage::new(state, cx)).into(),
-        },
+    }
+}
+
+/// A page of the Settings dialog (`crate::shell::settings`).
+pub fn open_settings(page: SettingsPage, state: Entity<HostState>, cx: &mut App) -> AnyView {
+    match page {
+        SettingsPage::General => cx
+            .new(|cx| core_settings::CoreSettingsPage::new(state, cx))
+            .into(),
+        SettingsPage::Users => cx.new(|cx| users::UsersPage::new(state, cx)).into(),
+        SettingsPage::Profile => cx.new(|cx| profile::ProfilePage::new(state, cx)).into(),
+        SettingsPage::Updates => cx.new(|cx| updates::UpdatesPage::new(state, cx)).into(),
     }
 }
 

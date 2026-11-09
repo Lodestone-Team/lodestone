@@ -46,6 +46,7 @@ pub fn text(message: M) -> &'static str {
         M::TabMacros => "Macros",
         M::TabEventLogs => "Journal des événements",
         M::Settings => "Paramètres",
+        M::SettingsMenu => "Paramètres…",
         M::SettingsCore => "Core",
         M::SettingsGeneral => "Général",
         M::SettingsUsers => "Utilisateurs",
