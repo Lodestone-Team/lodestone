@@ -27,6 +27,7 @@ use super::Instances;
 use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonVariant, Dialog, Icon, IconButton, LoadingDots, Toggle},
+    file_dialog,
     i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, format, t, tr, trn},
     theme::{self, colors, leading, radius, text, weights},
 };
@@ -122,6 +123,13 @@ impl EventEmitter<ImportDismissed> for ImportDialog {}
 impl Focusable for ImportDialog {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
+    }
+}
+
+impl file_dialog::ShowsError for ImportDialog {
+    fn show_error(&mut self, message: SharedString, cx: &mut Context<Self>) {
+        self.error = Some(message);
+        cx.notify();
     }
 }
 
@@ -284,7 +292,7 @@ impl ImportDialog {
             prompt: Some(t(M::ImportFromHere).into()),
         });
         self.tasks.push(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             let Some(path) = paths.into_iter().next() else {
@@ -310,10 +318,20 @@ impl ImportDialog {
         }));
     }
 
+    /// Ticks or unticks an instance. Like every change to what will be copied, it
+    /// clears the error, so the summary of the selection shows again (a file dialog
+    /// that can't open would otherwise keep it hidden until the dialog is closed).
     fn toggle(&mut self, key: &str, cx: &mut Context<Self>) {
         if !self.checked.remove(key) {
             self.checked.insert(key.to_string());
         }
+        self.error = None;
+        cx.notify();
+    }
+
+    fn set_without_worlds(&mut self, value: bool, cx: &mut Context<Self>) {
+        self.without_worlds = value;
+        self.error = None;
         cx.notify();
     }
 
@@ -332,6 +350,7 @@ impl ImportDialog {
     }
 
     fn start(&mut self, cx: &mut Context<Self>) {
+        self.error = None;
         let options = CopyOptions {
             without_worlds: self.without_worlds,
         };
@@ -882,8 +901,7 @@ impl Render for ImportDialog {
                                             .on_change(move |value, _, cx| {
                                                 let value = *value;
                                                 entity.update(cx, |this, cx| {
-                                                    this.without_worlds = value;
-                                                    cx.notify();
+                                                    this.set_without_worlds(value, cx)
                                                 })
                                             }),
                                     )
@@ -931,5 +949,52 @@ impl Render for ImportDialog {
                 .variant(ButtonVariant::Ghost)
                 .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
             )
+    }
+}
+
+/// The file dialog's error leaves room for the selection's summary again at the next
+/// change to the selection.
+#[cfg(all(test, feature = "screenshot"))]
+mod gpui_tests {
+    use futures::channel::oneshot;
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    #[test]
+    fn changing_the_selection_clears_the_file_dialog_error() {
+        let mut cx = TestAppContext::single();
+        let dialog = cx.update(|cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("signed-out", &accounts, cx);
+            cx.new(|cx| ImportDialog::empty(instances, cx))
+        });
+        let error = |cx: &mut TestAppContext| dialog.read_with(cx, |this, _| this.error.clone());
+        let fail = |cx: &mut TestAppContext| {
+            let (tx, rx) = oneshot::channel::<anyhow::Result<Option<Vec<std::path::PathBuf>>>>();
+            let _ = tx.send(Err(anyhow::anyhow!("no portal")));
+            let weak = dialog.downgrade();
+            cx.spawn(|mut cx| async move {
+                file_dialog::chosen(rx, &weak, &mut cx).await;
+            })
+            .detach();
+            cx.run_until_parked();
+        };
+
+        fail(&mut cx);
+        assert_eq!(
+            error(&mut cx),
+            Some(t(CommonMsg::FileDialogUnavailable).into())
+        );
+        dialog.update(&mut cx, |this, cx| this.toggle("Vanilla:Survival", cx));
+        assert_eq!(error(&mut cx), None);
+
+        fail(&mut cx);
+        dialog.update(&mut cx, |this, cx| this.set_without_worlds(true, cx));
+        assert_eq!(error(&mut cx), None);
+
+        fail(&mut cx);
+        dialog.update(&mut cx, |this, cx| this.start(cx));
+        assert_eq!(error(&mut cx), None);
     }
 }

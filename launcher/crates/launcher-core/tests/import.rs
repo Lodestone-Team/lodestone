@@ -15,7 +15,7 @@ use std::{
 use futures::executor::block_on;
 use launcher_core::{
     content::{ContentKind, provenance::Provenance},
-    game::{download::CancelToken, loaders::LoaderKind},
+    game::{download::CancelToken, loaders::LoaderKind, platform::Os},
     import::{
         self, CopyOptions, Found, IconSource, ImportError, ImportProgress, ImportRequest,
         Locations, Resolved, Source, WantedLoader, WantedVersion, detect,
@@ -397,7 +397,9 @@ fn detects_launchers_in_their_default_places() {
     // Something that isn't a launcher's folder is not listed.
     fs::create_dir_all(support.join("PolyMC")).unwrap();
     let locations = Locations {
+        os: Os::MacOs,
         home: home.path().to_path_buf(),
+        config: support.clone(),
         app_data: support,
         documents: home.path().join("Documents"),
         applications: vec![apps],
@@ -421,8 +423,10 @@ fn detects_launchers_in_their_default_places() {
     let empty = tempfile::tempdir().unwrap();
     assert!(
         detect::detect(&Locations {
+            os: Os::MacOs,
             home: empty.path().to_path_buf(),
             app_data: empty.path().join("Library/Application Support"),
+            config: empty.path().join("Library/Application Support"),
             documents: empty.path().join("Documents"),
             applications: Vec::new(),
         })
@@ -457,8 +461,10 @@ fn detects_launchers_in_their_windows_places() {
         &documents.join("curseforge").join("minecraft"),
     );
     let found = detect::detect(&Locations {
+        os: Os::Windows,
         home: home.path().to_path_buf(),
         app_data: roaming.clone(),
+        config: roaming.clone(),
         documents,
         applications: Vec::new(),
     });
@@ -481,13 +487,152 @@ fn detects_launchers_in_their_windows_places() {
     let instances = home.path().join("curseforge").join("minecraft");
     copy_dir(&fixture("curseforge/minecraft"), &instances);
     let found = detect::detect(&Locations {
+        os: Os::Windows,
         home: home.path().to_path_buf(),
         app_data: home.path().join("AppData").join("Roaming"),
+        config: home.path().join("AppData").join("Roaming"),
         documents: home.path().join("Documents"),
         applications: Vec::new(),
     });
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].root, instances.join("Instances"));
+}
+
+/// Linux's places, in the XDG folders and the home folder: the official launcher's
+/// `~/.minecraft`, GDLauncher's in `~/.config` (Electron's `appData`), and the lowercase
+/// folders the .deb packages use.
+#[test]
+fn detects_launchers_in_their_linux_places() {
+    let home = tempfile::tempdir().unwrap();
+    let share = home.path().join(".local/share");
+    let config = home.path().join(".config");
+    copy_dir(
+        &fixture("vanilla/minecraft"),
+        &home.path().join(".minecraft"),
+    );
+    copy_dir(
+        &fixture("prism/PrismLauncher"),
+        &share.join("PrismLauncher"),
+    );
+    copy_dir(&fixture("multimc/MultiMC.app/Data"), &share.join("multimc"));
+    copy_dir(
+        &fixture("modrinth-app/ModrinthApp"),
+        &share.join("ModrinthApp"),
+    );
+    copy_dir(&fixture("atlauncher"), &share.join("atlauncher"));
+    copy_dir(
+        &fixture("curseforge/minecraft"),
+        &home.path().join("curseforge/minecraft"),
+    );
+    copy_dir(
+        &fixture("gdlauncher/gdlauncher_next"),
+        &config.join("gdlauncher_next"),
+    );
+    copy_dir(
+        &fixture("gdlauncher-carbon/gdlauncher_carbon"),
+        &share.join("gdlauncher_carbon"),
+    );
+    // The macOS and Windows names don't count on Linux.
+    copy_dir(&fixture("atlauncher"), &share.join("ATLauncher"));
+    copy_dir(&fixture("vanilla/minecraft"), &share.join("minecraft"));
+    let linux = |home: &Path| Locations {
+        os: Os::Linux,
+        home: home.to_path_buf(),
+        app_data: home.join(".local/share"),
+        config: home.join(".config"),
+        documents: home.join("Documents"),
+        applications: Vec::new(),
+    };
+    let found = detect::detect(&linux(home.path()));
+    let roots: Vec<(Source, PathBuf)> = found
+        .iter()
+        .map(|l| (l.source, l.root.strip_prefix(home.path()).unwrap().into()))
+        .collect();
+    assert_eq!(
+        roots,
+        [
+            (Source::Vanilla, ".minecraft".into()),
+            (Source::Prism, ".local/share/PrismLauncher".into()),
+            (Source::MultiMc, ".local/share/multimc".into()),
+            (Source::ModrinthApp, ".local/share/ModrinthApp".into()),
+            (Source::AtLauncher, ".local/share/atlauncher".into()),
+            (Source::CurseForge, "curseforge/minecraft/Instances".into()),
+            (Source::GdLauncher, ".config/gdlauncher_next".into()),
+            (
+                Source::GdLauncherCarbon,
+                ".local/share/gdlauncher_carbon".into()
+            ),
+        ]
+    );
+    assert!(found.iter().all(|l| !l.instances.is_empty()));
+    assert!(detect::detect(&linux(tempfile::tempdir().unwrap().path())).is_empty());
+}
+
+/// Flatpak installs, each in its own `~/.var/app/<app id>` folder.
+#[test]
+fn detects_flatpak_launchers_on_linux() {
+    let home = tempfile::tempdir().unwrap();
+    let app = |id: &str, path: &str| home.path().join(".var/app").join(id).join(path);
+    copy_dir(
+        &fixture("vanilla/minecraft"),
+        &app("com.mojang.Minecraft", ".minecraft"),
+    );
+    copy_dir(
+        &fixture("prism/PrismLauncher"),
+        &app("org.prismlauncher.PrismLauncher", "data/PrismLauncher"),
+    );
+    copy_dir(
+        &fixture("prism/PrismLauncher"),
+        &app("org.polymc.PolyMC", "data/PolyMC"),
+    );
+    copy_dir(
+        &fixture("modrinth-app/ModrinthApp"),
+        &app("com.modrinth.ModrinthApp", "data/ModrinthApp"),
+    );
+    copy_dir(
+        &fixture("atlauncher"),
+        &app("com.atlauncher.ATLauncher", "data"),
+    );
+    copy_dir(
+        &fixture("gdlauncher/gdlauncher_next"),
+        &app("io.gdevs.GDLauncher", "config/gdlauncher_next"),
+    );
+    let found = detect::detect(&Locations {
+        os: Os::Linux,
+        home: home.path().to_path_buf(),
+        app_data: home.path().join(".local/share"),
+        config: home.path().join(".config"),
+        documents: home.path().join("Documents"),
+        applications: Vec::new(),
+    });
+    let roots: Vec<(Source, PathBuf)> = found
+        .iter()
+        .map(|l| {
+            let root = l.root.strip_prefix(home.path().join(".var/app")).unwrap();
+            (l.source, root.into())
+        })
+        .collect();
+    assert_eq!(
+        roots,
+        [
+            (Source::Vanilla, "com.mojang.Minecraft/.minecraft".into()),
+            (
+                Source::Prism,
+                "org.prismlauncher.PrismLauncher/data/PrismLauncher".into()
+            ),
+            (Source::Prism, "org.polymc.PolyMC/data/PolyMC".into()),
+            (
+                Source::ModrinthApp,
+                "com.modrinth.ModrinthApp/data/ModrinthApp".into()
+            ),
+            (Source::AtLauncher, "com.atlauncher.ATLauncher/data".into()),
+            (
+                Source::GdLauncher,
+                "io.gdevs.GDLauncher/config/gdlauncher_next".into()
+            ),
+        ]
+    );
+    assert!(found.iter().all(|l| !l.instances.is_empty()));
 }
 
 fn request(found: &Found, game_version: &str, loader: Option<(LoaderKind, &str)>) -> ImportRequest {

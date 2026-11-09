@@ -10,6 +10,7 @@ pub mod components;
 /// yet (a named pipe would be its equivalent).
 #[cfg(unix)]
 pub mod control;
+pub mod file_dialog;
 pub mod i18n;
 pub mod images;
 pub mod instances;

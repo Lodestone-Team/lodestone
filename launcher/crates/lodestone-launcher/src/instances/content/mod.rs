@@ -39,6 +39,7 @@ use lodestone_minecraft::modrinth::{
 
 use super::Instances;
 use crate::components::{Icon, TextInput};
+use crate::file_dialog;
 use crate::i18n::{ContentMsg as M, format, t, tr};
 
 /// Results per page.
@@ -253,6 +254,12 @@ fn index_of(kind: ContentKind) -> usize {
         ContentKind::Mod => 0,
         ContentKind::ResourcePack => 1,
         ContentKind::ShaderPack => 2,
+    }
+}
+
+impl file_dialog::ShowsError for ContentView {
+    fn show_error(&mut self, message: SharedString, cx: &mut Context<Self>) {
+        self.set_message(message, true, cx);
     }
 }
 
@@ -1084,7 +1091,7 @@ impl ContentView {
             ),
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             this.update(cx, |this, cx| this.add_files(kind, paths, cx))
