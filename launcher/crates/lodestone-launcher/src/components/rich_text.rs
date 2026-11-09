@@ -23,6 +23,7 @@ use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::panic::Location;
+use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, Bounds, ClipboardItem, CursorStyle, DispatchPhase, Element, ElementId,
@@ -123,7 +124,11 @@ pub struct RichText {
     text: SharedString,
     selectable: bool,
     styled: StyledText,
+    /// Ranges that are links, and what clicking the n-th one does.
+    links: Option<Links>,
 }
+
+type Links = (Rc<[Range<usize>]>, Rc<dyn Fn(usize, &mut Window, &mut App)>);
 
 impl RichText {
     /// Plain text. A `§` in it is shown as it is.
@@ -180,6 +185,7 @@ impl RichText {
             text,
             selectable: true,
             styled,
+            links: None,
         }
     }
 
@@ -187,6 +193,30 @@ impl RichText {
     /// such as a log.
     pub fn id(mut self, id: impl Into<ElementId>) -> Self {
         self.id = id.into();
+        self
+    }
+
+    /// Text styled by the caller (`text` must be the text `styled` draws), such as a
+    /// paragraph of a Markdown description.
+    pub fn styled(id: impl Into<ElementId>, text: impl Into<SharedString>, styled: StyledText) -> Self {
+        Self {
+            id: id.into(),
+            text: text.into(),
+            selectable: true,
+            styled,
+            links: None,
+        }
+    }
+
+    /// Makes `ranges` links: a click (not a drag) on the n-th calls `on_click(n)`.
+    pub fn links(
+        mut self,
+        ranges: Vec<Range<usize>>,
+        on_click: impl Fn(usize, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        if !ranges.is_empty() {
+            self.links = Some((ranges.into(), Rc::new(on_click)));
+        }
         self
     }
 
@@ -374,7 +404,20 @@ impl Element for RichText {
                 .paint(None, inspector_id, bounds, state, &mut (), window, cx);
             return;
         };
-        window.set_cursor_style(CursorStyle::IBeam, hitbox);
+        let over_link = self.links.as_ref().is_some_and(|(ranges, _)| {
+            hitbox.is_hovered(window)
+                && layout
+                    .index_for_position(window.mouse_position())
+                    .is_ok_and(|index| ranges.iter().any(|range| range.contains(&index)))
+        });
+        window.set_cursor_style(
+            if over_link {
+                CursorStyle::PointingHand
+            } else {
+                CursorStyle::IBeam
+            },
+            hitbox,
+        );
 
         // What the selection is doing here, if it is here.
         let mine = with_selection(|selection| {
@@ -533,7 +576,10 @@ impl Element for RichText {
                 }
             });
         }
-        window.on_mouse_event(move |_: &MouseUpEvent, phase, window, cx| match phase {
+        let links = self.links.clone();
+        let text = self.text.clone();
+        let hitbox = hitbox.clone();
+        window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| match phase {
             DispatchPhase::Capture => with_selection(|selection| {
                 if let Some(s) = selection.as_mut() {
                     s.dragging = false;
@@ -542,14 +588,27 @@ impl Element for RichText {
             DispatchPhase::Bubble => {
                 // A release that ends a selecting drag is not a click on what is under
                 // the text.
-                let moved = with_selection(|selection| {
+                let (moved, anchor) = with_selection(|selection| {
                     selection
                         .as_mut()
-                        .map(|s| std::mem::take(&mut s.moved))
-                        .unwrap_or(false)
+                        .map(|s| (std::mem::take(&mut s.moved), s.anchor))
+                        .unwrap_or((false, 0))
                 });
                 if moved {
                     cx.stop_propagation();
+                } else if let Some((ranges, on_click)) = &links
+                    && event.button == MouseButton::Left
+                    && hitbox.is_hovered(window)
+                {
+                    // A click on a link: pressed and released on the same one.
+                    let index = index_at(&layout, &text, event.position);
+                    if let Some(n) = ranges
+                        .iter()
+                        .position(|r| r.contains(&index) && r.contains(&anchor))
+                    {
+                        on_click(n, window, cx);
+                        cx.stop_propagation();
+                    }
                 }
                 window.refresh();
             }
@@ -719,5 +778,38 @@ mod ui_tests {
         // A click outside clears it.
         cx.simulate_click(point(px(450.), px(200.)), none);
         assert!(super::SELECTION.with(|s| s.borrow().is_none()));
+    }
+
+    struct Link {
+        opened: Rc<Cell<Option<usize>>>,
+    }
+
+    impl Render for Link {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let opened = self.opened.clone();
+            div().w(px(400.)).child(
+                RichText::new("link and more text")
+                    .links(vec![0..4], move |n, _, _| opened.set(Some(n))),
+            )
+        }
+    }
+
+    #[test]
+    fn a_click_on_a_link_opens_it_and_a_drag_from_it_selects() {
+        let mut cx = TestAppContext::single();
+        cx.update(super::init);
+        let opened = Rc::new(Cell::new(None));
+        let (_, cx) = cx.add_window_view({
+            let opened = opened.clone();
+            |_, _| Link { opened }
+        });
+        let none = Modifiers::default();
+        let on_link = point(px(2.), px(5.));
+        cx.simulate_mouse_down(on_link, MouseButton::Left, none);
+        cx.simulate_mouse_move(point(px(390.), px(5.)), MouseButton::Left, none);
+        cx.simulate_mouse_up(point(px(390.), px(5.)), MouseButton::Left, none);
+        assert_eq!(opened.get(), None, "a drag doesn't follow the link");
+        cx.simulate_click(on_link, none);
+        assert_eq!(opened.get(), Some(0));
     }
 }
