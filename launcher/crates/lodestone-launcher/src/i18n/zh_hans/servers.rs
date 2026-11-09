@@ -46,6 +46,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::ClaimNotThisCore => "应答的核心并不是找到的文件夹所属的核心，因此没有保存任何内容。",
         M::ClaimNoResult => "核心没有完成认领。请重试。",
+        M::ClaimNoCertificate => {
+            "此核心没有 HTTPS 证书，因此 Lodestone Launcher 无法确保它的所有者密钥只会发送给它。请在核心的设置中打开 HTTPS，然后重新连接。"
+        }
         M::ClaimFiles => "无法使用核心的数据文件夹：{error}",
         M::ClaimInvalid => "核心发送了 Lodestone Launcher 无法理解的内容：{error}",
         M::AddServer => "添加服务器",

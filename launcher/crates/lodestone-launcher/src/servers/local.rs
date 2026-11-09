@@ -4,7 +4,8 @@
 //! What a claim gives (the owner key, and the owner account the launcher made for a
 //! core without one) is kept in plain text in `cores/local_credentials.json`, not the
 //! Keychain: it exists only because this user can already write the core's folder. A
-//! claimed core is saved like any other, signed in with that key.
+//! claimed core is saved at its HTTPS address with its certificate pinned, and its key
+//! is used only for that entry, at that address, to that certificate.
 
 use std::{
     collections::HashSet,
@@ -74,6 +75,7 @@ pub fn claim_error(err: &ClaimError) -> String {
         ClaimError::FolderNotFound => t(M::ClaimFolderNotFound).into(),
         ClaimError::NotThisCore => t(M::ClaimNotThisCore).into(),
         ClaimError::NoResult => t(M::ClaimNoResult).into(),
+        ClaimError::NoCertificate => t(M::ClaimNoCertificate).into(),
         ClaimError::Core(err) => core_error(err),
         ClaimError::Files(error) => tr!(M::ClaimFiles, error = error),
         ClaimError::Invalid(error) => tr!(M::ClaimInvalid, error = error),
@@ -108,26 +110,89 @@ impl Servers {
             }
         }
         for core in &mut self.cores {
-            if let Some(key) = self
+            if !core.saved.local_claim || !core.saved.signed_in() {
+                continue;
+            }
+            let pinned = core
+                .saved
+                .certificate
+                .as_ref()
+                .map(|pin| pin.sha256.as_str());
+            core.key = self
                 .local
                 .credentials
                 .cores
                 .get(&core.saved.uuid)
-                .and_then(|c| c.api_key.clone())
-                && core.saved.signed_in()
-            {
-                core.key = Some(Secret::new(key));
-            }
+                .and_then(|c| c.key_for(&core.saved.url, pinned));
         }
     }
 
     /// Whether core `uuid`'s key is kept in `local_credentials.json` (not the Keychain).
     pub(super) fn has_local_key(&self, uuid: &str) -> bool {
-        self.local
-            .credentials
+        self.cores
+            .iter()
+            .any(|c| c.saved.uuid == uuid && c.saved.local_claim)
+    }
+
+    /// A claimed core's id changed (its card follows it): its credentials follow too.
+    pub(super) fn rename_local_credentials(
+        &mut self,
+        old: &str,
+        new: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(entry) = self.local.credentials.cores.remove(old) {
+            self.local.credentials.cores.insert(new.to_string(), entry);
+            self.save_local_credentials(cx);
+        }
+    }
+
+    /// Revokes core `uuid`'s claimed key on the core, best effort, over its pinned
+    /// certificate: with a sign-in as the owner account the launcher made, else with
+    /// the key itself (which cores that only let sessions revoke keys refuse).
+    pub(super) fn revoke_local_key(&mut self, uuid: &str, cx: &mut Context<Self>) {
+        if self.preview {
+            return;
+        }
+        if let Some(revoke) = self.local_revocation(uuid) {
+            cx.background_spawn(revoke).detach();
+        }
+    }
+
+    /// What revoking core `uuid`'s claimed key takes, as a future, or `None` when there
+    /// is nothing to revoke.
+    fn local_revocation(
+        &self,
+        uuid: &str,
+    ) -> Option<impl std::future::Future<Output = ()> + use<>> {
+        let core = self
             .cores
-            .get(uuid)
-            .is_some_and(|c| c.api_key.is_some())
+            .iter()
+            .find(|c| c.saved.uuid == uuid && c.saved.local_claim)?;
+        let key = core.key.clone()?;
+        let id = core
+            .saved
+            .key_id
+            .clone()
+            .or_else(|| local_claim::key_id(key.expose()))?;
+        let client = self.client(core);
+        let owner = self.local.credentials.cores.get(uuid).and_then(|c| {
+            c.owner_username
+                .clone()
+                .zip(c.owner_password.clone().map(Secret::new))
+        });
+        Some(async move {
+            let revoked = match &owner {
+                Some((username, password)) => client
+                    .revoke_key_signed_in(username, password, &id)
+                    .await
+                    .is_ok(),
+                None => false,
+            };
+            if !revoked {
+                let _ = client.revoke_key(&key, &id).await;
+            }
+        })
     }
 
     /// What was kept for core `uuid`, if it was claimed here.
@@ -206,11 +271,15 @@ impl Servers {
         }));
     }
 
-    /// Whether core `uuid` is saved and signed in here.
-    pub fn is_connected(&self, uuid: &str) -> bool {
-        self.cores
-            .iter()
-            .any(|c| c.saved.uuid == uuid && c.signed_in())
+    /// Whether the core found at `url` with id `uuid` is saved and signed in here, at
+    /// the same host and port.
+    pub fn is_connected(&self, uuid: &str, url: &Url) -> bool {
+        self.cores.iter().any(|c| {
+            c.saved.uuid == uuid
+                && c.signed_in()
+                && c.url.host_str() == url.host_str()
+                && c.url.port_or_known_default() == url.port_or_known_default()
+        })
     }
 
     /// "Connect as owner" for a core found on this computer. `folder` is a data folder
@@ -250,11 +319,19 @@ impl Servers {
         let sleep = gpui_sleep(cx);
         let credentials_file = self.credentials_path(cx);
         let claiming = found.as_ref().map(|f| f.info.uuid.clone());
+        // a key this launcher claimed before goes first (the core replaces a key of the
+        // same name too, so keys don't pile up)
+        let revoke = claiming
+            .as_deref()
+            .and_then(|uuid| self.local_revocation(uuid));
         let wanted = (!uuid.is_empty()).then(|| uuid.to_string());
         self.local.claiming = claiming.clone().or(Some(String::new()));
         self.local.error = None;
         cx.notify();
         let work = cx.background_spawn(async move {
+            if let Some(revoke) = revoke {
+                revoke.await;
+            }
             // without a scan (the control API), find the core first
             let found = match found {
                 Some(found) => found,
@@ -305,6 +382,9 @@ impl Servers {
             .unwrap_or_default();
         saved.uuid = uuid.clone();
         saved.url = address;
+        // the key goes only to this certificate, over HTTPS
+        saved.pin_certificate(claimed.pin.clone());
+        saved.local_claim = true;
         saved.name = claimed.info.core_name.clone();
         saved.product = claimed.info.product;
         saved.launched_by = claimed.info.launched_by;

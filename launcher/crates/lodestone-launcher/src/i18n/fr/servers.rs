@@ -54,6 +54,9 @@ pub fn text(message: M) -> &'static str {
             "Le core qui a répondu n’est pas celui dont le dossier a été trouvé\u{202F}: rien n’a été enregistré."
         }
         M::ClaimNoResult => "Le core n’a pas terminé la demande. Réessayez.",
+        M::ClaimNoCertificate => {
+            "Ce core n’a pas de certificat HTTPS\u{202F}: Lodestone Launcher ne peut donc pas garantir que sa clé de propriétaire n’ira qu’à lui. Activez HTTPS dans les paramètres du core, puis reconnectez-vous."
+        }
         M::ClaimFiles => "Impossible d’utiliser le dossier de données du core\u{a0}: {error}",
         M::ClaimInvalid => {
             "Le core a envoyé quelque chose que Lodestone Launcher ne comprend pas\u{a0}: {error}"

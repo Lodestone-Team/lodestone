@@ -293,10 +293,11 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 vec![(
                     "home",
                     LocalCredentials {
-                        url: "http://127.0.0.1:16662".into(),
+                        url: "https://127.0.0.1:16662".into(),
                         api_key: Some("lsk_preview_key".into()),
                         owner_username: Some("owner_k3m9x".into()),
                         owner_password: Some("preview-password".into()),
+                        ..Default::default()
                     },
                 )],
                 Some(("docker", ClaimError::FolderNotFound)),

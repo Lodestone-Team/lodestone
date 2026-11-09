@@ -332,7 +332,9 @@ core) and, when the core says, what started it (`"launched_by": "host"`,
 `cores claim-local` connects as owner to a Lodestone Host or Lodestone Core running on
 this computer, without a password: the launcher proves it can write the core's data
 folder (`$LODESTONE_PATH`, `~/.lodestone`, or `--folder`) and the core gives it an
-owner-level API key. A core without an owner gets an account the launcher makes up
+owner-level API key. The core must have an HTTPS certificate: the launcher saves it at
+`https://` with that certificate pinned and sends the key only to it (a core without one
+fails with `failed`). A core without an owner gets an account the launcher makes up
 (`owner_` and five characters, with a strong password). The key and that account are
 kept in plain text in the launcher's `cores/local_credentials.json` (readable only by
 the user; the reply gives the path) and shown on the core's card; they never appear in

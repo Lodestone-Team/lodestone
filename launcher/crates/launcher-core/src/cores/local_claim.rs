@@ -11,11 +11,23 @@
 //!    of its own into `reply`, and `owner.json`, an owner account it made up
 //!    ([`OwnerCredentials`]), which the core uses only when it has no owner yet.
 //! 3. `POST /local_claim/finish` with the id. The core checks `claim`, makes the owner
-//!    if asked, mints the key and writes it, with the `reply` value, into
-//!    `result.json` in the same folder. Nothing secret crosses the network.
-//! 4. The launcher reads `result.json`. Its own `reply` value there proves that the
-//!    server on the port is the core behind that folder: nothing without the folder
-//!    could have read it.
+//!    if asked, mints the key and writes it, with the `reply` value and the SHA-256 of
+//!    its HTTPS certificate, into `result.json` in the same folder. Nothing secret
+//!    crosses the network.
+//! 4. The launcher reads `result.json`. Its own `reply` value there shows that the
+//!    claim was answered by a core that can read that folder, but not that it is the
+//!    server on the port: a server there could pass `start` and `finish` on to the
+//!    real core. So the key is tied to the core by its certificate instead: the
+//!    launcher pins the fingerprint from `result.json` and checks, over HTTPS to the
+//!    same host and port, that the core presenting it has the claimed id. The core is
+//!    saved at that HTTPS address with the pin, and its key is only ever sent over a
+//!    connection to that certificate ([`CoreClient::strict`]). A core without an HTTPS
+//!    certificate can't be claimed.
+//!
+//! The folder is walked one step at a time without following links (on Unix, by file
+//! descriptor), `local_claim/` and `<id>/` must belong to this user and be closed to
+//! others, and `claim` must be a plain file with a single link. Afterwards only the
+//! claim's own files are deleted, then its folder, never a folder the server named.
 //!
 //! A core in Docker works the same when its data folder is a folder of this computer
 //! mounted into the container: the launcher only ever touches files inside it. A volume
@@ -28,9 +40,8 @@
 
 use std::{
     collections::BTreeMap,
-    fmt,
-    fs::{self, File, OpenOptions},
-    io::{self, Read as _, Write as _},
+    fmt, fs,
+    io::{self, Write as _},
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -39,7 +50,10 @@ use std::{
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use super::{CoreClient, CoreError, CoreInfo, client};
+use super::{
+    CoreClient, CoreError, CoreInfo, client,
+    tls::{CertificatePin, PinnedHttp},
+};
 use crate::{Secret, game::download::Sleep};
 
 /// The folder in a core's data folder where claims happen.
@@ -51,6 +65,8 @@ const RESULT_POLL: Duration = Duration::from_millis(100);
 const MAX_RESULT_BYTES: u64 = 16 * 1024;
 /// The credentials file, in `<data>/cores/`.
 pub const CREDENTIALS_FILE: &str = "local_credentials.json";
+/// The files a claim's folder holds. Only these are ever deleted from it.
+const CLAIM_FILES: [&str; 4] = ["claim", "reply", "owner.json", "result.json"];
 
 /// Why a claim failed. The messages never contain a key or password.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -70,10 +86,15 @@ pub enum ClaimError {
         "Couldn't find this core's data folder. Choose the folder the core keeps its data in (its LODESTONE_PATH)."
     )]
     FolderNotFound,
-    /// The answer in `result.json` isn't the launcher's: the server on the port isn't
-    /// the core behind that folder.
+    /// The answer in `result.json` isn't the launcher's, or the core at the HTTPS
+    /// address isn't the claimed one.
     #[error("The core that answered isn't the one whose folder was found, so nothing was saved.")]
     NotThisCore,
+    /// The core has no HTTPS certificate, so its key couldn't be tied to it.
+    #[error(
+        "This core has no HTTPS certificate, so Lodestone Launcher can't make sure its owner key only ever goes to it. Nothing was saved."
+    )]
+    NoCertificate,
     /// The core didn't write `result.json` in time.
     #[error("The core didn't finish the claim. Try again.")]
     NoResult,
@@ -114,6 +135,9 @@ struct ClaimResult {
     owner_created: bool,
     #[serde(default)]
     owner_username: Option<String>,
+    /// The core's HTTPS certificate, `AB:CD:…`; `None` for a core without one.
+    #[serde(default)]
+    tls_fingerprint_sha256: Option<String>,
 }
 
 /// The owner account the launcher makes up, for a core that has none yet.
@@ -162,7 +186,10 @@ impl OwnerCredentials {
 /// What a claim gave.
 pub struct Claimed {
     pub info: CoreInfo,
+    /// The core's HTTPS address (the claim's host and port).
     pub url: Url,
+    /// The core's certificate, which its key is only ever sent to.
+    pub pin: CertificatePin,
     pub api_key: Secret,
     /// The key's public id (`lsk_<id>_…`).
     pub key_id: Option<String>,
@@ -171,6 +198,18 @@ pub struct Claimed {
     /// The owner's username, as the core said.
     pub owner_username: Option<String>,
     /// The account the launcher made, when the core had no owner.
+    pub created_owner: Option<OwnerCredentials>,
+}
+
+/// A claim the core answered, before its certificate was checked over HTTPS.
+pub struct Unverified {
+    pub info: CoreInfo,
+    /// The address the claim was made over.
+    pub url: Url,
+    pub fingerprint: String,
+    pub api_key: Secret,
+    pub folder: PathBuf,
+    pub owner_username: Option<String>,
     pub created_owner: Option<OwnerCredentials>,
 }
 
@@ -204,9 +243,9 @@ pub fn candidate_folders(chosen: &[PathBuf]) -> Vec<PathBuf> {
     folders
 }
 
-/// `dir` from the core, checked to be `local_claim/<id>` for this claim's id, so the
-/// launcher never writes outside that folder.
-fn claim_subdir(start: &ClaimStart) -> Result<PathBuf, ClaimError> {
+/// The claim's id, checked against `dir` (`local_claim/<id>`), so the launcher never
+/// touches anything outside that folder.
+fn claim_id(start: &ClaimStart) -> Result<&str, ClaimError> {
     let id_ok = !start.id.is_empty()
         && start.id.len() <= 128
         && start
@@ -219,112 +258,343 @@ fn claim_subdir(start: &ClaimStart) -> Result<PathBuf, ClaimError> {
             start.dir
         )));
     }
-    Ok(Path::new(CLAIM_DIR).join(&start.id))
+    Ok(&start.id)
 }
 
-/// Whether `path` is a real folder (not a link to one).
-fn is_real_dir(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
-}
+/// A claim's folder, opened one step at a time without following links.
+#[cfg(unix)]
+mod claim_dir {
+    use std::{
+        ffi::CString,
+        fs::File,
+        io::{self, Read as _, Write as _},
+        mem::MaybeUninit,
+        os::{
+            fd::{AsRawFd as _, FromRawFd as _, OwnedFd},
+            unix::ffi::OsStrExt as _,
+        },
+        path::Path,
+    };
 
-/// Whether `path` is a regular file (not a link to one).
-fn is_regular_file(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok_and(|meta| meta.is_file())
-}
-
-/// The claim's folder in the first of `folders` that holds the empty `claim` file the
-/// core just made. Links are not followed on the way down.
-pub fn find_claim_folder(folders: &[PathBuf], start: &ClaimStart) -> Result<PathBuf, ClaimError> {
-    let sub = claim_subdir(start)?;
-    folders
-        .iter()
-        .map(|folder| folder.join(&sub))
-        .find(|dir| {
-            dir.parent().is_some_and(is_real_dir)
-                && is_real_dir(dir)
-                && is_regular_file(&dir.join("claim"))
-                && fs::symlink_metadata(dir.join("claim")).is_ok_and(|m| m.len() == 0)
-        })
-        .ok_or(ClaimError::FolderNotFound)
-}
-
-/// Opens a file for writing without following a link at its name.
-fn open_for_write(path: &Path, create_new: bool) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.write(true);
-    if create_new {
-        options.create_new(true);
-    } else {
-        options.truncate(true);
+    pub struct ClaimDir {
+        /// `local_claim/`, to remove the claim's folder from.
+        parent: OwnedFd,
+        /// `local_claim/<id>/`.
+        dir: OwnedFd,
+        id: CString,
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+
+    fn name(value: &str) -> io::Result<CString> {
+        CString::new(value).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "bad name"))
     }
-    options.open(path)
+
+    fn denied(why: &str) -> io::Error {
+        io::Error::new(io::ErrorKind::PermissionDenied, why.to_string())
+    }
+
+    /// `openat`, closed on exec. `mode` is used only with `O_CREAT`.
+    fn open_at(dir: Option<&OwnedFd>, name: &CString, flags: libc::c_int) -> io::Result<OwnedFd> {
+        let base = dir.map_or(libc::AT_FDCWD, |dir| dir.as_raw_fd());
+        // SAFETY: `name` is NUL-terminated and outlives the call; the mode argument is
+        // read only with O_CREAT. A non-negative result is a new descriptor we own.
+        let fd = unsafe {
+            libc::openat(
+                base,
+                name.as_ptr(),
+                flags | libc::O_CLOEXEC,
+                0o600 as libc::c_uint,
+            )
+        };
+        if fd < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            // SAFETY: `fd` was just opened and nothing else owns it.
+            Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+        }
+    }
+
+    fn stat(fd: &OwnedFd) -> io::Result<libc::stat> {
+        let mut st = MaybeUninit::<libc::stat>::zeroed();
+        // SAFETY: `st` is valid for writes of a `stat`; `fd` is open.
+        if unsafe { libc::fstat(fd.as_raw_fd(), st.as_mut_ptr()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: fstat succeeded, so it filled `st`.
+        Ok(unsafe { st.assume_init() })
+    }
+
+    fn uid() -> libc::uid_t {
+        // SAFETY: getuid has no preconditions and can't fail.
+        unsafe { libc::getuid() }
+    }
+
+    fn is_kind(st: &libc::stat, kind: libc::mode_t) -> bool {
+        (st.st_mode & libc::S_IFMT) == kind
+    }
+
+    /// A folder of this user that nobody else may use.
+    fn check_private_dir(fd: &OwnedFd) -> io::Result<()> {
+        let st = stat(fd)?;
+        if !is_kind(&st, libc::S_IFDIR) || st.st_uid != uid() || st.st_mode & 0o077 != 0 {
+            return Err(denied(
+                "the claim's folder isn't a folder of this user, closed to others",
+            ));
+        }
+        Ok(())
+    }
+
+    /// A plain file with a single link.
+    fn plain(st: &libc::stat) -> bool {
+        is_kind(st, libc::S_IFREG) && st.st_nlink == 1
+    }
+
+    const DIR_FLAGS: libc::c_int = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW;
+
+    impl ClaimDir {
+        /// `<root>/local_claim/<id>/`. `root` may be a link (the user's choice); the
+        /// steps below it may not, and both must be this user's and closed to others.
+        pub fn open(root: &Path, id: &str) -> io::Result<Self> {
+            let root = CString::new(root.as_os_str().as_bytes())
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "bad path"))?;
+            let root = open_at(None, &root, libc::O_RDONLY | libc::O_DIRECTORY)?;
+            let parent = open_at(Some(&root), &name(super::CLAIM_DIR)?, DIR_FLAGS)?;
+            check_private_dir(&parent)?;
+            let id = name(id)?;
+            let dir = open_at(Some(&parent), &id, DIR_FLAGS)?;
+            check_private_dir(&dir)?;
+            Ok(Self { parent, dir, id })
+        }
+
+        /// Whether `claim` is still the empty plain file of this user the core made.
+        pub fn claim_is_fresh(&self) -> io::Result<bool> {
+            let fd = open_at(
+                Some(&self.dir),
+                &name("claim")?,
+                libc::O_RDONLY | libc::O_NOFOLLOW,
+            )?;
+            let st = stat(&fd)?;
+            Ok(plain(&st) && st.st_uid == uid() && st.st_size == 0)
+        }
+
+        /// Writes `value` into `claim`, checked again on the open file.
+        pub fn write_claim(&self, value: &[u8]) -> io::Result<()> {
+            let fd = open_at(
+                Some(&self.dir),
+                &name("claim")?,
+                libc::O_WRONLY | libc::O_NOFOLLOW,
+            )?;
+            let st = stat(&fd)?;
+            if !plain(&st) || st.st_uid != uid() {
+                return Err(denied("claim isn't a plain file of this user"));
+            }
+            let mut file = File::from(fd);
+            file.set_len(0)?;
+            file.write_all(value)?;
+            file.sync_all()
+        }
+
+        /// Makes the new file `name` (it must not exist), readable only by this user.
+        pub fn create(&self, file: &str, bytes: &[u8]) -> io::Result<()> {
+            let fd = open_at(
+                Some(&self.dir),
+                &name(file)?,
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW,
+            )?;
+            let mut file = File::from(fd);
+            file.write_all(bytes)?;
+            file.sync_all()
+        }
+
+        /// The file `name`, if it is there: a plain file of at most `limit` bytes.
+        pub fn read(&self, file: &str, limit: u64) -> io::Result<Option<Vec<u8>>> {
+            let fd = match open_at(
+                Some(&self.dir),
+                &name(file)?,
+                libc::O_RDONLY | libc::O_NOFOLLOW,
+            ) {
+                Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+                result => result?,
+            };
+            let st = stat(&fd)?;
+            if !plain(&st) {
+                return Err(denied("the file isn't a plain file"));
+            }
+            if st.st_size as u64 > limit {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "too large"));
+            }
+            let mut bytes = Vec::new();
+            File::from(fd).take(limit + 1).read_to_end(&mut bytes)?;
+            Ok(Some(bytes))
+        }
+
+        /// Deletes the file `name`, if it is there.
+        pub fn remove(&self, file: &str) {
+            if let Ok(file) = name(file) {
+                // SAFETY: `file` is NUL-terminated; the descriptor is open.
+                unsafe { libc::unlinkat(self.dir.as_raw_fd(), file.as_ptr(), 0) };
+            }
+        }
+
+        /// Deletes the claim's own files, then its folder if that left it empty.
+        pub fn cleanup(self) {
+            for file in super::CLAIM_FILES {
+                self.remove(file);
+            }
+            // SAFETY: `id` is NUL-terminated; the descriptor is open.
+            unsafe {
+                libc::unlinkat(
+                    self.parent.as_raw_fd(),
+                    self.id.as_ptr(),
+                    libc::AT_REMOVEDIR,
+                )
+            };
+        }
+    }
 }
 
-/// Writes the launcher's side of the claim into `dir`: the value into the existing
-/// `claim`, a new `reply` and `owner.json`. Returns the reply value.
-pub fn write_claim(
-    dir: &Path,
+/// A claim's folder, by path, checking each step isn't a link.
+#[cfg(not(unix))]
+mod claim_dir {
+    use std::{
+        fs::{self, OpenOptions},
+        io::{self, Read as _, Write as _},
+        path::{Path, PathBuf},
+    };
+
+    pub struct ClaimDir {
+        dir: PathBuf,
+    }
+
+    fn real_dir(path: &Path) -> bool {
+        fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir())
+    }
+
+    impl ClaimDir {
+        pub fn open(root: &Path, id: &str) -> io::Result<Self> {
+            let parent = root.join(super::CLAIM_DIR);
+            let dir = parent.join(id);
+            if !real_dir(&parent) || !real_dir(&dir) {
+                return Err(io::Error::new(io::ErrorKind::NotFound, "no claim folder"));
+            }
+            Ok(Self { dir })
+        }
+
+        pub fn claim_is_fresh(&self) -> io::Result<bool> {
+            let meta = fs::symlink_metadata(self.dir.join("claim"))?;
+            Ok(meta.is_file() && meta.len() == 0)
+        }
+
+        pub fn write_claim(&self, value: &[u8]) -> io::Result<()> {
+            let path = self.dir.join("claim");
+            if !fs::symlink_metadata(&path)?.is_file() {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "not a file",
+                ));
+            }
+            let mut file = OpenOptions::new().write(true).truncate(true).open(&path)?;
+            file.write_all(value)?;
+            file.sync_all()
+        }
+
+        pub fn create(&self, file: &str, bytes: &[u8]) -> io::Result<()> {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(self.dir.join(file))?;
+            file.write_all(bytes)?;
+            file.sync_all()
+        }
+
+        pub fn read(&self, file: &str, limit: u64) -> io::Result<Option<Vec<u8>>> {
+            let path = self.dir.join(file);
+            let meta = match fs::symlink_metadata(&path) {
+                Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+                result => result?,
+            };
+            if !meta.is_file() {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "not a file",
+                ));
+            }
+            if meta.len() > limit {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "too large"));
+            }
+            let mut bytes = Vec::new();
+            fs::File::open(&path)?
+                .take(limit + 1)
+                .read_to_end(&mut bytes)?;
+            Ok(Some(bytes))
+        }
+
+        pub fn remove(&self, file: &str) {
+            let _ = fs::remove_file(self.dir.join(file));
+        }
+
+        pub fn cleanup(self) {
+            for file in super::CLAIM_FILES {
+                self.remove(file);
+            }
+            let _ = fs::remove_dir(&self.dir);
+        }
+    }
+}
+
+pub use claim_dir::ClaimDir;
+
+/// The first of `folders` that holds the claim the core just made, and its folder.
+pub fn find_claim_folder(
+    folders: &[PathBuf],
+    start: &ClaimStart,
+) -> Result<(PathBuf, ClaimDir), ClaimError> {
+    let id = claim_id(start)?;
+    for folder in folders {
+        if let Ok(dir) = ClaimDir::open(folder, id)
+            && dir.claim_is_fresh().unwrap_or(false)
+        {
+            return Ok((folder.clone(), dir));
+        }
+    }
+    Err(ClaimError::FolderNotFound)
+}
+
+/// Writes the launcher's side of the claim: the value into `claim`, a new `reply` and
+/// a new `owner.json`. Returns the reply value.
+fn write_claim(
+    dir: &ClaimDir,
     start: &ClaimStart,
     owner: &OwnerCredentials,
 ) -> Result<String, ClaimError> {
-    let claim = dir.join("claim");
-    if !is_regular_file(&claim) {
-        return Err(ClaimError::FolderNotFound);
-    }
-    open_for_write(&claim, false)?.write_all(start.value.as_bytes())?;
+    dir.write_claim(start.value.as_bytes())?;
     let reply = random_string(LOWER_ALNUM, 32);
-    open_for_write(&dir.join("reply"), true)?.write_all(reply.as_bytes())?;
+    dir.create("reply", reply.as_bytes())?;
     let owner_json = serde_json::json!({
         "username": owner.username,
         "password": owner.password.expose(),
     });
-    open_for_write(&dir.join("owner.json"), true)?.write_all(owner_json.to_string().as_bytes())?;
+    dir.create("owner.json", owner_json.to_string().as_bytes())?;
     Ok(reply)
 }
 
-/// `result.json` in `dir`, once it is there: a regular file of a sensible size.
-fn read_result(dir: &Path) -> Result<Option<ClaimResult>, ClaimError> {
-    let path = dir.join("result.json");
-    let Ok(meta) = fs::symlink_metadata(&path) else {
+/// `result.json`, once the core has written it.
+fn read_result(dir: &ClaimDir) -> Result<Option<ClaimResult>, ClaimError> {
+    let Some(bytes) = dir.read("result.json", MAX_RESULT_BYTES)? else {
         return Ok(None);
     };
-    if !meta.is_file() {
-        return Err(ClaimError::Files(
-            "result.json in the claim's folder isn't a file".into(),
-        ));
-    }
-    if meta.len() > MAX_RESULT_BYTES {
-        return Err(ClaimError::Invalid("result.json is too large".into()));
-    }
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
-    let mut text = String::new();
-    options
-        .open(&path)?
-        .take(MAX_RESULT_BYTES + 1)
-        .read_to_string(&mut text)?;
-    if text.trim().is_empty() {
-        // written but not filled yet
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        // made but not filled yet
         return Ok(None);
     }
-    serde_json::from_str(&text)
+    serde_json::from_slice(&bytes)
         .map(Some)
         .map_err(|err| ClaimError::Invalid(format!("result.json: {err}")))
 }
 
-/// Checks the result against the launcher's reply value.
-fn check_result(result: &ClaimResult, reply: &str) -> Result<(), ClaimError> {
-    if !subtle_eq(result.reply.as_bytes(), reply.as_bytes()) {
+/// Checks the result against the launcher's reply value, and returns the core's
+/// certificate fingerprint.
+fn check_result(result: &ClaimResult, reply: &str) -> Result<String, ClaimError> {
+    if !constant_time_eq(result.reply.as_bytes(), reply.as_bytes()) {
         return Err(ClaimError::NotThisCore);
     }
     if key_id(&result.api_key).is_none() {
@@ -332,11 +602,23 @@ fn check_result(result: &ClaimResult, reply: &str) -> Result<(), ClaimError> {
             "the key isn't a Lodestone API key".into(),
         ));
     }
-    Ok(())
+    let fingerprint = result
+        .tls_fingerprint_sha256
+        .as_deref()
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .ok_or(ClaimError::NoCertificate)?;
+    let hex: String = fingerprint.chars().filter(|c| *c != ':').collect();
+    if hex.len() != 64 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(ClaimError::Invalid(
+            "the certificate fingerprint isn't a SHA-256".into(),
+        ));
+    }
+    Ok(fingerprint.to_string())
 }
 
 /// Compares in constant time (for the length of the shorter input).
-fn subtle_eq(a: &[u8], b: &[u8]) -> bool {
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
@@ -358,13 +640,25 @@ pub async fn discover(http: Arc<dyn http_client::HttpClient>) -> Vec<(Url, CoreI
 }
 
 /// Claims owner access to the core `client` talks to, looking for its data folder in
-/// `folders` ([`candidate_folders`]). `name` names the key: "Lodestone Launcher on …".
+/// `folders` ([`candidate_folders`]), and ties the key to the core's certificate
+/// ([`verify`]). `name` names the key: "Lodestone Launcher on …".
 pub async fn claim(
     client: &CoreClient,
     folders: &[PathBuf],
     name: &str,
     sleep: Sleep,
 ) -> Result<Claimed, ClaimError> {
+    verify(claim_unverified(client, folders, name, sleep).await?).await
+}
+
+/// The claim up to `result.json`: everything but the HTTPS check. The claim's files
+/// are deleted however it ends.
+pub async fn claim_unverified(
+    client: &CoreClient,
+    folders: &[PathBuf],
+    name: &str,
+    sleep: Sleep,
+) -> Result<Unverified, ClaimError> {
     let info = client.info().await.map_err(|err| match err {
         CoreError::Unreachable(_) => ClaimError::NoCore,
         err => ClaimError::Core(err),
@@ -373,20 +667,15 @@ pub async fn claim(
     if start.core_uuid != info.uuid {
         return Err(ClaimError::NotThisCore);
     }
-    let dir = find_claim_folder(folders, &start)?;
+    let (folder, dir) = find_claim_folder(folders, &start)?;
     let owner = OwnerCredentials::generate();
     let outcome = finish(client, &dir, &start, &owner, name, sleep).await;
-    // the folder held the owner's password: it goes, whatever happened
-    let _ = fs::remove_dir_all(&dir);
-    let result = outcome?;
-    let folder = dir
-        .parent()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
-        .unwrap_or_default();
-    Ok(Claimed {
+    // owner.json holds the password and result.json the key: they go, whatever happened
+    dir.cleanup();
+    let (result, fingerprint) = outcome?;
+    Ok(Unverified {
         url: client.base().clone(),
-        key_id: key_id(&result.api_key),
+        fingerprint,
         api_key: Secret::new(result.api_key),
         folder,
         owner_username: result.owner_username,
@@ -397,12 +686,12 @@ pub async fn claim(
 
 async fn finish(
     client: &CoreClient,
-    dir: &Path,
+    dir: &ClaimDir,
     start: &ClaimStart,
     owner: &OwnerCredentials,
     name: &str,
     sleep: Sleep,
-) -> Result<ClaimResult, ClaimError> {
+) -> Result<(ClaimResult, String), ClaimError> {
     let reply = write_claim(dir, start, owner)?;
     client
         .local_claim_finish(&start.id, name)
@@ -411,8 +700,8 @@ async fn finish(
     let mut waited = Duration::ZERO;
     loop {
         if let Some(result) = read_result(dir)? {
-            check_result(&result, &reply)?;
-            return Ok(result);
+            let fingerprint = check_result(&result, &reply)?;
+            return Ok((result, fingerprint));
         }
         if waited >= RESULT_WAIT {
             return Err(ClaimError::NoResult);
@@ -420,6 +709,52 @@ async fn finish(
         sleep(RESULT_POLL).await;
         waited += RESULT_POLL;
     }
+}
+
+/// `url` over HTTPS: the same host and port.
+pub fn https_url(url: &Url) -> Result<Url, ClaimError> {
+    let mut https = url.clone();
+    https
+        .set_scheme("https")
+        .map_err(|()| ClaimError::Invalid(format!("{url} has no HTTPS form")))?;
+    if https.port().is_none() {
+        // the default port of http (80) isn't https's
+        https
+            .set_port(url.port_or_known_default())
+            .map_err(|()| ClaimError::Invalid(format!("{url} has no port")))?;
+    }
+    Ok(https)
+}
+
+/// Ties the claim to the core's certificate: pins the fingerprint from `result.json`
+/// and checks, over HTTPS to the claim's host and port and only to that certificate,
+/// that the core there is the claimed one.
+pub async fn verify(claim: Unverified) -> Result<Claimed, ClaimError> {
+    let url = https_url(&claim.url)?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| ClaimError::Invalid("the core's address has no host".into()))?;
+    let pin = CertificatePin::new(host, &claim.fingerprint);
+    let pinned = Arc::new(
+        PinnedHttp::new(Some(pin.clone())).map_err(|err| ClaimError::Invalid(err.to_string()))?,
+    );
+    let client = CoreClient::new(pinned.http(), url.clone())
+        .with_pinned(pinned)
+        .strict();
+    let info = client.info().await.map_err(ClaimError::Core)?;
+    if info.uuid != claim.info.uuid {
+        return Err(ClaimError::NotThisCore);
+    }
+    Ok(Claimed {
+        url,
+        pin,
+        key_id: key_id(claim.api_key.expose()),
+        api_key: claim.api_key,
+        folder: claim.folder,
+        owner_username: claim.owner_username,
+        created_owner: claim.created_owner,
+        info,
+    })
 }
 
 fn refused(err: CoreError) -> ClaimError {
@@ -433,7 +768,11 @@ fn refused(err: CoreError) -> ClaimError {
 /// What the launcher keeps for a claimed core, in plain text.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LocalCredentials {
+    /// The core's HTTPS address; the key is only used for a saved core at exactly it.
     pub url: String,
+    /// The core's certificate the key is tied to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls_fingerprint: Option<String>,
     /// The owner-level API key; `None` once signed out (the owner account stays).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
@@ -453,6 +792,26 @@ impl fmt::Debug for LocalCredentials {
     }
 }
 
+impl LocalCredentials {
+    /// The key, for a saved core at `url` pinned to `fingerprint`: only when that is
+    /// exactly where and what it was claimed for, on this computer.
+    pub fn key_for(&self, url: &str, fingerprint: Option<&str>) -> Option<Secret> {
+        let key = self.api_key.as_ref()?;
+        let parsed = Url::parse(url).ok()?;
+        let loopback = match parsed.host()? {
+            url::Host::Ipv4(ip) => ip.is_loopback(),
+            url::Host::Ipv6(ip) => ip.is_loopback(),
+            url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+        };
+        let pinned = match (self.tls_fingerprint.as_deref(), fingerprint) {
+            (Some(ours), Some(theirs)) => super::tls::same_fingerprint(ours, theirs),
+            _ => false,
+        };
+        (parsed.scheme() == "https" && loopback && pinned && self.url == url)
+            .then(|| Secret::new(key.clone()))
+    }
+}
+
 /// `local_credentials.json`, by core id.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CredentialsFile {
@@ -465,7 +824,8 @@ impl CredentialsFile {
     /// stays when this claim made none.
     pub fn record(&mut self, uuid: &str, claimed: &Claimed) {
         let entry = self.cores.entry(uuid.to_string()).or_default();
-        entry.url = claimed.url.as_str().trim_end_matches('/').to_string();
+        entry.url = client::display_address(&claimed.url);
+        entry.tls_fingerprint = Some(claimed.pin.sha256.clone());
         entry.api_key = Some(claimed.api_key.expose().to_string());
         if let Some(owner) = &claimed.created_owner {
             entry.owner_username = Some(owner.username.clone());
@@ -517,7 +877,11 @@ pub fn save_credentials(path: &Path, file: &CredentialsFile) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+
     use super::*;
+
+    const FINGERPRINT: &str = "3F:9A:0C:11:D2:E8:4B:77:56:A1:C0:FF:EE:42:B1:9D:8E:7A:6C:5B:4D:3E:2F:1A:0B:9C:8D:7E:6F:5A:4B:3C";
 
     fn start(id: &str) -> ClaimStart {
         ClaimStart {
@@ -529,12 +893,27 @@ mod tests {
         }
     }
 
+    /// Makes `path` a folder only its user may use, as the core makes its claims.
+    fn private_dir(path: &Path) {
+        fs::create_dir_all(path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+    }
+
     /// A data folder with the claim the core makes.
     fn core_folder(root: &Path, id: &str) -> PathBuf {
+        private_dir(&root.join(CLAIM_DIR));
         let dir = root.join(CLAIM_DIR).join(id);
-        fs::create_dir_all(&dir).unwrap();
+        private_dir(&dir);
         File::create(dir.join("claim")).unwrap();
         dir
+    }
+
+    fn open(root: &Path, id: &str) -> ClaimDir {
+        ClaimDir::open(root, id).unwrap()
     }
 
     #[test]
@@ -569,18 +948,19 @@ mod tests {
         fs::create_dir_all(&elsewhere).unwrap();
         let core = tmp.path().join("core");
         let dir = core_folder(&core, "c1");
-        let found = find_claim_folder(&[elsewhere.clone(), core.clone()], &start("c1")).unwrap();
-        assert_eq!(found, dir);
-        assert_eq!(
+        let (found, _) =
+            find_claim_folder(&[elsewhere.clone(), core.clone()], &start("c1")).unwrap();
+        assert_eq!(found, core);
+        assert!(matches!(
             find_claim_folder(&[elsewhere], &start("c1")),
             Err(ClaimError::FolderNotFound)
-        );
+        ));
         // a claim that was already answered isn't this one
         fs::write(dir.join("claim"), "taken").unwrap();
-        assert_eq!(
+        assert!(matches!(
             find_claim_folder(&[core], &start("c1")),
             Err(ClaimError::FolderNotFound)
-        );
+        ));
     }
 
     #[test]
@@ -593,7 +973,39 @@ mod tests {
         ));
         let mut bad = start("../x");
         bad.dir = format!("{CLAIM_DIR}/../x");
-        assert!(matches!(claim_subdir(&bad), Err(ClaimError::Invalid(_))));
+        assert!(matches!(claim_id(&bad), Err(ClaimError::Invalid(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn folders_open_to_others_are_refused() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let tmp = tempfile::tempdir().unwrap();
+        let core = tmp.path().join("core");
+        core_folder(&core, "c1");
+        for open_to_others in [core.join(CLAIM_DIR), core.join(CLAIM_DIR).join("c1")] {
+            fs::set_permissions(&open_to_others, fs::Permissions::from_mode(0o770)).unwrap();
+            assert!(
+                ClaimDir::open(&core, "c1").is_err(),
+                "{}",
+                open_to_others.display()
+            );
+            fs::set_permissions(&open_to_others, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        assert!(ClaimDir::open(&core, "c1").is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_claim_file_with_another_link_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let core = tmp.path().join("core");
+        let dir = core_folder(&core, "c1");
+        fs::hard_link(dir.join("claim"), tmp.path().join("elsewhere")).unwrap();
+        let claim = open(&core, "c1");
+        assert!(!claim.claim_is_fresh().unwrap());
+        assert!(claim.write_claim(b"v4lue").is_err());
+        assert_eq!(fs::read(tmp.path().join("elsewhere")).unwrap(), b"");
     }
 
     #[cfg(unix)]
@@ -602,34 +1014,43 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let core = tmp.path().join("core");
         let target = tmp.path().join("target");
-        fs::create_dir_all(core.join(CLAIM_DIR)).unwrap();
-        fs::create_dir_all(&target).unwrap();
+        private_dir(&core.join(CLAIM_DIR));
+        private_dir(&target);
         File::create(target.join("claim")).unwrap();
         // the claim's folder is a link elsewhere
         std::os::unix::fs::symlink(&target, core.join(CLAIM_DIR).join("c1")).unwrap();
-        assert_eq!(
-            find_claim_folder(std::slice::from_ref(&core), &start("c1")),
-            Err(ClaimError::FolderNotFound)
-        );
+        assert!(ClaimDir::open(&core, "c1").is_err());
+        // local_claim itself is a link
+        let other = tmp.path().join("other");
+        fs::create_dir_all(&other).unwrap();
+        std::os::unix::fs::symlink(core.join(CLAIM_DIR), other.join(CLAIM_DIR)).unwrap();
+        assert!(ClaimDir::open(&other, "c1").is_err());
         // the claim file is a link
         let dir = core.join(CLAIM_DIR).join("c2");
-        fs::create_dir_all(&dir).unwrap();
+        private_dir(&dir);
         std::os::unix::fs::symlink(target.join("claim"), dir.join("claim")).unwrap();
-        assert_eq!(
-            find_claim_folder(std::slice::from_ref(&core), &start("c2")),
-            Err(ClaimError::FolderNotFound)
-        );
-        assert!(write_claim(&dir, &start("c2"), &OwnerCredentials::generate()).is_err());
+        let claim = open(&core, "c2");
+        assert!(claim.claim_is_fresh().is_err());
+        assert!(write_claim(&claim, &start("c2"), &OwnerCredentials::generate()).is_err());
         // a planted reply link isn't written through
-        let dir = core_folder(&core, "c3");
+        core_folder(&core, "c3");
+        let dir = core.join(CLAIM_DIR).join("c3");
         std::os::unix::fs::symlink(target.join("elsewhere"), dir.join("reply")).unwrap();
-        assert!(write_claim(&dir, &start("c3"), &OwnerCredentials::generate()).is_err());
+        assert!(
+            write_claim(
+                &open(&core, "c3"),
+                &start("c3"),
+                &OwnerCredentials::generate()
+            )
+            .is_err()
+        );
         assert!(!target.join("elsewhere").exists());
         // nor is result.json read through a link
-        let dir = core_folder(&core, "c4");
+        core_folder(&core, "c4");
+        let dir = core.join(CLAIM_DIR).join("c4");
         fs::write(target.join("result.json"), "{}").unwrap();
         std::os::unix::fs::symlink(target.join("result.json"), dir.join("result.json")).unwrap();
-        assert!(read_result(&dir).is_err());
+        assert!(read_result(&open(&core, "c4")).is_err());
     }
 
     #[test]
@@ -637,7 +1058,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = core_folder(tmp.path(), "c1");
         let owner = OwnerCredentials::generate();
-        let reply = write_claim(&dir, &start("c1"), &owner).unwrap();
+        let reply = write_claim(&open(tmp.path(), "c1"), &start("c1"), &owner).unwrap();
         assert_eq!(fs::read_to_string(dir.join("claim")).unwrap(), "v4lue");
         assert_eq!(fs::read_to_string(dir.join("reply")).unwrap(), reply);
         let written: serde_json::Value =
@@ -656,29 +1077,117 @@ mod tests {
     }
 
     #[test]
-    fn the_result_must_carry_the_launchers_reply() {
+    fn cleaning_up_deletes_only_the_claims_files() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = core_folder(tmp.path(), "c1");
-        assert!(read_result(&dir).unwrap().is_none(), "not written yet");
-        fs::write(
-            dir.join("result.json"),
-            r#"{"api_key": "lsk_k1_s3cret", "reply": "mine", "owner_created": true, "owner_username": "owner_ab12c"}"#,
+        write_claim(
+            &open(tmp.path(), "c1"),
+            &start("c1"),
+            &OwnerCredentials::generate(),
         )
         .unwrap();
-        let result = read_result(&dir).unwrap().unwrap();
-        assert!(check_result(&result, "mine").is_ok());
-        assert_eq!(check_result(&result, "other"), Err(ClaimError::NotThisCore));
-        fs::write(dir.join("result.json"), "x".repeat(20_000)).unwrap();
-        assert!(read_result(&dir).is_err(), "too large");
+        fs::write(dir.join("result.json"), "{}").unwrap();
+        fs::write(dir.join("keep.txt"), "not the claim's").unwrap();
+        open(tmp.path(), "c1").cleanup();
+        assert!(dir.join("keep.txt").exists(), "an unknown file stays");
+        for file in CLAIM_FILES {
+            assert!(!dir.join(file).exists(), "{file}");
+        }
+        fs::remove_file(dir.join("keep.txt")).unwrap();
+        open(tmp.path(), "c1").cleanup();
+        assert!(!dir.exists(), "the empty folder goes");
+        assert!(tmp.path().join(CLAIM_DIR).exists());
     }
 
     #[test]
-    fn credentials_round_trip_and_stay_private() {
+    fn the_result_must_carry_the_launchers_reply_and_a_certificate() {
         let tmp = tempfile::tempdir().unwrap();
-        let path = credentials_path(tmp.path());
-        assert_eq!(load_credentials(&path).unwrap(), CredentialsFile::default());
-        let owner = OwnerCredentials::generate();
-        let claimed = Claimed {
+        let dir = core_folder(tmp.path(), "c1");
+        let claim = open(tmp.path(), "c1");
+        assert!(read_result(&claim).unwrap().is_none(), "not written yet");
+        let write = |fingerprint: serde_json::Value| {
+            let result = serde_json::json!({
+                "api_key": "lsk_k1_s3cret",
+                "reply": "mine",
+                "owner_created": true,
+                "owner_username": "owner_ab12c",
+                "tls_fingerprint_sha256": fingerprint,
+            });
+            fs::write(dir.join("result.json"), result.to_string()).unwrap();
+        };
+        write(FINGERPRINT.into());
+        let result = read_result(&claim).unwrap().unwrap();
+        assert_eq!(check_result(&result, "mine").unwrap(), FINGERPRINT);
+        assert_eq!(
+            check_result(&result, "other").err(),
+            Some(ClaimError::NotThisCore)
+        );
+        write(serde_json::Value::Null);
+        let result = read_result(&claim).unwrap().unwrap();
+        assert_eq!(
+            check_result(&result, "mine").err(),
+            Some(ClaimError::NoCertificate)
+        );
+        write("AB:CD".into());
+        let result = read_result(&claim).unwrap().unwrap();
+        assert!(matches!(
+            check_result(&result, "mine"),
+            Err(ClaimError::Invalid(_))
+        ));
+        fs::write(dir.join("result.json"), "x".repeat(20_000)).unwrap();
+        assert!(read_result(&claim).is_err(), "too large");
+    }
+
+    #[test]
+    fn the_key_is_tied_to_the_https_address_and_certificate() {
+        assert_eq!(
+            https_url(&Url::parse("http://127.0.0.1:16662/").unwrap())
+                .unwrap()
+                .as_str(),
+            "https://127.0.0.1:16662/"
+        );
+        let entry = LocalCredentials {
+            url: "https://127.0.0.1:16662".into(),
+            tls_fingerprint: Some(FINGERPRINT.into()),
+            api_key: Some("lsk_k1_s3cret".into()),
+            ..Default::default()
+        };
+        let lower = FINGERPRINT.to_lowercase().replace(':', "");
+        assert!(
+            entry
+                .key_for("https://127.0.0.1:16662", Some(&lower))
+                .is_some()
+        );
+        // another address, plain HTTP, another certificate, or none: no key
+        assert!(
+            entry
+                .key_for("https://127.0.0.1:16700", Some(FINGERPRINT))
+                .is_none()
+        );
+        assert!(
+            entry
+                .key_for("http://127.0.0.1:16662", Some(FINGERPRINT))
+                .is_none()
+        );
+        assert!(
+            entry
+                .key_for("https://127.0.0.1:16662", Some("AB"))
+                .is_none()
+        );
+        assert!(entry.key_for("https://127.0.0.1:16662", None).is_none());
+        let elsewhere = LocalCredentials {
+            url: "https://192.168.1.5:16662".into(),
+            ..entry.clone()
+        };
+        assert!(
+            elsewhere
+                .key_for("https://192.168.1.5:16662", Some(FINGERPRINT))
+                .is_none()
+        );
+    }
+
+    fn claimed(owner: &OwnerCredentials, tmp: &Path) -> Claimed {
+        Claimed {
             info: CoreInfo {
                 version: "0.6".into(),
                 uuid: "core".into(),
@@ -687,20 +1196,31 @@ mod tests {
                 product: Default::default(),
                 launched_by: Default::default(),
             },
-            url: Url::parse("http://127.0.0.1:16662/").unwrap(),
+            url: Url::parse("https://127.0.0.1:16662/").unwrap(),
+            pin: CertificatePin::new("127.0.0.1", FINGERPRINT),
             api_key: Secret::new("lsk_k1_s3cret"),
             key_id: Some("k1".into()),
-            folder: tmp.path().into(),
+            folder: tmp.into(),
             owner_username: Some(owner.username.clone()),
             created_owner: Some(owner.clone()),
-        };
+        }
+    }
+
+    #[test]
+    fn credentials_round_trip_and_stay_private() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = credentials_path(tmp.path());
+        assert_eq!(load_credentials(&path).unwrap(), CredentialsFile::default());
+        let owner = OwnerCredentials::generate();
+        let claimed = claimed(&owner, tmp.path());
         let mut file = CredentialsFile::default();
         file.record("core", &claimed);
         save_credentials(&path, &file).unwrap();
         let loaded = load_credentials(&path).unwrap();
         assert_eq!(loaded, file);
         let entry = &loaded.cores["core"];
-        assert_eq!(entry.url, "http://127.0.0.1:16662");
+        assert_eq!(entry.url, "https://127.0.0.1:16662");
+        assert_eq!(entry.tls_fingerprint.as_deref(), Some(FINGERPRINT));
         assert_eq!(entry.api_key.as_deref(), Some("lsk_k1_s3cret"));
         assert_eq!(
             entry.owner_password.as_deref(),
@@ -736,7 +1256,7 @@ mod tests {
         file.cores.insert(
             "core".into(),
             LocalCredentials {
-                url: "http://127.0.0.1:16662".into(),
+                url: "https://127.0.0.1:16662".into(),
                 api_key: Some("lsk_k_s".into()),
                 ..Default::default()
             },
@@ -763,7 +1283,8 @@ mod tests {
         /// The claim setting is off.
         refuse: bool,
         has_owner: bool,
-        made_owner: std::sync::Mutex<Option<String>>,
+        /// The core has no HTTPS certificate.
+        no_certificate: bool,
     }
 
     impl http_client::HttpClient for FakeCore {
@@ -795,8 +1316,7 @@ mod tests {
                     r#"{"kind": "PermissionDenied", "causes": ["off"]}"#.to_string(),
                 ),
                 "/api/v1/local_claim/start" => {
-                    fs::create_dir_all(&dir).unwrap();
-                    File::create(dir.join("claim")).unwrap();
+                    core_folder(&self.root, "c1");
                     (
                         200,
                         r#"{"id": "c1", "dir": "local_claim/c1", "value": "v4lue", "core_uuid": "core-1", "expires_in": 60}"#
@@ -812,15 +1332,14 @@ mod tests {
                     let username = if self.has_owner {
                         "alice".to_string()
                     } else {
-                        let name = owner["username"].as_str().unwrap().to_string();
-                        *self.made_owner.lock().unwrap() = Some(name.clone());
-                        name
+                        owner["username"].as_str().unwrap().to_string()
                     };
                     let result = serde_json::json!({
                         "api_key": "lsk_k1_s3cret",
                         "reply": self.forged_reply.clone().unwrap_or(reply),
                         "owner_created": !self.has_owner,
                         "owner_username": username,
+                        "tls_fingerprint_sha256": (!self.no_certificate).then_some(FINGERPRINT),
                     });
                     fs::write(dir.join("result.json"), result.to_string()).unwrap();
                     (200, r#"{"ok": true}"#.to_string())
@@ -835,13 +1354,13 @@ mod tests {
         }
     }
 
-    fn run_claim(core: FakeCore) -> (Result<Claimed, ClaimError>, PathBuf) {
+    fn run_claim(core: FakeCore) -> (Result<Unverified, ClaimError>, PathBuf) {
         let root = core.root.clone();
         let core = Arc::new(core);
         let client = CoreClient::new(core, Url::parse("http://127.0.0.1:16662").unwrap());
         let (sleep, _) = crate::game::download::recording_sleep();
         let elsewhere = root.parent().unwrap().join("elsewhere");
-        let result = futures::executor::block_on(claim(
+        let result = futures::executor::block_on(claim_unverified(
             &client,
             &[elsewhere, root.clone()],
             "Lodestone Launcher on test",
@@ -856,7 +1375,7 @@ mod tests {
             forged_reply: None,
             refuse: false,
             has_owner: false,
-            made_owner: Default::default(),
+            no_certificate: false,
         }
     }
 
@@ -868,7 +1387,7 @@ mod tests {
         let claimed = result.unwrap();
         assert_eq!(claimed.info.uuid, "core-1");
         assert_eq!(claimed.api_key.expose(), "lsk_k1_s3cret");
-        assert_eq!(claimed.key_id.as_deref(), Some("k1"));
+        assert_eq!(claimed.fingerprint, FINGERPRINT);
         assert_eq!(claimed.folder, root);
         let owner = claimed.created_owner.expect("the launcher made the owner");
         assert_eq!(
@@ -899,6 +1418,24 @@ mod tests {
         let (result, root) = run_claim(core);
         assert_eq!(result.err(), Some(ClaimError::NotThisCore));
         assert!(!root.join(CLAIM_DIR).join("c1").exists());
+    }
+
+    #[test]
+    fn a_core_without_a_certificate_is_refused_and_its_files_go() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut core = fake(&tmp.path().join("lodestone"));
+        core.no_certificate = true;
+        let (result, root) = run_claim(core);
+        assert_eq!(result.err(), Some(ClaimError::NoCertificate));
+        let dir = root.join(CLAIM_DIR).join("c1");
+        assert!(
+            !dir.join("result.json").exists(),
+            "the key's file is deleted"
+        );
+        assert!(
+            !dir.join("owner.json").exists(),
+            "the password's file is deleted"
+        );
     }
 
     #[test]

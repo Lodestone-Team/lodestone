@@ -42,6 +42,7 @@ crate::i18n::messages! {
         ClaimFolderNotFound = "Couldn't find this core's data folder. Choose the folder it keeps its data in (its LODESTONE_PATH). A core in Docker needs its data folder mounted from this computer.",
         ClaimNotThisCore = "The core that answered isn't the one whose folder was found, so nothing was saved.",
         ClaimNoResult = "The core didn't finish the claim. Try again.",
+        ClaimNoCertificate = "This core has no HTTPS certificate, so Lodestone Launcher can't make sure its owner key only ever goes to it. Turn on HTTPS in the core's settings, then connect again.",
         ClaimFiles = "Couldn't use the core's data folder: {error}",
         ClaimInvalid = "The core sent something Lodestone Launcher doesn't understand: {error}",
         /// The button (and dialog title) that adds a core by its address.

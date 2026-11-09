@@ -704,7 +704,7 @@ impl Servers {
             .enumerate()
             .map(|(index, found)| {
                 let uuid = found.info.uuid.clone();
-                let connected = self.is_connected(&uuid);
+                let connected = self.is_connected(&uuid, &found.url);
                 let claiming = local.claiming.as_deref() == Some(uuid.as_str());
                 let error = local
                     .error

@@ -407,6 +407,7 @@ impl LiveStream {
             let target = Target {
                 base: client.base().clone(),
                 pin: client.pin().cloned(),
+                strict: client.is_strict(),
             };
             let server = server.to_string();
             std::thread::Builder::new()
@@ -479,6 +480,8 @@ pub fn ws_url(base: &Url, path: &str) -> Result<Url, CoreError> {
 struct Target {
     base: Url,
     pin: Option<CertificatePin>,
+    /// Only the pinned certificate (see [`CoreClient::strict`]).
+    strict: bool,
 }
 
 fn run(
@@ -670,8 +673,9 @@ fn refusal(response: &Response) -> CoreError {
 }
 
 /// The TLS settings to try, in order: the pinned certificate first, as the HTTP client
-/// does, then the platform verifier (a certificate macOS trusts now still works).
-fn tls_configs(pin: Option<&CertificatePin>) -> Vec<Arc<rustls::ClientConfig>> {
+/// does, then the platform verifier (a certificate macOS trusts now still works). A
+/// strict target tries only the pinned certificate.
+fn tls_configs(pin: Option<&CertificatePin>, strict: bool) -> Vec<Arc<rustls::ClientConfig>> {
     let mut configs = Vec::new();
     if let Some(pin) = pin {
         // the provider Zed's own TLS configuration uses, as `PinnedHttp` does
@@ -688,7 +692,9 @@ fn tls_configs(pin: Option<&CertificatePin>) -> Vec<Arc<rustls::ClientConfig>> {
             ));
         }
     }
-    configs.push(Arc::new(http_client_tls::tls_config()));
+    if !strict {
+        configs.push(Arc::new(http_client_tls::tls_config()));
+    }
     configs
 }
 
@@ -739,13 +745,20 @@ fn connect(
 ) -> Result<WebSocket<Stream>, CoreError> {
     segment(server)?;
     let base = &target.base;
+    if target.strict && (base.scheme() != "https" || target.pin.is_none()) {
+        // the key goes only to the pinned certificate
+        return Err(CoreError::Untrusted {
+            host: base.host_str().unwrap_or_default().to_string(),
+            fingerprint: None,
+        });
+    }
     let url = ws_url(base, &stream_path(key, server, kind))?;
     let host = base
         .host()
         .ok_or_else(|| CoreError::InvalidAddress("The core address has no host".into()))?;
     let host_label = base.host_str().unwrap_or_default().to_string();
     let configs: Vec<Option<Arc<rustls::ClientConfig>>> = if base.scheme() == "https" {
-        tls_configs(target.pin.as_ref())
+        tls_configs(target.pin.as_ref(), target.strict)
             .into_iter()
             .map(Some)
             .collect()

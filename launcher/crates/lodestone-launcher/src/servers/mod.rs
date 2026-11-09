@@ -697,10 +697,27 @@ impl Servers {
 
     fn client(&self, core: &CoreEntry) -> CoreClient {
         let client = CoreClient::new(self.http.clone(), core.url.clone());
-        match &core.pinned {
+        let client = match &core.pinned {
             Some(pinned) => client.with_pinned(pinned.clone()),
             None => client,
+        };
+        // a claimed core's owner key goes only to its certificate
+        if core.saved.local_claim {
+            client.strict()
+        } else {
+            client
         }
+    }
+
+    /// The key an entry keeps when its core is added again at `address` without signing
+    /// in: only a key for this very address, and never a claimed one (it is tied to
+    /// the claim's address and certificate).
+    fn carried_key(&self, existing: Option<usize>, address: &str) -> Option<Secret> {
+        let core = self.cores.get(existing?)?;
+        if display_address(&core.url) != address || core.saved.local_claim {
+            return None;
+        }
+        core.key.clone()
     }
 
     fn refresh(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -762,7 +779,9 @@ impl Servers {
         self.cores[index].status = CoreStatus::Online(list);
         if let Some((old, _)) = renamed {
             // the key this device had is saved under the old id
-            if let Some(key) = self.cores[index].key.clone() {
+            if self.cores[index].saved.local_claim {
+                self.rename_local_credentials(&old.uuid, &uuid, cx);
+            } else if let Some(key) = self.cores[index].key.clone() {
                 self.save_key(uuid.clone(), key, cx);
             }
             let mut merged = store::dedupe(&mut self.cores, |c| &c.saved, Some(index));
@@ -1031,10 +1050,18 @@ impl Servers {
                 saved.name = info.core_name.clone();
                 saved.product = info.product;
                 saved.launched_by = info.launched_by;
+                let kept_key = this.carried_key(existing, &address);
                 if key.is_some() {
                     saved.username = request.username.clone();
                     saved.key_id = key.as_ref().map(|(_, info)| info.id.clone());
                     saved.key_expires_at = key.as_ref().and_then(|(_, info)| info.expires_at);
+                    saved.local_claim = false;
+                } else if kept_key.is_none() {
+                    // no key goes with the entry to another address
+                    saved.username = None;
+                    saved.key_id = None;
+                    saved.key_expires_at = None;
+                    saved.local_claim = false;
                 }
                 if let Some(pin) = pin.clone()
                     && saved.pin_certificate(pin)
@@ -1047,7 +1074,6 @@ impl Servers {
                         )
                     }));
                 }
-                let kept_key = existing.and_then(|i| this.cores[i].key.clone());
                 let signed_in_now = key.is_some();
                 let entry = CoreEntry::new(
                     saved,
@@ -1212,9 +1238,15 @@ impl Servers {
     /// Forgets the core's key on this device. The key stays valid on the core until it
     /// is revoked in the dashboard, which the notice says.
     pub fn sign_out(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(uuid) = self.cores.get(index).map(|c| c.saved.uuid.clone()) else {
+            return;
+        };
+        // a key claimed on this computer is revoked on the core first, best effort
+        self.revoke_local_key(&uuid, cx);
         let Some(core) = self.cores.get_mut(index) else {
             return;
         };
+        core.saved.local_claim = false;
         let name = core.saved.name.clone();
         let key_id = core.saved.key_id.take();
         core.key = None;
@@ -1240,6 +1272,8 @@ impl Servers {
         if index >= self.cores.len() {
             return;
         }
+        let uuid = self.cores[index].saved.uuid.clone();
+        self.revoke_local_key(&uuid, cx);
         let core = self.cores.remove(index);
         self.save();
         if core.signed_in() {
