@@ -149,6 +149,7 @@ fn remember(
             sha512: lodestone_minecraft::hash::sha512_of(&path).unwrap_or_default(),
             modrinth: Some(source),
             looked_up: false,
+            ..Default::default()
         },
     );
 }

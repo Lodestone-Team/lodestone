@@ -31,7 +31,7 @@ use std::{
 use futures::StreamExt as _;
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, RenderImage, SharedString, Task};
 use launcher_core::{
-    content::{InstanceDirs, Modrinth, Target},
+    content::{CurseForge, InstanceDirs, Modrinth, Target},
     export,
     game::{
         crash::{self, CrashSummary, Outcome},
@@ -297,6 +297,9 @@ pub struct Instances {
     /// The Modrinth client the Content tab shares, with its cache. `None` keeps the
     /// offscreen screenshots offline.
     modrinth: Option<Arc<Modrinth>>,
+    /// The CurseForge client: `None` without Lodestone's API key (in builds made without
+    /// it) or offline.
+    curseforge: Option<Arc<CurseForge>>,
     /// The downloader for content files.
     content_downloader: Downloader,
     /// "Switch to Fabric" in progress.
@@ -304,6 +307,10 @@ pub struct Instances {
     /// Modpacks being made into instances.
     imports: Vec<modpacks::ImportJob>,
     next_import: u64,
+    /// Files of an imported CurseForge pack the user downloads from curseforge.com, by
+    /// instance; the Content tab takes them when it shows that instance.
+    pending_downloads:
+        HashMap<String, Vec<launcher_core::content::curseforge_install::CfPlannedFile>>,
     /// Modpack updates in progress, by instance.
     modpack_updates: HashMap<String, modpacks::UpdateJob>,
     /// Redraws while imports and updates run.
@@ -339,6 +346,7 @@ impl Instances {
         let download_http =
             launcher_core::http::download_client().expect("could not start the HTTP client");
         let modrinth = Arc::new(Modrinth::production(http.clone()));
+        let curseforge = CurseForge::production(http.clone()).map(Arc::new);
         let content_downloader = Downloader::new(download_http.clone(), gpui_sleep(cx));
         let installer = Installer::new(
             http,
@@ -395,10 +403,12 @@ impl Instances {
             preview_state: None,
             shared_revision: 0,
             modrinth: Some(modrinth),
+            curseforge,
             content_downloader,
             loader_switch: None,
             imports: Vec::new(),
             next_import: 0,
+            pending_downloads: HashMap::new(),
             modpack_updates: HashMap::new(),
             import_ticker: None,
         };
@@ -923,8 +933,11 @@ impl Instances {
         let instance_dir = self.store.dir(id);
         let write = cx.background_spawn(async move {
             // Files that came from Modrinth are listed by URL; the rest are copied.
+            // Files only on CurseForge are left out rather than handed out.
             let on_modrinth = export::modrinth_files(&instance_dir);
-            let plan = export::plan(&instance, &game_dir, &on_modrinth)?;
+            let curseforge_only = export::curseforge_only_files(&instance_dir);
+            let plan =
+                export::plan_leaving_out(&instance, &game_dir, &on_modrinth, &curseforge_only)?;
             export::write(&plan, &out)?;
             Ok::<_, export::ExportError>((plan, out))
         });
@@ -938,18 +951,33 @@ impl Instances {
                             plan.overrides.len() + plan.index.files.len(),
                             path = out.display()
                         );
+                        let others = plan.skipped.len() - plan.curseforge_left_out.len();
+                        let mut message = match plan
+                            .skipped
+                            .iter()
+                            .find(|(_, why)| !why.contains("CurseForge"))
+                        {
+                            Some((first, _)) if others > 0 => tr!(
+                                M::TwoSentences,
+                                first = saved,
+                                second = trn!(P::FilesLeftOut, others, name = first)
+                            ),
+                            _ => saved,
+                        };
+                        if !plan.curseforge_left_out.is_empty() {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(
+                                    P::CurseForgeLeftOut,
+                                    plan.curseforge_left_out.len(),
+                                    names = crate::i18n::format::list(&plan.curseforge_left_out)
+                                )
+                            );
+                        }
                         InstancesEvent::Notice {
                             title: t(M::ModpackExported).into(),
-                            message: match plan.skipped.first() {
-                                None => saved,
-                                Some((first, _)) => tr!(
-                                    M::TwoSentences,
-                                    first = saved,
-                                    second =
-                                        trn!(P::FilesLeftOut, plan.skipped.len(), name = first)
-                                ),
-                            }
-                            .into(),
+                            message: message.into(),
                         }
                     }
                     Err(err) => InstancesEvent::LaunchFailed {
@@ -1016,6 +1044,23 @@ impl Instances {
         self.modrinth.clone()
     }
 
+    /// Whether an imported pack left files for the user to download into `id`.
+    pub fn has_pending_downloads(&self, id: &str) -> bool {
+        self.pending_downloads.contains_key(id)
+    }
+
+    pub fn take_pending_downloads(
+        &mut self,
+        id: &str,
+    ) -> Option<Vec<launcher_core::content::curseforge_install::CfPlannedFile>> {
+        self.pending_downloads.remove(id)
+    }
+
+    /// The CurseForge client, when this build has an API key and the app is online.
+    pub fn curseforge(&self) -> Option<Arc<CurseForge>> {
+        self.curseforge.clone()
+    }
+
     /// The installer, for resolving imported instances' versions and loaders.
     pub fn installer(&self) -> Installer {
         self.installer.clone()
@@ -1029,6 +1074,7 @@ impl Instances {
     /// Keeps the Content tab off the network, for the offscreen screenshots.
     pub fn preview_offline(&mut self) {
         self.modrinth = None;
+        self.curseforge = None;
     }
 
     pub fn content_downloader(&self) -> Downloader {

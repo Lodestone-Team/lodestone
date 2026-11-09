@@ -2,9 +2,11 @@
 //!
 //! Each entry is keyed by `<folder>/<name without .disabled>`, so enabling or disabling a
 //! mod keeps it. It holds the file's size, modification time and hashes, and the Modrinth
-//! version it is (from an install, or from a lookup by SHA-1). A file whose size and
-//! modification time still match its entry isn't hashed again. `looked_up` records that
-//! Modrinth didn't know a file, so it isn't asked again on every listing.
+//! version or CurseForge file it is (from an install, or from a lookup: Modrinth by
+//! SHA-1, then CurseForge by fingerprint for files Modrinth didn't know). A file whose
+//! size and modification time still match its entry isn't hashed again. `looked_up` and
+//! `curseforge_looked_up` record that a platform didn't know a file, so it isn't asked
+//! again on every listing.
 //!
 //! The file is a cache: deleting it only means the files are hashed and looked up again.
 
@@ -15,6 +17,8 @@ use std::{
 };
 
 use lodestone_minecraft::modrinth::{ModrinthProject, ModrinthVersionType, RawVersion};
+
+use super::curseforge::{CfFile, CfMod};
 use serde::{Deserialize, Serialize};
 
 use super::{ContentKind, enabled_name, scan::ScannedFile};
@@ -82,6 +86,63 @@ impl ModrinthSource {
     }
 }
 
+/// The CurseForge file a file is.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurseForgeSource {
+    pub project_id: u64,
+    pub file_id: u64,
+    #[serde(default)]
+    pub slug: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+    /// The file's display name on CurseForge, which serves as its version.
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub file_date: String,
+    /// The project's page on curseforge.com.
+    #[serde(default)]
+    pub page_url: String,
+    /// "release", "beta" or "alpha".
+    #[serde(default)]
+    pub version_type: String,
+    /// Whether CurseForge lets launchers download this file (the author allows it).
+    #[serde(default)]
+    pub downloadable: bool,
+}
+
+impl CurseForgeSource {
+    pub fn new(file: &CfFile, project: Option<&CfMod>) -> Self {
+        Self {
+            project_id: file.mod_id,
+            file_id: file.id,
+            slug: project.map(|p| p.slug.clone()).unwrap_or_default(),
+            title: project
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| file.display_name_or_file().to_string()),
+            icon_url: project.and_then(|p| p.icon_url().map(String::from)),
+            display_name: file.display_name_or_file().to_string(),
+            file_date: file.file_date.clone(),
+            page_url: project
+                .map(|p| p.page_url())
+                .unwrap_or_else(|| format!("https://www.curseforge.com/projects/{}", file.mod_id)),
+            version_type: file.version_type().to_string(),
+            downloadable: file.downloadable(),
+        }
+    }
+
+    /// The page of this file on curseforge.com, where it can be downloaded by hand.
+    pub fn file_page_url(&self) -> String {
+        format!(
+            "{}/download/{}",
+            self.page_url.trim_end_matches('/'),
+            self.file_id
+        )
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub size: u64,
@@ -95,6 +156,26 @@ pub struct Entry {
     /// Modrinth was asked about this file and didn't know it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub looked_up: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curseforge: Option<CurseForgeSource>,
+    /// CurseForge's fingerprint of the file, once it has been needed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<u32>,
+    /// CurseForge was asked about this file and didn't know it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub curseforge_looked_up: bool,
+}
+
+impl Entry {
+    /// Whether a platform knows the file.
+    pub fn identified(&self) -> bool {
+        self.modrinth.is_some() || self.curseforge.is_some()
+    }
+
+    /// Whether every platform asked didn't know it.
+    pub fn looked_up_anywhere(&self) -> bool {
+        self.looked_up || self.curseforge_looked_up
+    }
 }
 
 /// `content.json`.
@@ -148,7 +229,7 @@ impl Provenance {
 
     /// Takes in what a listing found for `kind` (`refreshed`) without undoing changes made
     /// since it started: for each file, the entry that matches the file on disk now wins
-    /// (the one with a Modrinth source if both do), and files that are gone are dropped.
+    /// (the one a platform knows if both do), and files that are gone are dropped.
     pub fn merge_refreshed(&mut self, kind: ContentKind, refreshed: &Provenance, dir: &Path) {
         let prefix = format!("{}/", kind.dir());
         let stat = |name: &str| {
@@ -178,10 +259,25 @@ impl Provenance {
             let theirs = refreshed.files.get(&key).filter(fits);
             let chosen = match (mine, theirs) {
                 (Some(mine), Some(theirs))
-                    if mine.modrinth.is_none()
-                        && (theirs.modrinth.is_some() || theirs.looked_up) =>
+                    if (mine.modrinth.is_none()
+                        && (theirs.modrinth.is_some() || theirs.looked_up))
+                        || (mine.curseforge.is_none()
+                            && (theirs.curseforge.is_some() || theirs.curseforge_looked_up)) =>
                 {
-                    Some(theirs.clone())
+                    let mut merged = theirs.clone();
+                    // Keep what each side learned.
+                    if merged.modrinth.is_none() && mine.modrinth.is_some() {
+                        merged.modrinth = mine.modrinth.clone();
+                        merged.looked_up = mine.looked_up;
+                    }
+                    if merged.curseforge.is_none() && mine.curseforge.is_some() {
+                        merged.curseforge = mine.curseforge.clone();
+                        merged.curseforge_looked_up = mine.curseforge_looked_up;
+                    }
+                    if merged.fingerprint.is_none() {
+                        merged.fingerprint = mine.fingerprint;
+                    }
+                    Some(merged)
                 }
                 (Some(mine), _) => Some(mine.clone()),
                 (None, Some(theirs)) => Some(theirs.clone()),
@@ -251,6 +347,20 @@ impl Provenance {
         map
     }
 
+    /// The installed files of `kind` by CurseForge project: project id → file keys.
+    pub fn by_curseforge_project(&self, kind: ContentKind) -> BTreeMap<u64, Vec<String>> {
+        let prefix = format!("{}/", kind.dir());
+        let mut map: BTreeMap<u64, Vec<String>> = BTreeMap::new();
+        for (k, entry) in &self.files {
+            if let (Some(name), Some(source)) = (k.strip_prefix(&prefix), &entry.curseforge) {
+                map.entry(source.project_id)
+                    .or_default()
+                    .push(name.to_string());
+            }
+        }
+        map
+    }
+
     /// SHA-512 → Modrinth CDN URL, for files that came from Modrinth: what the `.mrpack`
     /// export lists in its index.
     pub fn download_urls(&self) -> std::collections::HashMap<String, (String, ModrinthSource)> {
@@ -288,6 +398,7 @@ mod tests {
                     ..ModrinthSource::default()
                 }),
                 looked_up: false,
+                ..Default::default()
             },
         );
         provenance.save(dir.path()).unwrap();
