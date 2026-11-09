@@ -8,6 +8,10 @@ const REPO = 'Lodestone-Team/lodestone';
 const TAG_PREFIX = 'launcher-v';
 const RELEASE_PAGE = `https://github.com/${REPO}/releases?q=${TAG_PREFIX}&expanded=true`;
 const CACHE_MS = 60 * 60 * 1000; // the unauthenticated API allows 60 calls an hour
+// The release launchers updated from before versioned releases. It's marked a
+// pre-release, but until the first launcher-v* release is out it holds the only
+// installer, so the button offers it rather than nothing.
+const LEGACY_TAG = 'launcher-latest';
 
 const PLATFORMS = {
   windows: { name: 'Windows', note: 'Windows 10 and 11' },
@@ -82,16 +86,18 @@ async function showStars() {
 }
 
 // The newest published stable launcher release: the one with the highest build.
-// GitHub lists releases newest first, Host's (vX.Y.Z) among them.
+// GitHub lists releases newest first, Host's (vX.Y.Z) among them. Without one,
+// launcher-latest.
 function newestRelease(releases) {
   const build = (release) =>
     Math.max(
       0,
       ...release.assets.map((a) => Number((a.name.match(/^lodestone-launcher-(\d+)-/) || [])[1] || 0)),
     );
-  return releases
+  const newest = releases
     .filter((r) => r.tag_name.startsWith(TAG_PREFIX) && !r.draft && !r.prerelease)
     .sort((a, b) => build(b) - build(a))[0];
+  return newest || releases.find((r) => r.tag_name === LEGACY_TAG && !r.draft);
 }
 
 // Release files are named lodestone-launcher-<build>-<os>-<arch>-standalone[.exe],
