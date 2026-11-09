@@ -5,6 +5,7 @@
 mod account_box;
 pub(crate) mod developer;
 mod launcher_settings;
+mod narrator_offer;
 pub(crate) mod perf_monitor;
 mod play;
 mod settings_modal;
@@ -307,6 +308,10 @@ pub struct LauncherShell {
     _button_layout: Option<Subscription>,
     /// Says what Undo or Redo changed, with the way back.
     undo_toast: Toast,
+    /// The notification that offers "Keep the narrator off", while it's shown.
+    narrator_offer: Option<narrator_offer::NarratorOffer>,
+    /// Shows it shortly after the window opens.
+    narrator_offer_pending: Option<Task<()>>,
     _observe: Vec<Subscription>,
     /// Draws the window again every minute, so "5 minutes ago" stays true.
     _clock: Task<()>,
@@ -322,6 +327,7 @@ impl LauncherShell {
             cx.observe(&accounts, |_, _, cx| cx.notify()),
             cx.observe(&instances, |this, _, cx| {
                 this.sync_settings(cx);
+                this.check_narrator_offer(cx);
                 cx.notify();
             }),
             cx.subscribe(&instances, |this, _, event, cx| match event {
@@ -503,6 +509,8 @@ impl LauncherShell {
             _focus_lost: None,
             _button_layout: None,
             undo_toast: Toast::default(),
+            narrator_offer: None,
+            narrator_offer_pending: None,
             _observe: observe,
             _clock: cx.spawn(async move |this, cx| {
                 loop {
@@ -2564,6 +2572,7 @@ impl Render for LauncherShell {
                             ),
                     ),
             ))
+            .children(narrator_offer::render(self, cx))
             .children(settings)
             .children(modal)
             .child(self.servers_overlay.clone())

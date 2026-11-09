@@ -248,15 +248,14 @@ impl SharedSettings {
     }
 
     fn set_narrator_off(&mut self, off: bool, cx: &mut Context<Self>) {
-        let before = self.undo_files(None, cx);
-        let data = self.instances.read(cx).data_dir().clone();
-        let result = shared_options::set_narrator_off(&data, off);
+        let result = self
+            .instances
+            .update(cx, |instances, cx| instances.set_narrator_off(off, cx));
         let message = if off {
             t(M::NarratorKeptOff)
         } else {
             t(M::NarratorPerInstance)
         };
-        self.record_undo(before, cx);
         self.done(result, Some(message.into()), cx);
     }
 

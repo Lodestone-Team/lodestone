@@ -118,6 +118,7 @@ pub const SCENES: &[&str] = &[
     "settings",
     "settings-general",
     "undo-toast",
+    "narrator-offer",
     "settings-accounts",
     "settings-developer",
     "perf-monitor",
@@ -1031,6 +1032,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 shell.show_loader_change(prompt, cx);
             }
         }
+        "narrator-offer" => shell.preview_narrator_offer(cx),
         "shared-settings" => {
             shell.open_settings(Some(crate::shell::SettingsPage::Shared), None, cx);
             shell.shared_settings().clone().update(cx, |shared, cx| {

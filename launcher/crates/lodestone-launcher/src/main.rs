@@ -117,6 +117,10 @@ fn main() {
                         lodestone_launcher::control::start(shell, cx)
                     })
                     .ok();
+                // "Keep the narrator off", offered until it's answered.
+                window
+                    .update(cx, |shell, _, cx| shell.offer_narrator(cx))
+                    .ok();
                 // Invite links opened before or after the window.
                 links.serve(window, cx);
                 let trace = trace.clone();

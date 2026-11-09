@@ -12,6 +12,7 @@ mod main_instance;
 pub mod mod_finder;
 pub mod modpack_browser;
 pub mod modpacks;
+mod narrator;
 pub mod new_instance;
 pub mod settings;
 pub mod share_dialog;

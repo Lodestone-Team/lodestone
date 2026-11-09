@@ -242,7 +242,7 @@ crate::i18n::messages! {
         /// Settings > Developer.
         FirstTimeSetupSection = "First-time setup",
         ResetFirstTimeSetup = "Reset first-time setup",
-        ResetFirstTimeSetupHint = "The next new instance is offered as your main instance again. This clears your main instance; the shared values stay.",
+        ResetFirstTimeSetupHint = "The next new instance is offered as your main instance again, and keeping the narrator off is offered at the next start. This clears your main instance; the shared values stay.",
         FirstTimeSetupReset = "First-time setup is reset. Create an instance to see it.",
         StartFromInstance = "Start from an instance",
         CopyFromInstance = "Copy from instance…",
@@ -277,6 +277,11 @@ crate::i18n::messages! {
         NarratorNotShared = "{category} isn't shared, so each instance keeps its own narrator setting.",
         NarratorKeptOff = "The narrator stays off in every instance, new ones included.",
         NarratorPerInstance = "Each instance keeps its own narrator setting again.",
+        /// The notification at start that offers "Keep the narrator off".
+        NarratorOfferTitle = "Keep the narrator off?",
+        NarratorOfferBody = "Lodestone Launcher can keep Minecraft's narrator off in all your instances, new ones included, and skip the first-start accessibility screen.",
+        NarratorOfferAccept = "Keep it off",
+        NarratorOfferDismiss = "Dismiss",
 
         // The account box and its menu.
         SigningIn = "Signing in…",
