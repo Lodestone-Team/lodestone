@@ -75,13 +75,14 @@
 
       <div class="download">
         <div class="actions">
-          <!-- main.js points this at Lodestone CLI for the visitor's platform. The
-               CLI installs Host, keeps it updated and starts it. Without
-               JavaScript it downloads the Windows build. -->
+          <!-- main.js points this at the newest Lodestone Host release's
+               installer for the visitor's platform (LodestoneHostSetup.exe,
+               LodestoneHost.dmg), and at Lodestone CLI on Linux. Without
+               JavaScript it opens the list of Host releases. -->
           <a
             class="button"
             data-download
-            href="https://github.com/Lodestone-Team/lodestone_cli/releases/latest/download/lodestone_cli_windows_x86_64.exe"
+            href="https://github.com/Lodestone-Team/lodestone/releases?q=host-v&amp;expanded=true"
           >
             <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
             <path
@@ -94,13 +95,17 @@
           <a class="button button-quiet" href="/host/app/">Open the dashboard</a>
         </div>
         <p class="meta">
-          <span data-download-note>Installs and updates with Lodestone CLI</span>
+          <span data-download-note>Windows and macOS · Updates itself</span>
           <span aria-hidden="true">·</span>
           <a href="https://github.com/Lodestone-Team/lodestone/wiki/Docker-Support" target="_blank" rel="noopener"
             >Docker</a
           >
           <span aria-hidden="true">·</span>
           <a href="https://github.com/Lodestone-Team/lodestone_cli/releases/latest" target="_blank" rel="noopener"
+            >Linux (CLI)</a
+          >
+          <span aria-hidden="true">·</span>
+          <a href="https://github.com/Lodestone-Team/lodestone/releases?q=host-v&amp;expanded=true" target="_blank" rel="noopener"
             >All downloads</a
           >
         </p>
@@ -130,6 +135,8 @@
 
       <ul class="points" aria-label="Also in Lodestone Host">
         <li><strong>Vanilla, Fabric, Forge and Paper</strong> servers, plus Fabric modpacks from Modrinth.</li>
+        <li><strong>Share with friends</strong>: send a link, and they join from
+          <a href="/launcher">Lodestone Launcher</a>, straight to your computer.</li>
         <li><strong>Friends without port forwarding</strong> through playit.gg tunnels.</li>
         <li><strong>Users and permissions</strong> for everyone who helps run your servers.</li>
         <li><strong>API keys and a CLI</strong> for scripts, bots and agents.</li>

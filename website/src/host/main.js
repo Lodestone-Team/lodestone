@@ -1,17 +1,23 @@
-// Points the download button at Lodestone CLI for the visitor's platform and
+// Points the download button at Lodestone Host for the visitor's platform and
 // shows the repo's star count. Both come from the GitHub API. The page works
-// without them: the button falls back to the Windows build and the star count
-// stays hidden. Same code as the launcher page's (launcher/main.js) otherwise.
+// without them: the button falls back to the list of Host releases and the star
+// count stays hidden. Same code as the launcher page's (launcher/main.js)
+// otherwise.
 
 const REPO = 'Lodestone-Team/lodestone';
+// Each Lodestone Host version is a release of its own, tagged host-vX.Y.Z; betas
+// (host-vX.Y.Z-beta.N) are pre-releases and aren't offered here.
+const TAG_PREFIX = 'host-v';
+// Lodestone CLI installs and runs Lodestone Core where there's no Host app (Linux),
+// and while no Host release has a build for this platform.
 const CLI_REPO = 'Lodestone-Team/lodestone_cli';
-const RELEASE_PAGE = `https://github.com/${CLI_REPO}/releases/latest`;
+const CLI_PAGE = `https://github.com/${CLI_REPO}/releases/latest`;
 const CACHE_MS = 60 * 60 * 1000; // the unauthenticated API allows 60 calls an hour
 
 const PLATFORMS = {
-  windows: { name: 'Windows' },
-  macos: { name: 'macOS' },
-  linux: { name: 'Linux' },
+  windows: { name: 'Windows', note: 'Windows 10 and 11 · Updates itself' },
+  macos: { name: 'macOS', note: 'Apple silicon and Intel · Updates itself' },
+  linux: { name: 'Linux', note: 'Installs and updates with Lodestone CLI' },
 };
 
 function detectPlatform() {
@@ -80,8 +86,47 @@ async function showStars() {
   }
 }
 
-// Lodestone CLI installs Host, keeps it updated and starts it. Its releases
-// (Lodestone-Team/lodestone_cli) carry one file per platform:
+// The newest published stable Host release: the one with the highest build.
+// GitHub lists releases newest first, the launcher's and the old Host's among them.
+function newestRelease(releases) {
+  const build = (release) =>
+    Math.max(
+      0,
+      ...release.assets.map((a) => Number((a.name.match(/^lodestone-host-(\d+)-/) || [])[1] || 0)),
+    );
+  return releases
+    .filter((r) => r.tag_name.startsWith(TAG_PREFIX) && !r.draft && !r.prerelease)
+    .sort((a, b) => build(b) - build(a))[0];
+}
+
+// A Host release's installers (launcher/scripts/publish_release.py --product host):
+// lodestone-host-<build>-windows-x86_64-setup.exe and
+// lodestone-host-<build>-macos-universal.dmg, also under names that never change,
+// LodestoneHostSetup.exe and LodestoneHost.dmg. The Host needs its core beside it,
+// so the -standalone and -core files are only for its updater.
+function pickHostAsset(assets, platform) {
+  const byName = (re) =>
+    assets
+      .map((a) => ({ asset: a, m: a.name.match(re) }))
+      .filter((x) => x.m)
+      .sort((a, b) => Number(b.m[1]) - Number(a.m[1]))[0];
+  if (platform === 'windows') {
+    const stable = assets.find((a) => a.name === 'LodestoneHostSetup.exe');
+    const setup = byName(/^lodestone-host-(\d+)-windows-x86_64-setup\.exe$/);
+    if (stable) return { url: stable.browser_download_url, build: setup && setup.m[1] };
+    if (setup) return { url: setup.asset.browser_download_url, build: setup.m[1] };
+  }
+  if (platform === 'macos') {
+    const stable = assets.find((a) => a.name === 'LodestoneHost.dmg');
+    const dmg = byName(/^lodestone-host-(\d+)-macos-[a-z0-9_]+\.dmg$/);
+    if (stable) return { url: stable.browser_download_url, build: dmg && dmg.m[1] };
+    if (dmg) return { url: dmg.asset.browser_download_url, build: dmg.m[1] };
+  }
+  return null;
+}
+
+// Lodestone CLI installs Lodestone Core, keeps it updated and starts it. Its
+// releases (Lodestone-Team/lodestone_cli) carry one file per platform:
 // lodestone_cli_<os>_<arch>[.exe]. There's no Intel Mac build.
 function pickAsset(assets, platform, arch) {
   const os = { windows: 'windows', macos: 'macos', linux: 'linux' }[platform];
@@ -96,26 +141,44 @@ function pickAsset(assets, platform, arch) {
 async function setUpDownload() {
   const button = document.querySelector('[data-download]');
   const label = document.querySelector('[data-download-label]');
+  const note = document.querySelector('[data-download-note]');
   const platform = detectPlatform();
   if (!platform) {
-    // Phones and anything unrecognised: point at the full list.
+    // Phones and anything unrecognised: the button keeps the list of releases.
     label.textContent = 'Download';
-    button.href = RELEASE_PAGE;
     return;
   }
-  label.textContent = `Download for ${PLATFORMS[platform].name}`;
+  const info = PLATFORMS[platform];
+  label.textContent = `Download for ${info.name}`;
 
+  // The Host app, from its newest release, on Windows and macOS.
+  if (platform !== 'linux') {
+    try {
+      const releases = await githubJson(`repos/${REPO}/releases?per_page=100`, 'lodestone:releases');
+      const release = newestRelease(releases || []);
+      const picked = pickHostAsset((release && release.assets) || [], platform);
+      if (picked) {
+        button.href = picked.url;
+        note.textContent = picked.build ? `${info.note} · Build ${picked.build}` : info.note;
+        return;
+      }
+    } catch (e) {
+      // Offline or rate limited: the button keeps the list of releases.
+      return;
+    }
+  }
+
+  // Linux, or no Host build for this platform yet: Lodestone CLI.
+  note.textContent = PLATFORMS.linux.note;
   let release;
   try {
     release = await githubJson(`repos/${CLI_REPO}/releases/latest`, 'lodestone:cli-release');
   } catch (e) {
-    // Offline or rate limited. Windows keeps the default link; other
-    // platforms go to the release page.
-    if (platform !== 'windows') button.href = RELEASE_PAGE;
+    button.href = CLI_PAGE;
     return;
   }
   const picked = pickAsset((release && release.assets) || [], platform, detectArch());
-  button.href = picked ? picked.url : RELEASE_PAGE;
+  button.href = picked ? picked.url : CLI_PAGE;
 }
 
 // The tabs above the screenshot swap it for another view of the dashboard.
