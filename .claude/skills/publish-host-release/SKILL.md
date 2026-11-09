@@ -68,6 +68,23 @@ the script --product host --tag host-v0.6.0 --promote-from host-v0.6.0-beta.1
 On a Mac, add `--target aarch64-apple-darwin --target x86_64-apple-darwin` to the dry
 run and the upload to put both architectures in the app.
 
+## Developer builds
+
+The Host has developer builds too, made the launcher's way (see "Developer builds" in
+the launcher's skill), only when a developer asks for one:
+
+```bash
+gh workflow run dev-build.yml -f product=host -f ref=<branch>   # macOS and Windows on GitHub
+the script --product host --dev --dry-run --open                  # this machine: test it
+the script --product host --dev                                   # then upload it
+the script --product host --list-dev
+```
+
+They go to `host-dev-<build>-<commit>` releases, published at once as
+pre-releases. Only Hosts with **Settings › Updates › Developer builds** on take them
+(`"dev_builds": true` in the Host's `settings.json`). The setting only shows in a
+developer build, or once it's on. Updating still stops servers, so the Host asks first.
+
 ## Testing on this machine
 
 `--open` runs the dry run's Host with the developer's normal data (`~/.lodestone`), and

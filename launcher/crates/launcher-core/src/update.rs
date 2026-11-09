@@ -15,6 +15,14 @@
 //! then that release's `latest.json` gives the file's size and SHA-256. Leaving the
 //! beta keeps the running build until a stable one is newer: updates never go back.
 //!
+//! Developer builds are for Lodestone's developers, to update their own launchers
+//! to a branch's build and debug it. Each commit's is a published pre-release of its
+//! own, tagged `launcher-dev-<build>-<commit>` ([`Product::dev_tag_prefix`]), which
+//! the stable and beta channels never read (nor launchers from before them, which
+//! only read `launcher-v*`). [`UpdateChannel::Dev`] reads them as well as betas and
+//! stable releases. A developer build is compiled with `LODESTONE_LAUNCHER_CHANNEL`
+//! set to `dev` ([`Build::dev`]), so its Settings offer "Developer builds".
+//!
 //! A build's number is the count of commits in its history (`git rev-list --count`).
 //! The script compiles it in as `LODESTONE_LAUNCHER_BUILD`; a plain `cargo build`
 //! has none, and never updates itself.
@@ -94,11 +102,24 @@ const WAIT_FOR_PREVIOUS: Duration = Duration::from_secs(15);
 /// The start of a Lodestone Host version's tag.
 pub const HOST_TAG_PREFIX: &str = "host-v";
 
+/// The start of a launcher developer build's tag: `launcher-dev-3612-ab12cd3`. It
+/// isn't [`TAG_PREFIX`], so no launcher outside [`UpdateChannel::Dev`] reads it.
+pub const DEV_TAG_PREFIX: &str = "launcher-dev-";
+
+/// The start of a Lodestone Host developer build's tag: `host-dev-3612-ab12cd3`.
+pub const HOST_DEV_TAG_PREFIX: &str = "host-dev-";
+
+/// What a developer build has compiled in as its channel (`LODESTONE_LAUNCHER_CHANNEL`,
+/// `LODESTONE_HOST_CHANNEL`).
+pub const DEV_CHANNEL: &str = "dev";
+
 /// Which app is updating: each has its own releases, file names and test overrides.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Product {
     /// The start of its versions' tags: `launcher-v`.
     pub tag_prefix: &'static str,
+    /// The start of its developer builds' tags: `launcher-dev-`.
+    pub dev_tag_prefix: &'static str,
     /// The start of its files' names: `lodestone-launcher-`.
     pub file_prefix: &'static str,
     /// Overrides [`RELEASES_URL`] for it.
@@ -111,6 +132,7 @@ impl Product {
     /// Lodestone Launcher.
     pub const LAUNCHER: Product = Product {
         tag_prefix: TAG_PREFIX,
+        dev_tag_prefix: DEV_TAG_PREFIX,
         file_prefix: "lodestone-launcher-",
         releases_url_env: RELEASES_URL_ENV,
         manifest_url_env: MANIFEST_URL_ENV,
@@ -119,10 +141,22 @@ impl Product {
     /// Lodestone Host.
     pub const HOST: Product = Product {
         tag_prefix: HOST_TAG_PREFIX,
+        dev_tag_prefix: HOST_DEV_TAG_PREFIX,
         file_prefix: "lodestone-host-",
         releases_url_env: "LODESTONE_HOST_RELEASES_URL",
         manifest_url_env: "LODESTONE_HOST_UPDATE_URL",
     };
+
+    /// Whether `channel` reads the published release tagged `tag`: stable launchers
+    /// stable versions, beta ones pre-releases too, and developers' launchers
+    /// developer builds as well. Other tags are other products'.
+    pub fn channel_reads(&self, channel: UpdateChannel, tag: &str, prerelease: bool) -> bool {
+        if tag.starts_with(self.tag_prefix) {
+            !prerelease || channel != UpdateChannel::Stable
+        } else {
+            tag.starts_with(self.dev_tag_prefix) && channel == UpdateChannel::Dev
+        }
+    }
 
     /// The build of `name` if it is `platform`'s standalone binary:
     /// `<file_prefix><build>-<platform>-standalone[.exe]`.
@@ -145,6 +179,9 @@ impl Product {
 pub struct Build {
     pub number: u64,
     pub commit: Option<&'static str>,
+    /// A developer build (`publish_release.py --dev`), whose Settings offer
+    /// "Developer builds".
+    pub dev: bool,
 }
 
 impl Build {
@@ -155,6 +192,7 @@ impl Build {
             option_env!("LODESTONE_LAUNCHER_BUILD"),
             option_env!("LODESTONE_LAUNCHER_COMMIT"),
         )
+        .map(|build| build.with_channel(option_env!("LODESTONE_LAUNCHER_CHANNEL")))
     }
 
     /// A build from the values the publish script compiled in, such as
@@ -162,7 +200,19 @@ impl Build {
     pub fn parse(number: Option<&str>, commit: Option<&'static str>) -> Option<Build> {
         let number = number?.trim().parse().ok()?;
         let commit = commit.map(str::trim).filter(|commit| !commit.is_empty());
-        Some(Build { number, commit })
+        Some(Build {
+            number,
+            commit,
+            dev: false,
+        })
+    }
+
+    /// This build, a developer build if the channel compiled in is [`DEV_CHANNEL`].
+    pub fn with_channel(self, channel: Option<&str>) -> Build {
+        Build {
+            dev: channel.map(str::trim) == Some(DEV_CHANNEL),
+            ..self
+        }
     }
 
     /// The commit's first seven characters, as GitHub shows it.
@@ -375,10 +425,7 @@ pub fn pick_release_for(
 ) -> Option<Candidate> {
     let mut best: Option<Candidate> = None;
     for release in releases {
-        if !release.tag_name.starts_with(product.tag_prefix)
-            || release.draft
-            || (release.prerelease && channel != UpdateChannel::Beta)
-        {
+        if release.draft || !product.channel_reads(channel, &release.tag_name, release.prerelease) {
             continue;
         }
         let Some(manifest) = release.assets.iter().find(|a| a.name == MANIFEST_NAME) else {
@@ -1042,6 +1089,69 @@ mod tests {
     }
 
     #[test]
+    fn only_developers_launchers_take_developer_builds() {
+        let dev = release("launcher-dev-50-ab12cd3", true, &[("windows-x86_64", 50)]);
+        let beta = release("launcher-v0.3.0-beta.1", true, &[("windows-x86_64", 40)]);
+        let stable = release("launcher-v0.2.1", false, &[("windows-x86_64", 31)]);
+        let all = [dev.clone(), beta.clone(), stable.clone()];
+        assert_eq!(
+            picked(&all, UpdateChannel::Stable),
+            Some(("launcher-v0.2.1".into(), 31))
+        );
+        assert_eq!(
+            picked(&all, UpdateChannel::Beta),
+            Some(("launcher-v0.3.0-beta.1".into(), 40))
+        );
+        assert_eq!(
+            picked(&all, UpdateChannel::Dev),
+            Some(("launcher-dev-50-ab12cd3".into(), 50))
+        );
+        // A release newer than the developer build wins, so developers aren't left
+        // behind; and the Host's developer builds aren't the launcher's.
+        let newer = release("launcher-v0.3.0", false, &[("windows-x86_64", 60)]);
+        let host_dev = release("host-dev-90-ab12cd3", true, &[("windows-x86_64", 90)]);
+        assert_eq!(
+            picked(&[host_dev, dev, newer, beta, stable], UpdateChannel::Dev),
+            Some(("launcher-v0.3.0".into(), 60))
+        );
+    }
+
+    #[test]
+    fn channels_read_their_products_tags() {
+        let launcher = Product::LAUNCHER;
+        for (tag, prerelease, stable, beta, dev) in [
+            ("launcher-v1.0.0", false, true, true, true),
+            ("launcher-v1.0.0-beta.1", true, false, true, true),
+            ("launcher-dev-12-ab12cd3", true, false, false, true),
+            ("host-dev-12-ab12cd3", true, false, false, false),
+            ("host-v1.0.0", false, false, false, false),
+            ("v1.0.0", false, false, false, false),
+        ] {
+            assert_eq!(
+                [
+                    UpdateChannel::Stable,
+                    UpdateChannel::Beta,
+                    UpdateChannel::Dev
+                ]
+                .map(|channel| launcher.channel_reads(channel, tag, prerelease)),
+                [stable, beta, dev],
+                "{tag}"
+            );
+        }
+        assert!(Product::HOST.channel_reads(UpdateChannel::Dev, "host-dev-12-ab12cd3", true));
+        assert!(!Product::HOST.channel_reads(UpdateChannel::Beta, "host-dev-12-ab12cd3", true));
+    }
+
+    #[test]
+    fn a_developer_build_says_so() {
+        let build = Build::parse(Some("12"), Some("ab12cd3ef")).unwrap();
+        assert!(!build.dev);
+        assert!(build.with_channel(Some("dev")).dev);
+        assert!(!build.with_channel(Some("stable")).dev);
+        assert!(!build.with_channel(None).dev);
+    }
+
+    #[test]
     fn the_build_orders_releases_not_the_list() {
         // A stable version cut from an older commit after a newer one was published.
         let releases = [
@@ -1110,7 +1220,11 @@ mod tests {
     #[ignore]
     fn live_lookup_on_github() {
         let http = crate::http::default_client().unwrap();
-        for channel in [UpdateChannel::Stable, UpdateChannel::Beta] {
+        for channel in [
+            UpdateChannel::Stable,
+            UpdateChannel::Beta,
+            UpdateChannel::Dev,
+        ] {
             let found = futures::executor::block_on(crate::http::in_http_runtime(find_update(
                 http.as_ref(),
                 channel,

@@ -641,10 +641,13 @@ impl LauncherShell {
     /// with where updating stands and what can be done about it.
     fn render_updates(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let auto_update = self.instances.read(cx).auto_update();
-        let beta = self.instances.read(cx).update_channel() == UpdateChannel::Beta;
+        let channel = self.instances.read(cx).update_channel();
+        let dev = channel == UpdateChannel::Dev;
         let updater = self.updater.read(cx);
         let state = updater.state().clone();
         let build = updater.build();
+        // Only developers see "Developer builds": in a developer build, or once on.
+        let offer_dev = dev || build.is_some_and(|build| build.dev);
         let can_restart = updater.can_restart(cx);
         let label = match build {
             Some(build) => match build.short_commit() {
@@ -725,31 +728,16 @@ impl LauncherShell {
                 }
             })
             .when_some(action, |row, action| row.child(action));
-        card([
-            SettingRow::new(t(M::UpdateAutomatically))
-                .hint(t(M::UpdateAutomaticallyHint))
+        let dev_row = offer_dev.then(|| {
+            SettingRow::new(t(M::DeveloperBuilds))
+                .hint(t(M::DeveloperBuildsHint))
                 .child(
-                    Toggle::new("auto-update", auto_update)
-                        .label(t(M::UpdateAutomatically))
-                        .disabled(build.is_none())
-                        .on_change(cx.listener(|this, value: &bool, _, cx| {
-                            let on = *value;
-                            this.instances
-                                .update(cx, |instances, cx| instances.set_auto_update(on, cx));
-                            this.updater
-                                .update(cx, |updater, cx| updater.automatic_changed(cx));
-                        })),
-                )
-                .into_any_element(),
-            SettingRow::new(t(M::BetaBuilds))
-                .hint(t(M::BetaBuildsHint))
-                .child(
-                    Toggle::new("beta-builds", beta)
-                        .label(t(M::BetaBuilds))
+                    Toggle::new("developer-builds", dev)
+                        .label(t(M::DeveloperBuilds))
                         .disabled(build.is_none())
                         .on_change(cx.listener(|this, value: &bool, _, cx| {
                             let channel = if *value {
-                                UpdateChannel::Beta
+                                UpdateChannel::Dev
                             } else {
                                 UpdateChannel::Stable
                             };
@@ -760,9 +748,51 @@ impl LauncherShell {
                                 .update(cx, |updater, cx| updater.channel_changed(cx));
                         })),
                 )
-                .into_any_element(),
-            status_row.into_any_element(),
-        ])
+                .into_any_element()
+        });
+        card(
+            [
+                SettingRow::new(t(M::UpdateAutomatically))
+                    .hint(t(M::UpdateAutomaticallyHint))
+                    .child(
+                        Toggle::new("auto-update", auto_update)
+                            .label(t(M::UpdateAutomatically))
+                            .disabled(build.is_none())
+                            .on_change(cx.listener(|this, value: &bool, _, cx| {
+                                let on = *value;
+                                this.instances
+                                    .update(cx, |instances, cx| instances.set_auto_update(on, cx));
+                                this.updater
+                                    .update(cx, |updater, cx| updater.automatic_changed(cx));
+                            })),
+                    )
+                    .into_any_element(),
+                SettingRow::new(t(M::BetaBuilds))
+                    .hint(t(M::BetaBuildsHint))
+                    .child(
+                        // Developer builds include betas.
+                        Toggle::new("beta-builds", channel != UpdateChannel::Stable)
+                            .label(t(M::BetaBuilds))
+                            .disabled(build.is_none() || dev)
+                            .on_change(cx.listener(|this, value: &bool, _, cx| {
+                                let channel = if *value {
+                                    UpdateChannel::Beta
+                                } else {
+                                    UpdateChannel::Stable
+                                };
+                                this.instances.update(cx, |instances, cx| {
+                                    instances.set_update_channel(channel, cx)
+                                });
+                                this.updater
+                                    .update(cx, |updater, cx| updater.channel_changed(cx));
+                            })),
+                    )
+                    .into_any_element(),
+            ]
+            .into_iter()
+            .chain(dev_row)
+            .chain([status_row.into_any_element()]),
+        )
     }
 
     /// The Language list: System, then each language in its own name.

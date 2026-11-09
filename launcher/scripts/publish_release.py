@@ -101,6 +101,14 @@ TAG = re.compile(r"^launcher-v(\d+\.\d+\.\d+)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$")
 # The release launchers read before they read versioned releases. Only `--bridge`
 # writes to it, so launchers that old update to one that reads versioned releases.
 LEGACY_TAG = "launcher-latest"
+# Developer builds: a published pre-release per commit, for developers' own
+# launchers to update to (Settings › Updates › Developer builds, which only
+# developer builds and developers' launchers show). Tagged
+# launcher-dev-<build>-<commit>, which stable and beta launchers never read. Only the
+# newest KEEP_DEV of each product's are kept; older ones are deleted with their tags.
+KEEP_DEV = 5
+# What a developer build has compiled in as its channel.
+DEV_CHANNEL = "dev"
 # Builds kept per platform where several share a release (the legacy one, and test
 # folders): the newest and the one before it, so a launcher that started
 # downloading just before an upload can finish.
@@ -136,6 +144,8 @@ class Product:
     # "Lodestone Launcher": release titles, the app's name.
     name: str
     tag_prefix: str
+    # The start of its developer builds' tags: `launcher-dev-`.
+    dev_tag_prefix: str
     # The start of every release file's name: `lodestone-launcher-`.
     file_prefix: str
     # The cargo package in launcher/, and its executable's name.
@@ -143,6 +153,8 @@ class Product:
     # The environment variables the build number and commit are compiled in from.
     build_env: str
     commit_env: str
+    # The channel, `dev` for a developer build.
+    channel_env: str
     installer_script: Path
     stable_installer: str
     stable_dmg: str
@@ -163,10 +175,12 @@ PRODUCTS = {
         key="launcher",
         name="Lodestone Launcher",
         tag_prefix="launcher-v",
+        dev_tag_prefix="launcher-dev-",
         file_prefix="lodestone-launcher-",
         package="lodestone-launcher",
         build_env="LODESTONE_LAUNCHER_BUILD",
         commit_env="LODESTONE_LAUNCHER_COMMIT",
+        channel_env="LODESTONE_LAUNCHER_CHANNEL",
         installer_script=INSTALLER_SCRIPT,
         stable_installer=STABLE_INSTALLER,
         stable_dmg=STABLE_DMG,
@@ -182,10 +196,12 @@ PRODUCTS = {
         key="host",
         name="Lodestone Host",
         tag_prefix="host-v",
+        dev_tag_prefix="host-dev-",
         file_prefix="lodestone-host-",
         package="lodestone-host",
         build_env="LODESTONE_HOST_BUILD",
         commit_env="LODESTONE_HOST_COMMIT",
+        channel_env="LODESTONE_HOST_CHANNEL",
         installer_script=LAUNCHER / "installer" / "windows" / "lodestone-host.iss",
         stable_installer="LodestoneHostSetup.exe",
         stable_dmg="LodestoneHost.dmg",
@@ -319,6 +335,15 @@ def check_tag(tag: str) -> None:
             f"{tag!r} isn't a {PRODUCT.name} version: use {TAG_PREFIX}X.Y.Z, or "
             f"{TAG_PREFIX}X.Y.Z-beta.N (or another -suffix) for a beta"
         )
+
+
+def dev_tag(build: int, commit: str) -> str:
+    """A developer build's tag: launcher-dev-3612-ab12cd3."""
+    return f"{PRODUCT.dev_tag_prefix}{build}-{commit[:7]}"
+
+
+def is_dev_tag(tag: str) -> bool:
+    return tag.startswith(PRODUCT.dev_tag_prefix)
 
 
 def is_prerelease_tag(tag: str) -> bool:
@@ -673,14 +698,40 @@ def newest_published(releases: list[dict], key: str, prerelease: bool,
     return best
 
 
-def launcher_releases(repo: str) -> list[dict]:
+def launcher_releases(repo: str, dev: bool = False) -> list[dict]:
     """Every launcher release, drafts too (seeing those needs write access), newest
-    first, as GitHub's API lists them."""
+    first, as GitHub's API lists them. With `dev`, its developer builds too."""
+    prefixes = [TAG_PREFIX] + ([PRODUCT.dev_tag_prefix] if dev else [])
+    test = " or ".join(f'startswith("{prefix}")' for prefix in prefixes)
     out = run(["gh", "api", "--paginate", f"repos/{repo}/releases?per_page=100", "--jq",
-               f'.[] | select(.tag_name | startswith("{TAG_PREFIX}")) '
+               f'.[] | select(.tag_name | {test}) '
                '| {tag_name, draft, prerelease, created_at, target_commitish, html_url, '
                'assets: [.assets[] | {name}]}'])
     return [json.loads(line) for line in out.splitlines() if line.strip()]
+
+
+def dev_releases(releases: list[dict]) -> list[dict]:
+    """The published developer builds in `releases`, newest first."""
+    devs = [r for r in releases if is_dev_tag(r.get("tag_name", "")) and not r.get("draft")
+            and r.get("prerelease")]
+    return sorted(devs, key=lambda r: r.get("created_at") or "", reverse=True)
+
+
+def newest_for_developers(releases: list[dict], key: str, exclude: str) -> tuple[int, str] | None:
+    """The highest build for `key` that developers' launchers read: every published
+    release, developer builds too."""
+    best = None
+    for release in releases:
+        tag = release.get("tag_name", "")
+        if tag == exclude or release.get("draft"):
+            continue
+        if not (tag.startswith(TAG_PREFIX) or is_dev_tag(tag)):
+            continue
+        for asset in release.get("assets", []):
+            build = file_build(asset.get("name", ""), key)
+            if build is not None and (best is None or build > best[0]):
+                best = (build, tag)
+    return best
 
 
 def open_drafts(releases: list[dict]) -> list[dict]:
@@ -744,9 +795,14 @@ def describe(path: Path, build: int, commit: str) -> dict:
 # Building
 
 
-def build_binary(target: str | None, build: int, commit: str, key: str, into: Path) -> Path:
-    """Builds the app for `target` (None: this machine); returns a copy named for upload."""
+def build_binary(target: str | None, build: int, commit: str, key: str, into: Path,
+                 dev: bool = False) -> Path:
+    """Builds the app for `target` (None: this machine); returns a copy named for upload.
+    A developer build (`dev`) has the dev channel compiled in."""
     env = dict(os.environ, **{PRODUCT.build_env: str(build), PRODUCT.commit_env: commit})
+    env.pop(PRODUCT.channel_env, None)
+    if dev:
+        env[PRODUCT.channel_env] = DEV_CHANNEL
     cmd = ["cargo", "build", "--release", "--locked", "-p", PRODUCT.package]
     if target:
         cmd += ["--target", target]
@@ -1050,20 +1106,23 @@ def notarize(dmg: Path) -> bool:
 
 
 def stage(targets: list[str | None], build: int, commit: str, version: str, into: Path,
-          installer: bool = True) -> dict:
+          installer: bool = True, dev: bool = False) -> dict:
     """Builds everything to publish into `into`, with STAGE_RECORD describing it.
 
-    `None` in `targets` is this machine's own target."""
+    `None` in `targets` is this machine's own target. `dev` makes a developer build,
+    which only goes to a developer build's release."""
     into.mkdir(parents=True, exist_ok=True)
     host = host_target()
     record: dict = {"build": build, "commit": commit, "version": version,
                     "assets": {}, "files": {}}
+    if dev:
+        record["channel"] = DEV_CHANNEL
     macs: list[tuple[str, Path]] = []
     mac_cores: list[Path] = []
     for target in targets:
         key = key_for_target(target or host)
         step(f"Building {PRODUCT.name} for {key} (release)")
-        binary = build_binary(target, build, commit, key, into)
+        binary = build_binary(target, build, commit, key, into, dev)
         core = None
         if PRODUCT.core:
             step(f"Building Lodestone Core for {key} (release, without Deno)")
@@ -1408,6 +1467,9 @@ class VersionRelease(GitHubRelease):
 
     def prepare(self, stages: list[tuple[Path, dict]], force: bool, skip_existing: bool,
                 dry: bool = False) -> list[tuple[Path, dict]]:
+        if any(is_dev_record(record) for _, record in stages):
+            raise Failure("that's a developer build, which only goes to a developer build's "
+                          "release (--dev). Build it again without --dev for a version")
         commits = {record["commit"] for _, record in stages}
         if len(commits) != 1:
             raise Failure("the builds are of different commits: "
@@ -1467,6 +1529,158 @@ class VersionRelease(GitHubRelease):
 
     def finished(self, manifest: dict) -> None:
         pass
+
+
+def is_dev_record(record: dict) -> bool:
+    return record.get("channel") == DEV_CHANNEL
+
+
+def dev_tag_of(stages: list[tuple[Path, dict]]) -> str:
+    """The developer build release that staged builds go to: one per build and commit."""
+    if not stages:
+        raise Failure("nothing to publish")
+    if not all(is_dev_record(record) for _, record in stages):
+        raise Failure("that isn't a developer build: stage it with --dev (a version's build "
+                      "goes to its version with --tag)")
+    builds = {(record["build"], record["commit"]) for _, record in stages}
+    if len(builds) != 1:
+        raise Failure("the builds are of different commits: "
+                      + ", ".join(sorted(f"{b} ({c[:7]})" for b, c in builds)))
+    build, commit = builds.pop()
+    return dev_tag(build, commit)
+
+
+class DevRelease(GitHubRelease):
+    """A developer build's release: one per commit, published as soon as it's made
+    (developers' launchers can't read drafts), as a pre-release that stable and beta
+    launchers never read. Other platforms' builds of the same commit join it. Once
+    it's in, the oldest developer builds beyond the newest KEEP_DEV are deleted."""
+
+    keeps_history = False
+
+    def create(self, commit: str) -> None:
+        tagged = self.tag_commit()
+        if tagged is None:
+            step(f"Tagging {commit[:7]} as {self.tag}")
+            try:
+                self.gh("api", "-X", "POST", f"repos/{self.repo}/git/refs",
+                        "-f", f"ref=refs/tags/{self.tag}", "-f", f"sha={commit}")
+            except Failure as err:
+                raise Failure(f"couldn't tag {commit[:7]} on GitHub; push the commit first "
+                              f"(`git push origin HEAD`):\n{err}")
+        elif tagged != commit:
+            raise Failure(f"{self.tag} is on {tagged[:7]}, not {commit[:7]}")
+        step(f"Publishing the {self.tag} developer build release")
+        self.gh("release", "create", self.tag, "--repo", self.repo, "--verify-tag",
+                "--prerelease", "--latest=false", "--title", dev_release_title(self.tag),
+                "--notes", dev_release_notes(self.tag, commit))
+        self.info(fresh=True)
+
+    def prepare(self, stages: list[tuple[Path, dict]], force: bool, skip_existing: bool,
+                dry: bool = False) -> list[tuple[Path, dict]]:
+        if dev_tag_of(stages) != self.tag:
+            raise Failure(f"those builds go to {dev_tag_of(stages)}, not {self.tag}")
+        commit = stages[0][1]["commit"]
+        tagged = self.tag_commit()
+        if tagged is not None and tagged != commit:
+            raise Failure(f"{self.tag} is on {tagged[:7]}, not {commit[:7]}")
+        info = self.info()
+        if info is None:
+            if dry:
+                print(f"    Would tag {commit[:7]} as {self.tag} and publish its developer "
+                      "build release.")
+            else:
+                self.create(commit)
+        current = (self.manifest() if info else None) or {"assets": {}}
+        releases = self.published_releases()
+        kept = []
+        for folder, record in stages:
+            skip = set()
+            for key, entry in record["assets"].items():
+                have = current["assets"].get(key)
+                if have:
+                    if skip_existing:
+                        print(f"    {self.tag} already has {key}; leaving it.")
+                        skip.add(key)
+                        continue
+                    if not force:
+                        raise Failure(f"{self.tag} already has {key}. Pass --force to replace it, "
+                                      "though developers' launchers may have it already")
+                best = newest_for_developers(releases, key, self.tag)
+                if best and best[0] >= entry["build"]:
+                    print(f"    Note: {best[1]} has {key} build {best[0]}, so developers' "
+                          f"launchers won't update to this build {entry['build']}. Install it "
+                          "from the release by hand to try it.")
+            record = restricted(record, skip)
+            if record["assets"]:
+                kept.append((folder, record))
+        return kept
+
+    def published_releases(self) -> list[dict]:
+        """What developers' launchers read: the product's releases and developer builds."""
+        return launcher_releases(self.repo, dev=True)
+
+    def finished(self, manifest: dict) -> None:
+        prune_dev_releases(self.repo, keep_tag=self.tag)
+
+
+def old_dev_builds(releases: list[dict], keep_tag: str | None = None,
+                   keep: int = KEEP_DEV) -> list[str]:
+    """The developer builds in `releases` beyond the newest `keep`: never `keep_tag`, and
+    never a release that isn't a published developer build."""
+    devs = [r for r in dev_releases(releases) if r["tag_name"] != keep_tag]
+    if keep_tag:
+        keep -= 1
+    return [r["tag_name"] for r in devs[max(keep, 0):]]
+
+
+def prune_dev_releases(repo: str, keep_tag: str | None = None, keep: int = KEEP_DEV) -> list[str]:
+    """Deletes the developer builds beyond the newest `keep`, with their tags."""
+    old = old_dev_builds(launcher_releases(repo, dev=True), keep_tag, keep)
+    for tag in old:
+        step(f"Deleting the old developer build {tag}")
+        run(["gh", "release", "delete", tag, "--repo", repo, "--cleanup-tag", "--yes"])
+    return old
+
+
+def dev_release_title(tag: str) -> str:
+    rest = tag[len(PRODUCT.dev_tag_prefix):]
+    build, _, commit = rest.partition("-")
+    return f"{PRODUCT.name} developer build {build} ({commit})"
+
+
+def dev_release_notes(tag: str, commit: str) -> str:
+    where = ("Settings › General › Updates" if PRODUCT.key == "launcher"
+             else "Settings › Updates")
+    files = (f"`{STABLE_INSTALLER}` (Windows), `{STABLE_DMG}` (macOS) or a `-standalone` file"
+             if PRODUCT.key == "launcher" else
+             f"`{STABLE_INSTALLER}` (Windows) or `{STABLE_DMG}` (macOS)")
+    return "\n".join([
+        f"**For Lodestone's developers, not for use.** A build of {commit[:7]}, to test and "
+        "debug work in progress. It may not work.",
+        "",
+        f"Only {PRODUCT.name} with {where} › **Developer builds** on updates to it. That "
+        "setting only shows in a developer build, or once it's on. To start, install "
+        f"{files} from here, then turn it on: it then updates to the newest developer build, "
+        "beta or release, whichever is newer. Turn it off to wait for a release newer than "
+        "your build.",
+        "",
+        f"Only the newest {KEEP_DEV} developer builds are kept; older ones are deleted.",
+        "",
+        f"Built from {commit}.",
+    ])
+
+
+def show_dev_builds(repo: str) -> None:
+    """The developer builds there are, newest first."""
+    devs = dev_releases(launcher_releases(repo, dev=True))
+    if not devs:
+        print(f"There are no {PRODUCT.name} developer builds.")
+        return
+    for release in devs:
+        platforms = release_platforms(release)
+        print(f"{release['tag_name']}: {', '.join(platforms) or 'no platforms yet'}  "
+              f"{release.get('html_url', '')}")
 
 
 class LegacyRelease(GitHubRelease):
@@ -1845,6 +2059,13 @@ def main(argv: list[str]) -> int:
     mode.add_argument("--start", metavar="TAG",
                       help="tag a commit (--commit, or HEAD) as this version and draft its "
                            "release, without building")
+    mode.add_argument("--list-dev", action="store_true",
+                      help="list the developer builds there are, newest first, with their platforms")
+    mode.add_argument("--prune-dev", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--dev", action="store_true",
+                        help="a developer build, for developers' own launchers: built with the dev "
+                             "channel and uploaded (published at once) to its commit's "
+                             "launcher-dev-<build>-<commit> release instead of a version's")
     parser.add_argument("--tag", help="the version: 1.0.0 (or launcher-v1.0.0), 1.0.0-beta.1, "
                                       "or `draft` for the newest draft release")
     parser.add_argument("--commit", metavar="REF",
@@ -1877,6 +2098,23 @@ def main(argv: list[str]) -> int:
         value = getattr(args, name)
         if value:
             setattr(args, name, normalize_tag(value))
+
+    if args.list_dev:
+        GitHubRelease(args.repo, "").check()
+        show_dev_builds(args.repo)
+        return 0
+    if args.prune_dev:
+        GitHubRelease(args.repo, "").check()
+        prune_dev_releases(args.repo)
+        return 0
+    if args.dev:
+        if args.tag:
+            raise Failure("a developer build's release is named for its build and commit; "
+                          "leave out --tag")
+        if (args.promote_from or args.bridge or args.find_draft is not None
+                or args.next_version is not None or args.start):
+            raise Failure("--dev builds and uploads developer builds: use it with --dry-run, "
+                          "--stage, --from or --output, or alone to upload a dry run")
 
     if args.next_version is not None:
         if args.next_version:
@@ -1964,17 +2202,24 @@ def main(argv: list[str]) -> int:
         return 0
 
     if args.sources:
+        stages = [(folder, read_stage(folder)) for folder in args.sources]
+        if args.dev:
+            tag = dev_tag_of(stages)
+            target = DevRelease(args.repo, tag)
+            target.check()
+            manifest = publish(target, stages, args.force, args.skip_existing, tag=tag)
+            report(target, manifest)
+            return 0
         if not args.tag:
             raise Failure(f"say which version these are: --tag {TAG_PREFIX}X.Y.Z")
         target = VersionRelease(args.repo, args.tag)
         target.check()
-        stages = [(folder, read_stage(folder)) for folder in args.sources]
         manifest = publish(target, stages, args.force, args.skip_existing, tag=args.tag)
         report(target, manifest)
         return 0
 
     publishing = not (args.dry_run or args.stage or args.output)
-    if publishing and not args.tag:
+    if publishing and not args.tag and not args.dev:
         raise Failure(f"say which version to upload to: --tag {TAG_PREFIX}X.Y.Z")
     if args.build is not None and publishing:
         raise Failure("--build is for tests; use it with --output, --dry-run or --stage")
@@ -1988,7 +2233,8 @@ def main(argv: list[str]) -> int:
     version = workspace_version()
     targets: list[str | None] = list(args.target or [None])
     keys = [key_for_target(target or host_target()) for target in targets]
-    print(f"    {', '.join(keys)}, build {build}, commit {commit[:7]}, version {version}")
+    print(f"    {', '.join(keys)}, build {build}, commit {commit[:7]}, version {version}"
+          + (", a developer build" if args.dev else ""))
     if args.tag:
         note = tag_version_note(args.tag, version)
         if note:
@@ -1998,7 +2244,8 @@ def main(argv: list[str]) -> int:
         find_iscc()  # before the long build, not after it
 
     if args.stage:
-        record = stage(targets, build, commit, version, args.stage.resolve(), installer)
+        record = stage(targets, build, commit, version, args.stage.resolve(), installer,
+                       args.dev)
         step(f"Staged build {build} in {args.stage}:")
         for name in record["files"]:
             print(f"    {name}")
@@ -2006,7 +2253,7 @@ def main(argv: list[str]) -> int:
 
     if local:
         with tempfile.TemporaryDirectory() as tmp:
-            record = stage(targets, build, commit, version, Path(tmp), installer)
+            record = stage(targets, build, commit, version, Path(tmp), installer, args.dev)
             folder = Folder(args.output.resolve())
             manifest = publish(folder, [(Path(tmp), record)], args.force)
         step(f"Published build {build} into {folder.url()}")
@@ -2021,44 +2268,55 @@ def main(argv: list[str]) -> int:
     if args.dry_run:
         if stage_dir.exists():
             shutil.rmtree(stage_dir)
-        record = stage(targets, build, commit, version, stage_dir, installer)
-        if args.tag:
+        record = stage(targets, build, commit, version, stage_dir, installer, args.dev)
+        tag = dev_tag(build, commit) if args.dev else args.tag
+        if tag:
             # Uploading checks it goes to the release it was tested for.
-            record["tag"] = args.tag
+            record["tag"] = tag
             (stage_dir / STAGE_RECORD).write_text(json.dumps(record, indent=2) + "\n",
                                                   encoding="utf-8")
-            target = VersionRelease(args.repo, args.tag)
+            target = DevRelease(args.repo, tag) if args.dev else VersionRelease(args.repo, tag)
             target.check()
-            step(f"Dry run: nothing uploaded. Checking it against {args.tag}")
+            step(f"Dry run: nothing uploaded. Checking it against {tag}")
             kept = target.prepare([(stage_dir, record)], args.force, False, dry=True)
             current = target.manifest() if target.info() else None
-            manifest = merged_manifest(current, kept, args.tag) if kept else current
-            print(f"    {args.tag}'s {MANIFEST} would be:")
+            manifest = merged_manifest(current, kept, tag) if kept else current
+            print(f"    {tag}'s {MANIFEST} would be:")
             print(json.dumps(manifest, indent=2))
         copies = save_test_copies(stage_dir, test_dir, record)
         step("Test this build on this machine before publishing it:")
         for copy in copies:
             print(f"    {copy}")
-        print(f"    Then upload it from this checkout without changes (--tag {TAG_PREFIX}X.Y.Z);")
+        upload = "--dev" if args.dev else f"--tag {TAG_PREFIX}X.Y.Z"
+        print(f"    Then upload it from this checkout without changes ({upload});")
         print("    the script uploads exactly these files.")
         if args.open:
             open_and_explain(test_dir, record, key_for_target(host_target()))
         return 0
 
-    target = VersionRelease(args.repo, args.tag)
-    target.check()
     record = check_candidate(stage_dir, build, commit)
-    if record.get("tag") and record["tag"] != args.tag:
-        raise Failure(f"the dry run was tested for {record['tag']}, not {args.tag}. Upload it "
+    if is_dev_record(record) and not args.dev:
+        raise Failure("the dry run is a developer build: upload it with --dev, or dry-run "
+                      "again without --dev for a version")
+    if args.dev and not is_dev_record(record):
+        raise Failure("the dry run isn't a developer build: dry-run with --dev first")
+    tag = dev_tag(build, commit) if args.dev else args.tag
+    target = DevRelease(args.repo, tag) if args.dev else VersionRelease(args.repo, tag)
+    target.check()
+    if record.get("tag") and record["tag"] != tag:
+        raise Failure(f"the dry run was tested for {record['tag']}, not {tag}. Upload it "
                       f"with --tag {record['tag']}, or dry-run and test again")
     if set(record["assets"]) != set(keys):
         raise Failure(
             f"the dry run staged {', '.join(sorted(record['assets']))}, not "
             f"{', '.join(sorted(keys))}. Dry-run with the same --target options"
         )
-    manifest = publish(target, [(stage_dir, record)], args.force, tag=args.tag)
+    manifest = publish(target, [(stage_dir, record)], args.force, tag=tag)
     report(target, manifest, build)
-    if manifest and target.info(fresh=True)["isDraft"]:
+    if args.dev:
+        if manifest:
+            print("    Published for developers: launchers with Developer builds on take it.")
+    elif manifest and target.info(fresh=True)["isDraft"]:
         print("    It's a draft: write its notes and publish it on GitHub when every platform is in.")
     return 0
 

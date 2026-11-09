@@ -1,0 +1,204 @@
+name: Dev build
+
+# Builds a developer build of Lodestone Launcher or Lodestone Host: a build of any
+# commit (a branch's tip, say) for Lodestone's developers to update their own copies
+# to and debug, which users never get. Run it by hand: Actions › Dev build › Run
+# workflow, with the product and the branch or commit.
+#
+# 1. macOS and Windows build the commit with the dev channel compiled in
+#    (`publish_release.py --dev`), so the build's Settings offer "Developer builds".
+# 2. The builds go to the commit's own release, `launcher-dev-<build>-<commit>`
+#    (`host-dev-...` for the Host), which is published at once as a pre-release:
+#    launchers can't read drafts. Stable and beta launchers never read these tags
+#    (nor launchers from before them, which only read `launcher-v*`); only ones with
+#    Settings › Updates › Developer builds on do, which only developer builds and
+#    developers' copies show.
+# 3. Only the newest 5 developer builds of each product are kept: older ones are
+#    deleted with their tags.
+#
+# Developers add other platforms' builds of the same commit from their machines with
+# `publish_release.py --dev`. See .claude/skills/publish-launcher-release/SKILL.md.
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: Which app
+        type: choice
+        options: [launcher, host]
+        default: launcher
+      ref:
+        description: Branch, tag or commit SHA to build
+        required: true
+        type: string
+        default: main
+      platforms:
+        description: Which platforms CI builds
+        type: choice
+        options: [all, macos, windows]
+        default: all
+
+permissions:
+  contents: read
+
+# One run per product and commit at a time: each rewrites the release's latest.json.
+concurrency:
+  group: dev-build-${{ inputs.product }}-${{ inputs.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.commit.outputs.commit }}
+    steps:
+    - name: Find the commit
+      id: commit
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        REF: ${{ inputs.ref }}
+      run: |
+        set -euo pipefail
+        commit="$(gh api "repos/$REPO/commits/$REF" --jq .sha)" || {
+          echo "::error::There's no $REF on GitHub. Push the branch or commit first."
+          exit 1
+        }
+        echo "commit=$commit" >> "$GITHUB_OUTPUT"
+        echo "Building ${{ inputs.product }} from $REF ($commit)" >> "$GITHUB_STEP_SUMMARY"
+
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        ref: ${{ steps.commit.outputs.commit }}
+        sparse-checkout: launcher/crates/launcher-core/src/update.rs
+        sparse-checkout-cone-mode: false
+
+    # A build from before developer builds would never update to another one.
+    - name: The commit follows developer builds
+      env:
+        PRODUCT: ${{ inputs.product }}
+      run: |
+        if [ "$PRODUCT" = host ]; then line='HOST_DEV_TAG_PREFIX: &str = "host-dev-"'; else line='DEV_TAG_PREFIX: &str = "launcher-dev-"'; fi
+        if ! grep -qF "$line" launcher/crates/launcher-core/src/update.rs; then
+          echo "::error::This commit is from before developer builds: its build couldn't update to the next one. Build a newer commit (merge main into the branch)."
+          exit 1
+        fi
+
+  macos-launcher:
+    needs: check
+    if: inputs.product == 'launcher' && contains(fromJSON('["all", "macos"]'), inputs.platforms)
+    uses: ./.github/workflows/launcher-macos-app.yml
+    with:
+      ref: ${{ needs.check.outputs.commit }}
+      dev: true
+    secrets: inherit
+
+  macos-host:
+    needs: check
+    if: inputs.product == 'host' && contains(fromJSON('["all", "macos"]'), inputs.platforms)
+    uses: ./.github/workflows/host-macos-app.yml
+    with:
+      ref: ${{ needs.check.outputs.commit }}
+      dev: true
+    secrets: inherit
+
+  windows:
+    needs: check
+    if: contains(fromJSON('["all", "windows"]'), inputs.platforms)
+    runs-on: windows-latest
+    timeout-minutes: 150
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        ref: ${{ needs.check.outputs.commit }}
+        # A build's number is the count of commits in its history.
+        fetch-depth: 0
+
+    # Installs the toolchain pinned in the repository's rust-toolchain.toml.
+    - name: Install Rust toolchain
+      shell: bash
+      run: rustup toolchain install --profile minimal --no-self-update
+
+    - name: Cache Dependencies (launcher)
+      if: inputs.product == 'launcher'
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        prefix-key: rust-cache
+        shared-key: launcher-windows-release
+        save-if: false
+        workspaces: launcher
+
+    - name: Cache Dependencies (Host)
+      if: inputs.product == 'host'
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        prefix-key: rust-cache
+        shared-key: host-windows-release
+        save-if: false
+        workspaces: |
+          launcher
+          .
+
+    # The installer is built with Inno Setup 6, which GitHub's Windows images
+    # usually include.
+    - name: Check for Inno Setup
+      shell: pwsh
+      run: |
+        $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+        if (-not (Test-Path $iscc)) { choco install innosetup --yes --no-progress }
+
+    # The commit's own script builds it.
+    - name: Build and stage
+      shell: bash
+      env:
+        PRODUCT: ${{ inputs.product }}
+      run: python launcher/scripts/publish_release.py --product "$PRODUCT" --dev --stage "$RUNNER_TEMP/$PRODUCT-windows"
+
+    - name: Keep the build
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ inputs.product }}-windows
+        path: ${{ runner.temp }}/${{ inputs.product }}-windows
+        if-no-files-found: error
+        retention-days: 7
+
+  upload:
+    needs: [check, macos-launcher, macos-host, windows]
+    # Runs when every platform asked for built, and the others were skipped.
+    if: >-
+      always() && needs.check.result == 'success'
+      && (needs.macos-launcher.result == 'success' || needs.macos-host.result == 'success'
+          || needs.windows.result == 'success')
+      && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    # The workflow's own copy of the script uploads (main's).
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Fetch the builds
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: ${{ inputs.product }}-*
+        path: ${{ runner.temp }}/builds
+
+    - name: Publish the developer build
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PRODUCT: ${{ inputs.product }}
+      run: |
+        args=()
+        for folder in "$RUNNER_TEMP"/builds/"$PRODUCT"-*/; do
+          args+=(--from "$folder")
+        done
+        python3 launcher/scripts/publish_release.py --product "$PRODUCT" --dev --skip-existing "${args[@]}" \
+          | tee -a "$GITHUB_STEP_SUMMARY"

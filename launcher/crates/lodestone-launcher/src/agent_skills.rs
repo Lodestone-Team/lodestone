@@ -145,6 +145,7 @@ mod tests {
         let published = Build {
             number: 3500,
             commit: Some("abc1234def"),
+            dev: false,
         };
         let text = prompt(skills, Some(published), None);
         assert!(

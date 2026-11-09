@@ -56,6 +56,9 @@ pub struct PrefsData {
     pub auto_update: bool,
     /// Settings › Updates: beta builds too.
     pub beta_builds: bool,
+    /// Settings › Updates: developer builds too (and betas). Only developers see it:
+    /// in a developer build, or once it's on.
+    pub dev_builds: bool,
     /// The last beta core version thanked for (`latestVersion`).
     pub latest_version: Option<String>,
     /// Other cores connected to before (the dashboard's `cores`), with the certificate
@@ -67,6 +70,20 @@ pub struct PrefsData {
     pub file_list_width: Option<f32>,
     /// The Files tab's editor wraps long lines (Monaco's `wordWrap: 'on'`).
     pub editor_wrap: bool,
+}
+
+impl PrefsData {
+    /// Which releases updates come from.
+    pub fn update_channel(&self) -> launcher_core::update::UpdateChannel {
+        use launcher_core::update::UpdateChannel;
+        if self.dev_builds {
+            UpdateChannel::Dev
+        } else if self.beta_builds {
+            UpdateChannel::Beta
+        } else {
+            UpdateChannel::Stable
+        }
+    }
 }
 
 /// Another core: its address and the HTTPS certificate the user trusted for it.
@@ -89,6 +106,7 @@ impl Default for PrefsData {
             instance_details_open: false,
             auto_update: true,
             beta_builds: false,
+            dev_builds: false,
             latest_version: None,
             cores: Vec::new(),
             sidebar_width: None,
@@ -194,6 +212,7 @@ mod tests {
             instance_details_open: true,
             auto_update: false,
             beta_builds: true,
+            dev_builds: true,
             latest_version: Some("0.5.2-beta.1".into()),
             cores: vec![SavedCore {
                 address: "https://192.168.1.5:16662".into(),

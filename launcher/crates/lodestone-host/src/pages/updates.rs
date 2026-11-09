@@ -225,48 +225,72 @@ impl Render for UpdatesPage {
         };
         let auto_changed = changed(&self.updater);
         let beta_changed = changed(&self.updater);
+        let dev_changed = changed(&self.updater);
+        // Only developers see "Developer builds": in a developer build, or once on.
+        let offer_dev =
+            prefs.dev_builds || crate::updater::this_build().is_some_and(|build| build.dev);
+        let dev_row = offer_dev.then(|| {
+            SettingRow::new(t(CoreMsg::DeveloperBuilds))
+                .hint(t(CoreMsg::DeveloperBuildsHint))
+                .child(
+                    Toggle::new("developer-builds", prefs.dev_builds)
+                        .label(t(CoreMsg::DeveloperBuilds))
+                        .disabled(!available)
+                        .on_change(move |value, _, cx| {
+                            let value = *value;
+                            Prefs::update(cx, |p| p.dev_builds = value);
+                            dev_changed(cx);
+                        }),
+                )
+                .into_any_element()
+        });
         let page = parts::page([settings::section(
             t(CoreMsg::UpdatesTitle),
             Some(t(CoreMsg::UpdatesLead).into()),
         )
-        .child(settings::card([
-            SettingRow::new(t(CoreMsg::ThisVersion))
-                .hint(status)
-                .children_opt(action)
-                .below(
-                    div()
-                        .text_size(text::SMALL)
-                        .text_color(ink::muted())
-                        .child(version),
-                )
-                .into_any_element(),
-            SettingRow::new(t(CoreMsg::UpdateAutomatically))
-                .hint(t(CoreMsg::UpdateAutomaticallyHint))
-                .child(
-                    Toggle::new("auto-update", prefs.auto_update)
-                        .label(t(CoreMsg::UpdateAutomatically))
-                        .disabled(!available)
-                        .on_change(move |value, _, cx| {
-                            let value = *value;
-                            Prefs::update(cx, |p| p.auto_update = value);
-                            auto_changed(cx);
-                        }),
-                )
-                .into_any_element(),
-            SettingRow::new(t(CoreMsg::BetaBuilds))
-                .hint(t(CoreMsg::BetaBuildsHint))
-                .child(
-                    Toggle::new("beta-builds", prefs.beta_builds)
-                        .label(t(CoreMsg::BetaBuilds))
-                        .disabled(!available)
-                        .on_change(move |value, _, cx| {
-                            let value = *value;
-                            Prefs::update(cx, |p| p.beta_builds = value);
-                            beta_changed(cx);
-                        }),
-                )
-                .into_any_element(),
-        ]))
+        .child(settings::card(
+            [
+                SettingRow::new(t(CoreMsg::ThisVersion))
+                    .hint(status)
+                    .children_opt(action)
+                    .below(
+                        div()
+                            .text_size(text::SMALL)
+                            .text_color(ink::muted())
+                            .child(version),
+                    )
+                    .into_any_element(),
+                SettingRow::new(t(CoreMsg::UpdateAutomatically))
+                    .hint(t(CoreMsg::UpdateAutomaticallyHint))
+                    .child(
+                        Toggle::new("auto-update", prefs.auto_update)
+                            .label(t(CoreMsg::UpdateAutomatically))
+                            .disabled(!available)
+                            .on_change(move |value, _, cx| {
+                                let value = *value;
+                                Prefs::update(cx, |p| p.auto_update = value);
+                                auto_changed(cx);
+                            }),
+                    )
+                    .into_any_element(),
+                SettingRow::new(t(CoreMsg::BetaBuilds))
+                    .hint(t(CoreMsg::BetaBuildsHint))
+                    .child(
+                        // Developer builds include betas.
+                        Toggle::new("beta-builds", prefs.beta_builds || prefs.dev_builds)
+                            .label(t(CoreMsg::BetaBuilds))
+                            .disabled(!available || prefs.dev_builds)
+                            .on_change(move |value, _, cx| {
+                                let value = *value;
+                                Prefs::update(cx, |p| p.beta_builds = value);
+                                beta_changed(cx);
+                            }),
+                    )
+                    .into_any_element(),
+            ]
+            .into_iter()
+            .chain(dev_row),
+        ))
         .into_any_element()])
         .text_color(colors::GRAY_300);
         let dialogs = self

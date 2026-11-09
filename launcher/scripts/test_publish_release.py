@@ -653,5 +653,156 @@ class Host(unittest.TestCase):
         self.assertFalse(any(line.startswith("Windows:") for line in lines))
 
 
+def staged_dev(folder, build, keys, commit="abc1234def", extras=()):
+    """A developer build staged as `stage(dev=True)` leaves it."""
+    record = staged(folder, build, keys, commit, extras)
+    record["channel"] = pr.DEV_CHANNEL
+    (folder / pr.STAGE_RECORD).write_text(pr.json.dumps(record))
+    return record
+
+
+class FakeDevRelease(pr.DevRelease):
+    """A developer build's release with a folder for its files and no GitHub."""
+
+    def __init__(self, path, tag, exists=False, others=()):
+        super().__init__("test/repo", tag)
+        self.folder = pr.Folder(path)
+        self.exists = exists
+        self._tag_commit = None
+        self.others = list(others)
+        self.created = None
+        self.pruned = False
+
+    def info(self, fresh=False):
+        if not self.exists:
+            return None
+        return {"tagName": self.tag, "isDraft": False, "isPrerelease": True,
+                "url": f"release {self.tag}",
+                "assets": [{"name": name} for name in self.folder.names()]}
+
+    names = FakeRelease.names
+    download = FakeRelease.download
+    manifest = FakeRelease.manifest
+    upload = FakeRelease.upload
+    delete = FakeRelease.delete
+    tag_commit = FakeRelease.tag_commit
+
+    def create(self, commit):
+        self.created = commit
+        self._tag_commit = commit
+        self.exists = True
+
+    def published_releases(self):
+        return self.others
+
+    def finished(self, manifest):
+        self.pruned = True
+
+
+class Dev(unittest.TestCase):
+    """--dev: developer builds, for developers' own launchers."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def stage(self, name, build=40, keys=("windows-x86_64",), commit="abc1234def", dev=True):
+        make = staged_dev if dev else staged
+        make(self.dir / name, build, list(keys), commit)
+        return self.dir / name, pr.read_stage(self.dir / name)
+
+    def test_a_developer_build_is_tagged_by_build_and_commit(self):
+        self.assertEqual(pr.dev_tag(3612, "ab12cd3ef0"), "launcher-dev-3612-ab12cd3")
+        self.assertTrue(pr.is_dev_tag("launcher-dev-3612-ab12cd3"))
+        self.assertFalse(pr.is_dev_tag("launcher-v1.0.0"))
+        self.assertEqual(pr.dev_release_title("launcher-dev-3612-ab12cd3"),
+                         "Lodestone Launcher developer build 3612 (ab12cd3)")
+        self.assertEqual(pr.dev_tag_of([self.stage("a")]), "launcher-dev-40-abc1234")
+
+    def test_its_release_is_made_published_and_old_ones_are_pruned(self):
+        win = self.stage("win")
+        release = FakeDevRelease(self.dir / "rel", pr.dev_tag_of([win]))
+        manifest = pr.publish(release, [win], tag=release.tag)
+        self.assertEqual(release.created, "abc1234def")
+        self.assertEqual(manifest["tag"], "launcher-dev-40-abc1234")
+        self.assertTrue(release.pruned)
+        # another platform's build of the same commit joins it
+        mac = self.stage("mac", keys=("macos-aarch64",))
+        manifest = pr.publish(release, [mac])
+        self.assertEqual(set(manifest["assets"]), {"windows-x86_64", "macos-aarch64"})
+        with self.assertRaisesRegex(pr.Failure, "already has windows-x86_64"):
+            pr.publish(release, [win])
+        self.assertIsNone(pr.publish(release, [win], skip_existing=True))
+
+    def test_another_commits_build_goes_to_its_own_release(self):
+        release = FakeDevRelease(self.dir / "rel", "launcher-dev-40-abc1234")
+        with self.assertRaisesRegex(pr.Failure, "go to launcher-dev-41-def5678"):
+            pr.publish(release, [self.stage("other", 41, commit="def5678aaa")])
+        with self.assertRaisesRegex(pr.Failure, "different commits"):
+            pr.dev_tag_of([self.stage("a"), self.stage("b", 41, commit="def5678aaa")])
+
+    def test_developer_builds_and_versions_dont_mix(self):
+        version = FakeRelease(self.dir / "v", "launcher-v0.2.0", tag_commit="abc1234def")
+        with self.assertRaisesRegex(pr.Failure, "only goes to a developer build's release"):
+            pr.publish(version, [self.stage("dev")])
+        with self.assertRaisesRegex(pr.Failure, "isn't a developer build"):
+            pr.dev_tag_of([self.stage("plain", dev=False)])
+
+    def test_a_build_developers_wouldnt_update_to_is_only_noted(self):
+        newer = published("launcher-v0.3.0", {"windows-x86_64": 90})
+        win = self.stage("win")
+        release = FakeDevRelease(self.dir / "rel", pr.dev_tag_of([win]), others=[newer])
+        self.assertIsNotNone(pr.publish(release, [win]))
+
+    def test_developers_read_every_release_and_developer_build(self):
+        releases = [
+            published("launcher-dev-50-aaaaaaa", {"windows-x86_64": 50}, prerelease=True),
+            published("launcher-v0.4.0-beta.1", {"windows-x86_64": 45}, prerelease=True),
+            published("launcher-v0.5.0", {"windows-x86_64": 99}, draft=True),
+        ]
+        self.assertEqual(pr.newest_for_developers(releases, "windows-x86_64", "x"),
+                         (50, "launcher-dev-50-aaaaaaa"))
+        self.assertEqual(pr.newest_for_developers(releases, "windows-x86_64",
+                                                  "launcher-dev-50-aaaaaaa"),
+                         (45, "launcher-v0.4.0-beta.1"))
+        # versions never compete with developer builds
+        self.assertEqual(pr.newest_published(releases, "windows-x86_64", True, "x"),
+                         (45, "launcher-v0.4.0-beta.1"))
+
+    def test_only_the_newest_developer_builds_are_kept(self):
+        def dev(n, **kw):
+            return dict(published(f"launcher-dev-{n}-aaaaaaa", {}, prerelease=True, **kw),
+                        created_at=f"2026-11-{n:02d}T00:00:00Z")
+        releases = [dev(n) for n in range(1, 9)] + [
+            dict(published("launcher-v0.1.0", {}), created_at="2026-10-01T00:00:00Z"),
+            dict(published("launcher-dev-0-draft", {}, prerelease=True, draft=True),
+                 created_at="2026-10-01T00:00:00Z"),
+        ]
+        self.assertEqual(pr.old_dev_builds(releases, keep=5),
+                         ["launcher-dev-3-aaaaaaa", "launcher-dev-2-aaaaaaa",
+                          "launcher-dev-1-aaaaaaa"])
+        # the build just uploaded is always kept, and counts among them
+        self.assertEqual(pr.old_dev_builds(releases, "launcher-dev-1-aaaaaaa", keep=2),
+                         [f"launcher-dev-{n}-aaaaaaa" for n in range(7, 1, -1)])
+
+    def test_dev_leaves_out_tag_and_version_modes(self):
+        with self.assertRaisesRegex(pr.Failure, "leave out --tag"):
+            pr.main(["--dev", "--tag", "1.0.0"])
+        with self.assertRaisesRegex(pr.Failure, "use it with --dry-run"):
+            pr.main(["--dev", "--find-draft"])
+
+    def test_the_hosts_developer_builds(self):
+        pr.use_product("host")
+        try:
+            self.assertEqual(pr.dev_tag(12, "ab12cd3ef0"), "host-dev-12-ab12cd3")
+            self.assertIn("Settings › Updates › **Developer builds**",
+                          pr.dev_release_notes("host-dev-12-ab12cd3", "ab12cd3ef0"))
+        finally:
+            pr.use_product("launcher")
+
+
 if __name__ == "__main__":
     unittest.main()

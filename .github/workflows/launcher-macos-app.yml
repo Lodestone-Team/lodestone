@@ -35,6 +35,11 @@ on:
         required: false
         type: string
         default: ""
+      dev:
+        description: A developer build (dev-build.yml), for developers' own copies only
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -112,6 +117,7 @@ jobs:
         APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
       run: >-
         python3 launcher/scripts/publish_release.py
+        ${{ inputs.dev && '--dev' || '' }}
         --stage "$RUNNER_TEMP/launcher-macos"
         --target aarch64-apple-darwin --target x86_64-apple-darwin
 
