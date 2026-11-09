@@ -1,6 +1,6 @@
 // lodestone.cc home page. Everything here is decoration on top of a page that
 // works without it: the star count, the iron filings behind the logo, the
-// tilt of the logo, the light on the cards, the Core card's chart and the CLI
+// tilt of the logo, the light on the cards, the Host card's chart and the CLI
 // card's typing.
 
 const REPO = 'Lodestone-Team/lodestone';
@@ -317,8 +317,8 @@ function lightCards() {
   }
 }
 
-// The Core card's CPU chart: a random walk that moves along every second.
-function chartCore() {
+// The Host card's CPU chart: a random walk that moves along every second.
+function chartHost() {
   const line = document.querySelector('[data-spark-line]');
   const fill = document.querySelector('[data-spark-fill]');
   if (!line || !fill) return;
@@ -432,5 +432,5 @@ showStars();
 startField();
 tiltMark();
 lightCards();
-chartCore();
+chartHost();
 typeTerminal();

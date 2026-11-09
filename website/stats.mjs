@@ -1,4 +1,5 @@
-// Lodestone Core's download count, for the landing page. build.mjs calls it
+// Lodestone Host's download count (Host was called Lodestone Core), for the
+// landing pages. build.mjs calls it
 // and writes the result into dist/index.html, so the number is as fresh as the
 // last deploy.
 //

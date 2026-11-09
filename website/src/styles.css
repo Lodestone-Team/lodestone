@@ -1,5 +1,5 @@
 /* lodestone.cc home page: the Lodestone products. Colors come from the gem
-   logo (images/mark.svg, the launcher's logo); the Core card keeps Core's own
+   logo (images/mark.svg, the launcher's logo); the Host card keeps Host's own
    green. Fonts are shared with the launcher page (Satoshi for text, Clash
    Grotesk for headlines). */
 
@@ -34,7 +34,7 @@
   --mint: #4fe0a5;
   --sky: #6aaeee;
   --lilac: #9a8ff5;
-  /* Lodestone Core's green (dashboard/public/lodestone_logo.svg) */
+  /* Lodestone Host's green (dashboard/public/lodestone_logo.svg) */
   --green: #2ef29a;
   color-scheme: dark;
 }
@@ -529,7 +529,7 @@ h1 .phrase + .phrase {
   transform: translateX(3px);
 }
 
-.card-core .card-link:not(.card-link-quiet) {
+.card-host .card-link:not(.card-link-quiet) {
   color: var(--green);
 }
 
@@ -615,8 +615,8 @@ h1 .phrase + .phrase {
   transform: rotateX(8deg) rotateY(-12deg) rotateZ(2deg) translate3d(14px, -14px, -40px);
 }
 
-/* Core: a little server list. */
-.core-visual {
+/* Host: a little server list. */
+.host-visual {
   padding: 0 28px 28px;
 }
 
@@ -896,7 +896,7 @@ h1 .phrase + .phrase {
     padding: 22px 22px 0;
   }
 
-  .core-visual,
+  .host-visual,
   .cli-visual {
     padding: 0 22px 22px;
   }

@@ -26,7 +26,7 @@ const TYPES = {
   '.txt': 'text/plain',
 };
 
-// "/login/*  /core/login/:splat  301" -> { pattern, target, status }
+// "/login/*  /host/login/:splat  301" -> { pattern, target, status }
 const redirects = readFileSync(join(websiteDir, 'src', '_redirects'), 'utf8')
   .split('\n')
   .map((line) => line.trim())
@@ -70,9 +70,9 @@ createServer((req, res) => {
 
   // worker.js
   const lastSegment = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
-  const inDashboard = url.pathname === '/core' || url.pathname.startsWith('/core/');
+  const inDashboard = url.pathname === '/host' || url.pathname.startsWith('/host/');
   if (inDashboard && !lastSegment.includes('.')) {
-    return send(res, 200, join(dist, 'core', 'index.html'));
+    return send(res, 200, join(dist, 'host', 'index.html'));
   }
 
   res.writeHead(404, { 'Content-Type': 'text/plain' });

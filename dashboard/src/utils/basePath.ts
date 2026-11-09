@@ -1,5 +1,5 @@
 /**
- * The path the dashboard is served under, e.g. "/core" on lodestone.cc, or ""
+ * The path the dashboard is served under, e.g. "/host" on lodestone.cc, or ""
  * when it is served from the root (Tauri, `next dev`, self-hosted copies).
  *
  * next.config.js sets basePath and NEXT_PUBLIC_BASE_PATH from the
