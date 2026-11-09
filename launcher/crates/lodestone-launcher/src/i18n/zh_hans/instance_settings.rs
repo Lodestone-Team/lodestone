@@ -154,7 +154,7 @@ pub fn text(message: M) -> &'static str {
         M::PartOther => "其他文件",
         M::NoSnapshots => "还没有快照。",
         M::SnapshotSizes => "{total}，其中新增 {new}",
-        M::AutomaticSnapshot => "自动",
+        M::BeforeGoingBack => "回退到“{name}”之前",
         M::RevertEllipsis => "恢复…",
         M::RevertTitle => "恢复到 {name}？",
         M::RevertBody => "所选部分会被快照中的内容替换。替换前会先为它们创建快照，以便恢复。",

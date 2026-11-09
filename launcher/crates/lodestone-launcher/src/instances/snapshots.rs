@@ -15,8 +15,9 @@ use std::{
 };
 
 use gpui::{
-    App, AppContext as _, Context, Entity, EventEmitter, ExternalDragPayload, FileDragPaths,
-    FocusHandle, Focusable, IntoElement, Render, SharedString, Task, Window, div, prelude::*,
+    AnyElement, App, AppContext as _, Context, Entity, EventEmitter, ExternalDragPayload,
+    FileDragPaths, FocusHandle, Focusable, IntoElement, Render, SharedString, Task, Window, div,
+    prelude::*,
 };
 use launcher_core::snapshots::{Category, Part, Selection, Snapshot, Store};
 
@@ -42,11 +43,19 @@ pub struct SnapshotRow {
     pub automatic: bool,
 }
 
+/// A snapshot's name as shown: an automatic one is named after the one gone back to.
+pub fn display_name(name: &str, note: Option<&str>, automatic: bool) -> String {
+    match note {
+        Some(back_to) if automatic => tr!(M::BeforeGoingBack, name = back_to),
+        _ => name.to_string(),
+    }
+}
+
 impl SnapshotRow {
     fn of(snapshot: &Snapshot) -> Self {
         Self {
             id: snapshot.id.clone(),
-            name: snapshot.name.clone(),
+            name: display_name(&snapshot.name, snapshot.note.as_deref(), snapshot.automatic),
             created: snapshot.created,
             total_bytes: snapshot.total_bytes,
             new_bytes: snapshot.new_bytes,
@@ -649,7 +658,7 @@ impl SnapshotDialog {
         let name = self
             .snapshot
             .as_ref()
-            .map(|s| s.name.clone())
+            .map(|s| display_name(&s.name, s.note.as_deref(), s.automatic))
             .unwrap_or_default();
         match self.mode {
             Mode::Take => t(M::TakeSnapshotTitle).into(),
@@ -664,10 +673,13 @@ impl SnapshotDialog {
         let Some(parts) = &self.parts else {
             return div().child(LoadingDots).into_any_element();
         };
-        let rows: Vec<_> = parts
-            .iter()
-            .enumerate()
-            .map(|(index, part)| {
+        let mut rows: Vec<AnyElement> = Vec::new();
+        for (index, part) in parts.iter().enumerate() {
+            // The worlds go under a heading of their own.
+            if part.world.is_some() && (index == 0 || parts[index - 1].world.is_none()) {
+                rows.push(SettingRow::new(t(M::PartWorlds)).into_any_element());
+            }
+            rows.push({
                 let key = (part.category, part.world.clone());
                 let on = self.chosen.contains(&key);
                 let size = if part.files == 0 {
@@ -693,10 +705,16 @@ impl SnapshotDialog {
                         )),
                     )
                     .into_any_element()
-            })
-            .collect();
+            });
+        }
+        // Room for the mods warning above, in a window of the smallest height.
+        let max = if self.mode == Mode::Import {
+            200.
+        } else {
+            320.
+        };
         div()
-            .max_h(px(320.))
+            .max_h(px(max))
             .id("snapshot-parts")
             .overflow_y_scroll()
             .child(card(rows))
@@ -939,7 +957,15 @@ impl Render for SnapshotDialog {
                                     div()
                                         .text_size(theme::text_size(text::SMALL))
                                         .text_color(colors::GRAY_400)
-                                        .child(format::list(&mods)),
+                                        .child({
+                                            // The first few, then "…".
+                                            let mut shown: Vec<String> =
+                                                mods.iter().take(8).cloned().collect();
+                                            if mods.len() > shown.len() {
+                                                shown.push("…".into());
+                                            }
+                                            format::list(&shown)
+                                        }),
                                 ),
                         );
                     }

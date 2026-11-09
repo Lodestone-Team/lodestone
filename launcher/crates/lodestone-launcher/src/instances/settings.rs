@@ -201,6 +201,8 @@ pub struct InstanceSettings {
     /// A loader change is waiting for the shell's dialog.
     prompting: bool,
     nav: SectionNav,
+    /// A section to go to on the next frame, for the offscreen screenshots.
+    preview_section: Option<SharedString>,
     /// The list of sections is open over the settings, in a narrow window.
     nav_open: bool,
     toast: Toast,
@@ -365,6 +367,7 @@ impl InstanceSettings {
             _banners_task: None,
             prompting: false,
             nav: SectionNav::default(),
+            preview_section: None,
             nav_open: false,
             toast: Toast::default(),
             form_last: None,
@@ -1432,6 +1435,11 @@ impl InstanceSettings {
             .into_any_element()
     }
 
+    /// Goes to the section titled `title`, for the offscreen screenshots.
+    pub fn preview_section(&mut self, title: impl Into<SharedString>) {
+        self.preview_section = Some(title.into());
+    }
+
     /// Opens the list of sections in a narrow window, for the offscreen screenshots.
     pub fn preview_nav_open(&mut self) {
         self.nav_open = true;
@@ -2469,6 +2477,11 @@ impl Render for InstanceSettings {
         ));
 
         let titles: Vec<SharedString> = sections.iter().map(|(title, _)| title.clone()).collect();
+        if let Some(title) = self.preview_section.take()
+            && let Some(index) = titles.iter().position(|t| *t == title)
+        {
+            self.nav.pick(index);
+        }
         let active = self.nav.active(titles.len());
         // Too narrow for the list beside the settings (the window less the sidebar
         // and the page's padding): it opens over them from a button instead.
@@ -2615,11 +2628,7 @@ impl InstanceSettings {
             }
             Some(rows) => {
                 for (index, row) in rows.into_iter().enumerate() {
-                    let name = if row.automatic {
-                        format!("{} · {}", row.name, t(M::AutomaticSnapshot))
-                    } else {
-                        row.name.clone()
-                    };
+                    let name = row.name.clone();
                     let hint = format!(
                         "{} · {} · {}",
                         when(row.created),

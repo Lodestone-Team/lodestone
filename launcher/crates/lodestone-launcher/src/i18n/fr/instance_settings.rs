@@ -159,7 +159,7 @@ pub fn text(message: M) -> &'static str {
         M::PartOther => "Autres fichiers",
         M::NoSnapshots => "Aucun instantané pour l’instant.",
         M::SnapshotSizes => "{total}, dont {new} nouveaux",
-        M::AutomaticSnapshot => "Automatique",
+        M::BeforeGoingBack => "Avant le retour à «\u{a0}{name}\u{a0}»",
         M::RevertEllipsis => "Restaurer…",
         M::RevertTitle => "Revenir à {name}\u{a0}?",
         M::RevertBody => {

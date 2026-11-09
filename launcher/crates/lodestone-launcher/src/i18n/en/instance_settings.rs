@@ -180,7 +180,7 @@ crate::i18n::messages! {
         PartOther = "Other files",
         NoSnapshots = "No snapshots yet.",
         SnapshotSizes = "{total}, {new} new",
-        AutomaticSnapshot = "Automatic",
+        BeforeGoingBack = "Before going back to “{name}”",
         RevertEllipsis = "Revert…",
         RevertTitle = "Go back to {name}?",
         RevertBody = "The chosen parts are replaced by the snapshot’s. A snapshot of them is taken first, so you can come back.",

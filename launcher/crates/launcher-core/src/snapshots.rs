@@ -41,8 +41,6 @@ pub const EXTENSION: &str = "lodesnap";
 const MAX_ENTRIES: usize = 200_000;
 const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024 * 1024;
-/// An entry that inflates more than this many times is refused (above 1 MB).
-const MAX_RATIO: u64 = 200;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SnapshotError {
@@ -703,8 +701,9 @@ impl Store {
         let safety = self.create(
             current,
             instance_dir,
-            &format!("Before going back to {}", snapshot.name),
-            None,
+            &format!("Before going back to “{}”", snapshot.name),
+            // The name of the snapshot gone back to, for the launcher to word its own way.
+            Some(snapshot.name.clone()),
             selection,
             true,
             progress,
@@ -840,6 +839,13 @@ impl Store {
             .map(|f| (f.sha256.clone(), f.size))
             .collect();
         let total: u64 = needed.values().sum();
+        let missing: u64 = needed
+            .iter()
+            .filter(|(sha256, _)| !self.object(sha256).is_file())
+            .map(|(_, size)| size)
+            .sum();
+        fs::create_dir_all(&self.root).map_err(io_error(&self.root))?;
+        check_room(&self.root, missing)?;
         let mut done = 0;
         for (sha256, size) in &needed {
             let object = self.object(sha256);
@@ -981,9 +987,10 @@ fn open_lodesnap(path: &Path) -> Result<(Snapshot, Archive), SnapshotError> {
             }
             return Err(invalid(format!("unexpected folder {name}")));
         }
-        if size > 1024 * 1024 && size / entry.compressed_size().max(1) > MAX_RATIO {
-            return Err(invalid("a file inflates too much to be safe"));
-        }
+        // No limit on how much an entry inflates: worlds compress a lot (deflate stops
+        // near 1000 times anyway). What is unpacked is bounded instead: each object is
+        // read up to the size its manifest gives, the sizes up to `MAX_TOTAL_BYTES`, and
+        // the disk must have room for them (`check_room`).
         match name.as_str() {
             "manifest.json" if size <= MAX_MANIFEST_BYTES => {}
             "manifest.json" => return Err(invalid("its manifest is too big")),
@@ -1012,6 +1019,36 @@ fn open_lodesnap(path: &Path) -> Result<(Snapshot, Archive), SnapshotError> {
         }
     }
     Ok((snapshot, archive))
+}
+
+/// Refuses to unpack `bytes` where the disk has less room (and 1 GB to spare).
+fn check_room(dir: &Path, bytes: u64) -> Result<(), SnapshotError> {
+    match free_space(dir) {
+        Some(free) if bytes.saturating_add(1 << 30) > free => Err(invalid(format!(
+            "it needs {} MB and the disk has {} MB free",
+            bytes / 1_000_000,
+            free / 1_000_000
+        ))),
+        _ => Ok(()),
+    }
+}
+
+#[cfg(unix)]
+fn free_space(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `path` is NUL-terminated and `stat` is a valid statvfs to fill.
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+        return None;
+    }
+    #[allow(clippy::unnecessary_cast)]
+    Some(stat.f_bavail as u64 * stat.f_frsize as u64)
+}
+
+#[cfg(not(unix))]
+fn free_space(_: &Path) -> Option<u64> {
+    None
 }
 
 fn read_manifest(path: &Path) -> Result<Snapshot, SnapshotError> {
@@ -1597,15 +1634,57 @@ mod tests {
         );
         let fresh = Store::at(temp.path().join("fresh"));
         assert!(fresh.import(&tampered, "x", &none).is_err());
-        // A highly compressible entry (a zip bomb's shape).
+        // An entry that inflates far beyond what its manifest says (a zip bomb's shape).
+        let zeros = vec![0u8; 64 * 1024 * 1024];
+        let mut small = one.clone();
+        small.files.truncate(1);
+        small.files[0].sha256 = sha256_hex(&zeros);
+        small.files[0].size = 10;
         let bomb = temp.path().join("bomb.lodesnap");
         let mut zip = zip::ZipWriter::new(File::create(&bomb).unwrap());
         let options =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
-        zip.start_file(format!("objects/{}", "a".repeat(64)), options)
+        zip.start_file("manifest.json", options).unwrap();
+        zip.write_all(&good(&small)).unwrap();
+        zip.start_file(format!("objects/{}", small.files[0].sha256), options)
             .unwrap();
-        zip.write_all(&vec![0u8; 64 * 1024 * 1024]).unwrap();
+        zip.write_all(&zeros).unwrap();
         zip.finish().unwrap();
-        assert!(inspect(&bomb).is_err());
+        let fresh = Store::at(temp.path().join("bombed"));
+        let err = fresh.import(&bomb, "x", &none).unwrap_err().to_string();
+        assert!(err.contains("size"), "{err}");
+        assert_eq!(fresh.size(), 0);
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        hex(&Sha256::digest(bytes))
+    }
+
+    #[test]
+    fn imports_files_that_compress_a_lot() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Store::at(temp.path().join("snapshots"));
+        let (instance, dir) = instance_at(temp.path(), "a");
+        // Region files are mostly zeros: thousands of times smaller deflated.
+        write(
+            &dir,
+            "minecraft/saves/World/region/r.0.0.mca",
+            &vec![0u8; 16 * 1024 * 1024],
+        );
+        let snapshot = store
+            .create(
+                &instance,
+                &dir,
+                "one",
+                None,
+                &Selection::all(),
+                false,
+                &none,
+            )
+            .unwrap();
+        let file = temp.path().join("one.lodesnap");
+        store.export(&snapshot, &file, &none).unwrap();
+        let other = Store::at(temp.path().join("other"));
+        other.import(&file, "b", &none).unwrap();
     }
 }

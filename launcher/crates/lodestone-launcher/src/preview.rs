@@ -117,6 +117,12 @@ pub const SCENES: &[&str] = &[
     "focus-popover",
     "focus-escape",
     "focus-escape-prompt",
+    "snapshots",
+    "snapshot-take",
+    "snapshot-revert",
+    "snapshot-share",
+    "snapshot-delete",
+    "snapshot-import",
 ];
 
 /// Keys pressed once a scene has settled, before the screenshot, to show where
@@ -329,6 +335,7 @@ fn has_instances(scene: &str) -> bool {
         || scene.starts_with("modpack-")
         || scene == "new-instance-modpack"
         || is_worlds_scene(scene)
+        || snapshots::is_scene(scene)
         || scene == "loader-change"
         || shared::is_scene(scene)
         || scene.starts_with("instance-settings-narrow")
@@ -526,6 +533,9 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                         }
                     }
                 }
+                if name == "Survival 1.20.1" && snapshots::is_scene(scene) {
+                    snapshots::fill(&data_dir, &store, &instance);
+                }
                 if name == "Survival 1.20.1" && is_worlds_scene(scene) {
                     worlds::fill(&store.dir(&instance.id));
                 }
@@ -705,6 +715,7 @@ mod modpacks;
 mod server_detail;
 mod servers;
 mod shared;
+mod snapshots;
 mod worlds;
 
 pub use shared::{window_height, window_width};
@@ -756,6 +767,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             crate::instances::rosetta_missing(),
             cx,
         ),
+        scene if snapshots::is_scene(scene) => snapshots::apply(scene, shell, cx),
         scene if is_worlds_scene(scene) => {
             shell.select_tab(InstanceTab::Worlds, cx);
             let view = shell.worlds().clone();
