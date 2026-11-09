@@ -11,6 +11,7 @@ mod dialog_slot;
 pub mod focus;
 mod icon;
 mod list_row;
+pub mod log_view;
 pub mod motion;
 mod rich_text;
 mod segmented;
@@ -33,7 +34,7 @@ pub use dialog_slot::{DialogSlot, EXIT, EXIT_REDUCED, Presence};
 pub use focus::{ArrowGroup, FocusScope, KeyboardFocus};
 pub use icon::Icon;
 pub use list_row::ListRow;
-pub use rich_text::{RichText, clear_selection};
+pub use rich_text::{CopySelection, RichText, clear_selection};
 pub use segmented::segmented;
 pub use slider::Slider;
 pub use tabs::Tabs;
@@ -55,6 +56,7 @@ pub fn init(cx: &mut App) {
     // First: its ⌘C (Ctrl+C) has no context, and a binding added later wins, so the
     // text fields' own Copy must come after it.
     rich_text::init(cx);
+    log_view::init(cx);
     text_input::init(cx);
     text_editor::init(cx);
 }

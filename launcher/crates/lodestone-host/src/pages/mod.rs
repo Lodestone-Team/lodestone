@@ -113,6 +113,15 @@ pub fn demo(view: &AnyView, cx: &mut App) {
     }
 }
 
+/// Selects a few of the Console's lines (development screenshots' `--select-lines`,
+/// with `--tab console --demo`).
+#[cfg(feature = "screenshot")]
+pub fn select_for_screenshot(view: &AnyView, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<console::ConsolePage>() {
+        page.update(cx, |page, cx| page.select_for_screenshot(cx));
+    }
+}
+
 /// Opens the Files tab's find bar on `query` (development screenshots).
 pub fn find_for_screenshot(view: &AnyView, query: &str, cx: &mut App) {
     if let Ok(page) = view.clone().downcast::<files::FilesPage>() {

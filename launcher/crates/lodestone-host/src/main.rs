@@ -251,6 +251,20 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
+            // `--select-lines`: a selection across the Console's lines (with `--tab
+            // console --demo`)
+            if std::env::args().any(|arg| arg == "--select-lines") {
+                window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).page_view()?;
+                        lodestone_host::pages::select_for_screenshot(&view, cx);
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
             // `--find <text>`: the Files tab's find bar (with `--tab files --demo`)
             if let Some(query) = arg_after("--find") {
                 window

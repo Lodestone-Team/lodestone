@@ -94,6 +94,12 @@ impl GameLog {
         &self.rows
     }
 
+    /// The id of the row at `index` in [`Self::rows`]: its number since the start,
+    /// which stays as older rows are dropped (for the Logs tab's selection).
+    pub fn row_id(&self, index: usize) -> u64 {
+        self.pushed - self.rows.len() as u64 + index as u64
+    }
+
     pub fn push(&mut self, line: LogLine) {
         let time = line
             .timestamp
