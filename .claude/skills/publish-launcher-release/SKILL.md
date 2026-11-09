@@ -1,6 +1,6 @@
 ---
 name: publish-launcher-release
-description: Build Lodestone Launcher versions into their draft GitHub releases - "build and release draft version 1.0.0", "build and release the latest version" - by checking or suggesting the version, finding or starting the draft (optionally on a pinned commit), building this machine's platform, testing it with computer use or handing it to the developer, and uploading it with launcher/scripts/publish_release.py. Also fixing a pinned commit on a release branch, promoting a beta, and developer builds ("make a dev build of my branch") that only developers' launchers update to. Agents never publish a version's release; developers do that by hand. Use when a developer asks to build, release, draft, cut, tag, ship or promote a launcher version or build, to make a dev build, or to add a platform's build to a release. Only when they ask; never on your own initiative.
+description: Build Lodestone Launcher versions into their draft GitHub releases - "build and release draft version 1.0.0", "build and release the latest version" - by checking or suggesting the version, finding or starting the draft (optionally on a pinned commit), building this machine's platform, testing it in the background with ui_drive or handing it to the developer, and uploading it with launcher/scripts/publish_release.py. Also fixing a pinned commit on a release branch, promoting a beta, and developer builds ("make a dev build of my branch") that only developers' launchers update to. Agents never publish a version's release; developers do that by hand. Use when a developer asks to build, release, draft, cut, tag, ship or promote a launcher version or build, to make a dev build, or to add a platform's build to a release. Only when they ask; never on your own initiative.
 ---
 
 # Building Lodestone Launcher versions
@@ -60,8 +60,9 @@ is about the launcher.
 - On a Mac, Xcode's command line tools. Signing and notarizing need
   `LODESTONE_MACOS_SIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID` and
   `APPLE_APP_PASSWORD`; without them the build is signed ad hoc (say so).
-- A way to test the build: computer-use tools in this session, or the developer
-  at the machine.
+- A way to test the build: `launcher/scripts/ui_drive.ps1` (Windows, nothing to
+  set up) or `ui_drive.swift` (macOS, with Accessibility and Screen Recording
+  allowed), or the developer at the machine.
 
 Run the script as `python3 launcher/scripts/publish_release.py` (on Windows,
 `python`); "the script" below.
@@ -137,9 +138,9 @@ copy with the developer's normal data.
 
 ### 5. Test it
 
-As "Testing on this machine" says: yourself with computer use if this session has
-it, otherwise by handing the opened copy to the developer and waiting for them to
-say it works.
+As "Testing on this machine" says: yourself in the background with `ui_drive`,
+otherwise by handing the opened copy to the developer and waiting for them to say
+it works.
 
 ### 6. Upload it
 
@@ -302,33 +303,46 @@ normal data, after checking no launcher is running, and prints this checklist:
   Applications, and the app opens from it.
 
 The installer changes what's installed: it upgrades an installed launcher. Ask the
-developer before running it, with computer use or not. If their launcher is
-running, untick "Open Lodestone Launcher" on its last page.
+developer before running it. If their launcher is running, untick "Open Lodestone
+Launcher" on its last page.
 
-**With computer use.** If this session has computer-use tools (named like
-`mcp__computer-use__*`; load them with ToolSearch if they're deferred), test it
-yourself:
+**Test it in the background, so the developer can keep using their machine.** Drive
+the test copy with `launcher/scripts/ui_drive.ps1` (Windows, UI Automation) or
+`launcher/scripts/ui_drive.swift` (macOS, the accessibility API). They press, fill
+in and read controls by automation id, and screenshot the window, without moving
+the pointer or bringing the window forward. `launcher/docs/ui-automation.md` has
+the commands and setup (on macOS, Accessibility and Screen Recording permission
+for the app running it).
 
-1. Ask for access to the test copy's window ("Lodestone Launcher") with
-   `request_access`, and to the installer or Finder for those checks.
-2. Go through every line of the checklist, with a screenshot before each step to
-   see where things are. Read the build and commit off Settings › General ›
-   Updates rather than assuming them.
-3. Launch an instance the developer already has, wait for the game's title
-   screen, and quit the game from its menu. Don't sign in to anything or type
-   credentials, and don't change the developer's settings, accounts or instances
-   beyond launching one.
-4. If screenshots of the launcher come back as a blank fill (as they do for debug
-   builds), drive it through UI Automation from PowerShell instead (on Windows,
-   find elements by AutomationId, such as `settings`), or fall back to the
-   developer.
-5. Keep screenshots of Settings › General › Updates and of the game's title
-   screen, and send them to the developer with the report (SendUserFile, if
-   available).
+1. Point it at the test copy by the process id `--open` printed: `--pid PID`. Its
+   file name isn't `lodestone-launcher`, so `--app launcher` won't match it.
+2. If `tree` shows only the title bar, the window opened minimized, and a
+   minimized window shows no controls and can't be captured. On Windows, restore
+   it through UI Automation (the window's `WindowPattern`,
+   `SetWindowVisualState(Normal)`), then look again.
+3. Go through every line of the checklist: `tree` to see what's there, `press` and
+   `select` to move around (`settings`, then `settings-nav-general`), and
+   `screenshot` to read what the tree doesn't hold, such as hints and update
+   statuses. If something is below the window's edge, make the window taller
+   (`TransformPattern.Resize` on Windows) rather than scrolling. Read the build
+   and commit off Settings › General › Updates rather than assuming them.
+4. Launch an instance the developer already has (`press play`), wait for the
+   game's window, and quit it from its menu, or ask the developer to. Don't sign
+   in to anything or type credentials, and put back any setting you change to
+   test it (check `settings.json`).
+5. Close the test copy through its window (`WindowPattern.Close` on Windows), not
+   by killing the process.
+6. Keep the screenshots of Settings › General › Updates and of the game, and send
+   them to the developer with the report (SendUserFile, if available).
 
-**Without computer use**, or when it can't reach the app: leave the opened copy to
-the developer. Tell them where it is and paste the checklist, then **wait for them
-to say it works** before uploading. Don't upload on silence.
+**Computer-use tools only as a last resort**, when the scripts can't reach
+something (a native file picker, the installer's own wizard), and only after
+asking: on Windows they take the developer's pointer and keyboard and minimize
+their windows while they run.
+
+**When nothing can reach the app**, leave the opened copy to the developer. Tell
+them where it is and paste the checklist, then **wait for them to say it works**
+before uploading. Don't upload on silence.
 
 A copy run from a new folder can look offline when a per-app firewall blocks
 programs it hasn't seen; check that before blaming the build. If the test copy
