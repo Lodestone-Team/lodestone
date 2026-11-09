@@ -526,8 +526,12 @@ impl MinecraftInstance {
         flavour: &FlavourKind,
         versions: Vec<String>,
     ) -> Result<SetupManifest, Error> {
+        // The form starts on the newest release, not a snapshot or pre-release: those
+        // can break worlds and most mods don't support them yet.
         let newest = versions
-            .first()
+            .iter()
+            .find(|version| is_release(version))
+            .or_else(|| versions.first())
             .cloned()
             .ok_or_else(|| eyre!("The version list for {} is empty", flavour.to_string()))?;
 
@@ -1207,9 +1211,55 @@ impl TInstance for MinecraftInstance {
     }
 }
 
+/// Whether `version` names a release, like `1.21.4` or `26.1`: numbers and dots only.
+/// Snapshots (`25w45a`, `26.1-snapshot-1`), pre-releases (`1.21.9-pre1`) and release
+/// candidates (`1.21.9-rc1`) aren't.
+fn is_release(version: &str) -> bool {
+    let mut parts = version.split('.');
+    let count = parts.clone().count();
+    count >= 2
+        && parts.all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_setup_form_starts_on_the_newest_release() {
+        let versions: Vec<String> = ["25w45a", "1.21.11-rc1", "1.21.11-pre2", "1.21.10", "1.21.9"]
+            .map(String::from)
+            .to_vec();
+        let manifest =
+            MinecraftInstance::setup_manifest_for_versions(&FlavourKind::Vanilla, versions)
+                .unwrap();
+        let json = serde_json::to_value(&manifest).unwrap();
+        let version = &json["setting_sections"]["section_1"]["settings"]["version"];
+        assert_eq!(
+            version["value"],
+            serde_json::json!({ "type": "Enum", "value": "1.21.10" })
+        );
+        // every version is still offered, snapshots too
+        assert_eq!(version["value_type"]["options"].as_array().unwrap().len(), 5);
+
+        assert!(is_release("26.1"));
+        assert!(is_release("26.1.2"));
+        assert!(!is_release("26.1-snapshot-1"));
+        assert!(!is_release("1.7.10_pre4"));
+        assert!(!is_release("24w14potato"));
+        assert!(!is_release("1"));
+        // only snapshots: the newest one
+        let manifest = MinecraftInstance::setup_manifest_for_versions(
+            &FlavourKind::Vanilla,
+            vec!["25w45a".into(), "25w44a".into()],
+        )
+        .unwrap();
+        let json = serde_json::to_value(&manifest).unwrap();
+        assert_eq!(
+            json["setting_sections"]["section_1"]["settings"]["version"]["value"]["value"],
+            "25w45a"
+        );
+    }
 
     #[test]
     fn setup_manifest_offers_the_flavour_versions() {
