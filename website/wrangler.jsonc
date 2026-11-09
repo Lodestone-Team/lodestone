@@ -1,0 +1,40 @@
+// www.lodestone.cc on Cloudflare Workers: the files in dist (built by
+// build.mjs), plus worker.js for the dashboard's routes. See README.md.
+{
+  "name": "lodestone-website",
+  // Wenwei's Cloudflare account, which hosts the site.
+  "account_id": "8db4e596671f8d4d9f0e60c129db9f90",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  // The lodestone.cc zone is on the same account.
+  "routes": [{ "pattern": "www.lodestone.cc", "custom_domain": true }],
+  // Keep the workers.dev address and the per-branch preview links, which
+  // Wrangler turns off by default once a route is set.
+  "workers_dev": true,
+  "preview_urls": true,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
+  // Builds of branches other than main run `wrangler preview`, which needs
+  // this block, even empty, to make a Preview of the branch.
+  "previews": {},
+  // Request logs and traces, kept in the dashboard (Observability). Set here
+  // so a deploy doesn't switch them back off.
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    },
+    "issue_detection": {
+      "enabled": true
+    }
+  }
+}

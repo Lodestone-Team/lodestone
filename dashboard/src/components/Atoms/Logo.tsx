@@ -1,5 +1,6 @@
 import { ImgHTMLAttributes } from 'react';
 import { cn } from 'utils/util';
+import { asset } from 'utils/basePath';
 
 /**
  * The Lodestone logo. The light theme gets a dark wordmark (logo_light.svg);
@@ -13,13 +14,13 @@ export default function Logo({
   return (
     <>
       <img
-        src="/logo.svg"
+        src={asset('/logo.svg')}
         alt={alt}
         className={cn(className, 'light:hidden')}
         {...props}
       />
       <img
-        src="/logo_light.svg"
+        src={asset('/logo_light.svg')}
         alt={alt}
         className={cn(className, 'hidden light:inline')}
         {...props}

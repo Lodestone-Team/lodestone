@@ -7,7 +7,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import InstanceOverview from 'components/Instance/InstanceOverview';
 import { match, otherwise } from 'variant';
 
-const unknown_icon = '/assets/minecraft-missing-texture.svg';
+const unknown_icon = asset('/assets/minecraft-missing-texture.svg');
 
 import {
   faChartLine,
@@ -20,6 +20,7 @@ import {
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import { Game } from 'bindings/Game';
 import { t } from 'i18n';
+import { asset } from 'utils/basePath';
 
 type InstanceTab = {
   title: string;
@@ -37,16 +38,16 @@ export const game_to_game_icon = (game: Game) =>
         variant,
         otherwise(
           {
-            Vanilla: () => '/assets/minecraft-vanilla.png',
-            Fabric: () => '/assets/minecraft-fabric.png',
-            Forge: () => '/assets/minecraft-forge.png',
-            Paper: () => '/assets/minecraft-paper.png',
+            Vanilla: () => asset('/assets/minecraft-vanilla.png'),
+            Fabric: () => asset('/assets/minecraft-fabric.png'),
+            Forge: () => asset('/assets/minecraft-forge.png'),
+            Paper: () => asset('/assets/minecraft-paper.png'),
           },
           () => unknown_icon
         )
       ),
     MinecraftBedrock: () => unknown_icon,
-    Generic: () => '/assets/GenericIcon.svg',
+    Generic: () => asset('/assets/GenericIcon.svg'),
   });
 
 // Titles and descriptions in the current language (call them at render).

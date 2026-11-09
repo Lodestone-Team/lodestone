@@ -1,0 +1,8 @@
+# The dashboard used to be served from the root. Send its old addresses to
+# /core; Cloudflare keeps the query string (Core links carry ?address=&port=...).
+# Unknown /core paths are handled by worker.js, not here: a catch-all rule in
+# this file would also catch the dashboard's own files.
+/first_setup  /core/first_setup       301
+/login/*      /core/login/:splat      301
+/dashboard/*  /core/dashboard/:splat  301
+/settings/*   /core/settings/:splat   301

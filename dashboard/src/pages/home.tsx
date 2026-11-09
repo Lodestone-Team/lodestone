@@ -7,6 +7,7 @@ import Button from 'components/Atoms/Button';
 import { InstanceContext } from 'data/InstanceContext';
 import { preloadCreateInstanceProps } from 'components/DashboardLayout/CreateInstanceFlow';
 import { useT } from 'i18n';
+import { asset } from 'utils/basePath';
 
 const Home = () => {
   const t = useT();
@@ -35,7 +36,7 @@ const Home = () => {
     <div className="relative flex flex-col items-center justify-center overflow-auto text-gray-faded/30 light:text-ink-muted">
       <div className="flex h-28 w-28 items-center justify-center rounded-full border border-dashed border-gray-faded/30 align-middle">
         <img
-          src="/assets/placeholder-cube.png"
+          src={asset('/assets/placeholder-cube.png')}
           alt=""
           className="mx-auto w-20"
           style={{ imageRendering: 'pixelated' }}
