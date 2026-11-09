@@ -2041,7 +2041,7 @@ fn auto_group_name(group: launcher_core::instances::AutoGroup) -> &'static str {
 impl Render for InstanceSettings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.track_edits(cx);
-        let viewport_width = window.viewport_size().width;
+        let viewport_width = crate::components::window_frame::content_size(window).width;
         let (defaults, total, busy, background, required_java) = {
             let instances = self.instances.read(cx);
             (

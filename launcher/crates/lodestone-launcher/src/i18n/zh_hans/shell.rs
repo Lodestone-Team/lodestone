@@ -389,6 +389,9 @@ pub fn text(message: M) -> &'static str {
         M::RestartToUpdate => "重启",
         M::UpdateReadyBadge => "更新已就绪",
         M::UpdateAvailableBadge => "有可用更新",
+        M::MinimizeWindow => "最小化",
+        M::MaximizeWindow => "最大化",
+        M::RestoreWindow => "还原",
 
         M::RestOnModrinth => "完整简介请在 Modrinth 上查看。",
         M::Storage => "存储",

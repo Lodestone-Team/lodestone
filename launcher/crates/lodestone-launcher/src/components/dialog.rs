@@ -273,6 +273,8 @@ impl RenderOnce for Dialog {
         focus::trap(root, &focus_handle, on_dismiss)
             .absolute()
             .inset_0()
+            // The backdrop covers the window: it follows the window's own corners.
+            .map(|this| super::window_frame::fit_top_corners(this, window))
             .occlude()
             .flex()
             .justify_center()
