@@ -116,8 +116,8 @@ export const useCoreCapabilities = () => {
 };
 
 /**
- * Whether this dashboard can reach a core on this machine: in the desktop
- * app, or when the dashboard page itself is served over http. An https page
+ * Whether this dashboard can reach a core on this machine: in Lodestone
+ * Host, or when the dashboard page itself is served over http. An https page
  * can't call the local core (plain http), browsers block it as mixed content.
  */
 export const canReachLocalCore = () =>

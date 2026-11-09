@@ -16,10 +16,10 @@ const FirstTime = () => {
   useDocumentTitle(t('shell.welcome.pageTitle'));
   const { setPathname } = useContext(BrowserLocationContext);
   const { coreList, addCore, setCore } = useContext(LodestoneContext);
-  // null until the desktop app has said whether its core is set up
+  // null until Lodestone Host has said whether its core is set up
   const [tauriIsSetup, setTauriIsSetup] = useState<boolean | null>(null);
   // Cores known when the page opens: it only redirects (below), so don't
-  // flash it first. Read once: the desktop app adds its core further down.
+  // flash it first. Read once: Lodestone Host adds its core further down.
   const [redirecting] = useState(() => coreList.length > 0);
 
   useEffectOnce(() => {

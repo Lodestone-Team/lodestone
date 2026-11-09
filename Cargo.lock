@@ -6729,7 +6729,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lodestone-client"
+name = "lodestone-host"
 version = "0.5.1"
 dependencies = [
  "lodestone_core",

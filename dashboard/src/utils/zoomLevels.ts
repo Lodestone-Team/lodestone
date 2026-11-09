@@ -1,4 +1,4 @@
-// The zoom levels and shortcuts of the desktop app (see zoom.ts), without
+// The zoom levels and shortcuts of Lodestone Host (see zoom.ts), without
 // imports so tests can load it.
 
 /** The levels + and − step through, as in browsers. */

@@ -1025,6 +1025,10 @@ impl LauncherShell {
 
     /// Shows the crash dialog.
     pub fn show_crash(&mut self, crash: CrashInfo, cx: &mut Context<Self>) {
+        // A crash dialog is no use out of sight: bring the window back even when the
+        // player minimized it themself.
+        self.minimized_for_game = false;
+        self.bring_back_soon(cx);
         let focus = cx.focus_handle();
         self.modal.open(
             Modal::Crash {
@@ -1727,8 +1731,26 @@ impl LauncherShell {
     fn game_exited(&mut self, cx: &mut Context<Self>) {
         if self.minimized_for_game && !self.instances.read(cx).any_running() {
             self.minimized_for_game = false;
-            self.with_window(cx, |window| window.activate_window());
+            self.bring_back_soon(cx);
         }
+    }
+
+    /// Brings the window back and to the front, in a moment. Windows minimizes a
+    /// window asynchronously, and activating a window that isn't minimized yet leaves
+    /// it alone: a game that crashes as soon as its window opens exits before the
+    /// launcher has finished minimizing, and the launcher then stayed minimized, its
+    /// crash dialog out of sight.
+    fn bring_back_soon(&self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(300))
+                .await;
+            this.update(cx, |this, cx| {
+                this.with_window(cx, |window| window.activate_window())
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Runs `f` on the shell's window, after the current update.

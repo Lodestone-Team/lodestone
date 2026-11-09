@@ -86,7 +86,7 @@ jobs:
         run: npm ci --ignore-scripts
         working-directory: ./dashboard
 
-      - name: Build Tauri desktop app
+      - name: Build Lodestone Host
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         id: tauri
 
@@ -112,23 +112,23 @@ jobs:
           # Without a version nothing is published, so the updater artifacts are not signed.
           args: ${{ format('{0} {1}', inputs.debug && '--debug' || '', !inputs.version && '--no-sign' || '') }}
 
-      # The workspace target dir is ./target. The main binary is Lodestone.exe because
+      # The workspace target dir is ./target. The main binary is "Lodestone Host.exe" because
       # tauri.conf.json sets mainBinaryName.
       - name: Add windows portable exe to release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         if: matrix.platform == 'windows-latest' && inputs.version
         with:
           files: |
-            ./target/release/Lodestone.exe
-            ./target/debug/Lodestone.exe
+            ./target/release/Lodestone Host.exe
+            ./target/debug/Lodestone Host.exe
           tag_name: ${{ inputs.version }}
           draft: true
           prerelease: true
 
-      # on windows, cache installer in target/release/bundle/msi/Lodestone*.msi
-      # on windows cache exe in target/release/Lodestone.exe
-      # on linux, cache deb in target/release/bundle/deb/lodestone*.deb
-      # on linux, cache appimage in target/release/bundle/appimage/lodestone*.AppImage
+      # on windows, cache installer in target/release/bundle/msi/Lodestone Host*.msi
+      # on windows cache exe in target/release/Lodestone Host.exe
+      # on linux, cache deb in target/release/bundle/deb/lodestone-host*.deb
+      # on linux, cache appimage in target/release/bundle/appimage/lodestone-host*.AppImage
       # note linux has lowercase l, windows has uppercase L
       # (debug builds use target/debug instead of target/release)
 
@@ -137,4 +137,4 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.platform }}-tauri
-          path: "${{ join(fromJson(steps.tauri.outputs.artifactPaths), '\n') }}\n./target/release/Lodestone.exe\n./target/debug/Lodestone.exe"
+          path: "${{ join(fromJson(steps.tauri.outputs.artifactPaths), '\n') }}\n./target/release/Lodestone Host.exe\n./target/debug/Lodestone Host.exe"
