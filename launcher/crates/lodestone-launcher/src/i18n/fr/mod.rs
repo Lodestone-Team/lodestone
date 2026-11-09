@@ -42,9 +42,7 @@
 //! before « : », inside « », in grouped numbers and before units ("4 Go"), and a
 //! narrow no-break space (U+202F) before ; ! ?. Product names stay in English.
 
-pub mod common;
 pub mod content;
-pub mod format;
 pub mod instance_settings;
 pub mod instances;
 pub mod servers;

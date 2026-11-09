@@ -5,11 +5,9 @@
 
 pub mod accounts;
 pub mod agent_skills;
-pub mod assets;
 pub mod components;
 /// The control socket for lodestone-launcher-cli.
 pub mod control;
-pub mod file_dialog;
 pub mod i18n;
 pub mod images;
 pub mod instances;
@@ -21,28 +19,27 @@ pub mod servers;
 pub mod shell;
 pub mod single_instance;
 pub mod skin;
-pub mod theme;
 mod trace_hooks;
-pub mod undo;
 pub mod updater;
+
+// Shared with Lodestone Host (`lodestone-ui`), under the paths the launcher has always
+// used.
+pub use lodestone_ui::{assets, file_dialog, theme, undo};
 
 use gpui::{
     App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, Render, SharedString, WindowBounds,
     WindowOptions, actions, px, size,
 };
 
-actions!(launcher, [Quit, ZoomIn, ZoomOut, ResetZoom, Undo, Redo]);
+actions!(launcher, [Quit, ZoomIn, ZoomOut, ResetZoom]);
+pub use lodestone_ui::{Redo, Undo};
 
 /// The window title, also used for the app menu.
 pub const APP_NAME: &str = "Lodestone Launcher";
 
 /// Sets up fonts, key bindings and the app menu. Call once, before opening windows.
 pub fn init(cx: &mut App) {
-    if let Err(err) = assets::load_fonts(cx) {
-        // GPUI falls back to the system font for families that did not load.
-        eprintln!("lodestone-launcher: could not load the bundled fonts: {err:#}");
-    }
-    components::init(cx);
+    lodestone_ui::init(cx);
     trace_hooks::install(cx);
 
     cx.on_action(|_: &Quit, cx| cx.quit());

@@ -13,7 +13,7 @@
 //! of Windows' own look (`shell::top_bar`), so this module changes nothing there either.
 //!
 //! Set `LODESTONE_LAUNCHER_CLIENT_DECORATIONS=1` to ask for the app's own frame on a
-//! desktop that would draw one (KDE), to see it there (see `crate::window_options`).
+//! desktop that would draw one (KDE), to see it there (see the apps' `window_options`).
 
 use gpui::{
     AnyElement, App, Bounds, CursorStyle, Decorations, Div, Global, HitboxBehavior, Hsla,
@@ -27,7 +27,7 @@ use super::{
     text_tooltip,
 };
 use crate::{
-    i18n::{CommonMsg, ShellMsg, t},
+    i18n::{CommonMsg, t},
     theme::{colors, shadow},
 };
 
@@ -383,19 +383,19 @@ fn window_button(button: WindowButton, maximized: bool) -> impl IntoElement {
         WindowButton::Minimize => (
             "window-minimize",
             Icon::WindowMinimize,
-            t(ShellMsg::MinimizeWindow),
+            t(CommonMsg::MinimizeWindow),
             WindowControlArea::Min,
         ),
         WindowButton::Maximize if maximized => (
             "window-restore",
             Icon::WindowRestore,
-            t(ShellMsg::RestoreWindow),
+            t(CommonMsg::RestoreWindow),
             WindowControlArea::Max,
         ),
         WindowButton::Maximize => (
             "window-maximize",
             Icon::WindowMaximize,
-            t(ShellMsg::MaximizeWindow),
+            t(CommonMsg::MaximizeWindow),
             WindowControlArea::Max,
         ),
         WindowButton::Close => (
