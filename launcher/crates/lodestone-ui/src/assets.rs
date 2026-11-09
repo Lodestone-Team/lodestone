@@ -14,6 +14,7 @@ macro_rules! embed {
 static FILES: &[(&str, &[u8])] = embed!(
     "images/hero.svg",
     "images/logo.svg",
+    "images/logo_light.svg",
     "images/instance-icons/amethyst.png",
     "images/instance-icons/apple.png",
     "images/instance-icons/bricks.png",
@@ -75,6 +76,7 @@ static FILES: &[(&str, &[u8])] = embed!(
     "icons/window-minimize.svg",
     "icons/window-restore.svg",
     "icons/xmark.svg",
+    "icons/bell.svg",
     "icons/link.svg",
     "icons/user-group.svg",
     "icons/chevron-down.svg",
