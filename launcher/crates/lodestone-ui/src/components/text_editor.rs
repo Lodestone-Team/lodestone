@@ -2123,6 +2123,9 @@ impl IntoElement for EditorElement {
     }
 }
 
+/// A line's coloured tokens ([`tokens`]).
+type Coloured = Vec<(Range<usize>, Token)>;
+
 /// What the gutter and the text are drawn with.
 struct Prepaint {
     gutter: Vec<(ShapedLine, Point<Pixels>)>,
@@ -2256,7 +2259,7 @@ impl Element for EditorElement {
             let mut text = Vec::new();
             let mut gutter = Vec::new();
             // the colours of the line being drawn, for each of its rows
-            let mut coloured: Option<(usize, Vec<(Range<usize>, Token)>)> = None;
+            let mut coloured: Option<(usize, Coloured)> = None;
             for row in first_row.min(last_row)..last_row {
                 let (line_ix, nth) = editor.rows.line_of(row);
                 let line = &editor.lines[line_ix];

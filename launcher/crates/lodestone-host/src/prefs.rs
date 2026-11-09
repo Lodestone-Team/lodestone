@@ -201,6 +201,7 @@ mod tests {
             }],
             sidebar_width: Some(260.),
             file_list_width: Some(340.),
+            editor_wrap: false,
         };
         save(&path, &data).unwrap();
         assert_eq!(load(&path), data);
@@ -209,6 +210,7 @@ mod tests {
         assert_eq!(old.theme, Theme::System);
         assert_eq!(old.zoom, 0.9);
         assert!(old.colored_console);
+        assert!(old.editor_wrap, "long lines wrap unless turned off");
         std::fs::write(&path, "not json").unwrap();
         assert_eq!(load(&path), PrefsData::default());
     }

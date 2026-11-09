@@ -440,9 +440,7 @@ pub fn text(message: M) -> &'static str {
         M::FriendStarting => "正在準備遊戲…",
         M::FriendInstanceBusy => "該實例已在執行。請先結束遊戲。",
         M::FriendLinkEnded => "好友已停止共享此伺服器",
-        M::FriendLinkEndedBody => {
-            "請向好友索取新連結。"
-        }
+        M::FriendLinkEndedBody => "請向好友索取新連結。",
         M::FriendNotSharing => "好友目前沒有共享此伺服器",
         M::FriendNotSharingBody => {
             "好友的電腦或 Lodestone Host 可能已關閉。請稍後再試，或請好友開始共享。"

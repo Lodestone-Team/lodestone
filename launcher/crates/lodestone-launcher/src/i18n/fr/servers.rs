@@ -522,9 +522,7 @@ pub fn text(message: M) -> &'static str {
         M::FriendStarting => "Préparation du jeu…",
         M::FriendInstanceBusy => "Cette instance est déjà lancée. Quittez d’abord le jeu.",
         M::FriendLinkEnded => "Votre ami a arrêté de partager ce serveur",
-        M::FriendLinkEndedBody => {
-            "Demandez-lui un nouveau lien."
-        }
+        M::FriendLinkEndedBody => "Demandez-lui un nouveau lien.",
         M::FriendNotSharing => "Votre ami ne partage pas ce serveur en ce moment",
         M::FriendNotSharingBody => {
             "Son ordinateur ou Lodestone Host est peut-être éteint. Réessayez plus tard, ou demandez à votre ami de reprendre le partage."
