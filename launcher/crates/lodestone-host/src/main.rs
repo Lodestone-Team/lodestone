@@ -135,6 +135,20 @@ mod screenshot {
                     )
                     .await;
             }
+            // `--create <step>`: the "New server" dialog, moved on to `games`, `basic`,
+            // `server`, `auto` or `modpack` (package A)
+            if let Some(step) = arg_after("--create") {
+                window
+                    .update(cx, |app, _, cx| {
+                        let shell = app.shell()?;
+                        shell.update(cx, |shell, cx| shell.open_create(cx));
+                        let dialog = shell.read(cx).create_dialog()?;
+                        dialog.update(cx, |dialog, cx| dialog.advance_for_screenshot(&step, cx));
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor().timer(Duration::from_secs(4)).await;
+            }
             if toasts {
                 use lodestone_ui::components::Toast;
                 window

@@ -39,6 +39,9 @@ impl HostShell {
             cx.subscribe(&state, |this, _, event, cx| match event {
                 HostEvent::Navigate(route) => this.navigate(route.clone(), cx),
                 HostEvent::OpenCreateInstance => this.open_create(cx),
+                HostEvent::OpenCreateModpack(preset) => {
+                    this.open_create_with(Some(preset.clone()), cx)
+                }
                 _ => {}
             }),
         ];
@@ -70,8 +73,28 @@ impl HostShell {
     }
 
     pub fn open_create(&mut self, cx: &mut Context<Self>) {
+        self.open_create_with(None, cx);
+    }
+
+    /// The "New server" dialog, if it is open.
+    pub fn create_dialog(&self) -> Option<Entity<CreateInstance>> {
+        self.create.clone()
+    }
+
+    /// The "New server" dialog, on a Modrinth modpack when `preset` is given.
+    pub fn open_create_with(
+        &mut self,
+        preset: Option<crate::pages::create_instance::ModpackPreset>,
+        cx: &mut Context<Self>,
+    ) {
         let state = self.state.clone();
-        let dialog = cx.new(|cx| CreateInstance::new(state, cx));
+        let dialog = cx.new(|cx| {
+            let mut dialog = CreateInstance::new(state, cx);
+            if let Some(preset) = preset {
+                dialog.open_modpack_preset(preset, cx);
+            }
+            dialog
+        });
         let subscription = cx.subscribe(&dialog, |this, _, event, cx| match event {
             CreateInstanceEvent::Close => {
                 this.create = None;
