@@ -127,9 +127,7 @@ mod screenshot {
                     if step == "shell" {
                         break;
                     }
-                    cx.background_executor()
-                        .timer(Duration::from_secs(1))
-                        .await;
+                    cx.background_executor().timer(Duration::from_secs(1)).await;
                 }
             }
             cx.background_executor()
@@ -318,9 +316,7 @@ mod screenshot {
                             .ok();
                     }
                     save(&path, cx);
-                    cx.background_executor()
-                        .timer(Duration::from_secs(3))
-                        .await;
+                    cx.background_executor().timer(Duration::from_secs(3)).await;
                 }
             }
             save(&path, cx);
