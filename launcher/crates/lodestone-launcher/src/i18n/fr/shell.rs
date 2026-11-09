@@ -572,6 +572,8 @@ pub fn text(message: M) -> &'static str {
         M::SkinDeleteConfirm => "Supprimer {name}",
         M::SkinCopyName => "Copie de {name}",
         M::SkinCopied => "Copie de {name} créée pour la modifier.",
+        M::SkinImporting => "Importation…",
+        M::SkinExporting => "Exportation…",
         M::SkinImported => "{name} importé.",
         M::SkinExported => "Exporté dans {path}.",
         M::SkinSafeMode => "Démarré sans thème (--no-skin).",

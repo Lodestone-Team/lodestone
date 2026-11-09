@@ -468,6 +468,8 @@ pub fn text(message: M) -> &'static str {
         M::SkinDeleteConfirm => "删除 {name}",
         M::SkinCopyName => "{name} 副本",
         M::SkinCopied => "已复制 {name} 以便修改。",
+        M::SkinImporting => "正在导入…",
+        M::SkinExporting => "正在导出…",
         M::SkinImported => "已导入 {name}。",
         M::SkinExported => "已导出到 {path}。",
         M::SkinSafeMode => "已在不使用皮肤的情况下启动（--no-skin）。",

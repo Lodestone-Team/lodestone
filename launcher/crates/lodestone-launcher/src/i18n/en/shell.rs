@@ -524,6 +524,9 @@ crate::i18n::messages! {
         SkinCopyName = "{name} copy",
         /// Built-in skins can't change, so a change makes a copy.
         SkinCopied = "Made a copy of {name} to change it.",
+        /// While a skin pack is being imported or exported, in the background.
+        SkinImporting = "Importing…",
+        SkinExporting = "Exporting…",
         SkinImported = "Imported {name}.",
         SkinExported = "Exported to {path}.",
         SkinSafeMode = "Started without a skin (--no-skin).",

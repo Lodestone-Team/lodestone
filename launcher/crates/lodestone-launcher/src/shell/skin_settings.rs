@@ -37,6 +37,9 @@ pub struct SkinSettings {
     entries: Vec<SkinEntry>,
     confirm_delete: bool,
     toast: Toast,
+    /// While a pack is being imported or exported. The work runs in the
+    /// background, so the window keeps answering; its buttons wait for it.
+    busy: bool,
     _prompt: Option<Task<()>>,
 }
 
@@ -52,6 +55,7 @@ impl SkinSettings {
             entries: Vec::new(),
             confirm_delete: false,
             toast: Toast::default(),
+            busy: false,
             _prompt: None,
         };
         this.refresh(cx);
@@ -112,6 +116,9 @@ impl SkinSettings {
     /// "Import skin as zip" or "Import skin as folder" where the dialog can't show
     /// both, or on macOS "Import…", which takes either.
     fn import(&mut self, pick: Pick, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
         let picked = cx.prompt_for_paths(pick.options(false, t(M::SkinImportButton)));
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = picked.await else {
@@ -120,11 +127,27 @@ impl SkinSettings {
             let Some(path) = paths.into_iter().next() else {
                 return;
             };
+            let Ok(store) = this.update(cx, |this, cx| {
+                this.busy = true;
+                this.say(t(M::SkinImporting), false, cx);
+                this.store(cx)
+            }) else {
+                return;
+            };
+            // Importing decodes and re-encodes every image: on the window's thread it
+            // would stop the window answering the compositor ("Not responding").
+            let imported = cx
+                .background_executor()
+                .spawn(async move {
+                    let id = store.import(&path)?;
+                    let name = store.get(&id).map(|e| e.spec.name).unwrap_or_default();
+                    Ok::<_, launcher_core::ui_skin::SkinError>((id, name))
+                })
+                .await;
             this.update(cx, |this, cx| {
-                let store = this.store(cx);
-                match store.import(&path) {
-                    Ok(id) => {
-                        let name = store.get(&id).map(|e| e.spec.name).unwrap_or_default();
+                this.busy = false;
+                match imported {
+                    Ok((id, name)) => {
                         this.use_skin(Some(id), cx);
                         this.say(tr!(M::SkinImported, name = name), false, cx);
                     }
@@ -136,6 +159,9 @@ impl SkinSettings {
     }
 
     fn export(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
         let look = crate::skin::look(cx);
         let id = look.id.clone();
         let file_name = format!("{}.zip", look.spec.name);
@@ -145,13 +171,31 @@ impl SkinSettings {
             let Ok(Ok(Some(path))) = picked.await else {
                 return;
             };
-            this.update(cx, |this, cx| match this.store(cx).export(&id, &path) {
-                Ok(()) => this.say(
-                    tr!(M::SkinExported, path = path.display().to_string()),
-                    false,
-                    cx,
-                ),
-                Err(err) => this.say(err.to_string(), true, cx),
+            let Ok(store) = this.update(cx, |this, cx| {
+                this.busy = true;
+                this.say(t(M::SkinExporting), false, cx);
+                this.store(cx)
+            }) else {
+                return;
+            };
+            // Zipping the pack is file work too: keep it off the window's thread.
+            let exported = cx
+                .background_executor()
+                .spawn({
+                    let path = path.clone();
+                    async move { store.export(&id, &path) }
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.busy = false;
+                match exported {
+                    Ok(()) => this.say(
+                        tr!(M::SkinExported, path = path.display().to_string()),
+                        false,
+                        cx,
+                    ),
+                    Err(err) => this.say(err.to_string(), true, cx),
+                }
             })
             .ok();
         }));
@@ -380,6 +424,7 @@ impl Render for SkinSettings {
                                 .variant(ButtonVariant::Secondary)
                                 .size(ButtonSize::Slim)
                                 .icon(Icon::Download)
+                                .disabled(self.busy)
                                 .on_click(cx.listener(move |this, _, _, cx| this.import(pick, cx)))
                         }),
                 )
@@ -388,6 +433,7 @@ impl Render for SkinSettings {
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .icon(Icon::Upload)
+                        .disabled(self.busy)
                         .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
                 )
                 .child(

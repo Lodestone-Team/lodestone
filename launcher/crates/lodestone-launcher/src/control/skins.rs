@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use gpui::App;
+use gpui::{App, AppContext as _};
 use launcher_control::codes;
 use launcher_core::ui_skin::{SkinEntry, SkinStore, readable};
 use serde::Deserialize;
@@ -79,20 +79,28 @@ pub fn import(call: Call, cx: &mut App) -> Reply {
     let params: ImportParams = params!(call);
     tri!(absolute(&params.path));
     let store = call.control.instances.read(cx).skins();
-    let id = match store.import(&params.path) {
-        Ok(id) => id,
-        Err(err) => return ready(Err(api_error(codes::INVALID_PARAMS, err.to_string()))),
-    };
-    if params.r#use {
-        call.control
-            .instances
-            .update(cx, |instances, cx| instances.set_skin(Some(id.clone()), cx));
-    }
-    let entry = store.get(&id).ok();
-    let current = crate::skin::look(cx).id.clone();
-    ready(Ok(
-        json!({ "skin": entry.map(|e| entry_json(&e, &current)) }),
-    ))
+    let control = call.control.clone();
+    // Importing decodes and re-encodes every image: in the background, so the window
+    // keeps answering the compositor.
+    let work = cx.background_spawn({
+        let store = store.clone();
+        async move { store.import(&params.path) }
+    });
+    cx.spawn(async move |cx| {
+        let id = work
+            .await
+            .map_err(|err| api_error(codes::INVALID_PARAMS, err.to_string()))?;
+        Ok(cx.update(|cx| {
+            if params.r#use {
+                control
+                    .instances
+                    .update(cx, |instances, cx| instances.set_skin(Some(id.clone()), cx));
+            }
+            let entry = store.get(&id).ok();
+            let current = crate::skin::look(cx).id.clone();
+            json!({ "skin": entry.map(|e| entry_json(&e, &current)) })
+        }))
+    })
 }
 
 #[derive(Deserialize)]
@@ -112,10 +120,13 @@ pub fn export(call: Call, cx: &mut App) -> Reply {
         .id
         .unwrap_or_else(|| crate::skin::look(cx).id.clone());
     let store = call.control.instances.read(cx).skins();
-    match store.export(&id, &params.path) {
-        Ok(()) => ready(Ok(json!({ "id": id, "path": params.path }))),
-        Err(err) => ready(Err(api_error(codes::FAILED, err.to_string()))),
-    }
+    // Zipping the pack is file work: in the background, like importing.
+    cx.background_spawn(async move {
+        match store.export(&id, &params.path) {
+            Ok(()) => Ok(json!({ "id": id, "path": params.path })),
+            Err(err) => Err(api_error(codes::FAILED, err.to_string())),
+        }
+    })
 }
 
 fn checks_json(checks: &[readable::Check]) -> Value {
@@ -149,14 +160,17 @@ pub fn check(call: Call, cx: &mut App) -> Reply {
     let params: CheckParams = params!(call);
     if let Some(path) = params.path {
         tri!(absolute(&path));
-        return ready(match SkinStore::check_pack(&path) {
-            Ok((spec, checks)) => {
-                let mut out = checks_json(&checks);
-                out["valid"] = json!(true);
-                out["name"] = json!(spec.name);
-                Ok(out)
+        // Checking a pack imports it into a scratch folder: in the background too.
+        return cx.background_spawn(async move {
+            match SkinStore::check_pack(&path) {
+                Ok((spec, checks)) => {
+                    let mut out = checks_json(&checks);
+                    out["valid"] = json!(true);
+                    out["name"] = json!(spec.name);
+                    Ok(out)
+                }
+                Err(err) => Ok(json!({ "valid": false, "error": err.to_string() })),
             }
-            Err(err) => Ok(json!({ "valid": false, "error": err.to_string() })),
         });
     }
     let look = crate::skin::look(cx);

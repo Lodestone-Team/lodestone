@@ -472,6 +472,8 @@ pub fn text(message: M) -> &'static str {
         M::SkinDeleteConfirm => "刪除 {name}",
         M::SkinCopyName => "{name} 副本",
         M::SkinCopied => "已複製 {name} 以便修改。",
+        M::SkinImporting => "正在匯入…",
+        M::SkinExporting => "正在匯出…",
         M::SkinImported => "已匯入 {name}。",
         M::SkinExported => "已匯出到 {path}。",
         M::SkinSafeMode => "已在不使用外觀主題的情況下啟動（--no-skin）。",
