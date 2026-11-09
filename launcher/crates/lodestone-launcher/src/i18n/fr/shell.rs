@@ -355,6 +355,16 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffAndSignOut => "Désactiver et déconnecter",
         M::TurnOffOnly => "Désactiver seulement",
         M::SignInSection => "Connexion Microsoft",
+        M::CodingAgentsSection => "Agents de programmation",
+        M::CodingAgentsLead => {
+            "Claude Code, Codex et d’autres agents de programmation peuvent piloter le lanceur avec lodestone-launcher-cli. Le lanceur garde des guides pour eux dans son dossier de données."
+        }
+        M::AgentSkills => "Compétences",
+        M::AgentPrompt => "Configurer un agent de programmation",
+        M::AgentPromptHint => {
+            "Collez ceci dans votre agent. Il installe lodestone-launcher-cli, lit les compétences, vérifie la connexion et commence le débogage avec vous."
+        }
+        M::CopyPrompt => "Copier le prompt",
         M::CommandLineSection => "Ligne de commande",
         M::CommandLineLead => {
             "lodestone-launcher-cli et les autres programmes que vous lancez joignent le lanceur par un socket dans son dossier de données. Seul votre compte utilisateur peut s’y connecter. Ces réglages ne se changent qu’ici, jamais depuis la ligne de commande."

@@ -73,6 +73,14 @@ fn main() {
 
             let accounts = accounts::create(cx);
             let instances = lodestone_launcher::instances::create(&accounts, cx);
+            // The coding-agent skills, in the data folder (Settings > Developer).
+            let data_dir = accounts.read(cx).data_dir().clone();
+            gpui::AppContext::background_spawn(cx, async move {
+                if let Err(err) = lodestone_launcher::agent_skills::install(&data_dir) {
+                    eprintln!("lodestone-launcher: couldn't write the agent skills: {err}");
+                }
+            })
+            .detach();
             cx.spawn(async move |cx| {
                 let decoded = decoding.await;
                 trace.mark("bundled images decoded");

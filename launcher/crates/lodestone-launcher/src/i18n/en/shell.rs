@@ -331,6 +331,13 @@ crate::i18n::messages! {
         /// Settings > Developer: the section of "Sign in as the Minecraft Launcher".
         SignInSection = "Microsoft sign-in",
         /// Settings > Developer: what lodestone-launcher-cli may do.
+        /// Settings > Developer > Coding agents.
+        CodingAgentsSection = "Coding agents",
+        CodingAgentsLead = "Claude Code, Codex and other coding agents can drive the launcher through lodestone-launcher-cli. The launcher keeps guides for them in its data folder.",
+        AgentSkills = "Skills",
+        AgentPrompt = "Set up a coding agent",
+        AgentPromptHint = "Paste this into your agent. It installs lodestone-launcher-cli, reads the skills, checks the connection and starts debugging with you.",
+        CopyPrompt = "Copy prompt",
         CommandLineSection = "Command line",
         CommandLineLead = "lodestone-launcher-cli and other programs you run reach the launcher through a socket in its data folder. Only your user account can connect. These settings change only here, never from the command line.",
         AllowCli = "Allow command-line connections",

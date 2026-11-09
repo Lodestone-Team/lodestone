@@ -8,11 +8,11 @@ use crate::theme::px;
 use crate::{components::segmented, theme::colors};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Toggle,
+        Button, ButtonSize, ButtonVariant, Dialog, Icon, Toggle,
         settings::{SettingRow, card, section},
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
-    theme::{self, leading, text, weights},
+    theme::{self, fonts, leading, radius, text, weights},
 };
 use gpui::ClipboardItem;
 use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
@@ -71,6 +71,13 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .child(
             section(t(M::CommandLineSection), Some(t(M::CommandLineLead).into()))
                 .child(command_line(shell, cx)),
+        )
+        .child(
+            section(
+                t(M::CodingAgentsSection),
+                Some(t(M::CodingAgentsLead).into()),
+            )
+            .child(coding_agents(shell, cx)),
         )
         .children(clients(cx))
         .child(
@@ -431,4 +438,86 @@ impl LauncherShell {
         )
         .into_any_element()
     }
+}
+
+/// Settings > Developer > Coding agents: where the skills are, and the prompt that sets
+/// an agent up with the command line.
+fn coding_agents(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyElement {
+    let data = shell.accounts.read(cx).data_dir().clone();
+    let skills = crate::agent_skills::dir(&data);
+    let custom = std::env::var_os("LODESTONE_LAUNCHER_DATA_DIR")
+        .filter(|value| !value.is_empty())
+        .map(|_| data.root().to_path_buf());
+    let prompt: SharedString = crate::agent_skills::prompt(
+        &skills,
+        launcher_core::update::Build::current(),
+        custom.as_deref(),
+    )
+    .into();
+    let copied = shell.agent_prompt_copied;
+    let skills_text: SharedString = skills.display().to_string().into();
+    card([
+        SettingRow::new(t(M::AgentSkills))
+            .hint(skills_text)
+            .child(
+                Button::new("open-agent-skills", t(CommonMsg::OpenFolder))
+                    .size(ButtonSize::Slim)
+                    .on_click(move |_, _, cx| cx.open_with_system(&skills)),
+            )
+            .into_any_element(),
+        SettingRow::new(t(M::AgentPrompt))
+            .hint(t(M::AgentPromptHint))
+            .child(
+                Button::new(
+                    "copy-agent-prompt",
+                    if copied {
+                        t(CommonMsg::Copied)
+                    } else {
+                        t(M::CopyPrompt)
+                    },
+                )
+                .variant(ButtonVariant::Primary)
+                .size(ButtonSize::Slim)
+                .icon(if copied { Icon::Check } else { Icon::Copy })
+                .on_click({
+                    let prompt = prompt.clone();
+                    cx.listener(move |this, _, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(prompt.to_string()));
+                        this.agent_prompt_copied = true;
+                        cx.notify();
+                        this.agent_prompt_reset = Some(cx.spawn(async move |this, cx| {
+                            cx.background_executor()
+                                .timer(std::time::Duration::from_secs(2))
+                                .await;
+                            this.update(cx, |this, cx| {
+                                this.agent_prompt_copied = false;
+                                cx.notify();
+                            })
+                            .ok();
+                        }));
+                    })
+                }),
+            )
+            .into_any_element(),
+        // The prompt itself, to read (and select) before pasting it.
+        div()
+            .px_6()
+            .pb_5()
+            .child(
+                div()
+                    .p_3()
+                    .rounded(radius::LG)
+                    .bg(colors::GRAY_900)
+                    .border_1()
+                    .border_color(crate::theme::ink::border())
+                    .font_family(fonts::mono())
+                    .text_size(theme::text_size(text::SMALL))
+                    .line_height(theme::line_height(text::SMALL, leading::NORMAL))
+                    .text_color(crate::theme::ink::secondary())
+                    .whitespace_normal()
+                    .child(crate::components::RichText::new(prompt).id("agent-prompt-text")),
+            )
+            .into_any_element(),
+    ])
+    .into_any_element()
 }
