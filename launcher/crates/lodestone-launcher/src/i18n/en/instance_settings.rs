@@ -52,6 +52,17 @@ crate::i18n::messages! {
         NoScreenshots = "No screenshots yet. Press F2 in the game to take one, or choose a file.",
         ChooseFile = "Choose a file…",
         UseDefault = "Use the default",
+        /// The Play background picker's tabs, and the slideshow's sources.
+        BackgroundDefault = "Default",
+        BackgroundImage = "Image",
+        BackgroundSlideshow = "Slideshow",
+        SlideshowThisInstance = "This instance",
+        SlideshowAllInstances = "All instances",
+        SlideshowOwnImages = "My images",
+        AddImages = "Add images…",
+        AddToSlideshow = "Add to slideshow",
+        SlideshowNoScreenshots = "No screenshots yet. The default artwork shows until there are.",
+        SlideshowNoImages = "No images yet. Add some, or pick screenshots below.",
         /// The icon picker's tabs.
         BlocksAndItems = "Blocks & items",
         Emoji = "Emoji",

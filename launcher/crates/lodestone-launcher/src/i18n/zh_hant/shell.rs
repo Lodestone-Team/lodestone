@@ -393,6 +393,60 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAvailableBadge => "有可用的更新",
 
         M::RestOnModrinth => "其餘說明請在 Modrinth 上查看。",
+        M::Storage => "儲存空間",
+        M::StorageInstances => "實例",
+        M::StorageGameFiles => "遊戲檔案",
+        M::StorageRuntimes => "Java 執行環境",
+        M::StorageCache => "快取",
+        M::StorageLeftovers => "未完成的下載和匯入",
+        M::StorageCleanLeftoversTitle => "移除未完成的下載？",
+        M::StorageCleanLeftoversBody => {
+            "這將釋放 {size}。這些是未完成的模組包下載和匯入留下的檔案。"
+        }
+        M::StorageOther => "設定和其他檔案",
+        M::StorageCacheAndLogs => "快取和記錄",
+        M::StorageLogs => "記錄和當機報告",
+        M::StorageOldLogs => "{size} 超過 30 天",
+        M::StorageVersions => "版本",
+        M::StorageLibraries => "程式庫",
+        M::StorageAssets => "資源",
+        M::StorageUnused => "沒有實例使用",
+        M::StorageUnusedTag => "未使用",
+        M::StorageJava => "Java {major}",
+        M::StorageWorlds => "世界 {size}",
+        M::StorageContent => "模組和資源包 {size}",
+        M::StorageOtherFiles => "其他 {size}",
+        M::StorageNoInstances => "沒有實例",
+        M::StorageNoRuntimes => "沒有 Java 執行環境",
+        M::StorageCounting => "正在統計…",
+        M::StorageCouldntCount => "無法統計檔案：{error}",
+        M::StorageStopGame => "請先停止遊戲，再移除遊戲檔案、Java 執行環境或快取。",
+        M::StorageOpenFolder => "打開資料夾",
+        M::StorageOpen => "打開",
+        M::StorageDelete => "刪除…",
+        M::StorageRemoveEllipsis => "移除…",
+        M::StorageClearEllipsis => "清除…",
+        M::StorageRemove => "移除",
+        M::StorageClear => "清除",
+        M::StorageDeleteOld => "刪除舊的…",
+        M::StorageDeleteAll => "全部刪除…",
+        M::StorageDeleteConfirm => "刪除",
+        M::StorageFreed => "已釋放 {size}",
+        M::StorageCouldntRemove => "無法全部移除：{error}",
+        M::StorageCleanGameFilesTitle => "移除未使用的遊戲檔案？",
+        M::StorageCleanGameFilesBody => {
+            "這將釋放 {size}。沒有實例使用的版本、程式庫和資源會被刪除，實例需要時會重新下載。"
+        }
+        M::StorageCleanRuntimesTitle => "移除未使用的 Java 執行環境？",
+        M::StorageCleanRuntimesBody => "這將釋放 {size}。Minecraft 版本需要時會重新下載。",
+        M::StorageClearCacheTitle => "清除快取？",
+        M::StorageClearCacheBody => "這將釋放 {size}。啟動器會重新下載所需內容。",
+        M::StorageDeleteOldLogsTitle => "刪除舊記錄？",
+        M::StorageDeleteOldLogsBody => "這將釋放 {size}。超過 30 天的記錄和當機報告會被永久刪除。",
+        M::StorageDeleteAllLogsTitle => "刪除所有記錄？",
+        M::StorageDeleteAllLogsBody => {
+            "這將釋放 {size}。所有記錄和當機報告都會被永久刪除，正在執行的遊戲的除外。"
+        }
     }
 }
 

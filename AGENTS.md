@@ -15,7 +15,11 @@ when a build is ready, and either they or their agent publishes it with
   to do when the script refuses.
 - **The script builds only this machine's platform**, so each platform is
   published from its own machine. It needs a clean checkout of a commit on
-  `main`, the Rust toolchain, and `gh` signed in with write access.
+  `main`, the Rust toolchain, and `gh` signed in with write access. On Windows it
+  also builds the installer, which needs Inno Setup 6.
+- **Windows users install with `LodestoneLauncherSetup.exe`** from the release
+  (`launcher/installer/windows`). It installs per user, without administrator
+  rights, so the launcher can keep updating itself in place.
 - **Test the build on this machine before publishing it.** The dry run leaves a
   copy of its build to test and prints the path: run it and check it works
   (window, instances, Settings › General › Updates showing the new build,

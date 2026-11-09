@@ -77,11 +77,16 @@ pub const SCENES: &[&str] = &[
     "undo-toast",
     "settings-accounts",
     "settings-developer",
+    "settings-storage",
+    "settings-storage-confirm",
     "play-background",
     "play-background-dark",
     "icon-picker",
     "icon-picker-emoji",
     "background-picker",
+    "play-slideshow",
+    "play-slideshow-fade",
+    "background-picker-slideshow",
     "instance-settings-narrow",
     "instance-settings-narrow-open",
     "settings-narrow",
@@ -136,7 +141,8 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
 fn is_appearance_scene(scene: &str) -> bool {
     scene.starts_with("play-background")
         || scene.starts_with("icon-picker")
-        || scene == "background-picker"
+        || scene.starts_with("background-picker")
+        || scene.starts_with("play-slideshow")
 }
 
 /// A made-up landscape for the background scenes: a pale sky over a snowfield (bright
@@ -348,6 +354,21 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                             if background_image(bright).save(&file).is_ok() {
                                 let _ = store.set_background(&instance.id, &file);
                             }
+                        }
+                        // A slideshow of its own two images: the bright one, then the dark.
+                        if scene.starts_with("play-slideshow")
+                            || scene == "background-picker-slideshow"
+                        {
+                            for bright in [true, false] {
+                                let file = data_dir.root().join(format!("slide-{bright}.png"));
+                                if background_image(bright).save(&file).is_ok() {
+                                    let _ = store.add_slideshow_image(&instance.id, &file);
+                                }
+                            }
+                            let _ = store.set_slideshow(
+                                &instance.id,
+                                Some(launcher_core::instances::SlideshowSource::Custom),
+                            );
                         }
                     }
                 }
@@ -623,11 +644,33 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "import" | "import-progress" => import::apply(scene, shell, cx),
-        "icon-picker" | "icon-picker-emoji" | "background-picker" => {
+        "play-slideshow-fade" => {
+            // Once the first image is up, hold the next one halfway through its fade.
+            let slideshow = shell.slideshow().clone();
+            cx.spawn(async move |_, cx| {
+                for _ in 0..40 {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(25))
+                        .await;
+                    let ready = slideshow.read_with(cx, |s, _| s.is_ready());
+                    if ready {
+                        slideshow.update(cx, |s, cx| s.preview_fade(cx));
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
+        "icon-picker"
+        | "icon-picker-emoji"
+        | "background-picker"
+        | "background-picker-slideshow" => {
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view().cloned() {
                 settings.update(cx, |settings, cx| match scene {
-                    "background-picker" => settings.preview_background_picker(cx),
+                    "background-picker" | "background-picker-slideshow" => {
+                        settings.preview_background_picker(cx)
+                    }
                     _ => settings.preview_icon_picker(scene == "icon-picker-emoji"),
                 });
             }
@@ -667,6 +710,12 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 _ => crate::shell::SettingsPage::Defaults,
             };
             shell.open_settings(Some(page), None, cx);
+        }
+        "settings-storage" | "settings-storage-confirm" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Storage), None, cx);
+            let confirm = (scene == "settings-storage-confirm")
+                .then_some(launcher_core::disk::Clean::UnusedGameFiles);
+            shell.preview_storage(storage_report(), confirm, cx);
         }
         "undo-toast" => {
             shell.open_settings(Some(crate::shell::SettingsPage::General), None, cx);
@@ -712,5 +761,63 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.preview_unsaved_prompt(cx);
         }
         _ => {}
+    }
+}
+
+/// A made-up Settings > Storage count, like a data folder after some months of play.
+fn storage_report() -> launcher_core::disk::Report {
+    use launcher_core::disk::{GameFiles, InstanceUsage, Logs, Report, RuntimeUsage, Unused};
+    const MB: u64 = 1_000_000;
+    let instance = |id: &str, name: &str, worlds: u64, content: u64, other: u64| InstanceUsage {
+        id: id.into(),
+        name: name.into(),
+        worlds: worlds * MB,
+        content: content * MB,
+        logs: 3 * MB,
+        screenshots: 12 * MB,
+        other: other * MB,
+    };
+    let runtime = |component: &str, java: Option<u32>, mb: u64, used_by: &[&str]| RuntimeUsage {
+        component: component.into(),
+        java,
+        bytes: mb * MB,
+        used_by: used_by.iter().map(|v| v.to_string()).collect(),
+    };
+    Report {
+        instances: vec![
+            instance("all-the-mods", "All the mods", 412, 520, 96),
+            instance("survival-1-20-1", "Survival 1.20.1", 238, 84, 31),
+            instance("old-school", "Old school", 46, 0, 8),
+            instance("latest-release", "Latest release", 12, 0, 4),
+        ],
+        runtimes: vec![
+            runtime("java-runtime-delta", Some(21), 104, &["26.3"]),
+            runtime("java-runtime-gamma", Some(17), 92, &["1.20.1"]),
+            runtime("jre-legacy", Some(8), 164, &["1.8.9"]),
+            runtime("java-runtime-beta", None, 92, &[]),
+        ],
+        game_files: GameFiles {
+            versions: 153 * MB,
+            libraries: 252 * MB,
+            assets: 1_100 * MB,
+            unused: Unused {
+                versions: vec!["1.18.2".into(), "26.1.1".into()],
+                versions_bytes: 48 * MB,
+                libraries: 31 * MB,
+                assets: 210 * MB,
+            },
+        },
+        cache: 6 * MB + 300_000,
+        leftovers: launcher_core::disk::Leftovers {
+            bytes: 228 * MB,
+            items: vec![".lodestone-pack-cb8aa247.mrpack".into()],
+        },
+        logs: Logs {
+            bytes: 12 * MB,
+            files: 84,
+            old_bytes: 9 * MB,
+            old_files: 61,
+        },
+        other: 400_000,
     }
 }

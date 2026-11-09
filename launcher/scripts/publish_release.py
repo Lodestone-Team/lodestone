@@ -3,7 +3,10 @@
 
 Builds the launcher for this machine's platform, uploads the binary to the
 `launcher-latest` GitHub release, then updates the release's `latest.json`, which
-the launcher's updater reads (launcher/crates/launcher-core/src/update.rs).
+the launcher's updater reads (launcher/crates/launcher-core/src/update.rs). On
+Windows it also builds the installer (launcher/installer/windows, Inno Setup) and
+uploads it as `LodestoneLauncherSetup.exe`, for people installing for the first
+time; installed launchers then update themselves.
 
 Each platform is published from a machine of its own: run this on a Mac for
 macOS and on a Windows PC for Windows. Each keeps its own build number in
@@ -22,7 +25,8 @@ Usage, from anywhere in the repository:
                                                             # local test, no GitHub
 
 Needs Python 3.9+, the Rust toolchain, and the GitHub CLI (`gh`) signed in with
-write access to the repository. Uses only the standard library.
+write access to the repository; on Windows also Inno Setup 6 (`winget install
+--id JRSoftware.InnoSetup -e --scope user`). Uses only the standard library.
 """
 
 from __future__ import annotations
@@ -48,7 +52,10 @@ KEEP = 2
 
 LAUNCHER = Path(__file__).resolve().parent.parent
 ROOT = LAUNCHER.parent
-ASSET_NAME = re.compile(r"^lodestone-launcher-(\d+)-([a-z0-9]+-[a-z0-9_]+)(\.exe)?$")
+ASSET_NAME = re.compile(r"^lodestone-launcher-(\d+)-([a-z0-9]+-[a-z0-9_]+)(-setup)?(\.exe)?$")
+INSTALLER_SCRIPT = LAUNCHER / "installer" / "windows" / "lodestone-launcher.iss"
+# The installer under a name that never changes, so the download link doesn't either.
+STABLE_INSTALLER = "LodestoneLauncherSetup.exe"
 
 
 class Failure(Exception):
@@ -155,6 +162,15 @@ def asset_name(build: int, key: str) -> str:
     return f"lodestone-launcher-{build}-{key}" + (".exe" if key.startswith("windows-") else "")
 
 
+def installer_name(build: int, key: str) -> str:
+    return f"lodestone-launcher-{build}-{key}-setup.exe"
+
+
+def has_installer(key: str) -> bool:
+    """Platforms with an installer. The installer script is for x64 Windows."""
+    return key == "windows-x86_64"
+
+
 def updated_manifest(old: dict | None, key: str, entry: dict, version: str, published: str) -> dict:
     """`old` with this platform's entry replaced; the top-level build is the newest."""
     assets: dict = {}
@@ -183,7 +199,8 @@ def stale_names(names: list[str], key: str, keep_builds: set[int]) -> list[str]:
         match = ASSET_NAME.match(name)
         if match and match.group(2) == key:
             mine.append((int(match.group(1)), name))
-    newest = {build for build, _ in sorted(mine, reverse=True)[:KEEP]} | keep_builds
+    # Count builds, not files: a Windows build has its binary and its installer.
+    newest = set(sorted({build for build, _ in mine}, reverse=True)[:KEEP]) | keep_builds
     return [name for build, name in mine if build not in newest]
 
 
@@ -217,6 +234,43 @@ def build_binary(build: int, commit: str, key: str, into: Path) -> tuple[Path, P
     return Path(metadata["target_directory"]), target
 
 
+def find_iscc() -> Path:
+    """Inno Setup's compiler: $ISCC, on PATH, or where winget and its installer put it."""
+    candidates = [os.environ.get("ISCC"), shutil.which("iscc")]
+    for variable in ("LOCALAPPDATA", "ProgramFiles(x86)", "ProgramFiles"):
+        base = os.environ.get(variable)
+        if base:
+            programs = Path(base) / "Programs" if variable == "LOCALAPPDATA" else Path(base)
+            candidates.append(str(programs / "Inno Setup 6" / "ISCC.exe"))
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return Path(candidate)
+    raise Failure(
+        "Inno Setup isn't installed, and Windows releases include an installer. Install it with "
+        "`winget install --id JRSoftware.InnoSetup -e --scope user`, or pass --no-installer"
+    )
+
+
+def build_installer(exe: Path, build: int, version: str, key: str, into: Path) -> Path:
+    """Wraps `exe` in the Windows installer; returns the installer."""
+    name = installer_name(build, key)
+    run([str(find_iscc()), "/Q", f"/DSourceExe={exe}", f"/DBuild={build}",
+         f"/DVersion={version}", f"/DOutputDir={into}", f"/DOutputName={Path(name).stem}",
+         str(INSTALLER_SCRIPT)], cwd=INSTALLER_SCRIPT.parent)
+    installer = into / name
+    if not installer.is_file():
+        raise Failure(f"Inno Setup finished but {installer} is missing")
+    return installer
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 # A dry run leaves a copy of its build to test, and a record of it. Publishing
 # checks that it uploads exactly that file, so what reaches users is what was
 # tested, even if the copy under test updated itself meanwhile.
@@ -224,7 +278,9 @@ CANDIDATE_DIR = "release-candidate"
 CANDIDATE_RECORD = "candidate.json"
 
 
-def save_candidate(target_dir: Path, binary: Path, entry: dict, key: str) -> Path:
+def save_candidate(target_dir: Path, binary: Path, entry: dict, key: str,
+                   installer: Path | None = None) -> tuple[Path, Path | None]:
+    """Keeps the build (and its installer) to test; returns their copies."""
     folder = target_dir / CANDIDATE_DIR
     if folder.exists():
         shutil.rmtree(folder, ignore_errors=True)
@@ -235,12 +291,23 @@ def save_candidate(target_dir: Path, binary: Path, entry: dict, key: str) -> Pat
         copy.chmod(0o755)
     record = {"platform": key, "build": entry["build"], "commit": entry["commit"],
               "sha256": entry["sha256"]}
+    installer_copy = None
+    if installer is not None:
+        # Kept as built: Inno Setup's output isn't byte-for-byte reproducible, so the
+        # publish uploads this file rather than building another.
+        installer_copy = folder / installer.name
+        shutil.copyfile(installer, installer_copy)
+        record["installer"] = installer.name
+        record["installer_sha256"] = sha256(installer_copy)
     (folder / CANDIDATE_RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    return copy
+    return copy, installer_copy
 
 
-def check_candidate(target_dir: Path, entry: dict, key: str) -> None:
-    """Refuses to publish anything but the build a dry run made for testing."""
+def check_candidate(target_dir: Path, entry: dict, key: str,
+                    want_installer: bool = False) -> Path | None:
+    """Refuses to publish anything but the build a dry run made for testing.
+
+    Returns the dry run's installer, when one is wanted."""
     file = target_dir / CANDIDATE_DIR / CANDIDATE_RECORD
     if not file.exists():
         raise Failure(
@@ -261,6 +328,15 @@ def check_candidate(target_dir: Path, entry: dict, key: str) -> None:
             "this build isn't the file the dry run made, so it isn't the one that was tested "
             "(something changed in between). Dry-run and test again"
         )
+    if not want_installer:
+        return None
+    name = record.get("installer")
+    installer = target_dir / CANDIDATE_DIR / name if name else None
+    if installer is None or not installer.is_file():
+        raise Failure("the dry run didn't keep an installer. Dry-run and test again")
+    if sha256(installer) != record.get("installer_sha256"):
+        raise Failure("the dry run's installer has changed since it was made. Dry-run and test again")
+    return installer
 
 
 def describe(path: Path, build: int, commit: str) -> dict:
@@ -334,6 +410,10 @@ class GitHub:
         notes = ["Lodestone Launcher builds. Installed launchers update from here.", ""]
         notes += [f"- {key}: build {asset['build']} ({str(asset.get('commit') or '')[:7]})"
                   for key, asset in manifest["assets"].items()]
+        if any(has_installer(key) for key in manifest["assets"]):
+            notes += ["", f"**New on Windows?** Download `{STABLE_INSTALLER}` below and run it. "
+                      "It installs for your account without administrator rights, and the "
+                      "launcher keeps itself up to date from then on."]
         notes += ["", "Published with `launcher/scripts/publish_release.py`."]
         self.gh("release", "edit", self.tag, "--repo", self.repo, "--notes", "\n".join(notes))
 
@@ -393,6 +473,8 @@ def main(argv: list[str]) -> int:
                         help="publish even if this platform already has this build or a newer one")
     parser.add_argument("--allow-dirty", action="store_true",
                         help="publish a checkout with uncommitted changes")
+    parser.add_argument("--no-installer", action="store_true",
+                        help="on Windows, publish the binary without building the installer")
     parser.add_argument("--allow-unmerged", action="store_true",
                         help="publish a commit that isn't on main on GitHub")
     parser.add_argument("--repo", default=REPO, help=argparse.SUPPRESS)
@@ -419,6 +501,9 @@ def main(argv: list[str]) -> int:
     build = args.build if args.build is not None else int(run(["git", "rev-list", "--count", "HEAD"]))
     version = workspace_version()
     print(f"    {key}, build {build}, commit {commit[:7]}, version {version}")
+    with_installer = has_installer(key) and not args.no_installer
+    if with_installer:
+        find_iscc()  # before the long build, not after it
 
     current = target.manifest()
     published = (current or {}).get("assets", {}).get(key)
@@ -437,23 +522,40 @@ def main(argv: list[str]) -> int:
         now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         if args.dry_run:
+            installer = None
+            if with_installer:
+                step("Building the Windows installer")
+                installer = build_installer(binary, build, version, key, Path(tmp))
             manifest = updated_manifest(current, key, entry, version, now)
             step("Dry run: nothing uploaded. latest.json would be:")
             print(json.dumps(manifest, indent=2))
             print(f"    The binary is {binary.name}, {entry['size']} bytes.")
-            candidate = save_candidate(target_dir, binary, entry, key)
+            candidate, installer_copy = save_candidate(target_dir, binary, entry, key, installer)
             step("Test this build on this machine before publishing it:")
             print(f"    {candidate}")
+            if installer_copy:
+                print("    and its installer (install, open, uninstall):")
+                print(f"    {installer_copy}")
             print("    Then publish from this checkout without changes; the script checks that it")
-            print("    uploads this exact file.")
+            print("    uploads these exact files.")
             return 0
 
+        installer = None
         if not local and not test_tag:
-            check_candidate(target_dir, entry, key)
+            installer = check_candidate(target_dir, entry, key, want_installer=with_installer)
+        elif with_installer:
+            step("Building the Windows installer")
+            installer = build_installer(binary, build, version, key, Path(tmp))
 
         target.ensure_release(commit)
         step(f"Uploading {binary.name}")
         target.upload(binary)
+        if installer:
+            step(f"Uploading {installer.name} and {STABLE_INSTALLER}")
+            target.upload(installer)
+            stable = Path(tmp) / STABLE_INSTALLER
+            shutil.copyfile(installer, stable)
+            target.upload(stable)
         # Read the manifest again just before replacing it, so a platform published
         # meanwhile from another machine is kept.
         manifest = updated_manifest(target.manifest(), key, entry, version, now)

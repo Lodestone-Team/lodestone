@@ -13,6 +13,7 @@ pub mod new_instance;
 pub mod settings;
 pub(crate) mod shared_options_i18n;
 pub mod shared_settings;
+pub mod slideshow;
 mod undo;
 pub mod worlds;
 pub use undo::InstanceSnapshot;
@@ -275,6 +276,14 @@ pub struct Instances {
     /// Decoded Play backgrounds, and those being decoded.
     backgrounds: HashMap<String, appearance::BackgroundEntry>,
     background_tasks: HashMap<String, appearance::BackgroundTask>,
+    /// Goes up when an instance's slideshow changes, so the Play tab lists it again.
+    slideshow_revision: u64,
+    /// The instance whose background is decoded for the Play tab, and the one before,
+    /// kept for a quick switch back. No other background stays decoded.
+    background_shown: Option<String>,
+    background_previous: Option<String>,
+    /// Display-size copies of the banner's images, in `<data>/cache/hero`.
+    hero_cache: launcher_core::hero_cache::HeroCache,
     loader_versions: HashMap<(LoaderKind, String), LoaderVersions>,
     loader_tasks: HashMap<(LoaderKind, String), Task<()>>,
     /// Exports in progress.
@@ -334,6 +343,10 @@ impl Instances {
             data_dir.clone(),
         );
         let store = InstanceStore::new(data_dir.instances_dir());
+        // Copies of images that are gone, and the oldest past the limit.
+        let hero_cache = launcher_core::hero_cache::HeroCache::new(&data_dir);
+        let pruning = hero_cache.clone();
+        cx.background_spawn(async move { pruning.prune() }).detach();
         let (settings, settings_notice) = match launcher_settings::load(&data_dir.settings_file()) {
             Ok(settings) => (settings, None),
             Err(err) => (
@@ -361,6 +374,10 @@ impl Instances {
             icons: HashMap::new(),
             backgrounds: HashMap::new(),
             background_tasks: HashMap::new(),
+            slideshow_revision: 0,
+            background_shown: None,
+            background_previous: None,
+            hero_cache,
             loader_versions: HashMap::new(),
             loader_tasks: HashMap::new(),
             exports: Vec::new(),
@@ -379,6 +396,8 @@ impl Instances {
             this.notice = settings_notice;
         }
         this.selected = this.list.first().map(|i| i.id.clone());
+        // Only the selected instance's background is decoded: now there is one.
+        this.load_backgrounds(cx);
         this
     }
 
@@ -637,6 +656,7 @@ impl Instances {
 
     pub fn select(&mut self, id: &str, cx: &mut Context<Self>) {
         self.selected = Some(id.to_string());
+        self.load_backgrounds(cx);
         cx.notify();
     }
 

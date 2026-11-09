@@ -174,6 +174,8 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ),
     ("prompts list", "prompts.list", false, false),
     ("prompts answer", "prompts.answer", false, false),
+    ("storage show", "storage.show", false, false),
+    ("storage clean", "storage.clean", false, true),
     ("jobs list", "jobs.list", false, false),
     ("jobs get", "jobs.get", false, false),
     ("jobs wait", "jobs.wait", true, false),

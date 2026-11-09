@@ -82,10 +82,15 @@ impl Updater {
         let build = Build::current();
         let exe = update::exe().map(Path::to_path_buf);
         let enabled = build.is_some() && exe.is_some();
-        if enabled && let Some(exe) = exe.clone() {
-            // What the update before this start left behind.
-            cx.background_spawn(async move { update::clean_up(&exe) })
-                .detach();
+        if enabled && let (Some(exe), Some(build)) = (exe.clone(), build) {
+            cx.background_spawn(async move {
+                // What the update before this start left behind.
+                update::clean_up(&exe);
+                // Installed with the Windows installer: Settings > Apps shows this build.
+                let display = update::display_version(env!("CARGO_PKG_VERSION"), build.number);
+                update::refresh_uninstall_entry(&exe, &display);
+            })
+            .detach();
         }
         let poll = enabled.then(|| {
             cx.spawn(async move |this, cx| {
