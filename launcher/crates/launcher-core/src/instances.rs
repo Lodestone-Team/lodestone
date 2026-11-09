@@ -224,17 +224,26 @@ impl Document for Instance {
     const MIGRATIONS: &'static [Migration] = &[Ok, migrate_v1];
 }
 
+/// The maximum memory M3 gave new instances: a quarter of the memory, from 2 to 4 GB.
+/// M3 read the memory size on macOS only and assumed 8 GB elsewhere, so this does too:
+/// the real size on Windows or Linux would turn M3's default into a custom setting.
+fn m3_default_max_ram_mb() -> u64 {
+    let total = if cfg!(target_os = "macos") {
+        crate::game::platform::total_memory()
+    } else {
+        None
+    };
+    let total_mb = total.map_or(8192, |bytes| bytes / (1024 * 1024));
+    (total_mb / 4).clamp(2048, 4096)
+}
+
 /// Version 1 stored every setting. Values that were the defaults M3 filled in become
 /// "use the global setting"; the others stay as the instance's own.
 fn migrate_v1(mut fields: Map<String, Value>) -> anyhow::Result<Map<String, Value>> {
     let min = fields.remove("min_ram").and_then(|v| v.as_u64());
     let max = fields.remove("max_ram").and_then(|v| v.as_u64());
     if let (Some(min), Some(max)) = (min, max) {
-        let old_default_max = {
-            let total_mb =
-                crate::game::platform::total_memory().map_or(8192, |bytes| bytes / (1024 * 1024));
-            (total_mb / 4).clamp(2048, 4096)
-        };
+        let old_default_max = m3_default_max_ram_mb();
         if min != u64::from(settings::DEFAULT_MIN_RAM_MB) || max != old_default_max {
             fields.insert("memory".into(), serde_json::json!({"min": min, "max": max}));
         }
@@ -1371,11 +1380,11 @@ mod tests {
     fn migrates_version_1() {
         let dir = tempfile::tempdir().unwrap();
         let store = InstanceStore::new(dir.path());
-        let old_default_max = {
-            let total_mb =
-                crate::game::platform::total_memory().map_or(8192, |b| b / (1024 * 1024));
-            (total_mb / 4).clamp(2048, 4096)
-        };
+        let old_default_max = m3_default_max_ram_mb();
+        if !cfg!(target_os = "macos") {
+            // A quarter of the 8 GB M3 assumed, whatever this computer has.
+            assert_eq!(old_default_max, 2048);
+        }
         for (id, body) in [
             (
                 "plain",

@@ -222,7 +222,58 @@ pub fn total_memory() -> Option<u64> {
     (ok != 0 && status.ullTotalPhys > 0).then_some(status.ullTotalPhys)
 }
 
-#[cfg(not(any(target_os = "macos", windows)))]
+/// The total memory in bytes that Linux can use, as `free` and `/proc/meminfo`'s
+/// `MemTotal` show it: the installed RAM less what the firmware, an integrated GPU and
+/// the kernel reserve, so a 16 GB PC can read as 15 GB. The installed size is only in
+/// the DMI tables, which only root can read.
+///
+/// This uses the `sysinfo` system call rather than reading `/proc/meminfo`, because it
+/// works where `/proc` isn't mounted (as in some sandboxes) and needs no parsing.
+#[cfg(target_os = "linux")]
+pub fn total_memory() -> Option<u64> {
+    // SAFETY: `sysinfo` is a C struct of integers, for which all zeroes is valid.
+    let mut info: libc::sysinfo = unsafe { std::mem::zeroed() };
+    // SAFETY: `info` is a writable `sysinfo`, which is all the call writes.
+    if unsafe { libc::sysinfo(&mut info) } != 0 {
+        return None;
+    }
+    // `totalram` counts units of `mem_unit` bytes: 1 on 64-bit systems, the page size
+    // on 32-bit ones with more memory than a `long` counts in bytes. (It is a `c_ulong`,
+    // already a u64 on 64-bit systems.)
+    #[allow(clippy::useless_conversion)]
+    let units = u64::from(info.totalram);
+    let bytes = units.checked_mul(u64::from(info.mem_unit.max(1)))?;
+    (bytes > 0).then_some(bytes)
+}
+
+/// The total physical memory in bytes, from `hw.physmem`.
+#[cfg(target_os = "freebsd")]
+pub fn total_memory() -> Option<u64> {
+    let mut value: libc::c_ulong = 0;
+    let mut size = std::mem::size_of::<libc::c_ulong>();
+    // SAFETY: `hw.physmem` is an unsigned long; `value` and `size` describe a buffer of
+    // exactly that size, and the name is a NUL-terminated C string.
+    let result = unsafe {
+        libc::sysctlbyname(
+            c"hw.physmem".as_ptr(),
+            (&mut value as *mut libc::c_ulong).cast(),
+            &mut size,
+            std::ptr::null(),
+            0,
+        )
+    };
+    // A u64 already on 64-bit systems.
+    #[allow(clippy::useless_conversion)]
+    let value = u64::from(value);
+    (result == 0 && size == std::mem::size_of::<libc::c_ulong>() && value > 0).then_some(value)
+}
+
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd",
+    windows
+)))]
 pub fn total_memory() -> Option<u64> {
     None
 }
@@ -341,6 +392,12 @@ mod tests {
         assert_eq!(Os::Windows.classpath_separator(), ";");
         assert_eq!(Os::MacOs.classpath_separator(), ":");
         assert_eq!(Os::Linux.classpath_separator(), ":");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reads_the_linux_memory() {
+        assert!(total_memory().unwrap() >= 512 * 1024 * 1024);
     }
 
     #[cfg(target_os = "macos")]
