@@ -92,6 +92,24 @@ pub fn render_image(mut image: image::RgbaImage) -> Arc<RenderImage> {
     Arc::new(RenderImage::new([image::Frame::new(image)]))
 }
 
+/// Frees the GPU copies of images the launcher no longer shows. GPUI uploads each
+/// image it draws to the window's sprite atlas and keeps it there until it is told
+/// to drop it, so images that are replaced (slideshows, backgrounds, banners) would
+/// otherwise pile up in GPU memory. Deferred, so a window being drawn right now
+/// (which GPUI holds apart while it does) is included. An image drawn again later is
+/// simply uploaded again.
+pub fn release(images: impl IntoIterator<Item = Arc<RenderImage>>, cx: &mut App) {
+    let images: Vec<_> = images.into_iter().collect();
+    if images.is_empty() {
+        return;
+    }
+    cx.defer(move |cx| {
+        for image in images {
+            cx.drop_image(image, None);
+        }
+    });
+}
+
 /// Decodes a downloaded image (PNG, JPEG, WebP or GIF's first frame) for a project
 /// description, at most 1280 pixels on a side.
 pub fn decode_large(bytes: &[u8]) -> Option<image::RgbaImage> {

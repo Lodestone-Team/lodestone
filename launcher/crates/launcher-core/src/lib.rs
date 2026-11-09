@@ -15,6 +15,7 @@ pub mod content;
 pub mod cores;
 pub mod disk;
 pub mod export;
+pub mod fsx;
 pub mod game;
 pub mod hero_cache;
 pub mod http;

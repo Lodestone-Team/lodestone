@@ -394,11 +394,17 @@ impl Instances {
             };
             wanted.push((instance.id.clone(), source, modified));
         }
-        self.backgrounds.retain(|id, (time, source, _)| {
-            wanted
+        let mut gone = Vec::new();
+        self.backgrounds.retain(|id, (time, source, background)| {
+            let keep = wanted
                 .iter()
-                .any(|(w, s, m)| w == id && m == time && s == source)
+                .any(|(w, s, m)| w == id && m == time && s == source);
+            if !keep {
+                gone.push(background.image.clone());
+            }
+            keep
         });
+        crate::images::release(gone, cx);
         self.background_tasks
             .retain(|id, _| wanted.iter().any(|(w, _, _)| w == id));
         for (id, source, modified) in wanted {
@@ -431,6 +437,13 @@ impl Instances {
         }
     }
 
+    /// Forgets the decoded Play background of instance `id`, and frees its GPU copy.
+    pub(super) fn forget_background(&mut self, id: &str, cx: &mut gpui::App) {
+        if let Some((_, _, old)) = self.backgrounds.remove(id) {
+            crate::images::release([old.image], cx);
+        }
+    }
+
     /// Makes banner `banner` of skin `skin` the instance's Play background.
     pub fn set_skin_banner(
         &mut self,
@@ -442,7 +455,7 @@ impl Instances {
         self.store
             .set_skin_banner(id, skin, banner)
             .map_err(|err| err.to_string())?;
-        self.backgrounds.remove(id);
+        self.forget_background(id, cx);
         self.reload(cx);
         Ok(())
     }
@@ -481,7 +494,7 @@ impl Instances {
         self.store
             .set_slideshow(id, None)
             .map_err(|err| err.to_string())?;
-        self.backgrounds.remove(id);
+        self.forget_background(id, cx);
         self.reload(cx);
         Ok(())
     }

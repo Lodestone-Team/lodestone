@@ -1245,7 +1245,7 @@ impl SkinStore {
             let json = serde_json::to_string_pretty(&spec).map_err(io::Error::other)?;
             fs::write(staging.join(SKIN_FILE), json)?;
             let id = self.unique_id(&spec.name);
-            fs::rename(&staging, self.dir.join(&id))?;
+            crate::fsx::rename(&staging, self.dir.join(&id))?;
             Ok(id)
         })();
         if result.is_err() {
@@ -1258,7 +1258,7 @@ impl SkinStore {
     pub fn export(&self, id: &str, dest: &Path) -> Result<(), SkinError> {
         let entry = self.get(id)?;
         let file = fs::File::create(dest)?;
-        let mut zip = zip::ZipWriter::new(file);
+        let mut zip = zip::ZipWriter::new(io::BufWriter::new(file));
         let options =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         let zipped = |err: zip::result::ZipError| SkinError::Io(io::Error::other(err));
@@ -1271,7 +1271,10 @@ impl SkinStore {
                 zip.write_all(&fs::read(path)?)?;
             }
         }
-        zip.finish().map_err(zipped)?;
+        zip.finish()
+            .map_err(zipped)?
+            .into_inner()
+            .map_err(|err| err.into_error())?;
         Ok(())
     }
 

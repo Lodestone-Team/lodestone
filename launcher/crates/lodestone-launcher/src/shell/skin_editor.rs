@@ -1686,8 +1686,9 @@ impl SkinEditor {
                                 spec.banner.in_sidebar = on
                             });
                             if !on {
-                                this.instances
-                                    .update(cx, |instances, _| instances.forget_sidebar_banners());
+                                this.instances.update(cx, |instances, cx| {
+                                    instances.forget_sidebar_banners(cx)
+                                });
                             }
                         })),
                 )
@@ -2014,6 +2015,9 @@ impl Render for SkinEditor {
                     .child(
                         div()
                             .id("skin-editor-drag")
+                            // Windows moves the window (and snaps and maximises it)
+                            // from caption areas; it has no `start_window_move`.
+                            .window_control_area(gpui::WindowControlArea::Drag)
                             .flex_1()
                             .h_full()
                             .on_mouse_down(MouseButton::Left, |_, window, _| {

@@ -205,7 +205,7 @@ pub async fn download(
         if !is_resource_pack(&partial) {
             return Err("The download isn't a resource pack (no pack.mcmeta).".into());
         }
-        fs::rename(&partial, &target).map_err(|e| format!("{}: {e}", target.display()))?;
+        crate::fsx::rename(&partial, &target).map_err(|e| format!("{}: {e}", target.display()))?;
         Ok(target.clone())
     }
     .await;

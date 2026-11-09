@@ -164,7 +164,10 @@ impl SkinSettings {
         }
         let look = crate::skin::look(cx);
         let id = look.id.clone();
-        let file_name = format!("{}.zip", look.spec.name);
+        let file_name = format!(
+            "{}.zip",
+            launcher_core::worlds::folder_name(&look.spec.name)
+        );
         let folder = crate::instances::settings::dirs_downloads();
         let picked = cx.prompt_for_new_path(&folder, Some(&file_name));
         self._prompt = Some(cx.spawn(async move |this, cx| {

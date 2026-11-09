@@ -139,7 +139,7 @@ fn copy_folder(source: &Path, dir: &Path, name: &str) -> Result<(), ContentError
         let mut bytes = 0;
         copy_tree(source, &temp, "", &mut files, &mut bytes)?;
         let dest = dir.join(name);
-        fs::rename(&temp, &dest).map_err(io_error(&dest))
+        crate::fsx::rename(&temp, &dest).map_err(io_error(&dest))
     })();
     if result.is_err() {
         let _ = fs::remove_dir_all(&temp);
@@ -234,7 +234,7 @@ pub fn set_mod_enabled(
             "{new_name} already exists, so {file_name} can't be renamed to it."
         )));
     }
-    fs::rename(&path, &new_path).map_err(io_error(&path))?;
+    crate::fsx::rename(&path, &new_path).map_err(io_error(&path))?;
     Ok(new_name)
 }
 

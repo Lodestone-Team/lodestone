@@ -753,7 +753,7 @@ fn link_or_copy(from: &Path, to: &Path) -> io::Result<()> {
     if fs::hard_link(from, &tmp).is_err() {
         fs::copy(from, &tmp)?;
     }
-    fs::rename(&tmp, to)
+    crate::fsx::rename(&tmp, to)
 }
 
 impl Prepared {

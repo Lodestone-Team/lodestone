@@ -20,6 +20,7 @@ pub mod perf;
 pub mod preview;
 pub mod servers;
 pub mod shell;
+pub mod single_instance;
 pub mod skin;
 pub mod theme;
 mod trace_hooks;

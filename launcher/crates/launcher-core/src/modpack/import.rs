@@ -47,23 +47,45 @@ pub struct ImportOptions {
     pub icon: Option<Vec<u8>>,
 }
 
-/// Creates the parent folders of `target` and checks that they stay inside `root` once
-/// links are resolved.
-pub(crate) fn prepare_parent(root: &Path, target: &Path) -> Result<(), ModpackError> {
-    let parent = target
-        .parent()
-        .ok_or_else(|| ModpackError::Invalid(format!("{} has no folder", target.display())))?;
-    fs::create_dir_all(parent).map_err(io_error(parent))?;
-    let canonical_root = fs::canonicalize(root).map_err(io_error(root))?;
-    let canonical_parent = fs::canonicalize(parent).map_err(io_error(parent))?;
-    if !canonical_parent.starts_with(&canonical_root)
-        || fs::symlink_metadata(target).is_ok_and(|m| m.file_type().is_symlink())
-    {
-        return Err(ModpackError::Invalid(
-            "The modpack is unsafe: a path leaves the instance folder".into(),
-        ));
+/// Creates the parent folders of files under a root and checks that they stay inside
+/// it once links are resolved. The root is resolved once, and each folder once. Resolving a path opens it, which is slow on Windows, and a pack
+/// has thousands of files in a few hundred folders. Writing files never adds links,
+/// so a folder found inside the root stays inside it.
+pub(crate) struct ParentCheck {
+    root: PathBuf,
+    checked: std::collections::HashSet<PathBuf>,
+}
+
+impl ParentCheck {
+    pub(crate) fn new(root: &Path) -> Result<Self, ModpackError> {
+        Ok(Self {
+            root: fs::canonicalize(root).map_err(io_error(root))?,
+            checked: std::collections::HashSet::new(),
+        })
     }
-    Ok(())
+
+    /// Creates the parent folders of `target` and checks that they stay inside the
+    /// root once links are resolved.
+    pub(crate) fn prepare(&mut self, target: &Path) -> Result<(), ModpackError> {
+        let parent = target
+            .parent()
+            .ok_or_else(|| ModpackError::Invalid(format!("{} has no folder", target.display())))?;
+        let unsafe_path = || {
+            ModpackError::Invalid("The modpack is unsafe: a path leaves the instance folder".into())
+        };
+        if !self.checked.contains(parent) {
+            fs::create_dir_all(parent).map_err(io_error(parent))?;
+            let canonical_parent = fs::canonicalize(parent).map_err(io_error(parent))?;
+            if !canonical_parent.starts_with(&self.root) {
+                return Err(unsafe_path());
+            }
+            self.checked.insert(parent.to_path_buf());
+        }
+        if fs::symlink_metadata(target).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(unsafe_path());
+        }
+        Ok(())
+    }
 }
 
 /// The URL to fetch a pack file from: CurseForge's CDN through the CurseForge client,
@@ -102,13 +124,18 @@ pub(crate) async fn download_files(
         bytes_total: downloads.iter().map(|(d, _)| d.size).sum(),
         ..ProgressSnapshot::default()
     });
+    // Every folder first, each checked once, rather than per file as it downloads.
+    let mut parents = ParentCheck::new(root)?;
+    for (_, dest) in downloads {
+        parents.prepare(dest)?;
+    }
     // Boxed, so the future stays `Send` for any lifetime (a closure over the borrowed
     // slice trips the compiler's higher-ranked `Send` check).
     let fetches: Vec<futures::future::BoxFuture<'_, Result<(), ModpackError>>> = downloads
         .iter()
         .map(|(download, dest)| {
             Box::pin(fetch_one(
-                platforms, downloader, root, download, dest, progress, cancel,
+                platforms, downloader, download, dest, progress, cancel,
             )) as futures::future::BoxFuture<'_, _>
         })
         .collect();
@@ -123,13 +150,11 @@ pub(crate) async fn download_files(
 async fn fetch_one(
     platforms: Platforms<'_>,
     downloader: &Downloader,
-    root: &Path,
     download: &PackDownload,
     dest: &Path,
     progress: &InstallProgress,
     cancel: &CancelToken,
 ) -> Result<(), ModpackError> {
-    prepare_parent(root, dest)?;
     let mut last_error = None;
     for url in &download.urls {
         if cancel.is_cancelled() {
@@ -173,7 +198,7 @@ async fn fetch_one(
 }
 
 /// Copies the override files `files` from the pack at `pack_path` to the paths `dest`
-/// gives them (under `root`), each through a temporary file.
+/// gives them (under `root`, a staging folder).
 pub(crate) fn extract_overrides(
     pack_path: &Path,
     root: &Path,
@@ -183,20 +208,29 @@ pub(crate) fn extract_overrides(
     let file = File::open(pack_path).map_err(io_error(pack_path))?;
     let mut archive =
         zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(super::zip_error)?;
+    let mut parents = ParentCheck::new(root)?;
     for (file, dest) in files {
         if cancel.is_cancelled() {
             return Err(ModpackError::Cancelled);
         }
-        prepare_parent(root, dest)?;
+        parents.prepare(dest)?;
         let mut entry = archive.by_index(file.index).map_err(super::zip_error)?;
-        storage::write_atomic_with(dest, |out| {
-            let copied = io::copy(&mut (&mut entry).take(file.size.saturating_add(1)), out)?;
+        // Straight to its path, without a temporary file or a flush to disk each:
+        // `root` is a staging folder, thrown away whole if anything fails, and a pack
+        // can have thousands of configs. Replaces a downloaded file at the same path.
+        let mut write = || -> io::Result<()> {
+            let out = crate::fsx::retry(|| File::create(dest))?;
+            let mut out = io::BufWriter::with_capacity(256 * 1024, out);
+            let copied = io::copy(
+                &mut (&mut entry).take(file.size.saturating_add(1)),
+                &mut out,
+            )?;
             if copied != file.size {
                 return Err(io::Error::other("the file isn't the size the zip says"));
             }
             out.flush()
-        })
-        .map_err(io_error(dest))?;
+        };
+        write().map_err(io_error(dest))?;
     }
     Ok(())
 }

@@ -18,13 +18,18 @@ fn main() {
     let mut out = String::from("&[\n");
     for path in &fonts {
         println!("cargo::rerun-if-changed={}", path.display());
+        // With `/` between folders on every platform (Windows would write `\`).
         let name = path
             .strip_prefix(&fonts_dir)
-            .expect("font is under the fonts directory");
+            .expect("font is under the fonts directory")
+            .components()
+            .map(|part| part.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
         writeln!(
             out,
             "    ({:?}, include_bytes!({:?}).as_slice()),",
-            name.display().to_string(),
+            name,
             path.display().to_string()
         )
         .expect("writing to a String cannot fail");

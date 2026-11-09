@@ -236,6 +236,13 @@ impl Default for SkinState {
     }
 }
 
+/// Goes up each time a skin is applied, or the chosen one again after its pack
+/// changed.
+pub fn generation(cx: &App) -> u64 {
+    cx.try_global::<SkinState>()
+        .map_or(0, |state| state.generation)
+}
+
 /// The skin the window shows.
 pub fn look(cx: &App) -> Arc<Look> {
     cx.try_global::<SkinState>()

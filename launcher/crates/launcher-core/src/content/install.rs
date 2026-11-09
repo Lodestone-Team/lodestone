@@ -601,11 +601,10 @@ pub(super) fn place(
     entry: impl FnOnce(Option<u64>) -> Entry,
 ) -> Result<Vec<String>, ContentError> {
     let target_path = dirs.content_dir(kind).join(target_name);
-    if target_path.exists() {
-        // An older file of this project with the same name; Windows can't rename over it.
-        fs::remove_file(&target_path).map_err(io_error(&target_path))?;
-    }
-    if let Err(err) = fs::rename(staging, &target_path) {
+    // Renaming replaces an older file of this project with the same name, on Windows
+    // too (std renames with MOVEFILE_REPLACE_EXISTING). Deleting it first would lose it
+    // as well if the rename then failed.
+    if let Err(err) = crate::fsx::rename(staging, &target_path) {
         let _ = fs::remove_file(staging);
         return Err(io_error(&target_path)(err));
     }

@@ -478,15 +478,14 @@ fn swap_in(
         .iter()
         .map(|(_, p)| p)
         .chain(plan.overrides.iter().map(|(_, p)| p));
+    let mut parents = super::import::ParentCheck::new(game)?;
     for path in staged {
         let from = staging.join(path);
         let to = game.join(path);
-        super::import::prepare_parent(game, &to)?;
-        if to.is_file() {
-            fs::remove_file(&to).map_err(io_error(&to))?;
-        }
+        parents.prepare(&to)?;
+        // The rename replaces an older file at `to`.
         changed.insert(path.clone());
-        fs::rename(&from, &to).map_err(io_error(&to))?;
+        crate::fsx::rename(&from, &to).map_err(io_error(&to))?;
     }
     Ok(())
 }

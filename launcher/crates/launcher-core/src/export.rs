@@ -286,7 +286,7 @@ pub fn write(plan: &ExportPlan, out: &Path) -> Result<(), ExportError> {
     let tmp = out.with_extension("mrpack.part");
     let result = (|| {
         let file = File::create(&tmp).map_err(io_error(&tmp))?;
-        let mut zip = zip::ZipWriter::new(file);
+        let mut zip = zip::ZipWriter::new(io::BufWriter::with_capacity(1 << 20, file));
         let deflated =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         zip.start_file(mrpack::INDEX_FILE, deflated)?;
@@ -308,8 +308,12 @@ pub fn write(plan: &ExportPlan, out: &Path) -> Result<(), ExportError> {
             let mut source = File::open(path).map_err(io_error(path))?;
             io::copy(&mut source, &mut zip).map_err(io_error(path))?;
         }
-        zip.finish()?.sync_all().map_err(io_error(&tmp))?;
-        fs::rename(&tmp, out).map_err(io_error(out))
+        zip.finish()?
+            .into_inner()
+            .map_err(|err| io_error(&tmp)(err.into_error()))?
+            .sync_all()
+            .map_err(io_error(&tmp))?;
+        crate::fsx::rename(&tmp, out).map_err(io_error(out))
     })();
     if result.is_err() {
         let _ = fs::remove_file(&tmp);

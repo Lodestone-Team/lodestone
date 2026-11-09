@@ -125,11 +125,13 @@ pub fn safe_entry_path(name: &str) -> Option<PathBuf> {
 
 /// Empties `dir` (or creates it), so a launch starts with only this version's natives.
 pub fn reset_dir(dir: &Path) -> io::Result<()> {
-    match fs::remove_dir_all(dir) {
-        Ok(()) => {}
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-        Err(err) => return Err(err),
-    }
+    // Retried: on Windows a DLL can't be deleted while anything has it open, and
+    // Defender scans the ones the last launch extracted; a game that just quit can
+    // also take a moment to let go of them.
+    crate::fsx::retry(|| match fs::remove_dir_all(dir) {
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    })?;
     fs::create_dir_all(dir)
 }
 
