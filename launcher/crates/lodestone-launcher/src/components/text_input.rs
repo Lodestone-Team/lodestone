@@ -93,6 +93,18 @@ pub(super) fn init(cx: &mut App) {
         KeyBinding::new("cmd-shift-left", SelectToStart, context),
         KeyBinding::new("cmd-shift-right", SelectToEnd, context),
     ]);
+    // Up and Down go to the start and the end, as in a single-line field in Firefox
+    // and Chromium on Linux and in every macOS field. Not inside a menu or a list (an
+    // `ArrowKeys` scope, such as the search field in the game version popover), where
+    // they keep moving through its items as they did. Shift+Up and Shift+Down mean
+    // nothing there, so they select to the ends in every field.
+    let outside_lists = format!("TextInput && !{}", super::focus::ARROW_KEYS);
+    cx.bind_keys([
+        KeyBinding::new("up", Home, Some(&outside_lists)),
+        KeyBinding::new("down", End, Some(&outside_lists)),
+        KeyBinding::new("shift-up", SelectToStart, context),
+        KeyBinding::new("shift-down", SelectToEnd, context),
+    ]);
     // Moving and deleting by words: Option on macOS, Ctrl on Linux and Windows.
     #[cfg(target_os = "macos")]
     cx.bind_keys([
@@ -1439,11 +1451,13 @@ mod tests {
 #[cfg(all(test, feature = "screenshot"))]
 mod keystroke_tests {
     use gpui::{
-        Entity, Focusable as _, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
-        MouseUpEvent, Pixels, Point, TestAppContext, VisualTestContext, point,
+        AppContext as _, Context, Entity, Focusable as _, IntoElement, Modifiers, MouseButton,
+        MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Point, Render,
+        TestAppContext, VisualTestContext, Window, point,
     };
 
     use super::{TextInput, next_char_boundary};
+    use crate::components::{Button, FocusScope};
 
     /// The word modifier of the platform the tests run on.
     const WORD: &str = if cfg!(target_os = "macos") {
@@ -1692,6 +1706,75 @@ mod keystroke_tests {
         // Plain Home and End still move.
         cx.simulate_keystrokes("home");
         assert_eq!(shown(&input, cx), "|one two");
+    }
+
+    #[test]
+    fn up_and_down_go_to_the_ends() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("one two", false, &mut cx);
+        cx.simulate_keystrokes("left left left up");
+        assert_eq!(shown(&input, cx), "|one two");
+        cx.simulate_keystrokes("down");
+        assert_eq!(shown(&input, cx), "one two|");
+        // A selection collapses to the end they go to.
+        cx.simulate_keystrokes("shift-left shift-left down");
+        assert_eq!(shown(&input, cx), "one two|");
+        cx.simulate_keystrokes("shift-left shift-left up");
+        assert_eq!(shown(&input, cx), "|one two");
+    }
+
+    #[test]
+    fn shift_up_and_down_select_to_the_ends() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("one two", false, &mut cx);
+        cx.simulate_keystrokes("left left left shift-up");
+        assert_eq!(shown(&input, cx), "[one ]two");
+        // The cursor end moves; the other stays.
+        cx.simulate_keystrokes("shift-down");
+        assert_eq!(shown(&input, cx), "one [two]");
+        cx.simulate_keystrokes("up");
+        assert_eq!(shown(&input, cx), "|one two");
+    }
+
+    /// A field in a menu, before a button, as the search field in the game version
+    /// popover sits above its filters and list.
+    struct InMenu {
+        input: Entity<TextInput>,
+    }
+
+    impl Render for InMenu {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            FocusScope::new("menu")
+                .arrow_keys()
+                .child(self.input.clone())
+                .child(Button::new("after", "After"))
+        }
+    }
+
+    #[test]
+    fn up_and_down_in_a_menu_still_move_through_it() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (view, cx) = cx.add_window_view(|_, cx| InMenu {
+            input: cx.new(|cx| TextInput::new(cx).with_text("one two")),
+        });
+        cx.run_until_parked();
+        let input = view.read_with(cx, |view, _| view.input.clone());
+        let handle = input.read_with(cx, |input, cx| input.focus_handle(cx));
+        cx.update(|window, cx| window.focus(&handle, cx));
+        cx.run_until_parked();
+        let focused = |cx: &mut VisualTestContext| cx.update(|window, _| handle.is_focused(window));
+        // Left and Right still move the cursor.
+        cx.simulate_keystrokes("left left");
+        assert_eq!(shown(&input, cx), "one t|wo");
+        cx.simulate_keystrokes("down");
+        assert!(!focused(cx), "Down goes on to the button");
+        cx.simulate_keystrokes("up");
+        assert!(focused(cx), "Up comes back to the field");
+        assert_eq!(shown(&input, cx), "one t|wo", "the cursor stays");
+        cx.simulate_keystrokes("shift-up");
+        assert!(focused(cx));
+        assert_eq!(shown(&input, cx), "[one t]wo");
     }
 
     #[cfg(not(target_os = "macos"))]
