@@ -76,6 +76,9 @@ crate::i18n::messages! {
         /// {count} is how many updates were found.
         UpdateAll = "Update all ({count})",
         AddFile = "Add file…",
+        /// Next to "Add file…" for resource and shader packs on Linux and Windows,
+        /// whose file dialogs show files or folders but not both: adds an unzipped pack.
+        AddFolder = "Add folder…",
         /// An installed item that is a folder: "{name} · folder".
         ItemFolder = "{name} · folder",
         Compatible = "Compatible",

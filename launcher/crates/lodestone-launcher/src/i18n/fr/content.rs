@@ -60,6 +60,7 @@ pub fn text(message: M) -> &'static str {
         M::CheckForUpdates => "Rechercher des mises à jour",
         M::UpdateAll => "Tout mettre à jour ({count})",
         M::AddFile => "Ajouter un fichier…",
+        M::AddFolder => "Ajouter un dossier…",
         M::ItemFolder => "{name} · dossier",
         M::Compatible => "Compatible",
         M::OlderVersion => "Version plus ancienne",
