@@ -502,8 +502,7 @@ pub fn display_version(version: &str, build: u64) -> String {
 }
 
 /// Whether the installer's `InstallLocation` is the folder `exe` is in.
-// Used only by the Windows registry code and its test.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg(windows)]
 fn is_install_location(install_location: &str, exe: &Path) -> bool {
     let Some(dir) = exe.parent() else {
         return false;
@@ -787,7 +786,7 @@ mod tests {
         assert_eq!(display_version("0.1.0", 531), "0.1.0 (build 531)");
     }
 
-    // Windows paths only split into folders on Windows.
+    // Windows paths: `Path` only splits them on Windows.
     #[cfg(windows)]
     #[test]
     fn the_install_location_is_the_executables_folder() {

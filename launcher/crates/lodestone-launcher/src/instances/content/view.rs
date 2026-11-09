@@ -135,7 +135,7 @@ pub(crate) fn pills(
         .border_color(colors::FADE_700)
         .children(labels.into_iter().enumerate().map(|(index, label)| {
             let on_select = on_select.clone();
-            div()
+            let item = div()
                 .id((id, index))
                 .keyboard_focus()
                 .px_3()
@@ -143,13 +143,8 @@ pub(crate) fn pills(
                 .rounded(radius::MD)
                 .font_weight(weights::BOLD.into())
                 .cursor_pointer()
-                .map(|this| {
-                    if index == selected {
-                        this.bg(colors::GRAY_700).text_color(colors::GRAY_300)
-                    } else {
-                        this.text_color(colors::GRAY_500)
-                            .hover(|style| style.text_color(colors::GRAY_400))
-                    }
+                .when(index != selected, |this| {
+                    this.hover(|style| style.text_color(colors::GRAY_400))
                 })
                 .on_click({
                     let (pills, label) = (id, label.clone());
@@ -163,7 +158,17 @@ pub(crate) fn pills(
                         on_select(index, window, cx)
                     }
                 })
-                .child(label)
+                .child(label);
+            // The raised background fades over to the chosen pill.
+            crate::components::motion::Animated::new(
+                (id, index + 10_000),
+                index == selected,
+                item,
+                |this, t| {
+                    this.bg(colors::GRAY_700.opacity(0).mix(colors::GRAY_700, t))
+                        .text_color(colors::GRAY_500.mix(colors::GRAY_300, t))
+                },
+            )
         }))
 }
 
