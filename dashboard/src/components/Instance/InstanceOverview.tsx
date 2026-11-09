@@ -15,6 +15,7 @@ import { useCanControlInstance } from 'data/CodeExecution';
 import { useDocumentTitle } from 'usehooks-ts';
 import InstancePlayerList from './InstancePlayerList';
 import InstanceDetails from './InstanceDetails';
+import ShareWithFriends from './ShareWithFriends';
 import { useT } from 'i18n';
 
 const InstanceOverview = () => {
@@ -130,6 +131,7 @@ const InstanceOverview = () => {
           </div>
         </div>
       </div>
+      <ShareWithFriends instance={instance} />
       <InstancePerformance />
       <InstancePlayerList />
       <InstanceDetails instance={instance} />

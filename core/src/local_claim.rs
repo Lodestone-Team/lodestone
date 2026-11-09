@@ -673,7 +673,7 @@ fn check_platform(root: &Path) -> Result<(), Error> {
 /// Creates `dir` owner-only in one step (mode 0700 on Unix), or checks the existing one:
 /// a real folder (a link in its place is removed), owned by the core's user (otherwise
 /// refused), with no access for anyone else (otherwise narrowed).
-fn ensure_private_dir(dir: &Path) -> Result<(), Error> {
+pub(crate) fn ensure_private_dir(dir: &Path) -> Result<(), Error> {
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     {

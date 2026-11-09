@@ -108,7 +108,7 @@ async fn playit_addresses(state: &AppState) -> Vec<(u16, String)> {
 
 /// An instance as [`PublicInstance`] with the fields `scope` shows, or `None` if it is
 /// not a Minecraft Java instance. `scope.listed` is only reported, not checked.
-async fn public_instance(
+pub(crate) async fn public_instance(
     instance: &GameInstance,
     scope: PublicScope,
     playit: &[(u16, String)],
@@ -312,7 +312,7 @@ fn matches_etag(headers: &HeaderMap, etag: &str) -> bool {
 }
 
 /// The pack as a response: 304 when the client has it already, else the file.
-async fn pack_response(
+pub(crate) async fn pack_response(
     state: &AppState,
     uuid: &InstanceUuid,
     headers: &HeaderMap,
