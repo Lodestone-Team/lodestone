@@ -57,10 +57,11 @@ pub enum Icon {
     FileZipper,
     ListCheck,
     ClipboardQuestion,
+    Bell,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 52] = [
+    pub const ALL: [Icon; 53] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -113,6 +114,7 @@ impl Icon {
         Icon::FileZipper,
         Icon::ListCheck,
         Icon::ClipboardQuestion,
+        Icon::Bell,
     ];
 
     /// The asset path of the icon's SVG.
@@ -170,6 +172,7 @@ impl Icon {
             Icon::FileZipper => "icons/file-zipper.svg",
             Icon::ListCheck => "icons/list-check.svg",
             Icon::ClipboardQuestion => "icons/clipboard-question.svg",
+            Icon::Bell => "icons/bell.svg",
         }
     }
 
@@ -226,7 +229,8 @@ impl Icon {
             | Icon::Paste
             | Icon::FileZipper
             | Icon::ListCheck
-            | Icon::ClipboardQuestion => return format!("{self:?}").into(),
+            | Icon::ClipboardQuestion
+            | Icon::Bell => return format!("{self:?}").into(),
         };
         t(message).into()
     }

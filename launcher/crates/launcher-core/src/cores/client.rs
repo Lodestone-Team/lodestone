@@ -51,7 +51,8 @@ pub enum CoreError {
     },
     /// The core presents another certificate than the one the user trusted.
     #[error(
-        "The HTTPS certificate of {host} changed since you trusted it, so Lodestone Launcher refuses to connect. Check the new fingerprint before you trust it."
+        "The HTTPS certificate of {host} changed since you trusted it, so {app} refuses to connect. Check the new fingerprint before you trust it.",
+        app = crate::wording::app_name()
     )]
     CertificateChanged {
         host: String,
@@ -67,14 +68,18 @@ pub enum CoreError {
     #[error("{0}")]
     NotFound(String),
     #[error(
-        "This core is too old for Lodestone Launcher. Update Lodestone Core to a version with server listing."
+        "This core is too old for {app}. Update Lodestone Core to a version with server listing.",
+        app = crate::wording::app_name()
     )]
     TooOld,
     #[error("{0}")]
     TooManyRequests(String),
     #[error("The core answered {status}: {message}")]
     Server { status: u16, message: String },
-    #[error("The core sent a reply Lodestone Launcher doesn't understand: {0}")]
+    #[error(
+        "The core sent a reply {app} doesn't understand: {0}",
+        app = crate::wording::app_name()
+    )]
     Invalid(String),
 }
 

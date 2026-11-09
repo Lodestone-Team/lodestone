@@ -97,7 +97,8 @@ pub enum ClaimError {
     NotThisCore,
     /// The core has no HTTPS certificate, so its key couldn't be tied to it.
     #[error(
-        "This core has no HTTPS certificate, so Lodestone Launcher can't make sure its owner key only ever goes to it. Nothing was saved."
+        "This core has no HTTPS certificate, so {app} can't make sure its owner key only ever goes to it. Nothing was saved.",
+        app = crate::wording::app_name()
     )]
     NoCertificate,
     /// The core didn't write `result.json` in time.
@@ -107,7 +108,10 @@ pub enum ClaimError {
     Core(CoreError),
     #[error("Couldn't use the core's data folder: {0}")]
     Files(String),
-    #[error("The core sent something Lodestone Launcher doesn't understand: {0}")]
+    #[error(
+        "The core sent something {app} doesn't understand: {0}",
+        app = crate::wording::app_name()
+    )]
     Invalid(String),
 }
 

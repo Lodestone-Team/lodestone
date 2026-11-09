@@ -54,8 +54,9 @@ pub fn matching_loader(server: &ServerInstance) -> Result<Option<LoaderChoice>, 
         ServerLoader::Vanilla | ServerLoader::Paper | ServerLoader::Spigot => return Ok(None),
         ServerLoader::Other => {
             return Err(format!(
-                "{} runs a mod loader Lodestone Launcher doesn't know.",
-                server.name
+                "{} runs a mod loader {} doesn't know.",
+                server.name,
+                crate::wording::app_name()
             ));
         }
     };
