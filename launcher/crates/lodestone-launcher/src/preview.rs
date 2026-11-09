@@ -944,12 +944,15 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 }
                 _ => {}
             }
-            instances.update(cx, |instances, cx| instances.set_skin(Some(skin.into()), cx));
+            instances.update(cx, |instances, cx| {
+                instances.set_skin(Some(skin.into()), cx)
+            });
             let shell_handle = cx.entity().downgrade();
             cx.defer(move |cx| {
-                if let Some(editor) = crate::shell::skin_editor::open(instances, shell_handle, cx)
-                {
-                    editor.update(cx, |editor, _, cx| editor.show(pane, cx)).ok();
+                if let Some(editor) = crate::shell::skin_editor::open(instances, shell_handle, cx) {
+                    editor
+                        .update(cx, |editor, _, cx| editor.show(pane, cx))
+                        .ok();
                 }
             });
         }

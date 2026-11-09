@@ -574,7 +574,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::SkinEditorTitle => "Éditeur de thème",
         M::SkinPopOut => "Ouvrir l’éditeur",
-        M::SkinEditorLead => "Modifiez chaque surface, police et bannière dans l’éditeur. Les changements s’affichent dans la fenêtre au fur et à mesure, et Annuler les reprend.",
+        M::SkinEditorLead => {
+            "Modifiez chaque surface, police et bannière dans l’éditeur. Les changements s’affichent dans la fenêtre au fur et à mesure, et Annuler les reprend."
+        }
         M::SkinSummary => "{surfaces} surfaces peintes · {fonts} polices · {banners} bannières",
         M::SkinSurfaces => "Surfaces",
         M::SkinTokens => "Couleurs du texte",
@@ -614,8 +616,12 @@ pub fn text(message: M) -> &'static str {
         M::SkinFontMono => "Code et journaux",
         M::SkinFontAdd => "Ajouter un fichier de police…",
         M::SkinBannerAdd => "Ajouter une bannière…",
-        M::SkinBannersNone => "Pas encore de bannière. Les nouvelles instances gardent l’image Jouer par défaut.",
-        M::SkinBannersLead => "Une nouvelle instance en prend une au hasard\u{a0}; chacune peut en changer dans son arrière-plan Jouer.",
+        M::SkinBannersNone => {
+            "Pas encore de bannière. Les nouvelles instances gardent l’image Jouer par défaut."
+        }
+        M::SkinBannersLead => {
+            "Une nouvelle instance en prend une au hasard\u{a0}; chacune peut en changer dans son arrière-plan Jouer."
+        }
         M::SkinSaveAsNew => "Enregistrer comme nouveau thème",
         M::SkinUseLaunchers => "Utiliser celui du lanceur",
         M::SkinPreviewIn => "Montrer dans la fenêtre",

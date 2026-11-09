@@ -176,7 +176,11 @@ pub(crate) fn screenshot_path() -> Option<std::path::PathBuf> {
 
 /// Renders `window` to `path` once it has settled, and quits.
 #[cfg(feature = "screenshot")]
-pub(crate) fn capture_window(window: gpui::AnyWindowHandle, path: std::path::PathBuf, cx: &mut App) {
+pub(crate) fn capture_window(
+    window: gpui::AnyWindowHandle,
+    path: std::path::PathBuf,
+    cx: &mut App,
+) {
     screenshot::capture(window, path, cx);
 }
 

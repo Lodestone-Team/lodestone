@@ -7,8 +7,8 @@
 //! changes that.
 
 use gpui::{
-    AnyElement, App, Context, Entity, IntoElement, PathPromptOptions, Render, SharedString,
-    Task, WeakEntity, Window, div, prelude::*,
+    AnyElement, App, Context, Entity, IntoElement, PathPromptOptions, Render, SharedString, Task,
+    WeakEntity, Window, div, prelude::*,
 };
 use launcher_core::ui_skin::{Rgb, Shape, SkinEntry, SkinStore, readable};
 
@@ -86,14 +86,13 @@ impl SkinSettings {
     fn apply_fix(&mut self, fix: Option<readable::Fix>, cx: &mut Context<Self>) {
         let backdrops = crate::skin::look(cx).backdrops.clone();
         let view = cx.entity_id();
-        let result = super::skin_editor::edit_skin(&self.instances, view, 1, cx, move |spec| {
-            match fix {
+        let result =
+            super::skin_editor::edit_skin(&self.instances, view, 1, cx, move |spec| match fix {
                 Some(fix) => readable::apply(spec, &fix),
                 None => {
                     readable::fix_all(spec, &|surface| backdrops.get(&surface).copied());
                 }
-            }
-        });
+            });
         match result {
             Ok(Some(name)) => self.say(tr!(M::SkinCopied, name = name), false, cx),
             Ok(None) => {}
@@ -176,7 +175,6 @@ impl SkinSettings {
         }
         self.use_skin(None, cx);
     }
-
 }
 
 /// A round colour to pick.
@@ -339,53 +337,54 @@ impl Render for SkinSettings {
                     .into_any_element()
             })
             .collect();
-        let actions = div()
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .child(
-                Button::new("skin-import", t(M::SkinImport))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .icon(Icon::Download)
-                    .on_click(cx.listener(|this, _, _, cx| this.import(cx))),
-            )
-            .child(
-                Button::new("skin-export", t(M::SkinExport))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .icon(Icon::Upload)
-                    .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
-            )
-            .child(
-                Button::new("skin-new", t(M::SkinNew))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .icon(Icon::Plus)
-                    .on_click(cx.listener(|this, _, _, cx| this.new_skin(cx))),
-            )
-            .when(!builtin, |this| {
-                if self.confirm_delete {
-                    this.child(
-                        Button::new(
-                            "skin-delete-confirm",
-                            tr!(M::SkinDeleteConfirm, name = spec.name),
-                        )
-                        .variant(ButtonVariant::Danger)
+        let actions =
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .gap_2()
+                .child(
+                    Button::new("skin-import", t(M::SkinImport))
+                        .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|this, _, _, cx| this.delete(cx))),
-                    )
-                } else {
-                    this.child(muted_link("skin-delete", t(M::SkinDelete)).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.confirm_delete = true;
-                            cx.notify();
-                        }),
-                    ))
-                }
-            });
+                        .icon(Icon::Download)
+                        .on_click(cx.listener(|this, _, _, cx| this.import(cx))),
+                )
+                .child(
+                    Button::new("skin-export", t(M::SkinExport))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .icon(Icon::Upload)
+                        .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
+                )
+                .child(
+                    Button::new("skin-new", t(M::SkinNew))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .icon(Icon::Plus)
+                        .on_click(cx.listener(|this, _, _, cx| this.new_skin(cx))),
+                )
+                .when(!builtin, |this| {
+                    if self.confirm_delete {
+                        this.child(
+                            Button::new(
+                                "skin-delete-confirm",
+                                tr!(M::SkinDeleteConfirm, name = spec.name),
+                            )
+                            .variant(ButtonVariant::Danger)
+                            .size(ButtonSize::Slim)
+                            .on_click(cx.listener(|this, _, _, cx| this.delete(cx))),
+                        )
+                    } else {
+                        this.child(muted_link("skin-delete", t(M::SkinDelete)).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.confirm_delete = true;
+                                cx.notify();
+                            }),
+                        ))
+                    }
+                });
         let notice = if crate::skin::safe_mode() {
             Some((t(M::SkinSafeMode).to_string(), colors::YELLOW))
         } else {

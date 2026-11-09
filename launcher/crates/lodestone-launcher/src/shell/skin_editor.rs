@@ -276,7 +276,12 @@ impl SkinEditor {
         }
         observe.push(cx.observe(&label, |this, input, cx| {
             let text = input.read(cx).text().to_string();
-            let current = crate::skin::look(cx).spec.play.label.clone().unwrap_or_default();
+            let current = crate::skin::look(cx)
+                .spec
+                .play
+                .label
+                .clone()
+                .unwrap_or_default();
             if text.chars().count() <= MAX_LABEL && current != text.trim() {
                 this.edit(None, "label", cx, move |spec| {
                     spec.play.label = (!text.trim().is_empty()).then(|| text.trim().to_string());
@@ -285,7 +290,12 @@ impl SkinEditor {
         }));
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        let label_now = crate::skin::look(cx).spec.play.label.clone().unwrap_or_default();
+        let label_now = crate::skin::look(cx)
+            .spec
+            .play
+            .label
+            .clone()
+            .unwrap_or_default();
         label.update(cx, |input, cx| input.set_text(label_now, cx));
         Self {
             instances,
@@ -486,18 +496,16 @@ impl SkinEditor {
             _ => ImageRole::Surface,
         };
         match self.store(cx).add_image(&id, &path, role) {
-            Ok(name) => self.edit_surface(surface, "image", cx, move |own| {
-                match &mut own.fill {
-                    Some(Fill::Image(image)) => image.image = name,
-                    _ => {
-                        own.fill = Some(Fill::Image(ImageFill {
-                            image: name,
-                            fit: Fit::Cover,
-                            tint: None,
-                            tint_opacity: 0,
-                            blur: 0,
-                        }))
-                    }
+            Ok(name) => self.edit_surface(surface, "image", cx, move |own| match &mut own.fill {
+                Some(Fill::Image(image)) => image.image = name,
+                _ => {
+                    own.fill = Some(Fill::Image(ImageFill {
+                        image: name,
+                        fit: Fit::Cover,
+                        tint: None,
+                        tint_opacity: 0,
+                        blur: 0,
+                    }))
                 }
             }),
             Err(err) => self.say(err.to_string(), true, cx),
@@ -563,7 +571,11 @@ impl SkinEditor {
                             .take(24)
                             .collect();
                         let slug = slug.trim_matches('-').to_string();
-                        let slug = if slug.is_empty() { "banner".into() } else { slug };
+                        let slug = if slug.is_empty() {
+                            "banner".into()
+                        } else {
+                            slug
+                        };
                         let banner_id = (1..)
                             .map(|n| {
                                 if n == 1 {
@@ -700,9 +712,13 @@ impl SkinEditor {
         let mut choices: Vec<AnyElement> = Vec::new();
         if let Some(none) = none {
             choices.push(
-                swatch_none(SharedString::from(format!("none-{key}")), none, value.is_none())
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_color(which, None, cx)))
-                    .into_any_element(),
+                swatch_none(
+                    SharedString::from(format!("none-{key}")),
+                    none,
+                    value.is_none(),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_color(which, None, cx)))
+                .into_any_element(),
             );
         }
         for (i, rgb) in palette.iter().map(|&c| Rgb(c)).enumerate() {
@@ -734,6 +750,7 @@ impl SkinEditor {
 }
 
 /// A slider row whose changes go to `apply`.
+#[allow(clippy::too_many_arguments)]
 fn slider_row(
     entity: &Entity<SkinEditor>,
     label: &'static str,
@@ -887,11 +904,16 @@ impl SkinEditor {
                                 let entity = entity.clone();
                                 move |kind, _, cx| {
                                     entity.update(cx, |this, cx| {
-                                        this.edit_surface(surface, "gradient-kind", cx, move |own| {
-                                            if let Some(Fill::Gradient(g)) = &mut own.fill {
-                                                g.kind = kind;
-                                            }
-                                        })
+                                        this.edit_surface(
+                                            surface,
+                                            "gradient-kind",
+                                            cx,
+                                            move |own| {
+                                                if let Some(Fill::Gradient(g)) = &mut own.fill {
+                                                    g.kind = kind;
+                                                }
+                                            },
+                                        )
                                     })
                                 }
                             },
@@ -955,18 +977,32 @@ impl SkinEditor {
                                             .icon(Icon::Plus)
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 let at = this.stop;
-                                                this.edit_surface(surface, "stops", cx, move |own| {
-                                                    if let Some(Fill::Gradient(g)) = &mut own.fill {
-                                                        let next = (at + 1).min(g.stops.len() - 1);
-                                                        let (a, b) = (g.stops[at], g.stops[next]);
-                                                        let new = Stop {
-                                                            color: a.color.mix(b.color, 0.5),
-                                                            at: ((a.at as u16 + b.at as u16) / 2) as u8,
-                                                        };
-                                                        g.stops.insert(next.max(at + 1).min(g.stops.len()), new);
-                                                        g.stops.sort_by_key(|s| s.at);
-                                                    }
-                                                });
+                                                this.edit_surface(
+                                                    surface,
+                                                    "stops",
+                                                    cx,
+                                                    move |own| {
+                                                        if let Some(Fill::Gradient(g)) =
+                                                            &mut own.fill
+                                                        {
+                                                            let next =
+                                                                (at + 1).min(g.stops.len() - 1);
+                                                            let (a, b) =
+                                                                (g.stops[at], g.stops[next]);
+                                                            let new = Stop {
+                                                                color: a.color.mix(b.color, 0.5),
+                                                                at: ((a.at as u16 + b.at as u16)
+                                                                    / 2)
+                                                                    as u8,
+                                                            };
+                                                            g.stops.insert(
+                                                                next.max(at + 1).min(g.stops.len()),
+                                                                new,
+                                                            );
+                                                            g.stops.sort_by_key(|s| s.at);
+                                                        }
+                                                    },
+                                                );
                                                 this.stop = at + 1;
                                             })),
                                     )
@@ -1073,9 +1109,9 @@ impl SkinEditor {
                             Button::new("skin-choose-image", t(M::SkinChoose))
                                 .variant(ButtonVariant::Secondary)
                                 .size(ButtonSize::Slim)
-                                .on_click(
-                                    cx.listener(move |this, _, _, cx| this.choose_image(surface, cx)),
-                                ),
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.choose_image(surface, cx)
+                                })),
                         )
                         .into_any_element(),
                 );
@@ -1349,33 +1385,38 @@ impl SkinEditor {
                         .unwrap_or_else(fonts::body);
                     options.push((Some(file.to_string()), file.to_string().into(), face));
                 }
-                let chips = options.into_iter().enumerate().map(|(i, (value, name, face))| {
-                    let chosen = value == current;
-                    div()
-                        .id(SharedString::from(format!("font-{}-{i}", part.key())))
-                        .keyboard_focus()
-                        .px_2()
-                        .py_0p5()
-                        .rounded(radius::MD)
-                        .border_1()
-                        .cursor_pointer()
-                        .font_family(face)
-                        .border_color(if chosen {
-                            colors::WHITE
-                        } else {
-                            colors::FADE_700
-                        })
-                        .text_color(if chosen {
-                            colors::WHITE
-                        } else {
-                            colors::GRAY_400
-                        })
-                        .child(name)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let value = value.clone();
-                            this.edit(None, part.key(), cx, move |spec| spec.fonts.set(part, value))
-                        }))
-                });
+                let chips = options
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, (value, name, face))| {
+                        let chosen = value == current;
+                        div()
+                            .id(SharedString::from(format!("font-{}-{i}", part.key())))
+                            .keyboard_focus()
+                            .px_2()
+                            .py_0p5()
+                            .rounded(radius::MD)
+                            .border_1()
+                            .cursor_pointer()
+                            .font_family(face)
+                            .border_color(if chosen {
+                                colors::WHITE
+                            } else {
+                                colors::FADE_700
+                            })
+                            .text_color(if chosen {
+                                colors::WHITE
+                            } else {
+                                colors::GRAY_400
+                            })
+                            .child(name)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let value = value.clone();
+                                this.edit(None, part.key(), cx, move |spec| {
+                                    spec.fonts.set(part, value)
+                                })
+                            }))
+                    });
                 SettingRow::new(label)
                     .child(
                         div()
@@ -1393,7 +1434,9 @@ impl SkinEditor {
                                 )
                                 .variant(ButtonVariant::Ghost)
                                 .size(ButtonSize::Slim)
-                                .on_click(cx.listener(move |this, _, _, cx| this.choose_font(part, cx))),
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.choose_font(part, cx)),
+                                ),
                             ),
                     )
                     .into_any_element()
@@ -1426,11 +1469,7 @@ impl SkinEditor {
                         .overflow_hidden()
                         .bg(colors::GRAY_800)
                         .when_some(thumb, |this, thumb| {
-                            this.child(
-                                img(thumb)
-                                    .size_full()
-                                    .object_fit(gpui::ObjectFit::Cover),
-                            )
+                            this.child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover))
                         }),
                 )
                 .child(
@@ -1473,16 +1512,20 @@ impl SkinEditor {
         let in_sidebar = look.spec.banner.in_sidebar;
         section(t(M::SkinBannerSet), Some(t(M::SkinBannersLead).into()))
             .child(card([SettingRow::new(t(M::SkinBannerInSidebar))
-                .child(Toggle::new("skin-banner-rows", in_sidebar).on_change(cx.listener(
-                    |this, on: &bool, _, cx| {
-                        let on = *on;
-                        this.edit(None, "in-sidebar", cx, move |spec| spec.banner.in_sidebar = on);
-                        if !on {
-                            this.instances
-                                .update(cx, |instances, _| instances.forget_sidebar_banners());
-                        }
-                    },
-                )))
+                .child(
+                    Toggle::new("skin-banner-rows", in_sidebar).on_change(cx.listener(
+                        |this, on: &bool, _, cx| {
+                            let on = *on;
+                            this.edit(None, "in-sidebar", cx, move |spec| {
+                                spec.banner.in_sidebar = on
+                            });
+                            if !on {
+                                this.instances
+                                    .update(cx, |instances, _| instances.forget_sidebar_banners());
+                            }
+                        },
+                    )),
+                )
                 .into_any_element()]))
             .child(
                 div()
@@ -1492,12 +1535,16 @@ impl SkinEditor {
                     .gap_4()
                     .children(tiles)
                     .when(look.spec.banners.is_empty(), |this| {
-                        this.child(div().text_color(colors::GRAY_500).child(t(M::SkinBannersNone)))
+                        this.child(
+                            div()
+                                .text_color(colors::GRAY_500)
+                                .child(t(M::SkinBannersNone)),
+                        )
                     }),
             )
             .when(!full, |this| {
                 this.child(
-                    div().child(
+                    div().flex().child(
                         Button::new("skin-banner-add", t(M::SkinBannerAdd))
                             .variant(ButtonVariant::Secondary)
                             .size(ButtonSize::Slim)
@@ -1662,8 +1709,22 @@ impl Render for SkinEditor {
         let others = vec![
             self.nav_item("nav-tokens", Pane::Tokens, t(M::SkinTokens), None, None, cx),
             self.nav_item("nav-fonts", Pane::Fonts, t(M::SkinFonts), None, None, cx),
-            self.nav_item("nav-banners", Pane::Banners, t(M::SkinBannerSet), None, None, cx),
-            self.nav_item("nav-play", Pane::Play, t(M::SkinPlayButtonSection), None, None, cx),
+            self.nav_item(
+                "nav-banners",
+                Pane::Banners,
+                t(M::SkinBannerSet),
+                None,
+                None,
+                cx,
+            ),
+            self.nav_item(
+                "nav-play",
+                Pane::Play,
+                t(M::SkinPlayButtonSection),
+                None,
+                None,
+                cx,
+            ),
             self.nav_item(
                 "nav-readability",
                 Pane::Readability,
@@ -1721,11 +1782,15 @@ impl Render for SkinEditor {
             .id("skin-editor")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &crate::Undo, _, cx| {
-                this.shell.update(cx, |shell, cx| shell.undo_step(true, cx)).ok();
+                this.shell
+                    .update(cx, |shell, cx| shell.undo_step(true, cx))
+                    .ok();
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &crate::Redo, _, cx| {
-                this.shell.update(cx, |shell, cx| shell.undo_step(false, cx)).ok();
+                this.shell
+                    .update(cx, |shell, cx| shell.undo_step(false, cx))
+                    .ok();
                 cx.notify();
             }))
             .relative()
@@ -1762,7 +1827,11 @@ impl Render for SkinEditor {
                                     .font_weight(weights::BOLD.into())
                                     .child(t(M::SkinEditorTitle)),
                             )
-                            .child(div().text_color(colors::GRAY_500).child(look.spec.name.clone())),
+                            .child(
+                                div()
+                                    .text_color(colors::GRAY_500)
+                                    .child(look.spec.name.clone()),
+                            ),
                     )
                     // the empty part of the bar moves the window
                     .child(

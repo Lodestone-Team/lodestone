@@ -478,7 +478,9 @@ pub fn text(message: M) -> &'static str {
         M::SkinBannerMissing => "此橫幅所屬的外觀主題已不存在，正在顯示預設橫幅。",
         M::SkinEditorTitle => "外觀主題編輯器",
         M::SkinPopOut => "開啟編輯器視窗",
-        M::SkinEditorLead => "在編輯器中修改每個介面區域、字型和橫幅。修改會立即顯示在視窗中，可以用復原還原。",
+        M::SkinEditorLead => {
+            "在編輯器中修改每個介面區域、字型和橫幅。修改會立即顯示在視窗中，可以用復原還原。"
+        }
         M::SkinSummary => "已設定 {surfaces} 個區域 · {fonts} 種字型 · {banners} 個橫幅",
         M::SkinSurfaces => "介面區域",
         M::SkinTokens => "文字顏色",

@@ -141,7 +141,7 @@ pub fn render<V: 'static>(
         .when(editable && fixable > 1, |this| {
             let apply = apply.clone();
             this.child(
-                div().child(
+                div().flex().child(
                     Button::new((id_prefix, usize::MAX), t(M::SkinFixAll))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)

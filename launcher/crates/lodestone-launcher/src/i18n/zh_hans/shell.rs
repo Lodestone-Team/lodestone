@@ -476,7 +476,9 @@ pub fn text(message: M) -> &'static str {
         M::SkinBannerMissing => "此横幅所属的皮肤已不存在，正在显示默认横幅。",
         M::SkinEditorTitle => "皮肤编辑器",
         M::SkinPopOut => "打开编辑器窗口",
-        M::SkinEditorLead => "在编辑器中修改每个界面区域、字体和横幅。修改会立即显示在窗口中，可以用撤销恢复。",
+        M::SkinEditorLead => {
+            "在编辑器中修改每个界面区域、字体和横幅。修改会立即显示在窗口中，可以用撤销恢复。"
+        }
         M::SkinSummary => "已设置 {surfaces} 个区域 · {fonts} 种字体 · {banners} 个横幅",
         M::SkinSurfaces => "界面区域",
         M::SkinTokens => "文字颜色",
