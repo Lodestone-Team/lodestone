@@ -21,6 +21,7 @@ screenshot = ["gpui_platform/test-support", "lodestone-ui/screenshot"]
 
 [dependencies]
 anyhow.workspace = true
+chrono.workspace = true
 dirs.workspace = true
 futures.workspace = true
 gpui.workspace = true

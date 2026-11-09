@@ -150,9 +150,9 @@ shows for a core with the `macros` capability and then says scripting is unavail
   the Host should use the launcher's (`launcher_core::update`) with its own channel.
 - **Light theme** (§1.8): `lodestone-ui`'s theme is dark only. A light theme touches
   the shared theme and every component; do it in one dedicated change.
-- **Text editor** (§5): the dashboard uses Monaco. `TextInput` is single-line; package
-  B needs a multi-line, scrollable editor (ideally in `lodestone-ui`), with syntax
-  colouring as a later step.
+- **Text editor** (§5): the dashboard uses Monaco; the Host uses `lodestone-ui`'s
+  `TextEditor` (multi-line, virtualized, undo/redo, colours for configuration formats).
+  It has no word wrap and no find and replace yet.
 - **Charts** (§3): no chart component yet; package A draws the performance graphs
   (GPUI `canvas` paths).
 - **Error messages** of `CoreError` mention "Lodestone Launcher" in a few places; make
@@ -601,26 +601,28 @@ Conventions in the code that every area relies on:
 ## 5. Files tab — `components/FileViewer/*`, `utils/apis.ts`, `data/FileSystem.ts`  
 **Package: B.**
 
-- [ ] Permissions: browse/read/download need `can_read_instance_file`; upload/new/rename/move/copy/paste/
+- [x] Permissions: browse/read/download need `can_read_instance_file`; upload/new/rename/move/copy/paste/
   delete/zip/unzip/save need `can_write_instance_file` (per instance). No read perm → "No permission" graphic.
-- [ ] Directory listing: `GET /instance/{uuid}/fs/{b64(path)}/ls` → `ClientFile[]`, sorted by type then
+- [x] Directory listing: `GET /instance/{uuid}/fs/{b64(path)}/ls` → `ClientFile[]`, sorted by type then
   name; root path `.`; current folder in `?path=` (reset to `.` when switching instance); previous folder
-  kept dimmed while the next loads; error text; "Empty folder".
-- [ ] Separator detection: `/` if instance path contains `/`, else `\` (Windows cores).
-- [ ] List row: checkbox, icon by extension (folder, `.lodestone_config`, txt/md/properties/cfg/ini/conf,
+  kept dimmed while the next loads; error text; "Empty folder". *Host: the folder is
+  remembered per instance while the Host runs, not in a URL; the list is virtualized.*
+- [x] Separator detection: `/` if instance path contains `/`, else `\` (Windows cores).
+- [x] List row: checkbox, icon by extension (folder, `.lodestone_config`, txt/md/properties/cfg/ini/conf,
   yml/yaml, exe, images, json/mcmeta, zip/gz/tar, jar, java, class, ts, js, bin/dll/dylib/so/o,
   dat/nbt/mca/obj, lock, log, ps1, sh, mcfunction, unknown → yellow question icon), name (click: folder →
   open, file → open in editor), modified time ("x ago" < 1 day, else date; hidden in narrow widths), size
   (files only). ".." row to go up. Clicking empty space closes editor and clears selection. Cut files
   shown dimmed.
-- [ ] Breadcrumb: instance folder name then each path segment clickable, then opened file name.
-- [ ] Resizable split list/editor (`localStorage.fileListSize`, default 200, min 200).
-- [ ] Toolbar "Add / Remove" menu: Select all / Deselect all; Cut selected (toast "N cut"); Download
+- [x] Breadcrumb: instance folder name then each path segment clickable, then opened file name.
+- [x] Resizable split list/editor (`localStorage.fileListSize`, default 200, min 200). *Host: default
+  300, kept while the Host runs (persisting it is package D's settings store).*
+- [x] Toolbar "Add / Remove" menu: Select all / Deselect all; Cut selected (toast "N cut"); Download
   selected; Unarchive selected (exactly one, Smart); New file; New folder; Delete selected (danger).
-- [ ] Toolbar buttons: Paste (N) when clipboard non-empty; Save / Discard changes when editor open (enabled
+- [x] Toolbar buttons: Paste (N) when clipboard non-empty; Save / Discard changes when editor open (enabled
   only if content changed); Upload.
-- [ ] Status line under the panel: "N selected", "N in clipboard".
-- [ ] Right-click context menu (on a file or empty area; acts on the selection if the clicked file is
+- [x] Status line under the panel: "N selected", "N in clipboard".
+- [x] Right-click context menu (on a file or empty area; acts on the selection if the clicked file is
   selected) — `FileContextMenu.tsx`:
   - Copy, Cut (toasts), Paste / "Paste into <folder>" (needs clipboard).
   - Rename (modal), Delete (confirm dialog).
@@ -632,25 +634,37 @@ Conventions in the code that every area relies on:
     Unsupported extension → error toast.
   - New folder, New file (in right-clicked folder or current folder).
   - Menu positioned to stay inside the list; closes on outside click.
-- [ ] Zip/unzip completion comes back as `ProgressionEnd FSOperationCompleted` events → toast + refresh.
-- [ ] Delete: confirm dialog listing names ("(folder)", "(unknown type)"); files `DELETE
+- [x] Zip/unzip completion comes back as `ProgressionEnd FSOperationCompleted` events → toast + refresh.
+- [x] Delete: confirm dialog listing names ("(folder)", "(unknown type)"); files `DELETE
   /instance/{uuid}/fs/{b64}/rm`, folders `DELETE …/rmdir`; one by one; success toast each; closes editor if
   affected.
-- [ ] New file / New folder modals (name required): `PUT …/fs/{b64(dir/name)}/new` / `…/mkdir`; inline
+- [x] New file / New folder modals (name required): `PUT …/fs/{b64(dir/name)}/new` / `…/mkdir`; inline
   error; refresh folder.
-- [ ] Rename modal (name required): `PUT …/fs/{b64(src)}/move/{b64(dest)}` (same folder); error inline +
+- [x] Rename modal (name required): `PUT …/fs/{b64(src)}/move/{b64(dest)}` (same folder); error inline +
   toast.
-- [ ] Cut+Paste = move each (`…/move/…`); Copy+Paste = `PUT /instance/{uuid}/fs/cpr`
+- [x] Cut+Paste = move each (`…/move/…`); Copy+Paste = `PUT /instance/{uuid}/fs/cpr`
   `CopyInstanceFileRequest {relative_paths_source[], relative_path_dest}`; clipboard cleared after paste.
-- [ ] Upload: file picker (multiple) or drag-and-drop anywhere on the tab (overlay "Drop to upload");
+- [x] Upload: file picker (multiple) or drag-and-drop anywhere on the tab (overlay "Drop to upload");
   folders rejected ("only files"); `PUT …/fs/{b64(dir)}/upload` multipart field `file` (×N), no timeout;
-  toast "Uploading N files"; refresh.
-- [ ] Download: `GET …/fs/{b64}/url` → key string → open `/file/{key}` (new tab / system browser).
-  Folders are zipped by the core (60 s timeout, toast "Zipping for download").
-- [ ] Editor (Monaco): `GET …/fs/{b64}/read` (raw text); language from extension, `.lodestone_config` →
+  toast "Uploading N files"; refresh. *Host: files are read into memory before they are
+  sent, so a very large upload needs as much memory.*
+- [x] Download: `GET …/fs/{b64}/url` → key string → open `/file/{key}` (new tab / system browser).
+  Folders are zipped by the core (60 s timeout, toast "Zipping for download"). *Host: saved
+  where the user picks (one file: a save dialog; several: a folder), through the pinned
+  client, with a "Show in folder" toast.*
+- [x] Editor (Monaco): `GET …/fs/{b64}/read` (raw text); language from extension, `.lodestone_config` →
   JSON, `.toml` → custom TOML grammar (`utils/monaco-languages/toml.ts`); word wrap on, minimap off; themed;
   Ctrl/⌘+S saves; Save → `PUT …/fs/{b64}/write` raw body; updates size/mtime in list; error toast.
-  Skeleton while loading; error graphic with message on read failure.
+  Skeleton while loading; error graphic with message on read failure. *Host: the editor is
+  `lodestone_ui::components::TextEditor` (line numbers, JetBrains Mono, undo/redo, only the
+  lines in view drawn); colours for `.properties`/INI, TOML, YAML and JSON.*
+- [x] *Host, beyond the dashboard:* opening another file or folder with unsaved changes asks
+  (Save / Discard / Keep editing); edits left unsaved when the tab closes come back when the
+  file opens again (while the Host runs, unless the file changed); a file over the core's
+  16 MB read limit says so instead of failing; the editor is read-only without
+  `can_write_instance_file`.
+- [ ] Editor gaps against Monaco: no word wrap (long lines scroll sideways), no find and
+  replace, and colours for fewer languages.
 
 ## 6. Other instance tabs
 

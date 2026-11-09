@@ -166,6 +166,19 @@ fn is_instance_code_path(root: &FsPath, path: &FsPath, is_dir: bool) -> bool {
     }
 }
 
+/// The instance's folder with its symlinks resolved, as `scoped_join` resolves the
+/// paths it joins. Otherwise a folder reached through a symlink (macOS's temporary
+/// folders, `/var` → `/private/var`, or a data folder moved behind a link) doesn't
+/// prefix the joined paths: listing it showed nothing, moving failed, and every
+/// write counted as code. Not on Windows, where a resolved path takes the `\\?\`
+/// form that `scoped_join_win_safe` doesn't expect.
+async fn real_root(root: PathBuf) -> PathBuf {
+    if cfg!(windows) {
+        return root;
+    }
+    tokio::fs::canonicalize(&root).await.unwrap_or(root)
+}
+
 fn fs_target(path: PathBuf, is_dir: bool) -> FSTarget {
     if is_dir {
         FSTarget::Directory(path)
@@ -197,7 +210,7 @@ async fn list_instance_files(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
 
@@ -245,7 +258,7 @@ async fn read_instance_file(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(root, relative_path)?;
 
@@ -292,7 +305,7 @@ async fn write_instance_file(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
@@ -336,7 +349,7 @@ async fn make_instance_directory(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
     if is_instance_code_path(&root, &path, true) {
@@ -379,7 +392,7 @@ async fn copy_instance_files(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     // join each path to the root
     let paths_source = relative_paths_source
@@ -565,7 +578,7 @@ async fn move_instance_file(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path_source = scoped_join_win_safe(&root, relative_path_source)?;
     let path_dest = scoped_join_win_safe(&root, relative_path_dest)?;
@@ -651,7 +664,7 @@ async fn remove_instance_file(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(root, &relative_path)?;
     let metadata = tokio::fs::symlink_metadata(&path)
@@ -696,7 +709,7 @@ async fn remove_instance_dir(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
     if path == root {
@@ -738,7 +751,7 @@ async fn new_instance_file(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
@@ -775,7 +788,7 @@ async fn get_instance_file_url(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, &relative_path)?;
 
@@ -849,7 +862,7 @@ async fn upload_instance_file(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path_to_dir = scoped_join_win_safe(&root, relative_path)?;
     if is_instance_code_path(&root, &path_to_dir, true) {
@@ -1030,7 +1043,7 @@ pub async fn unzip_instance_file(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path_to_zip_file = scoped_join_win_safe(&root, &relative_path)?;
 
@@ -1122,7 +1135,7 @@ async fn zip_instance_files(
         kind: ErrorKind::NotFound,
         source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let ZipRequest {
         mut target_relative_paths,
@@ -1259,6 +1272,25 @@ mod tests {
 
     fn dir(name: &str) -> bool {
         is_protected(FsPath::new(name), true)
+    }
+
+    /// A folder reached through a symlink prefixes the paths joined to it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_root_is_resolved_as_joined_paths_are() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(real.join("config")).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let root = real_root(link.clone()).await;
+        let joined = scoped_join_win_safe(&root, "config").unwrap();
+        assert_eq!(joined.strip_prefix(&root).unwrap(), FsPath::new("config"));
+        assert!(!is_instance_code_path(
+            &root,
+            &root.join("config/a.yml"),
+            false
+        ));
     }
 
     #[test]
