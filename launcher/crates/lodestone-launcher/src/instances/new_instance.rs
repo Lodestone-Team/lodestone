@@ -18,6 +18,7 @@ use crate::components::KeyboardFocus;
 use crate::{
     components::{
         Button, ButtonVariant, Dialog, Icon, IconButton, LoadingDots, TextInput,
+        motion::Animated,
         settings::{popover, popover_panel, select_button},
     },
     i18n::{CommonMsg, InstanceSettingsMsg as M, format, t, tr},
@@ -478,16 +479,8 @@ fn filter_chip(id: &'static str, caption: &'static str, on: bool) -> gpui::State
         .cursor_pointer()
         .text_size(theme::text_size(text::SMALL))
         .font_weight(weights::BOLD.into())
-        .map(|this| {
-            if on {
-                this.bg(crate::theme::accent::base().opacity(25))
-                    .border_color(crate::theme::accent::light().opacity(60))
-                    .text_color(colors::WHITE)
-            } else {
-                this.border_color(colors::FADE_700)
-                    .text_color(colors::GRAY_400)
-                    .hover(|style| style.text_color(colors::GRAY_300).bg(colors::GRAY_750))
-            }
+        .when(!on, |this| {
+            this.hover(|style| style.text_color(colors::GRAY_300).bg(colors::GRAY_750))
         })
         .when(on, |this| {
             this.child(Icon::Check.render(px(10.), colors::WHITE))
@@ -555,15 +548,8 @@ fn loader_card(
         .rounded(radius::LG)
         .border_1()
         .cursor_pointer()
-        .map(|this| {
-            if selected {
-                this.bg(crate::theme::accent::base().opacity(15))
-                    .border_color(crate::theme::accent::light().opacity(70))
-            } else {
-                this.bg(colors::GRAY_800)
-                    .border_color(colors::FADE_700)
-                    .hover(|style| style.bg(colors::GRAY_750))
-            }
+        .when(!selected, |this| {
+            this.hover(|style| style.bg(colors::GRAY_750))
         })
         .child(
             div()
@@ -715,14 +701,23 @@ impl NewInstanceDialog {
             .chain(LoaderKind::ALL.map(Some))
             .enumerate()
             .map(|(index, option)| {
-                loader_card(index, option, option == kind)
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                let selected = option == kind;
+                let card = loader_card(index, option, selected).on_click(cx.listener(
+                    move |this, _, _, cx| {
                         this.loader
                             .update(cx, |picker, cx| picker.set_kind(option, cx));
                         this.error = None;
                         cx.notify();
-                    }))
-                    .into_any_element()
+                    },
+                ));
+                // The chosen card's tint and border fade in, the last one's out.
+                Animated::new(("loader-card-state", index), selected, card, |this, t| {
+                    this.bg(colors::GRAY_800.mix(crate::theme::accent::base().opacity(15), t))
+                        .border_color(
+                            colors::FADE_700.mix(crate::theme::accent::light().opacity(70), t),
+                        )
+                })
+                .into_any_element()
             })
             .collect::<Vec<_>>();
         div()
@@ -837,11 +832,25 @@ impl NewInstanceDialog {
                     on: bool,
                     flip: fn(&mut VersionFilter),
                     cx: &mut Context<Self>| {
-            filter_chip(id, caption, on).on_click(cx.listener(move |this, _, _, cx| {
+            let chip = filter_chip(id, caption, on).on_click(cx.listener(move |this, _, _, cx| {
                 let mut filter = this.filter;
                 flip(&mut filter);
                 this.set_filter(filter, cx);
-            }))
+            }));
+            Animated::new(
+                SharedString::from(format!("{id}-state")),
+                on,
+                chip,
+                |this, t| {
+                    this.bg(crate::theme::accent::base()
+                        .opacity(0)
+                        .mix(crate::theme::accent::base().opacity(25), t))
+                        .border_color(
+                            colors::FADE_700.mix(crate::theme::accent::light().opacity(60), t),
+                        )
+                        .text_color(colors::GRAY_400.mix(colors::WHITE, t))
+                },
+            )
         };
         popover_panel("game-version-list")
             .w(px(420.))

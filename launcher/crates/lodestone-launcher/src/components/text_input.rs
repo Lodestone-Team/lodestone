@@ -98,6 +98,8 @@ pub struct TextInput {
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
     history: TextHistory,
+    /// Shown before the text.
+    leading_icon: Option<crate::components::Icon>,
 }
 
 /// The field's own Undo and Redo: its text before each burst of typing or deleting.
@@ -149,7 +151,14 @@ impl TextInput {
             last_bounds: None,
             is_selecting: false,
             history: TextHistory::default(),
+            leading_icon: None,
         }
+    }
+
+    /// An icon at the start of the field, such as a magnifying glass for a search.
+    pub fn with_leading_icon(mut self, icon: crate::components::Icon) -> Self {
+        self.leading_icon = Some(icon);
+        self
     }
 
     /// The text shown while the field is empty: a message (`InstancesMsg::SearchLog`),
@@ -691,6 +700,9 @@ impl Render for TextInput {
                     spread_radius: focus_ring_width(),
                     inset: false,
                 }])
+            })
+            .when_some(self.leading_icon, |this, icon| {
+                this.gap_2().child(icon.render(px(13.), colors::GRAY_500))
             })
             .child(TextElement { input: cx.entity() })
     }

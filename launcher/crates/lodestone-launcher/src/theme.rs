@@ -26,6 +26,18 @@ impl Color {
         Self(hex)
     }
 
+    /// The colour `t` of the way from `self` to `other` (0.0 is `self`), channel by
+    /// channel, alpha included: for animating between two states.
+    pub fn mix(self, other: Color, t: f32) -> Self {
+        let t = t.clamp(0.0, 1.0);
+        let channel = |shift: u32| {
+            let a = ((self.0 >> shift) & 0xff) as f32;
+            let b = ((other.0 >> shift) & 0xff) as f32;
+            ((a + (b - a) * t).round() as u32) << shift
+        };
+        Self(channel(24) | channel(16) | channel(8) | channel(0))
+    }
+
     /// The colour with its alpha scaled to `percent`, like Tailwind's `bg-gray-800/30`.
     pub const fn opacity(self, percent: u32) -> Self {
         let alpha = self.0 & 0xff;

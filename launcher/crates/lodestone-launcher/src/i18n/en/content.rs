@@ -6,15 +6,26 @@ crate::i18n::messages! {
         KindMods = "Mods",
         KindResourcePacks = "Resource packs",
         KindShaders = "Shaders",
-        /// The sub-view switch: what is installed, or the Modrinth browser.
-        InstalledTab = "Installed",
-        BrowseModrinth = "Browse Modrinth",
         /// An instance without a mod loader, in "1.21.1 / Vanilla".
         Vanilla = "Vanilla",
 
-        SearchModsPlaceholder = "Search mods on Modrinth, or paste a Modrinth link",
-        SearchResourcePacksPlaceholder = "Search resource packs on Modrinth, or paste a Modrinth link",
-        SearchShaderPacksPlaceholder = "Search shader packs on Modrinth, or paste a Modrinth link",
+        /// The search over the list: it filters what is installed and searches
+        /// Modrinth too.
+        SearchInstalledOrModrinth = "Search installed or Modrinth",
+        /// Headings over the list, with how many rows follow.
+        InstalledCount = "Installed · {count}",
+        /// Resource packs in use; the top one wins where they overlap.
+        EnabledCount = "Enabled · {count} · the top pack wins where packs overlap",
+        AvailableCount = "Available · {count}",
+        /// The heading of the Modrinth results below the installed ones.
+        OnModrinthCount = "On Modrinth · {count}",
+        OnModrinth = "On Modrinth",
+        /// Nothing installed matches the search; {kind} is "mods", "resource packs" or
+        /// "shaders".
+        NoInstalledMatch = "Installed · {count} · No installed {kind} match.",
+        /// The filter beside the Modrinth heading; {target} is "1.20.1 / Fabric".
+        OnlyTarget = "{target} only",
+
 
         StopGameFirst = "Stop the game first: it rewrites these files when it exits.",
         WaitForInstall = "Wait for the install to finish.",
@@ -67,8 +78,6 @@ crate::i18n::messages! {
         Compatible = "Compatible",
         OlderVersion = "Older version",
         NewerVersion = "Newer version",
-        MadeForOlder = "Made for an older version of Minecraft",
-        MadeForNewer = "Made for a newer version of Minecraft",
         NotOnModrinth = "Not on Modrinth",
         UpdateTo = "Update to {version}",
         NoModsYet = "No mods yet. Browse Modrinth, or drop .jar files here.",
@@ -78,10 +87,6 @@ crate::i18n::messages! {
         ReadingFolder = "Reading the {folder} folder",
         CouldntReadFolder = "Couldn't read the {folder} folder: {error}",
         SomeFilesNotMatched = "Some files couldn't be matched to Modrinth: {error}",
-        /// Over the enabled resource packs, in capitals.
-        EnabledHeader = "ENABLED · the top pack wins where packs overlap",
-        /// Over the other resource packs, in capitals.
-        AvailableHeader = "AVAILABLE",
         ShadersOff = "Shaders off",
         NormalLook = "Minecraft's normal look.",
 
@@ -127,10 +132,6 @@ crate::i18n::messages! {
         SortFollows = "Follows",
         SortNewest = "Newest",
         SortUpdated = "Updated",
-        /// {target} is the game version and loader: "1.21.1 / Fabric".
-        OnlyShowModsFor = "Only show mods for {target}",
-        OnlyShowResourcePacksFor = "Only show resource packs for {target}",
-        OnlyShowShaderPacksFor = "Only show shader packs for {target}",
         SearchingModrinth = "Searching Modrinth",
         NothingMatches = "Nothing on Modrinth matches.",
         PageOf = "Page {page} of {pages}",
@@ -146,7 +147,6 @@ crate::i18n::messages! {
         FollowersCompact = "{count} followers",
 
         // A project's page.
-        BackToResults = "Back to results",
         LoadingProject = "Loading the project",
         ViewOnModrinth = "View on Modrinth",
         Versions = "Versions",
@@ -168,9 +168,6 @@ crate::i18n::messages! {
     }
 
     pub enum ContentPlural {
-        ResourcePacksEnabled = ("{count} resource pack, {enabled} enabled", "{count} resource packs, {enabled} enabled"),
-        ModsEnabled = ("{count} mod, {enabled} enabled", "{count} mods, {enabled} enabled"),
-        ShaderPacks = ("{count} shader pack", "{count} shader packs"),
         Downloads = ("{count} download", "{count} downloads"),
         Follows = ("{count} follow", "{count} follows"),
         Followers = ("{count} follower", "{count} followers"),

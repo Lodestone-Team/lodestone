@@ -47,6 +47,7 @@ pub use en::{
     instance_settings::{InstanceSettingsMsg, InstanceSettingsPlural},
     instances::{InstancesMsg, InstancesPlural},
     servers::{ServersMsg, ServersPlural},
+    shared_options::{SharedOptionsMsg, SharedOptionsPlural},
     shell::{ShellMsg, ShellPlural},
     worlds::{WorldsMsg, WorldsPlural},
 };
@@ -496,6 +497,7 @@ areas! {
     content => ContentMsg, ContentPlural;
     worlds => WorldsMsg, WorldsPlural;
     servers => ServersMsg, ServersPlural;
+    shared_options => SharedOptionsMsg, SharedOptionsPlural;
 }
 
 /// Gives `element` and its children the current locale's Chinese fonts, tried for

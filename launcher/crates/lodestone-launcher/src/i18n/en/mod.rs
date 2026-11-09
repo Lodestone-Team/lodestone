@@ -17,6 +17,8 @@ pub mod instance_settings;
 pub mod instances;
 /// The Servers page, a server's page and the dialogs about cores.
 pub mod servers;
+/// Minecraft's own option and key names, in Settings > Shared game settings.
+pub mod shared_options;
 /// The window's frame: top bar, sidebar, Play tab, the launcher's Settings, accounts
 /// and the shared components.
 pub mod shell;

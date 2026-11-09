@@ -38,5 +38,12 @@ serde.workspace = true
 # Writes the sample mods and packs of the offscreen screenshots.
 zip = { workspace = true, optional = true }
 
+# The Windows display language (`i18n/system.rs`).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Globalization",
+    "Win32_System_SystemServices",
+] }
+
 [[example]]
 name = "components"
