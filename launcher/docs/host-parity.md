@@ -148,15 +148,22 @@ shows for a core with the `macros` capability and then says scripting is unavail
 - **Packaging and updates** (§8.7): no release packaging, signing or updater for the
   Host yet. The Tauri Host's updater feed is different from the launcher's channels;
   the Host should use the launcher's (`launcher_core::update`) with its own channel.
-- **Light theme** (§1.8): `lodestone-ui`'s theme is dark only. A light theme touches
-  the shared theme and every component; do it in one dedicated change.
+- **Light theme** (§1.8): done (D). `lodestone_ui::theme::palette` maps every `Color`
+  to the dashboard's light tokens when the Host turns it on, so components keep naming
+  the dark tokens; the launcher never turns it on. Colours made with `Color::mix` (a
+  switch moving) and opaque `WHITE` (text on accent buttons) aren't mapped. Pages that
+  draw their own colours (charts, the console's palette, the editor) should check
+  `palette::is_light()` where the dashboard has light values of its own.
 - **Text editor** (§5): the dashboard uses Monaco; the Host uses `lodestone-ui`'s
   `TextEditor` (multi-line, virtualized, undo/redo, colours for configuration formats).
   It has no word wrap and no find and replace yet.
-- **Charts** (§3): no chart component yet; package A draws the performance graphs
-  (GPUI `canvas` paths).
-- **Error messages** of `CoreError` mention "Lodestone Launcher" in a few places; make
-  them app-neutral when touching `cores/client.rs`.
+- **Charts** (§3): `lodestone_ui::components::LineChart` (GPUI `canvas` paths: gaps
+  dashed, filled area, grid, hover label), used by the Overview's graphs.
+- **Error messages** of `CoreError` and `ClaimError`: done (D). They name
+  `launcher_core::wording::app_name()`, which the Host sets to "Lodestone Host" at start.
+- **The setup key** (done, D): the core no longer writes its first-time setup key to its
+  log files; it prints it to the console only, and not at all with `--is-host` (the Host
+  makes the owner through the local claim and never needs it).
 - The session token lasts 60 days; a Host left running that long signs in again when
   the core refuses it (handled by `HostEvent::SignedOut`).
 
@@ -257,11 +264,12 @@ Conventions in the code that every area relies on:
     (plug-exclamation, yellow), error (plug-x, red).
   - Hover/focus tooltip: status label + detail text + Address (`proto://addr:port`), Version, Host
     (`host_name`), System (`os arch`, macos→macOS, aarch64→arm64), Uptime (from `up_since`, d/h/m).
-- [ ] Footer: user menu — `components/UserMenu.tsx`
+- [x] Footer: user menu — `components/UserMenu.tsx`
   - Button: avatar (boring-avatars from uid) + username (skeleton while loading, "Guest" if logged out),
     opens upward menu: "Signed in as <name>" / "Not signed in"; **Sign out** (clears token for this core,
     clears `instance` & `user` params → redirected to login); **Change core** (→ `/login/core/select`).
   - Gear icon button → remembers current path, opens `/settings/general`.
+  - *Host:* The footer has Signed in as, Settings and Change core (the Cores dialog). No Sign out: the Host signs in to its own core as the owner by itself.
 - [x] Home page — `pages/home.tsx`
   - Placeholder cube image, title + subtitle, "Create a new server" button (only when logged in; disabled
     without `can_create_instance`). Skeleton while user info loads.
@@ -277,14 +285,18 @@ Conventions in the code that every area relies on:
 ### 1.3 Cores: selecting, adding, persistence (`pages/index.tsx`, `pages/login/*`)  
 **Package: D.**
 
-- [ ] Current core persisted in localStorage keys `address`, `port`, `protocol`, `apiVersion`
+- [x] Current core persisted in localStorage keys `address`, `port`, `protocol`, `apiVersion`
   (defaults localhost/16662/http/v1). Switching core clears the whole query cache and `?instance`.
-- [ ] Saved core list `localStorage.cores` (array of `{address,port,protocol,apiVersion}`); a core is
+  - *Host:* The Host always starts on this computer's core; the other cores are in the Cores dialog.
+- [x] Saved core list `localStorage.cores` (array of `{address,port,protocol,apiVersion}`); a core is
   added after a successful connection; same address+port replaces protocol/apiVersion.
-- [ ] Per-core token map `localStorage.tokens` keyed by `"address:port"`.
-- [ ] Legacy link params `?address&port&protocol&apiVersion`: if equal to current core they are just
+  - *Host:* prefs.rs cores: address and the trusted certificate's fingerprint.
+- [x] Per-core token map `localStorage.tokens` keyed by `"address:port"`.
+  - *Host:* Not kept, on purpose: the Host signs in to another core again each time (no token on disk).
+- [x] Legacy link params `?address&port&protocol&apiVersion`: if equal to current core they are just
   stripped; if different → open `/login/core/new` pre-filled (never switches silently).
-- [ ] **Connect to a core** page — `pages/login/CoreConnect.tsx` (`/login/core/new`)
+  - *Host:* Not applicable: the Host has no URLs.
+- [x] **Connect to a core** page — `pages/login/CoreConnect.tsx` (`/login/core/new`)
   - Fields: API version (select, only `v1`), Protocol (select http/https), Port (number, default 16662),
     Address (text). All required (yup).
   - Protocol auto-follows address (http for localhost/127.0.0.1/::1, https otherwise) until user picks one.
@@ -296,14 +308,17 @@ Conventions in the code that every area relies on:
     `https://addr:port/` + fingerprint hint; http → plain-HTTP hint.
   - https page + http core: warning banner and a "mixed content" danger dialog (wiki link) — browser-only.
   - Buttons: Back, "Download core" (opens GitHub releases), "Add and continue".
-- [ ] **Select a saved core** — `pages/login/CoreSelectExisting.tsx` (`/login/core/select`)
+  - *Host:* pages/cores.rs: the address as typed (parse_address: http for loopback, https otherwise, port 16662 by default), the certificate's fingerprint to trust when the system doesn't (as Lodestone Launcher), then username and password. tests/core_account.rs connects to a real core this way.
+- [x] **Select a saved core** — `pages/login/CoreSelectExisting.tsx` (`/login/core/select`)
   - Select of saved cores (label `address:port`), "or" "Connect to a new core" button, Download core,
     Continue (same `/info` probe and routing as above; help box with `savedCore` wording).
-- [ ] Local-core discovery while signed in to a remote core — `DashboardLayout.tsx`, `data/SystemInfo.ts`
+  - *Host:* The Cores dialog lists this computer's core and the saved ones (Switch, Remove).
+- [x] Local-core discovery while signed in to a remote core — `DashboardLayout.tsx`, `data/SystemInfo.ts`
   - If the local core is reachable (Tauri, or page served over http) and the current core isn't local:
     poll `GET http://localhost:16662/api/v1/info` every 3 s (2.5 s timeout) until it answers.
   - Answer `is_setup:false` → dialog "A local core was found" with **Set up** (switch to local core →
     `/login/core/first_setup`) / **Skip**. `is_setup:true` → silently add local core to saved list.
+  - *Host:* Not applicable: the Host is the local core.
 
 ### 1.4 First run / owner setup / login (`pages/login/*`)  
 **Package: foundation (done, through the local claim).**
@@ -354,14 +369,20 @@ Conventions in the code that every area relies on:
 
 - [ ] Token = JWT (claims `uid`, `exp`), decoded without verification; malformed / no `exp` / no `uid` /
   expired → error toast and sign-out.
+  - *Host:* Not done (D): the Host doesn't read the token's expiry; it signs in again when the core refuses the token (60 days later).
 - [ ] Auto sign-out timer at `exp` with warning toast "Session expired" (toast id `sessionExpired`).
-- [ ] 401 handling: any 401 on a request carrying the current token → re-check `GET /user/info`; if that
+  - *Host:* Not done (D), as above.
+- [x] 401 handling: any 401 on a request carrying the current token → re-check `GET /user/info`; if that
   401s → toast "session invalid" and sign out. No refresh tokens.
-- [ ] Changing token or core clears the whole data cache; notifications cleared on sign-out.
-- [ ] `UserDeleted` event for self → sign out.
-- [ ] Analytics: Google Analytics (`react-ga4`, id `G-LZQ3VZ6N26`) in production builds; events from
+  - *Host:* Any request refused with 401 ends the session (CoreError::SignedOut, state.rs): the Host claims its own core again, and from another core it goes back to this computer's with a warning toast.
+- [x] Changing token or core clears the whole data cache; notifications cleared on sign-out.
+  - *Host:* A new HostState per session and per core; notifications are cleared on sign-out.
+- [x] `UserDeleted` event for self → sign out.
+  - *Host:* state.rs (foundation).
+- [x] Analytics: Google Analytics (`react-ga4`, id `G-LZQ3VZ6N26`) in production builds; events from
   `useAnalyticsEventTracker` in many places (login, create instance, notification panel, instance list…) —
   `utils/hooks.ts`. Decide whether the native app keeps any telemetry.
+  - *Host:* Decision: the Host sends no analytics.
 
 ### 1.6 Connection status, reconnect, global dialogs (`DashboardLayout.tsx`, `data/EventStream.ts`, `data/SystemInfo.ts`, `utils/websocket.ts`)  
 **Package: D (the foundation shows the connection in the sidebar).**
@@ -370,35 +391,45 @@ Conventions in the code that every area relies on:
   - `/info` success → success (unless degraded); `/info` failure → error.
   - Event websocket open → success. Websocket failed before opening → probe `GET /user/info`: OK → degraded
     (REST works, WS doesn't); 401 → sign-out path; network error → error; other → degraded.
-- [ ] Reconnecting websocket helper: exponential backoff 1 s → max 30 s, reset on open; URL rebuilt each
+  - *Host:* Not done as such (D): the footer shows Connecting, Connected, Reconnecting and Signed out from the event stream; there is no degraded state (a browser's WebSocket limit doesn't apply).
+- [x] Reconnecting websocket helper: exponential backoff 1 s → max 30 s, reset on open; URL rebuilt each
   attempt; close code 1000 by client stops it — `utils/websocket.ts`.
-- [ ] After an event-stream reconnect: invalidate instance list, user info, global settings.
-- [ ] **Core error dialog** (status `error`): "Can't reach <addr:port>", **Back** (→ `/login/core/select`) /
+  - *Host:* launcher_core's LiveStream reconnects by itself (foundation).
+- [x] After an event-stream reconnect: invalidate instance list, user info, global settings.
+  - *Host:* state.rs reloads on reconnect (foundation).
+- [x] **Core error dialog** (status `error`): "Can't reach <addr:port>", **Back** (→ `/login/core/select`) /
   **Continue** (reload page).
-- [ ] **Setup required dialog** (`/info.is_setup === false` while in dashboard): **Set up** (→ first_setup)
+  - *Host:* The Host's own core: the supervisor's status screen, which restarts it and shows its log.
+- [x] **Setup required dialog** (`/info.is_setup === false` while in dashboard): **Set up** (→ first_setup)
   / **Change core**.
+  - *Host:* The Host's own core: the first run's owner form (onboarding.rs).
 - [ ] **Version mismatch** (`DASHBOARD_VERSION` vs `/info.version`, semver): different major or minor, or
   core 0.4.x with patch < 4 → danger dialog (core/dashboard versions, "incompatible", wiki Updating link,
   "Continue anyway"); patch-only difference → warning toast top-centre 10 s (id `patchVersionMismatch`).
-- [ ] **Beta thank-you dialog** once per new core version containing "beta" (`localStorage.latestVersion`).
+  - *Host:* Not done (D): the Host bundles its own core. For another core, an older or newer API shows as request errors; a version check belongs with the Cores dialog.
+- [x] **Beta thank-you dialog** once per new core version containing "beta" (`localStorage.latestVersion`).
+  - *Host:* notifications.rs; the version thanked for is latest_version in settings.json.
 
 ### 1.7 Notifications (`data/NotificationContext.tsx`, `data/EventStream.ts`, `components/DashboardLayout/Notification*.tsx`, `components/Atoms/NotificationCard.tsx`)  
 **Package: D.**
 
-- [ ] Event history on sign-in: `GET /events/all/buffer?filter=<EventQuery JSON, all null>` → replay
+- [x] Event history on sign-in: `GET /events/all/buffer?filter=<EventQuery JSON, all null>` → replay
   (non-console) events as non-fresh; failure toast "Couldn't load past events" (id `eventBufferError`);
   "historyLoaded" flag drives skeleton.
-- [ ] Live events: WS `/events/all/stream?filter=<EventQuery JSON with bearer_token>` (console-type events
+  - *Host:* notifications.rs (event_history); a failure is an error toast.
+- [x] Live events: WS `/events/all/stream?filter=<EventQuery JSON with bearer_token>` (console-type events
   `InstanceOutput/InstanceInput/SystemMessage` ignored here).
-- [ ] Notification list: max 200, deduped by snowflake; each item has title, message, timestamp (from
+  - *Host:* HostState's event stream; notifications.rs follows its HostEvent::Core.
+- [x] Notification list: max 200, deduped by snowflake; each item has title, message, timestamp (from
   snowflake: `(id >> 22) + 1667530800000`), level (Info/Warning/Error), fresh flag.
-- [ ] Ongoing (progress) notifications from `ProgressionEvent`: Start (title, total, start value) → Update
+- [x] Ongoing (progress) notifications from `ProgressionEvent`: Start (title, total, start value) → Update
   (add `progress`, message; clamp to total) → End (moves to normal list with end message). Progress shown
   as bar (capped at 99 % while ongoing).
-- [ ] Bell icon in top bar with red dot when a new fresh notification or any ongoing one arrives; cleared
+- [x] Bell icon in top bar with red dot when a new fresh notification or any ongoing one arrives; cleared
   on click. Popover 480 px wide, 80 vh: title, "In progress" section, "All notifications" section
   (newest first), skeleton while history loads, empty state.
-- [ ] Notification titles produced per event (i18n `shell.event.*`): state transitions per state
+  - *Host:* A panel under the bell; the system's notification for a crashed server while the window is in the background, and for a core that can't start (osascript on macOS, notify-send on Linux; none on Windows yet).
+- [x] Notification titles produced per event (i18n `shell.event.*`): state transitions per state
   (`Starting/Running/Stopping/Stopped/Error` "<name> is …"), instance warning (+ error toast
   "warningToast"), instance error, players joined/left/both, player chat message, API key created/revoked,
   macro started/detached/stopped (with exit status type), playit runner started/loading/stopped.
@@ -415,18 +446,21 @@ Conventions in the code that every area relies on:
 ### 1.8 Theme, language, zoom, keyboard  
 **Package: D.**
 
-- [ ] Theme preference `system | light | dark` in `localStorage.theme`; system follows OS live; syncs across
+- [x] Theme preference `system | light | dark` in `localStorage.theme`; system follows OS live; syncs across
   tabs; applied before first paint; Tauri window theme set to match (`setTheme(null)` for system) —
   `utils/theme.ts`, `components/Settings/AppearanceSetting.tsx` (segmented control with per-option hint).
+  - *Host:* prefs.rs saves it in settings.json; the light theme is lodestone_ui::theme::palette (the dashboard's light tokens), and System follows the OS live.
 - [ ] Separate light/dark colour tokens, graph colours, Monaco themes (`lodestone-dark` bg `#26282C`,
   `lodestone-light` white), console palette per theme — `globals.css`, `light-overrides.css`.
-- [ ] Languages: English, Français, 简体中文 (zh-Hans), 繁體中文 (zh-Hant); preference `auto` (browser
+- [x] Languages: English, Français, 简体中文 (zh-Hans), 繁體中文 (zh-Hant); preference `auto` (browser
   languages; zh-TW/HK/MO → Hant) or explicit, `localStorage.language`; `<html lang>` set; plural forms via
   `Intl.PluralRules`; locale-aware number/date/relative-time/bytes/list formatting — `i18n/*`,
   `components/Settings/LanguageSetting.tsx`. ~1,600 message keys in `i18n/en.ts`.
-- [ ] Zoom (Tauri only): Ctrl/⌘ `+`/`=`/NumpadAdd zoom in, `-`/NumpadSubtract out, `0` reset; levels
+  - *Host:* Profile › Appearance; saved in settings.json.
+- [x] Zoom (Tauri only): Ctrl/⌘ `+`/`=`/NumpadAdd zoom in, `-`/NumpadSubtract out, `0` reset; levels
   0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2; persisted `localStorage.lodestone-zoom` —
   `utils/zoom.ts`, `utils/zoomLevels.ts`.
+  - *Host:* lodestone-ui's levels (67–200%); saved in settings.json; also on Profile › Appearance.
 - [ ] Other keyboard behaviour: Ctrl/⌘+S saves in file editor; ↑/↓ console command history; Enter saves /
   Esc cancels inline-edit text fields (`components/EditableTextfield.tsx`); Esc resets a setting input
   (`components/Atoms/Config/InputBox.tsx`); Esc in settings modal closes the narrow-window page list first,
@@ -441,15 +475,17 @@ Conventions in the code that every area relies on:
 
 - [x] `GET /instance/list` → `InstanceInfo[]` (keyed by uuid; insertion order = core order). Only fetched
   when signed in.
-- [ ] Header "All instances"; each row: game icon (or modpack icon), name, coloured status dot
+- [x] Header "All instances"; each row: game icon (or modpack icon), name, coloured status dot
   (Running green, Starting/Stopping yellow, Stopped gray, Error red). Click selects (`?instance=`).
-- [ ] Skeleton rows while loading; logged-out state: dashed box "Log in to view".
-- [ ] In-progress creations appear as "Setting up… NN %" pills with circular progress (from ongoing
+- [x] Skeleton rows while loading; logged-out state: dashed box "Log in to view".
+  - Host: always signed in, so there is no logged-out box.
+- [x] In-progress creations appear as "Setting up… NN %" pills with circular progress (from ongoing
   `InstanceCreation` progression events) — `components/InstanceLoadingPill.tsx`.
-- [ ] "New server" button under the list (disabled + "No permission" label without `can_create_instance`);
+  - Host: a progress bar under the name instead of the circle.
+- [x] "New server" button under the list (disabled + "No permission" label without `can_create_instance`);
   opens create dialog (§2.3).
 - [x] Live updates via events (state, players, add/remove).
-- [ ] Game icon tooltip = game title (Minecraft / Forge (Minecraft) / Fabric (Minecraft) / Paper (Minecraft)
+- [x] Game icon tooltip = game title (Minecraft / Forge (Minecraft) / Fabric (Minecraft) / Paper (Minecraft)
   / Spigot (Minecraft) / `<name> (Minecraft)` / Minecraft Bedrock / `<name>` generic); modpack icon only
   from `https://cdn.modrinth.com/`, falls back to game icon on load error — `components/Atoms/GameIcon.tsx`,
   `data/GameTypeMappings.tsx`.
@@ -457,8 +493,10 @@ Conventions in the code that every area relies on:
 ### 2.2 Instance card (selected instance) — `components/InstanceCard.tsx`  
 **Package: A (the foundation has the power buttons).**
 
-- [ ] Shows icon, name, power button with menu, "Copy IP" chip (`<domain or core address>:<port>`, toast
+- [x] Shows icon, name, power button with menu, "Copy IP" chip (`<domain or core address>:<port>`, toast
   "Copied …"), player-count label coloured by state (`players/max online`).
+  - Host: the selected card also has a **Share** button next to Start: it opens the
+    Overview, which starts sharing (`HostState::share_requested`).
 - [x] Power menu items by state: Stopped → Start; Running → Stop, Restart; Starting/Stopping → Kill;
   Error → Restart.
   - Endpoints: `PUT /instance/{uuid}/start`, `/stop`, `/kill`, `/restart`; error → toast.
@@ -470,17 +508,17 @@ Conventions in the code that every area relies on:
 ### 2.3 Create instance dialog — `components/Instance/InstanceCreateForm.tsx`, `components/Instance/Create/*`, `components/DashboardLayout/LeftNav.tsx`  
 **Package: A.**
 
-- [ ] Modal with a left "wizard steps" rail (done = check, current = filled number, can click done steps to
+- [x] Modal with a left "wizard steps" rail (done = check, current = filled number, can click done steps to
   go back) — `Create/WizardSteps.tsx`.
-- [ ] Step 1 **Select game** — `Create/GameTypeSelectForm.tsx`, `Create/SelectGameCard.tsx`
+- [x] Step 1 **Select game** — `Create/GameTypeSelectForm.tsx`, `Create/SelectGameCard.tsx`
   - `GET /games` → `HandlerGameType[]` (core offers `MinecraftJavaVanilla`, `MinecraftFabric`,
     `MinecraftForge`, `MinecraftPaper`; `MinecraftBedrock` exists in the type but isn't offered).
   - Full-width card "Modrinth modpack" with "New" badge → modpack flow (§2.4).
   - One card per game type with title + description; selected card highlighted. Skeleton cards while loading.
   - Next disabled until a game is chosen (initial type is `'Generic'` with no URL).
-- [ ] Step 2 **Basic settings** (client-side manifest, `Create/form.ts`): Name (required, default
+- [x] Step 2 **Basic settings** (client-side manifest, `Create/form.ts`): Name (required, default
   "Minecraft Server"-style default from i18n), Description (optional).
-- [ ] Step 3 **Server settings**: rendered from `GET /setup_manifest/{HandlerGameType}` → `SetupManifest`
+- [x] Step 3 **Server settings**: rendered from `GET /setup_manifest/{HandlerGameType}` → `SetupManifest`
   (sections of `SettingManifest`) — `Create/FormFromManifest.tsx`, `Create/FieldFromManifest.tsx`.
   - Field by `value_type`: String → text/password (is_secret); Integer/UnsignedInteger/Float → number;
     Boolean → true/false radio; Enum → filterable combobox (prefix match). Optional fields marked.
@@ -488,38 +526,38 @@ Conventions in the code that every area relies on:
     off), and never while code execution is disabled — `data/CodeExecution.ts useCommandLineBlockedReason`.
   - Validation generated per field (`generateValidationSchema`): required, numeric, integer, ≥0 for
     unsigned, min/max, enum membership. Initial values from `default_value` then `value`, else type zero.
-- [ ] Step 4 **Auto settings**: Auto start (bool), Restart on crash (bool).
-- [ ] Create: `POST /instance/create/{HandlerGameType}` body `SetupValue {name, description, auto_start,
+- [x] Step 4 **Auto settings**: Auto start (bool), Restart on crash (bool).
+- [x] Create: `POST /instance/create/{HandlerGameType}` body `SetupValue {name, description, auto_start,
   restart_on_crash, setting_sections: {sectionId: {settings: {id: {value}}}}}`; failure → toast, dialog
   stays open; success closes dialog; the instance appears through progression events (pill → list).
 - [ ] **Out of scope** (needs Deno). Generic/atom path: `PUT /generic_setup_manifest {url}` and `POST /instance/create_generic
   {url, setup_value}` exist in code but there's no URL field in the UI **(dead)**. No Docker-instance UI.
-- [ ] Dialog skeleton while code loads (`CreateInstanceFlow.tsx`); Back keeps typed values.
+- [x] Dialog skeleton while code loads (`CreateInstanceFlow.tsx`); Back keeps typed values.
 
 ### 2.4 Create from Modrinth modpack — `components/Instance/Create/ModpackCreateForm.tsx`, `components/Mods/ModrinthSearch.tsx`, `data/Mods.ts`  
 **Package: A.**
 
-- [ ] Steps: Select game (go back) → Select modpack → Select version → Server settings.
-- [ ] Can be opened pre-set from Mods › Browse ("Create server from this modpack", `ModpackPreset
+- [x] Steps: Select game (go back) → Select modpack → Select version → Server settings.
+- [x] Can be opened pre-set from Mods › Browse ("Create server from this modpack", `ModpackPreset
   {projectId, versionId}`), skipping the search step.
-- [ ] **Select modpack**: Modrinth search (project_type `modpack`), "Only Fabric" checkbox (loader `fabric`,
+- [x] **Select modpack**: Modrinth search (project_type `modpack`), "Only Fabric" checkbox (loader `fabric`,
   default on), sort select (Relevance/Downloads/Follows/Newest/Updated), **Upload .mrpack** button.
   - Search box accepts a modrinth.com link → `GET /modrinth/resolve?url=` → picks that project (and
     version); non-modpack → toast "not a modpack".
   - Upload: file picker `.mrpack` only → `POST /modpack/upload` (multipart `file`) → `ModpackInfo` with
     `upload_id` → goes to version step showing summary.
   - Search state and scroll position are kept when going back.
-- [ ] **Select version**: project header (icon/title/summary, skeleton), version list from
+- [x] **Select version**: project header (icon/title/summary, skeleton), version list from
   `GET /modrinth/project/{id}/versions` (no filter), 20 at a time + "Show N more"; row: version number,
   release/beta/alpha label, game versions · loaders · date · size, Select button.
   - Select → `POST /modpack/inspect {version_id}` (no timeout; "Downloading <size>…" status) →
     `ModpackInfo` summary: Modpack name+version, Minecraft version, Loader+version, server files
     count/size, summary text, warning if `unsupported_reason`. Only the latest inspect wins.
   - Next requires info + source and no `unsupported_reason`.
-- [ ] **Server settings** (formik/yup): Name (required, default pack name), Description (default pack
+- [x] **Server settings** (formik/yup): Name (required, default pack name), Description (default pack
   summary), Port (1–65535, default first free from 25565 among existing instances), Min RAM MB (≥1, default
   1024), Max RAM MB (≥ min, default 4096), Auto start, Restart on crash.
-- [ ] Create: `POST /instance/create_modpack` `CreateModpackInstanceRequest {source: {type:'modrinth',
+- [x] Create: `POST /instance/create_modpack` `CreateModpackInstanceRequest {source: {type:'modrinth',
   version_id} | {type:'upload', upload_id}, name, port, description, min_ram, max_ram, auto_start,
   restart_on_crash}` → `InstanceUuid`; progress via progression events.
 
@@ -536,27 +574,31 @@ Conventions in the code that every area relies on:
 ## 3. Overview tab — `components/Instance/InstanceOverview.tsx`, `InstancePerformance.tsx`, `InstancePlayerList.tsx`, `InstanceDetails.tsx`  
 **Package: A.**
 
-- [ ] Inline-editable **name** (heading) and **description**: click or pencil → input, Enter/floppy saves,
+- [x] Inline-editable **name** (heading) and **description**: click or pencil → input, Enter/floppy saves,
   Esc/blur cancels; trimmed; inline error text; spinner — `components/EditableTextfield.tsx`.
   - `PUT /instance/{uuid}/name` / `PUT /instance/{uuid}/description` (JSON string body); updates list cache.
   - Read-only for non-owners on atom instances (tooltip). No explicit permission check client-side.
-- [ ] Labels row: game icon, state label, "Version x", "n/m players", address chip `<domain|core
+  - Host: Enter or the floppy saves, Esc or × cancels; leaving the field does not
+    cancel. An empty name is refused before it is sent.
+- [x] Labels row: game icon, state label, "Version x", "n/m players", address chip `<domain|core
   address>:<port>` (click copies).
-- [ ] **Performance**: two line charts, last 60 s (1 sample/s): CPU % (max 100) and memory GiB (max =
+- [x] **Performance**: two line charts, last 60 s (1 sample/s): CPU % (max 100) and memory GiB (max =
   core `total_ram`); headings show latest value; gaps drawn dashed; tooltip "N seconds ago"; skeleton while
   waiting for the first report of a running/starting instance — `components/Graphs/PerformanceGraph.tsx`.
   - WS `/monitor/{uuid}?token=Bearer …` → `PerformanceReport {memory_usage, cpu_usage, disk_usage,
     start_time}`; server replays last 60 s on each connect.
-- [ ] **Players**: sort by name toggle (asc/desc); rows with 16 px head from `https://mc-heads.net/avatar/
+- [x] **Players**: sort by name toggle (asc/desc); rows with 16 px head from `https://mc-heads.net/avatar/
   {uuid}/16.png`, name, and the linked Lodestone username if the player's Minecraft account is linked
   (owner sees all links, others only their own — `data/MinecraftLinks.ts`, `utils/linkedPlayers.ts`);
   empty state "No players online". No kick/ban/op/whitelist actions.
-- [ ] **Details** (collapsible, open state in `localStorage.instanceDetailsOpen`): Name, Description, UUID
+- [x] **Details** (collapsible, open state in `localStorage.instanceDetailsOpen`): Name, Description, UUID
   (copy), Game, Minecraft version / version, Loader + loader version, Port, State, Players, Created
   (`creation_time`), Auto start, Restart on crash, RAM (min–max MB), Folder path (copy), Modpack (link to
   modrinth.com/modpack/<id> if from Modrinth). Rows without value hidden.
-- [ ] Ports / playit tunnels are not on Overview (Playit is its own tab, §6.7).
-- [ ] **Share with friends** (Lodestone Connect, added after the inventory) —
+  - Host: the open state is kept for the session only, until D's settings store
+    (§9 `instanceDetailsOpen`).
+- [x] Ports / playit tunnels are not on Overview (Playit is its own tab, §6.7).
+- [x] **Share with friends** (Lodestone Connect, added after the inventory) —
   `components/Instance/ShareWithFriends.tsx`, `data/InstanceShare.ts`, core `src/connect.rs`
   - `GET /instance/{uuid}/share` → `InstanceShare` (fails for users who can't manage the
     instance, and on cores without sharing: then hidden); polled every 5 s while sharing,
@@ -568,6 +610,9 @@ Conventions in the code that every area relies on:
     friend with its connection kind, **Stop sharing** → danger confirm →
     `DELETE /instance/{uuid}/share` (the link stops working for good).
   - Messages: `server.share.*` in `i18n/en.ts`.
+  - Host: checked against a real core (the card, off) and with sample data (on,
+    friends, hard network); starting a share against the live connect.lodestone.cc
+    service wasn't tried from the tests.
 
 ## 4. Console tab — `components/GameConsole.tsx`, `data/ConsoleStream.ts`, `components/ConsoleLine.tsx`, `utils/consoleFormat.ts`  
 **Package: B.**
@@ -583,8 +628,7 @@ Conventions in the code that every area relies on:
   mode = case-insensitive substring) on the plain text.
 - [x] Auto-scroll sticks to bottom unless user scrolled up (>10 px). *Host: and a "Jump to
   latest" button while scrolled up.*
-- [x] Coloured output (toggle in Profile: *Host: `pages::console::set_colored`, for package D's
-  Profile toggle and settings store; on until then*, `localStorage.coloredConsole`, default on): ANSI SGR (16/256/24-bit
+- [x] Coloured output (toggle in Profile, `localStorage.coloredConsole`, *Host: `Prefs`*, default on): ANSI SGR (16/256/24-bit
   colours, bold, dim, italic, underline, strike, inverse) and Minecraft `§` codes; other escapes stripped;
   low-contrast colours adjusted for the theme (≥4.5:1); text on background colours rendered as badges;
   plain lines coloured by detected log level (WARN/ERROR from `[..]` prefixes or `WARN:`/`ERROR:`).
@@ -691,7 +735,7 @@ Conventions in the code that every area relies on:
     core's manifest; the dashboard has no hard-coded list.)
 - [x] **Automation** section: Auto start, Restart on crash toggles → `PUT /instance/{uuid}/auto_start` /
   `/restart_on_crash` (JSON bool); refetch list; needs `can_access_instance_setting` (+ owner for atom).
-- [ ] **Sharing / public listing** (Minecraft Java only; hidden on cores without scopes) —
+- [x] **Sharing / public listing** (Minecraft Java only; hidden on cores without scopes) —
   `components/Instance/PublicListingSetting.tsx`
   - `GET /instance/{uuid}/public_listing` → `InstancePublicListing`; "Public" toggle + checkboxes
     Status / Address / Client pack; sentence describing what's shown; only owner can edit; listing can't be
@@ -719,12 +763,12 @@ Conventions in the code that every area relies on:
 ### 6.2 Mods / Plugins tab — `components/Mods/*`, `data/Mods.ts`, `utils/mods.ts`  
 **Package: C.**
 
-- [ ] Shown for Fabric/Forge (mods) and Paper/Spigot (plugins); needs `can_read_instance_file`; changes need
+- [x] Shown for Fabric/Forge (mods) and Paper/Spigot (plugins); needs `can_read_instance_file`; changes need
   `can_write_instance_file` (disabled buttons get a tooltip "No write permission").
-- [ ] "Restart required" yellow banner when `restart_required`.
-- [ ] Sub-views: **Installed** | **Browse** (Browse stays mounted after first open). `?modrinth=<link>`
+- [x] "Restart required" yellow banner when `restart_required`.
+- [x] Sub-views: **Installed** | **Browse** (Browse stays mounted after first open). `?modrinth=<link>`
   opens Browse with the link.
-- [ ] **Installed** — `InstalledMods.tsx`
+- [x] **Installed** — `InstalledMods.tsx`
   - `GET /instance/{uuid}/mods[?check_updates=true]` → `InstalledModList {kind, loader, game_version,
     directory, restart_required, loader_version, client_required_count, mods[]}`.
   - Header: "N mods in <directory>"; buttons **Update all (N)**, **Check for updates** (refetch with
@@ -740,11 +784,11 @@ Conventions in the code that every area relies on:
     "Overwrite?" confirm dialog with the core's message.
   - Result toast lists installed / removed files / skipped (with reasons) / "players need these too".
   - Empty, error and skeleton states.
-- [ ] **Client modpack panel** (Fabric only) — `ClientPackPanel.tsx`: "Players need N mods to join",
+- [x] **Client modpack panel** (Fabric only) — `ClientPackPanel.tsx`: "Players need N mods to join",
   Minecraft version · Fabric loader version, chips of required mods (tooltip "needed by"), **Download client
   modpack** → `GET /instance/{uuid}/mods/client_pack` → `ClientPackDownload {key,…}` → open `/file/{key}`;
   import hint (mentions included jars not on Modrinth). Plain-Fabric one-liner when no mods needed.
-- [ ] **Browse** — `ModsTab.tsx` Browse, `ModrinthSearch.tsx`, `ModrinthProjectView.tsx`
+- [x] **Browse** — `ModsTab.tsx` Browse, `ModrinthSearch.tsx`, `ModrinthProjectView.tsx`
   - Search (debounced 300 ms) `GET /modrinth/search?query&project_type&game_version&loader&index&offset&limit=20`
     → `ModrinthSearchResponse`; pagination prev/next with "Page x of y"; "Only compatible with <gameVersion>
     <loader>" checkbox (default on); sort select.
@@ -766,6 +810,14 @@ Conventions in the code that every area relies on:
   - Paper accepts paper/bukkit/spigot versions (filtered client-side).
   - Warning when project's `server_side === 'unsupported'`; wrong project type warning.
   - Modpack project: **Create server from this modpack** (needs `can_create_instance`) → opens §2.4 preset.
+- Host notes for §6.2 (`pages/mods.rs`, `pages/mods/`): Browse is package A's
+  `ModrinthSearchView` with three options added for the tab (one box for the server's
+  game version and loader, the "Installed" tag, whether players need a mod). The
+  project's description uses the launcher's Markdown renderer, now shared in
+  `lodestone_ui::markdown`. "Download client modpack" saves the `.mrpack` where the user
+  chooses (the dashboard opens the download in the browser). There are no `?modrinth=`
+  deep links: the Host has no URLs. Results and projects aren't cached in the Host (the
+  core caches Modrinth for 5 minutes).
 
 ### 6.3 Macros tab — `pages/macros.tsx`, `components/Table.tsx`, `components/ButtonMenu.tsx`  
 **Package: **out of scope** (needs Deno).**
@@ -789,7 +841,10 @@ Conventions in the code that every area relies on:
 ### 6.4 Event Logs tab — `pages/InstanceTabs/InstanceTabs.tsx`  
 **Package: C.**
 
-- [ ] Placeholder only ("Coming soon" with cube image). No per-instance event log exists.
+- [x] Placeholder only ("Coming soon" with cube image). No per-instance event log exists.
+  The Host shows a real log instead (`pages/event_logs.rs`): the instance's state
+  changes, warnings, errors, players joining and leaving, and chat, newest first, from
+  `GET /events/all/buffer` then the live event stream (at most 500 lines).
 
 ### 6.5 Players / whitelist / ops / backups / scheduling  
 **Package: nobody (not in the dashboard).**
@@ -800,24 +855,28 @@ Conventions in the code that every area relies on:
 ### 6.6 Ports  
 **Package: C (through the settings manifest).**
 
-- [ ] Instance port appears in card/overview/details; editing comes from the settings manifest. Core-wide
+- [x] Instance port appears in card/overview/details; editing comes from the settings manifest. Core-wide
   "Open port" UPnP action is in Core settings (§7.1).
 
 ### 6.7 Playit.gg tab — `components/PlayitggOverview.tsx`, `components/PlayitggSignupModal.tsx`  
 **Package: C.**
 
-- [ ] Tab only when `global_settings.playit_enabled`. (Core-wide, not per instance.)
-- [ ] On open: `POST /playitgg/verify_key` → bool (refetched each visit), `GET /playitgg/cli_is_running`
+- [x] Tab only when `global_settings.playit_enabled`. (Core-wide, not per instance.)
+- [x] On open: `POST /playitgg/verify_key` → bool (refetched each visit), `GET /playitgg/cli_is_running`
   → runner status, `GET /playitgg/get_tunnels` → `PlayitTunnelInfo[]` (failure → empty list).
-- [ ] Not verified → signup modal opens automatically: "Generate link" (`GET
+- [x] Not verified → signup modal opens automatically: "Generate link" (`GET
   /playitgg/generate_signup_link` → `{url, claim_code}`) → shows link → "Verify" (re-run verify_key,
   refetch tunnels). Error toasts.
-- [ ] "Playit runner" heading + power button (disabled until verified) toggling `POST
+- [x] "Playit runner" heading + power button (disabled until verified) toggling `POST
   /playitgg/start_cli` (status → Loading) / `POST /playitgg/stop_cli` (→ Stopped); status label
   Stopped/Loading/Started; status also driven by `PlayitggRunnerEvent`s.
-- [ ] Tunnels list with refresh icon (spins): name, active dot (green only if active and runner started),
+- [x] Tunnels list with refresh icon (spins): name, active dot (green only if active and runner started),
   public address (click copies), "Local server ip:port"; empty states "No tunnels" / "Not signed up";
   help link to wiki.
+- Host notes for §6.7 (`pages/playit.rs`): the runner and the tunnels are settings-style
+  cards; the power button is Start/Stop; a tunnel's address is copied with its copy
+  button. A user who isn't the owner sees the core's refusal ("Couldn't load the
+  playit.gg status").
 
 ---
 
@@ -831,22 +890,23 @@ Conventions in the code that every area relies on:
 ### 7.1 Core › General — `pages/settings/CoreSettings.tsx`  
 **Package: D.**
 
-- [ ] Data: `GET /global_settings` → `GlobalSettingsData {core_name, safe_mode, domain, playit_enabled,
+- [x] Data: `GET /global_settings` → `GlobalSettingsData {core_name, safe_mode, domain, playit_enabled,
   code_execution_enabled, code_execution_locked, allow_lan_http, list_instances_publicly,
   allow_local_claim}`; `GET /info`. Edits only by owner (`is_owner`); others see read-only values.
-- [ ] Warning banner when `allow_lan_http` is on (owner/other wording).
-- [ ] **Core** section:
+- [x] Warning banner when `allow_lan_http` is on (owner/other wording).
+- [x] **Core** section:
   - Core name: text, not empty, ≤32 → `PUT /global_settings/name`.
   - Public domain/IP: text, may be empty, ≤253, placeholder current address, tooltip → `PUT
     /global_settings/domain`. Used for "Copy IP" everywhere.
   - Enable Playit.gg toggle → `PUT /global_settings/playit_enabled` then `POST /playitgg/stop_cli`.
-- [ ] **Public instances** section (owner, cores that support it): "List instances publicly" toggle →
+- [x] **Public instances** section (owner, cores that support it): "List instances publicly" toggle →
   `PUT /global_settings/list_instances_publicly`; per-instance Public toggle + Status/Address/Client pack
   checkboxes for every Minecraft Java instance from `GET /public_listing` → `PublicListingOverview` (same
   row component as §6.1, `PUT /instance/{uuid}/public_listing`); "No servers" empty row.
-- [ ] **Information** (read-only): Core version, Dashboard version, OS, Architecture, CPU, CPU cores, Total
+- [x] **Information** (read-only): Core version, Dashboard version, OS, Architecture, CPU, CPU cores, Total
   RAM, HTTPS certificate mode (self-signed / user-provided / none), certificate SHA-256 fingerprint.
-- [ ] **Danger zone**:
+  - *Host:* Shows the Lodestone Host version where the dashboard shows its own.
+- [x] **Danger zone**:
   - Safe mode toggle (turning on saves; turning off asks confirm) → `PUT /global_settings/safe_mode`.
   - Code execution toggle (owner; disabled if locked, with "locked by administrator" note; hint differs
     when core has no Deno: only custom Java commands) → turning off asks danger confirm → `PUT
@@ -856,20 +916,21 @@ Conventions in the code that every area relies on:
   - Allow local claim (owner, if supported) → `PUT /global_settings/allow_local_claim`.
   - Open port (UPnP): button (owner) → modal with port (1–65535, default 25565) → `PUT
     /gateway/open_port/{port}`; error inline; toast "Port N opened".
-- [ ] All setting PUTs send a JSON value body; success → "Saved" toast and cache update.
+- [x] All setting PUTs send a JSON value body; success → "Saved" toast and cache update.
 
 ### 7.2 Core › Users — `pages/settings/UserSettings.tsx`, `components/UserBox.tsx`, `components/Settings/*`  
 **Package: D.**
 
-- [ ] User list only fetched for the owner: `GET /user/list` → `PublicUser[]`. Selected user in `?user=`.
-- [ ] List view: "All members (N)", **Create user** button, rows (avatar, name — click opens user, tags
+- [x] User list only fetched for the owner: `GET /user/list` → `PublicUser[]`. Selected user in `?user=`.
+  - *Host:* The selected user is the page's own state (no URL).
+- [x] List view: "All members (N)", **Create user** button, rows (avatar, name — click opens user, tags
   You/Admin/Owner, "…" menu: **Change password**, **Delete user** (disabled for self)).
   - Create user dialog: Username (required), Password (required), Confirm (match) → `POST /user
     {username,password}` → `PublicUser`; added to list.
   - Change password dialog: self → Old password + new + confirm; other user → new + confirm (no old) →
     `PUT /user/{uid}/password {uid, old_password|null, new_password}`; error box.
   - Delete user confirm → `DELETE /user/{uid}`; removed from cache (no error handling).
-- [ ] User detail view (header "username · All users" link):
+- [x] User detail view (header "username · All users" link):
   - **Permissions** (normal): `can_create_instance`, `can_delete_instance`, `can_read_global_file` (toggles);
     `can_view_instance`, `can_start_instance`, `can_stop_instance`, `can_access_instance_console`,
     `can_access_instance_setting`, `can_read_instance_resource`, `can_read_instance_file` (per-instance
@@ -883,46 +944,48 @@ Conventions in the code that every area relies on:
   - Not editable/listed: `can_access_instance_macro`, `can_install_extension`.
   - **API keys** of that user (§7.4, revoke only).
   - **Minecraft accounts** of that user (owner): list + Remove (§7.5).
-- [ ] Non-owners see no user list (the page is effectively empty for them).
+- [x] Non-owners see no user list (the page is effectively empty for them).
+  - *Host:* Non-owners see a line saying only the owner manages users.
 
 ### 7.3 Account › Profile — `pages/settings/profile.tsx`  
 **Package: D.**
 
-- [ ] Toast warning if not logged in; skeleton while loading.
-- [ ] Username (inline save) → `PUT /user/{uid}/rename` (JSON string); updates self + list caches.
-- [ ] Password: **Change password** button → dialog (old/new/confirm) → `PUT /user/{uid}/password`.
-- [ ] **Appearance**: Language select (§1.8), Theme segmented control (§1.8), "Coloured console" toggle
+- [x] Toast warning if not logged in; skeleton while loading.
+  - *Host:* Not needed: the Host is always signed in.
+- [x] Username (inline save) → `PUT /user/{uid}/rename` (JSON string); updates self + list caches.
+- [x] Password: **Change password** button → dialog (old/new/confirm) → `PUT /user/{uid}/password`.
+- [x] **Appearance**: Language select (§1.8), Theme segmented control (§1.8), "Coloured console" toggle
   (local only).
-- [ ] **API keys** section (own keys, §7.4).
-- [ ] **Minecraft accounts** section (own links, §7.5).
+- [x] **API keys** section (own keys, §7.4).
+- [x] **Minecraft accounts** section (own links, §7.5).
 
 ### 7.4 API keys — `components/Settings/ApiKeys/*`, `data/ApiKeys.ts`  
 **Package: D.**
 
-- [ ] Own keys: `GET /user/api_keys` (refetched every visit) → `ApiKeyInfo[]`. Other user's keys (owner/
+- [x] Own keys: `GET /user/api_keys` (refetched every visit) → `ApiKeyInfo[]`. Other user's keys (owner/
   admin): `GET /user/{uid}/api_keys`. 4xx not retried; 403 for API-key sessions shown as "only from a
   signed-in session".
-- [ ] Key row: name, display prefix `lsk_<id>_…`, scope summary ("Full access", "Custom: N servers, M
+- [x] Key row: name, display prefix `lsk_<id>_…`, scope summary ("Full access", "Custom: N servers, M
   permissions", launcher variants with/without console read/write), Created date, Expires/Expired (red)/
   Never, Last used ("x ago"/never); **Revoke** → confirm → `DELETE /user/api_keys/{id}` or
   `DELETE /user/{uid}/api_keys/{id}`; toast.
-- [ ] **Create key** dialog (own only): Name (required, ≤64), Expires in (30 days / 90 days (default) /
+- [x] **Create key** dialog (own only): Name (required, ≤64), Expires in (30 days / 90 days (default) /
   1 year / Never — warning for Never), Access (Full / Custom). Custom → scope editor with the same
   permission list as §7.2, limited to what the user can grant (owner all; admin implicit set: view, start,
   stop, console, settings, read resource, read file, create, delete; else own grants); per-instance grids
   with non-grantable instances disabled; must pick ≥1 permission. → `POST /user/api_keys
   CreateApiKeyRequest {name, expires_at (unix s|null), scope}` → `CreatedApiKey {key, info}`.
-- [ ] **New key** dialog (can't be dismissed by Esc/backdrop, only Done): key in a copyable code block,
+- [x] **New key** dialog (can't be dismissed by Esc/backdrop, only Done): key in a copyable code block,
   CLI example `LODESTONE_URL=<proto://addr:port> LODESTONE_TOKEN=<key> lodestone_cli instance list`
   (copyable), "store it now" warning; key never cached. Copy toasts never include the key.
 
 ### 7.5 Minecraft account links — `components/Settings/MinecraftLinks.tsx`, `data/MinecraftLinks.ts`  
 **Package: D.**
 
-- [ ] Own: `GET /user/minecraft_links` → `MinecraftLink[]`; remove `DELETE /user/minecraft_links/{mcUuid}`.
-- [ ] Owner, all users: `GET /minecraft_links` → `MinecraftLinkInfo[]`; remove `DELETE
+- [x] Own: `GET /user/minecraft_links` → `MinecraftLink[]`; remove `DELETE /user/minecraft_links/{mcUuid}`.
+- [x] Owner, all users: `GET /minecraft_links` → `MinecraftLinkInfo[]`; remove `DELETE
   /minecraft_links/{mcUuid}`.
-- [ ] Row: Minecraft name, UUID (mono), Remove (confirm). 404 → "core too old". Links are created in
+- [x] Row: Minecraft name, UUID (mono), Remove (confirm). 404 → "core too old". Links are created in
   Lodestone Launcher, not here.
 - [ ] Also used to annotate players (Overview) and console lines with Lodestone usernames.
 
@@ -986,8 +1049,10 @@ Conventions in the code that every area relies on:
 ### 8.5 Tray — `main.rs`  
 **Package: foundation (macOS done); D: Windows and Linux.**
 
-- [ ] Template tray icon (`icons/icon.png`); menu with single **Quit** item.
-- [ ] Left click (button up) shows + focuses the main window; on macOS left click also opens the menu.
+- [x] Template tray icon (`icons/icon.png`); menu with single **Quit** item.
+  - *Host:* macOS: the menu bar icon (foundation). Windows: a notification area icon with Show and Quit (tray_windows.rs; compile-checked for x86_64-pc-windows-msvc in a scratch crate, not run). Linux: none, see tray.rs.
+- [x] Left click (button up) shows + focuses the main window; on macOS left click also opens the menu.
+  - *Host:* Windows: a left click shows the window, a right click opens the menu.
 - [x] Quit: signals core shutdown (stop servers), waits up to 10 s for it, then exits.
 
 ### 8.6 Single instance — `main.rs`  
@@ -999,10 +1064,11 @@ Conventions in the code that every area relies on:
 ### 8.7 Updater — `main.rs`, `tauri.conf.json`  
 **Package: D.**
 
-- [ ] On startup (Linux: only AppImage or dev), checks `https://raw.githubusercontent.com/Lodestone-Team/
+- [x] On startup (Linux: only AppImage or dev), checks `https://raw.githubusercontent.com/Lodestone-Team/
   updates/main/updates.json` (minisign pubkey in config). If an update exists: native Yes/No dialog "A new
   version of Lodestone Host is available!" with versions and release notes → download+install → second
   dialog "Ready to restart" → restart. Errors logged only. Bundles `v1Compatible` updater artifacts.
+  - *Host:* Settings › Updates (pages/updates.rs) and updater.rs, after the launcher's updater: check, download, install, restart, with Update automatically and Beta builds saved in settings.json. The source of builds (an UpdateSource) comes with the Host's release channel; until then the page says the Host doesn't update itself.
 
 ### 8.8 Other Tauri facts  
 **Package: D (packaging).**
@@ -1024,10 +1090,12 @@ Conventions in the code that every area relies on:
 - [ ] `tokens` — `{ "addr:port": token }`.
 - [ ] `latestVersion` — last seen core version (beta dialog).
 - [ ] `leftNavSize` (200–280), `fileListSize`.
-- [ ] `coloredConsole` (bool, default true).
-- [ ] `theme` (`system|light|dark`), `language` (`en|fr|zh-Hans|zh-Hant`, absent = auto).
-- [ ] `lodestone-zoom` (Host only).
-- [ ] `instanceDetailsOpen` (bool).
+- [x] `coloredConsole` (bool, default true).
+  - *Host:* prefs.rs: settings.json in the Host's folder (LODESTONE_HOST_DATA_DIR).
+- [x] `theme` (`system|light|dark`), `language` (`en|fr|zh-Hans|zh-Hant`, absent = auto).
+- [x] `lodestone-zoom` (Host only).
+- [x] `instanceDetailsOpen` (bool).
+  - *Host:* The field is in prefs.rs for package A's Details section.
 - [ ] sessionStorage `settingsReturnTo`.
 
 ---

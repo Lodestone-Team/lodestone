@@ -122,6 +122,9 @@ pub enum Command {
     /// Questions the launcher's window is asking about servers, and answers to them.
     #[command(subcommand)]
     Prompts(Prompts),
+    /// Friends' servers (Lodestone Connect): join one from an invite link, list, remove.
+    #[command(subcommand)]
+    Friends(Friends),
     /// Long operations: list, wait for, cancel.
     #[command(subcommand)]
     Jobs(Jobs),
@@ -1091,6 +1094,45 @@ pub enum Servers {
         server: ServerArg,
         #[arg(long)]
         instance: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Friends {
+    /// Friends' servers joined before: name, version, who shares it, last status.
+    /// Never prints invite links (they are secrets).
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friends list")]
+    List,
+    /// Joins a friend's server: connects to their computer through Lodestone Connect,
+    /// gets a matching instance (with the server's mods), and plays. Give the invite
+    /// link, or the name of a server joined before. An invite link lets anyone join,
+    /// so prefer "-" (the link on stdin's first line) to keep it out of shell history.
+    #[command(
+        after_help = "Examples:\n  printf '%s\\n' \"$LINK\" | lodestone-launcher-cli friends join -\n  lodestone-launcher-cli friends join \"Alex's SMP\"\n  lodestone-launcher-cli friends join - --no-play < link.txt\n  lodestone-launcher-cli friends join \"Alex's SMP\" --accept-advisory"
+    )]
+    Join {
+        /// The invite link (https://connect.lodestone.cc/j/…, lodestone://join?…), "-"
+        /// to read it from stdin, or a friend's server joined before (its name or id).
+        link_or_name: String,
+        /// Only connect and show the server; don't start the game.
+        #[arg(long)]
+        no_play: bool,
+        #[arg(long, conflicts_with = "skip_update")]
+        update_mods: bool,
+        #[arg(long)]
+        skip_update: bool,
+        /// Install the server's mods this once, though it isn't trusted for mods. Ask
+        /// the user.
+        #[arg(long)]
+        accept_advisory: bool,
+    },
+    /// Forgets a friend's server and its invite link. Instances made for it stay.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friends remove \"Alex's SMP\" --yes"
+    )]
+    Remove {
+        /// Its name or id.
+        friend: String,
     },
 }
 

@@ -54,10 +54,16 @@ pub enum HostEvent {
     InstancesReloaded,
     /// The session ended: the window signs in again.
     SignedOut,
+    /// Show another core (package D's Cores dialog): `None` for this computer's, or a
+    /// session on another core.
+    SwitchCore(Option<Box<crate::session::Session>>),
     /// A page asks the shell to show another route (see [`HostState::navigate`]).
     Navigate(crate::routes::Route),
     /// A page asks for the "New server" dialog.
     OpenCreateInstance,
+    /// A page asks for the "New server" dialog on a Modrinth modpack (Mods › Browse:
+    /// "Create server from this modpack").
+    OpenCreateModpack(crate::pages::create_instance::ModpackPreset),
     /// Starting (or restarting) the instance failed: its Minecraft EULA may not be
     /// accepted (`pages::eula_prompt` asks).
     StartFailed(String),
@@ -74,6 +80,9 @@ pub struct HostState {
     pub creating: Vec<Creating>,
     /// Why the last list or power request failed.
     pub error: Option<String>,
+    /// An instance whose Overview should start sharing it with friends when it opens
+    /// (the sidebar's "Share" button).
+    pub share_requested: Option<String>,
     /// The window's toasts, which the shell draws over the page (see [`Self::toast`]).
     pub toasts: Entity<Toasts>,
     _stream: Option<LiveStream>,
@@ -95,6 +104,7 @@ impl HostState {
             error: None,
             toasts: cx.new(|_| Toasts::new()),
             _stream: None,
+            share_requested: None,
             _tasks: Vec::new(),
         };
         this.follow_events(cx);
@@ -115,6 +125,34 @@ impl HostState {
     /// Asks the shell for the "New server" dialog.
     pub fn open_create_instance(&mut self, cx: &mut Context<Self>) {
         cx.emit(HostEvent::OpenCreateInstance);
+    }
+
+    /// Asks the shell for the "New server" dialog on a Modrinth modpack, skipping the
+    /// search (and the version, when `preset` has one).
+    pub fn open_create_modpack(
+        &mut self,
+        preset: crate::pages::create_instance::ModpackPreset,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(HostEvent::OpenCreateModpack(preset));
+    }
+
+    /// Changes the instance `uuid` as the core just did (a new name), without fetching
+    /// the list again.
+    pub fn update_instance(
+        &mut self,
+        uuid: &str,
+        change: impl FnOnce(&mut InstanceInfo),
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(instance) = self
+            .instances
+            .as_mut()
+            .and_then(|list| list.iter_mut().find(|i| i.uuid == uuid))
+        {
+            change(instance);
+            cx.notify();
+        }
     }
 
     /// Shows a toast at the bottom right of the window: `Toast::success(…)`,

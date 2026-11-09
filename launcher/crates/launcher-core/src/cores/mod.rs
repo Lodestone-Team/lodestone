@@ -16,10 +16,14 @@
 //! - [`resource_pack`]: a server's resource pack;
 //! - [`lan`]: worlds opened to LAN on this network;
 //! - [`local_claim`]: "Connect as owner" for a core on this computer;
+//! - [`connect`] and [`friends`]: servers friends share with Lodestone Connect invite
+//!   links, joined through a direct tunnel, and the ones the user joined;
 //! - [`admin`]: the core's full API, as the dashboard and Lodestone Host use it.
 
 pub mod admin;
 pub mod client;
+pub mod connect;
+pub mod friends;
 pub mod hosting;
 pub mod join;
 pub mod lan;
@@ -50,8 +54,9 @@ pub fn matching_loader(server: &ServerInstance) -> Result<Option<LoaderChoice>, 
         ServerLoader::Vanilla | ServerLoader::Paper | ServerLoader::Spigot => return Ok(None),
         ServerLoader::Other => {
             return Err(format!(
-                "{} runs a mod loader Lodestone Launcher doesn't know.",
-                server.name
+                "{} runs a mod loader {} doesn't know.",
+                server.name,
+                crate::wording::app_name()
             ));
         }
     };

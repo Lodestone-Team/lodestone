@@ -65,9 +65,13 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 ] }
 
 [target.'cfg(windows)'.dependencies]
-# One Host at a time (`single_instance.rs`).
+# One Host at a time (`single_instance.rs`), and the notification area icon
+# (`tray_windows.rs`).
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }

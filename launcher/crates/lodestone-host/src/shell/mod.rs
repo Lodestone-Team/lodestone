@@ -2,7 +2,7 @@
 //! the selected instance, its tabs and every instance, and the page of the current
 //! [`Route`].
 
-mod sidebar;
+pub mod sidebar;
 mod top_bar;
 
 use gpui::{
@@ -29,8 +29,14 @@ pub struct HostShell {
     pub route: Route,
     page: Option<(Route, AnyView)>,
     create: Option<Entity<CreateInstance>>,
+    /// The other cores (package D), from the footer's "Change core".
+    cores: Option<Entity<pages::cores::CoresDialog>>,
+    /// The core shown is this computer's (not another one's).
+    pub on_local: bool,
     /// Asks to accept the Minecraft EULA when a server doesn't start without it.
     eula: Entity<pages::eula_prompt::EulaPrompt>,
+    /// The bell in the top bar and its list (package D).
+    pub notifications: Entity<crate::notifications::Notifications>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -41,6 +47,9 @@ impl HostShell {
             cx.subscribe(&state, |this, _, event, cx| match event {
                 HostEvent::Navigate(route) => this.navigate(route.clone(), cx),
                 HostEvent::OpenCreateInstance => this.open_create(cx),
+                HostEvent::OpenCreateModpack(preset) => {
+                    this.open_create_with(Some(preset.clone()), cx)
+                }
                 _ => {}
             }),
         ];
@@ -48,12 +57,19 @@ impl HostShell {
             let state = state.clone();
             cx.new(|cx| pages::eula_prompt::EulaPrompt::new(state, cx))
         };
+        let notifications = {
+            let state = state.clone();
+            cx.new(|cx| crate::notifications::Notifications::new(state, cx))
+        };
         Self {
             state,
             route: Route::Home,
             page: None,
             create: None,
+            cores: None,
+            on_local: true,
             eula,
+            notifications,
             _subscriptions: subscriptions,
         }
     }
@@ -76,9 +92,45 @@ impl HostShell {
         );
     }
 
-    pub fn open_create(&mut self, cx: &mut Context<Self>) {
+    /// The other cores, from the footer.
+    pub fn open_cores(&mut self, cx: &mut Context<Self>) {
         let state = self.state.clone();
-        let dialog = cx.new(|cx| CreateInstance::new(state, cx));
+        let on_local = self.on_local;
+        let dialog = cx.new(|cx| pages::cores::CoresDialog::new(state, on_local, cx));
+        let subscription = cx.subscribe(&dialog, |this, _, event, cx| match event {
+            pages::cores::CoresEvent::Close => {
+                this.cores = None;
+                cx.notify();
+            }
+        });
+        self._subscriptions.push(subscription);
+        self.cores = Some(dialog);
+        cx.notify();
+    }
+
+    pub fn open_create(&mut self, cx: &mut Context<Self>) {
+        self.open_create_with(None, cx);
+    }
+
+    /// The "New server" dialog, if it is open.
+    pub fn create_dialog(&self) -> Option<Entity<CreateInstance>> {
+        self.create.clone()
+    }
+
+    /// The "New server" dialog, on a Modrinth modpack when `preset` is given.
+    pub fn open_create_with(
+        &mut self,
+        preset: Option<crate::pages::create_instance::ModpackPreset>,
+        cx: &mut Context<Self>,
+    ) {
+        let state = self.state.clone();
+        let dialog = cx.new(|cx| {
+            let mut dialog = CreateInstance::new(state, cx);
+            if let Some(preset) = preset {
+                dialog.open_modpack_preset(preset, cx);
+            }
+            dialog
+        });
         let subscription = cx.subscribe(&dialog, |this, _, event, cx| match event {
             CreateInstanceEvent::Close => {
                 this.create = None;
@@ -133,6 +185,7 @@ impl HostShell {
                     SettingsPage::General => t(ShellMsg::SettingsGeneral),
                     SettingsPage::Users => t(ShellMsg::SettingsUsers),
                     SettingsPage::Profile => t(ShellMsg::SettingsProfile),
+                    SettingsPage::Updates => t(crate::i18n::CoreMsg::UpdatesTitle),
                 }
                 .to_string(),
             ),
@@ -158,6 +211,7 @@ impl Render for HostShell {
                             t(ShellMsg::SettingsGeneral),
                             t(ShellMsg::SettingsUsers),
                             t(ShellMsg::SettingsProfile),
+                            t(crate::i18n::CoreMsg::UpdatesTitle),
                         ],
                     )
                     .selected(selected)
@@ -177,7 +231,7 @@ impl Render for HostShell {
             .size_full()
             .flex()
             .flex_col()
-            .child(top_bar::render(window, cx))
+            .child(top_bar::render(self.notifications.clone(), window, cx))
             .child(
                 div()
                     .flex_1()
@@ -225,6 +279,9 @@ impl Render for HostShell {
                     ),
             )
             .when_some(self.create.clone(), |this, dialog| this.child(dialog))
+            .when_some(self.cores.clone(), |this, dialog| {
+                this.child(div().absolute().inset_0().child(dialog))
+            })
             .child(self.eula.clone())
             .child(toasts)
             .min_w(layout::sidebar_width())

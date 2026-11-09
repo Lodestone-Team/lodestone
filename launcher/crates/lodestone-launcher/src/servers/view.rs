@@ -46,7 +46,7 @@ fn small(value: impl Into<SharedString>) -> gpui::Div {
 }
 
 /// "1.20.1 · Fabric 0.16.14", or "1.20.1" for vanilla.
-fn detail(server: &ServerInstance) -> String {
+pub(super) fn server_detail(server: &ServerInstance) -> String {
     let loader = match (&server.loader, &server.loader_version) {
         (ServerLoader::Vanilla, _) => return server.game_version.clone(),
         (loader, Some(version)) => format!("{} {version}", loader_label(*loader)),
@@ -324,9 +324,14 @@ impl Servers {
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
         let description: SharedString = if linked {
-            format!("{status} · {} · {}", detail(server), t(M::InstanceReady)).into()
+            format!(
+                "{status} · {} · {}",
+                server_detail(server),
+                t(M::InstanceReady)
+            )
+            .into()
         } else {
-            format!("{status} · {}", detail(server)).into()
+            format!("{status} · {}", server_detail(server)).into()
         };
         div()
             .id(element_id.clone())
@@ -382,7 +387,7 @@ impl Servers {
                                 )
                             }),
                     )
-                    .child(small(detail(server)).text_color(crate::theme::ink::muted())),
+                    .child(small(server_detail(server)).text_color(crate::theme::ink::muted())),
             )
             .child(
                 small(status)
@@ -1053,6 +1058,7 @@ impl Render for Servers {
                     )
             }))
             .child(self.render_local(cx))
+            .child(self.render_friends(cx))
             .when(empty, |this| {
                 this.child(
                     div()
@@ -1121,8 +1127,13 @@ impl Render for ServersOverlay {
         let advisory = pick(servers.advisory.is_open());
         let add = pick(servers.dialog.is_open());
         let update = pick(servers.prompt.is_open());
+        // the join dialog waits under the questions its Play asks
+        let join = pick(servers.friends.join.is_open());
         let window = &*window;
         let mut children = Vec::new();
+        children.extend(slot_layers(&servers.friends.join, join, window, |prompt| {
+            Some(super::friends_view::join_dialog(entity, prompt, app))
+        }));
         children.extend(slot_layers(&servers.prompt, update, window, |prompt| {
             Some(update_dialog(entity, prompt))
         }));

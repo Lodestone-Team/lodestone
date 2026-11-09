@@ -165,3 +165,69 @@ fn futures_timer(duration: Duration) -> futures::channel::oneshot::Receiver<()> 
 }
 
 use futures::FutureExt as _;
+
+/// Not a test: makes a core data folder for screenshots, at `LODESTONE_FIXTURE_DIR`
+/// (a temporary folder you choose), with an owner and one vanilla server made through
+/// the API with the EULA not accepted. It downloads the server from Mojang and never
+/// starts it. Run with `cargo test -p lodestone-host --test instances_api -- --ignored`.
+#[test]
+#[ignore]
+fn make_a_screenshot_fixture() {
+    let Some(dir) = std::env::var_os("LODESTONE_FIXTURE_DIR") else {
+        eprintln!("set LODESTONE_FIXTURE_DIR");
+        return;
+    };
+    let program = core_process::find_core().expect("the core's program");
+    let logs = tempfile::tempdir().unwrap();
+    let port = (17_700..18_000)
+        .find(|&port| core_process::port_is_free(port))
+        .expect("a free port");
+    let config = CoreConfig {
+        program,
+        data_dir: std::path::PathBuf::from(dir),
+        port,
+        log_file: logs.path().join("core.log"),
+    };
+    let mut process = CoreProcess::spawn(&config).expect("the core starts");
+    let http = launcher_core::http::default_client().unwrap();
+    let local = CoreClient::new(http.clone(), config.local_url());
+    while block_on(local.info()).is_err() {
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    let owner = OwnerCredentials {
+        username: "screenshots".into(),
+        password: Secret::new(String::from("a long test password 789")),
+    };
+    let session = block_on(session::claim_owner(
+        http,
+        config.local_url(),
+        &config.data_dir,
+        Some(owner),
+        sleep(),
+    ))
+    .expect("signed in");
+    let admin = &session.admin;
+    if block_on(admin.instances()).unwrap().is_empty() {
+        use launcher_core::cores::admin::instances::SetupValue;
+        let game = HandlerGameType::MinecraftJavaVanilla;
+        let manifest = block_on(admin.setup_manifest(&game)).expect("the form");
+        let value = SetupValue {
+            name: "Survival SMP".into(),
+            description: Some("A world for friends".into()),
+            auto_start: false,
+            restart_on_crash: true,
+            setting_sections: SetupValue::sections(&manifest, |_, s| {
+                s.default_value.clone().or_else(|| s.value.clone())
+            }),
+            accept_eula: false,
+        };
+        block_on(admin.create_instance(&game, &value)).expect("created");
+        let started = Instant::now();
+        while block_on(admin.instances()).unwrap().is_empty() {
+            assert!(started.elapsed() < Duration::from_secs(600), "not made");
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    }
+    let status = process.stop(Duration::from_secs(30));
+    assert!(status.is_some_and(|s| s.success()), "{status:?}");
+}

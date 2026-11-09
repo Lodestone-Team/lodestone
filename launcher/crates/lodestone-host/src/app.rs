@@ -58,6 +58,8 @@ pub struct HostApp {
     _focus_lost: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
     task: Option<Task<()>>,
+    /// A warning for the next shell: why it is back on this computer's core.
+    notice: Option<String>,
 }
 
 /// GPUI's timer, for the claim's wait on the core's answer file.
@@ -78,6 +80,16 @@ impl HostApp {
                 {
                     this.phase = Phase::Core;
                 }
+                // a core that can't start, while the window is in the background: say
+                // so with the system's notification, as the Tauri Host did
+                if let CoreStatus::Failed { reason, .. } = &this.supervisor.read(cx).status
+                    && crate::notifications::in_background(cx)
+                {
+                    crate::notifications::native::notify(
+                        crate::APP_NAME,
+                        &crate::i18n::tr!(crate::i18n::CoreMsg::CoreFailedNotice, error = reason),
+                    );
+                }
                 cx.notify();
             }
         });
@@ -86,13 +98,21 @@ impl HostApp {
             hide(window, cx);
             false
         });
+        // the theme follows the computer's light or dark setting, when set to
+        let appearance = window.observe_window_appearance(|window, cx| {
+            if crate::prefs::Prefs::apply_theme(window.appearance(), cx) {
+                cx.refresh_windows();
+            }
+        });
+        crate::prefs::Prefs::apply_theme(window.appearance(), cx);
         Self {
             supervisor,
             phase: Phase::Core,
             root_focus: cx.focus_handle(),
             _focus_lost: None,
-            _subscriptions: vec![subscription],
+            _subscriptions: vec![subscription, appearance],
             task: None,
+            notice: None,
         }
     }
 
@@ -247,16 +267,51 @@ impl HostApp {
     }
 
     fn show_shell(&mut self, session: Session, cx: &mut Context<Self>) {
+        self.show_shell_on(session, None, cx);
+    }
+
+    /// The shell for `session`; `remote` names another core than this computer's.
+    fn show_shell_on(&mut self, session: Session, remote: Option<String>, cx: &mut Context<Self>) {
+        let on_local = remote.is_none();
         let state = cx.new(|cx| HostState::new(session, cx));
-        let subscription = cx.subscribe(&state, |this, _, event, cx| {
-            if matches!(event, HostEvent::SignedOut)
-                && let Some(config) = this.config(cx)
-            {
-                this.sign_in(config, None, cx);
+        // after being signed out of another core
+        if let Some(notice) = self.notice.take() {
+            state.update(cx, |state, cx| {
+                state.toast(lodestone_ui::components::Toast::warning(notice), cx)
+            });
+        }
+        let subscription = cx.subscribe(&state, move |this, _, event, cx| match event {
+            HostEvent::SignedOut => {
+                if let Some(name) = &remote {
+                    this.notice = Some(crate::i18n::tr!(
+                        crate::i18n::CoreMsg::RemoteSignedOut,
+                        name = name
+                    ));
+                }
+                if let Some(config) = this.config(cx) {
+                    this.sign_in(config, None, cx);
+                }
             }
+            // the Cores dialog: this computer's core, or another
+            HostEvent::SwitchCore(target) => match target {
+                Some(session) => {
+                    let name = session.info.core_name.clone();
+                    this.show_shell_on((**session).clone(), Some(name), cx);
+                }
+                None => {
+                    if let Some(config) = this.config(cx) {
+                        this.sign_in(config, None, cx);
+                    }
+                }
+            },
+            _ => {}
         });
         self._subscriptions.push(subscription);
-        let shell = cx.new(|cx| HostShell::new(state, cx));
+        let shell = cx.new(|cx| {
+            let mut shell = HostShell::new(state, cx);
+            shell.on_local = on_local;
+            shell
+        });
         self.phase = Phase::Shell(shell);
         cx.notify();
     }
@@ -317,10 +372,10 @@ impl HostApp {
         }
     }
 
+    /// Zooms in or out a step, and remembers it (`lodestone-zoom`).
     fn zoom_by(&mut self, up: bool, cx: &mut Context<Self>) {
         let zoom = theme::zoom::step(theme::zoom::get(), up);
-        theme::zoom::set(zoom);
-        cx.refresh_windows();
+        crate::prefs::Prefs::update(cx, |prefs| prefs.zoom = zoom);
     }
 }
 
@@ -388,8 +443,7 @@ impl Render for HostApp {
             .on_action(cx.listener(|this, _: &crate::ZoomIn, _, cx| this.zoom_by(true, cx)))
             .on_action(cx.listener(|this, _: &crate::ZoomOut, _, cx| this.zoom_by(false, cx)))
             .on_action(cx.listener(|_, _: &crate::ResetZoom, _, cx| {
-                theme::zoom::set(1.0);
-                cx.refresh_windows();
+                crate::prefs::Prefs::update(cx, |prefs| prefs.zoom = 1.0);
             }))
             .size_full()
             .flex()

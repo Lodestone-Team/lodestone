@@ -1,7 +1,8 @@
 //! A server console's line as the dashboard draws it (`components/ConsoleLine.tsx`):
 //! ANSI and Minecraft colours and styles, made readable on the console's dark
 //! background, text on a background colour as a badge, and plain lines coloured by
-//! their log level. Parsing is `lodestone_minecraft::console_format`.
+//! their log level, in the dark or the light theme. Parsing is
+//! `lodestone_minecraft::console_format`.
 
 use std::ops::Range;
 
@@ -23,21 +24,38 @@ pub const CONSOLE_PALETTE: [u32; 16] = [
     0xFF8A85, 0x7AE58F, 0xF5E168, 0x93BEFF, 0xE8A6F6, 0x78E7EC, 0xF5F6F7,
 ];
 
+/// The same in the light theme (`globals.css`'s light `--console-*`).
+pub const CONSOLE_PALETTE_LIGHT: [u32; 16] = [
+    0x1A1D23, 0xB4282C, 0x1D7A3A, 0x8A5A00, 0x1F5FBF, 0x8E3AA8, 0x0E6F7C, 0x555B66, 0x666C77,
+    0xC62F2F, 0x0F7D3B, 0x8F6400, 0x2563D0, 0xA23AB6, 0x0A7684, 0x2B3038,
+];
+
 fn rgb(value: u32) -> gpui::Hsla {
     Color::rgb(value).into()
 }
 
-/// A text colour on the console background, readable in the dark theme.
+/// A text colour on the console background, readable in the current theme.
 fn text_color(color: ConsoleColor) -> u32 {
+    let light = crate::theme::palette::is_light();
     if color < 16 {
-        CONSOLE_PALETTE[color as usize]
+        let palette = if light {
+            CONSOLE_PALETTE_LIGHT
+        } else {
+            CONSOLE_PALETTE
+        };
+        palette[color as usize]
     } else {
         let value = if color < RGB_BASE {
             xterm256(color)
         } else {
             color - RGB_BASE
         };
-        readable_color(value, ConsoleTheme::Dark)
+        let theme = if light {
+            ConsoleTheme::Light
+        } else {
+            ConsoleTheme::Dark
+        };
+        readable_color(value, theme)
     }
 }
 

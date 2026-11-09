@@ -9,13 +9,19 @@ use gpui::{
 use lodestone_ui::theme::{colors, layout, px, radius, text, weights};
 
 use super::HostShell;
+use crate::notifications::Notifications;
 use crate::{
     IS_DEV, TOP_BAR_HEIGHT,
     i18n::{ShellMsg, t},
     routes::Route,
 };
+use gpui::Entity;
 
-pub fn render(_window: &Window, cx: &mut Context<HostShell>) -> impl IntoElement {
+pub fn render(
+    notifications: Entity<Notifications>,
+    _window: &Window,
+    cx: &mut Context<HostShell>,
+) -> impl IntoElement {
     let side = || div().flex_1().flex_basis(px(0.)).h_full();
     div()
         .id("top-bar")
@@ -44,7 +50,7 @@ pub fn render(_window: &Window, cx: &mut Context<HostShell>) -> impl IntoElement
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, _, cx| this.navigate(Route::Home, cx)))
                 .child(
-                    img("images/logo.svg")
+                    img(lodestone_ui::theme::palette::logo())
                         .w(layout::logo_width())
                         .h(gpui::px(26.)),
                 )
@@ -61,6 +67,13 @@ pub fn render(_window: &Window, cx: &mut Context<HostShell>) -> impl IntoElement
                     )
                 }),
         )
-        // the notifications go here (work package D)
-        .child(side())
+        // the notifications (work package D)
+        .child(
+            side()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_end()
+                .child(notifications),
+        )
 }

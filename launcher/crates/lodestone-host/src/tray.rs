@@ -2,9 +2,11 @@
 //! its window is closed and the servers run in the background. Its menu shows the
 //! window or quits (stopping the core and its servers).
 //!
-//! GPUI has no tray API, so on macOS this is an `NSStatusItem` made through AppKit.
-//! On Windows and Linux there is no icon yet (work package D): closing the window
-//! minimizes it there, and starting the Host again brings it back.
+//! GPUI has no tray API, so on macOS this is an `NSStatusItem` made through AppKit,
+//! and on Windows a notification area icon made through the shell
+//! (`tray_windows.rs`). Linux has no icon yet: its desktops' icons go through D-Bus
+//! (StatusNotifierItem), which needs a crate the launcher's workspace doesn't have.
+//! Closing the window minimizes it there, and starting the Host again brings it back.
 //!
 //! Development builds also set the Dock icon with the DEV ribbon, as the Tauri Host
 //! did, since the bundle's icon is the release one.
@@ -22,10 +24,12 @@ pub enum TrayCommand {
 pub struct Tray {
     #[cfg(target_os = "macos")]
     _item: macos::Item,
+    #[cfg(windows)]
+    _item: windows::Item,
 }
 
 /// Shows the icon, sending what its menu asks for to `tx`. `None` where there is no
-/// icon (Windows and Linux, for now).
+/// icon (Linux, for now).
 pub fn install(
     show_label: &str,
     quit_label: &str,
@@ -35,7 +39,11 @@ pub fn install(
     {
         macos::install(show_label, quit_label, tx).map(|item| Tray { _item: item })
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        windows::install(show_label, quit_label, tx).map(|item| Tray { _item: item })
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         let _ = (show_label, quit_label, tx);
         None
@@ -52,6 +60,10 @@ pub fn set_dev_dock_icon() {
         )));
     }
 }
+
+#[cfg(windows)]
+#[path = "tray_windows.rs"]
+mod windows;
 
 #[cfg(target_os = "macos")]
 mod macos {

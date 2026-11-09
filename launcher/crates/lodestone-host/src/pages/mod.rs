@@ -21,8 +21,11 @@
 //! | Settings › Users | [`users`] | D |
 //! | Settings › Profile | [`profile`] | D |
 
+pub mod account_dialogs;
+pub mod api_keys;
 pub mod console;
 pub mod core_settings;
+pub mod cores;
 pub mod create_instance;
 pub mod eula_prompt;
 pub mod event_logs;
@@ -30,10 +33,15 @@ pub mod files;
 pub mod home;
 pub mod instance_settings;
 pub mod macros;
+pub mod minecraft_links;
 pub mod mods;
 pub mod overview;
+pub mod parts;
+pub mod permissions;
 pub mod playit;
 pub mod profile;
+pub mod public_listing;
+pub mod updates;
 pub mod users;
 
 use gpui::{
@@ -85,6 +93,7 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
                 .into(),
             SettingsPage::Users => cx.new(|cx| users::UsersPage::new(state, cx)).into(),
             SettingsPage::Profile => cx.new(|cx| profile::ProfilePage::new(state, cx)).into(),
+            SettingsPage::Updates => cx.new(|cx| updates::UpdatesPage::new(state, cx)).into(),
         },
     }
 }
@@ -97,6 +106,9 @@ pub fn demo(view: &AnyView, cx: &mut App) {
         page.update(cx, |page, cx| page.demo(cx));
     }
     if let Ok(page) = view.clone().downcast::<files::FilesPage>() {
+        page.update(cx, |page, cx| page.demo(cx));
+    }
+    if let Ok(page) = view.clone().downcast::<overview::OverviewPage>() {
         page.update(cx, |page, cx| page.demo(cx));
     }
 }

@@ -223,7 +223,18 @@ pub enum Token {
 }
 
 impl Token {
+    /// Its colour: Visual Studio Code's, dark or light (Monaco's, in the dashboard).
     fn color(self) -> Color {
+        if crate::theme::palette::is_light() {
+            return match self {
+                Token::Comment => Color::rgb(0x008000),
+                Token::Key => Color::rgb(0x0451A5),
+                Token::Section => Color::rgb(0x267F99),
+                Token::String => Color::rgb(0xA31515),
+                Token::Number => Color::rgb(0x098658),
+                Token::Keyword => Color::rgb(0x0000FF),
+            };
+        }
         match self {
             Token::Comment => Color::rgb(0x6A9955),
             Token::Key => Color::rgb(0x9CDCFE),
@@ -1684,7 +1695,12 @@ impl Render for TextEditor {
             .track_focus(&self.focus_handle)
             .size_full()
             .overflow_hidden()
-            .bg(colors::GRAY_850)
+            // Monaco's: the panel colour when dark, white when light
+            .bg(if crate::theme::palette::is_light() {
+                colors::GRAY_800
+            } else {
+                colors::GRAY_850
+            })
             .font_family(fonts::mono())
             .text_size(theme::text_size(text::SMALL))
             .line_height(px(20.))
@@ -2013,7 +2029,12 @@ impl Element for EditorElement {
             if let Some(line) = prepaint.current_line {
                 window.paint_quad(fill(line, colors::GRAY_800));
             }
-            window.paint_quad(fill(prepaint.gutter_bounds, colors::GRAY_875));
+            let gutter = if crate::theme::palette::is_light() {
+                colors::GRAY_900
+            } else {
+                colors::GRAY_875
+            };
+            window.paint_quad(fill(prepaint.gutter_bounds, gutter));
             let text_mask = Bounds::from_corners(
                 point(prepaint.text_bounds.left() - px(TEXT_PADDING), bounds.top()),
                 bounds.bottom_right(),
