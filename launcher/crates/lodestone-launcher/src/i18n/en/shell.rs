@@ -336,15 +336,25 @@ crate::i18n::messages! {
         PerfCpu = "CPU",
         /// {percent} is "12.5%", {cores} the number of cores.
         PerfCpuValue = "{percent} of one core · {cores} cores",
+        /// Windows, counted as Task Manager does: {percent} is the share of the whole
+        /// processor, {one} the share of one core, {cores} the number of cores.
+        PerfCpuValueAll = "{percent} of all {cores} cores · {one} of one core",
         PerfThreads = "Threads",
         PerfOpenFiles = "Open files",
+        /// Windows: open handles of every kind, as Task Manager calls them.
+        PerfHandles = "Handles",
         /// How the main window draws.
         PerfRendering = "Rendering",
         PerfFps = "Frames per second",
+        /// How long each frame took to draw.
         PerfFrameTime = "Frame time",
         /// {avg}, {p95} and {max} are times such as "16.7 ms".
         PerfFrameStats = "avg {avg} · p95 {p95} · max {max}",
         PerfIdle = "Idle: nothing redrew in the last 2 seconds",
+        /// The main window isn't the focused one (this monitor usually is).
+        PerfBackground = "The launcher’s window is in the background, so it animates at no more than 30 frames per second.",
+        /// Under the frame stats.
+        PerfFramesNote = "The launcher redraws only when something on screen changes. Frame time is how long each redraw took.",
         PerfGame = "Game",
         PerfNoGame = "No game is running.",
         PerfInternals = "Inside the launcher",

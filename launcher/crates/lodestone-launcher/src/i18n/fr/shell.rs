@@ -349,13 +349,21 @@ pub fn text(message: M) -> &'static str {
         M::PerfMemory => "Mémoire",
         M::PerfCpu => "Processeur",
         M::PerfCpuValue => "{percent} d’un cœur · {cores} cœurs",
+        M::PerfCpuValueAll => "{percent} des {cores} cœurs · {one} d’un cœur",
         M::PerfThreads => "Threads",
         M::PerfOpenFiles => "Fichiers ouverts",
+        M::PerfHandles => "Handles",
         M::PerfRendering => "Affichage",
         M::PerfFps => "Images par seconde",
         M::PerfFrameTime => "Temps par image",
         M::PerfFrameStats => "moy. {avg} · p95 {p95} · max {max}",
         M::PerfIdle => "Au repos : rien n’a été redessiné depuis 2 secondes",
+        M::PerfBackground => {
+            "La fenêtre du lanceur est en arrière-plan : elle s’anime à 30 images par seconde au plus."
+        }
+        M::PerfFramesNote => {
+            "Le lanceur ne se redessine que lorsque quelque chose change à l’écran. Le temps par image est la durée de chaque redessin."
+        }
         M::PerfGame => "Jeu",
         M::PerfNoGame => "Aucun jeu n’est lancé.",
         M::PerfInternals => "Dans le lanceur",

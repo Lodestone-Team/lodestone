@@ -1968,7 +1968,19 @@ impl Render for LauncherShell {
             .children(modal)
             .child(self.servers_overlay.clone())
             .children(self.undo_toast.render())
-            .children(top_bar::window_controls(window, cx));
+            .children(top_bar::window_controls(window, cx))
+            // Painted last while the performance monitor counts frames: when the
+            // frame finished drawing.
+            .when(crate::perf::recording(), |this| {
+                this.child(
+                    gpui::canvas(
+                        |_, _, _| {},
+                        |_, _, _, _| crate::perf::frame_painted(std::time::Instant::now()),
+                    )
+                    .absolute()
+                    .size_0(),
+                )
+            });
         window_frame::frame(shell, window)
     }
 }

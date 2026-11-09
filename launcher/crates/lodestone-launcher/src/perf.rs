@@ -40,38 +40,71 @@ const FRAME_HISTORY: Duration = Duration::from_secs(10);
 const FRAME_WINDOW: Duration = Duration::from_secs(5);
 /// No frame for this long: the window is idle.
 const IDLE_AFTER: Duration = Duration::from_secs(2);
-/// A gap longer than this is a pause, not a slow frame.
-const PAUSE: Duration = Duration::from_secs(1);
 
 static RECORDERS: AtomicUsize = AtomicUsize::new(0);
 static FRAMES: Mutex<Frames> = Mutex::new(Frames {
     since: None,
     at: VecDeque::new(),
+    active: None,
 });
 
 struct Frames {
     /// When recording started.
     since: Option<Instant>,
-    at: VecDeque<Instant>,
+    at: VecDeque<Frame>,
+    /// Whether the main window had focus at its last frame.
+    active: Option<bool>,
+}
+
+/// One frame of the main window.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Frame {
+    /// When it started: the window's root view rendering.
+    pub start: Instant,
+    /// How long it took to render, lay out and paint, until its last element
+    /// painted. `None` until then.
+    pub took: Option<Duration>,
 }
 
 fn frames() -> std::sync::MutexGuard<'static, Frames> {
     FRAMES.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// The main window drew a frame. One atomic load while nothing records.
-pub fn frame(at: Instant) {
-    if RECORDERS.load(Ordering::Relaxed) == 0 {
+/// Whether frames are being counted: one atomic load.
+pub fn recording() -> bool {
+    RECORDERS.load(Ordering::Relaxed) > 0
+}
+
+/// The main window started a frame, with focus or not. One atomic load while
+/// nothing records.
+pub fn frame(at: Instant, active: bool) {
+    if !recording() {
         return;
     }
     let mut frames = frames();
-    frames.at.push_back(at);
+    frames.active = Some(active);
+    frames.at.push_back(Frame {
+        start: at,
+        took: None,
+    });
     while frames
         .at
         .front()
-        .is_some_and(|first| at.duration_since(*first) > FRAME_HISTORY)
+        .is_some_and(|first| at.duration_since(first.start) > FRAME_HISTORY)
     {
         frames.at.pop_front();
+    }
+}
+
+/// The main window's frame finished painting.
+pub fn frame_painted(at: Instant) {
+    if !recording() {
+        return;
+    }
+    if let Some(last) = frames().at.back_mut()
+        && last.took.is_none()
+    {
+        last.took = Some(at.saturating_duration_since(last.start));
     }
 }
 
@@ -84,6 +117,7 @@ impl Recording {
             let mut frames = frames();
             frames.since = Some(Instant::now());
             frames.at.clear();
+            frames.active = None;
         }
         Recording
     }
@@ -95,51 +129,61 @@ impl Drop for Recording {
             let mut frames = frames();
             frames.since = None;
             frames.at.clear();
+            frames.active = None;
         }
     }
 }
 
 /// How the main window drew over the last few seconds.
+///
+/// The launcher draws only when something on screen changes, so `fps` is how
+/// often it redrew, not how fast it can: a still window draws nothing, a spinner
+/// draws at the display's rate. The frame times are what each of those frames cost,
+/// from rendering to the last element painted.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FrameStats {
+    /// Frames drawn per second.
     pub fps: f64,
-    /// Time between frames while it drew (pauses left out), in milliseconds.
+    /// Time each frame took to render, lay out and paint, in milliseconds.
     pub avg_ms: Option<f64>,
     pub p95_ms: Option<f64>,
     pub max_ms: Option<f64>,
     /// No frame for a while: nothing on screen changed.
     pub idle: bool,
+    /// The main window was in the background at its last frame. Background windows
+    /// animate at no more than 30 frames per second.
+    pub background: bool,
 }
 
-/// Frame stats from frame times `at`, recorded since `since`, at `now`.
-pub fn frame_stats(at: &[Instant], since: Instant, now: Instant) -> FrameStats {
+/// Frame stats from `frames`, recorded since `since`, at `now`.
+pub fn frame_stats(frames: &[Frame], since: Instant, now: Instant) -> FrameStats {
     let span = now.duration_since(since).min(FRAME_WINDOW);
     let start = now - span;
-    let recent: Vec<Instant> = at.iter().copied().filter(|t| *t >= start).collect();
-    let mut gaps: Vec<f64> = recent
-        .windows(2)
-        .map(|pair| pair[1].duration_since(pair[0]))
-        .filter(|gap| *gap <= PAUSE)
-        .map(|gap| gap.as_secs_f64() * 1000.0)
+    let recent: Vec<&Frame> = frames.iter().filter(|f| f.start >= start).collect();
+    let mut took: Vec<f64> = recent
+        .iter()
+        .filter_map(|f| f.took)
+        .map(|took| took.as_secs_f64() * 1000.0)
         .collect();
-    gaps.sort_by(|a, b| a.total_cmp(b));
-    let avg = (!gaps.is_empty()).then(|| gaps.iter().sum::<f64>() / gaps.len() as f64);
-    let p95 = (!gaps.is_empty()).then(|| {
-        let index = ((gaps.len() as f64 * 0.95).ceil() as usize).clamp(1, gaps.len()) - 1;
-        gaps[index]
+    took.sort_by(|a, b| a.total_cmp(b));
+    let avg = (!took.is_empty()).then(|| took.iter().sum::<f64>() / took.len() as f64);
+    let p95 = (!took.is_empty()).then(|| {
+        let index = ((took.len() as f64 * 0.95).ceil() as usize).clamp(1, took.len()) - 1;
+        took[index]
     });
     let fps = if span.is_zero() {
         0.0
     } else {
         recent.len() as f64 / span.as_secs_f64()
     };
-    let last = at.last().copied().unwrap_or(since);
+    let last = frames.last().map_or(since, |f| f.start);
     FrameStats {
         fps,
         avg_ms: avg,
         p95_ms: p95,
-        max_ms: gaps.last().copied(),
+        max_ms: took.last().copied(),
         idle: now.duration_since(last) >= IDLE_AFTER,
+        background: false,
     }
 }
 
@@ -325,8 +369,11 @@ impl Sampler {
 
         let frames = {
             let frames = frames();
-            let at: Vec<Instant> = frames.at.iter().copied().collect();
-            frame_stats(&at, frames.since.unwrap_or(now), now)
+            let at: Vec<Frame> = frames.at.iter().copied().collect();
+            FrameStats {
+                background: frames.active == Some(false),
+                ..frame_stats(&at, frames.since.unwrap_or(now), now)
+            }
         };
 
         #[cfg(unix)]
@@ -386,6 +433,7 @@ impl Sample {
             "launcher": process_json(&self.launcher),
             "cores": self.cores,
             "cpu_percent_is": "of one core",
+            "cpu_percent_of_all_cores": self.launcher.cpu_percent.map(|p| round1(p / self.cores.max(1) as f64)),
             "memory_is": if cfg!(target_os = "macos") {
                 "physical footprint"
             } else if cfg!(windows) {
@@ -398,7 +446,9 @@ impl Sample {
                 "avg_ms": self.frames.avg_ms.map(round1),
                 "p95_ms": self.frames.p95_ms.map(round1),
                 "max_ms": self.frames.max_ms.map(round1),
+                "frame_ms_is": "render to last paint",
                 "idle": self.frames.idle,
+                "background": self.frames.background,
             },
             "games": self.games.iter().map(|game| json!({
                 "instance": game.instance,
@@ -435,20 +485,35 @@ impl Sample {
             self.cores
         );
         text += &format!(
-            "Launcher (pid {}): memory {}, CPU {} of one core, {} threads, {} open files\n",
+            "Launcher (pid {}): memory {}, CPU {} of one core ({} of all {} cores), {} threads, {} {}\n",
             self.launcher.pid,
             mb(self.launcher.memory),
             pct(self.launcher.cpu_percent),
+            pct(self
+                .launcher
+                .cpu_percent
+                .map(|p| p / self.cores.max(1) as f64)),
+            self.cores,
             n(self.launcher.threads),
             n(self.launcher.open_files),
+            if cfg!(windows) {
+                "handles"
+            } else {
+                "open files"
+            },
         );
         text += &format!(
-            "Rendering: {:.1} fps, frame time avg {} p95 {} max {}{}\n",
+            "Rendering: {:.1} fps, frame time avg {} p95 {} max {}{}{}\n",
             self.frames.fps,
             ms(self.frames.avg_ms),
             ms(self.frames.p95_ms),
             ms(self.frames.max_ms),
             if self.frames.idle { " (idle)" } else { "" },
+            if self.frames.background {
+                " (window in background)"
+            } else {
+                ""
+            },
         );
         for game in &self.games {
             text += &format!(
@@ -501,17 +566,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frame_stats_leave_pauses_out() {
+    fn frame_times_are_what_frames_took_not_the_gaps_between_them() {
         let start = Instant::now();
         let at = |ms: u64| start + Duration::from_millis(ms);
-        // 60 fps for half a second, a pause, then a slow frame
-        let mut frames: Vec<Instant> = (0..30).map(|i| at(i * 16)).collect();
-        frames.push(at(3000));
-        frames.push(at(3100));
+        let frame = |ms: u64, took: Option<u64>| Frame {
+            start: at(ms),
+            took: took.map(Duration::from_millis),
+        };
+        // 30 quick frames at 60 fps, a pause, a slow one, and one still painting
+        let mut frames: Vec<Frame> = (0..30).map(|i| frame(i * 16, Some(2))).collect();
+        frames.push(frame(3000, Some(40)));
+        frames.push(frame(3100, None));
         let stats = frame_stats(&frames, start, at(3200));
-        assert!((stats.avg_ms.unwrap() - 18.6).abs() < 1.0, "{stats:?}");
-        assert_eq!(stats.max_ms, Some(100.0));
-        assert_eq!(stats.p95_ms, Some(16.0));
+        assert!(
+            (stats.avg_ms.unwrap() - 100.0 / 31.0).abs() < 0.01,
+            "{stats:?}"
+        );
+        assert_eq!(stats.max_ms, Some(40.0));
+        assert_eq!(stats.p95_ms, Some(2.0));
         assert!(!stats.idle);
         assert!((stats.fps - 32.0 / 3.2).abs() < 0.01, "{}", stats.fps);
 
@@ -524,12 +596,20 @@ mod tests {
 
     #[test]
     fn frames_are_counted_only_while_recording() {
-        frame(Instant::now());
+        frame(Instant::now(), true);
         assert!(frames().at.is_empty());
         {
             let _recording = Recording::start();
-            frame(Instant::now());
+            let start = Instant::now();
+            frame(start, false);
             assert_eq!(frames().at.len(), 1);
+            assert_eq!(frames().active, Some(false));
+            frame_painted(start + Duration::from_millis(5));
+            frame_painted(start + Duration::from_millis(9));
+            assert_eq!(
+                frames().at.back().unwrap().took,
+                Some(Duration::from_millis(5))
+            );
         }
         assert!(frames().at.is_empty());
     }
