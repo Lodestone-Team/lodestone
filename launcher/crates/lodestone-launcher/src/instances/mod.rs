@@ -19,8 +19,7 @@ pub mod snapshots;
 mod undo;
 pub mod worlds;
 pub use undo::InstanceSnapshot;
-// Read access for the control API (`crate::control`).
-#[cfg(unix)]
+// Read access for the control API (`crate::control`) and the performance sampler.
 pub(crate) mod control;
 
 use std::{
