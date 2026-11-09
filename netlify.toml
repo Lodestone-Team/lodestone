@@ -1,0 +1,47 @@
+# www.lodestone.cc: the Lodestone Launcher landing page at /, and the Lodestone
+# Core web dashboard at /core. See website/README.md.
+#
+# The site's Base directory in Netlify's settings must be empty (the repository
+# root), so Netlify reads this file.
+
+[build]
+  command = "node website/build.mjs"
+  publish = "website/dist"
+
+[build.environment]
+  # dashboard/package.json needs Node 24.22.1 or later
+  NODE_VERSION = "24"
+
+# The dashboard used to be served from the root. Send its old addresses to
+# /core, keeping the query string (Core links carry ?address=&port=...).
+[[redirects]]
+  from = "/first_setup"
+  to = "/core/first_setup"
+  status = 301
+
+[[redirects]]
+  from = "/login/*"
+  to = "/core/login/:splat"
+  status = 301
+
+[[redirects]]
+  from = "/dashboard/*"
+  to = "/core/dashboard/:splat"
+  status = 301
+
+[[redirects]]
+  from = "/settings/*"
+  to = "/core/settings/:splat"
+  status = 301
+
+# The dashboard is a single-page app: any /core path that isn't a file is its
+# index.html, and react-router takes it from there.
+[[redirects]]
+  from = "/core/*"
+  to = "/core/index.html"
+  status = 200
+
+[[headers]]
+  for = "/core/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

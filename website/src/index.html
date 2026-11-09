@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lodestone Launcher</title>
+    <meta
+      name="description"
+      content="A free, open source Minecraft launcher. Modpacks, mods, shaders and resource packs from Modrinth, in one fast app."
+    />
+    <meta name="theme-color" content="#1d1e21" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/images/icon.svg" type="image/svg+xml" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.lodestone.cc/" />
+    <meta property="og:title" content="Lodestone Launcher" />
+    <meta
+      property="og:description"
+      content="A free, open source Minecraft launcher. Modpacks, mods, shaders and resource packs from Modrinth, in one fast app."
+    />
+    <meta property="og:image" content="https://www.lodestone.cc/images/og.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="preload" href="/fonts/Satoshi-Variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/Chillax-Variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/main.js" defer></script>
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/" aria-label="Lodestone home">
+        <img src="/images/logo.svg" alt="Lodestone" width="106" height="22" />
+      </a>
+      <nav class="nav">
+        <a class="nav-link" href="/core">Lodestone Core</a>
+        <a
+          class="github"
+          href="https://github.com/Lodestone-Team/lodestone"
+          target="_blank"
+          rel="noopener"
+          aria-label="Lodestone on GitHub"
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+            />
+          </svg>
+          <span class="github-label">GitHub</span>
+          <span class="stars" data-stars hidden>
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M8 .25a.75.75 0 01.67.42l1.88 3.81 4.2.61a.75.75 0 01.42 1.28l-3.04 2.96.72 4.19a.75.75 0 01-1.09.79L8 12.33l-3.76 1.98a.75.75 0 01-1.09-.79l.72-4.19L.83 6.37a.75.75 0 01.42-1.28l4.2-.61L7.33.67A.75.75 0 018 .25z"
+              />
+            </svg>
+            <span data-stars-count></span>
+          </span>
+        </a>
+      </nav>
+    </header>
+
+    <main class="hero">
+      <h1>Minecraft, without the&nbsp;fuss.</h1>
+      <p class="lede">
+        A free, open source launcher for Minecraft. Modpacks, mods, shaders and resource packs from Modrinth, in one fast app.
+      </p>
+
+      <div class="download">
+        <!-- main.js points this at the visitor's platform. Without JavaScript it
+             downloads the Windows installer, the build most people need. -->
+        <a
+          class="button"
+          data-download
+          href="https://github.com/Lodestone-Team/lodestone/releases/download/launcher-latest/LodestoneLauncherSetup.exe"
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M8 1a.75.75 0 01.75.75v6.69l2.22-2.22a.75.75 0 111.06 1.06l-3.5 3.5a.75.75 0 01-1.06 0l-3.5-3.5a.75.75 0 011.06-1.06l2.22 2.22V1.75A.75.75 0 018 1zM2.75 12a.75.75 0 01.75.75v.5c0 .14.11.25.25.25h8.5a.25.25 0 00.25-.25v-.5a.75.75 0 011.5 0v.5A1.75 1.75 0 0112.25 15h-8.5A1.75 1.75 0 012 13.25v-.5a.75.75 0 01.75-.75z"
+            />
+          </svg>
+          <span data-download-label>Download for Windows</span>
+        </a>
+        <p class="meta">
+          <span data-download-note>Windows 10 and 11</span>
+          <span aria-hidden="true">·</span>
+          <a
+            href="https://github.com/Lodestone-Team/lodestone/releases/tag/launcher-latest"
+            target="_blank"
+            rel="noopener"
+            >All downloads</a
+          >
+        </p>
+      </div>
+
+      <section class="tour" aria-label="Screenshots">
+        <div class="tabs" role="tablist" aria-label="Launcher views">
+          <button type="button" role="tab" id="tab-library" aria-controls="shot" aria-selected="true" data-shot="library" data-alt="Lodestone Launcher showing an instance library, with a cherry grove at sunset behind the selected instance">Library</button>
+          <button type="button" role="tab" id="tab-mods" aria-controls="shot" aria-selected="false" data-shot="mods" data-alt="Lodestone Launcher listing the mods installed in an instance, with updates available">Mods</button>
+          <button type="button" role="tab" id="tab-modpacks" aria-controls="shot" aria-selected="false" data-shot="modpacks" data-alt="Lodestone Launcher installing a modpack from Modrinth">Modpacks</button>
+          <button type="button" role="tab" id="tab-shaders" aria-controls="shot" aria-selected="false" data-shot="shaders" data-alt="Lodestone Launcher with a shader pack turned on and more shader packs from Modrinth">Shaders</button>
+          <button type="button" role="tab" id="tab-resourcepacks" aria-controls="shot" aria-selected="false" data-shot="resourcepacks" data-alt="Lodestone Launcher with a resource pack installed and more from Modrinth">Resource packs</button>
+        </div>
+        <figure class="shot" id="shot" role="tabpanel" aria-labelledby="tab-library">
+          <img
+            src="/images/library.webp"
+            srcset="/images/library-1120.webp 1120w, /images/library.webp 2240w"
+            sizes="(max-width: 1128px) calc(100vw - 32px), 1080px"
+            width="2240"
+            height="1400"
+            fetchpriority="high"
+            alt="Lodestone Launcher showing an instance library, with a cherry grove at sunset behind the selected instance"
+          />
+        </figure>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>Hosting a server? <a href="/core">Lodestone Core</a> runs it for you.</span>
+      <span class="foot-right">AGPL-3.0 · Lodestone Team</span>
+    </footer>
+  </body>
+</html>

@@ -16,6 +16,7 @@ import ModsTab from 'components/Mods/ModsTab';
 import { getModSupport, modTabTitle } from 'utils/mods';
 import { InstanceTabPath, tabs } from './tabList';
 import { useT } from 'i18n';
+import { asset } from 'utils/basePath';
 
 /** The Event Logs tab, not made yet */
 const LogsPlaceholder = () => {
@@ -23,7 +24,7 @@ const LogsPlaceholder = () => {
   return (
     <DashboardCard className="grow justify-center gap-4">
       <img
-        src="/assets/placeholder-cube.png"
+        src={asset('/assets/placeholder-cube.png')}
         alt=""
         className="mx-auto w-20"
         style={{ imageRendering: 'pixelated' }}

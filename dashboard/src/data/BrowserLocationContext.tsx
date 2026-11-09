@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 // eslint-disable-next-line no-restricted-imports -- this is the only place that should import useNavigate
 import { useLocation, useNavigate, Location } from 'react-router';
+import { stripBasePath } from 'utils/basePath';
 
 interface BrowserLocationContext {
   location: Location;
@@ -56,11 +57,12 @@ export const BrowserLocationContextProvider = ({
 
   // Setters start from the browser's current URL rather than the location of
   // the last render, so several setters called in a row build on each other
-  // (BrowserRouter updates window.location synchronously on navigate).
+  // (BrowserRouter updates window.location synchronously on navigate). The base
+  // path is taken off, since navigate() adds the router's basename back.
   const setLocation = useCallback(
     (func: (loc: Location) => Location, replace = false) => {
       const current: Location = {
-        pathname: window.location.pathname,
+        pathname: stripBasePath(window.location.pathname),
         search: window.location.search,
         hash: window.location.hash,
         state: null,
@@ -72,7 +74,7 @@ export const BrowserLocationContextProvider = ({
   );
   const setPathname = useCallback(
     (pathname: string, replace = false) => {
-      if (pathname === window.location.pathname) return;
+      if (pathname === stripBasePath(window.location.pathname)) return;
       setLocation((loc) => ({ ...loc, pathname }), replace);
     },
     [setLocation]

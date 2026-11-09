@@ -1,0 +1,375 @@
+/* Lodestone Launcher landing page. Colors and fonts follow the launcher
+   (launcher/crates/lodestone-launcher/src/theme.rs). */
+
+@font-face {
+  font-family: 'Satoshi';
+  src: url('/fonts/Satoshi-Variable.woff2') format('woff2');
+  font-weight: 300 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Chillax';
+  src: url('/fonts/Chillax-Variable.woff2') format('woff2');
+  font-weight: 200 700;
+  font-display: swap;
+}
+
+:root {
+  --bg: #1d1e21;
+  --bg-raised: #26282c;
+  --border: #36393f;
+  --text: #e3e3e4;
+  --text-muted: #a5a5ac;
+  --text-faint: #767a82;
+  --accent: #59b2f3;
+  --accent-strong: #037aa0;
+  --button: #13668a;
+  --button-hover: #1d8eb2;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Satoshi', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* A soft blue glow behind the hero, the same blue as the launcher's accents. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: -20vh -20vw auto;
+  height: 80vh;
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    rgba(89, 178, 243, 0.16),
+    rgba(89, 178, 243, 0) 60%
+  );
+  pointer-events: none;
+  z-index: -1;
+}
+
+a {
+  color: inherit;
+}
+
+/* Header */
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 24px;
+}
+
+.brand {
+  display: flex;
+}
+
+.brand img {
+  height: 22px;
+  width: auto;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.nav-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 15px;
+}
+
+.nav-link:hover {
+  color: var(--text);
+}
+
+.github {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 14px;
+  transition: border-color 0.15s;
+}
+
+.github:hover {
+  border-color: var(--text-faint);
+}
+
+.stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.stars[hidden] {
+  display: none;
+}
+
+/* Hero */
+
+.hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: clamp(20px, 5vh, 64px) 24px 0;
+}
+
+h1 {
+  margin: 0;
+  max-width: 22ch;
+  font-family: 'Chillax', 'Satoshi', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: clamp(40px, 5.6vw, 68px);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  margin: 16px 0 0;
+  max-width: 46ch;
+  color: var(--text-muted);
+  font-size: clamp(17px, 2vw, 20px);
+}
+
+.download {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 28px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 24px;
+  border-radius: 10px;
+  background: var(--button);
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 8px 24px rgba(3, 122, 160, 0.3);
+  transition: background 0.15s;
+}
+
+.button:hover {
+  background: var(--button-hover);
+}
+
+.button:focus-visible,
+.github:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.button[aria-disabled='true'] {
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+  cursor: default;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+.meta a {
+  color: var(--text-muted);
+}
+
+.meta a:hover {
+  color: var(--text);
+}
+
+/* Screenshot tour: a row of tabs that swaps the screenshot below it */
+
+.tour {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 1080px;
+  margin-top: clamp(28px, 5vh, 52px);
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs button {
+  flex: none;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.tabs button:hover {
+  color: var(--text);
+}
+
+.tabs button[aria-selected='true'] {
+  background: var(--border);
+  color: var(--text);
+}
+
+.tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.shot {
+  position: relative;
+  width: 100%;
+  margin: 16px 0 0;
+}
+
+.shot img {
+  transition: opacity 0.15s;
+}
+
+.shot img.is-loading {
+  opacity: 0.6;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 30px 80px rgba(0, 0, 0, 0.5);
+}
+
+/* Footer */
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 24px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 24px 28px;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+.foot a {
+  color: var(--text-muted);
+}
+
+.foot a:hover {
+  color: var(--text);
+}
+
+@media (max-width: 560px) {
+  .top {
+    padding: 16px;
+  }
+
+  .nav {
+    gap: 12px;
+  }
+
+  .nav-link {
+    font-size: 14px;
+  }
+
+  .github-label {
+    display: none;
+  }
+
+  .hero {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .shot img {
+    border-radius: 8px;
+  }
+
+  .foot {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
