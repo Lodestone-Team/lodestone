@@ -3135,7 +3135,6 @@ dependencies = [
 name = "lodestone-launcher"
 version = "0.1.0"
 dependencies = [
- "accesskit",
  "anyhow",
  "chrono",
  "embed-resource",
@@ -3146,13 +3145,13 @@ dependencies = [
  "image",
  "launcher-control",
  "launcher-core",
+ "lodestone-ui",
  "lodestone_minecraft",
  "lodestone_trace",
  "log",
  "raw-window-handle",
  "serde",
  "serde_json",
- "unicode-segmentation",
  "url",
  "windows-sys 0.61.2",
  "zip",
@@ -3166,6 +3165,24 @@ dependencies = [
  "launcher-control",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "lodestone-ui"
+version = "0.1.0"
+dependencies = [
+ "accesskit",
+ "anyhow",
+ "chrono",
+ "futures",
+ "gpui",
+ "gpui_platform",
+ "image",
+ "launcher-core",
+ "log",
+ "serde_json",
+ "unicode-segmentation",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

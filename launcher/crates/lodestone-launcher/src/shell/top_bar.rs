@@ -301,9 +301,9 @@ impl CaptionButton {
         // technology gets its own: Minimize and Maximize here, and Close through the
         // window's own Close (UI Automation's `WindowPattern`), which asks first.
         let name = match self {
-            Self::Minimize => t(M::MinimizeWindow),
-            Self::Maximize => t(M::MaximizeWindow),
-            Self::Restore => t(M::RestoreWindow),
+            Self::Minimize => t(crate::i18n::CommonMsg::MinimizeWindow),
+            Self::Maximize => t(crate::i18n::CommonMsg::MaximizeWindow),
+            Self::Restore => t(crate::i18n::CommonMsg::RestoreWindow),
             Self::Close => t(crate::i18n::CommonMsg::Close),
         };
         div()

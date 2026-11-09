@@ -344,7 +344,7 @@ fn close_button(on_close: CloseHandler) -> impl IntoElement {
 /// GPUI does not read this setting, and the launcher has no Objective-C crate, so it
 /// is read through the Objective-C runtime that AppKit already loads.
 #[cfg(target_os = "macos")]
-pub(crate) fn prefers_reduced_motion() -> bool {
+pub fn prefers_reduced_motion() -> bool {
     use std::ffi::{c_char, c_void};
 
     type Id = *mut c_void;
@@ -389,7 +389,7 @@ pub(crate) fn prefers_reduced_motion() -> bool {
 /// Whether Windows' "Animation effects" (Settings > Accessibility > Visual effects)
 /// is off, which is how Windows asks apps to reduce motion.
 #[cfg(windows)]
-pub(crate) fn prefers_reduced_motion() -> bool {
+pub fn prefers_reduced_motion() -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW,
     };
@@ -402,7 +402,7 @@ pub(crate) fn prefers_reduced_motion() -> bool {
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
-pub(crate) fn prefers_reduced_motion() -> bool {
+pub fn prefers_reduced_motion() -> bool {
     false
 }
 

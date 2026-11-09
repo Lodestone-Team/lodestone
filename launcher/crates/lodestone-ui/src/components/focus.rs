@@ -587,8 +587,8 @@ pub fn step_within(group: &FocusHandle, forward: bool, window: &mut Window, cx: 
 
 /// Presses and releases Enter, which clicks the focused control: GPUI clicks on the
 /// release, which `simulate_keystrokes` doesn't send.
-#[cfg(all(test, feature = "screenshot"))]
-pub(crate) fn press_enter(cx: &mut gpui::VisualTestContext) {
+#[cfg(feature = "screenshot")]
+pub fn press_enter(cx: &mut gpui::VisualTestContext) {
     cx.simulate_keystrokes("enter");
     cx.simulate_event(gpui::KeyUpEvent {
         keystroke: gpui::Keystroke::parse("enter").expect("a key"),

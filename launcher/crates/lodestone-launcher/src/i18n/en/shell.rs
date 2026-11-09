@@ -554,12 +554,6 @@ crate::i18n::messages! {
         /// The top bar's notice, beside its Restart button.
         UpdateReadyBadge = "Update ready",
         UpdateAvailableBadge = "Update available",
-        /// The window's own buttons in the top bar, on Linux desktops that leave them
-        /// to apps (GNOME): their tooltips and accessible names. Close is Common's.
-        MinimizeWindow = "Minimize",
-        MaximizeWindow = "Maximize",
-        /// Un-maximizes the window, back to the size it had.
-        RestoreWindow = "Restore",
 
         // Shared components.
         /// Under a Modrinth description that is cut short.

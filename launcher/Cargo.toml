@@ -6,6 +6,7 @@ members = [
     "crates/launcher-core",
     "crates/lodestone-launcher",
     "crates/lodestone-launcher-cli",
+    "crates/lodestone-ui",
 ]
 resolver = "2"
 
@@ -30,6 +31,8 @@ reqwest_client = { git = "https://github.com/zed-industries/zed", rev = "c84af5b
 http_client_tls = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35" }
 
 launcher-core = { path = "crates/launcher-core" }
+# What Lodestone Launcher and Lodestone Host share on screen.
+lodestone-ui = { path = "crates/lodestone-ui" }
 # The control protocol and socket shared by the app and lodestone-launcher-cli.
 launcher-control = { path = "crates/launcher-control" }
 

@@ -47,6 +47,9 @@ pub fn text(message: M) -> &'static str {
         M::MoveDown => "Descendre",
         M::MoveUp => "Monter",
         M::Yes => "Oui",
+        M::MinimizeWindow => "Réduire",
+        M::MaximizeWindow => "Agrandir",
+        M::RestoreWindow => "Restaurer",
         M::KeepEditing => "Continuer à modifier",
         M::UnsavedChanges => "Vous avez des modifications non enregistrées",
         M::ShowInFileManager => {

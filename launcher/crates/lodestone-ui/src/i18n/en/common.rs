@@ -49,6 +49,12 @@ crate::i18n::messages! {
         MoveDown = "Move down",
         MoveUp = "Move up",
         Yes = "Yes",
+        /// The window's own buttons in the top bar, on Linux desktops that leave them
+        /// to apps (GNOME): their tooltips and accessible names. Close is above.
+        MinimizeWindow = "Minimize",
+        MaximizeWindow = "Maximize",
+        /// Un-maximizes the window, back to the size it had.
+        RestoreWindow = "Restore",
         /// "Save your changes?" and the like, when leaving with unsaved changes.
         KeepEditing = "Keep editing",
         UnsavedChanges = "You have unsaved changes",
