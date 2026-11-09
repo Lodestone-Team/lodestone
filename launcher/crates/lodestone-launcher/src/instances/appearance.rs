@@ -581,7 +581,9 @@ impl Instances {
 
 /// The scrim's layers over a background, bottom first: an even dim, then darkening
 /// from the bottom and from the left, strongest behind the name.
-pub fn scrim_layers(scrim: Scrim) -> Vec<AnyElement> {
+/// The scrim's layers, rounded like the box they cover (children are clipped to a
+/// rectangle, not to rounded corners).
+pub fn scrim_layers(scrim: Scrim, radius: gpui::Rems) -> Vec<AnyElement> {
     let shade = |alpha: f32| -> Hsla {
         let mut color: Hsla = colors::GRAY_900.into();
         color.a = alpha.clamp(0.0, 1.0);
@@ -594,11 +596,13 @@ pub fn scrim_layers(scrim: Scrim) -> Vec<AnyElement> {
         div()
             .absolute()
             .inset_0()
+            .rounded(radius)
             .bg(shade(scrim.dim))
             .into_any_element(),
         div()
             .absolute()
             .inset_0()
+            .rounded(radius)
             .bg(gpui::linear_gradient(
                 0.,
                 gpui::linear_color_stop(shade(bottom), 0.),
@@ -608,6 +612,7 @@ pub fn scrim_layers(scrim: Scrim) -> Vec<AnyElement> {
         div()
             .absolute()
             .inset_0()
+            .rounded(radius)
             .bg(gpui::linear_gradient(
                 90.,
                 gpui::linear_color_stop(shade(left), 0.),

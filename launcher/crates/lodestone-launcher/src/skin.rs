@@ -671,9 +671,9 @@ pub fn paint<T: gpui::Styled + gpui::ParentElement>(mut element: T, painted: &Pa
                 .inset_0()
                 .size_full()
                 .object_fit(ObjectFit::Cover);
-            if let Some(radius) = painted.radius {
-                layer = layer.rounded(crate::theme::px(radius));
-            }
+            // `overflow_hidden` clips to a rectangle, not to rounded corners, so the
+            // image takes the element's corners (set before this is called).
+            layer.style().corner_radii = element.style().corner_radii.clone();
             element.overflow_hidden().child(layer.into_any_element())
         }
         None => element,
