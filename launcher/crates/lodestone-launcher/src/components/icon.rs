@@ -27,11 +27,17 @@ pub enum Icon {
     TriangleExclamation,
     Upload,
     User,
+    /// The window buttons drawn on Linux desktops that leave them to apps (see
+    /// `components::window_frame`). Thin outlines, like the desktops' own.
+    WindowClose,
+    WindowMaximize,
+    WindowMinimize,
+    WindowRestore,
     Xmark,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 25] = [
+    pub const ALL: [Icon; 29] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -56,6 +62,10 @@ impl Icon {
         Icon::TriangleExclamation,
         Icon::Upload,
         Icon::User,
+        Icon::WindowClose,
+        Icon::WindowMaximize,
+        Icon::WindowMinimize,
+        Icon::WindowRestore,
         Icon::Xmark,
     ];
 
@@ -86,6 +96,10 @@ impl Icon {
             Icon::TriangleExclamation => "icons/triangle-exclamation.svg",
             Icon::Upload => "icons/upload.svg",
             Icon::User => "icons/user.svg",
+            Icon::WindowClose => "icons/window-close.svg",
+            Icon::WindowMaximize => "icons/window-maximize.svg",
+            Icon::WindowMinimize => "icons/window-minimize.svg",
+            Icon::WindowRestore => "icons/window-restore.svg",
             Icon::Xmark => "icons/xmark.svg",
         }
     }

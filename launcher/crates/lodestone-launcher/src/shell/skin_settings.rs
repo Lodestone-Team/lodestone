@@ -1,31 +1,26 @@
 //! Settings > Launcher > Skin: the gallery of skins (built-in and imported) with
-//! Import, Export, New skin… and Delete, then a card per surface the skin sets, a
-//! readability check and Reset to Default. Changes apply to the window at once and
-//! go through Undo.
+//! Import, Export, New skin… and Delete; what the skin in use paints, with Pop out
+//! editor, which opens the skin editor in its own window ([`super::skin_editor`]);
+//! the readability suggestions; and Reset to Default.
 //!
 //! Built-in skins can't be changed: the first change to one makes a copy and
 //! changes that.
 
-use std::path::PathBuf;
-
 use gpui::{
-    AnyElement, App, Context, Entity, IntoElement, PathPromptOptions, Render, SharedString,
-    Subscription, Task, Window, div, img, prelude::*,
+    AnyElement, App, Context, Entity, IntoElement, PathPromptOptions, Render, SharedString, Task,
+    WeakEntity, Window, div, prelude::*,
 };
-use launcher_core::ui_skin::{
-    Fit, ImageRole, MAX_BLUR, MAX_LABEL, Rgb, Shape, SkinEntry, SkinSpec, SkinStore, readable,
-};
+use launcher_core::ui_skin::{Rgb, Shape, SkinEntry, SkinStore, readable};
 
+use super::LauncherShell;
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus, Slider, TextInput, Toggle,
-        segmented,
-        settings::{SettingRow, Toast, card, muted_link, section, tag},
+        Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus,
+        settings::{Toast, muted_link, section},
     },
     i18n::{ShellMsg as M, t, tr},
     instances::Instances,
     theme::{self, Color, colors, px, radius, text, weights},
-    undo::{self, Files, Step, StepKey, UndoError},
 };
 
 /// Colours offered for the accent, the Play button and the progress bar.
@@ -33,103 +28,29 @@ pub const BRIGHT: [u32; 10] = [
     0x59B2F3, 0x22D3EE, 0x6DD277, 0x8BD86A, 0xEFB440, 0xF08A4B, 0xE5546A, 0xFF2BD6, 0xA78BFA,
     0xF4F6FB,
 ];
-/// Colours offered for the sidebar's tint.
-const DARK: [u32; 6] = [0x000000, 0x10131A, 0x140E08, 0x07070C, 0x1A1030, 0x0B1F14];
-
-/// The controls, one bit each, so a slider's drag is one Undo step.
-#[derive(Clone, Copy)]
-enum Control {
-    SidebarImage = 0,
-    Fit,
-    Tint,
-    TintStrength,
-    Blur,
-    Banner,
-    Hero,
-    PlayColor,
-    Gradient,
-    Shape,
-    Label,
-    Glow,
-    Accent,
-    Progress,
-    Readability,
-}
-
-/// A colour that a hex field sets.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Hex {
-    Tint,
-    Play,
-    Gradient,
-    Accent,
-    Progress,
-}
 
 pub struct SkinSettings {
     instances: Entity<Instances>,
+    shell: WeakEntity<LauncherShell>,
     entries: Vec<SkinEntry>,
-    label: Entity<TextInput>,
-    hex: Vec<(Hex, Entity<TextInput>)>,
     confirm_delete: bool,
     toast: Toast,
     _prompt: Option<Task<()>>,
-    _observe: Vec<Subscription>,
 }
 
 impl SkinSettings {
-    pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
-        let label = cx.new(|cx| TextInput::new(cx).with_placeholder(M::Play));
-        let hex: Vec<(Hex, Entity<TextInput>)> = [
-            Hex::Tint,
-            Hex::Play,
-            Hex::Gradient,
-            Hex::Accent,
-            Hex::Progress,
-        ]
-        .into_iter()
-        .map(|which| {
-            (
-                which,
-                cx.new(|cx| TextInput::new(cx).with_placeholder("#RRGGBB")),
-            )
-        })
-        .collect();
-        let mut observe = vec![cx.observe(&label, |this, input, cx| {
-            let text = input.read(cx).text().to_string();
-            if text.chars().count() <= MAX_LABEL
-                && crate::skin::look(cx)
-                    .spec
-                    .play
-                    .label
-                    .as_deref()
-                    .unwrap_or("")
-                    != text.trim()
-            {
-                this.edit(Control::Label, cx, move |spec| {
-                    spec.play.label = (!text.trim().is_empty()).then(|| text.trim().to_string());
-                });
-            }
-        })];
-        for (which, input) in &hex {
-            let which = *which;
-            observe.push(cx.observe(input, move |this, input, cx| {
-                let text = input.read(cx).text().to_string();
-                if let Some(rgb) = Rgb::parse(&text) {
-                    this.set_color(which, Some(rgb), cx);
-                    input.update(cx, |input, cx| input.set_text("", cx));
-                }
-            }));
-        }
+    pub fn new(
+        instances: Entity<Instances>,
+        shell: WeakEntity<LauncherShell>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut this = Self {
             instances,
+            shell,
             entries: Vec::new(),
-            label,
-            hex,
             confirm_delete: false,
             toast: Toast::default(),
             _prompt: None,
-            _observe: observe,
         };
         this.refresh(cx);
         this
@@ -143,19 +64,10 @@ impl SkinSettings {
         self.instances.read(cx).skins()
     }
 
-    /// Reads the skins again, and the label of the one in use.
+    /// Reads the skins again.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         self.entries = self.store(cx).list();
         self.confirm_delete = false;
-        let label = crate::skin::look(cx)
-            .spec
-            .play
-            .label
-            .clone()
-            .unwrap_or_default();
-        if self.label.read(cx).text().as_ref() != label {
-            self.label.update(cx, |input, cx| input.set_text(label, cx));
-        }
         cx.notify();
     }
 
@@ -170,167 +82,29 @@ impl SkinSettings {
         self.refresh(cx);
     }
 
-    /// The skin to change: the one in use, or a new copy of it if it is built in.
-    fn editable(&mut self, cx: &mut Context<Self>) -> Option<String> {
-        let current = crate::skin::look(cx);
-        if !current.id.is_empty() && launcher_core::ui_skin::built_in(&current.id).is_none() {
-            return Some(current.id.clone());
-        }
-        let store = self.store(cx);
-        let name = tr!(M::SkinCopyName, name = current.spec.name);
-        match store.duplicate(&current.id, &name) {
-            Ok(id) => {
-                self.use_skin(Some(id.clone()), cx);
-                self.say(tr!(M::SkinCopied, name = current.spec.name), false, cx);
-                Some(id)
-            }
-            Err(err) => {
-                self.say(err.to_string(), true, cx);
-                None
-            }
-        }
-    }
-
-    /// Changes the skin in use with `change`, saves it, shows it, and records it for
-    /// Undo (a control's consecutive changes are one step).
-    fn edit(
-        &mut self,
-        control: Control,
-        cx: &mut Context<Self>,
-        change: impl FnOnce(&mut SkinSpec),
-    ) {
-        let Some(id) = self.editable(cx) else {
-            return;
-        };
-        let store = self.store(cx);
-        let Ok(entry) = store.get(&id) else {
-            return;
-        };
-        let before_spec = entry.spec.clone();
-        let mut spec = entry.spec.clone();
-        change(&mut spec);
-        if spec == before_spec {
-            return;
-        }
-        let path = store.spec_path(&id);
-        let before = Files::read(std::slice::from_ref(&path));
-        if let Err(err) = store.save(&id, &spec) {
-            self.say(err.to_string(), true, cx);
-            return;
-        }
-        let after = Files::read(std::slice::from_ref(&path));
-        launcher_core::trace::settings_changed(
-            "skin",
-            &before_spec,
-            &spec,
-            serde_json::json!({ "skin": id }),
-        );
-        crate::skin::update(
-            SkinEntry {
-                id: id.clone(),
-                spec: spec.clone(),
-                builtin: false,
-            },
-            store,
-            cx,
-        );
-        if !undo::replaying(cx) {
-            let instances = self.instances.clone();
-            let restore = move |files: Files| {
-                let instances = instances.clone();
-                move |cx: &mut App| {
-                    files
-                        .write()
-                        .map_err(|err| UndoError::Refused(err.to_string()))?;
-                    instances.update(cx, |instances, cx| instances.reload_skin(cx));
-                    Ok(())
-                }
-            };
-            let said = format!("{} · {}", t(M::Skin), spec.name);
-            let said_too = said.clone();
-            undo::record(
-                Step::new(
-                    StepKey::Form {
-                        view: cx.entity_id(),
-                        fields: 1 << control as u64,
-                    },
-                    move || said.clone(),
-                    move || said_too.clone(),
-                    restore(before),
-                    restore(after),
-                ),
-                cx,
-            );
-        }
-        cx.notify();
-    }
-
-    /// "Fix readability": every surface works its text out from its image again.
     /// Applies a suggested fix, or all of them (`None`).
     fn apply_fix(&mut self, fix: Option<readable::Fix>, cx: &mut Context<Self>) {
         let backdrops = crate::skin::look(cx).backdrops.clone();
-        self.edit(Control::Readability, cx, move |spec| match fix {
-            Some(fix) => readable::apply(spec, &fix),
-            None => {
-                readable::fix_all(spec, &|surface| backdrops.get(&surface).copied());
-            }
-        });
-    }
-
-    fn set_color(&mut self, which: Hex, rgb: Option<Rgb>, cx: &mut Context<Self>) {
-        let control = match which {
-            Hex::Tint => Control::Tint,
-            Hex::Play => Control::PlayColor,
-            Hex::Gradient => Control::Gradient,
-            Hex::Accent => Control::Accent,
-            Hex::Progress => Control::Progress,
-        };
-        self.edit(control, cx, move |spec| match which {
-            Hex::Tint => spec.sidebar.tint = rgb,
-            Hex::Play => spec.play.color = rgb,
-            Hex::Gradient => spec.play.gradient = rgb,
-            Hex::Accent => spec.accent = rgb,
-            Hex::Progress => spec.progress = rgb,
-        });
-    }
-
-    /// Asks for an image file and makes it the skin's image for `role`.
-    fn choose_image(&mut self, role: ImageRole, cx: &mut Context<Self>) {
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(t(M::SkinUseImage).into()),
-        });
-        self._prompt = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
-                return;
-            };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            this.update(cx, |this, cx| this.add_image(role, path, cx))
-                .ok();
-        }));
-    }
-
-    fn add_image(&mut self, role: ImageRole, path: PathBuf, cx: &mut Context<Self>) {
-        let Some(id) = self.editable(cx) else {
-            return;
-        };
-        match self.store(cx).add_image(&id, &path, role) {
-            Ok(name) => {
-                let control = match role {
-                    ImageRole::Hero => Control::Hero,
-                    _ => Control::SidebarImage,
-                };
-                self.edit(control, cx, move |spec| match role {
-                    ImageRole::Hero => spec.hero.image = Some(name),
-                    _ => spec.sidebar.image = Some(name),
-                });
-            }
-            Err(err) => self.say(err.to_string(), true, cx),
+        let view = cx.entity_id();
+        let result =
+            super::skin_editor::edit_skin(&self.instances, view, 1, cx, move |spec| match fix {
+                Some(fix) => readable::apply(spec, &fix),
+                None => {
+                    readable::fix_all(spec, &|surface| backdrops.get(&surface).copied());
+                }
+            });
+        match result {
+            Ok(Some(name)) => self.say(tr!(M::SkinCopied, name = name), false, cx),
+            Ok(None) => {}
+            Err(err) => self.say(err, true, cx),
         }
+        self.refresh(cx);
+    }
+
+    fn pop_out(&mut self, cx: &mut Context<Self>) {
+        self.shell
+            .update(cx, |shell, cx| shell.open_skin_editor(cx))
+            .ok();
     }
 
     fn import(&mut self, cx: &mut Context<Self>) {
@@ -400,58 +174,6 @@ impl SkinSettings {
             return;
         }
         self.use_skin(None, cx);
-    }
-
-    fn hex_input(&self, which: Hex) -> Entity<TextInput> {
-        self.hex
-            .iter()
-            .find(|(w, _)| *w == which)
-            .map(|(_, input)| input.clone())
-            .expect("a field for every colour")
-    }
-
-    /// A row of colours to pick from, a "Default" (or "None") choice, and a field
-    /// for any colour.
-    fn color_row(
-        &self,
-        label: &'static str,
-        which: Hex,
-        value: Option<Rgb>,
-        palette: &[u32],
-        none: &'static str,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let mut choices: Vec<AnyElement> = vec![
-            swatch_none(("skin-none", which as usize), none, value.is_none())
-                .on_click(cx.listener(move |this, _, _, cx| this.set_color(which, None, cx)))
-                .into_any_element(),
-        ];
-        for (i, rgb) in palette.iter().map(|&c| Rgb(c)).enumerate() {
-            choices.push(
-                swatch(
-                    ("skin-swatch", which as usize * 100 + i),
-                    rgb,
-                    value == Some(rgb),
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.set_color(which, Some(rgb), cx)))
-                .into_any_element(),
-            );
-        }
-        let input = self.hex_input(which);
-        SettingRow::new(label)
-            .when_some(value, |row, rgb| row.hint(rgb.hex()))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_center()
-                    .justify_end()
-                    .gap_1p5()
-                    .children(choices)
-                    .child(div().w(px(92.)).child(input)),
-            )
-            .into_any_element()
     }
 }
 
@@ -601,13 +323,6 @@ impl Render for SkinSettings {
         let look = crate::skin::look(cx);
         let spec = look.spec.clone();
         let builtin = launcher_core::ui_skin::built_in(&look.id).is_some();
-        let entity = cx.entity();
-        let on = |f: fn(&mut Self, &mut Context<Self>, f64)| {
-            let entity = entity.clone();
-            move |value: f64, _: &mut Window, cx: &mut App| {
-                entity.update(cx, |this, cx| f(this, cx, value))
-            }
-        };
 
         // the gallery
         let cards: Vec<AnyElement> = self
@@ -676,183 +391,40 @@ impl Render for SkinSettings {
             crate::skin::error(cx).map(|e| (tr!(M::SkinCouldntLoad, error = e), colors::RED_200))
         };
 
-        // Sidebar
-        let has_sidebar_image = spec.sidebar.image.is_some();
-        let sidebar = card([
-            self.image_row(
-                ImageRole::Sidebar,
-                spec.sidebar.image.is_some(),
-                look.surfaces
-                    .get(&launcher_core::ui_skin::SurfaceId::Sidebar)
-                    .and_then(|p| match &p.paint {
-                        Some(crate::skin::Paint::Image(image)) => Some(image.clone()),
-                        _ => None,
-                    }),
-                cx,
-            ),
-            SettingRow::new(t(M::SkinFit))
-                .child(segmented(
-                    "skin-fit",
-                    vec![
-                        (Fit::Cover, t(M::SkinFitCover).into()),
-                        (Fit::Tile, t(M::SkinFitTile).into()),
-                    ],
-                    Some(&spec.sidebar.fit),
-                    !has_sidebar_image,
-                    {
-                        let entity = entity.clone();
-                        move |fit: Fit, _, cx| {
-                            entity.update(cx, |this, cx| {
-                                this.edit(Control::Fit, cx, move |spec| spec.sidebar.fit = fit)
-                            })
-                        }
-                    },
-                ))
-                .into_any_element(),
-            self.color_row(
-                t(M::SkinTint),
-                Hex::Tint,
-                spec.sidebar.tint,
-                &DARK,
-                t(M::SkinNone),
-                cx,
-            ),
-            SettingRow::new(t(M::SkinTintStrength))
+        // what the skin paints, and the editor
+        let painted = launcher_core::ui_skin::SurfaceId::ALL
+            .into_iter()
+            .filter(|id| spec.surface(*id).is_some())
+            .count();
+        let summary = tr!(
+            M::SkinSummary,
+            surfaces = painted.to_string(),
+            fonts = launcher_core::ui_skin::FontPart::ALL
+                .iter()
+                .filter(|p| spec.fonts.get(**p).is_some())
+                .count()
+                .to_string(),
+            banners = spec.banners.len().to_string()
+        );
+        let editor = section(t(M::SkinEditorTitle), Some(t(M::SkinEditorLead).into())).child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .gap_4()
                 .child(
-                    Slider::new(
-                        "skin-tint-strength",
-                        spec.sidebar.tint_opacity as f64,
-                        0.,
-                        100.,
-                        5.,
-                    )
-                    .disabled(spec.sidebar.tint.is_none())
-                    .format(|v| format!("{v:.0}%").into())
-                    .on_change(on(|this, cx, value| {
-                        this.edit(Control::TintStrength, cx, move |spec| {
-                            spec.sidebar.tint_opacity = value.round() as u8
-                        })
-                    })),
+                    Button::new("skin-pop-out", t(M::SkinPopOut))
+                        .variant(ButtonVariant::Primary)
+                        .size(ButtonSize::Slim)
+                        .icon(Icon::ArrowUpRightFromSquare)
+                        .on_click(cx.listener(|this, _, _, cx| this.pop_out(cx))),
                 )
-                .into_any_element(),
-            SettingRow::new(t(M::SkinBlur))
-                .child(
-                    Slider::new(
-                        "skin-blur",
-                        spec.sidebar.blur as f64,
-                        0.,
-                        MAX_BLUR as f64,
-                        1.,
-                    )
-                    .disabled(!has_sidebar_image)
-                    .format(|v| format!("{v:.0} px").into())
-                    .on_change(on(|this, cx, value| {
-                        this.edit(Control::Blur, cx, move |spec| {
-                            spec.sidebar.blur = value.round() as u8
-                        })
-                    })),
-                )
-                .into_any_element(),
-        ]);
-
-        let banner = card([SettingRow::new(t(M::SkinBannerInSidebar))
-            .child(
-                Toggle::new("skin-banner", spec.banner.in_sidebar).on_change(cx.listener(
-                    |this, on: &bool, _, cx| {
-                        let on = *on;
-                        this.edit(Control::Banner, cx, move |spec| spec.banner.in_sidebar = on);
-                        if !on {
-                            this.instances
-                                .update(cx, |instances, _| instances.forget_sidebar_banners());
-                        }
-                    },
-                )),
-            )
-            .into_any_element()]);
-
-        let hero = card([self.image_row(
-            ImageRole::Hero,
-            spec.hero.image.is_some(),
-            look.hero.as_ref().map(|h| h.image.clone()),
-            cx,
-        )]);
-
-        let play = card([
-            self.color_row(
-                t(M::SkinColor),
-                Hex::Play,
-                spec.play.color,
-                &BRIGHT,
-                t(M::SkinDefault),
-                cx,
-            ),
-            self.color_row(
-                t(M::SkinFadeTo),
-                Hex::Gradient,
-                spec.play.gradient,
-                &BRIGHT,
-                t(M::SkinNone),
-                cx,
-            ),
-            SettingRow::new(t(M::SkinShape))
-                .child(segmented(
-                    "skin-shape",
-                    vec![
-                        (Shape::Rounded, t(M::SkinShapeRounded).into()),
-                        (Shape::Pill, t(M::SkinShapePill).into()),
-                        (Shape::Pixel, t(M::SkinShapePixel).into()),
-                    ],
-                    Some(&spec.play.shape),
-                    false,
-                    {
-                        let entity = entity.clone();
-                        move |shape: Shape, _, cx| {
-                            entity.update(cx, |this, cx| {
-                                this.edit(Control::Shape, cx, move |spec| spec.play.shape = shape)
-                            })
-                        }
-                    },
-                ))
-                .into_any_element(),
-            SettingRow::new(t(M::SkinLabel))
-                .child(div().w(px(160.)).child(self.label.clone()))
-                .into_any_element(),
-            SettingRow::new(t(M::SkinGlow))
-                .child(
-                    Toggle::new("skin-glow", spec.play.glow).on_change(cx.listener(
-                        |this, on: &bool, _, cx| {
-                            let on = *on;
-                            this.edit(Control::Glow, cx, move |spec| spec.play.glow = on)
-                        },
-                    )),
-                )
-                .into_any_element(),
-        ]);
-
-        let colours = card([
-            self.color_row(
-                t(M::SkinAccent),
-                Hex::Accent,
-                spec.accent,
-                &BRIGHT,
-                t(M::SkinDefault),
-                cx,
-            ),
-            self.color_row(
-                t(M::SkinProgress),
-                Hex::Progress,
-                spec.progress,
-                &BRIGHT,
-                t(M::SkinDefault),
-                cx,
-            ),
-        ]);
+                .child(div().text_color(crate::theme::ink::muted()).child(summary)),
+        );
 
         let accent_adjusted = spec.accent.is_some_and(crate::theme::accent::adjusted);
-        let readable = div()
-            .flex()
-            .flex_col()
-            .gap_2()
+        let readable = section(t(M::SkinReadability), None)
             .child(super::skin_checks::render(
                 &crate::skin::checks(&look),
                 !builtin,
@@ -882,11 +454,7 @@ impl Render for SkinSettings {
                         .child(actions),
                 ),
             )
-            .child(section(t(M::SkinSidebar), None).child(sidebar))
-            .child(section(t(M::SkinBanner), None).child(banner))
-            .child(section(t(M::SkinHero), None).child(hero))
-            .child(section(t(M::SkinPlayButton), None).child(play))
-            .child(section(t(M::SkinColors), None).child(colours))
+            .child(editor)
             .child(readable)
             .child(
                 div().flex().child(
@@ -897,56 +465,5 @@ impl Render for SkinSettings {
                         .on_click(cx.listener(|this, _, _, cx| this.use_skin(None, cx))),
                 ),
             )
-    }
-}
-
-impl SkinSettings {
-    /// An image row: its thumbnail, Choose… and Remove.
-    fn image_row(
-        &self,
-        role: ImageRole,
-        has: bool,
-        image: Option<std::sync::Arc<gpui::RenderImage>>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let (id, remove_id) = match role {
-            ImageRole::Hero => ("skin-hero-image", "skin-hero-remove"),
-            _ => ("skin-sidebar-image", "skin-sidebar-remove"),
-        };
-        SettingRow::new(t(M::SkinImage))
-            .when(role == ImageRole::Hero, |row| row.hint(t(M::SkinHeroHint)))
-            .when_some(image, |row, image| {
-                row.child(
-                    img(image)
-                        .w(px(72.))
-                        .h(px(40.))
-                        .rounded(radius::MD)
-                        .object_fit(gpui::ObjectFit::Cover),
-                )
-            })
-            .when(!has, |row| row.child(tag(t(M::SkinNone), colors::GRAY_500)))
-            .child(
-                Button::new(id, t(M::SkinChoose))
-                    .variant(ButtonVariant::Secondary)
-                    .size(ButtonSize::Slim)
-                    .on_click(cx.listener(move |this, _, _, cx| this.choose_image(role, cx))),
-            )
-            .when(has, |row| {
-                row.child(
-                    muted_link(remove_id, t(M::SkinRemove)).on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            let control = match role {
-                                ImageRole::Hero => Control::Hero,
-                                _ => Control::SidebarImage,
-                            };
-                            this.edit(control, cx, move |spec| match role {
-                                ImageRole::Hero => spec.hero.image = None,
-                                _ => spec.sidebar.image = None,
-                            })
-                        },
-                    )),
-                )
-            })
-            .into_any_element()
     }
 }

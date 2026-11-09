@@ -11,6 +11,10 @@ drawn by the launcher. A pack can use them too: `builtin:dirt`, `builtin:sky`,
 `builtin:sunset`, `builtin:night`, `builtin:glass`, `builtin:aurora`, `builtin:grid`
 and `builtin:grid-dawn`.
 
+To make a skin, follow the [create-skin skill](../skills/create-skin/SKILL.md): the
+pack, every key, readability, testing with the CLI and an example from start to
+finish. Settings → Skin → **Pop out editor** edits a skin in its own window.
+
 An instance can override the skin's **Play button colour** and **accent** in its own
 Settings → General. Its Play background (a skin banner, an image or a slideshow) also
 wins over the skin's Play image.

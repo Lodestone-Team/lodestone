@@ -100,6 +100,13 @@ pub fn text(message: M) -> &'static str {
                 "系統金鑰圈"
             }
         }
+        M::FileDialogUnavailable => {
+            if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+                "系統的檔案對話框無法使用。它需要 xdg-desktop-portal 及你的桌面對應的後端，例如 xdg-desktop-portal-kde 或 xdg-desktop-portal-gnome。"
+            } else {
+                "系統的檔案對話框無法開啟。請再試一次。"
+            }
+        }
     }
 }
 

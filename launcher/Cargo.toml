@@ -85,6 +85,9 @@ tiny_http = "0.12"
 # 0.28 (through async-tungstenite); no TLS feature, the launcher wraps rustls itself.
 tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 trash = { git = "https://github.com/zed-industries/trash-rs", rev = "41c6c800d884a89351f3b8856d12894cccee261d" }
+# Word boundaries in text fields: a word delete keeps a letter and its combining marks
+# together. Zed's requirement; 1.13.3 in its lockfile, already in GPUI's tree.
+unicode-segmentation = "1.10"
 url = "2.2"
 uuid = { version = "1.1", features = ["serde"] }
 # Windows-only system calls libc lacks there (host name, memory, OS version, the window's

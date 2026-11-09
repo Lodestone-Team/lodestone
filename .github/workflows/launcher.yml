@@ -1,8 +1,9 @@
 name: Launcher - Check
 
 # Lodestone Launcher is its own Cargo workspace (launcher/), so the core's CI never
-# builds it. This workflow checks it on macOS, the first supported platform, and only
-# runs when the launcher, the crate it shares with the core or this file changes.
+# builds it. This workflow checks it on macOS, the first supported platform, and on
+# Linux, and only runs when the launcher, the crate it shares with the core or this
+# file changes.
 on:
   workflow_dispatch:
   pull_request:
@@ -59,3 +60,53 @@ jobs:
 
     - name: Test
       run: cargo test --locked --no-fail-fast
+
+  # The Linux build: GPUI's Wayland and X11 backends are Linux-only code, so neither
+  # clippy nor the tests on macOS see it. Formatting does not depend on the platform,
+  # so only the macOS job checks it.
+  launcher-check-linux:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: launcher
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    # The native libraries GPUI's Linux backends build against, a subset of Zed's
+    # script/linux. xkbcommon, xkbcommon-x11 and xcb are linked; fontconfig is only
+    # probed by yeslogic-fontconfig-sys's build script, which fails without its .pc
+    # file. Wayland, EGL and Vulkan are loaded at runtime, so they need nothing here.
+    - name: Install Linux dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends libfontconfig-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev
+
+    # Installs the toolchain pinned in the repository's rust-toolchain.toml.
+    - name: Install Rust toolchain
+      shell: bash
+      run: rustup toolchain install --profile minimal --component rustfmt,clippy --no-self-update
+
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        prefix-key: rust-cache
+        shared-key: launcher-linux
+        workspaces: launcher
+
+    - name: Clippy
+      run: cargo clippy --locked --all-targets -- -D warnings
+
+    # `screenshot` turns on GPUI's test platform, which the keystroke and mouse tests
+    # drive; it is off in the default build, so it gets its own clippy and test run.
+    - name: Clippy (screenshot)
+      run: cargo clippy --locked -p lodestone-launcher --features screenshot --all-targets -- -D warnings
+
+    - name: Test
+      run: cargo test --locked --no-fail-fast
+
+    - name: Test (screenshot)
+      run: cargo test --locked --no-fail-fast -p lodestone-launcher --features screenshot

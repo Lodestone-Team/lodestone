@@ -77,6 +77,14 @@ crate::i18n::messages! {
         Keychain = wording::KEYCHAIN,
         /// The same, in full: "the macOS Keychain".
         KeychainInFull = wording::KEYCHAIN_IN_FULL,
+        /// A "Browse…", "Import…" or "Export…" button's file dialog didn't open. On
+        /// Linux the dialog is the desktop portal's, which some desktops don't run;
+        /// the package names stay as they are in every language.
+        FileDialogUnavailable = if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+            "The system's file dialog isn't available. It needs xdg-desktop-portal and the portal for your desktop, such as xdg-desktop-portal-kde or xdg-desktop-portal-gnome."
+        } else {
+            "The system's file dialog couldn't open. Try again."
+        },
     }
 
     pub enum CommonPlural {

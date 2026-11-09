@@ -27,6 +27,7 @@ gpui_platform = { workspace = true, features = ["font-kit"] }
 http_client.workspace = true
 image.workspace = true
 launcher-core.workspace = true
+unicode-segmentation.workspace = true
 url.workspace = true
 lodestone_minecraft.workspace = true
 lodestone_trace.workspace = true
@@ -37,6 +38,12 @@ launcher-control.workspace = true
 serde.workspace = true
 # Writes the sample mods and packs of the offscreen screenshots.
 zip = { workspace = true, optional = true }
+
+# GPUI's Linux windowing backends. The workspace takes `gpui_platform` without its
+# default features, and without these it runs headless on Linux: `open_window`
+# succeeds but no window ever reaches the compositor.
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+gpui_platform = { workspace = true, features = ["wayland", "x11"] }
 
 [target.'cfg(windows)'.dependencies]
 # The system menu of the window's own title bar (`shell::top_bar`).

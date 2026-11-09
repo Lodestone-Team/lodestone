@@ -38,6 +38,7 @@ use crate::components::KeyboardFocus;
 use crate::i18n::{CommonMsg, WorldsMsg as M, WorldsPlural as P, format, t, tr, trn};
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, LoadingDots, TextInput},
+    file_dialog,
     theme::{self, colors, fonts, radius, text, weights},
 };
 
@@ -150,6 +151,12 @@ pub fn when(time: SystemTime) -> String {
 /// A plain file name for a world zip of `name`.
 fn zip_name(name: &str) -> String {
     format!("{}.zip", worlds::folder_name(name))
+}
+
+impl file_dialog::ShowsError for WorldsView {
+    fn show_error(&mut self, message: SharedString, cx: &mut Context<Self>) {
+        self.set_message(message, true, cx);
+    }
 }
 
 impl WorldsView {
@@ -505,7 +512,7 @@ impl WorldsView {
         let picked =
             cx.prompt_for_new_path(&super::settings::dirs_downloads(), Some(&zip_name(&name)));
         self._prompt = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(path))) = picked.await else {
+            let Some(path) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             this.update(cx, |this, cx| {
@@ -576,7 +583,7 @@ impl WorldsView {
             prompt: Some(t(M::ImportWorldPrompt).into()),
         });
         self._prompt = Some(cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = picked.await else {
+            let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
             };
             this.update(cx, |this, cx| this.import_worlds(paths, cx))

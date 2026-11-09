@@ -17,6 +17,7 @@ mod tabs;
 mod text_input;
 mod toggle;
 mod tooltip;
+pub mod window_frame;
 
 pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
 pub use dialog::Dialog;

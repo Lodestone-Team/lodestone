@@ -10,6 +10,7 @@ mod settings_modal;
 mod shared_settings;
 mod sidebar;
 pub(crate) mod skin_checks;
+pub(crate) mod skin_editor;
 pub(crate) mod skin_settings;
 mod storage_settings;
 mod top_bar;
@@ -42,7 +43,9 @@ use crate::{
         offline_dialog::{OfflineDialog, OfflineDialogDismissed},
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
-    components::{Button, ButtonVariant, Dialog, DialogSlot, Icon, focus, settings::Toast},
+    components::{
+        Button, ButtonVariant, Dialog, DialogSlot, Icon, focus, settings::Toast, window_frame,
+    },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::{
         CrashInfo, Instances, InstancesEvent,
@@ -257,6 +260,7 @@ pub struct LauncherShell {
     /// still reach the window's handlers.
     root_focus: FocusHandle,
     _focus_lost: Option<Subscription>,
+    _button_layout: Option<Subscription>,
     /// Says what Undo or Redo changed, with the way back.
     undo_toast: Toast,
     _observe: Vec<Subscription>,
@@ -362,7 +366,8 @@ impl LauncherShell {
         observe.push(cx.observe(&storage, |_, _, cx| cx.notify()));
         let skin = {
             let instances = instances.clone();
-            cx.new(|cx| SkinSettings::new(instances, cx))
+            let shell = cx.entity().downgrade();
+            cx.new(|cx| SkinSettings::new(instances, shell, cx))
         };
         observe.push(cx.observe(&skin, |_, _, cx| cx.notify()));
         observe.push(cx.subscribe(&storage, |this, _, event, cx| match event {
@@ -416,6 +421,7 @@ impl LauncherShell {
             top_bar_drag_pending: false,
             root_focus: cx.focus_handle(),
             _focus_lost: None,
+            _button_layout: None,
             undo_toast: Toast::default(),
             _observe: observe,
             _clock: cx.spawn(async move |this, cx| {
@@ -463,8 +469,11 @@ impl LauncherShell {
             return self.end_sidebar_drag(cx);
         }
         let zoom = theme::zoom::get();
-        let x = f32::from(event.position.x) / zoom;
-        let width = f32::from(window.viewport_size().width) / zoom;
+        // From the content's left edge: inside the launcher's own frame, when it
+        // draws one.
+        let content = window_frame::content_bounds(window);
+        let x = f32::from(event.position.x - content.origin.x) / zoom;
+        let width = f32::from(content.size.width) / zoom;
         let next = theme::layout::sidebar_drag(x, width);
         if self.sidebar_drag != Some(next) {
             self.sidebar_drag = Some(next);
@@ -1156,6 +1165,39 @@ impl LauncherShell {
         cx.notify();
     }
 
+    /// Shows (or hides) something in the window for the skin editor: the Settings
+    /// window, a menu, or a notice.
+    pub(crate) fn preview_skin(
+        &mut self,
+        preview: skin_editor::Preview,
+        on: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match preview {
+            skin_editor::Preview::Settings if on => {
+                self.open_settings(Some(SettingsPage::General), None, cx)
+            }
+            skin_editor::Preview::Settings => self.close_settings(cx),
+            skin_editor::Preview::Menu => self.set_account_menu(on, cx),
+            skin_editor::Preview::Notice => {
+                self.undo_toast.show(
+                    t(M::SkinPreviewNoticeText),
+                    false,
+                    |this: &mut Self| &mut this.undo_toast,
+                    cx,
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    /// Opens the skin editor's window, or brings it to the front.
+    pub(crate) fn open_skin_editor(&mut self, cx: &mut Context<Self>) {
+        let instances = self.instances.clone();
+        let shell = cx.entity().downgrade();
+        skin_editor::open(instances, shell, cx);
+    }
+
     fn set_account_menu(&mut self, open: bool, cx: &mut Context<Self>) {
         self.account_menu_open = open;
         cx.notify();
@@ -1676,7 +1718,7 @@ fn render_crash(
 impl LauncherShell {
     /// Undo (`undo` true) or Redo of a setting, with a toast that says what changed
     /// and offers the way back.
-    fn undo_step(&mut self, undo: bool, cx: &mut Context<Self>) {
+    pub(crate) fn undo_step(&mut self, undo: bool, cx: &mut Context<Self>) {
         let outcome = if undo {
             crate::undo::undo(cx)
         } else {
@@ -1750,6 +1792,11 @@ impl Render for LauncherShell {
         if self._focus_lost.is_none() {
             self._focus_lost = Some(focus::install(&self.root_focus, window, cx));
         }
+        if self._button_layout.is_none() {
+            // Where the desktop puts the window's buttons, when the launcher draws them.
+            self._button_layout =
+                Some(cx.observe_button_layout_changed(window, |_, _, cx| cx.notify()));
+        }
         // Text and spacing are in rems: zoom them with everything else.
         window.set_rem_size(theme::zoom::rem_size());
         // The skin's accent, or the selected instance's own.
@@ -1773,7 +1820,7 @@ impl Render for LauncherShell {
             .modal
             .render(window, |modal| self.render_modal(modal, cx));
 
-        div()
+        let shell = div()
             .id("launcher-shell")
             .track_focus(&self.root_focus)
             // For the debug traces: where the pointer went down, to place clicks on
@@ -1815,12 +1862,14 @@ impl Render for LauncherShell {
             .size_full()
             .bg(colors::GRAY_875)
             .surface(SurfaceId::Window)
+            // After the skin, so the window's outline follows the frame's corners.
+            .map(|this| window_frame::fit_top_corners(this, window))
             .font_family(fonts::body())
             .map(crate::i18n::locale_fonts)
             .text_color(crate::theme::ink::text())
             .text_size(theme::text_size(text::MEDIUM))
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
-            .child(top_bar::render(self, cx))
+            .child(top_bar::render(self, window, cx))
             .child(
                 div()
                     .flex()
@@ -1844,7 +1893,8 @@ impl Render for LauncherShell {
             .children(modal)
             .child(self.servers_overlay.clone())
             .children(self.undo_toast.render())
-            .children(top_bar::window_controls(window, cx))
+            .children(top_bar::window_controls(window, cx));
+        window_frame::frame(shell, window)
     }
 }
 
