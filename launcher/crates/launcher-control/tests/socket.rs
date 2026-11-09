@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 /// Answers a few methods the way the launcher's backend does.
 #[derive(Default)]
 struct Fake {
+    connected: Mutex<Vec<u64>>,
     disconnected: Mutex<Vec<u64>>,
 }
 
@@ -70,6 +71,10 @@ impl Backend for Fake {
                 );
             }
         }
+    }
+
+    fn connected(&self, connection: u64) {
+        self.connected.lock().unwrap().push(connection);
     }
 
     fn disconnected(&self, connection: u64) {
@@ -282,4 +287,50 @@ fn slow_readers_lose_events_not_responses() {
         rx.try_iter().count(),
         launcher_control::server::MAX_QUEUED_EVENTS + 1
     );
+}
+
+fn wait_until(mut done: impl FnMut() -> bool) {
+    let started = std::time::Instant::now();
+    while !done() {
+        assert!(started.elapsed() < Duration::from_secs(5), "timed out");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn the_server_can_drop_a_client_or_all_of_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("control.sock");
+    let fake = Arc::new(Fake::default());
+    let mut handle = Server::bind(&path).unwrap().spawn(fake.clone()).unwrap();
+
+    let mut first = Client::connect(&path).unwrap();
+    assert_eq!(
+        first.call("echo", json!({ "n": 1 })).unwrap(),
+        Ok(json!({ "n": 1 }))
+    );
+    wait_until(|| fake.connected.lock().unwrap().len() == 1);
+    let id = fake.connected.lock().unwrap()[0];
+    let mut second = Client::connect(&path).unwrap();
+    assert_eq!(
+        second.call("echo", json!({ "n": 2 })).unwrap(),
+        Ok(json!({ "n": 2 }))
+    );
+    wait_until(|| fake.connected.lock().unwrap().len() == 2);
+    assert_eq!(handle.connections(), 2);
+
+    assert!(handle.disconnect(id));
+    assert!(!handle.disconnect(id));
+    wait_until(|| fake.disconnected.lock().unwrap().contains(&id));
+    assert!(first.call("echo", json!({ "n": 3 })).is_err());
+    assert_eq!(
+        second.call("echo", json!({ "n": 4 })).unwrap(),
+        Ok(json!({ "n": 4 }))
+    );
+
+    handle.shutdown();
+    assert!(!path.exists());
+    wait_until(|| fake.disconnected.lock().unwrap().len() == 2);
+    assert!(second.call("echo", json!({ "n": 5 })).is_err());
+    assert!(UnixStream::connect(&path).is_err());
 }

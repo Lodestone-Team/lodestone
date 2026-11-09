@@ -347,6 +347,20 @@ fn gpui_sleep(cx: &App) -> Sleep {
 }
 
 impl Instances {
+    /// Adds the decoded icons, Play backgrounds and sidebar banners, for the
+    /// performance monitor.
+    pub fn tally_images(&self, tally: &mut crate::perf::ImageTally) {
+        for (_, image) in self.icons.values() {
+            tally.add(image);
+        }
+        for (_, _, background) in self.backgrounds.values() {
+            tally.add(&background.image);
+        }
+        for (_, _, image, _) in self.sidebar_banners.values() {
+            tally.add(image);
+        }
+    }
+
     pub fn new(data_dir: DataDir, accounts: Entity<Accounts>, cx: &mut Context<Self>) -> Self {
         Self::with_urls(data_dir, accounts, MojangUrls::production(), cx)
     }
@@ -517,8 +531,14 @@ impl Instances {
                     &settings,
                     serde_json::Value::Null,
                 );
+                let cli_changed = settings.cli != self.settings.cli;
                 self.settings = settings;
                 self.record_settings(before, cx);
+                if cli_changed {
+                    // opens or closes the control socket; later, as it reads this
+                    #[cfg(unix)]
+                    cx.defer(crate::control::apply);
+                }
                 Ok(())
             }
             Err(err) => Err(err.to_string()),
@@ -532,6 +552,23 @@ impl Instances {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         self.update_settings(|settings| settings.instance_defaults = defaults, cx)
+    }
+
+    /// Settings > Developer > Command line.
+    pub fn cli_settings(&self) -> launcher_core::settings::CliSettings {
+        self.settings.cli
+    }
+
+    /// Changes Settings > Developer > Command line. Only the window calls this: no
+    /// control method does, so a client can't widen its own access.
+    pub fn set_cli_settings(
+        &mut self,
+        cli: launcher_core::settings::CliSettings,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(err) = self.update_settings(|settings| settings.cli = cli, cx) {
+            self.notice = Some(err.into());
+        }
     }
 
     /// "Group instances automatically".

@@ -103,6 +103,7 @@ pub const SCENES: &[&str] = &[
     "undo-toast",
     "settings-accounts",
     "settings-developer",
+    "perf-monitor",
     "settings-storage",
     "settings-storage-confirm",
     "play-background",
@@ -903,6 +904,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 "settings-developer" => crate::shell::SettingsPage::Developer,
                 _ => crate::shell::SettingsPage::Defaults,
             };
+            if scene == "settings-developer" {
+                preview_control(cx);
+            }
             shell.open_settings(Some(page), None, cx);
         }
         "skin-bright" | "settings-skin-bright" => {
@@ -987,6 +991,21 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 if let Some(editor) = crate::shell::skin_editor::open(instances, shell_handle, cx) {
                     editor
                         .update(cx, |editor, _, cx| editor.show(pane, cx))
+                        .ok();
+                }
+            });
+        }
+        "perf-monitor" => {
+            preview_control(cx);
+            shell.open_settings(Some(crate::shell::SettingsPage::Developer), None, cx);
+            let sources = shell.perf_sources();
+            cx.defer(move |cx| {
+                if let Some(monitor) = crate::shell::perf_monitor::open(sources, cx) {
+                    monitor
+                        .update(cx, |monitor, _, cx| {
+                            monitor.preview_history(perf_history());
+                            cx.notify();
+                        })
                         .ok();
                 }
             });
@@ -1225,4 +1244,100 @@ fn sample_share_plan() -> launcher_core::content::share::SharePlan {
             ),
         ],
     }
+}
+
+/// Settings > Developer's socket, with two programs connected.
+#[cfg(unix)]
+fn preview_control(cx: &mut App) {
+    use std::time::{Duration, SystemTime};
+    let now = SystemTime::now();
+    crate::control::preview(
+        crate::control::ControlStatus {
+            socket: "/Users/you/Library/Application Support/Lodestone Launcher/control.sock".into(),
+            running: true,
+            error: None,
+            clients: vec![
+                crate::control::ClientInfo {
+                    connection: (1 << 32) | 3,
+                    name: Some(format!(
+                        "lodestone-launcher-cli {}",
+                        env!("CARGO_PKG_VERSION")
+                    )),
+                    pid: Some(48213),
+                    since: now - Duration::from_secs(95),
+                    subscriptions: 1,
+                },
+                crate::control::ClientInfo {
+                    connection: (1 << 32) | 4,
+                    name: None,
+                    pid: None,
+                    since: now - Duration::from_secs(12),
+                    subscriptions: 0,
+                },
+            ],
+        },
+        cx,
+    );
+}
+
+#[cfg(not(unix))]
+fn preview_control(_: &mut App) {}
+
+/// A made-up minute of readings for the performance monitor's screenshot: the
+/// launcher settling after a download, with a game running.
+fn perf_history() -> Vec<crate::perf::Sample> {
+    use crate::perf::{FrameStats, GameReading, ImageTally, ProcessReading, Sample, TraceReading};
+    const MB: u64 = 1024 * 1024;
+    (0..60u64)
+        .map(|i| {
+            let wave = ((i as f64) / 6.0).sin();
+            let busy = i > 40 && i < 50;
+            Sample {
+                at: std::time::SystemTime::now(),
+                launcher: ProcessReading {
+                    pid: 51234,
+                    memory: Some(212 * MB + i * MB / 2 + (wave * 3.0 * MB as f64) as u64),
+                    cpu_percent: Some(if busy {
+                        38.0 + wave * 8.0
+                    } else {
+                        2.5 + wave.abs() * 2.0
+                    }),
+                    threads: Some(41),
+                    open_files: Some(57),
+                },
+                cores: 10,
+                frames: FrameStats {
+                    fps: if busy { 58.4 } else { 4.0 },
+                    avg_ms: Some(16.9),
+                    p95_ms: Some(if busy { 19.5 + wave * 3.0 } else { 17.2 }),
+                    max_ms: Some(31.0),
+                    idle: false,
+                },
+                games: vec![GameReading {
+                    instance: "a1".into(),
+                    name: "Survival".into(),
+                    process: ProcessReading {
+                        pid: 51302,
+                        memory: Some(2_340 * MB),
+                        cpu_percent: Some(142.0 + wave * 20.0),
+                        threads: Some(88),
+                        open_files: Some(310),
+                    },
+                }],
+                images: ImageTally {
+                    count: 23,
+                    bytes: 41 * MB,
+                },
+                content_cache: Some((48, 3 * MB)),
+                jobs: 1,
+                downloads: 1,
+                download_rate: Some(6.2 * MB as f64),
+                clients: Some(2),
+                trace: Some(TraceReading {
+                    subscribers: 1,
+                    events_per_sec: Some(12.5),
+                }),
+            }
+        })
+        .collect()
 }

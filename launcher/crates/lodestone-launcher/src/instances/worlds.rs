@@ -161,6 +161,13 @@ impl file_dialog::ShowsError for WorldsView {
 }
 
 impl WorldsView {
+    /// Adds the decoded world icons, for the performance monitor.
+    pub fn tally_images(&self, tally: &mut crate::perf::ImageTally) {
+        for image in self.icons.values() {
+            tally.add(image);
+        }
+    }
+
     pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
         let observe = vec![cx.observe(&instances, |this, _, cx| this.sync(cx))];
         let mut this = Self {

@@ -84,6 +84,13 @@ pub struct Accounts {
 }
 
 impl Accounts {
+    /// Adds the decoded skin heads, for the performance monitor.
+    pub fn tally_images(&self, tally: &mut crate::perf::ImageTally) {
+        for image in self.avatars.values() {
+            tally.add(image);
+        }
+    }
+
     /// Opens the account list in `data_dir` and refreshes the active account.
     pub fn new(
         data_dir: DataDir,

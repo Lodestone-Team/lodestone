@@ -1,18 +1,24 @@
-//! Settings > Developer: "Sign in as the Minecraft Launcher", and the dialogs that
-//! explain it before it is turned on and offer to sign accounts out when it is
-//! turned off.
+//! Settings > Developer: what the command line may do (the control socket, its
+//! access, traces and game logs) and which programs are connected; "Sign in as the
+//! Minecraft Launcher", and the dialogs that explain it before it is turned on and
+//! offer to sign accounts out when it is turned off.
 
 use super::{LauncherShell, Modal};
 use crate::theme::px;
 use crate::{
     components::{
-        Button, ButtonVariant, Dialog, Toggle,
-        settings::{SettingRow, card},
+        Button, ButtonSize, ButtonVariant, Dialog, Toggle, segmented,
+        settings::{SettingRow, card, section},
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
-    theme::{self, leading, text, weights},
+    theme::{self, colors, leading, text, weights},
 };
-use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
+use gpui::{
+    AnyElement, ClipboardItem, Context, FocusHandle, IntoElement, SharedString, Window, div,
+    prelude::*,
+};
+#[cfg(unix)]
+use launcher_core::settings::{CliAccess, CliSettings};
 
 /// The disclosure shown before the option is turned on, as (heading, paragraph).
 pub fn disclosure() -> Vec<(&'static str, SharedString)> {
@@ -45,20 +51,229 @@ fn paragraph(text: impl Into<SharedString>) -> impl IntoElement {
         .child(text.into())
 }
 
-/// Settings > Developer.
+/// Settings > Developer: the command line's settings and connected programs, then
+/// "Sign in as the Minecraft Launcher".
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let enabled = shell.accounts.read(cx).launcher_identity_enabled();
-    card([SettingRow::new(t(M::SignInAsLauncher))
+    let sign_in = card([SettingRow::new(t(M::SignInAsLauncher))
         .hint(t(M::SignInAsLauncherHint))
         .child(
             Toggle::new("launcher-identity", enabled).on_change(cx.listener(
                 |this, value: &bool, window, cx| this.request_launcher_identity(*value, window, cx),
             )),
         )
-        .into_any_element()])
+        .into_any_element()]);
+    div()
+        .flex()
+        .flex_col()
+        .gap_8()
+        .w_full()
+        .child(
+            section(t(M::CommandLineSection), Some(t(M::CommandLineLead).into()))
+                .child(command_line(shell, cx)),
+        )
+        .children(clients(cx))
+        .child(
+            section(t(M::DiagnosticsSection), None).child(card([SettingRow::new(t(
+                M::PerfMonitor,
+            ))
+            .hint(t(M::PerfMonitorHint))
+            .child(
+                Button::new("open-perf-monitor", t(M::PerfOpen))
+                    .size(ButtonSize::Slim)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let sources = this.perf_sources();
+                        super::perf_monitor::open(sources, cx);
+                    })),
+            )
+            .into_any_element()])),
+        )
+        .child(section(t(M::SignInSection), None).child(sign_in))
+}
+
+/// Settings > Developer > Command line.
+#[cfg(unix)]
+fn command_line(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> AnyElement {
+    let cli = shell.instances.read(cx).cli_settings();
+    let status = crate::control::status(cx).map(|status| status.read(cx).clone());
+    let socket = status
+        .as_ref()
+        .map(|status| status.socket.clone())
+        .unwrap_or_else(|| {
+            launcher_control::paths::socket_path(shell.accounts.read(cx).data_dir().root())
+        });
+    let note = status.as_ref().and_then(|status| {
+        status.error.as_ref().map(|error| {
+            (
+                SharedString::from(tr!(M::SocketError, error = error)),
+                colors::RED_200,
+            )
+        })
+    });
+    let set = |change: fn(&mut CliSettings, bool)| {
+        cx.listener(move |this, value: &bool, _, cx| {
+            let mut cli = this.instances.read(cx).cli_settings();
+            change(&mut cli, *value);
+            this.instances
+                .update(cx, |instances, cx| instances.set_cli_settings(cli, cx));
+        })
+    };
+    let root = shell.accounts.read(cx).data_dir().root().to_path_buf();
+    let path_text: SharedString = socket.display().to_string().into();
+    let socket_hint: SharedString = if cli.enabled {
+        path_text.clone()
+    } else {
+        format!("{} · {}", t(M::SocketClosed), path_text).into()
+    };
+    card([
+        SettingRow::new(t(M::AllowCli))
+            .hint(t(M::AllowCliHint))
+            .note_opt(note)
+            .child(
+                Toggle::new("cli-enabled", cli.enabled).on_change(set(|cli, on| cli.enabled = on)),
+            )
+            .into_any_element(),
+        SettingRow::new(t(M::CliAccess))
+            .hint(t(M::CliAccessHint))
+            .child(segmented(
+                "cli-access",
+                vec![
+                    (CliAccess::Full, t(M::CliFullControl).into()),
+                    (CliAccess::ReadOnly, t(M::CliReadOnly).into()),
+                ],
+                Some(&cli.access),
+                !cli.enabled,
+                {
+                    let instances = shell.instances.clone();
+                    move |access, _, cx| {
+                        instances.update(cx, |instances, cx| {
+                            let mut cli = instances.cli_settings();
+                            cli.access = access;
+                            instances.set_cli_settings(cli, cx);
+                        });
+                    }
+                },
+            ))
+            .into_any_element(),
+        SettingRow::new(t(M::DebugTraces))
+            .hint(t(M::DebugTracesHint))
+            .child(Toggle::new("cli-traces", cli.traces).on_change(set(|cli, on| cli.traces = on)))
+            .into_any_element(),
+        SettingRow::new(t(M::CliGameLogs))
+            .hint(t(M::CliGameLogsHint))
+            .child(
+                Toggle::new("cli-game-logs", cli.game_logs)
+                    .on_change(set(|cli, on| cli.game_logs = on)),
+            )
+            .into_any_element(),
+        SettingRow::new(t(M::SocketPath))
+            .hint(socket_hint)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap_2()
+                    .child(
+                        Button::new("cli-copy-socket", t(M::CopyPath))
+                            .size(ButtonSize::Slim)
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                    path_text.to_string(),
+                                ))
+                            }),
+                    )
+                    .child(
+                        Button::new("cli-open-data", t(M::OpenDataFolder))
+                            .size(ButtonSize::Slim)
+                            .on_click(move |_, _, cx| cx.open_with_system(&root)),
+                    ),
+            )
+            .into_any_element(),
+    ])
+    .into_any_element()
+}
+
+#[cfg(not(unix))]
+fn command_line(_: &LauncherShell, _: &mut Context<LauncherShell>) -> AnyElement {
+    card([SettingRow::new(t(M::CliUnavailable)).into_any_element()]).into_any_element()
+}
+
+/// Settings > Developer > Connected programs, while the socket is open.
+#[cfg(unix)]
+fn clients(cx: &mut Context<LauncherShell>) -> Option<AnyElement> {
+    let status = crate::control::status(cx)?.read(cx).clone();
+    if !status.running {
+        return None;
+    }
+    let today = chrono::Local::now().date_naive();
+    let rows: Vec<AnyElement> = if status.clients.is_empty() {
+        vec![SettingRow::new(t(M::NoClients)).into_any_element()]
+    } else {
+        status
+            .clients
+            .iter()
+            .map(|client| {
+                let name: SharedString = client
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| t(M::UnnamedClient).to_string())
+                    .into();
+                let mut facts = Vec::new();
+                if let Some(pid) = client.pid {
+                    facts.push(tr!(M::ClientPid, pid = pid));
+                }
+                facts.push(tr!(
+                    M::ClientSince,
+                    time = format::day_and_time(chrono::DateTime::from(client.since), today)
+                ));
+                if client.subscriptions > 0 {
+                    facts.push(trn!(P::Subscriptions, client.subscriptions));
+                }
+                let connection = client.connection;
+                SettingRow::new(name)
+                    .hint(facts.join(" · "))
+                    .child(
+                        Button::new(
+                            SharedString::from(format!("cli-disconnect-{connection}")),
+                            t(M::Disconnect),
+                        )
+                        .size(ButtonSize::Slim)
+                        .variant(ButtonVariant::Danger)
+                        .on_click(move |_, _, cx| crate::control::disconnect(connection, cx)),
+                    )
+                    .into_any_element()
+            })
+            .collect()
+    };
+    Some(
+        section(t(M::ConnectedClients), None)
+            .child(card(rows))
+            .into_any_element(),
+    )
+}
+
+#[cfg(not(unix))]
+fn clients(_: &mut Context<LauncherShell>) -> Option<AnyElement> {
+    None
 }
 
 impl LauncherShell {
+    /// Settings > Developer is on screen.
+    pub fn shows_developer_settings(&self) -> bool {
+        self.settings_modal.current().is_some()
+            && self.settings_page == super::SettingsPage::Developer
+    }
+
+    /// What the performance monitor reads.
+    pub fn perf_sources(&self) -> crate::perf::Sources {
+        crate::perf::Sources {
+            instances: self.instances.clone(),
+            accounts: self.accounts.clone(),
+            content: Some(self.content.clone()),
+            worlds: Some(self.worlds.clone()),
+        }
+    }
+
     /// Turning the option on asks first; turning it off asks what to do with the
     /// accounts that used it, if there are any.
     fn request_launcher_identity(

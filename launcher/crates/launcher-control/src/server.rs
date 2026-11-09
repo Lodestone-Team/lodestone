@@ -6,6 +6,7 @@
 //! work with the app's entities and answers through the connection's [`Outbox`].
 
 use std::{
+    collections::HashMap,
     fs,
     io::{self, BufRead, BufReader, Read, Write},
     os::unix::{
@@ -14,7 +15,7 @@ use std::{
     },
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc,
     },
@@ -40,9 +41,15 @@ pub trait Backend: Send + Sync + 'static {
     /// A request from `connection`. Answer it, now or later, through `outbox`.
     fn request(&self, connection: u64, request: Request, outbox: Outbox);
 
+    /// A client opened `connection` (it passed the peer check).
+    fn connected(&self, _connection: u64) {}
+
     /// The client closed `connection`: end its subscriptions.
     fn disconnected(&self, _connection: u64) {}
 }
+
+/// The open connections' streams, so the server can close them.
+type Streams = Arc<Mutex<HashMap<u64, UnixStream>>>;
 
 /// Why the socket couldn't be created.
 #[derive(Debug)]
@@ -149,13 +156,16 @@ impl Server {
         let stop = Arc::new(AtomicBool::new(false));
         let path = self.path.clone();
         let thread_stop = stop.clone();
+        let streams = Streams::default();
+        let thread_streams = streams.clone();
         thread::Builder::new()
             .name("control-accept".into())
-            .spawn(move || accept_loop(self, backend, thread_stop))?;
+            .spawn(move || accept_loop(self, backend, thread_stop, thread_streams))?;
         Ok(ServerHandle {
             path,
             stop,
             stopped: false,
+            streams,
         })
     }
 }
@@ -201,6 +211,7 @@ pub struct ServerHandle {
     path: PathBuf,
     stop: Arc<AtomicBool>,
     stopped: bool,
+    streams: Streams,
 }
 
 impl ServerHandle {
@@ -217,7 +228,34 @@ impl ServerHandle {
         // wake the accept loop so it sees the flag
         let _ = UnixStream::connect(&self.path);
         let _ = fs::remove_file(&self.path);
+        let streams = std::mem::take(&mut *lock(&self.streams));
+        for stream in streams.values() {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
     }
+
+    /// Closes `connection`. Its client sees the socket close; the backend hears
+    /// `disconnected`. False when no such connection is open.
+    pub fn disconnect(&self, connection: u64) -> bool {
+        match lock(&self.streams).remove(&connection) {
+            Some(stream) => {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// How many connections are open.
+    pub fn connections(&self) -> usize {
+        lock(&self.streams).len()
+    }
+}
+
+fn lock(streams: &Streams) -> std::sync::MutexGuard<'_, HashMap<u64, UnixStream>> {
+    streams
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 impl Drop for ServerHandle {
@@ -226,7 +264,7 @@ impl Drop for ServerHandle {
     }
 }
 
-fn accept_loop(server: Server, backend: Arc<dyn Backend>, stop: Arc<AtomicBool>) {
+fn accept_loop(server: Server, backend: Arc<dyn Backend>, stop: Arc<AtomicBool>, streams: Streams) {
     let connections = Arc::new(AtomicUsize::new(0));
     let refusing = Arc::new(AtomicUsize::new(0));
     let next_id = AtomicU64::new(1);
@@ -283,18 +321,32 @@ fn accept_loop(server: Server, backend: Arc<dyn Backend>, stop: Arc<AtomicBool>)
             );
             continue;
         }
+        let Ok(held) = stream.try_clone() else {
+            continue;
+        };
         connections.fetch_add(1, Ordering::SeqCst);
         let id = next_id.fetch_add(1, Ordering::SeqCst);
+        lock(&streams).insert(id, held);
+        if stop.load(Ordering::SeqCst) {
+            // shut down while this one was being let in
+            lock(&streams).remove(&id);
+            break;
+        }
         let backend = backend.clone();
-        let connections = connections.clone();
+        let open = connections.clone();
+        let thread_streams = streams.clone();
         let spawned = thread::Builder::new()
             .name(format!("control-conn-{id}"))
             .spawn(move || {
+                backend.connected(id);
                 serve_connection(id, stream, &*backend);
-                connections.fetch_sub(1, Ordering::SeqCst);
+                lock(&thread_streams).remove(&id);
+                open.fetch_sub(1, Ordering::SeqCst);
             });
         if spawned.is_err() {
             // the closure (and its counter) was dropped without running
+            lock(&streams).remove(&id);
+            connections.fetch_sub(1, Ordering::SeqCst);
             continue;
         }
     }

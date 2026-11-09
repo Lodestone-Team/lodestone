@@ -193,6 +193,19 @@ pub fn look(cx: &App) -> Arc<Look> {
         .unwrap_or_else(|| Arc::new(Look::default_look()))
 }
 
+/// Adds the skin's prepared images, for the performance monitor.
+pub fn tally_images(tally: &mut crate::perf::ImageTally, cx: &App) {
+    let look = look(cx);
+    for painted in look.surfaces.values() {
+        if let Some(Paint::Image(image)) = &painted.paint {
+            tally.add(image);
+        }
+    }
+    if let Some(hero) = &look.hero {
+        tally.add(&hero.image);
+    }
+}
+
 /// Whether the skin's images are still being prepared (the screenshots wait).
 pub fn decoding(cx: &App) -> bool {
     cx.try_global::<SkinState>()

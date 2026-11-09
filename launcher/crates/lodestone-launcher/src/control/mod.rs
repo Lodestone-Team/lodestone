@@ -25,6 +25,7 @@ mod events;
 mod import;
 mod instances;
 mod jobs;
+mod perf;
 mod servers;
 mod settings;
 mod skins;
@@ -35,20 +36,27 @@ mod worlds;
 
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::PathBuf,
     rc::Rc,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 use futures::StreamExt as _;
-use gpui::{App, AsyncApp, Entity, Subscription, Task};
+use gpui::{App, AppContext as _, AsyncApp, Entity, Subscription, Task};
 use launcher_control::{
     ErrorObject, PROTOCOL_VERSION, Request, codes, paths,
     server::{Backend, Outbox, Server, ServerHandle},
 };
-use launcher_core::{cores::CoreError, instances::Instance};
+use launcher_core::{
+    cores::CoreError,
+    instances::Instance,
+    settings::{CliAccess, CliSettings},
+};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
@@ -151,6 +159,11 @@ pub const METHODS: &[Method] = &[
         "meta.status",
         "The whole launcher at a glance: instances, runs, jobs, accounts, cores.",
         meta_status,
+    ),
+    method(
+        "meta.hello",
+        "Says which program is connected (client, pid), for the launcher's Settings > Developer list. Answers with the access level.",
+        meta_hello,
     ),
     // instances
     method(
@@ -687,6 +700,17 @@ pub const METHODS: &[Method] = &[
         "What the window shows now (page, tab, instance, dialog, size, zoom), games and running jobs.",
         trace::snapshot,
     ),
+    // perf
+    method(
+        "perf.show",
+        "The launcher's memory, CPU, threads and open files, frame rate and frame times, a running game's memory and CPU, decoded images, the content cache, jobs, downloads, CLI clients and the trace bus. Takes a second.",
+        perf::show,
+    ),
+    method(
+        "perf.watch",
+        "The same as perf.show every second, as perf events. End it with events.unsubscribe.",
+        perf::watch,
+    ),
 ];
 
 /// A request being handled.
@@ -754,6 +778,8 @@ pub struct Control {
     /// Trace subscriptions by connection: (number, the bus's id).
     trace_subscriptions: RefCell<HashMap<u64, Vec<(u64, u64)>>>,
     next_subscription: RefCell<u64>,
+    /// Who is connected, by connection.
+    clients: RefCell<BTreeMap<u64, ClientInfo>>,
     socket: PathBuf,
     started: Instant,
     _subscriptions: Vec<Subscription>,
@@ -796,6 +822,7 @@ impl Control {
                 subscriptions: RefCell::new(HashMap::new()),
                 trace_subscriptions: RefCell::new(HashMap::new()),
                 next_subscription: RefCell::new(1),
+                clients: RefCell::new(BTreeMap::new()),
                 socket,
                 started: Instant::now(),
                 _subscriptions: vec![on_instances, on_servers],
@@ -818,6 +845,11 @@ impl Control {
             );
             return;
         };
+        let cli = self.instances.read(cx).settings().cli;
+        if let Some(refused) = refusal(method.name, &cli) {
+            outbox.respond(id, Err(refused));
+            return;
+        }
         let call = Call {
             control: self.clone(),
             id: id.clone(),
@@ -834,6 +866,7 @@ impl Control {
     }
 
     fn closed(&self, connection: u64) {
+        self.clients.borrow_mut().remove(&connection);
         self.subscriptions.borrow_mut().remove(&connection);
         for (_, id) in self
             .trace_subscriptions
@@ -843,6 +876,21 @@ impl Control {
         {
             launcher_core::trace::bus().unsubscribe(id);
         }
+    }
+
+    /// The connected clients, with their subscriptions counted.
+    fn client_list(&self) -> Vec<ClientInfo> {
+        let events = self.subscriptions.borrow();
+        let traces = self.trace_subscriptions.borrow();
+        self.clients
+            .borrow()
+            .values()
+            .map(|client| ClientInfo {
+                subscriptions: events.get(&client.connection).map_or(0, |s| s.len())
+                    + traces.get(&client.connection).map_or(0, |s| s.len()),
+                ..client.clone()
+            })
+            .collect()
     }
 
     pub(crate) fn insert_trace_subscription(&self, connection: u64, number: u64, id: u64) {
@@ -974,8 +1022,10 @@ pub async fn poll_until<T>(
     }
 }
 
-fn meta_ping(call: Call, _: &mut App) -> Reply {
+fn meta_ping(call: Call, cx: &mut App) -> Reply {
+    let cli = call.control.instances.read(cx).settings().cli;
     ready(Ok(json!({
+        "access": access_json(&cli),
         "app": crate::APP_NAME,
         "version": env!("CARGO_PKG_VERSION"),
         "protocol": PROTOCOL_VERSION,
@@ -989,7 +1039,12 @@ fn meta_methods(_: Call, _: &mut App) -> Reply {
     ready(Ok(json!({
         "methods": METHODS
             .iter()
-            .map(|m| json!({ "name": m.name, "summary": m.summary, "destructive": m.destructive }))
+            .map(|m| json!({
+                "name": m.name,
+                "summary": m.summary,
+                "destructive": m.destructive,
+                "read_only": reads_only(m.name),
+            }))
             .collect::<Vec<_>>(),
         "error_codes": codes::ALL
             .iter()
@@ -1004,7 +1059,9 @@ fn meta_status(call: Call, cx: &mut App) -> Reply {
     let accounts = accounts::summary(control, cx);
     let jobs = control.jobs.borrow().to_json(true);
     let cores = servers::cores_summary(control, cx);
+    let cli = control.instances.read(cx).settings().cli;
     ready(Ok(json!({
+        "access": access_json(&cli),
         "instances": instances,
         "accounts": accounts,
         "jobs": jobs,
@@ -1015,9 +1072,19 @@ fn meta_status(call: Call, cx: &mut App) -> Reply {
 /// Hands each request to the main thread.
 struct Forward {
     tx: futures::channel::mpsc::UnboundedSender<Incoming>,
+    /// Which time the socket was opened: its connection numbers start at 1 again, so
+    /// the main thread keys connections by both.
+    generation: u64,
+}
+
+impl Forward {
+    fn key(&self, connection: u64) -> u64 {
+        (self.generation << 32) | (connection & 0xffff_ffff)
+    }
 }
 
 enum Incoming {
+    Connected(u64),
     Request {
         connection: u64,
         request: Box<Request>,
@@ -1027,10 +1094,16 @@ enum Incoming {
 }
 
 impl Backend for Forward {
+    fn connected(&self, connection: u64) {
+        let _ = self
+            .tx
+            .unbounded_send(Incoming::Connected(self.key(connection)));
+    }
+
     fn request(&self, connection: u64, request: Request, outbox: Outbox) {
         let id = request.id.clone();
         let sent = self.tx.unbounded_send(Incoming::Request {
-            connection,
+            connection: self.key(connection),
             request: Box::new(request),
             outbox: outbox.clone(),
         });
@@ -1043,46 +1116,79 @@ impl Backend for Forward {
     }
 
     fn disconnected(&self, connection: u64) {
-        let _ = self.tx.unbounded_send(Incoming::Closed(connection));
+        let _ = self
+            .tx
+            .unbounded_send(Incoming::Closed(self.key(connection)));
     }
 }
 
-/// Serves the control socket for the app's entities. Without a socket (another
-/// launcher already serves this data directory, or the folder can't be used) the app
-/// runs as before, and says so on stderr.
-pub fn start(shell: &LauncherShell, cx: &mut App) {
+/// A program connected to the socket, for Settings > Developer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClientInfo {
+    pub connection: u64,
+    /// What it said it is in `meta.hello`, such as "lodestone-launcher-cli 0.4.0".
+    pub name: Option<String>,
+    pub pid: Option<u32>,
+    pub since: std::time::SystemTime,
+    /// Event and trace subscriptions open on it.
+    pub subscriptions: usize,
+}
+
+/// The socket's state, for Settings > Developer. Notified when it opens or closes, and
+/// when a client comes, goes, says hello or subscribes.
+#[derive(Clone, Debug, Default)]
+pub struct ControlStatus {
+    pub socket: PathBuf,
+    pub running: bool,
+    /// Why it couldn't open, when it is meant to be open.
+    pub error: Option<String>,
+    pub clients: Vec<ClientInfo>,
+}
+
+/// The control socket, kept in step with Settings > Developer > Command line.
+struct Service {
+    control: Rc<Control>,
+    tx: futures::channel::mpsc::UnboundedSender<Incoming>,
+    handle: Option<ServerHandle>,
+    generation: u64,
+    status: Entity<ControlStatus>,
+    _incoming: Task<()>,
+}
+
+impl gpui::Global for Service {}
+
+/// Game output may go to clients: `play.logs`, `log` events and `game.log` traces.
+static GAME_LOGS: AtomicBool = AtomicBool::new(true);
+
+pub(crate) fn game_logs_allowed() -> bool {
+    GAME_LOGS.load(Ordering::Relaxed)
+}
+
+/// Serves the control socket for the app's entities, when Settings > Developer
+/// allows it. Without a socket (another launcher already serves this data
+/// directory, or the folder can't be used) the app runs as before, and the
+/// Developer page says why.
+pub fn start(shell: &LauncherShell, cx: &mut gpui::Context<LauncherShell>) {
+    start_service(shell, cx);
+    // the Developer page shows the socket and its clients
+    if let Some(status) = status(cx) {
+        // only while it is on screen: a client coming or going redraws nothing else
+        cx.observe(&status, |shell, _, cx| {
+            if shell.shows_developer_settings() {
+                cx.notify();
+            }
+        })
+        .detach();
+    }
+}
+
+fn start_service(shell: &LauncherShell, cx: &mut App) {
     let accounts = shell.accounts();
     let instances = shell.instances();
     let servers = shell.servers();
     let root = accounts.read(cx).data_dir().root().to_path_buf();
     let path = paths::socket_path(&root);
-    let server = match Server::bind(&path) {
-        Ok(server) => server,
-        Err(err) => {
-            eprintln!(
-                "lodestone-launcher: no control socket, so lodestone-launcher-cli can't reach this launcher: {err}"
-            );
-            return;
-        }
-    };
     let (tx, mut rx) = futures::channel::mpsc::unbounded::<Incoming>();
-    let handle: ServerHandle = match server.spawn(Arc::new(Forward { tx })) {
-        Ok(handle) => handle,
-        Err(err) => {
-            eprintln!("lodestone-launcher: couldn't serve the control socket: {err}");
-            return;
-        }
-    };
-    let handle = Rc::new(RefCell::new(Some(handle)));
-    cx.on_app_quit({
-        let handle = handle.clone();
-        move |_| {
-            // removes the socket file
-            handle.borrow_mut().take();
-            async {}
-        }
-    })
-    .detach();
     let control = Control::new(
         accounts.clone(),
         instances.clone(),
@@ -1091,26 +1197,355 @@ pub fn start(shell: &LauncherShell, cx: &mut App) {
             content: Some(shell.content().clone()),
             worlds: Some(shell.worlds().clone()),
         },
-        path,
+        path.clone(),
         cx,
     );
-    cx.spawn(async move |cx| {
-        let _handle = handle;
-        while let Some(incoming) = rx.next().await {
-            match incoming {
-                Incoming::Request {
-                    connection,
-                    request,
-                    outbox,
-                } => {
-                    let control = control.clone();
-                    cx.update(|cx| control.handle(connection, *request, outbox, cx));
-                }
-                Incoming::Closed(connection) => control.closed(connection),
+    let status = cx.new(|_| ControlStatus {
+        socket: path,
+        ..ControlStatus::default()
+    });
+    let incoming = cx.spawn({
+        let control = control.clone();
+        async move |cx| {
+            while let Some(incoming) = rx.next().await {
+                let control = control.clone();
+                cx.update(|cx| match incoming {
+                    Incoming::Connected(connection) => {
+                        control.clients.borrow_mut().insert(
+                            connection,
+                            ClientInfo {
+                                connection,
+                                name: None,
+                                pid: None,
+                                since: std::time::SystemTime::now(),
+                                subscriptions: 0,
+                            },
+                        );
+                        refresh_status(cx);
+                    }
+                    Incoming::Request {
+                        connection,
+                        request,
+                        outbox,
+                    } => {
+                        let changes_clients = CHANGES_CLIENTS.contains(&request.method.as_str());
+                        control.handle(connection, *request, outbox, cx);
+                        if changes_clients {
+                            refresh_status(cx);
+                        }
+                    }
+                    Incoming::Closed(connection) => {
+                        control.closed(connection);
+                        refresh_status(cx);
+                    }
+                });
             }
         }
+    });
+    cx.set_global(Service {
+        control,
+        tx,
+        handle: None,
+        generation: 0,
+        status,
+        _incoming: incoming,
+    });
+    cx.on_app_quit(|cx| {
+        // removes the socket file
+        if cx.has_global::<Service>() {
+            cx.global_mut::<Service>().handle.take();
+        }
+        async {}
     })
     .detach();
+    apply(cx);
+}
+
+/// Methods after which the Developer page's list of clients may change.
+const CHANGES_CLIENTS: &[&str] = &[
+    "meta.hello",
+    "events.subscribe",
+    "events.unsubscribe",
+    "trace.subscribe",
+    "trace.unsubscribe",
+    "perf.watch",
+];
+
+/// Opens or closes the socket, and turns traces and game logs on or off, as the
+/// settings say now. Closing it drops every client.
+pub fn apply(cx: &mut App) {
+    if !cx.has_global::<Service>() {
+        return;
+    }
+    let cli = cx
+        .global::<Service>()
+        .control
+        .instances
+        .read(cx)
+        .settings()
+        .cli;
+    let bus = launcher_core::trace::bus();
+    if bus.is_enabled() != cli.traces {
+        bus.set_enabled(cli.traces);
+        if !cli.traces {
+            // the bus ended them
+            cx.global::<Service>()
+                .control
+                .trace_subscriptions
+                .borrow_mut()
+                .clear();
+        }
+    }
+    GAME_LOGS.store(cli.game_logs, Ordering::Relaxed);
+    let service = cx.global_mut::<Service>();
+    let mut error = None;
+    match (cli.enabled, service.handle.is_some()) {
+        (true, false) => {
+            service.generation += 1;
+            let forward = Forward {
+                tx: service.tx.clone(),
+                generation: service.generation,
+            };
+            let socket = service.control.socket.clone();
+            let served = Server::bind(&socket)
+                .map_err(|err| err.to_string())
+                .and_then(|server| {
+                    server
+                        .spawn(Arc::new(forward))
+                        .map_err(|err| err.to_string())
+                });
+            match served {
+                Ok(handle) => service.handle = Some(handle),
+                Err(err) => {
+                    eprintln!(
+                        "lodestone-launcher: no control socket, so lodestone-launcher-cli can't reach this launcher: {err}"
+                    );
+                    error = Some(err);
+                }
+            }
+        }
+        (false, true) => {
+            // closes every connection and removes the socket file; each client's
+            // `Closed` ends its subscriptions
+            service.handle.take();
+        }
+        _ => {}
+    }
+    let running = service.handle.is_some();
+    let status = service.status.clone();
+    status.update(cx, |status, cx| {
+        status.running = running;
+        if running || !cli.enabled {
+            status.error = None;
+        } else if error.is_some() {
+            status.error = error;
+        }
+        cx.notify();
+    });
+    refresh_status(cx);
+}
+
+/// Copies the clients into the status, and redraws who shows it.
+fn refresh_status(cx: &mut App) {
+    let Some(service) = cx.try_global::<Service>() else {
+        return;
+    };
+    let clients = service.control.client_list();
+    let status = service.status.clone();
+    status.update(cx, |status, cx| {
+        if status.clients != clients {
+            status.clients = clients;
+            cx.notify();
+        }
+    });
+}
+
+/// The socket's state, to show and observe; `None` before [`start`].
+pub fn status(cx: &App) -> Option<Entity<ControlStatus>> {
+    cx.try_global::<Service>()
+        .map(|service| service.status.clone())
+        .or_else(|| {
+            cx.try_global::<PreviewStatus>()
+                .map(|preview| preview.0.clone())
+        })
+}
+
+/// A made-up socket state for the offscreen screenshots, which serve no socket.
+struct PreviewStatus(Entity<ControlStatus>);
+
+impl gpui::Global for PreviewStatus {}
+
+/// Shows `status` on the Developer page, for the offscreen screenshots.
+pub fn preview(status: ControlStatus, cx: &mut App) {
+    let status = cx.new(|_| status);
+    cx.set_global(PreviewStatus(status));
+}
+
+/// Control API jobs running, for the performance monitor.
+pub fn running_jobs(cx: &App) -> usize {
+    cx.try_global::<Service>().map_or(0, |service| {
+        service
+            .control
+            .jobs
+            .borrow()
+            .states()
+            .iter()
+            .filter(|(_, state)| *state == JobState::Running)
+            .count()
+    })
+}
+
+/// Programs connected to the socket; `None` while it is closed.
+pub fn client_count(cx: &App) -> Option<usize> {
+    let service = cx.try_global::<Service>()?;
+    service
+        .handle
+        .is_some()
+        .then(|| service.control.clients.borrow().len())
+}
+
+/// Closes one client's connection (the Developer page's Disconnect).
+pub fn disconnect(connection: u64, cx: &mut App) {
+    let Some(service) = cx.try_global::<Service>() else {
+        return;
+    };
+    if connection >> 32 == service.generation
+        && let Some(handle) = &service.handle
+    {
+        handle.disconnect(connection & 0xffff_ffff);
+    }
+}
+
+/// Why `method` is refused under `cli`, if it is: a method that changes something
+/// while access is read-only, a trace method while traces are off, or game output
+/// while game logs are off.
+pub fn refusal(method: &str, cli: &CliSettings) -> Option<ErrorObject> {
+    if method.starts_with("trace.") && !cli.traces {
+        return Some(api_error(
+            codes::PERMISSION_DENIED,
+            "Debug traces are off in Settings → Developer.",
+        ));
+    }
+    if GAME_LOG_METHODS.contains(&method) && !cli.game_logs {
+        return Some(api_error(
+            codes::PERMISSION_DENIED,
+            "Game logs over the command line are off in Settings → Developer.",
+        ));
+    }
+    if cli.access == CliAccess::ReadOnly && !reads_only(method) {
+        return Some(
+            api_error(
+                codes::PERMISSION_DENIED,
+                format!(
+                    "Read-only CLI access is on in Settings → Developer, and {method} changes things."
+                ),
+            )
+            .with_data(json!({ "access": "read_only", "method": method })),
+        );
+    }
+    None
+}
+
+/// Methods that send game output.
+const GAME_LOG_METHODS: &[&str] = &["play.logs"];
+
+/// Whether `method` only reads. Anything not listed here changes something, so a
+/// new method is refused under read-only access until it is listed.
+pub fn reads_only(method: &str) -> bool {
+    READ_METHODS.contains(&method)
+}
+
+/// The methods read-only access allows: they change nothing in the launcher, its
+/// data folder or elsewhere, and write no file.
+pub const READ_METHODS: &[&str] = &[
+    "meta.ping",
+    "meta.methods",
+    "meta.status",
+    "meta.hello",
+    "instances.list",
+    "instances.show",
+    "instances.versions",
+    "instances.loader_versions",
+    "instances.share_code",
+    "play.status",
+    "play.logs",
+    "settings.instance.get",
+    "settings.defaults.get",
+    "settings.general.get",
+    "settings.developer.get",
+    "skins.list",
+    "skins.check",
+    "storage.show",
+    "shared.get",
+    "shared.instance.get",
+    "content.list",
+    "content.search",
+    "content.versions",
+    "content.updates",
+    "modpacks.search",
+    "modpacks.check",
+    "snapshots.list",
+    "worlds.list",
+    "worlds.backups",
+    "accounts.list",
+    "import.detect",
+    "cores.list",
+    "servers.list",
+    "prompts.list",
+    "jobs.list",
+    "jobs.get",
+    "jobs.wait",
+    "events.subscribe",
+    "events.unsubscribe",
+    "trace.topics",
+    "trace.subscribe",
+    "trace.unsubscribe",
+    "trace.snapshot",
+    "perf.show",
+    "perf.watch",
+];
+
+/// The access settings as `meta.ping` and `meta.status` report them.
+fn access_json(cli: &CliSettings) -> Value {
+    json!({
+        "level": cli.access.as_str(),
+        "traces": cli.traces,
+        "game_logs": cli.game_logs,
+    })
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HelloParams {
+    /// Such as "lodestone-launcher-cli 0.4.0".
+    client: String,
+    #[serde(default)]
+    pid: Option<u32>,
+}
+
+/// A client says what it is, for the Developer page's list.
+fn meta_hello(call: Call, cx: &mut App) -> Reply {
+    let params: HelloParams = match call.params() {
+        Ok(params) => params,
+        Err(err) => return ready(Err(err)),
+    };
+    let name: String = params
+        .client
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(80)
+        .collect();
+    if let Some(client) = call.control.clients.borrow_mut().get_mut(&call.connection) {
+        client.name = Some(name);
+        client.pid = params.pid;
+    }
+    let cli = call.control.instances.read(cx).settings().cli;
+    ready(Ok(json!({
+        "app": crate::APP_NAME,
+        "version": env!("CARGO_PKG_VERSION"),
+        "protocol": PROTOCOL_VERSION,
+        "access": access_json(&cli),
+    })))
 }
 
 #[cfg(test)]
@@ -1183,6 +1618,175 @@ mod tests {
         ] {
             assert!(destructive.contains(&name), "{name} must need confirm");
         }
+    }
+
+    /// Every method that changes something, files written included. With
+    /// [`READ_METHODS`] it must name every method, once.
+    const WRITE_METHODS: &[&str] = &[
+        "instances.select",
+        "instances.create",
+        "instances.rename",
+        "instances.set_group",
+        "instances.set_prerelease_updates",
+        "instances.set_icon",
+        "instances.set_background",
+        "instances.duplicate",
+        "instances.delete",
+        "instances.export",
+        "instances.import_code",
+        "instances.verify",
+        "play.launch",
+        "play.stop",
+        "play.clear_logs",
+        "settings.instance.set",
+        "settings.instance.reset",
+        "settings.defaults.set",
+        "settings.defaults.reset",
+        "settings.general.set",
+        "settings.developer.set",
+        "skins.use",
+        "skins.import",
+        "skins.export",
+        "skins.fix",
+        "storage.clean",
+        "shared.set_value",
+        "shared.set_category",
+        "shared.sync_from",
+        "shared.copy_from",
+        "shared.clear",
+        "shared.instance.set",
+        "content.install",
+        "content.add_file",
+        "content.remove",
+        "content.enable",
+        "content.disable",
+        "content.update",
+        "content.switch_loader",
+        "modpacks.install",
+        "modpacks.update",
+        "snapshots.create",
+        "snapshots.revert",
+        "snapshots.export",
+        "snapshots.import",
+        "snapshots.delete",
+        "worlds.backup",
+        "worlds.restore",
+        "worlds.delete",
+        "worlds.delete_backup",
+        "worlds.download",
+        "accounts.switch",
+        "accounts.add_offline",
+        "accounts.remove",
+        "accounts.sign_in",
+        "import.run",
+        "cores.add",
+        "cores.remove",
+        "cores.trust",
+        "cores.untrust",
+        "cores.trust_certificate",
+        "cores.sign_out",
+        "servers.start",
+        "servers.stop",
+        "servers.join",
+        "servers.create_instance",
+        "servers.link",
+        "servers.unlink",
+        "servers.host",
+        "servers.resource_pack",
+        "prompts.answer",
+        "jobs.cancel",
+    ];
+
+    #[test]
+    fn every_method_is_classified_as_read_or_write() {
+        for method in METHODS {
+            let read = READ_METHODS.contains(&method.name);
+            let write = WRITE_METHODS.contains(&method.name);
+            assert!(
+                read != write,
+                "{} must be in exactly one of READ_METHODS and WRITE_METHODS",
+                method.name
+            );
+            assert_eq!(reads_only(method.name), read);
+        }
+        for name in READ_METHODS.iter().chain(WRITE_METHODS) {
+            assert!(
+                METHODS.iter().any(|m| m.name == *name),
+                "{name} is listed but no such method"
+            );
+        }
+        // nothing destructive is read-only
+        for method in METHODS.iter().filter(|m| m.destructive) {
+            assert!(!reads_only(method.name), "{}", method.name);
+        }
+        assert!(!reads_only("no.such_method"));
+    }
+
+    #[test]
+    fn read_only_access_refuses_every_write() {
+        let read_only = CliSettings {
+            access: CliAccess::ReadOnly,
+            ..CliSettings::default()
+        };
+        for method in METHODS {
+            let refused = refusal(method.name, &read_only);
+            if READ_METHODS.contains(&method.name) {
+                assert!(refused.is_none(), "{} was refused", method.name);
+            } else {
+                let error = refused.unwrap_or_else(|| panic!("{} was allowed", method.name));
+                assert_eq!(error.code, codes::PERMISSION_DENIED);
+                assert!(error.message.contains("Read-only"), "{}", error.message);
+            }
+        }
+        // full access refuses nothing
+        for method in METHODS {
+            assert!(refusal(method.name, &CliSettings::default()).is_none());
+        }
+    }
+
+    #[test]
+    fn traces_and_game_logs_can_be_refused() {
+        let off = CliSettings {
+            traces: false,
+            game_logs: false,
+            ..CliSettings::default()
+        };
+        for name in ["trace.topics", "trace.subscribe", "trace.snapshot"] {
+            assert_eq!(refusal(name, &off).unwrap().code, codes::PERMISSION_DENIED);
+        }
+        assert_eq!(
+            refusal("play.logs", &off).unwrap().code,
+            codes::PERMISSION_DENIED
+        );
+        assert!(refusal("play.status", &off).is_none());
+        assert!(refusal("meta.ping", &off).is_none());
+    }
+
+    #[test]
+    fn no_method_changes_the_command_line_settings() {
+        // they are changed in the window only: no method's parameters reach them
+        for method in METHODS {
+            assert!(
+                !method.name.contains("cli") && !method.name.contains("control"),
+                "{}",
+                method.name
+            );
+        }
+        // settings.developer.set takes only its own fields
+        for params in [
+            json!({ "sign_in_as_minecraft_launcher": false, "cli": { "access": "full" } }),
+            json!({ "sign_in_as_minecraft_launcher": false, "access": "full" }),
+            json!({ "sign_in_as_minecraft_launcher": false, "enabled": true }),
+            json!({ "sign_in_as_minecraft_launcher": false, "traces": true }),
+        ] {
+            assert!(
+                settings::developer_params(params.clone()).is_err(),
+                "{params} was taken"
+            );
+        }
+        assert!(
+            settings::developer_params(json!({ "sign_in_as_minecraft_launcher": true })).is_ok()
+        );
     }
 
     #[test]

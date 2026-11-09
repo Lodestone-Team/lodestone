@@ -15,6 +15,7 @@ pub mod i18n;
 pub mod images;
 pub mod instances;
 pub mod markdown;
+pub mod perf;
 #[cfg(feature = "screenshot")]
 pub mod preview;
 pub mod servers;
@@ -186,7 +187,8 @@ pub fn open_window<V: Render>(
     // the skin editor's scenes picture the editor's window instead
     #[cfg(feature = "screenshot")]
     if let Some(path) = screenshot::requested_path()
-        && !preview::requested_scene().is_some_and(|scene| scene.starts_with("skin-editor"))
+        && !preview::requested_scene()
+            .is_some_and(|scene| scene.starts_with("skin-editor") || scene == "perf-monitor")
     {
         screenshot::capture(window.into(), path, cx);
     }

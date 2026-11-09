@@ -27,6 +27,11 @@ pub struct Settings {
     /// Developer options, off by default. Left out of the file while untouched.
     #[serde(default, skip_serializing_if = "is_default")]
     pub developer: DeveloperSettings,
+    /// Settings > Developer > Command line: what the control socket allows. Changed
+    /// only in the launcher's window, never over the socket. Left out of the file
+    /// while untouched.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub cli: CliSettings,
     /// What every instance uses unless its own Settings tab overrides it. Left out
     /// of the file while untouched.
     #[serde(default, skip_serializing_if = "is_default")]
@@ -71,6 +76,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             developer: DeveloperSettings::default(),
+            cli: CliSettings::default(),
             instance_defaults: InstanceDefaults::default(),
             collapsed_groups: BTreeSet::new(),
             auto_groups: true,
@@ -143,6 +149,58 @@ pub struct DeveloperSettings {
     /// [`ClientIdentity::MinecraftLauncher`]: crate::auth::ClientIdentity::MinecraftLauncher
     #[serde(default)]
     pub sign_in_as_minecraft_launcher: bool,
+}
+
+/// Settings > Developer > Command line: what `lodestone-launcher-cli` and other
+/// local clients of the control socket may do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CliSettings {
+    /// "Allow command-line connections": the control socket is open. On by default.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub enabled: bool,
+    /// "Access": full control, or only methods that change nothing.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub access: CliAccess,
+    /// "Debug traces": the trace bus records events and `trace.*` answers. On by
+    /// default.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub traces: bool,
+    /// "Game logs": clients may read game output (`play.logs`, the `game.log`
+    /// trace topic). On by default.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub game_logs: bool,
+}
+
+impl Default for CliSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            access: CliAccess::Full,
+            traces: true,
+            game_logs: true,
+        }
+    }
+}
+
+/// How much a control-socket client may do.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CliAccess {
+    /// Every method.
+    #[default]
+    Full,
+    /// Only methods that read; the rest answer `permission_denied`.
+    ReadOnly,
+}
+
+impl CliAccess {
+    /// The name the socket reports: `full` or `read_only`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CliAccess::Full => "full",
+            CliAccess::ReadOnly => "read_only",
+        }
+    }
 }
 
 fn is_default<T: Default + PartialEq>(value: &T) -> bool {
@@ -266,6 +324,31 @@ mod tests {
                 "instance_defaults": {"max_ram": 3072, "later": true, "jvm_args": "", "game_args": "", "fullscreen": false},
             })
         );
+    }
+
+    #[test]
+    fn cli_settings_default_to_open_and_stay_out_of_the_file() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.cli, CliSettings::default());
+        assert!(defaults.cli.enabled && defaults.cli.traces && defaults.cli.game_logs);
+        assert_eq!(defaults.cli.access, CliAccess::Full);
+        let text = serde_json::to_string(&defaults).unwrap();
+        assert!(!text.contains("cli"), "{text}");
+
+        let mut changed = Settings::default();
+        changed.cli.access = CliAccess::ReadOnly;
+        changed.cli.traces = false;
+        let value = serde_json::to_value(&changed).unwrap();
+        assert_eq!(
+            value["cli"],
+            serde_json::json!({ "access": "read_only", "traces": false })
+        );
+        let back: Settings = serde_json::from_value(value).unwrap();
+        assert_eq!(back.cli, changed.cli);
+        let partial: Settings =
+            serde_json::from_str(r#"{"version": 1, "cli": {"enabled": false}}"#).unwrap();
+        assert!(!partial.cli.enabled);
+        assert!(partial.cli.traces && partial.cli.game_logs);
     }
 
     #[test]

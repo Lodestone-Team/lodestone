@@ -18,10 +18,16 @@ use serde_json::{Value, json};
 #[derive(Default)]
 struct Fake {
     requests: Mutex<Vec<Request>>,
+    hellos: Mutex<Vec<Value>>,
 }
 
 impl Backend for Fake {
     fn request(&self, _connection: u64, request: Request, outbox: Outbox) {
+        if request.method == "meta.hello" {
+            self.hellos.lock().unwrap().push(request.params.clone());
+            outbox.respond(request.id, Ok(json!({ "access": { "level": "full" } })));
+            return;
+        }
         self.requests.lock().unwrap().push(request.clone());
         let id = request.id.clone();
         let p = &request.params;
@@ -150,6 +156,12 @@ fn prints_json_when_piped() {
     let output = cli(&launcher.socket, &["--human", "instances", "list"], None);
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(text.contains("name: Survival"), "{text}");
+    // each run says which program it is
+    let hellos = launcher.fake.hellos.lock().unwrap();
+    assert_eq!(hellos.len(), 2);
+    let client = hellos[0]["client"].as_str().unwrap();
+    assert!(client.starts_with("lodestone-launcher-cli "), "{client}");
+    assert!(hellos[0]["pid"].as_u64().is_some());
 }
 
 #[test]

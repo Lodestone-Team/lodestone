@@ -5,6 +5,7 @@
 mod account_box;
 pub(crate) mod developer;
 mod launcher_settings;
+pub(crate) mod perf_monitor;
 mod play;
 mod settings_modal;
 mod shared_settings;

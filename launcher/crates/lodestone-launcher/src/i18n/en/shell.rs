@@ -289,6 +289,85 @@ crate::i18n::messages! {
         TurnOffLauncherAccounts = "{accounts} Kept accounts go on working until Microsoft blocks this. Signing out removes them from Lodestone Launcher and deletes their saved sign-ins from your {keychain}.",
         TurnOffAndSignOut = "Turn off and sign out",
         TurnOffOnly = "Turn off only",
+        /// Settings > Developer: the section of "Sign in as the Minecraft Launcher".
+        SignInSection = "Microsoft sign-in",
+        /// Settings > Developer: what lodestone-launcher-cli may do.
+        CommandLineSection = "Command line",
+        CommandLineLead = "lodestone-launcher-cli and other programs you run reach the launcher through a socket in its data folder. Only your user account can connect. These settings change only here, never from the command line.",
+        AllowCli = "Allow command-line connections",
+        AllowCliHint = "Off, the socket is closed and connected programs are dropped.",
+        /// What command-line programs may do.
+        CliAccess = "Access",
+        CliAccessHint = "Read only answers questions but refuses anything that changes instances, settings, accounts or files.",
+        CliFullControl = "Full control",
+        CliReadOnly = "Read only",
+        DebugTraces = "Debug traces",
+        DebugTracesHint = "Records what you click and what the launcher does, for lodestone-launcher-cli trace. Off, nothing is recorded.",
+        /// Whether command-line programs may read game output.
+        CliGameLogs = "Game logs",
+        CliGameLogsHint = "Programs may read the game’s console output.",
+        /// The control socket's file.
+        SocketPath = "Socket",
+        CopyPath = "Copy path",
+        OpenDataFolder = "Open data folder",
+        /// The socket row while connections are off.
+        SocketClosed = "Closed",
+        /// {error} says why.
+        SocketError = "The socket couldn’t open: {error}",
+        ConnectedClients = "Connected programs",
+        NoClients = "No programs are connected.",
+        /// A connected program that didn't say what it is.
+        UnnamedClient = "Unnamed program",
+        /// {time} is "Today, 14:30".
+        ClientSince = "Connected {time}",
+        /// {pid} is a process number.
+        ClientPid = "Process {pid}",
+        Disconnect = "Disconnect",
+        CliUnavailable = "Command-line control isn’t available on Windows yet.",
+        /// Settings > Developer: the section of the performance monitor.
+        DiagnosticsSection = "Diagnostics",
+        /// The performance monitor window, and its row in Settings > Developer.
+        PerfMonitor = "Performance monitor",
+        PerfMonitorHint = "A small window with the launcher’s memory, CPU and frame times, and a running game’s, updated every second.",
+        PerfOpen = "Open monitor",
+        /// The launcher's own process.
+        PerfLauncher = "Launcher",
+        PerfMemory = "Memory",
+        PerfCpu = "CPU",
+        /// {percent} is "12.5%", {cores} the number of cores.
+        PerfCpuValue = "{percent} of one core · {cores} cores",
+        PerfThreads = "Threads",
+        PerfOpenFiles = "Open files",
+        /// How the main window draws.
+        PerfRendering = "Rendering",
+        PerfFps = "Frames per second",
+        PerfFrameTime = "Frame time",
+        /// {avg}, {p95} and {max} are times such as "16.7 ms".
+        PerfFrameStats = "avg {avg} · p95 {p95} · max {max}",
+        PerfIdle = "Idle: nothing redrew in the last 2 seconds",
+        PerfGame = "Game",
+        PerfNoGame = "No game is running.",
+        PerfInternals = "Inside the launcher",
+        PerfImages = "Decoded images",
+        /// Modrinth answers kept in memory.
+        PerfContentCache = "Content cache",
+        /// Command-line jobs running.
+        PerfJobs = "Jobs",
+        PerfDownloads = "Downloads",
+        PerfCliClients = "CLI clients",
+        PerfTraceBus = "Trace bus",
+        /// {subscribers} is a number, {rate} "3.5".
+        PerfTraceValue = "{subscribers} listening · {rate} events/s",
+        /// {rate} is a size such as "2.1 MB".
+        PerfRate = "{rate}/s",
+        PerfSelfNote = "Sampled once a second while this window is open. It measures itself too: its own redraws add a little CPU.",
+        PerfCopy = "Copy snapshot",
+        PerfCopied = "Copied",
+        /// Under the small charts.
+        PerfLastMinute = "Last 60 s",
+        /// A number the system doesn't give.
+        PerfUnknown = "–",
+        PerfOff = "Off",
 
         // Signing in with Microsoft.
         SignInWithMicrosoft = "Sign in with Microsoft",
@@ -645,5 +724,8 @@ crate::i18n::messages! {
             "{count} account is signed in as the Minecraft Launcher: {names}.",
             "{count} accounts are signed in as the Minecraft Launcher: {names}."
         ),
+        /// Event and trace subscriptions a connected program has.
+        Subscriptions = ("{count} subscription", "{count} subscriptions"),
+        PerfEntries = ("{count} entry", "{count} entries"),
     }
 }

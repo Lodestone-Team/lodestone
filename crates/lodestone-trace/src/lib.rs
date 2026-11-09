@@ -20,7 +20,7 @@
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     time::{SystemTime, UNIX_EPOCH},
@@ -125,6 +125,8 @@ pub struct TraceBus {
     live_only: Filter,
     seq: AtomicU64,
     subscriber_count: AtomicUsize,
+    /// Off: nothing is recorded or sent, and [`Self::wants`] is false for every topic.
+    enabled: AtomicBool,
     inner: Mutex<Inner>,
 }
 
@@ -135,6 +137,7 @@ impl TraceBus {
             live_only: Filter::new(live_only.iter().copied()),
             seq: AtomicU64::new(0),
             subscriber_count: AtomicUsize::new(0),
+            enabled: AtomicBool::new(true),
             inner: Mutex::new(Inner {
                 backlog: VecDeque::new(),
                 subscribers: Vec::new(),
@@ -154,6 +157,9 @@ impl TraceBus {
     /// Whether an event on `topic` would go anywhere: the backlog, or a subscriber.
     /// Cheap when the topic is live-only and nobody listens.
     pub fn wants(&self, topic: &str) -> bool {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return false;
+        }
         if !self.live_only.matches(topic) || self.live_only.patterns.is_empty() {
             return true;
         }
@@ -239,6 +245,24 @@ impl TraceBus {
             self.subscriber_count.fetch_sub(gone, Ordering::Relaxed);
         }
         gone > 0
+    }
+
+    /// Turns recording on or off. Off clears the backlog and ends every subscription,
+    /// and emitting costs one atomic load.
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+        if !enabled {
+            let mut inner = self.lock();
+            inner.backlog.clear();
+            let gone = inner.subscribers.len();
+            inner.subscribers.clear();
+            self.subscriber_count.fetch_sub(gone, Ordering::Relaxed);
+        }
+    }
+
+    /// Whether events are recorded.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
     }
 
     /// How many subscriptions are open.
@@ -435,6 +459,31 @@ mod tests {
         }
         assert!(Filter::all().matches("anything.at.all"));
         assert!(Filter::new(["*"]).matches("nav.page"));
+    }
+
+    #[test]
+    fn a_disabled_bus_records_nothing() {
+        let bus = TraceBus::new(10, &["game.log"]);
+        bus.emit("ui.click", || json!({ "n": 1 }));
+        let (_id, rx) = collect(&bus, Filter::all(), 0);
+        bus.set_enabled(false);
+        assert!(!bus.is_enabled());
+        assert_eq!(bus.subscribers(), 0);
+        assert!(!bus.wants("ui.click"));
+        let mut made = false;
+        bus.emit("ui.click", || {
+            made = true;
+            json!({})
+        });
+        assert!(!made, "the event's data was made");
+        assert_eq!(bus.last_seq(), 1);
+        assert!(rx.try_recv().is_err());
+
+        bus.set_enabled(true);
+        let (_id, rx) = collect(&bus, Filter::all(), 10);
+        assert!(rx.try_recv().is_err(), "the backlog was kept");
+        bus.emit("ui.click", || json!({ "n": 2 }));
+        assert_eq!(rx.try_recv().unwrap().data, json!({ "n": 2 }));
     }
 
     #[test]
