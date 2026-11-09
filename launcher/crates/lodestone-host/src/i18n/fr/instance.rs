@@ -83,44 +83,6 @@ pub fn text(message: M) -> &'static str {
             "{name} ne démarre qu’après votre accord avec le CLUF de Minecraft. L’acceptez-vous ?"
         }
         M::EulaAcceptAndStart => "J’accepte, démarrer le serveur",
-        M::PlayitLoadFailed => "Impossible de charger l’état de playit.gg : {error}",
-        M::PlayitSignupFailed => "Impossible de générer un lien d’inscription : {error}",
-        M::PlayitVerifyFailed => "Impossible de vérifier le compte playit.gg : {error}",
-        M::PlayitStartFailed => "Impossible de démarrer l’agent playit.gg : {error}",
-        M::PlayitStopFailed => "Impossible d’arrêter l’agent playit.gg : {error}",
-        M::PlayitSetupTitle => "Configurer playit.gg",
-        M::PlayitSetupIntro => {
-            "Inscrivez-vous à playit.gg pour l’utiliser. Générez un lien d’inscription avec le bouton ci-dessous."
-        }
-        M::PlayitGenerateLink => "Générer un lien d’inscription",
-        M::PlayitFollowLink => {
-            "Ouvrez le lien et créez un compte. Quand vous voyez le tableau de bord de playit.gg, revenez et appuyez sur Vérifier."
-        }
-        M::PlayitOpenLink => "Ouvrir le lien d’inscription",
-        M::PlayitVerify => "Vérifier",
-        M::PlayitRunner => "Agent playit.gg",
-        M::PlayitRunnerLead => {
-            "Fait fonctionner vos tunnels sur cet ordinateur, pour que les joueurs rejoignent sans redirection de port."
-        }
-        M::PlayitStopped => "Arrêté",
-        M::PlayitLoading => "Démarrage",
-        M::PlayitStarted => "Démarré",
-        M::PlayitTrouble => {
-            "Un problème ? Vérifiez que le tunnel est configuré sur le site de playit.gg et que votre serveur est en marche."
-        }
-        M::PlayitSignupRequired => "Inscrivez-vous à playit.gg avant de l’utiliser.",
-        M::PlayitSignUp => "S’inscrire",
-        M::PlayitTunnels => "Tunnels",
-        M::PlayitTunnelsLead => "Créez d’autres tunnels et modifiez-les sur le site de playit.gg.",
-        M::PlayitWebsite => "Ouvrir playit.gg",
-        M::PlayitLocalServer => "Serveur local à l’adresse {address}",
-        M::PlayitCopyAddress => "Copier l’adresse",
-        M::PlayitCopied => "{address} copié",
-        M::PlayitActive => "Actif",
-        M::PlayitInactive => "Inactif",
-        M::PlayitNoTunnels => "Vous n’avez encore créé aucun tunnel",
-        M::PlayitNotSignedUp => "Vous n’êtes pas encore inscrit",
-        M::PlayitHelp => "Besoin d’aide ?",
         M::EventLogsLead => {
             "Ce qui est arrivé à ce serveur, du plus récent au plus ancien. Le core garde les événements récents."
         }

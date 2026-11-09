@@ -26,7 +26,7 @@ import {
   DISABLE_AUTOFILL,
   errorToString,
 } from 'utils/util';
-import { openPort, stopCli } from 'utils/apis';
+import { openPort } from 'utils/apis';
 import { DASHBOARD_VERSION } from 'utils/version';
 import InputField from 'components/Atoms/Form/InputField';
 import { useDocumentTitle } from 'usehooks-ts';
@@ -256,28 +256,6 @@ export const CoreSettings = () => {
         }
       }}
       optimistic={false}
-    />
-  );
-
-  const enablePlayitField = (
-    <ToggleBox
-      label={t('settings.core.playit.label')}
-      value={globalSettings?.playit_enabled ?? false}
-      isLoading={isLoading}
-      error={errorString}
-      disabled={!can_change_core_settings}
-      canRead={userInfo !== undefined}
-      description={t('settings.core.playit.hint')}
-      onChange={async (value) => {
-        await axiosPutSingleValue('/global_settings/playit_enabled', value);
-        queryClient.setQueryData(['global_settings'], {
-          ...globalSettings,
-          playit_enabled: value,
-        });
-        notifySaved();
-        await stopCli();
-      }}
-      optimistic={true}
     />
   );
 
@@ -532,7 +510,6 @@ export const CoreSettings = () => {
           <SettingsCard>
             {nameField}
             {domainField}
-            {enablePlayitField}
           </SettingsCard>
         </SettingsSection>
         {can_change_core_settings && listPubliclySupported && (

@@ -76,7 +76,7 @@ fn instance(state: &str) -> Value {
     json!({
         "uuid": "inst-1", "name": "SMP", "game_version": "1.20.1", "loader": "fabric",
         "loader_version": "0.16.14", "port": 25570, "state": state, "player_count": 1,
-        "max_player_count": 20, "has_client_pack": true, "playit_address": null, "listed": true
+        "max_player_count": 20, "has_client_pack": true, "listed": true
     })
 }
 

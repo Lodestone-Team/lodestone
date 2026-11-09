@@ -25,8 +25,6 @@ import { TaskEntry } from 'bindings/TaskEntry';
 import { HistoryEntry } from 'bindings/HistoryEntry';
 import { GetConfigResponse } from 'bindings/GetConfigResponse';
 import { SettingManifest } from 'bindings/SettingManifest';
-import { PlayitSignupData } from 'bindings/PlayitSignupData';
-import { PlayitTunnelInfo } from 'bindings/PlayitTunnelInfo';
 import { t } from 'i18n';
 
 /*
@@ -654,58 +652,3 @@ export const killTask = async (
  * End Tasks/Macro API
  ***********************/
 
-/***********************
- * Playitgg API
- * the getters below throw ApiError
- ***********************/
-export const generatePlayitSignupLink = async (): Promise<PlayitSignupData> => {
-  const response = await axiosWrapper<PlayitSignupData>({
-    method: 'get',
-    url: `/playitgg/generate_signup_link`,
-  });
-  return response;
-};
-
-export const verifyKey = async (): Promise<boolean> => {
-  const response = await axiosWrapper<boolean>({
-    method: 'post',
-    url: `/playitgg/verify_key`,
-  });
-  return response;
-};
-
-/** Returns the error message. */
-export const startCli = async () => {
-  return await catchAsyncToString(
-    axiosWrapper<null>({
-      method: 'post',
-      url: `/playitgg/start_cli`,
-    })
-  );
-};
-
-/** Returns the error message. */
-export const stopCli = async () => {
-  return await catchAsyncToString(
-    axiosWrapper<null>({
-      method: 'post',
-      url: `/playitgg/stop_cli`,
-    })
-  );
-};
-
-export const cliIsRunning = async () => {
-  const response = await axiosWrapper<boolean>({
-    method: 'get',
-    url: `/playitgg/cli_is_running`,
-  });
-  return response;
-};
-
-export const getTunnels = async () => {
-  const response = await axiosWrapper<PlayitTunnelInfo[]>({
-    method: 'get',
-    url: `/playitgg/get_tunnels`,
-  });
-  return response;
-};

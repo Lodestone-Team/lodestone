@@ -592,7 +592,7 @@ fn not_found() -> Error {
 
 async fn shared_instance(shared: &Shared) -> Result<PublicInstance, Error> {
     let instance = get_instance(&shared.state, &shared.uuid)?;
-    public_instance(&instance, SHARED_SCOPE, &[])
+    public_instance(&instance, SHARED_SCOPE)
         .await
         .ok_or_else(not_found)
 }

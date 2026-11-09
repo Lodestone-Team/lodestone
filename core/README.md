@@ -185,7 +185,7 @@ Without the feature:
 * Atom servers on disk are not restored. The core logs a warning, keeps their files and restores them again once it is built with the feature. Macros and their configs stay on disk too.
 * `GET /api/v1/info` reports `"capabilities": { "macros": false, "generic_instances": false, ... }`, and the dashboard hides the features this core lacks.
 
-Minecraft servers, mods, modpacks, Docker servers, playit.gg and everything else work as usual. The code execution setting still controls custom Java commands.
+Minecraft servers, mods, modpacks, Docker servers, sharing with Lodestone Connect and everything else work as usual. The code execution setting still controls custom Java commands.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 

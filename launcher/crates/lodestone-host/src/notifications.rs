@@ -15,8 +15,7 @@ use gpui::{
 use launcher_core::cores::admin::{
     ClientEvent, EventInner, InstanceState,
     events::{
-        EventLevel, InstanceEventInner, PlayitggRunnerEventInner, ProgressionEndValue,
-        ProgressionEventInner, UserEventInner,
+        EventLevel, InstanceEventInner, ProgressionEndValue, ProgressionEventInner, UserEventInner,
     },
 };
 use lodestone_ui::{
@@ -163,13 +162,6 @@ pub fn describe(event: &ClientEvent) -> Option<(String, String)> {
                 _ => return None,
             }
         }
-        EventInner::PlayitggRunnerEvent(runner) => t(match runner.playitgg_runner_event_inner {
-            PlayitggRunnerEventInner::RunnerStarted => CoreMsg::PlayitStarted,
-            PlayitggRunnerEventInner::RunnerLoading => CoreMsg::PlayitLoading,
-            PlayitggRunnerEventInner::RunnerStopped => CoreMsg::PlayitStopped,
-            PlayitggRunnerEventInner::Unknown => return None,
-        })
-        .to_string(),
         _ => return None,
     };
     Some((title, String::new()))

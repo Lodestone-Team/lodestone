@@ -54,8 +54,8 @@ The launcher page's layout in Host's green, with the dashboard's logo.
   Host, keeps it updated and starts it. Without JavaScript it links to the
   Windows build. "Open the dashboard" goes to `/host/app/`.
 - **Claims.** Only what Host does today: Vanilla, Fabric, Forge and Paper
-  servers; Fabric modpacks only; playit.gg tunnels; users and permissions; API
-  keys and the CLI. Docker management and the desktop app aren't finished, so
+  servers; Fabric modpacks only; sharing with friends through Lodestone Connect;
+  users and permissions; API keys and the CLI. Docker management and the desktop app aren't finished, so
   the page leaves them out.
 - **Screenshots.** `src/host/images/<view>.webp` (2240×1400) and
   `<view>-1120.webp`: the dashboard at `/host/app` in Edge, 1493×933 at 150%,

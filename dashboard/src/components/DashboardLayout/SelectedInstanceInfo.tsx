@@ -10,7 +10,6 @@ import { faExpand } from '@fortawesome/free-solid-svg-icons';
 import { tabs } from 'pages/InstanceTabs/tabList';
 import { useQueryClient } from '@tanstack/react-query';
 import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
-import { useGlobalSettings } from 'data/GlobalSettings';
 import { useCodeExecution } from 'data/CodeExecution';
 import { isUserAuthorized, useUserInfo } from 'data/UserInfo';
 import { getModSupport, modTabTitle } from 'utils/mods';
@@ -32,7 +31,6 @@ export const SelectedInstanceInfo = ({
   const { setPathname, searchParams } = useContext(BrowserLocationContext);
   // the location this page renders (the settings modal can be open over it)
   const setActive = useLocation().pathname.split('/')[2];
-  const { data: globalSettings } = useGlobalSettings();
   // macros are owner only
   const { canManage } = useCodeExecution();
   // and the core must have them; wait until it says so
@@ -48,7 +46,6 @@ export const SelectedInstanceInfo = ({
 
   const visibleTabs = tabs.filter(
     (tab) =>
-      (tab.path !== 'playitgg' || globalSettings?.playit_enabled) &&
       (tab.path !== 'macros' ||
         (canManage && macros && !capabilitiesPending)) &&
       (tab.path !== 'mods' || (modSupport && canReadFiles))

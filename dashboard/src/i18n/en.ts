@@ -8,7 +8,7 @@
 //
 // Wording: "server" is a game server Lodestone Core runs; "core" is Lodestone
 // Core itself. Never call the core a server. Product names (Lodestone,
-// Lodestone Core, Minecraft, Modrinth, Playit) are never translated. Content
+// Lodestone Core, Minecraft, Modrinth) are never translated. Content
 // from the core or a server (names, logs, error messages) isn't in here.
 //
 // Glossary (the terms each translation uses):
@@ -33,7 +33,6 @@
 //   memory (RAM)
 //   start / stop / restart / kill
 //   running / stopped
-//   tunnel (Playit)
 //   log / event
 //   save / delete / remove
 //   enable / disable
@@ -286,9 +285,6 @@ export const en = {
   /** {status} is a technical exit status, e.g. "Success" */
   'shell.event.macroStopped':
     'Macro {pid} stopped on {server} with status {status}',
-  'shell.event.playitStarted': 'Playitgg runner started!',
-  'shell.event.playitLoading': 'Playitgg runner loading…',
-  'shell.event.playitStopped': 'Playitgg runner stopped!',
   /** {error} is an error message */
   'shell.event.loadFailed': 'Failed to load notifications: {error}',
 
@@ -484,9 +480,6 @@ export const en = {
     'Domain cannot be longer than {max} characters',
   'settings.core.domain.tooltip':
     'This is your public IP if you are port-forwarded. If not, leave this as is.',
-  'settings.core.playit.label': 'Enable Playit integration',
-  'settings.core.playit.hint':
-    'Open servers to the internet without port forwarding.',
   'settings.core.listPublicly.label': 'List servers publicly',
   'settings.core.listPublicly.hint':
     'Anyone who can reach this core sees the servers you make public below.',
@@ -794,8 +787,6 @@ export const en = {
   'server.tab.mods': 'Mods',
   'server.tab.macros': 'Macros',
   'server.tab.logs': 'Event Logs',
-  /** the playit.gg tunnel tab: a product name */
-  'server.tab.playitgg': 'Playitgg',
 
   // InstanceTabs
   'server.notFound': 'Server not found',
@@ -1045,7 +1036,7 @@ export const en = {
   /** the core refused the sign-in; {message} is its reason */
   'server.api.loginError': 'Error: {message}',
 
-  // ===== Console, macros and Playit =====
+  // ===== Console and macros =====
 
   // GameConsole: a server's console tab
   /** the page title, inside common.pageTitle */
@@ -1137,51 +1128,6 @@ export const en = {
   'console.macros.create.args': 'Arguments',
   'console.macros.create.submit': 'Create Macro',
   'console.macros.create.nameRequired': 'A macro name is required',
-
-  // PlayitggOverview: the Playit integration page
-  'console.playit.loading': 'Loading playit.gg',
-  /** {error} is the core's error message */
-  'console.playit.loadFailed': 'Failed to load playit.gg status: {error}',
-  'console.playit.signupFailed': 'Failed to generate a signup link: {error}',
-  'console.playit.verifyFailed':
-    'Failed to verify the playit.gg account: {error}',
-  'console.playit.startFailed': 'Failed to start the playit.gg runner: {error}',
-  'console.playit.stopFailed': 'Failed to stop the playit.gg runner: {error}',
-  /** the sign-up dialog */
-  'console.playit.setupTitle': 'Set Up Playitgg',
-  'console.playit.setupIntro':
-    'You need to sign up for Playitgg before you can use this feature. Generate a signup link with the button below!',
-  'console.playit.generateLink': 'Generate Link',
-  'console.playit.setupFollowLink':
-    'Follow the link below and make an account! After you make the account and get to the dashboard, press Verify below.',
-  /** the button named in console.playit.setupFollowLink */
-  'console.playit.verify': 'Verify',
-  /** the program that runs the tunnels on this computer */
-  'console.playit.runnerTitle': 'Playitgg Runner',
-  /** the runner's state, a label next to the title */
-  'console.playit.runner.Stopped': 'Stopped',
-  'console.playit.runner.Loading': 'Loading',
-  'console.playit.runner.Started': 'Started',
-  /** {running} is console.playit.troubleRunning, in bold */
-  'console.playit.trouble':
-    'If you’re having trouble, make sure your tunnel is set up correctly on the website and that {running}!',
-  'console.playit.troubleRunning': 'your server is actually running',
-  'console.playit.signupRequired':
-    'You need to sign up for Playitgg before you can use this.',
-  'console.playit.signupLink': 'Press here to sign up.',
-  'console.playit.tunnels': 'Tunnels',
-  'console.playit.refreshTunnels': 'Refresh tunnels',
-  /** {link} is a link to the playit.gg website */
-  'console.playit.tunnelsIntro':
-    'Your tunnels are listed below. You can create more and change the settings on your dashboard on the {link} website.',
-  'console.playit.loadingTunnels': 'Loading tunnels',
-  /** {address} is an IP address and port, e.g. 127.0.0.1:25565 */
-  'console.playit.localServer': 'Local server at {address}',
-  'console.playit.copyAddress': 'Copy the address',
-  'console.playit.noTunnels': 'You haven’t created any tunnels yet',
-  'console.playit.notSignedUp': 'You haven’t signed up yet',
-  /** a link to the integration's documentation */
-  'console.playit.help': 'Need help?',
 
   // ===== Creating a server =====
 

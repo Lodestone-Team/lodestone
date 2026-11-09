@@ -2,8 +2,8 @@
 //
 // 風格：臺灣常用介面用語（檔案、資料夾、設定、網路、使用者、預設），稱呼用「你」；
 // 全形標點；中文與拉丁字母、數字之間加半形空格（如「啟動 Minecraft 伺服器」）；
-// 按鈕和標籤不加句號。產品名（Lodestone、Lodestone Core、Minecraft、Modrinth、
-// Playit）不翻譯。「伺服器」只指遊戲伺服器；Lodestone Core 稱為「核心」。
+// 按鈕和標籤不加句號。產品名（Lodestone、Lodestone Core、Minecraft、Modrinth）
+// 不翻譯。「伺服器」只指遊戲伺服器；Lodestone Core 稱為「核心」。
 //
 // 術語表：
 //   server (a game server)           伺服器
@@ -27,7 +27,6 @@
 //   memory (RAM)                     記憶體
 //   start / stop / restart / kill    啟動 / 停止 / 重新啟動 / 強制停止
 //   running / stopped                執行中 / 已停止
-//   tunnel (Playit)                  通道
 //   log / event                      日誌 / 事件
 //   save / delete / remove           儲存 / 刪除 / 移除
 //   enable / disable                 啟用 / 停用
@@ -220,9 +219,6 @@ export const zhHant: Messages = {
   'shell.event.macroDetached': '巨集 {pid} 已在 {server} 上分離',
   'shell.event.macroStopped':
     '巨集 {pid} 已在 {server} 上停止，狀態為 {status}',
-  'shell.event.playitStarted': 'Playitgg 執行器已啟動！',
-  'shell.event.playitLoading': 'Playitgg 執行器載入中…',
-  'shell.event.playitStopped': 'Playitgg 執行器已停止！',
   'shell.event.loadFailed': '無法載入通知：{error}',
 
   'shell.noScripting':
@@ -371,8 +367,6 @@ export const zhHant: Messages = {
   'settings.core.domain.tooLong': '網域不能超過 {max} 個字元',
   'settings.core.domain.tooltip':
     '如果你已設定連接埠轉送，這裡填入你的公開 IP。否則請維持不變。',
-  'settings.core.playit.label': '啟用 Playit 整合',
-  'settings.core.playit.hint': '無須連接埠轉送即可將伺服器開放到網際網路。',
   'settings.core.listPublicly.label': '公開列出伺服器',
   'settings.core.listPublicly.hint':
     '任何能連到此核心的人都能看到你在下方設為公開的伺服器。',
@@ -627,7 +621,6 @@ export const zhHant: Messages = {
   'server.tab.mods': '模組',
   'server.tab.macros': '巨集',
   'server.tab.logs': '事件日誌',
-  'server.tab.playitgg': 'Playitgg',
 
   // InstanceTabs
   'server.notFound': '找不到伺服器',
@@ -822,7 +815,7 @@ export const zhHant: Messages = {
   'server.api.loginFailed': '登入失敗：{message}',
   'server.api.loginError': '錯誤：{message}',
 
-  // ===== Console, macros and Playit =====
+  // ===== Console and macros =====
 
   // GameConsole: a server's console tab
   'console.pageTitle': '伺服器主控台',
@@ -890,40 +883,6 @@ export const zhHant: Messages = {
   'console.macros.create.args': '引數',
   'console.macros.create.submit': '建立巨集',
   'console.macros.create.nameRequired': '必須填寫巨集名稱',
-
-  // PlayitggOverview: the Playit integration page
-  'console.playit.loading': 'playit.gg 載入中',
-  'console.playit.loadFailed': '無法載入 playit.gg 狀態：{error}',
-  'console.playit.signupFailed': '無法產生註冊連結：{error}',
-  'console.playit.verifyFailed': '無法驗證 playit.gg 帳戶：{error}',
-  'console.playit.startFailed': '無法啟動 playit.gg 執行程式：{error}',
-  'console.playit.stopFailed': '無法停止 playit.gg 執行程式：{error}',
-  'console.playit.setupTitle': '設定 Playitgg',
-  'console.playit.setupIntro':
-    '你需要先註冊 Playitgg 才能使用此功能。使用下方的按鈕產生註冊連結！',
-  'console.playit.generateLink': '產生連結',
-  'console.playit.setupFollowLink':
-    '開啟下方的連結並建立帳戶！建立帳戶並進入控制面板後，按下方的「驗證」。',
-  'console.playit.verify': '驗證',
-  'console.playit.runnerTitle': 'Playitgg 執行程式',
-  'console.playit.runner.Stopped': '已停止',
-  'console.playit.runner.Loading': '載入中',
-  'console.playit.runner.Started': '已啟動',
-  'console.playit.trouble':
-    '如果遇到問題，請確認已在網站上正確設定通道，並且{running}！',
-  'console.playit.troubleRunning': '你的伺服器確實正在執行',
-  'console.playit.signupRequired': '你需要先註冊 Playitgg 才能使用此功能。',
-  'console.playit.signupLink': '按這裡註冊。',
-  'console.playit.tunnels': '通道',
-  'console.playit.refreshTunnels': '重新整理通道',
-  'console.playit.tunnelsIntro':
-    '你的通道列在下方。你可以在 {link} 網站的控制面板中建立更多通道並變更設定。',
-  'console.playit.loadingTunnels': '通道載入中',
-  'console.playit.localServer': '本機伺服器位址：{address}',
-  'console.playit.copyAddress': '複製位址',
-  'console.playit.noTunnels': '你還沒有建立任何通道',
-  'console.playit.notSignedUp': '你還沒有註冊',
-  'console.playit.help': '需要協助？',
 
   // ===== Creating a server =====
 

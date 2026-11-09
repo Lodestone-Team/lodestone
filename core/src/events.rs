@@ -250,15 +250,6 @@ pub enum ProgressionEventInner {
 
 #[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
 #[ts(export)]
-#[serde(tag = "type")]
-pub enum PlayitggRunnerEventInner {
-    RunnerStarted,
-    RunnerLoading,
-    RunnerStopped,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
-#[ts(export)]
 pub enum FSOperation {
     Read,
     Write,
@@ -310,12 +301,6 @@ pub struct ProgressionEvent {
     progression_event_inner: ProgressionEventInner,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, TS, PartialEq)]
-#[ts(export)]
-pub struct PlayitggRunnerEvent {
-    pub playitgg_runner_event_inner: PlayitggRunnerEventInner,
-}
-
 impl ProgressionEvent {
     pub fn event_id(&self) -> Snowflake {
         self.event_id
@@ -336,7 +321,6 @@ pub enum EventInner {
     MacroEvent(MacroEvent),
     FSEvent(FSEvent),
     ProgressionEvent(ProgressionEvent),
-    PlayitggRunnerEvent(PlayitggRunnerEvent),
     /// A global setting that changes what clients may do (such as code execution) changed.
     /// Clients should fetch the global settings again.
     GlobalSettingsChanged,

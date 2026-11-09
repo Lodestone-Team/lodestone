@@ -2,7 +2,7 @@
 //
 // 风格：中国大陆常用界面用语，称呼用“你”；全角标点；中文与拉丁字母、数字之间
 // 加半角空格（如“启动 Minecraft 服务器”）；按钮和标签不加句号。
-// 产品名（Lodestone、Lodestone Core、Minecraft、Modrinth、Playit）不翻译。
+// 产品名（Lodestone、Lodestone Core、Minecraft、Modrinth）不翻译。
 // “服务器”只指游戏服务器；Lodestone Core 称为“核心”，不要称为服务器。
 //
 // 术语表：
@@ -27,7 +27,6 @@
 //   memory (RAM)                     内存
 //   start / stop / restart / kill    启动 / 停止 / 重启 / 强制停止
 //   running / stopped                运行中 / 已停止
-//   tunnel (Playit)                  隧道
 //   log / event                      日志 / 事件
 //   save / delete / remove           保存 / 删除 / 移除
 //   enable / disable                 启用 / 禁用
@@ -219,9 +218,6 @@ export const zhHans: Messages = {
   'shell.event.macroStarted': '宏 {pid} 已在 {server} 上启动',
   'shell.event.macroDetached': '宏 {pid} 已在 {server} 上分离',
   'shell.event.macroStopped': '宏 {pid} 已在 {server} 上停止，状态为 {status}',
-  'shell.event.playitStarted': 'Playitgg 运行器已启动！',
-  'shell.event.playitLoading': 'Playitgg 运行器正在加载…',
-  'shell.event.playitStopped': 'Playitgg 运行器已停止！',
   'shell.event.loadFailed': '无法加载通知：{error}',
 
   'shell.noScripting': '此核心构建时未包含脚本支持（Deno），因此无法使用宏。',
@@ -368,8 +364,6 @@ export const zhHans: Messages = {
   'settings.core.domain.tooLong': '域名不能超过 {max} 个字符',
   'settings.core.domain.tooltip':
     '如果你已设置端口转发，这里填写你的公网 IP。否则请保持不变。',
-  'settings.core.playit.label': '启用 Playit 集成',
-  'settings.core.playit.hint': '无需端口转发即可将服务器开放到互联网。',
   'settings.core.listPublicly.label': '公开列出服务器',
   'settings.core.listPublicly.hint':
     '任何能访问此核心的人都能看到你在下方设为公开的服务器。',
@@ -622,7 +616,6 @@ export const zhHans: Messages = {
   'server.tab.mods': '模组',
   'server.tab.macros': '宏',
   'server.tab.logs': '事件日志',
-  'server.tab.playitgg': 'Playitgg',
 
   // InstanceTabs
   'server.notFound': '找不到服务器',
@@ -816,7 +809,7 @@ export const zhHans: Messages = {
   'server.api.loginFailed': '登录失败：{message}',
   'server.api.loginError': '错误：{message}',
 
-  // ===== Console, macros and Playit =====
+  // ===== Console and macros =====
 
   // GameConsole: a server's console tab
   'console.pageTitle': '服务器控制台',
@@ -884,40 +877,6 @@ export const zhHans: Messages = {
   'console.macros.create.args': '参数',
   'console.macros.create.submit': '创建宏',
   'console.macros.create.nameRequired': '必须填写宏名称',
-
-  // PlayitggOverview: the Playit integration page
-  'console.playit.loading': '正在加载 playit.gg',
-  'console.playit.loadFailed': '无法加载 playit.gg 状态：{error}',
-  'console.playit.signupFailed': '无法生成注册链接：{error}',
-  'console.playit.verifyFailed': '无法验证 playit.gg 账户：{error}',
-  'console.playit.startFailed': '无法启动 playit.gg 运行程序：{error}',
-  'console.playit.stopFailed': '无法停止 playit.gg 运行程序：{error}',
-  'console.playit.setupTitle': '设置 Playitgg',
-  'console.playit.setupIntro':
-    '你需要先注册 Playitgg 才能使用此功能。使用下面的按钮生成注册链接！',
-  'console.playit.generateLink': '生成链接',
-  'console.playit.setupFollowLink':
-    '打开下面的链接并创建账户！创建账户并进入控制面板后，点击下面的“验证”。',
-  'console.playit.verify': '验证',
-  'console.playit.runnerTitle': 'Playitgg 运行程序',
-  'console.playit.runner.Stopped': '已停止',
-  'console.playit.runner.Loading': '加载中',
-  'console.playit.runner.Started': '已启动',
-  'console.playit.trouble':
-    '如果遇到问题，请确认已在网站上正确设置隧道，并且{running}！',
-  'console.playit.troubleRunning': '你的服务器确实正在运行',
-  'console.playit.signupRequired': '你需要先注册 Playitgg 才能使用此功能。',
-  'console.playit.signupLink': '点击此处注册。',
-  'console.playit.tunnels': '隧道',
-  'console.playit.refreshTunnels': '刷新隧道',
-  'console.playit.tunnelsIntro':
-    '你的隧道列在下面。你可以在 {link} 网站的控制面板中创建更多隧道并更改设置。',
-  'console.playit.loadingTunnels': '正在加载隧道',
-  'console.playit.localServer': '本地服务器地址：{address}',
-  'console.playit.copyAddress': '复制地址',
-  'console.playit.noTunnels': '你还没有创建任何隧道',
-  'console.playit.notSignedUp': '你还没有注册',
-  'console.playit.help': '需要帮助？',
 
   // ===== Creating a server =====
 
