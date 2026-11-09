@@ -192,7 +192,10 @@ fn memory(bytes: Option<u64>) -> String {
 
 fn cpu(percent: Option<f64>) -> String {
     percent.map_or_else(unknown, |p| {
-        tr!(crate::i18n::FormatMsg::Percent, value = format::decimal(p, 1))
+        tr!(
+            crate::i18n::FormatMsg::Percent,
+            value = format::decimal(p, 1)
+        )
     })
 }
 
