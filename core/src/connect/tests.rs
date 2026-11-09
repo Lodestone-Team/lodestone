@@ -322,3 +322,18 @@ async fn identities_are_saved_for_the_core_user_only_and_resumed_for_existing_in
     shares.stop(&core.fabric, true).await;
     assert!(!file.exists(), "stopping for good deletes the identity");
 }
+
+#[test]
+fn game_streams_reach_the_port_only_while_the_server_runs() {
+    // Tests run in debug builds, where LODESTONE_CONNECT_ANY_STATE would open the port.
+    assert!(std::env::var_os(ANY_STATE_ENV).is_none());
+    assert!(game_port_open(ServerState::Running));
+    for state in [
+        ServerState::Starting,
+        ServerState::Stopping,
+        ServerState::Stopped,
+        ServerState::Error,
+    ] {
+        assert!(!game_port_open(state), "{state:?}");
+    }
+}

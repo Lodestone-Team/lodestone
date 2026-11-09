@@ -13,6 +13,11 @@ use lodestone_host::{
 use lodestone_ui::assets::Assets;
 
 fn main() {
+    // Before an update renames anything: where this executable is.
+    launcher_core::update::remember_exe();
+    // Restarted after an update: the old Host holds the single-instance lock until it
+    // exits.
+    launcher_core::update::wait_for_previous();
     let (show_tx, mut show_rx) = futures::channel::mpsc::unbounded();
     if !single_instance::acquire(show_tx) {
         return;
@@ -75,7 +80,8 @@ fn main() {
 /// default: the core starts and the Host signs in), optionally with the first instance
 /// selected (on its `--tab`: `console`, `files`, …), sample toasts shown and the page
 /// filled with sample data (`--demo`, for the pages that have some), saves it
-/// and quits, stopping the core.
+/// and quits, stopping the core. `--restart-to-update` then restarts into a downloaded
+/// update, as Settings › Updates' Restart does.
 #[cfg(feature = "screenshot")]
 mod screenshot {
     use std::time::Duration;
@@ -318,6 +324,16 @@ mod screenshot {
                 }
             }
             save(&path, cx);
+            // `--restart-to-update`: with an update downloaded, quit into it as Settings ›
+            // Updates' Restart does (to test updating against a local folder)
+            if std::env::args().any(|arg| arg == "--restart-to-update") {
+                cx.update(|cx| {
+                    if let Some(updater) = lodestone_host::updater::Updater::global(cx) {
+                        let restarting = updater.update(cx, |u, cx| u.restart(cx));
+                        eprintln!("restart to update: {restarting}");
+                    }
+                });
+            }
             window.update(cx, |app, _, cx| app.quit(cx)).ok();
         })
         .detach();

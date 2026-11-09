@@ -64,11 +64,41 @@ pub(crate) fn provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
 }
 
-pub(crate) fn transport() -> Arc<TransportConfig> {
+/// The most a friend may send the host that the host hasn't read yet, over all of a
+/// connection's streams. A friend sends little (Minecraft's input, HTTP requests), so
+/// this is plenty, and it limits what anyone who reaches the host's port can make the
+/// host hold in memory.
+pub const HOST_RECEIVE_WINDOW: u32 = 2 * 1024 * 1024;
+/// The same for one stream.
+pub const HOST_STREAM_WINDOW: u32 = 512 * 1024;
+
+/// Settings both sides share.
+fn base_transport() -> TransportConfig {
     let mut transport = TransportConfig::default();
     // Keeps the routers' mappings open while nobody is playing.
     transport.keep_alive_interval(Some(Duration::from_secs(5)));
     transport.max_idle_timeout(Some(IDLE_TIMEOUT.try_into().expect("small")));
+    // Neither side uses datagrams or one-way streams, so the other side can't send any
+    // to sit unread in memory.
+    transport.datagram_receive_buffer_size(None);
+    transport.max_concurrent_uni_streams(0u32.into());
+    transport
+}
+
+/// The host's settings: friends open the streams, and the host takes only a little
+/// unread data from each connection.
+#[cfg(feature = "host")]
+fn host_transport() -> Arc<TransportConfig> {
+    let mut transport = base_transport();
+    transport.receive_window(HOST_RECEIVE_WINDOW.into());
+    transport.stream_receive_window(HOST_STREAM_WINDOW.into());
+    Arc::new(transport)
+}
+
+/// The friend's settings: the host never opens streams.
+fn friend_transport() -> Arc<TransportConfig> {
+    let mut transport = base_transport();
+    transport.max_concurrent_bidi_streams(0u32.into());
     Arc::new(transport)
 }
 
@@ -101,7 +131,7 @@ pub(crate) fn client_config(fingerprint: [u8; 32]) -> Result<quinn::ClientConfig
         quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
             .map_err(|err| Error::Other(err.to_string()))?,
     ));
-    client.transport_config(transport());
+    client.transport_config(friend_transport());
     Ok(client)
 }
 
@@ -124,7 +154,7 @@ pub(crate) fn server_config(cert_der: &[u8], key_der: &[u8]) -> Result<quinn::Se
         quinn::crypto::rustls::QuicServerConfig::try_from(crypto)
             .map_err(|err| Error::Other(err.to_string()))?,
     ));
-    server.transport_config(transport());
+    server.transport_config(host_transport());
     Ok(server)
 }
 

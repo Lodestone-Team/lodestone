@@ -1293,6 +1293,76 @@ mod tests {
         ));
     }
 
+    /// With the root resolved, symlinks inside the instance still can't lead out of it:
+    /// they resolve as if the instance folder were the whole file system. A link to a
+    /// code folder or a protected file is checked as its target.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn symlinks_in_the_instance_stay_inside_and_are_checked_as_their_targets() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "secret").unwrap();
+        let real = temp.path().join("real");
+        std::fs::create_dir_all(real.join("macros")).unwrap();
+        std::fs::write(real.join("start.sh"), "").unwrap();
+        std::fs::write(real.join("prelaunch.ts"), "").unwrap();
+        // the instance folder is reached through a link, as /var is on macOS
+        let link = temp.path().join("link");
+        symlink(&real, &link).unwrap();
+        let root = real_root(link).await;
+        assert_eq!(root, std::fs::canonicalize(&real).unwrap());
+
+        symlink(&outside, real.join("abs")).unwrap();
+        symlink("../outside", real.join("up")).unwrap();
+        symlink("../../../../../..", real.join("deep")).unwrap();
+        symlink(outside.join("secret.txt"), real.join("notes.txt")).unwrap();
+        symlink("macros", real.join("cfg")).unwrap();
+        symlink("/macros", real.join("cfg_abs")).unwrap();
+        symlink("start.sh", real.join("readme.txt")).unwrap();
+        symlink("prelaunch.ts", real.join("boot.txt")).unwrap();
+
+        let outside = std::fs::canonicalize(&outside).unwrap();
+        for path in [
+            "abs/secret.txt",
+            "up/secret.txt",
+            "deep/outside/secret.txt",
+            "notes.txt",
+            "../outside/secret.txt",
+            "../../../../outside/secret.txt",
+            "/outside/secret.txt",
+            outside.join("secret.txt").to_str().unwrap(),
+            "cfg/../../outside/secret.txt",
+        ] {
+            let joined = scoped_join_win_safe(&root, path).unwrap();
+            assert!(joined.starts_with(&root), "{path} -> {}", joined.display());
+            assert!(!joined.starts_with(&outside), "{path}");
+            assert!(
+                std::fs::read_to_string(&joined).is_err(),
+                "{path} reads the outside file"
+            );
+        }
+
+        // a link to the macros folder is the macros folder
+        for path in ["cfg/a.txt", "cfg_abs/a.txt", "cfg"] {
+            let joined = scoped_join_win_safe(&root, path).unwrap();
+            assert_eq!(
+                joined.strip_prefix(&root).unwrap().iter().next().unwrap(),
+                "macros"
+            );
+            assert!(is_instance_code_path(&root, &joined, false), "{path}");
+        }
+        // a harmless name linked to a protected file is that file
+        let joined = scoped_join_win_safe(&root, "readme.txt").unwrap();
+        assert_eq!(joined, root.join("start.sh"));
+        assert!(is_protected(&joined, false));
+        // and one linked to a script is that script
+        let joined = scoped_join_win_safe(&root, "boot.txt").unwrap();
+        assert_eq!(joined, root.join("prelaunch.ts"));
+        assert!(is_instance_code_path(&root, &joined, false));
+    }
+
     #[test]
     fn test_protected_extensions() {
         assert!(file("server.jar"));

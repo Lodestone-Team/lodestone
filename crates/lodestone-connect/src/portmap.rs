@@ -281,6 +281,11 @@ fn split_url(url: &str) -> Result<(String, String), String> {
     let rest = url
         .strip_prefix("http://")
         .ok_or_else(|| format!("not an http URL: {url}"))?;
+    // The URL comes from whatever answered on the network: it goes into the request
+    // line, so nothing may break out of it.
+    if rest.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err("a router address with spaces or line breaks".into());
+    }
     let (host, path) = match rest.find('/') {
         Some(i) => (&rest[..i], &rest[i..]),
         None => (rest, "/"),
@@ -299,9 +304,10 @@ fn http(url: &str, method: &str, headers: &[(&str, &str)], body: &str) -> Result
             .parse()
             .map_err(|_| format!("bad router address {host}"))?
     };
-    // A router is on the local network: never follow a description elsewhere.
+    // A router is on the local network: never follow a description elsewhere, and
+    // never to this computer's own services.
     match addr.ip() {
-        IpAddr::V4(ip) if is_private(ip) => {}
+        IpAddr::V4(ip) if is_private(ip) && !ip.is_loopback() => {}
         _ => return Err(format!("{host} isn't on the local network")),
     }
     let mut stream =
@@ -435,5 +441,15 @@ mod tests {
         assert!(http("http://203.0.113.5:5000/desc.xml", "GET", &[], "")
             .unwrap_err()
             .contains("local network"));
+        // Anything on the network can answer the UPnP search: it can't point this
+        // computer at its own services, or add lines to the request.
+        assert!(http("http://127.0.0.1:16662/api/v1/x", "GET", &[], "")
+            .unwrap_err()
+            .contains("local network"));
+        assert!(
+            http("http://192.0.2.1/ctl\r\nX-Injected: 1", "POST", &[], "")
+                .unwrap_err()
+                .contains("line breaks")
+        );
     }
 }

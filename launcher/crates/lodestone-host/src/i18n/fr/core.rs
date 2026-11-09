@@ -379,7 +379,7 @@ pub fn text(message: M) -> &'static str {
         M::BuildNumberCommit => "Build {build} · {commit}",
         M::DevelopmentBuild => "Build de développement",
         M::UpdatesUnavailable => {
-            "Lodestone Host ne se met pas encore à jour tout seul. Les nouvelles versions s’installent avec un nouveau téléchargement."
+            "Ce build ne se met pas à jour tout seul. Lodestone Host téléchargé depuis le site, si."
         }
         M::UpdateNotChecked => "Recherche de nouveaux builds toutes les quelques heures.",
         M::UpdateChecking => "Recherche d’un build plus récent…",
@@ -387,8 +387,13 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAvailable => "Le build {build} est disponible.",
         M::UpdateDownloading => "Téléchargement du build {build}… {percent}",
         M::UpdateReady => {
-            "Le build {build} est installé. Redémarrez pour l’utiliser : vos serveurs s’arrêtent, puis redémarrent s’ils démarrent tout seuls."
+            "Le build {build} est téléchargé. Redémarrez pour l’utiliser : vos serveurs s’arrêtent, puis redémarrent s’ils démarrent tout seuls. Quitter l’installe aussi."
         }
+        M::RestartUpdateTitle => "Redémarrer pour mettre à jour ?",
+        M::RestartUpdateBody => {
+            "Redémarrer Lodestone Host les arrête d’abord. Les serveurs qui démarrent tout seuls redémarrent après."
+        }
+        M::RestartUpdateConfirm => "Arrêter les serveurs et redémarrer",
         M::UpdateFailed => "Impossible de mettre à jour : {error}",
         M::CheckForUpdates => "Vérifier",
         M::DownloadUpdate => "Télécharger",
@@ -432,5 +437,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ScopeServers => ["{count} serveur", "{count} serveurs"],
         P::ScopePermissions => ["{count} autorisation", "{count} autorisations"],
+        P::ServersRunning => [
+            "{count} serveur est en marche.",
+            "{count} serveurs sont en marche.",
+        ],
     }
 }
