@@ -119,6 +119,9 @@ lodestone_trace = { path = "../crates/lodestone-trace" }
 # Lodestone Connect: joining a server a friend shares with an invite link. Only the
 # `join` feature: its crates are all in Zed's lockfile already.
 lodestone_connect = { path = "../crates/lodestone-connect", default-features = false, features = ["join"] }
+# The runtime a Lodestone Connect tunnel runs on (a current-thread one, on its own
+# thread). Already in the lockfile through lodestone_connect, at the version Zed locks.
+tokio = { version = "1.52.1", default-features = false, features = ["rt", "net", "time"] }
 # Already in GPUI's tree: the launcher forwards log records to its debug traces.
 log = "0.4.29"
 

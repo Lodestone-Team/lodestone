@@ -42,6 +42,13 @@ class Manifest(unittest.TestCase):
         self.assertEqual(m["assets"]["macos-aarch64"]["commit"], "a")
 
 
+class InfoPlist(unittest.TestCase):
+    def test_the_app_opens_invite_links(self):
+        types = pr.info_plist(10, "0.1.0")["CFBundleURLTypes"]
+        self.assertEqual(types[0]["CFBundleURLSchemes"], ["lodestone"])
+        self.assertEqual(types[0]["CFBundleURLName"], pr.BUNDLE_ID)
+
+
 class Cleanup(unittest.TestCase):
     def test_keeps_the_two_newest_of_this_platform_only(self):
         names = [pr.asset_name(b, "windows-x86_64") for b in (3, 5, 9, 12)]

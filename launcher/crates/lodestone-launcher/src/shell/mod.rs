@@ -1398,6 +1398,24 @@ impl LauncherShell {
         &self.servers
     }
 
+    /// Opens a friend's invite link (`lodestone://join?…` or the https link) in the
+    /// join dialog.
+    pub fn open_invite(&mut self, link: String, cx: &mut Context<Self>) {
+        self.servers
+            .update(cx, |servers, cx| servers.open_join(Some(link), cx));
+    }
+
+    /// ⌘V outside a text field: an invite link on the clipboard opens its join dialog.
+    /// Anything else is left alone.
+    fn paste_invite(&mut self, cx: &mut Context<Self>) {
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else {
+            return;
+        };
+        if launcher_core::cores::connect::Invite::parse(&text).is_ok() {
+            self.open_invite(text, cx);
+        }
+    }
+
     pub fn select_tab(&mut self, tab: InstanceTab, cx: &mut Context<Self>) {
         self.tab = tab;
         cx.notify();
@@ -2485,6 +2503,7 @@ impl Render for LauncherShell {
             })
             .on_action(|_: &focus::FocusNext, window, cx| focus::step(true, window, cx))
             .on_action(|_: &focus::FocusPrev, window, cx| focus::step(false, window, cx))
+            .on_action(cx.listener(|this, _: &crate::PasteInvite, _, cx| this.paste_invite(cx)))
             .on_action(cx.listener(|this, _: &crate::ZoomIn, _, cx| this.zoom_by(true, cx)))
             .on_action(cx.listener(|this, _: &crate::ZoomOut, _, cx| this.zoom_by(false, cx)))
             .on_action(cx.listener(|this, _: &crate::Undo, _, cx| this.undo_step(true, cx)))

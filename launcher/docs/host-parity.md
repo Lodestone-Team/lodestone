@@ -157,8 +157,8 @@ shows for a core with the `macros` capability and then says scripting is unavail
 - **Text editor** (§5): the dashboard uses Monaco. `TextInput` is single-line; package
   B needs a multi-line, scrollable editor (ideally in `lodestone-ui`), with syntax
   colouring as a later step.
-- **Charts** (§3): no chart component yet; package A draws the performance graphs
-  (GPUI `canvas` paths).
+- **Charts** (§3): `lodestone_ui::components::LineChart` (GPUI `canvas` paths: gaps
+  dashed, filled area, grid, hover label), used by the Overview's graphs.
 - **Error messages** of `CoreError` and `ClaimError`: done (D). They name
   `launcher_core::wording::app_name()`, which the Host sets to "Lodestone Host" at start.
 - **The setup key** (done, D): the core no longer writes its first-time setup key to its
@@ -454,15 +454,17 @@ Conventions in the code that every area relies on:
 
 - [x] `GET /instance/list` → `InstanceInfo[]` (keyed by uuid; insertion order = core order). Only fetched
   when signed in.
-- [ ] Header "All instances"; each row: game icon (or modpack icon), name, coloured status dot
+- [x] Header "All instances"; each row: game icon (or modpack icon), name, coloured status dot
   (Running green, Starting/Stopping yellow, Stopped gray, Error red). Click selects (`?instance=`).
-- [ ] Skeleton rows while loading; logged-out state: dashed box "Log in to view".
-- [ ] In-progress creations appear as "Setting up… NN %" pills with circular progress (from ongoing
+- [x] Skeleton rows while loading; logged-out state: dashed box "Log in to view".
+  - Host: always signed in, so there is no logged-out box.
+- [x] In-progress creations appear as "Setting up… NN %" pills with circular progress (from ongoing
   `InstanceCreation` progression events) — `components/InstanceLoadingPill.tsx`.
-- [ ] "New server" button under the list (disabled + "No permission" label without `can_create_instance`);
+  - Host: a progress bar under the name instead of the circle.
+- [x] "New server" button under the list (disabled + "No permission" label without `can_create_instance`);
   opens create dialog (§2.3).
 - [x] Live updates via events (state, players, add/remove).
-- [ ] Game icon tooltip = game title (Minecraft / Forge (Minecraft) / Fabric (Minecraft) / Paper (Minecraft)
+- [x] Game icon tooltip = game title (Minecraft / Forge (Minecraft) / Fabric (Minecraft) / Paper (Minecraft)
   / Spigot (Minecraft) / `<name> (Minecraft)` / Minecraft Bedrock / `<name>` generic); modpack icon only
   from `https://cdn.modrinth.com/`, falls back to game icon on load error — `components/Atoms/GameIcon.tsx`,
   `data/GameTypeMappings.tsx`.
@@ -470,8 +472,10 @@ Conventions in the code that every area relies on:
 ### 2.2 Instance card (selected instance) — `components/InstanceCard.tsx`  
 **Package: A (the foundation has the power buttons).**
 
-- [ ] Shows icon, name, power button with menu, "Copy IP" chip (`<domain or core address>:<port>`, toast
+- [x] Shows icon, name, power button with menu, "Copy IP" chip (`<domain or core address>:<port>`, toast
   "Copied …"), player-count label coloured by state (`players/max online`).
+  - Host: the selected card also has a **Share** button next to Start: it opens the
+    Overview, which starts sharing (`HostState::share_requested`).
 - [x] Power menu items by state: Stopped → Start; Running → Stop, Restart; Starting/Stopping → Kill;
   Error → Restart.
   - Endpoints: `PUT /instance/{uuid}/start`, `/stop`, `/kill`, `/restart`; error → toast.
@@ -483,17 +487,17 @@ Conventions in the code that every area relies on:
 ### 2.3 Create instance dialog — `components/Instance/InstanceCreateForm.tsx`, `components/Instance/Create/*`, `components/DashboardLayout/LeftNav.tsx`  
 **Package: A.**
 
-- [ ] Modal with a left "wizard steps" rail (done = check, current = filled number, can click done steps to
+- [x] Modal with a left "wizard steps" rail (done = check, current = filled number, can click done steps to
   go back) — `Create/WizardSteps.tsx`.
-- [ ] Step 1 **Select game** — `Create/GameTypeSelectForm.tsx`, `Create/SelectGameCard.tsx`
+- [x] Step 1 **Select game** — `Create/GameTypeSelectForm.tsx`, `Create/SelectGameCard.tsx`
   - `GET /games` → `HandlerGameType[]` (core offers `MinecraftJavaVanilla`, `MinecraftFabric`,
     `MinecraftForge`, `MinecraftPaper`; `MinecraftBedrock` exists in the type but isn't offered).
   - Full-width card "Modrinth modpack" with "New" badge → modpack flow (§2.4).
   - One card per game type with title + description; selected card highlighted. Skeleton cards while loading.
   - Next disabled until a game is chosen (initial type is `'Generic'` with no URL).
-- [ ] Step 2 **Basic settings** (client-side manifest, `Create/form.ts`): Name (required, default
+- [x] Step 2 **Basic settings** (client-side manifest, `Create/form.ts`): Name (required, default
   "Minecraft Server"-style default from i18n), Description (optional).
-- [ ] Step 3 **Server settings**: rendered from `GET /setup_manifest/{HandlerGameType}` → `SetupManifest`
+- [x] Step 3 **Server settings**: rendered from `GET /setup_manifest/{HandlerGameType}` → `SetupManifest`
   (sections of `SettingManifest`) — `Create/FormFromManifest.tsx`, `Create/FieldFromManifest.tsx`.
   - Field by `value_type`: String → text/password (is_secret); Integer/UnsignedInteger/Float → number;
     Boolean → true/false radio; Enum → filterable combobox (prefix match). Optional fields marked.
@@ -501,38 +505,38 @@ Conventions in the code that every area relies on:
     off), and never while code execution is disabled — `data/CodeExecution.ts useCommandLineBlockedReason`.
   - Validation generated per field (`generateValidationSchema`): required, numeric, integer, ≥0 for
     unsigned, min/max, enum membership. Initial values from `default_value` then `value`, else type zero.
-- [ ] Step 4 **Auto settings**: Auto start (bool), Restart on crash (bool).
-- [ ] Create: `POST /instance/create/{HandlerGameType}` body `SetupValue {name, description, auto_start,
+- [x] Step 4 **Auto settings**: Auto start (bool), Restart on crash (bool).
+- [x] Create: `POST /instance/create/{HandlerGameType}` body `SetupValue {name, description, auto_start,
   restart_on_crash, setting_sections: {sectionId: {settings: {id: {value}}}}}`; failure → toast, dialog
   stays open; success closes dialog; the instance appears through progression events (pill → list).
 - [ ] **Out of scope** (needs Deno). Generic/atom path: `PUT /generic_setup_manifest {url}` and `POST /instance/create_generic
   {url, setup_value}` exist in code but there's no URL field in the UI **(dead)**. No Docker-instance UI.
-- [ ] Dialog skeleton while code loads (`CreateInstanceFlow.tsx`); Back keeps typed values.
+- [x] Dialog skeleton while code loads (`CreateInstanceFlow.tsx`); Back keeps typed values.
 
 ### 2.4 Create from Modrinth modpack — `components/Instance/Create/ModpackCreateForm.tsx`, `components/Mods/ModrinthSearch.tsx`, `data/Mods.ts`  
 **Package: A.**
 
-- [ ] Steps: Select game (go back) → Select modpack → Select version → Server settings.
-- [ ] Can be opened pre-set from Mods › Browse ("Create server from this modpack", `ModpackPreset
+- [x] Steps: Select game (go back) → Select modpack → Select version → Server settings.
+- [x] Can be opened pre-set from Mods › Browse ("Create server from this modpack", `ModpackPreset
   {projectId, versionId}`), skipping the search step.
-- [ ] **Select modpack**: Modrinth search (project_type `modpack`), "Only Fabric" checkbox (loader `fabric`,
+- [x] **Select modpack**: Modrinth search (project_type `modpack`), "Only Fabric" checkbox (loader `fabric`,
   default on), sort select (Relevance/Downloads/Follows/Newest/Updated), **Upload .mrpack** button.
   - Search box accepts a modrinth.com link → `GET /modrinth/resolve?url=` → picks that project (and
     version); non-modpack → toast "not a modpack".
   - Upload: file picker `.mrpack` only → `POST /modpack/upload` (multipart `file`) → `ModpackInfo` with
     `upload_id` → goes to version step showing summary.
   - Search state and scroll position are kept when going back.
-- [ ] **Select version**: project header (icon/title/summary, skeleton), version list from
+- [x] **Select version**: project header (icon/title/summary, skeleton), version list from
   `GET /modrinth/project/{id}/versions` (no filter), 20 at a time + "Show N more"; row: version number,
   release/beta/alpha label, game versions · loaders · date · size, Select button.
   - Select → `POST /modpack/inspect {version_id}` (no timeout; "Downloading <size>…" status) →
     `ModpackInfo` summary: Modpack name+version, Minecraft version, Loader+version, server files
     count/size, summary text, warning if `unsupported_reason`. Only the latest inspect wins.
   - Next requires info + source and no `unsupported_reason`.
-- [ ] **Server settings** (formik/yup): Name (required, default pack name), Description (default pack
+- [x] **Server settings** (formik/yup): Name (required, default pack name), Description (default pack
   summary), Port (1–65535, default first free from 25565 among existing instances), Min RAM MB (≥1, default
   1024), Max RAM MB (≥ min, default 4096), Auto start, Restart on crash.
-- [ ] Create: `POST /instance/create_modpack` `CreateModpackInstanceRequest {source: {type:'modrinth',
+- [x] Create: `POST /instance/create_modpack` `CreateModpackInstanceRequest {source: {type:'modrinth',
   version_id} | {type:'upload', upload_id}, name, port, description, min_ram, max_ram, auto_start,
   restart_on_crash}` → `InstanceUuid`; progress via progression events.
 
@@ -549,27 +553,31 @@ Conventions in the code that every area relies on:
 ## 3. Overview tab — `components/Instance/InstanceOverview.tsx`, `InstancePerformance.tsx`, `InstancePlayerList.tsx`, `InstanceDetails.tsx`  
 **Package: A.**
 
-- [ ] Inline-editable **name** (heading) and **description**: click or pencil → input, Enter/floppy saves,
+- [x] Inline-editable **name** (heading) and **description**: click or pencil → input, Enter/floppy saves,
   Esc/blur cancels; trimmed; inline error text; spinner — `components/EditableTextfield.tsx`.
   - `PUT /instance/{uuid}/name` / `PUT /instance/{uuid}/description` (JSON string body); updates list cache.
   - Read-only for non-owners on atom instances (tooltip). No explicit permission check client-side.
-- [ ] Labels row: game icon, state label, "Version x", "n/m players", address chip `<domain|core
+  - Host: Enter or the floppy saves, Esc or × cancels; leaving the field does not
+    cancel. An empty name is refused before it is sent.
+- [x] Labels row: game icon, state label, "Version x", "n/m players", address chip `<domain|core
   address>:<port>` (click copies).
-- [ ] **Performance**: two line charts, last 60 s (1 sample/s): CPU % (max 100) and memory GiB (max =
+- [x] **Performance**: two line charts, last 60 s (1 sample/s): CPU % (max 100) and memory GiB (max =
   core `total_ram`); headings show latest value; gaps drawn dashed; tooltip "N seconds ago"; skeleton while
   waiting for the first report of a running/starting instance — `components/Graphs/PerformanceGraph.tsx`.
   - WS `/monitor/{uuid}?token=Bearer …` → `PerformanceReport {memory_usage, cpu_usage, disk_usage,
     start_time}`; server replays last 60 s on each connect.
-- [ ] **Players**: sort by name toggle (asc/desc); rows with 16 px head from `https://mc-heads.net/avatar/
+- [x] **Players**: sort by name toggle (asc/desc); rows with 16 px head from `https://mc-heads.net/avatar/
   {uuid}/16.png`, name, and the linked Lodestone username if the player's Minecraft account is linked
   (owner sees all links, others only their own — `data/MinecraftLinks.ts`, `utils/linkedPlayers.ts`);
   empty state "No players online". No kick/ban/op/whitelist actions.
-- [ ] **Details** (collapsible, open state in `localStorage.instanceDetailsOpen`): Name, Description, UUID
+- [x] **Details** (collapsible, open state in `localStorage.instanceDetailsOpen`): Name, Description, UUID
   (copy), Game, Minecraft version / version, Loader + loader version, Port, State, Players, Created
   (`creation_time`), Auto start, Restart on crash, RAM (min–max MB), Folder path (copy), Modpack (link to
   modrinth.com/modpack/<id> if from Modrinth). Rows without value hidden.
-- [ ] Ports / playit tunnels are not on Overview (Playit is its own tab, §6.7).
-- [ ] **Share with friends** (Lodestone Connect, added after the inventory) —
+  - Host: the open state is kept for the session only, until D's settings store
+    (§9 `instanceDetailsOpen`).
+- [x] Ports / playit tunnels are not on Overview (Playit is its own tab, §6.7).
+- [x] **Share with friends** (Lodestone Connect, added after the inventory) —
   `components/Instance/ShareWithFriends.tsx`, `data/InstanceShare.ts`, core `src/connect.rs`
   - `GET /instance/{uuid}/share` → `InstanceShare` (fails for users who can't manage the
     instance, and on cores without sharing: then hidden); polled every 5 s while sharing,
@@ -581,6 +589,9 @@ Conventions in the code that every area relies on:
     friend with its connection kind, **Stop sharing** → danger confirm →
     `DELETE /instance/{uuid}/share` (the link stops working for good).
   - Messages: `server.share.*` in `i18n/en.ts`.
+  - Host: checked against a real core (the card, off) and with sample data (on,
+    friends, hard network); starting a share against the live connect.lodestone.cc
+    service wasn't tried from the tests.
 
 ## 4. Console tab — `components/GameConsole.tsx`, `data/ConsoleStream.ts`, `components/ConsoleLine.tsx`, `utils/consoleFormat.ts`  
 **Package: B.**

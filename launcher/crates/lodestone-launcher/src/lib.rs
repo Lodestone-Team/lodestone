@@ -8,6 +8,7 @@ pub mod agent_skills;
 pub mod components;
 /// The control socket for lodestone-launcher-cli.
 pub mod control;
+pub mod deep_link;
 pub mod i18n;
 pub mod images;
 pub mod instances;
@@ -31,7 +32,7 @@ use gpui::{
     WindowOptions, actions, px, size,
 };
 
-actions!(launcher, [Quit, ZoomIn, ZoomOut, ResetZoom]);
+actions!(launcher, [Quit, ZoomIn, ZoomOut, ResetZoom, PasteInvite]);
 pub use lodestone_ui::{Redo, Undo};
 
 /// The window title, also used for the app menu.
@@ -74,6 +75,12 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-shift-z", Redo, None),
         KeyBinding::new("ctrl-y", Redo, None),
     ]);
+    // Pasting a friend's invite link anywhere outside a text field opens it. A focused
+    // text field takes the shortcut first, for its text.
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([KeyBinding::new("cmd-v", PasteInvite, None)]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([KeyBinding::new("ctrl-v", PasteInvite, None)]);
     set_menus(cx);
     // The launcher has one window; closing it quits, as in the dashboard app.
     cx.on_window_closed(|cx, _| {

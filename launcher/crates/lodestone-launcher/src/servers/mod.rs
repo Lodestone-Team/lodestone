@@ -19,6 +19,8 @@ pub mod add_dialog;
 pub mod detail;
 mod detail_view;
 pub mod extras;
+pub mod friends;
+mod friends_view;
 pub mod host;
 pub mod lan;
 pub mod local;
@@ -477,6 +479,10 @@ pub struct Servers {
     extras: extras::Extras,
     /// "On this computer": cores found here, and what claiming them gave.
     pub local: local::LocalCores,
+    /// Friends' servers (Lodestone Connect) and the join dialog.
+    pub friends: friends::Friends,
+    /// Closes a friend's tunnel when its game exits.
+    _instances_changed: Option<Subscription>,
 }
 
 impl EventEmitter<ServersEvent> for Servers {}
@@ -515,8 +521,13 @@ impl Servers {
             _poller: None,
             extras: Default::default(),
             local: Default::default(),
+            friends: friends::Friends::new(&data_root),
+            _instances_changed: None,
         };
+        this._instances_changed =
+            Some(cx.observe(&this.instances, |this, _, cx| this.friend_games_changed(cx)));
         this.load(cx);
+        this.load_friends();
         this.reload_links(cx);
         this
     }
@@ -706,6 +717,18 @@ impl Servers {
             client.strict()
         } else {
             client
+        }
+    }
+
+    /// The client (and key) to pull a server's client pack with: the core's, or a
+    /// friend's tunnel's info port while it is open.
+    fn pull_client(&self, core_uuid: &str) -> Option<(CoreClient, Option<Secret>)> {
+        match self.core_index(core_uuid) {
+            Some(index) => {
+                let core = &self.cores[index];
+                Some((self.client(core), core.key.clone()))
+            }
+            None => Some((self.friend_client(core_uuid)?, None)),
         }
     }
 
@@ -1291,6 +1314,10 @@ impl Servers {
     /// Says that something failed: at the top of the page, and to the shell when the
     /// page isn't shown. `text` makes the title and the message.
     fn fail(&mut self, text: impl Fn() -> (String, String) + 'static, cx: &mut Context<Self>) {
+        let (title, message) = text();
+        if self.friend_failure(&title, &message, cx) {
+            return;
+        }
         let notice = Notice::new(text);
         if !self.visible {
             let (title, message) = notice.text();
@@ -1330,6 +1357,15 @@ impl Servers {
     /// The server an instance is linked to, for the instance page.
     pub fn instance_link(&self, instance_id: &str) -> Option<InstanceLink> {
         let link = self.instance_links.get(instance_id)?;
+        if cores::friends::is_friend_id(&link.core_uuid) {
+            let friend = self.friends.get(&link.core_uuid);
+            return Some(InstanceLink {
+                server_name: link.server_name.clone(),
+                core_name: friend
+                    .map_or_else(|| link.core_url.clone(), |f| f.saved.core_name.clone()),
+                core_known: friend.is_some(),
+            });
+        }
         let core = self.cores.iter().find(|c| c.saved.uuid == link.core_uuid);
         Some(InstanceLink {
             server_name: link.server_name.clone(),
@@ -1397,7 +1433,7 @@ impl Servers {
         server: ServerInstance,
         cx: &mut Context<Self>,
     ) {
-        let Some(index) = self.core_index(core_uuid) else {
+        let Some((client, key)) = self.pull_client(core_uuid) else {
             return;
         };
         if !server.has_pack() {
@@ -1405,9 +1441,6 @@ impl Servers {
         }
         let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
         self.busy.insert(row.clone(), Busy::Fetching);
-        let core = &self.cores[index];
-        let client = self.client(core);
-        let key = core.key.clone();
         let dir = self.instances.read(cx).store().root().to_path_buf();
         let fetch_server = server.clone();
         let work = cx.background_spawn(async move {
@@ -1498,12 +1531,16 @@ impl Servers {
         etag: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let Some(index) = self.core_index(core_uuid) else {
-            return;
+        let core_url = match self.core_index(core_uuid) {
+            Some(index) => display_address(&self.cores[index].url),
+            None => match self.friends.get(core_uuid) {
+                Some(friend) => friend.saved.link.clone(),
+                None => return,
+            },
         };
         let link = ServerLink {
             core_uuid: core_uuid.to_string(),
-            core_url: display_address(&self.cores[index].url),
+            core_url,
             server_uuid: server.uuid.clone(),
             server_name: server.name.clone(),
             pack_etag: etag,
@@ -1519,24 +1556,31 @@ impl Servers {
         );
         self.instance_links.insert(instance_id.to_string(), link);
         self.links_revision += 1;
+        self.friend_linked(core_uuid, instance_id, cx);
         cx.notify();
     }
 
     /// Installs `pending` from its core, after the advisory unless the user trusts the
     /// core for mods.
     fn gate(&mut self, pending: PendingPull, kind: PullKind, cx: &mut Context<Self>) {
-        let Some(index) = self.core_index(pending.core()) else {
+        let source = match self.core_index(pending.core()) {
+            Some(index) => Some((
+                trust::needs_advisory(&self.cores[index].saved, kind),
+                self.cores[index].saved.name.clone(),
+            )),
+            None => self.friend_pull_source(pending.core(), kind),
+        };
+        let Some((needs_advisory, core_name)) = source else {
             pending.discard();
             return;
         };
-        if !trust::needs_advisory(&self.cores[index].saved, kind) {
+        if !needs_advisory {
             return self.install(pending, cx);
         }
         let files: Vec<PulledFile> = match &pending {
             PendingPull::Create(p) => sync::pack_pulls(&p.pack),
             PendingPull::Sync(p) => sync::plan_pulls(&p.plan),
         };
-        let core_name = self.cores[index].saved.name.clone();
         let server_name = match &pending {
             PendingPull::Create(p) => p.server.name.clone(),
             PendingPull::Sync(p) => p.server.name.clone(),
@@ -1579,12 +1623,19 @@ impl Servers {
             return;
         };
         match answer {
-            AdvisoryAnswer::Cancel => pending.discard(),
+            AdvisoryAnswer::Cancel => {
+                pending.discard();
+                let core = pending.core().to_string();
+                self.friend_cancelled(&core, cx);
+            }
             AdvisoryAnswer::InstallOnce => self.install(pending, cx),
             AdvisoryAnswer::TrustAndInstall => {
                 if let Some(index) = self.core_index(pending.core()) {
                     self.cores[index].saved.set_trusted(true);
                     self.save();
+                } else {
+                    let core = pending.core().to_string();
+                    self.trust_friend(&core);
                 }
                 self.install(pending, cx);
             }
@@ -1644,13 +1695,6 @@ impl Servers {
                             instances.reload(cx);
                             instances.select(&instance.id, cx);
                         });
-                        this.link_instance(
-                            &pending.core,
-                            &pending.server,
-                            &instance.id,
-                            pending.etag.clone(),
-                            cx,
-                        );
                         let skipped = pending.pack.skipped.len();
                         let name = instance.name.clone();
                         let version = instance.game_version.clone();
@@ -1664,6 +1708,14 @@ impl Servers {
                             };
                             (tr!(M::ReadyTitle, name = name), body)
                         }));
+                        // after the notice: a friend's server's Play goes on from here
+                        this.link_instance(
+                            &pending.core,
+                            &pending.server,
+                            &instance.id,
+                            pending.etag.clone(),
+                            cx,
+                        );
                     }
                     Err(err) => this.fail_core(&pending.core, create_failed, err, cx),
                 }
@@ -1676,7 +1728,7 @@ impl Servers {
 
     /// Play: checks that the instance's mods match the server's, then joins.
     pub fn play(&mut self, core_uuid: &str, server: ServerInstance, cx: &mut Context<Self>) {
-        let Some(index) = self.core_index(core_uuid) else {
+        let Some((client, key)) = self.pull_client(core_uuid) else {
             return;
         };
         let Some(instance_id) = self.linked_instance(core_uuid, &server.uuid).cloned() else {
@@ -1694,9 +1746,6 @@ impl Servers {
             return;
         }
         self.busy.insert(row.clone(), Busy::CheckingMods);
-        let core = &self.cores[index];
-        let client = self.client(core);
-        let key = core.key.clone();
         let dirs = self.instances.read(cx).content_dirs(&instance_id);
         let check_server = server.clone();
         let check = cx.background_spawn(async move {
@@ -1791,6 +1840,21 @@ impl Servers {
         let Some(link) = self.instance_links.get(instance_id).cloned() else {
             return;
         };
+        if cores::friends::is_friend_id(&link.core_uuid) {
+            if self.friends.get(&link.core_uuid).is_none() {
+                let (name, address) = (link.server_name.clone(), link.core_url.clone());
+                return self.fail(
+                    move || {
+                        (
+                            tr!(M::JoinFailed, name = name),
+                            tr!(M::FriendRemoved, link = address),
+                        )
+                    },
+                    cx,
+                );
+            }
+            return self.play_friend(&link.core_uuid, cx);
+        }
         let Some(index) = self.core_index(&link.core_uuid) else {
             let (name, address) = (link.server_name.clone(), link.core_url.clone());
             return self.fail(
@@ -1896,6 +1960,7 @@ impl Servers {
     pub fn cancel_prompt(&mut self, cx: &mut Context<Self>) {
         if let Some(pending) = self.prompt.close(cx).and_then(|p| p.pending.take()) {
             let _ = std::fs::remove_file(&pending.pack_path);
+            self.friend_cancelled(&pending.core, cx);
         }
         cx.notify();
     }
@@ -1994,6 +2059,21 @@ impl Servers {
         instance_id: &str,
         cx: &mut Context<Self>,
     ) {
+        if cores::friends::is_friend_id(core_uuid) {
+            // the tunnel closed meanwhile (the dialog was closed): nothing to join
+            let Some(target) = self.friend_join_target(core_uuid, instance_id) else {
+                return;
+            };
+            let id = instance_id.to_string();
+            self.friend_started(cx);
+            self.instances.update(cx, |instances, cx| {
+                instances.play_joining(&id, Some(target), cx)
+            });
+            cx.emit(ServersEvent::OpenInstance(id));
+            // a game that couldn't start closes the tunnel at once
+            self.friend_games_changed(cx);
+            return;
+        }
         let Some(core) = self.cores.iter().find(|c| c.saved.uuid == core_uuid) else {
             return;
         };

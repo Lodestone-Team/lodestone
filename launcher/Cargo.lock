@@ -3018,6 +3018,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.17",
  "tiny_http",
+ "tokio",
  "trash",
  "tungstenite",
  "url",
