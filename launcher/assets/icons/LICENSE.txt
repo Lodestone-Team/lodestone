@@ -1,6 +1,6 @@
 The icons in this directory are from Font Awesome Free 7.3.1 by Fonticons, Inc.
 (https://fontawesome.com), the same icon set the Lodestone dashboard uses, except
-the window buttons (window-*.svg; see below).
+the window buttons (window-*.svg) and play.svg; see below.
 
 They are licensed under the Creative Commons Attribution 4.0 International
 License (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
@@ -18,3 +18,7 @@ window-minimize, window-maximize, window-restore and window-close are plain
 lines and squares drawn for the launcher's own window buttons, which it shows on
 Linux desktops that leave window decorations to apps. They are part of
 Lodestone and under its license.
+
+play is a plain rounded triangle drawn for Lodestone (the Play button over an
+instance's icon in the sidebar), and is also part of Lodestone and under its
+license.

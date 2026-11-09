@@ -65,6 +65,7 @@ pub fn text(message: M) -> &'static str {
         M::NoInstances => "Aucune instance",
         M::AndJoin => "et rejoindre {server}",
         M::PlayWithoutJoining => "Jouer sans rejoindre",
+        M::PlayNamed => "Jouer à {name}",
 
         M::DeleteNamed => "Supprimer {name}\u{202F}?",
         M::DeleteWorldBody => {
