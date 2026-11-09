@@ -38,6 +38,10 @@
 //! local_credentials.json`, readable only by this user ([`save_credentials`]). It
 //! exists only because this user can already write the core's folder, so a copy next
 //! to the launcher gives nothing away that the folder didn't.
+//!
+//! Lodestone Host, which runs its core as a child process and so knows its data
+//! folder, claims a session instead of a key ([`claim_session`]): an owner sign-in
+//! token, tied to the core's certificate the same way, kept only in memory.
 
 use std::{
     collections::BTreeMap,
@@ -134,7 +138,12 @@ pub struct ClaimStart {
 /// `result.json`. No `Debug`: it holds the key.
 #[derive(Deserialize)]
 struct ClaimResult {
-    api_key: String,
+    /// The owner API key, for a key claim.
+    #[serde(default)]
+    api_key: Option<String>,
+    /// The owner's sign-in token, for a session claim ([`claim_session`]).
+    #[serde(default)]
+    session_token: Option<String>,
     reply: String,
     #[serde(default)]
     owner_created: bool,
@@ -591,19 +600,31 @@ pub fn find_claim_folder(
 
 /// Writes the launcher's side of the claim: the value into `claim`, a new `reply` and
 /// a new `owner.json`. Returns the reply value.
+#[cfg(test)]
 fn write_claim(
     dir: &ClaimDir,
     start: &ClaimStart,
     owner: &OwnerCredentials,
 ) -> Result<String, ClaimError> {
+    write_claim_with(dir, start, Some(owner))
+}
+
+/// [`write_claim`], with `owner.json` only when there is an owner to make.
+fn write_claim_with(
+    dir: &ClaimDir,
+    start: &ClaimStart,
+    owner: Option<&OwnerCredentials>,
+) -> Result<String, ClaimError> {
     dir.write_claim(start.value.as_bytes())?;
     let reply = random_string(LOWER_ALNUM, 32);
     dir.create("reply", reply.as_bytes())?;
-    let owner_json = serde_json::json!({
-        "username": owner.username,
-        "password": owner.password.expose(),
-    });
-    dir.create("owner.json", owner_json.to_string().as_bytes())?;
+    if let Some(owner) = owner {
+        let owner_json = serde_json::json!({
+            "username": owner.username,
+            "password": owner.password.expose(),
+        });
+        dir.create("owner.json", owner_json.to_string().as_bytes())?;
+    }
     Ok(reply)
 }
 
@@ -623,11 +644,31 @@ fn read_result(dir: &ClaimDir) -> Result<Option<ClaimResult>, ClaimError> {
 
 /// Checks the result against the launcher's reply value, and returns the core's
 /// certificate fingerprint.
+#[cfg(test)]
 fn check_result(result: &ClaimResult, reply: &str) -> Result<String, ClaimError> {
+    check_result_for(result, reply, false)
+}
+
+/// [`check_result`], for a key claim or (`session`) a session claim.
+fn check_result_for(
+    result: &ClaimResult,
+    reply: &str,
+    session: bool,
+) -> Result<String, ClaimError> {
     if !constant_time_eq(result.reply.as_bytes(), reply.as_bytes()) {
         return Err(ClaimError::NotThisCore);
     }
-    if key_id(&result.api_key).is_none() {
+    if session {
+        if result
+            .session_token
+            .as_deref()
+            .is_none_or(|token| token.trim().is_empty())
+        {
+            return Err(ClaimError::Invalid(
+                "the core sent no sign-in token (is it too old?)".into(),
+            ));
+        }
+    } else if result.api_key.as_deref().and_then(key_id).is_none() {
         return Err(ClaimError::Invalid(
             "the key isn't a Lodestone API key".into(),
         ));
@@ -699,14 +740,14 @@ pub async fn claim_unverified(
     }
     let (folder, dir) = find_claim_folder(folders, &start)?;
     let owner = OwnerCredentials::generate();
-    let outcome = finish(client, &dir, &start, &owner, name, sleep).await;
+    let outcome = finish(client, &dir, &start, Some(&owner), name, false, sleep).await;
     // owner.json holds the password and result.json the key: they go, whatever happened
     dir.cleanup();
     let (result, fingerprint) = outcome?;
     Ok(Unverified {
         url: client.base().clone(),
         fingerprint,
-        api_key: Secret::new(result.api_key),
+        api_key: Secret::new(result.api_key.unwrap_or_default()),
         folder,
         owner_username: result.owner_username,
         created_owner: result.owner_created.then_some(owner),
@@ -718,19 +759,27 @@ async fn finish(
     client: &CoreClient,
     dir: &ClaimDir,
     start: &ClaimStart,
-    owner: &OwnerCredentials,
+    owner: Option<&OwnerCredentials>,
     name: &str,
+    session: bool,
     sleep: Sleep,
 ) -> Result<(ClaimResult, String), ClaimError> {
-    let reply = write_claim(dir, start, owner)?;
+    let reply = write_claim_with(dir, start, owner)?;
     client
-        .local_claim_finish(&start.id, name)
+        .local_claim_finish_with(&start.id, name, session)
         .await
-        .map_err(refused)?;
+        .map_err(|err| match err {
+            // the claim started, so claims are on: a refusal now is about the claim
+            // itself (an owner account the core won't take), and says why
+            CoreError::Forbidden(reason) if session => {
+                ClaimError::Core(CoreError::Forbidden(reason))
+            }
+            err => refused(err),
+        })?;
     let mut waited = Duration::ZERO;
     loop {
         if let Some(result) = read_result(dir)? {
-            let fingerprint = check_result(&result, &reply)?;
+            let fingerprint = check_result_for(&result, &reply, session)?;
             return Ok((result, fingerprint));
         }
         if waited >= RESULT_WAIT {
@@ -739,6 +788,98 @@ async fn finish(
         sleep(RESULT_POLL).await;
         waited += RESULT_POLL;
     }
+}
+
+/// Owner access to a core this program runs itself, as a sign-in session.
+pub struct OwnerSession {
+    pub info: CoreInfo,
+    /// The core's HTTPS address (the claim's host and port).
+    pub url: Url,
+    /// The core's certificate, which the token is only ever sent to.
+    pub pin: CertificatePin,
+    /// The owner's sign-in token (a session, as `POST /user/login` gives).
+    pub token: Secret,
+    /// The owner's username, as the core said.
+    pub owner_username: Option<String>,
+    /// Whether this claim made the owner account.
+    pub owner_created: bool,
+}
+
+impl std::fmt::Debug for OwnerSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OwnerSession")
+            .field("url", &self.url.as_str())
+            .field("owner_username", &self.owner_username)
+            .finish_non_exhaustive()
+    }
+}
+
+impl OwnerSession {
+    /// A client that sends the token only to the core's certificate, over HTTPS.
+    pub fn client(&self) -> Result<CoreClient, ClaimError> {
+        let pinned = Arc::new(
+            PinnedHttp::new(Some(self.pin.clone()))
+                .map_err(|err| ClaimError::Invalid(err.to_string()))?,
+        );
+        Ok(CoreClient::new(pinned.http(), self.url.clone())
+            .with_pinned(pinned)
+            .strict())
+    }
+}
+
+/// Signs in as the owner of the core `client` talks to, whose data folder is exactly
+/// `folder`: for a program that runs the core itself (Lodestone Host). `owner` is
+/// the owner account to make when the core has none yet (its `is_setup` is false);
+/// a core without an owner refuses a claim without one. The token is tied to the
+/// core's certificate, as a key claim's key is ([`verify`]). The claim's files are
+/// deleted however it ends.
+pub async fn claim_session(
+    client: &CoreClient,
+    folder: &Path,
+    owner: Option<&OwnerCredentials>,
+    name: &str,
+    sleep: Sleep,
+) -> Result<OwnerSession, ClaimError> {
+    let info = client.info().await.map_err(|err| match err {
+        CoreError::Unreachable(_) => ClaimError::NoCore,
+        err => ClaimError::Core(err),
+    })?;
+    let start = client.local_claim_start().await.map_err(refused)?;
+    if start.core_uuid != info.uuid {
+        return Err(ClaimError::NotThisCore);
+    }
+    let id = claim_id(&start)?;
+    let dir = ClaimDir::open(folder, id).map_err(|_| ClaimError::FolderNotFound)?;
+    if !dir.claim_is_fresh().unwrap_or(false) {
+        return Err(ClaimError::FolderNotFound);
+    }
+    let outcome = finish(client, &dir, &start, owner, name, true, sleep).await;
+    // owner.json holds the password and result.json the token: they go, whatever happened
+    dir.cleanup();
+    let (result, fingerprint) = outcome?;
+    let token = Secret::new(result.session_token.unwrap_or_default());
+    let url = https_url(client.base())?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| ClaimError::Invalid("the core's address has no host".into()))?;
+    let session = OwnerSession {
+        pin: CertificatePin::new(host, &fingerprint),
+        url,
+        token,
+        owner_username: result.owner_username,
+        owner_created: result.owner_created,
+        info,
+    };
+    // the core at the HTTPS address, with that certificate, must be the claimed one
+    let verified = session
+        .client()?
+        .info()
+        .await
+        .map_err(ClaimError::Core)?;
+    if verified.uuid != session.info.uuid {
+        return Err(ClaimError::NotThisCore);
+    }
+    Ok(session)
 }
 
 /// `url` over HTTPS: the same host and port.
@@ -1247,6 +1388,57 @@ mod tests {
         ));
         fs::write(dir.join("result.json"), "x".repeat(20_000)).unwrap();
         assert!(read_result(&claim).is_err(), "too large");
+    }
+
+    #[test]
+    fn a_session_result_carries_a_token_and_no_key_is_needed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = core_folder(tmp.path(), "c1");
+        let claim = open(tmp.path(), "c1");
+        let write = |result: serde_json::Value| {
+            fs::write(dir.join("result.json"), result.to_string()).unwrap();
+        };
+        write(serde_json::json!({
+            "session_token": "eyJhbGciOiJIUzUxMiJ9.e30.sig",
+            "reply": "mine",
+            "owner_created": false,
+            "owner_username": "boss",
+            "tls_fingerprint_sha256": FINGERPRINT,
+        }));
+        let result = read_result(&claim).unwrap().unwrap();
+        assert_eq!(check_result_for(&result, "mine", true).unwrap(), FINGERPRINT);
+        // a key claim needs its key
+        assert!(matches!(
+            check_result_for(&result, "mine", false),
+            Err(ClaimError::Invalid(_))
+        ));
+        assert_eq!(
+            check_result_for(&result, "other", true).err(),
+            Some(ClaimError::NotThisCore)
+        );
+        // an older core answers a session claim with a key
+        write(serde_json::json!({
+            "api_key": "lsk_k1_s3cret",
+            "reply": "mine",
+            "owner_created": false,
+            "owner_username": "boss",
+            "tls_fingerprint_sha256": FINGERPRINT,
+        }));
+        let result = read_result(&claim).unwrap().unwrap();
+        assert!(matches!(
+            check_result_for(&result, "mine", true),
+            Err(ClaimError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn a_session_claim_writes_no_owner_file_without_an_owner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = core_folder(tmp.path(), "c1");
+        write_claim_with(&open(tmp.path(), "c1"), &start("c1"), None).unwrap();
+        assert!(dir.join("claim").exists());
+        assert!(dir.join("reply").exists());
+        assert!(!dir.join("owner.json").exists());
     }
 
     #[test]
