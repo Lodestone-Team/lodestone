@@ -1,6 +1,8 @@
 //! The Logs tab: the selected instance's console, live.
 //!
 //! Rows are coloured by level, can be filtered by level and searched, and copied.
+//! Their messages select like one big text field (`components::log_view`): drag
+//! across rows, ⌘A selects the rows shown, ⌘C copies the selected messages.
 //! The list follows new output until the user scrolls up, and follows again once
 //! they scroll back to the bottom. It keeps the last 10,000 rows.
 
@@ -13,10 +15,11 @@ use gpui::{
 };
 use launcher_core::game::log4j::{Level, Stream};
 
-use super::{Instances, LogRow};
+use super::{GameLog, Instances, LogRow};
 use crate::components::{
-    KeyboardFocus, RichText,
+    CopySelection, KeyboardFocus,
     a11y::{Accessible, Role, Toggled},
+    log_view::{self, LineSource, LogLine, LogSelection, SelectAll},
 };
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, TextInput},
@@ -61,7 +64,31 @@ pub struct Console {
     /// The log revision last scrolled to.
     seen: (Option<String>, u64),
     copied: bool,
+    selection: LogSelection,
     _observe: Vec<Subscription>,
+}
+
+/// The rows shown, for the selection: their messages, by row id.
+struct Shown<'a> {
+    log: &'a GameLog,
+    visible: &'a [usize],
+}
+
+impl LineSource for Shown<'_> {
+    fn line_count(&self) -> usize {
+        self.visible.len()
+    }
+
+    fn line_id(&self, ix: usize) -> u64 {
+        self.log.row_id(self.visible[ix])
+    }
+
+    fn line_text(&self, ix: usize) -> &str {
+        self.log
+            .rows()
+            .get(self.visible[ix])
+            .map_or("", |row| row.text.as_ref())
+    }
 }
 
 impl Console {
@@ -71,6 +98,21 @@ impl Console {
                 .with_placeholder(M::SearchLog)
                 .with_automation_id("log-search")
         });
+        let selection = LogSelection::new(cx);
+        {
+            let console = cx.entity().downgrade();
+            selection.on_drag(move |dragging, _, cx| {
+                console
+                    .update(cx, |this, cx| {
+                        // Once released, follow again only if still at the bottom.
+                        if !dragging {
+                            this.follow = this.scroll.is_scrolled_to_end() != Some(false);
+                        }
+                        cx.notify();
+                    })
+                    .ok();
+            });
+        }
         let observe = vec![
             cx.observe(&instances, |_, _, cx| cx.notify()),
             cx.observe(&search, |_, _, cx| cx.notify()),
@@ -83,6 +125,7 @@ impl Console {
             follow: true,
             seen: (None, 0),
             copied: false,
+            selection,
             _observe: observe,
         }
     }
@@ -142,6 +185,50 @@ impl Console {
         cx.notify();
     }
 
+    /// Selects from the middle of the third row shown to the middle of the seventh,
+    /// for the offscreen screenshots.
+    pub fn preview_select(&mut self, cx: &mut Context<Self>) {
+        use crate::components::log_view::{Caret, Selection};
+        let selection = self.with_shown(cx, |shown| {
+            (shown.line_count() >= 7).then(|| {
+                Selection::new(
+                    Caret::new(shown.line_id(2), 6),
+                    Caret::new(shown.line_id(6), 12),
+                )
+            })
+        });
+        self.selection.set(selection.flatten());
+        cx.notify();
+    }
+
+    /// Runs `f` on the rows shown, for the selection.
+    fn with_shown<R>(&self, cx: &gpui::App, f: impl FnOnce(&Shown) -> R) -> Option<R> {
+        let visible = self.visible(cx);
+        let instances = self.instances.read(cx);
+        let log = instances
+            .selected()
+            .and_then(|instance| instances.log(&instance.id))?;
+        Some(f(&Shown {
+            log,
+            visible: &visible,
+        }))
+    }
+
+    fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+        let selection = self.selection.clone();
+        self.with_shown(cx, |shown| selection.select_all(shown));
+        cx.notify();
+    }
+
+    fn copy_selection(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
+        let text = self
+            .with_shown(cx, |shown| self.selection.text(shown))
+            .flatten();
+        if let Some(text) = text {
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+        }
+    }
+
     fn on_scroll(&mut self, event: &ScrollEvent, _: &mut Window, cx: &mut Context<Self>) {
         let delta = event.delta.pixel_delta(px(16.));
         if delta.y > px(0.) {
@@ -160,7 +247,12 @@ impl Console {
     }
 }
 
-fn row_element(index: usize, row: &LogRow) -> gpui::Stateful<gpui::Div> {
+fn row_element(
+    index: usize,
+    row: &LogRow,
+    selection: &LogSelection,
+    id: u64,
+) -> gpui::Stateful<gpui::Div> {
     let color = level_color(row.level);
     div()
         .id(("log-row", index))
@@ -218,7 +310,7 @@ fn row_element(index: usize, row: &LogRow) -> gpui::Stateful<gpui::Div> {
                     }
                     _ => color,
                 })
-                .child(RichText::new(row.text.clone())),
+                .child(LogLine::new(selection, id, row.text.clone())),
         )
 }
 
@@ -235,7 +327,12 @@ impl Render for Console {
                 .map_or(0, |log| log.revision);
             (id, revision)
         };
-        if self.seen != (selected_id.clone(), revision) {
+        if self.seen.0.is_some() && self.seen.0 != selected_id {
+            // Another instance's log: its row ids are its own.
+            self.selection.clear();
+        }
+        // Not while selecting: the rows would move under the pointer.
+        if self.seen != (selected_id.clone(), revision) && !self.selection.is_dragging() {
             self.seen = (selected_id.clone(), revision);
             self.copied = false;
             if self.follow && count > 0 {
@@ -297,7 +394,8 @@ impl Render for Console {
                 }))
                 .into_any_element()
         } else {
-            uniform_list(
+            let scroll = self.scroll.clone();
+            let list = uniform_list(
                 "log-rows",
                 count,
                 cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
@@ -310,15 +408,25 @@ impl Render for Console {
                     };
                     range
                         .filter_map(|index| {
-                            let row = log.rows().get(*visible.get(index)?)?;
-                            Some(row_element(index, row))
+                            let at = *visible.get(index)?;
+                            let row = log.rows().get(at)?;
+                            Some(row_element(index, row, &this.selection, log.row_id(at)))
                         })
                         .collect()
                 }),
             )
             .track_scroll(&self.scroll)
             .size_full()
-            .py_2()
+            .py_2();
+            log_view::log_view("log-lines", &self.selection, list, move |by, _, _| {
+                // Offsets are negative going down.
+                let base = &scroll.0.borrow().base_handle;
+                let mut offset = base.offset();
+                offset.y = (offset.y - by).clamp(-base.max_offset().y, px(0.));
+                base.set_offset(offset);
+            })
+            .on_action(cx.listener(Self::select_all))
+            .on_action(cx.listener(Self::copy_selection))
             .into_any_element()
         };
 

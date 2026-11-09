@@ -16,8 +16,9 @@
 //! that does not drag still reaches the element underneath, so text inside a
 //! clickable row or card keeps the row clickable.
 //!
-//! Use it for text people may want to copy: names, versions, paths, addresses,
-//! messages and logs. Not for the labels of buttons, tabs, menus and toggles.
+//! Use it for text people may want to copy: names, versions, paths, addresses and
+//! messages. Not for the labels of buttons, tabs, menus and toggles. For a long list
+//! of lines, such as a log, use [`super::log_view`]: its selection runs across lines.
 
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
@@ -265,7 +266,7 @@ fn readable(rgb: u32) -> u32 {
 
 /// The word around `index`: letters, digits and `_`, or a run of spaces, or one
 /// other character.
-fn word_at(text: &str, index: usize) -> Range<usize> {
+pub(super) fn word_at(text: &str, index: usize) -> Range<usize> {
     #[derive(PartialEq)]
     enum Class {
         Word,
@@ -312,14 +313,14 @@ fn word_at(text: &str, index: usize) -> Range<usize> {
 }
 
 /// The line (between newlines) around `index`.
-fn line_at(text: &str, index: usize) -> Range<usize> {
+pub(super) fn line_at(text: &str, index: usize) -> Range<usize> {
     let index = floor_char_boundary(text, index);
     let start = text[..index].rfind('\n').map_or(0, |i| i + 1);
     let end = text[index..].find('\n').map_or(text.len(), |i| index + i);
     start..end
 }
 
-fn floor_char_boundary(text: &str, index: usize) -> usize {
+pub(super) fn floor_char_boundary(text: &str, index: usize) -> usize {
     let mut index = index.min(text.len());
     while !text.is_char_boundary(index) {
         index -= 1;
@@ -388,7 +389,14 @@ impl Element for RichText {
         if let Some(position) = menu_at {
             // Over everything else, as popovers are. Laid out on its own here: the
             // text's layout is a measured leaf with no room for a child.
-            let mut menu = copy_menu(position);
+            let mut menu = copy_menu(position, |_, cx| {
+                copy_selection(cx);
+                with_selection(|selection| {
+                    if let Some(s) = selection.as_mut() {
+                        s.menu = None;
+                    }
+                });
+            });
             menu.layout_as_root(window.viewport_size().into(), window, cx);
             window.defer_draw(menu, Point::default(), 2, None);
         }
@@ -624,7 +632,7 @@ impl Element for RichText {
 }
 
 /// Fills the selected part of each line the text takes.
-fn paint_selection(
+pub(super) fn paint_selection(
     layout: &gpui::TextLayout,
     range: Range<usize>,
     bounds: Bounds<Pixels>,
@@ -658,8 +666,11 @@ fn paint_selection(
     window.paint_quad(rect(bounds.left(), end.y, end.x));
 }
 
-/// The right-click menu: Copy.
-fn copy_menu(position: Point<Pixels>) -> AnyElement {
+/// The right-click menu: Copy, which calls `on_copy`.
+pub(super) fn copy_menu(
+    position: Point<Pixels>,
+    on_copy: impl Fn(&mut Window, &mut App) + 'static,
+) -> AnyElement {
     anchored()
         .position(position)
         .snap_to_window_with_margin(px(8.))
@@ -675,13 +686,8 @@ fn copy_menu(position: Point<Pixels>) -> AnyElement {
                     .text_color(colors::GRAY_300)
                     .hover(|style| style.bg(colors::GRAY_700))
                     .child(t(CommonMsg::Copy))
-                    .on_mouse_down(MouseButton::Left, |_, window, cx| {
-                        copy_selection(cx);
-                        with_selection(|selection| {
-                            if let Some(s) = selection.as_mut() {
-                                s.menu = None;
-                            }
-                        });
+                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                        on_copy(window, cx);
                         cx.stop_propagation();
                         window.refresh();
                     }),

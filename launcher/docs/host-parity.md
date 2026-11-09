@@ -83,7 +83,8 @@ python3 scripts/host_dev_bundle.py --open             # "Lodestone Host Dev.app"
   power buttons against an unknown instance id, or a fixture instance you don't start.
 - More screenshot flags: `--settings general|users|profile|updates`, `--cores`,
   `--notifications`, `--create games|basic|server|auto|modpack`, `--demo` (sample data
-  on the Console, Files and Overview), `--find <text>` (the editor's find bar, with
+  on the Console, Files and Overview), `--select-lines` (a selection across the
+  Console's lines, with `--tab console --demo`), `--find <text>` (the editor's find bar, with
   `--tab files --demo`), `--degraded` (the "live updates stopped" banner), `--height <px>`.
   For a run that acts as a user would: `--owner <name>` fills in the first run's forms
   (the password comes from `LODESTONE_E2E_PASSWORD`), `--share` presses the sidebar's

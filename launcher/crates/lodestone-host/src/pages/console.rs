@@ -4,7 +4,9 @@
 //! list follows new lines until scrolled up; a command line with ↑/↓ history.
 //!
 //! The list is virtualized, so it shows all 5,000 lines kept (the dashboard drew
-//! only the newest 2,000, for the browser's sake).
+//! only the newest 2,000, for the browser's sake). It selects like one big text
+//! field (`lodestone_ui::components::log_view`): drag across lines, ⌘A selects the
+//! lines shown, ⌘C copies.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -24,9 +26,10 @@ use launcher_core::cores::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, Checkbox, Icon, RichText, TextInput, Toast,
+        Button, ButtonSize, Checkbox, CopySelection, Icon, TextInput, Toast,
         a11y::{Accessible, Role},
         console_line::{ParsedConsoleLine, console_text, parse_console_line},
+        log_view::{self, LineSource, LogSelection, SelectAll},
         text_tooltip,
     },
     theme::{Color, colors, fonts, ink, px, radius, text, weights},
@@ -264,6 +267,22 @@ impl ConsoleLog {
     }
 }
 
+/// The lines shown, for the selection. Their ids are their snowflakes, which grow
+/// down the list as the lines are kept in snowflake order.
+impl LineSource for ConsoleLog {
+    fn line_count(&self) -> usize {
+        self.shown_len()
+    }
+
+    fn line_id(&self, ix: usize) -> u64 {
+        self.shown(ix).map_or(0, |line| line.snowflake as u64)
+    }
+
+    fn line_text(&self, ix: usize) -> &str {
+        self.shown(ix).map_or("", |line| line.parsed.plain.as_str())
+    }
+}
+
 /// The console's connection, for the status dot (`ConsoleStreamStatus`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StreamStatus {
@@ -324,6 +343,9 @@ pub struct ConsolePage {
     can_read: bool,
     linked: LinkedPlayers,
     list: ListState,
+    selection: LogSelection,
+    /// Following new lines is paused while a press selects.
+    follow_paused: bool,
     search: Entity<TextInput>,
     regex: bool,
     command: Entity<TextInput>,
@@ -355,6 +377,14 @@ impl ConsolePage {
         list.set_scroll_handler(move |_, _, cx| {
             page.update(cx, |_, cx| cx.notify()).ok();
         });
+        let selection = LogSelection::new(cx);
+        {
+            let page = cx.entity().downgrade();
+            selection.on_drag(move |dragging, _, cx| {
+                page.update(cx, |this, cx| this.selecting(dragging, cx))
+                    .ok();
+            });
+        }
         let subscriptions = vec![
             cx.observe(&state, |this, _, cx| this.state_changed(cx)),
             cx.observe(&search, |this, _, cx| this.refilter(cx)),
@@ -377,6 +407,8 @@ impl ConsolePage {
             can_read: false,
             linked: LinkedPlayers::default(),
             list,
+            selection,
+            follow_paused: false,
             search,
             regex: true,
             command,
@@ -571,6 +603,33 @@ impl ConsolePage {
         cx.notify();
     }
 
+    /// A press starts or stops selecting: the list stops following new lines
+    /// meanwhile, so they don't move the text under the pointer, and follows again
+    /// after if it is still at the bottom.
+    fn selecting(&mut self, dragging: bool, cx: &mut Context<Self>) {
+        if dragging {
+            if self.list.is_following_tail() {
+                self.list.set_follow_mode(FollowMode::Normal);
+                self.follow_paused = true;
+            }
+        } else if std::mem::take(&mut self.follow_paused) {
+            let top = self.list.logical_scroll_top();
+            self.list.set_follow_mode(FollowMode::Tail);
+            // Back where it was: following resumes once it shows the bottom.
+            self.list.scroll_to(top);
+        }
+        cx.notify();
+    }
+
+    fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+        self.selection.select_all(&self.log);
+        cx.notify();
+    }
+
+    fn copy(&mut self, _: &CopySelection, _: &mut Window, cx: &mut Context<Self>) {
+        self.selection.copy(&self.log, cx);
+    }
+
     fn refilter(&mut self, cx: &mut Context<Self>) {
         let text = self.search.read(cx).text().to_string();
         self.log.set_filter(&text, self.regex);
@@ -695,6 +754,21 @@ impl ConsolePage {
         cx.notify();
     }
 
+    /// Selects from the middle of the third line shown to the middle of the sixth,
+    /// for the development screenshots' `--select-lines`.
+    #[cfg(feature = "screenshot")]
+    pub fn select_for_screenshot(&mut self, cx: &mut Context<Self>) {
+        use lodestone_ui::components::log_view::{Caret, Selection};
+        if self.log.shown_len() < 6 {
+            return;
+        }
+        self.selection.set(Some(Selection::new(
+            Caret::new(self.log.line_id(2), 12),
+            Caret::new(self.log.line_id(5), 30),
+        )));
+        cx.notify();
+    }
+
     fn row(&self, ix: usize, cx: &App) -> AnyElement {
         let Some(line) = self.log.shown(ix) else {
             return div().into_any_element();
@@ -710,8 +784,9 @@ impl ConsolePage {
             .py(px(2.))
             .text_color(styled.color)
             .hover(|style| style.bg(colors::GRAY_800))
-            .child(div().min_w_0().child(RichText::styled(
-                ("console-line", line.snowflake as u64),
+            .child(div().min_w_0().child(log_view::LogLine::styled(
+                &self.selection,
+                line.snowflake as u64,
                 styled.text,
                 text,
             )))
@@ -813,12 +888,20 @@ impl Render for ConsolePage {
         } else if self.log.is_empty() {
             graphic(Icon::Server, t(M::ConsoleEmpty), None).into_any_element()
         } else {
-            list(
-                self.list.clone(),
-                cx.processor(|this, ix, _, cx| this.row(ix, cx)),
+            let state = self.list.clone();
+            log_view::log_view(
+                "console-log",
+                &self.selection,
+                list(
+                    self.list.clone(),
+                    cx.processor(|this, ix, _, cx| this.row(ix, cx)),
+                )
+                .size_full()
+                .py(px(12.)),
+                move |by, _, _| state.scroll_by(by),
             )
-            .size_full()
-            .py(px(12.))
+            .on_action(cx.listener(Self::select_all))
+            .on_action(cx.listener(Self::copy))
             .into_any_element()
         };
 
@@ -885,7 +968,7 @@ impl Render for ConsolePage {
                             .child(div().size(px(9.)).rounded_full().bg(status_color)),
                     )
                     .when(
-                        !following && !self.log.is_empty() && !no_permission,
+                        !following && !self.follow_paused && !self.log.is_empty() && !no_permission,
                         |this| {
                             let page = cx.entity().downgrade();
                             this.child(
@@ -1031,6 +1114,33 @@ mod tests {
         assert_eq!(shown(&log), vec![2, 4]);
         log.set_filter("", true);
         assert_eq!(log.shown_len(), 4);
+    }
+
+    #[test]
+    fn a_selection_keeps_to_its_lines_through_trims_and_filters() {
+        use lodestone_ui::components::log_view::{Caret, Selection};
+        let none = LinkedPlayers::default();
+        let mut log = ConsoleLog::default();
+        log.merge(lines(0..MAX_CONSOLE_LINES as i64), &none);
+        // "line 10" to "line 12", from the middle of each end.
+        let selection = Selection::new(Caret::new(10, 5), Caret::new(12, 6));
+        assert_eq!(selection.text(&log), "10\nline 11\nline 1");
+        // ⌘A takes the lines shown, by the filter.
+        log.set_filter(r"^line 1\d$", true);
+        assert_eq!(
+            Selection::all(&log).unwrap().text(&log),
+            (10..20)
+                .map(|n| format!("line {n}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        assert_eq!(selection.text(&log), "10\nline 11\nline 1");
+        log.set_filter("", true);
+        // New lines push the oldest out: the selection stays on its lines, until its
+        // first line goes and it starts at the next.
+        let end = MAX_CONSOLE_LINES as i64;
+        log.merge(lines(end..end + 11), &none);
+        assert_eq!(selection.text(&log), "line 11\nline 1");
     }
 
     #[test]
