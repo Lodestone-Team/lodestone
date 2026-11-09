@@ -30,6 +30,15 @@ use crate::{
 pub const SCENES: &[&str] = &[
     "signed-out",
     "home",
+    "skin-grassblock",
+    "skin-glass",
+    "skin-neon",
+    "skin-overrides",
+    "skin-bright",
+    "sidebar-resized",
+    "sidebar-rail",
+    "sidebar-rail-skin",
+    "settings-skin",
     "account-menu",
     "needs-sign-in",
     "sign-in",
@@ -52,6 +61,9 @@ pub const SCENES: &[&str] = &[
     "rosetta",
     "content-mods",
     "content-browse",
+    "content-search",
+    "content-search-modrinth-only",
+    "content-menu",
     "content-project",
     "content-resourcepacks",
     "content-shaders",
@@ -188,6 +200,11 @@ fn has_instances(scene: &str) -> bool {
         || servers::has_instances(scene)
         || scene == "instance-linked"
         || is_appearance_scene(scene)
+        || scene.starts_with("skin-")
+        || matches!(
+            scene,
+            "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin"
+        )
 }
 
 /// `--lang <tag>`: shows the scene in that language (`en`, `fr`, `zh-Hans`,
@@ -710,6 +727,57 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 _ => crate::shell::SettingsPage::Defaults,
             };
             shell.open_settings(Some(page), None, cx);
+        }
+        "skin-bright" => {
+            // a pack with a bright sky behind the sidebar and no tint: the text has
+            // to look after itself
+            let instances = shell.instances().clone();
+            let store = instances.read(cx).skins();
+            let mut spec = launcher_core::ui_skin::SkinSpec::named("Bright");
+            spec.sidebar.image = Some("builtin:sky".into());
+            spec.banner.in_sidebar = true;
+            if store.save("bright", &spec).is_ok() {
+                instances.update(cx, |instances, cx| {
+                    instances.set_skin(Some("bright".into()), cx)
+                });
+            }
+        }
+        "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" => {
+            let instances = shell.instances().clone();
+            instances.update(cx, |instances, cx| {
+                if scene == "sidebar-resized" {
+                    instances.set_sidebar(320.0, false, cx);
+                } else {
+                    instances.set_sidebar(crate::theme::layout::SIDEBAR_DEFAULT, true, cx);
+                }
+                if scene == "sidebar-rail-skin" {
+                    instances.set_skin(Some("grassblock".into()), cx);
+                }
+            });
+        }
+        "skin-grassblock" | "skin-glass" | "skin-neon" | "skin-overrides" | "settings-skin" => {
+            let id = match scene {
+                "skin-glass" => "glass",
+                "skin-neon" | "skin-overrides" => "neon",
+                _ => "grassblock",
+            };
+            let instances = shell.instances().clone();
+            instances.update(cx, |instances, cx| instances.set_skin(Some(id.into()), cx));
+            if scene == "skin-overrides" {
+                instances.update(cx, |instances, cx| {
+                    if let Some(selected) = instances.selected().map(|i| i.id.clone()) {
+                        let _ = instances.set_instance_colors(
+                            &selected,
+                            Some(launcher_core::ui_skin::Rgb(0xEFB440)),
+                            Some(launcher_core::ui_skin::Rgb(0x6DD277)),
+                            cx,
+                        );
+                    }
+                });
+            }
+            if scene == "settings-skin" {
+                shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
+            }
         }
         "settings-storage" | "settings-storage-confirm" => {
             shell.open_settings(Some(crate::shell::SettingsPage::Storage), None, cx);

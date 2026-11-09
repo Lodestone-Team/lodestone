@@ -109,6 +109,16 @@ fn source(project: &str, slug: &str, title: &str, version: &str, icon: bool) -> 
     }
 }
 
+/// A made-up Modrinth result: id, slug, title, author, description, downloads.
+type Hit = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    u64,
+);
+
 pub(super) fn icon_url(project: &str) -> String {
     format!("https://cdn.modrinth.com/data/{project}/icon.png")
 }
@@ -139,6 +149,7 @@ fn remember(
             sha512: lodestone_minecraft::hash::sha512_of(&path).unwrap_or_default(),
             modrinth: Some(source),
             looked_up: false,
+            ..Default::default()
         },
     );
 }
@@ -416,6 +427,13 @@ fn icons() -> HashMap<String, std::sync::Arc<gpui::RenderImage>> {
         ("Q1vvjJYV", [60, 120, 200]),
         ("NNAgCjsB", [200, 90, 90]),
         ("Bh37bMuy", [80, 170, 170]),
+        ("rpFrMove", [210, 110, 50]),
+        ("rpFrExt0", [220, 160, 50]),
+        ("rpFrFood", [120, 160, 60]),
+        ("rpFrWatr", [50, 130, 210]),
+        ("rpSkyDra", [70, 90, 200]),
+        ("rpSkyBox", [120, 70, 170]),
+        ("rpClouds", [150, 170, 210]),
     ]
     .into_iter()
     .map(|(id, rgb)| (icon_url(id), crate::images::render_image(icon(rgb))))
@@ -446,6 +464,10 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
         "content-resourcepacks" => {
             view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx)
         }
+        "content-menu" => {
+            view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
+            view.menu_open = true;
+        }
         "content-shaders" => {
             view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
         }
@@ -470,6 +492,91 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
         ),
         "content-shaders-vanilla" => {
             view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
+        }
+        "content-search" | "content-search-modrinth-only" => {
+            view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx);
+            let (text, hits, total): (&str, &[Hit], u64) = if scene == "content-search" {
+                (
+                    "fresh",
+                    &[
+                        (
+                            "rpFrMove",
+                            "fresh-moves",
+                            "Fresh Moves",
+                            "FreshTeam",
+                            "New animations for the player",
+                            3_200_000,
+                        ),
+                        (
+                            "rpFrExt0",
+                            "fresh-animations-extensions",
+                            "Fresh Animations: Extensions",
+                            "FreshTeam",
+                            "More mobs, same style",
+                            1_100_000,
+                        ),
+                        (
+                            "rpFrFood",
+                            "fresh-food",
+                            "Fresh Food",
+                            "Cookie",
+                            "Food that looks good enough to eat",
+                            640_000,
+                        ),
+                        (
+                            "rpFrWatr",
+                            "fresher-water",
+                            "Fresher Water",
+                            "Wave",
+                            "Clearer, livelier water",
+                            410_000,
+                        ),
+                    ],
+                    214,
+                )
+            } else {
+                (
+                    "sky",
+                    &[
+                        (
+                            "rpSkyDra",
+                            "dramatic-skys",
+                            "Dramatic Skys",
+                            "Ezzenix",
+                            "Hand-painted skies for every time of day",
+                            4_800_000,
+                        ),
+                        (
+                            "rpSkyBox",
+                            "sky-boxes-plus",
+                            "Sky Boxes Plus",
+                            "Nimbus",
+                            "Sunsets and night skies",
+                            820_000,
+                        ),
+                        (
+                            "rpClouds",
+                            "better-clouds-pack",
+                            "Better Clouds Pack",
+                            "Cirrus",
+                            "Softer, fuller clouds",
+                            350_000,
+                        ),
+                    ],
+                    87,
+                )
+            };
+            let response: ModrinthSearchResponse = serde_json::from_value(json!({
+                "hits": hits.iter().map(|(id, slug, title, author, description, downloads)| json!({
+                    "project_id": id, "slug": slug, "project_type": "resourcepack", "title": title,
+                    "description": description, "author": author, "icon_url": icon_url(id),
+                    "downloads": downloads, "follows": downloads / 1400, "categories": [], "versions": [],
+                    "date_modified": "", "client_side": "required", "server_side": "unsupported",
+                })).collect::<Vec<_>>(),
+                "offset": 0, "limit": 20, "total_hits": total,
+            }))
+            .expect("a valid response");
+            view.preview_results(ContentKind::ResourcePack, text, response.normalize(), cx);
         }
         "content-browse" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
@@ -534,7 +641,7 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                 "offset": 0, "limit": 20, "total_hits": 2481,
             }))
             .expect("a valid response");
-            view.preview_results(ContentKind::Mod, "", response.normalize(), cx);
+            view.preview_results(ContentKind::Mod, "so", response.normalize(), cx);
         }
         "content-project" | "content-description" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);

@@ -200,7 +200,8 @@ fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::S
         .cursor_pointer()
         .map(|this| {
             if selected {
-                this.bg(colors::BLUE.opacity(35)).text_color(colors::WHITE)
+                this.bg(crate::theme::accent::base().opacity(35))
+                    .text_color(colors::WHITE)
             } else {
                 this.text_color(colors::GRAY_300)
                     .hover(|style| style.bg(colors::GRAY_700))

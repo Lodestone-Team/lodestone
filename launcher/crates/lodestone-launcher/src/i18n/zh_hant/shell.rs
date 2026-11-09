@@ -12,9 +12,9 @@ pub fn text(message: M) -> &'static str {
         M::ZoomOut => "縮小",
         M::ActualSize => "實際大小",
         M::EditMenu => "編輯",
-        M::Undo => "還原",
+        M::Undo => "復原",
         M::Redo => "重做",
-        M::Undid => "已還原：{change}",
+        M::Undid => "已復原：{change}",
         M::Redid => "已重做：{change}",
         M::ChangeTo => "{setting} → {value}",
         M::SettingsOf => "{name} 的設定",
@@ -40,7 +40,7 @@ pub fn text(message: M) -> &'static str {
         M::GroupImported => "已匯入",
 
         M::NoInstanceSelected => "未選取實例",
-        M::NoInstanceSelectedHint => "建立實例，選擇 Minecraft 版本和載入器。",
+        M::NoInstanceSelectedHint => "建立實例，即可選擇 Minecraft 版本和載入器。",
         M::MinecraftVersion => "Minecraft {version}",
         M::MinecraftWith => "Minecraft {version}，{loader}",
         M::HeroPlayed => "{game}。已遊玩 {time}。",
@@ -60,9 +60,9 @@ pub fn text(message: M) -> &'static str {
         M::PlayWithoutJoining => "開始遊戲但不加入",
 
         M::DeleteNamed => "刪除「{name}」？",
-        M::DeleteWorldBody => "這個世界的資料夾會移到{trash}，你可以從那裡復原。它的備份會保留。",
+        M::DeleteWorldBody => "這個世界的資料夾會移到{trash}，你可以從那裡還原。它的備份會保留。",
         M::DeleteInstanceBody => {
-            "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡復原。"
+            "這個實例的資料夾（包括其中的世界、模組和設定）會移到{trash}。你可以從那裡還原。"
         }
         M::ReplaceWorldTitle => "用這個備份取代「{name}」？",
         M::ReplaceWorldBody => {
@@ -77,7 +77,7 @@ pub fn text(message: M) -> &'static str {
         M::TurningOffRenames => {
             "停用後，它們會被重新命名為 .disabled，之後你可以在「內容」中重新啟用。"
         }
-        M::WorldsAtRisk => "使用過這些模組中方塊或物品的世界可能會失去它們。請先備份你的世界。",
+        M::WorldsAtRisk => "使用過這些模組中的方塊或物品的世界可能會失去它們。請先備份你的世界。",
         M::TurnOffAndSave => "停用並儲存",
         M::SaveAndKeep => "儲存並保留",
         M::RemoveAccountTitle => "移除「{name}」？",
@@ -96,7 +96,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::CauseOutOfMemory => "記憶體不足。請在「設定」中提高記憶體上限，或關閉其他應用程式。",
         M::CauseNatives => {
-            "原生程式庫遺失或不適用於這個處理器。在 Apple 晶片上，1.19 之前的版本會透過 Rosetta 2 在 Intel 版 Java 中執行；請確認已安裝 Rosetta，且自訂 Java 不是 arm64 版。"
+            "原生程式庫遺失，或與處理器架構不符。在 Apple 晶片上，1.19 之前的版本會透過 Rosetta 2 在 Intel 版 Java 中執行；請確認已安裝 Rosetta，且自訂 Java 不是 arm64 版。"
         }
         M::CauseJvmOptions => "Java 拒絕了其中一項設定。請檢查「設定」中的 JVM 參數和記憶體。",
         M::CauseGraphics => {
@@ -114,7 +114,7 @@ pub fn text(message: M) -> &'static str {
         M::UpdatedFiles => "已更新（{count}）",
         M::AddedFiles => "已新增（{count}）",
         M::RemovedFiles => "已移除（{count}）",
-        M::ReplacedOwnFiles => "現由模組包提供的你的檔案（{count}）",
+        M::ReplacedOwnFiles => "原本屬於你、現由模組包提供的檔案（{count}）",
         M::KeptFiles => "保留你的變更（{count}）",
         M::WrittenFiles => "寫入的設定檔和其他檔案（{count}）",
         M::ModpackUpdateSafety => {
@@ -168,7 +168,7 @@ pub fn text(message: M) -> &'static str {
         M::SyncFrom => "同步來源",
         M::SyncFromHint => "在此實例遊戲內的變更會同步到其他實例。",
         M::SyncFromNoneHint => "共用值只在這裡變更。",
-        M::StartFromInstance => "從實例開始",
+        M::StartFromInstance => "從某個實例開始",
         M::CopyFromInstance => "從實例複製…",
         M::ClearShared => "清除共用值",
         M::ClearSharedHint => "各實例保留自己的 options.txt。",
@@ -181,23 +181,23 @@ pub fn text(message: M) -> &'static str {
         M::ServerListHint => "即將推出。",
         M::Source => "來源",
         M::WhatsShared => "共用內容",
-        M::WhatsSharedLead => "關閉的類別由各實例個別保存。",
+        M::WhatsSharedLead => "關閉的類別仍由各實例個別設定。",
         M::CategoryControls => "控制",
-        M::CategoryVideo => "視訊",
+        M::CategoryVideo => "顯示",
         M::CategorySound => "音效",
         M::CategoryAccessibility => "協助工具與聊天",
         M::CategoryLanguage => "語言",
-        M::CategoryControlsHint => "滑鼠、按鍵綁定",
-        M::CategoryVideoHint => "視野、顯示距離、介面大小、圖像品質",
+        M::CategoryControlsHint => "滑鼠、按鍵",
+        M::CategoryVideoHint => "視角廣度、顯示距離、介面大小、畫質",
         M::CategorySoundHint => "音量、字幕",
-        M::CategoryAccessibilityHint => "朗讀程式、聊天、文字背景",
+        M::CategoryAccessibilityHint => "朗讀功能、聊天、文字背景",
         M::CategoryLanguageHint => "遊戲語言和字型",
-        M::NarratorSection => "朗讀程式",
-        M::KeepNarratorOff => "保持關閉朗讀程式",
-        M::KeepNarratorOffHint => "同時略過首次啟動時的輔助使用畫面。",
-        M::NarratorNotShared => "「{category}」未共用，因此每個實例保留自己的朗讀程式設定。",
-        M::NarratorKeptOff => "朗讀程式在每個實例中都保持關閉，包括新實例。",
-        M::NarratorPerInstance => "每個實例重新使用自己的朗讀程式設定。",
+        M::NarratorSection => "朗讀功能",
+        M::KeepNarratorOff => "保持關閉朗讀功能",
+        M::KeepNarratorOffHint => "同時略過首次啟動時的協助工具畫面。",
+        M::NarratorNotShared => "「{category}」未共用，因此每個實例保留自己的朗讀功能設定。",
+        M::NarratorKeptOff => "朗讀功能在每個實例中都保持關閉，包括新實例。",
+        M::NarratorPerInstance => "各實例恢復使用自己的朗讀功能設定。",
 
         M::SigningIn => "正在登入…",
         M::OfflineCouldntConnect => "離線 – 無法連線",
@@ -237,11 +237,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::WhatLauncherGets => "啟動器會取得什麼",
         M::WhatLauncherGetsBody => {
-            "與一般登入相同：讓它能以該帳號玩 Minecraft 的權杖。長期有效的權杖儲存在你的{keychain}中，其餘的只保存在記憶體裡。這些帳號會在帳號選單中標示為「{badge}」。"
+            "與一般登入相同：讓它能以該帳號玩 Minecraft 的權杖。長期有效的權杖儲存在你的{keychain}中，其餘的只儲存在記憶體中。這些帳號會在帳號選單中標示為「{badge}」。"
         }
         M::HowToUndo => "如何復原",
         M::HowToUndoBody => {
-            "關閉這個設定，並將這些帳號登出。關閉時，Lodestone Launcher 會提議將它們登出。"
+            "關閉這個設定，並將這些帳號登出。關閉時，Lodestone Launcher 會詢問是否要將它們登出。"
         }
         M::TurnItOn => "我了解，開啟",
         M::TurnOffLauncherTitle => "關閉以 Minecraft Launcher 身分登入？",
@@ -284,7 +284,7 @@ pub fn text(message: M) -> &'static str {
             "在 Mojang 核准這個應用程式之前，這是正常的。你的帳號沒有任何問題。"
         }
 
-        M::AuthCancelled => "已取消登入",
+        M::AuthCancelled => "登入已取消",
         M::AuthCancelledBody => "登入已取消。",
         M::AuthTimedOut => "登入逾時",
         M::AuthTimedOutBody => "瀏覽器登入未能及時完成。請再試一次，或改用代碼。",
@@ -322,9 +322,9 @@ pub fn text(message: M) -> &'static str {
         M::AuthNotOwnedBody => {
             "這個 Microsoft 帳號沒有 Minecraft: Java Edition。如果你透過 Xbox Game Pass 遊玩，請先在官方啟動器中啟動一次 Minecraft，然後再試一次。"
         }
-        M::AuthNoProfile => "沒有 Minecraft 設定檔",
+        M::AuthNoProfile => "沒有 Minecraft 個人檔案",
         M::AuthNoProfileBody => {
-            "這個帳號還沒有 Minecraft 設定檔。如果你透過 Xbox Game Pass 遊玩，請先在官方啟動器中啟動一次 Minecraft 並選擇名稱，然後再試一次。"
+            "這個帳號還沒有 Minecraft 個人檔案。如果你透過 Xbox Game Pass 遊玩，請先在官方啟動器中啟動一次 Minecraft 並選擇名稱，然後再試一次。"
         }
         M::AuthRateLimited => "嘗試次數過多",
         M::AuthRateLimitedBody => "登入嘗試次數過多。請等候幾分鐘後再試一次。",
@@ -352,7 +352,7 @@ pub fn text(message: M) -> &'static str {
         M::StepXsts => "Xbox Live 授權",
         M::StepMinecraftLogin => "Minecraft 登入",
         M::StepEntitlements => "Minecraft 擁有權檢查",
-        M::StepProfile => "載入 Minecraft 設定檔",
+        M::StepProfile => "載入 Minecraft 個人檔案",
 
         M::AccountsTooNew => {
             "你的帳號由較新版本的 Lodestone Launcher 儲存。在這裡所做的變更將不會儲存。"
@@ -377,8 +377,8 @@ pub fn text(message: M) -> &'static str {
         M::BuildNumber => "組建 {build}",
         M::BuildNumberCommit => "組建 {build} · {commit}",
         M::DevelopmentBuild => "開發組建",
-        M::UpdatesUnavailable => "此組建並非在 GitHub 上發布，因此不會自動更新。",
-        M::UpdateNotChecked => "每隔幾小時在 GitHub 上檢查新組建。",
+        M::UpdatesUnavailable => "此組建未在 GitHub 上發布，因此不會自動更新。",
+        M::UpdateNotChecked => "每隔幾小時檢查一次 GitHub 上是否有新組建。",
         M::UpdateChecking => "正在檢查新組建…",
         M::UpToDate => "目前已是最新組建。",
         M::UpdateAvailable => "組建 {build} 現已可用。",
@@ -397,6 +397,57 @@ pub fn text(message: M) -> &'static str {
 
         M::RestOnModrinth => "其餘說明請在 Modrinth 上查看。",
         M::Storage => "儲存空間",
+        M::Skin => "外觀主題",
+        M::SkinGallery => "外觀主題",
+        M::SkinImport => "匯入…",
+        M::SkinImportButton => "匯入",
+        M::SkinExport => "匯出…",
+        M::SkinNew => "新增外觀主題…",
+        M::SkinDelete => "刪除",
+        M::SkinDeleteConfirm => "刪除 {name}",
+        M::SkinCopyName => "{name} 副本",
+        M::SkinCopied => "已複製 {name} 以便修改。",
+        M::SkinImported => "已匯入 {name}。",
+        M::SkinExported => "已匯出到 {path}。",
+        M::SkinSafeMode => "已在不使用外觀主題的情況下啟動（--no-skin）。",
+        M::SkinCouldntLoad => "無法載入外觀主題：{error}",
+        M::SkinSidebar => "側邊欄",
+        M::SkinImage => "圖片",
+        M::SkinChoose => "選擇…",
+        M::SkinUseImage => "使用圖片",
+        M::SkinRemove => "移除",
+        M::SkinFit => "填滿方式",
+        M::SkinFitCover => "填滿",
+        M::SkinFitTile => "並排",
+        M::SkinTint => "色調",
+        M::SkinTintStrength => "色調強度",
+        M::SkinBlur => "模糊",
+        M::SkinBanner => "實例橫幅",
+        M::SkinBannerInSidebar => "顯示在側邊欄項目後方",
+        M::SkinHero => "「開始遊戲」橫幅",
+        M::SkinHeroHint => "用於沒有自己圖片的實例。",
+        M::SkinPlayButton => "「開始遊戲」按鈕",
+        M::SkinColor => "顏色",
+        M::SkinFadeTo => "漸層到",
+        M::SkinShape => "形狀",
+        M::SkinShapeRounded => "圓角",
+        M::SkinShapePill => "膠囊",
+        M::SkinShapePixel => "像素",
+        M::SkinLabel => "文字",
+        M::SkinGlow => "光暈",
+        M::SkinColors => "顏色",
+        M::SkinAccent => "強調色",
+        M::SkinProgress => "進度列",
+        M::SkinDefault => "預設",
+        M::SkinNone => "無",
+        M::SkinReadable => "文字保持清晰可讀。",
+        M::SkinAdjusted => "強調色已調整以保持可讀。",
+        M::SkinReset => "還原為預設",
+        M::SkinContrastSidebar => "側邊欄文字 {ratio}:1",
+        M::SkinContrastHero => "「開始遊戲」橫幅 {ratio}:1",
+        M::SkinFixReadability => "修正可讀性",
+        M::SkinPlayColor => "「開始遊戲」按鈕顏色",
+        M::SkinUseSkins => "跟隨外觀主題",
         M::StorageInstances => "實例",
         M::StorageGameFiles => "遊戲檔案",
         M::StorageRuntimes => "Java 執行環境",
@@ -407,8 +458,8 @@ pub fn text(message: M) -> &'static str {
             "這將釋放 {size}。這些是未完成的模組包下載和匯入留下的檔案。"
         }
         M::StorageOther => "設定和其他檔案",
-        M::StorageCacheAndLogs => "快取和記錄",
-        M::StorageLogs => "記錄和當機報告",
+        M::StorageCacheAndLogs => "快取和日誌",
+        M::StorageLogs => "日誌和當機報告",
         M::StorageOldLogs => "{size} 超過 30 天",
         M::StorageVersions => "版本",
         M::StorageLibraries => "程式庫",
@@ -424,8 +475,8 @@ pub fn text(message: M) -> &'static str {
         M::StorageCounting => "正在統計…",
         M::StorageCouldntCount => "無法統計檔案：{error}",
         M::StorageStopGame => "請先停止遊戲，再移除遊戲檔案、Java 執行環境或快取。",
-        M::StorageOpenFolder => "打開資料夾",
-        M::StorageOpen => "打開",
+        M::StorageOpenFolder => "開啟資料夾",
+        M::StorageOpen => "開啟",
         M::StorageDelete => "刪除…",
         M::StorageRemoveEllipsis => "移除…",
         M::StorageClearEllipsis => "清除…",
@@ -444,11 +495,11 @@ pub fn text(message: M) -> &'static str {
         M::StorageCleanRuntimesBody => "這將釋放 {size}。Minecraft 版本需要時會重新下載。",
         M::StorageClearCacheTitle => "清除快取？",
         M::StorageClearCacheBody => "這將釋放 {size}。啟動器會重新下載所需內容。",
-        M::StorageDeleteOldLogsTitle => "刪除舊記錄？",
-        M::StorageDeleteOldLogsBody => "這將釋放 {size}。超過 30 天的記錄和當機報告會被永久刪除。",
-        M::StorageDeleteAllLogsTitle => "刪除所有記錄？",
+        M::StorageDeleteOldLogsTitle => "刪除舊日誌？",
+        M::StorageDeleteOldLogsBody => "這將釋放 {size}。超過 30 天的日誌和當機報告會被永久刪除。",
+        M::StorageDeleteAllLogsTitle => "刪除所有日誌？",
         M::StorageDeleteAllLogsBody => {
-            "這將釋放 {size}。所有記錄和當機報告都會被永久刪除，正在執行的遊戲的除外。"
+            "這將釋放 {size}。所有日誌和當機報告都會被永久刪除，正在執行的遊戲的除外。"
         }
     }
 }

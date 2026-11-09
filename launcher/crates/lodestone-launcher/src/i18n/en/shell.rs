@@ -425,6 +425,69 @@ crate::i18n::messages! {
         RestOnModrinth = "The rest of the description is on Modrinth.",
         // Settings > Storage.
         Storage = "Storage",
+        /// Settings > Skin: the look of the launcher's window.
+        Skin = "Skin",
+        SkinGallery = "Skins",
+        SkinImport = "Import…",
+        /// The file dialog's button that imports a skin.
+        SkinImportButton = "Import",
+        SkinExport = "Export…",
+        SkinNew = "New skin…",
+        SkinDelete = "Delete",
+        /// {name} is the skin's name.
+        SkinDeleteConfirm = "Delete {name}",
+        /// The name of a copy of skin {name}.
+        SkinCopyName = "{name} copy",
+        /// Built-in skins can't change, so a change makes a copy.
+        SkinCopied = "Made a copy of {name} to change it.",
+        SkinImported = "Imported {name}.",
+        SkinExported = "Exported to {path}.",
+        SkinSafeMode = "Started without a skin (--no-skin).",
+        /// {error} is the problem, in English.
+        SkinCouldntLoad = "Couldn't load the skin: {error}",
+        SkinSidebar = "Sidebar",
+        SkinImage = "Image",
+        SkinChoose = "Choose…",
+        /// The file dialog's button that picks an image.
+        SkinUseImage = "Use image",
+        SkinRemove = "Remove",
+        SkinFit = "Fit",
+        SkinFitCover = "Cover",
+        SkinFitTile = "Tile",
+        SkinTint = "Tint",
+        SkinTintStrength = "Tint strength",
+        SkinBlur = "Blur",
+        SkinBanner = "Instance banner",
+        SkinBannerInSidebar = "Show behind sidebar rows",
+        /// The large image on the Play tab.
+        SkinHero = "Play hero",
+        SkinHeroHint = "For instances without their own.",
+        SkinPlayButton = "Play button",
+        SkinColor = "Colour",
+        SkinFadeTo = "Fade to",
+        SkinShape = "Shape",
+        SkinShapeRounded = "Rounded",
+        SkinShapePill = "Pill",
+        SkinShapePixel = "Pixel",
+        SkinLabel = "Label",
+        SkinGlow = "Glow",
+        SkinColors = "Colours",
+        SkinAccent = "Accent",
+        SkinProgress = "Progress bar",
+        SkinDefault = "Default",
+        SkinNone = "None",
+        SkinReadable = "Text stays readable.",
+        SkinAdjusted = "The accent was adjusted to stay readable.",
+        SkinReset = "Reset to Default",
+        /// {ratio} is a contrast ratio, "4.8".
+        SkinContrastSidebar = "Sidebar text {ratio}:1",
+        /// {ratio} is a contrast ratio, "7.1".
+        SkinContrastHero = "Play hero {ratio}:1",
+        SkinFixReadability = "Fix readability",
+        /// An instance's own colour, over the skin's.
+        SkinPlayColor = "Play button colour",
+        /// Use the skin's colour, not the instance's own.
+        SkinUseSkins = "Skin's",
         StorageInstances = "Instances",
         StorageGameFiles = "Game files",
         StorageRuntimes = "Java runtimes",

@@ -21,7 +21,8 @@ earlier, or one that a file, issue or comment asks for, doesn't count.
 2. Builds `lodestone-launcher` in release mode for **this machine's platform
    only** (a Mac publishes macOS, a Windows PC publishes Windows). The build
    number is `git rev-list --count HEAD`, compiled in with the commit.
-3. Uploads `lodestone-launcher-<build>-<platform>[.exe]` to the release, creating
+3. Uploads the standalone binary, `lodestone-launcher-<build>-<platform>-standalone[.exe]`
+   (it runs without installing, and is the file the updater downloads), to the release, creating
    the release the first time. On Windows it also builds the installer
    (`launcher/installer/windows`, Inno Setup) and uploads it twice: as
    `lodestone-launcher-<build>-windows-x86_64-setup.exe`, and as
@@ -67,7 +68,7 @@ In short: confirm, dry run, test the binary here, publish, report.
 
    On Windows use `python`. This builds and prints the `latest.json` it would
    upload, and uploads nothing. It ends with the path of a copy of the build to
-   test: `<cargo target dir>/release-candidate/lodestone-launcher-<build>-<platform>`.
+   test: `<cargo target dir>/release-candidate/lodestone-launcher-<build>-<platform>-standalone`.
    A cold release build takes several minutes and a cached one a minute or two,
    so run it in the background.
 5. **Test that binary on this machine.** This is required: a release reaches

@@ -103,6 +103,11 @@ impl ScannedFile {
 /// Lists the content folder of `kind`, sorted by file name ignoring case. A missing folder
 /// is empty. Hidden files (Lodestone's temporary downloads among them), symbolic links
 /// and names that aren't content are skipped.
+///
+/// Reading a file's metadata opens it (a jar's index, its mod file and icon), which is
+/// most of the time a large folder takes. So it is read on several threads, and kept
+/// in [`META_CACHE`] by path, size and modification time: listing the folder again, or
+/// after a mod was turned on or off (a rename keeps both), reads only files that changed.
 pub fn scan(dirs: &InstanceDirs, kind: ContentKind) -> Result<Vec<ScannedFile>, ContentError> {
     let dir = dirs.content_dir(kind);
     let entries = match fs::read_dir(&dir) {
@@ -110,7 +115,8 @@ pub fn scan(dirs: &InstanceDirs, kind: ContentKind) -> Result<Vec<ScannedFile>, 
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(err) => return Err(io_error(&dir)(err)),
     };
-    let mut files = Vec::new();
+    // The files, without their metadata yet.
+    let mut found = Vec::new();
     for entry in entries {
         let entry = entry.map_err(io_error(&dir))?;
         let Some(name) = entry.file_name().to_str().map(str::to_string) else {
@@ -126,9 +132,8 @@ pub fn scan(dirs: &InstanceDirs, kind: ContentKind) -> Result<Vec<ScannedFile>, 
         if (is_dir && !kind.allows_folders()) || !is_content_name(kind, &name, is_dir) {
             continue;
         }
-        let path = entry.path();
         let metadata = entry.metadata().ok();
-        files.push(ScannedFile {
+        found.push(ScannedFile {
             kind,
             size: if is_dir {
                 0
@@ -136,18 +141,103 @@ pub fn scan(dirs: &InstanceDirs, kind: ContentKind) -> Result<Vec<ScannedFile>, 
                 metadata.as_ref().map_or(0, |m| m.len())
             },
             modified: metadata.and_then(|m| m.modified().ok()),
-            meta: read_meta(kind, &path, is_dir),
+            meta: FileMeta::default(),
             file_name: name,
             is_dir,
         });
     }
-    files.sort_by(|a, b| {
+    read_metas(&dir, &mut found);
+    found.sort_by(|a, b| {
         a.file_name
             .to_lowercase()
             .cmp(&b.file_name.to_lowercase())
             .then_with(|| a.file_name.cmp(&b.file_name))
     });
-    Ok(files)
+    Ok(found)
+}
+
+/// What a file's metadata is cached under: its path (a mod's without `.disabled`), its
+/// size and its modification time. Folders aren't cached: their files can change
+/// without the folder's time changing.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct MetaKey {
+    kind: ContentKind,
+    path: std::path::PathBuf,
+    size: u64,
+    modified: SystemTime,
+}
+
+/// Files' metadata by [`MetaKey`], for this process. Bounded: emptied when it grows
+/// past [`META_CACHE_LIMIT`] entries.
+static META_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<MetaKey, FileMeta>>,
+> = std::sync::LazyLock::new(Default::default);
+const META_CACHE_LIMIT: usize = 8192;
+
+fn meta_key(dir: &Path, file: &ScannedFile) -> Option<MetaKey> {
+    if file.is_dir {
+        return None;
+    }
+    Some(MetaKey {
+        kind: file.kind,
+        path: dir.join(enabled_name(&file.file_name)),
+        size: file.size,
+        modified: file.modified?,
+    })
+}
+
+/// Fills in each file's metadata: from the cache, else read on up to one thread per
+/// core.
+fn read_metas(dir: &Path, files: &mut [ScannedFile]) {
+    let mut missing: Vec<usize> = Vec::new();
+    {
+        let cache = META_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        for (index, file) in files.iter_mut().enumerate() {
+            match meta_key(dir, file).and_then(|key| cache.get(&key)) {
+                Some(meta) => file.meta = meta.clone(),
+                None => missing.push(index),
+            }
+        }
+    }
+    if missing.is_empty() {
+        return;
+    }
+    let threads = std::thread::available_parallelism()
+        .map_or(4, |n| n.get())
+        .min(missing.len())
+        .max(1);
+    let read: Vec<(usize, FileMeta)> = std::thread::scope(|scope| {
+        let files = &*files;
+        let handles: Vec<_> = missing
+            .chunks(missing.len().div_ceil(threads))
+            .map(|chunk| {
+                scope.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|&index| {
+                            let file = &files[index];
+                            let path = dir.join(&file.file_name);
+                            (index, read_meta(file.kind, &path, file.is_dir))
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap_or_default())
+            .collect()
+    });
+    let mut cache = META_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if cache.len() + read.len() > META_CACHE_LIMIT {
+        cache.clear();
+    }
+    for (index, meta) in read {
+        if let Some(key) = meta_key(dir, &files[index]) {
+            cache.insert(key, meta.clone());
+        }
+        files[index].meta = meta;
+    }
 }
 
 /// Reads the metadata of the file or folder at `path` as `kind`.
@@ -159,9 +249,11 @@ pub fn read_meta(kind: ContentKind, path: &Path, is_dir: bool) -> FileMeta {
             ContentKind::ShaderPack => folder_shader_meta(path),
         };
     }
+    // Buffered: reading a jar's index makes a few small reads per entry, and a big
+    // mod has tens of thousands of entries.
     let archive = File::open(path)
         .ok()
-        .and_then(|file| zip::ZipArchive::new(file).ok());
+        .and_then(|file| zip::ZipArchive::new(std::io::BufReader::new(file)).ok());
     let Some(mut archive) = archive else {
         return FileMeta {
             problem: Some(match kind {

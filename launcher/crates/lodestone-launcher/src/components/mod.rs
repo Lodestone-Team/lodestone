@@ -8,6 +8,7 @@ mod dialog_slot;
 pub mod focus;
 mod icon;
 mod list_row;
+pub mod motion;
 mod play_button;
 mod segmented;
 pub mod settings;

@@ -24,7 +24,7 @@ pub fn text(message: M) -> &'static str {
         M::None => "无",
         M::NotNow => "以后再说",
         M::Off => "关",
-        M::Ok => "好",
+        M::Ok => "确定",
         M::On => "开",
         M::Open => "打开",
         M::OpenFolder => "打开文件夹",

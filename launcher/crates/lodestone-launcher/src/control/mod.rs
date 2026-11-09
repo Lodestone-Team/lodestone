@@ -27,6 +27,7 @@ mod instances;
 mod jobs;
 mod servers;
 mod settings;
+mod skins;
 mod storage;
 mod trace;
 mod worlds;
@@ -288,6 +289,26 @@ pub const METHODS: &[Method] = &[
         "settings.general.set",
         "Changes general settings.",
         settings::general_set,
+    ),
+    method(
+        "skins.list",
+        "The launcher's skins (built-in and imported packs), and the one in use.",
+        skins::list,
+    ),
+    method(
+        "skins.use",
+        "Uses a skin by id (\"default\" for the default look).",
+        skins::use_skin,
+    ),
+    method(
+        "skins.import",
+        "Imports a skin pack from a .zip file or a folder (absolute path); use: true to use it.",
+        skins::import,
+    ),
+    method(
+        "skins.export",
+        "Writes a skin (the one in use without id) to a .zip file (absolute path).",
+        skins::export,
     ),
     method(
         "storage.show",

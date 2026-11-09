@@ -52,7 +52,11 @@ KEEP = 2
 
 LAUNCHER = Path(__file__).resolve().parent.parent
 ROOT = LAUNCHER.parent
-ASSET_NAME = re.compile(r"^lodestone-launcher-(\d+)-([a-z0-9]+-[a-z0-9_]+)(-setup)?(\.exe)?$")
+# Release files: the standalone binary (`-standalone`) and the Windows installer
+# (`-setup`). Builds published before the standalone suffix have none.
+ASSET_NAME = re.compile(
+    r"^lodestone-launcher-(\d+)-([a-z0-9]+-[a-z0-9_]+)(-standalone|-setup)?(\.exe)?$"
+)
 INSTALLER_SCRIPT = LAUNCHER / "installer" / "windows" / "lodestone-launcher.iss"
 # The installer under a name that never changes, so the download link doesn't either.
 STABLE_INSTALLER = "LodestoneLauncherSetup.exe"
@@ -159,7 +163,10 @@ def check_checkout(allow_dirty: bool, allow_unmerged: bool) -> None:
 
 
 def asset_name(build: int, key: str) -> str:
-    return f"lodestone-launcher-{build}-{key}" + (".exe" if key.startswith("windows-") else "")
+    """The standalone binary: runs from anywhere, without installing, and updates itself.
+    It's the file `latest.json` points the updater at, installed or not."""
+    exe = ".exe" if key.startswith("windows-") else ""
+    return f"lodestone-launcher-{build}-{key}-standalone{exe}"
 
 
 def installer_name(build: int, key: str) -> str:
@@ -413,7 +420,10 @@ class GitHub:
         if any(has_installer(key) for key in manifest["assets"]):
             notes += ["", f"**New on Windows?** Download `{STABLE_INSTALLER}` below and run it. "
                       "It installs for your account without administrator rights, and the "
-                      "launcher keeps itself up to date from then on."]
+                      "launcher keeps itself up to date from then on.",
+                      "",
+                      "The `-standalone` files run without installing, from wherever you put "
+                      "them, and update themselves too. The `-setup` files are installers."]
         notes += ["", "Published with `launcher/scripts/publish_release.py`."]
         self.gh("release", "edit", self.tag, "--repo", self.repo, "--notes", "\n".join(notes))
 

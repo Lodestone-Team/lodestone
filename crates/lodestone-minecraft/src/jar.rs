@@ -105,10 +105,10 @@ fn not_a_jar() -> Error {
 
 /// Opens `path` as a zip archive. A file that is not a zip is [`Error::Invalid`].
 #[cfg(feature = "zip")]
-fn open_jar(path: &Path) -> Result<zip::ZipArchive<std::fs::File>, Error> {
+fn open_jar(path: &Path) -> Result<zip::ZipArchive<std::io::BufReader<std::fs::File>>, Error> {
     let file = std::fs::File::open(path)
         .map_err(Error::io(format!("Failed to open {}", path.display())))?;
-    zip::ZipArchive::new(file).map_err(|_| not_a_jar())
+    zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|_| not_a_jar())
 }
 
 /// Whether the jar at `path` contains one of the loader's metadata files. Fails if it is

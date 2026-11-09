@@ -18,6 +18,7 @@ pub mod markdown;
 pub mod preview;
 pub mod servers;
 pub mod shell;
+pub mod skin;
 pub mod theme;
 mod trace_hooks;
 pub mod undo;
@@ -116,7 +117,8 @@ pub fn set_menus(cx: &mut App) {
 /// Options for a launcher window with the given title and size, centred on screen.
 ///
 /// On macOS the title bar is transparent so the app's top bar can sit under the
-/// traffic-light buttons, as in the dashboard's Tauri app.
+/// traffic-light buttons, as in the dashboard's Tauri app. On Windows the top bar
+/// replaces the title bar.
 ///
 /// On Linux the compositor draws the window's frame where it offers to (KDE), and the
 /// launcher draws its own where it doesn't (GNOME; see
@@ -138,7 +140,7 @@ pub fn window_options(title: &str, width: f32, height: f32, cx: &App) -> WindowO
 
 /// `LODESTONE_LAUNCHER_CLIENT_DECORATIONS=1`, a developer switch: see [`window_options`].
 fn client_decorations_forced() -> bool {
-    cfg!(not(target_os = "macos"))
+    cfg!(any(target_os = "linux", target_os = "freebsd"))
         && std::env::var_os("LODESTONE_LAUNCHER_CLIENT_DECORATIONS")
             .is_some_and(|value| value == "1")
 }
@@ -154,10 +156,14 @@ fn titlebar(title: SharedString) -> gpui::TitlebarOptions {
     }
 }
 
+/// On Windows the system's title bar is hidden and the top bar takes its place, with
+/// its own caption buttons (`shell::top_bar::window_controls`). The title still names
+/// the window in the taskbar and Alt-Tab.
 #[cfg(not(target_os = "macos"))]
 fn titlebar(title: SharedString) -> gpui::TitlebarOptions {
     gpui::TitlebarOptions {
         title: Some(title),
+        appears_transparent: cfg!(target_os = "windows"),
         ..Default::default()
     }
 }
@@ -255,6 +261,15 @@ mod screenshot {
             cx.background_executor()
                 .timer(Duration::from_millis(1500))
                 .await;
+            // A skin's images take longer in a debug build.
+            for _ in 0..40 {
+                if !cx.update(|cx| crate::skin::decoding(cx)) {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+            }
             // Keys the scene presses, to show keyboard focus.
             let keys = crate::preview::requested_scene()
                 .map(|scene| crate::preview::keystrokes(&scene))
@@ -278,6 +293,54 @@ mod screenshot {
                 cx.background_executor()
                     .timer(Duration::from_millis(150))
                     .await;
+            }
+            // `--click X,Y` (repeatable as X,Y;X,Y): left clicks at window points, each
+            // followed by a short wait, to check how a control responds.
+            if let Some(clicks) = arg_after("--click") {
+                for at in clicks.split(';') {
+                    let Some((x, y)) = at.split_once(',') else {
+                        continue;
+                    };
+                    let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>()) else {
+                        continue;
+                    };
+                    let position = gpui::point(gpui::px(x), gpui::px(y));
+                    window
+                        .update(cx, |_, window, cx| {
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                    position,
+                                    ..Default::default()
+                                }),
+                                cx,
+                            );
+                            window.draw(cx).clear(cx);
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                    button: gpui::MouseButton::Left,
+                                    position,
+                                    modifiers: Default::default(),
+                                    click_count: 1,
+                                    first_mouse: false,
+                                }),
+                                cx,
+                            );
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                    button: gpui::MouseButton::Left,
+                                    position,
+                                    modifiers: Default::default(),
+                                    click_count: 1,
+                                }),
+                                cx,
+                            );
+                            window.draw(cx).clear(cx);
+                        })
+                        .ok();
+                    cx.background_executor()
+                        .timer(Duration::from_millis(600))
+                        .await;
+                }
             }
             if let Some(steps) = arg_after("--bench-scroll").and_then(|n| n.parse().ok()) {
                 bench_scroll(window, steps, cx);
