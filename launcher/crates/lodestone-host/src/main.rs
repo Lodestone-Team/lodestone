@@ -185,6 +185,17 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
+            // `--height <px>`: a taller window, to see a whole page
+            if let Some(height) = arg_after("--height").and_then(|h| h.parse::<f32>().ok()) {
+                window
+                    .update(cx, |_, window, _| {
+                        window.resize(gpui::size(gpui::px(1100.), gpui::px(height)))
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
             let image = window.update(cx, |_, window, _| {
                 window.refresh();
                 window.render_to_image()

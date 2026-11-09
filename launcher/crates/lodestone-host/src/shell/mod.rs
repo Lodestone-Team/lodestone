@@ -2,7 +2,7 @@
 //! the selected instance, its tabs and every instance, and the page of the current
 //! [`Route`].
 
-mod sidebar;
+pub mod sidebar;
 mod top_bar;
 
 use gpui::{
