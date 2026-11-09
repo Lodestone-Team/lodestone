@@ -220,10 +220,10 @@ impl NewInstanceDialog {
     }
 
     /// Pastes a share code, for the offscreen screenshots.
-    pub fn with_code(self, code: &str, cx: &mut Context<Self>) -> Self {
+    pub fn paste_code(&mut self, code: &str, cx: &mut Context<Self>) {
         self.code
             .update(cx, |input, cx| input.set_text(code.to_string(), cx));
-        self
+        self.set_mode(Mode::Code, cx);
     }
 
     /// The pasted code, decoded. Decodes again only when the text changed.
@@ -536,7 +536,11 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
 fn code_preview(code: &ShareCode) -> impl IntoElement {
     let game = match (code.loader.kind(), &code.loader_version) {
         (Some(kind), Some(version)) => {
-            format!("Minecraft {} · {} {version}", code.game_version, kind.label())
+            format!(
+                "Minecraft {} · {} {version}",
+                code.game_version,
+                kind.label()
+            )
         }
         (Some(kind), None) => format!("Minecraft {} · {}", code.game_version, kind.label()),
         (None, _) => format!("Minecraft {}", code.game_version),
@@ -842,12 +846,14 @@ impl NewInstanceDialog {
                 (None, _) => t(M::MyInstance).to_string(),
             },
             Mode::Code => match &self.decoded {
-                Some((_, Ok(code))) => code.name.clone().unwrap_or_else(|| {
-                    match code.loader.kind() {
-                        Some(kind) => format!("{} {}", code.game_version, kind.label()),
-                        None => code.game_version.clone(),
-                    }
-                }),
+                Some((_, Ok(code))) => {
+                    code.name
+                        .clone()
+                        .unwrap_or_else(|| match code.loader.kind() {
+                            Some(kind) => format!("{} {}", code.game_version, kind.label()),
+                            None => code.game_version.clone(),
+                        })
+                }
                 _ => t(M::MyInstance).to_string(),
             },
         }

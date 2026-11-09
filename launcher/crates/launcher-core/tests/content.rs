@@ -898,7 +898,11 @@ fn a_share_code_recreates_the_content_of_an_instance() {
         .collect();
     expected.sort();
     assert_eq!(names, expected);
-    assert!(names.iter().any(|n| n.starts_with("P7dR8mSH") && n.ends_with(".disabled")));
+    assert!(
+        names
+            .iter()
+            .any(|n| n.starts_with("P7dR8mSH") && n.ends_with(".disabled"))
+    );
 
     // A version Modrinth no longer has is reported, and the rest still installs.
     let mut gone = code.clone();

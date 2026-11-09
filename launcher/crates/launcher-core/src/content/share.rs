@@ -457,7 +457,11 @@ pub async fn install(
         cancel,
     )
     .await?;
-    outcome.installed = result.installed.into_iter().map(|(title, _)| title).collect();
+    outcome.installed = result
+        .installed
+        .into_iter()
+        .map(|(title, _)| title)
+        .collect();
     outcome
         .failed
         .extend(result.skipped.into_iter().map(|s| (s.project, s.reason)));
@@ -479,7 +483,11 @@ fn apply_states(
             .remove(project)
             .and_then(|names| names.into_iter().next())
     };
-    for item in code.items.iter().filter(|i| i.kind == ContentKind::Mod && !i.enabled) {
+    for item in code
+        .items
+        .iter()
+        .filter(|i| i.kind == ContentKind::Mod && !i.enabled)
+    {
         if let Some(name) = file_of(ContentKind::Mod, &item.project) {
             files::set_mod_enabled(dirs, &name, false)?;
         }
@@ -496,7 +504,7 @@ fn apply_states(
             let formats = packs_scanned
                 .iter()
                 .find(|f| f.file_name == name)
-                .and_then(|f| f.meta.formats.clone());
+                .and_then(|f| f.meta.formats);
             let compatibility = packs::compatibility(formats.as_ref(), &target.game_version);
             files::set_pack_enabled(dirs, target, &name, true, compatibility)?;
         }
@@ -596,11 +604,12 @@ mod tests {
         // 308 mods with random 8-character ids, like a big modpack
         let mut seed = 7u64;
         let mut id = || {
-            const CHARS: &[u8] =
-                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
             (0..8)
                 .map(|_| {
-                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                    seed = seed
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
                     CHARS[(seed >> 33) as usize % CHARS.len()] as char
                 })
                 .collect::<String>()
@@ -639,7 +648,10 @@ mod tests {
     #[test]
     fn rejects_a_zip_bomb() {
         // a tiny code that inflates past the limit
-        let json = format!(r#"{{"v":1,"g":"1.20.1","n":"{}"}}"#, " ".repeat(2 * MAX_PAYLOAD_BYTES));
+        let json = format!(
+            r#"{{"v":1,"g":"1.20.1","n":"{}"}}"#,
+            " ".repeat(2 * MAX_PAYLOAD_BYTES)
+        );
         let code = code_of(&json);
         assert!(code.len() < 20_000, "{}", code.len());
         assert_eq!(ShareCode::decode(&code), Err(ShareError::TooLarge));
@@ -669,6 +681,9 @@ mod tests {
     fn rejects_too_many_items() {
         let items: Vec<String> = (0..=MAX_ITEMS).map(|i| format!("\"p{i}/v{i}\"")).collect();
         let json = format!(r#"{{"v":1,"g":"1.20.1","m":[{}]}}"#, items.join(","));
-        assert_eq!(ShareCode::decode(&code_of(&json)), Err(ShareError::TooLarge));
+        assert_eq!(
+            ShareCode::decode(&code_of(&json)),
+            Err(ShareError::TooLarge)
+        );
     }
 }

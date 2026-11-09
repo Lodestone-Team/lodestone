@@ -77,6 +77,8 @@ pub const SCENES: &[&str] = &[
     "content-description",
     "loader-change",
     "new-instance-modpack",
+    "new-instance-code",
+    "share-code",
     "modpack-importing",
     "modpack-settings",
     "modpack-update",
@@ -328,6 +330,7 @@ fn has_instances(scene: &str) -> bool {
     ) || scene.starts_with("content-")
         || scene.starts_with("modpack-")
         || scene == "new-instance-modpack"
+        || scene == "share-code"
         || is_worlds_scene(scene)
         || scene == "loader-change"
         || shared::is_scene(scene)
@@ -729,6 +732,24 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 });
             }
         }
+        "new-instance-code" => {
+            shell.open_new_instance_with(None, None, cx);
+            let code = sample_share_plan().code.encode();
+            if let Some(dialog) = shell.new_instance_dialog().cloned() {
+                dialog.update(cx, |dialog, cx| dialog.paste_code(&code, cx));
+            }
+        }
+        "share-code" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            let dialog = cx.new(|cx| {
+                crate::instances::share_dialog::ShareDialog::preview(
+                    "Survival",
+                    sample_share_plan(),
+                    cx,
+                )
+            });
+            shell.show_share(dialog, cx);
+        }
         "logs" => shell.select_tab(InstanceTab::Logs, cx),
         "sidebar-groups-settings" => shell.select_tab(InstanceTab::Settings, cx),
         "instance-settings" => {
@@ -1063,5 +1084,72 @@ fn storage_report() -> launcher_core::disk::Report {
             old_files: 61,
         },
         other: 400_000,
+    }
+}
+
+/// A Fabric instance's share code with a few hundred mods, and the files it leaves out.
+fn sample_share_plan() -> launcher_core::content::share::SharePlan {
+    use launcher_core::content::{
+        ContentKind,
+        share::{LeftOut, LeftOutReason, ShareCode, SharePlan, SharedItem},
+    };
+    let id = |seed: usize| {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        let mut n = seed.wrapping_mul(2654435761).wrapping_add(97);
+        (0..8)
+            .map(|_| {
+                n = n
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                ALPHABET[(n >> 33) % ALPHABET.len()] as char
+            })
+            .collect::<String>()
+    };
+    let item = |kind, seed: usize, enabled| SharedItem {
+        kind,
+        project: id(seed),
+        version: id(seed + 10_000),
+        enabled,
+    };
+    let mut items: Vec<SharedItem> = (0..186)
+        .map(|i| item(ContentKind::Mod, i, i % 23 != 0))
+        .collect();
+    items.extend((0..7).map(|i| item(ContentKind::ResourcePack, 500 + i, i < 4)));
+    items.extend((0..3).map(|i| item(ContentKind::ShaderPack, 600 + i, i == 0)));
+    let left_out = |kind, file_name: &str, reason| LeftOut {
+        kind,
+        file_name: file_name.into(),
+        reason,
+    };
+    SharePlan {
+        code: ShareCode {
+            name: Some("Survival".into()),
+            game_version: "1.21.1".into(),
+            loader: launcher_core::instances::Loader::Fabric,
+            loader_version: Some("0.16.9".into()),
+            items,
+        },
+        left_out: vec![
+            left_out(
+                ContentKind::Mod,
+                "my-server-tweaks-1.2.jar",
+                LeftOutReason::NotOnModrinth,
+            ),
+            left_out(
+                ContentKind::Mod,
+                "jei-1.21.1-fabric-19.21.0.247.jar",
+                LeftOutReason::CurseForge,
+            ),
+            left_out(
+                ContentKind::Mod,
+                "OptiFine_1.21.1_HD_U_J1.jar",
+                LeftOutReason::NotOnModrinth,
+            ),
+            left_out(
+                ContentKind::ResourcePack,
+                "Friends Textures.zip",
+                LeftOutReason::NotOnModrinth,
+            ),
+        ],
     }
 }

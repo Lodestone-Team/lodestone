@@ -6,7 +6,9 @@ pub fn text(message: M) -> &'static str {
         M::ShareCodeReady => "{name} est prête",
         M::ShareCodeNotInstalled => "Non installés\u{a0}: {names}.",
         M::ShareCodeContentFailed => "Impossible d’installer le contenu du code de partage",
-        M::ShareCodeOffline => "Modrinth est injoignable\u{a0}: l’instance a été créée sans son contenu.",
+        M::ShareCodeOffline => {
+            "Modrinth est injoignable\u{a0}: l’instance a été créée sans son contenu."
+        }
         M::TitleAndMessage => "{title}\u{a0}: {message}",
         M::Vanilla => "Vanilla",
 
@@ -193,7 +195,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} instances à copier, {size}.",
         ],
         P::ImportInstances => ["Importer {count} instance", "Importer {count} instances"],
-        P::ShareCodeInstalled => ["{count} élément installé depuis le code.", "{count} éléments installés depuis le code."],
+        P::ShareCodeInstalled => [
+            "{count} élément installé depuis le code.",
+            "{count} éléments installés depuis le code.",
+        ],
         P::PackFilesToDownload => [
             "{count} fichier doit être téléchargé depuis le site de CurseForge\u{a0}: l’onglet Contenu de l’instance l’affiche.",
             "{count} fichiers doivent être téléchargés depuis le site de CurseForge\u{a0}: l’onglet Contenu de l’instance les affiche.",

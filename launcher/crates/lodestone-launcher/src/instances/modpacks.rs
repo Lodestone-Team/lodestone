@@ -324,8 +324,7 @@ impl Instances {
             let progress = progress.clone();
             let cancel = cancel.clone();
             cx.background_spawn(async move {
-                share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel)
-                    .await
+                share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel).await
             })
         };
         let instance_name = name.clone();

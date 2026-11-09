@@ -14,8 +14,9 @@ use launcher_core::{
         ContentKind, InstanceDirs, Modrinth, Target, files,
         install::{self, InstallOutcome, InstallProgress, InstallRequest},
         listing::{self, Item},
-        loader_change, share,
+        loader_change,
         shaders::{self, ShaderModOffer},
+        share,
     },
     game::download::CancelToken,
     instances::{Instance, Loader},
@@ -1556,7 +1557,9 @@ pub fn import_code(call: Call, cx: &mut App) -> Reply {
         super::instances::instance_json(&instance, instances, control.servers.read(cx))
     };
     let Some(api) = api else {
-        return ready(Ok(json!({ "instance": summary, "installed": [], "failed": [] })));
+        return ready(Ok(
+            json!({ "instance": summary, "installed": [], "failed": [] }),
+        ));
     };
     let (dirs, target) = tri!(context(&control, &instance, cx));
     let downloader = control.instances.read(cx).content_downloader();

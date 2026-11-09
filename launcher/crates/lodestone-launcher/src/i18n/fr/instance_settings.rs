@@ -159,9 +159,13 @@ pub fn text(message: M) -> &'static str {
         M::ShareCodeRow => "Code de partage",
         M::ShareButton => "Partager…",
         M::ShareTitle => "Partager {name}",
-        M::ShareIntro => "Un autre Lodestone Launcher peut recréer cette instance avec ce code\u{a0}: la même version de Minecraft, le même chargeur et le même contenu Modrinth.",
+        M::ShareIntro => {
+            "Un autre Lodestone Launcher peut recréer cette instance avec ce code\u{a0}: la même version de Minecraft, le même chargeur et le même contenu Modrinth."
+        }
         M::ShareReading => "Lecture du contenu…",
-        M::ShareNotSharedBody => "Seul le contenu de Modrinth peut figurer dans un code de partage. Envoyez ces fichiers à part s’ils sont nécessaires.",
+        M::ShareNotSharedBody => {
+            "Seul le contenu de Modrinth peut figurer dans un code de partage. Envoyez ces fichiers à part s’ils sont nécessaires."
+        }
         M::ShareFromCurseForge => "Depuis CurseForge",
         M::ShareAddedByHand => "Ajouté à la main",
         M::ShareMore => "Et {count} autres",
@@ -254,7 +258,10 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ShareNotShared => ["{count} fichier n’est pas partagé", "{count} fichiers ne sont pas partagés"],
+        P::ShareNotShared => [
+            "{count} fichier n’est pas partagé",
+            "{count} fichiers ne sont pas partagés",
+        ],
         P::LoaderNextStartModsOff => [
             "{loader} s’installera au prochain démarrage du jeu. {count}\u{a0}mod a été désactivé.",
             "{loader} s’installera au prochain démarrage du jeu. {count}\u{a0}mods ont été désactivés.",

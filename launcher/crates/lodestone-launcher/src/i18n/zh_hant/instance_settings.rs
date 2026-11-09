@@ -152,7 +152,9 @@ pub fn text(message: M) -> &'static str {
         M::ShareCodeRow => "分享碼",
         M::ShareButton => "分享…",
         M::ShareTitle => "分享 {name}",
-        M::ShareIntro => "另一個 Lodestone Launcher 可以用這個分享碼建立同樣的實例：相同的 Minecraft 版本、載入器和 Modrinth 內容。",
+        M::ShareIntro => {
+            "另一個 Lodestone Launcher 可以用這個分享碼建立同樣的實例：相同的 Minecraft 版本、載入器和 Modrinth 內容。"
+        }
         M::ShareReading => "正在讀取內容…",
         M::ShareNotSharedBody => "分享碼只包含來自 Modrinth 的內容。如有需要，請另行傳送這些檔案。",
         M::ShareFromCurseForge => "來自 CurseForge",

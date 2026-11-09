@@ -61,7 +61,10 @@ impl ShareDialog {
                 instances.content_target(id),
             )
         };
-        let name = instance.as_ref().map(|i| i.name.clone()).unwrap_or_default();
+        let name = instance
+            .as_ref()
+            .map(|i| i.name.clone())
+            .unwrap_or_default();
         let task = match (instance, target) {
             (Some(instance), Some(target)) => {
                 let work = cx.background_spawn(async move {
@@ -246,12 +249,7 @@ impl Render for ShareDialog {
                                         .text_color(colors::GRAY_300)
                                         .child(item.file_name.clone()),
                                 )
-                                .child(
-                                    div()
-                                        .flex_none()
-                                        .text_color(colors::GRAY_500)
-                                        .child(reason),
-                                )
+                                .child(div().flex_none().text_color(colors::GRAY_500).child(reason))
                         }))
                         .when(more > 0, |this| {
                             this.child(
@@ -268,11 +266,7 @@ impl Render for ShareDialog {
                     .flex_col()
                     .gap_4()
                     .text_size(theme::text_size(text::MEDIUM))
-                    .child(
-                        div()
-                            .text_color(colors::GRAY_400)
-                            .child(t(M::ShareIntro)),
-                    )
+                    .child(div().text_color(colors::GRAY_400).child(t(M::ShareIntro)))
                     .child(counts)
                     .children(left_out)
                     .child(
@@ -309,32 +303,36 @@ impl Render for ShareDialog {
             }
         };
         let ready = matches!(self.state, State::Ready { .. });
-        Dialog::new("share-code", tr!(M::ShareTitle, name = self.name), self.focus.clone())
-            .width(px(600.))
-            .on_close({
-                let entity = entity.clone();
-                move |_, cx| entity.update(cx, |_, cx| cx.emit(ShareDismissed))
-            })
-            .child(body)
-            .footer(
-                Button::new("close-share", t(CommonMsg::Close))
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(ShareDismissed))),
+        Dialog::new(
+            "share-code",
+            tr!(M::ShareTitle, name = self.name),
+            self.focus.clone(),
+        )
+        .width(px(600.))
+        .on_close({
+            let entity = entity.clone();
+            move |_, cx| entity.update(cx, |_, cx| cx.emit(ShareDismissed))
+        })
+        .child(body)
+        .footer(
+            Button::new("close-share", t(CommonMsg::Close))
+                .variant(ButtonVariant::Ghost)
+                .on_click(cx.listener(|_, _, _, cx| cx.emit(ShareDismissed))),
+        )
+        .footer(
+            Button::new(
+                "copy-share-code",
+                if self.copied {
+                    t(M::CodeCopied)
+                } else {
+                    t(M::CopyCode)
+                },
             )
-            .footer(
-                Button::new(
-                    "copy-share-code",
-                    if self.copied {
-                        t(M::CodeCopied)
-                    } else {
-                        t(M::CopyCode)
-                    },
-                )
-                .variant(ButtonVariant::Primary)
-                .icon(if self.copied { Icon::Check } else { Icon::Copy })
-                .disabled(!ready)
-                .on_click(cx.listener(|this, _, _, cx| this.copy(cx))),
-            )
-            .footer_start(div())
+            .variant(ButtonVariant::Primary)
+            .icon(if self.copied { Icon::Check } else { Icon::Copy })
+            .disabled(!ready)
+            .on_click(cx.listener(|this, _, _, cx| this.copy(cx))),
+        )
+        .footer_start(div())
     }
 }

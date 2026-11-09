@@ -272,9 +272,10 @@ pub fn plan(
                 ],
             ),
             Instances::Verify(i) => long("instances.verify", vec![("instance", json!(i.instance))]),
-            Instances::ShareCode(i) => {
-                call("instances.share_code", vec![("instance", json!(i.instance))])
-            }
+            Instances::ShareCode(i) => call(
+                "instances.share_code",
+                vec![("instance", json!(i.instance))],
+            ),
             Instances::ImportCode { code, name } => {
                 let mut params = vec![("code", json!(code))];
                 if let Some(name) = name {
