@@ -4,26 +4,33 @@
 //! The list follows new output until the user scrolls up, and follows again once
 //! they scroll back to the bottom. It keeps the last 10,000 rows.
 
+use crate::theme::px;
 use std::collections::BTreeSet;
 
 use gpui::{
     ClipboardItem, Context, Entity, IntoElement, Render, ScrollEvent, ScrollStrategy, SharedString,
-    Subscription, UniformListScrollHandle, Window, div, prelude::*, px, uniform_list,
+    Subscription, UniformListScrollHandle, Window, div, prelude::*, uniform_list,
 };
 use launcher_core::game::log4j::{Level, Stream};
 
 use super::{Instances, LogRow};
+use crate::components::{
+    KeyboardFocus, RichText,
+    a11y::{Accessible, Role, Toggled},
+};
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, TextInput},
+    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, trn},
     theme::{self, Color, colors, fonts, radius, text, weights},
 };
 
-/// The levels the filter chips toggle. TRACE goes with DEBUG, FATAL with ERROR.
-const CHIPS: [(Level, &str); 4] = [
-    (Level::Debug, "Debug"),
-    (Level::Info, "Info"),
-    (Level::Warn, "Warn"),
-    (Level::Error, "Error"),
+/// The levels the filter chips toggle, with their ids and labels. TRACE goes with
+/// DEBUG, FATAL with ERROR.
+const CHIPS: [(Level, &str, M); 4] = [
+    (Level::Debug, "debug", M::LevelDebug),
+    (Level::Info, "info", M::LevelInfo),
+    (Level::Warn, "warn", M::LevelWarn),
+    (Level::Error, "error", M::LevelError),
 ];
 
 fn chip_of(level: Level) -> Level {
@@ -59,7 +66,11 @@ pub struct Console {
 
 impl Console {
     pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| TextInput::new(cx).with_placeholder("Search the log"));
+        let search = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::SearchLog)
+                .with_automation_id("log-search")
+        });
         let observe = vec![
             cx.observe(&instances, |_, _, cx| cx.notify()),
             cx.observe(&search, |_, _, cx| cx.notify()),
@@ -67,7 +78,7 @@ impl Console {
         Self {
             instances,
             search,
-            shown: CHIPS.iter().map(|(level, _)| *level).collect(),
+            shown: CHIPS.iter().map(|(level, _, _)| *level).collect(),
             scroll: UniformListScrollHandle::new(),
             follow: true,
             seen: (None, 0),
@@ -160,7 +171,7 @@ fn row_element(index: usize, row: &LogRow) -> gpui::Stateful<gpui::Div> {
         .px_3()
         .items_center()
         .whitespace_nowrap()
-        .font_family(fonts::MONO)
+        .font_family(fonts::mono())
         .text_size(theme::text_size(text::SMALL))
         .hover(|style| style.bg(colors::GRAY_850))
         .child(
@@ -185,7 +196,7 @@ fn row_element(index: usize, row: &LogRow) -> gpui::Stateful<gpui::Div> {
                     .max_w(px(160.))
                     .truncate()
                     .text_color(if row.stream == Stream::Launcher {
-                        colors::BLUE_200
+                        crate::theme::accent::light()
                     } else {
                         colors::GRAY_500
                     })
@@ -200,14 +211,14 @@ fn row_element(index: usize, row: &LogRow) -> gpui::Stateful<gpui::Div> {
                 .text_color(match row.level {
                     Level::Info | Level::Trace | Level::Debug => {
                         if row.stream == Stream::Launcher {
-                            colors::BLUE_200
+                            crate::theme::accent::light()
                         } else {
                             colors::GRAY_300
                         }
                     }
                     _ => color,
                 })
-                .child(row.text.clone()),
+                .child(RichText::new(row.text.clone())),
         )
 }
 
@@ -237,11 +248,16 @@ impl Render for Console {
             .and_then(|id| self.instances.read(cx).log(id))
             .map_or(0, |log| log.rows().len());
 
-        let chips = CHIPS.iter().map(|(level, label)| {
+        let chips = CHIPS.iter().map(|(level, key, label)| {
             let on = self.shown.contains(level);
             let level = *level;
             div()
-                .id(SharedString::from(format!("chip-{label}")))
+                .id(SharedString::from(format!("chip-{key}")))
+                .accessible(Role::CheckBox, format!("log-level-{key}"), t(*label))
+                .aria_toggled(if on { Toggled::True } else { Toggled::False })
+                .flex_none()
+                .whitespace_nowrap()
+                .keyboard_focus()
                 .px_2p5()
                 .py_1()
                 .rounded(radius::MD)
@@ -259,8 +275,8 @@ impl Render for Console {
                             .text_color(colors::GRAY_550)
                     }
                 })
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle(level, cx)))
-                .child(*label)
+                .on_press(cx.listener(move |this, _, _, cx| this.toggle(level, cx)))
+                .child(t(*label))
         });
 
         let body = if count == 0 {
@@ -271,11 +287,14 @@ impl Render for Console {
                 .size_full()
                 .text_color(colors::GRAY_FADED.opacity(30))
                 .font_weight(weights::BOLD.into())
-                .child(if total == 0 {
-                    "The game's output appears here when you press Play."
+                .px_8()
+                .text_center()
+                .whitespace_normal()
+                .child(t(if total == 0 {
+                    M::LogEmpty
                 } else {
-                    "No lines match the filter."
-                })
+                    M::NoLinesMatch
+                }))
                 .into_any_element()
         } else {
             uniform_list(
@@ -319,19 +338,26 @@ impl Render for Console {
                     .child(div().flex_1())
                     .when(!self.follow, |this| {
                         this.child(
-                            Button::new("log-follow", "Jump to latest")
+                            Button::new("log-follow", t(M::JumpToLatest))
                                 .variant(ButtonVariant::Ghost)
                                 .size(ButtonSize::Slim)
                                 .on_click(cx.listener(|this, _, _, cx| this.jump_to_end(cx))),
                         )
                     })
                     .child(
-                        Button::new("log-copy", if self.copied { "Copied" } else { "Copy log" })
-                            .variant(ButtonVariant::Secondary)
-                            .size(ButtonSize::Slim)
-                            .icon(if self.copied { Icon::Check } else { Icon::Copy })
-                            .disabled(count == 0)
-                            .on_click(cx.listener(|this, _, _, cx| this.copy(cx))),
+                        Button::new(
+                            "log-copy",
+                            if self.copied {
+                                t(CommonMsg::Copied)
+                            } else {
+                                t(M::CopyLog)
+                            },
+                        )
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .icon(if self.copied { Icon::Check } else { Icon::Copy })
+                        .disabled(count == 0)
+                        .on_click(cx.listener(|this, _, _, cx| this.copy(cx))),
                     ),
             )
             .child(
@@ -341,7 +367,7 @@ impl Render for Console {
                     .min_h_0()
                     .rounded(radius::LG)
                     .border_1()
-                    .border_color(colors::FADE_700)
+                    .border_color(crate::theme::ink::border())
                     .bg(colors::GRAY_900)
                     .overflow_hidden()
                     .on_scroll(cx.listener(Self::on_scroll))
@@ -352,11 +378,14 @@ impl Render for Console {
                     .text_size(theme::text_size(text::CAPTION))
                     .font_weight(weights::BOLD.into())
                     .text_color(colors::GRAY_550)
-                    .child(format!(
-                        "{} of {} lines{}",
-                        super::thousands(count as u64),
-                        super::thousands(total as u64),
-                        if self.follow { " · following" } else { "" }
+                    .child(trn!(
+                        if self.follow {
+                            P::LinesShownFollowing
+                        } else {
+                            P::LinesShown
+                        },
+                        total,
+                        shown = super::thousands(count as u64)
                     )),
             )
     }

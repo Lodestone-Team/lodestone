@@ -3,6 +3,7 @@ import { ButtonMenuConfig } from './ButtonMenu';
 
 import clsx from 'clsx';
 import { Skeleton } from './Atoms/Skeleton';
+import { useT } from 'i18n';
 
 export interface TableColumn {
   field: string;
@@ -33,6 +34,7 @@ export function Table({
   className,
   isLoading = false,
 }: TableProps) {
+  const t = useT();
   // If menuOptions is truthy, add an extra column for the menu buttons
   // Add a unique index for each ButtonMenu created to control respective rows
   // If alignment === 'left', add 'w-full' to className of last column
@@ -53,10 +55,12 @@ export function Table({
         },
       ]
     : alignment == 'left'
-    ? columns.map((column, index, array) =>
-        index === array.length - 1 ? { ...column, className: 'w-full' } : column
-      )
-    : columns;
+      ? columns.map((column, index, array) =>
+          index === array.length - 1
+            ? { ...column, className: 'w-full' }
+            : column
+        )
+      : columns;
 
   // Code currently uses arbitrary values for min and max width when alignment is set to left
   return (
@@ -75,7 +79,7 @@ export function Table({
                 key={cIndex}
                 className={clsx(
                   'sticky top-0 z-30 bg-gray-875 px-4 py-2 text-medium font-bold',
-                  alignment === 'left' && 'min-w-[8rem] max-w-[12rem]'
+                  alignment === 'left' && 'max-w-[12rem] min-w-[8rem]'
                 )}
               >
                 {column.headerName}
@@ -84,9 +88,7 @@ export function Table({
           </tr>
         </thead>
         <tbody
-          className={clsx(
-            rows.length === 0 && isLoading && 'loading-delayed'
-          )}
+          className={clsx(rows.length === 0 && isLoading && 'loading-delayed')}
           aria-busy={rows.length === 0 && isLoading}
         >
           {rows.length === 0 &&
@@ -105,7 +107,9 @@ export function Table({
                     <Skeleton
                       className={clsx(
                         'h-3.5 rounded-sm',
-                        ['w-3/4', 'w-1/2', 'w-2/3'][(indexRow + indexColumn) % 3]
+                        ['w-3/4', 'w-1/2', 'w-2/3'][
+                          (indexRow + indexColumn) % 3
+                        ]
                       )}
                     />
                   </td>
@@ -140,8 +144,8 @@ export function Table({
       {rows.length === 0 && !isLoading && (
         <div>
           <div className="mt-8 flex flex-col items-center justify-center">
-            <div className=" text-h2 font-bold text-gray-400">
-              No data currently available
+            <div className="text-h2 font-bold text-gray-400">
+              {t('common.table.noData')}
             </div>
           </div>
         </div>

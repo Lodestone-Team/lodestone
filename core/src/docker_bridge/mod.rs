@@ -54,7 +54,7 @@ fn container_name(uuid: &InstanceUuid) -> Result<&str, Error> {
         .strip_prefix(DOCKER_UUID_PREFIX)
         .ok_or_else(|| Error {
             kind: ErrorKind::BadRequest,
-            source: eyre!("{uuid} is not a Docker instance"),
+            source: eyre!("{uuid} is not a Docker server"),
         })
 }
 

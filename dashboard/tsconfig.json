@@ -21,6 +21,8 @@
       "data/*": ["./src/data/*"],
       "pages/*": ["./src/pages/*"],
       "utils/*": ["./src/utils/*"],
+      "i18n": ["./src/i18n/index.tsx"],
+      "i18n/*": ["./src/i18n/*"],
       "globals.css": ["./src/globals.css"]
     }
   },

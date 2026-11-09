@@ -1,8 +1,12 @@
 //! API keys: named, revocable credentials that can be limited to some instances and
 //! actions, for the CLI, CI and agents.
 //!
-//! A key looks like `lsk_<id>_<secret>`. The id is public and finds the key; only the
-//! SHA-256 of the secret is stored, in `stores/api_keys.json`. [`UsersManager::try_auth`]
+//! A key looks like `lsk_<id>_<secret>`. The id is public and finds the key. The secret is
+//! stored as it is, in `stores/api_keys.json` (readable only by the core's OS user, and
+//! never through the file API): anyone who can read that folder can already act as any
+//! user with the token secrets in `users.json`, so hashing the keys protected nothing, and
+//! a stored key can be shown again. Keys made before this keep only the SHA-256 of their
+//! secret, which still works. [`UsersManager::try_auth`]
 //! (crate::auth::user::UsersManager::try_auth) turns a key into the [`User`] a request acts
 //! as, see [`effective_user`].
 
@@ -27,7 +31,7 @@ use crate::{
 
 use super::{
     permission::UserPermission,
-    user::{AuthSource, User, UserAction},
+    user::{AuthSource, KeyConsole, User, UserAction},
     user_id::UserId,
 };
 
@@ -58,10 +62,32 @@ pub enum ApiKeyScope {
     /// Only these permissions, and only while the user still has them. Never owner or
     /// admin.
     Custom { permissions: Box<UserPermission> },
+    /// The scope of a Lodestone Launcher device: viewing, starting and stopping the
+    /// instances its user can view, start and stop, see [`launcher_user`]. Never owner or
+    /// admin, and nothing else, except what the user opted in to when signing in:
+    ///
+    /// - `console_read`: reading the console of the instances whose console the user can
+    ///   access;
+    /// - `console_write`: sending commands (and chat) to those consoles.
+    ///
+    /// Each is left out of the JSON while false, so keys made before these existed, and
+    /// keys without either, are `{ "type": "launcher" }` as before.
+    Launcher {
+        #[serde(default, skip_serializing_if = "is_false")]
+        #[ts(optional, as = "Option<bool>")]
+        console_read: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        #[ts(optional, as = "Option<bool>")]
+        console_write: bool,
+    },
 }
 
-/// A stored key. Holds the hash of the secret, so it is never sent to clients or logged:
-/// use [`ApiKeyInfo`] for that.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// A stored key. Holds the secret (or, for older keys, its hash), so it is never sent to
+/// clients or logged: use [`ApiKeyInfo`] for that.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ApiKeyRecord {
     pub id: String,
@@ -71,8 +97,13 @@ pub struct ApiKeyRecord {
     pub expires_at: Option<i64>,
     pub last_used_at: Option<i64>,
     pub scope: ApiKeyScope,
-    /// SHA-256 of the secret, as lowercase hex.
-    pub secret_sha256: String,
+    /// The secret, as it is. Keys made before secrets were kept have only
+    /// [`ApiKeyRecord::secret_sha256`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+    /// SHA-256 of the secret, as lowercase hex, for keys made before secrets were kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_sha256: Option<String>,
 }
 
 impl ApiKeyRecord {
@@ -80,10 +111,24 @@ impl ApiKeyRecord {
         is_expired(self.expires_at, now)
     }
 
-    /// Whether `secret` is this key's secret. Compares the hashes in constant time.
+    /// Whether `secret` is this key's secret, compared in constant time: with the stored
+    /// secret, or for an older key, with the stored hash.
     pub fn verify_secret(&self, secret: &str) -> bool {
-        let actual = hash_secret(secret);
-        bool::from(actual.as_bytes().ct_eq(self.secret_sha256.as_bytes()))
+        match (&self.secret, &self.secret_sha256) {
+            (Some(stored), _) => bool::from(secret.as_bytes().ct_eq(stored.as_bytes())),
+            (None, Some(hash)) => {
+                let actual = hash_secret(secret);
+                bool::from(actual.as_bytes().ct_eq(hash.as_bytes()))
+            }
+            (None, None) => false,
+        }
+    }
+
+    /// The whole key, `lsk_<id>_<secret>`, for keys whose secret is stored.
+    pub fn key(&self) -> Option<String> {
+        self.secret
+            .as_ref()
+            .map(|secret| format!("{API_KEY_PREFIX}{}_{secret}", self.id))
     }
 
     pub fn info(&self) -> ApiKeyInfo {
@@ -249,7 +294,7 @@ pub fn validate_name(name: &str) -> Result<String, Error> {
 /// Every instance a custom scope names.
 pub fn scope_instances(scope: &ApiKeyScope) -> Vec<&InstanceUuid> {
     match scope {
-        ApiKeyScope::Full => Vec::new(),
+        ApiKeyScope::Full | ApiKeyScope::Launcher { .. } => Vec::new(),
         ApiKeyScope::Custom { permissions: p } => p
             .can_view_instance
             .iter()
@@ -310,18 +355,61 @@ pub fn effective_permissions(user: &User, key: &UserPermission) -> UserPermissio
     }
 }
 
+/// What a launcher key's user (the stored `user`) may do through the key: view, start
+/// and stop the instances `user` can view, start and stop right now. With `console`
+/// opted in, also read and/or write the consoles `user` can access right now. Nothing
+/// else.
+///
+/// The owner and admins can do that on every instance, including ones created after the
+/// key, so for them it is [`User::key_all_instances`] rather than a list.
+pub fn launcher_user(user: &User, console: KeyConsole) -> User {
+    let mut effective = user.clone();
+    let all_instances = user.is_owner || user.is_admin;
+    let mut permissions = UserPermission::new();
+    if !all_instances {
+        permissions.can_view_instance = user.permissions.can_view_instance.clone();
+        permissions.can_start_instance = user.permissions.can_start_instance.clone();
+        permissions.can_stop_instance = user.permissions.can_stop_instance.clone();
+        if console.read || console.write {
+            permissions.can_access_instance_console =
+                user.permissions.can_access_instance_console.clone();
+        }
+    }
+    effective.permissions = permissions;
+    effective.is_owner = false;
+    effective.is_admin = false;
+    effective.key_all_instances = all_instances;
+    effective.key_console = Some(console);
+    effective
+}
+
 /// The user a request authenticated with `record` acts as. `user` is the key's stored
 /// user.
 ///
 /// A full key is the user. A custom key is the user without owner or admin powers and
-/// with only [`effective_permissions`]. Both carry [`AuthSource::ApiKey`].
+/// with only [`effective_permissions`]. A launcher key is [`launcher_user`]. All carry
+/// [`AuthSource::ApiKey`].
 pub fn effective_user(record: &ApiKeyRecord, user: &User) -> User {
-    let mut effective = user.clone();
-    if let ApiKeyScope::Custom { permissions } = &record.scope {
-        effective.permissions = effective_permissions(user, permissions);
-        effective.is_owner = false;
-        effective.is_admin = false;
-    }
+    let mut effective = match &record.scope {
+        ApiKeyScope::Full => user.clone(),
+        ApiKeyScope::Custom { permissions } => {
+            let mut effective = user.clone();
+            effective.permissions = effective_permissions(user, permissions);
+            effective.is_owner = false;
+            effective.is_admin = false;
+            effective
+        }
+        ApiKeyScope::Launcher {
+            console_read,
+            console_write,
+        } => launcher_user(
+            user,
+            KeyConsole {
+                read: *console_read,
+                write: *console_write,
+            },
+        ),
+    };
     effective.auth_source = AuthSource::ApiKey {
         id: record.id.clone(),
         name: record.name.clone(),
@@ -582,7 +670,8 @@ mod tests {
                 expires_at,
                 last_used_at: None,
                 scope,
-                secret_sha256: hash_secret(&new.secret),
+                secret: Some(new.secret),
+                secret_sha256: None,
             },
             new.key,
         )
@@ -635,18 +724,46 @@ mod tests {
     }
 
     #[test]
-    fn secrets_are_hashed_and_checked() {
+    fn secrets_are_stored_and_checked() {
         let uid = UserId::default();
         let (record, key) = record(&uid, ApiKeyScope::Full, None);
         let parsed = parse_key(&key).unwrap();
-        assert_eq!(record.secret_sha256.len(), 64);
-        assert_ne!(record.secret_sha256, parsed.secret);
+        assert_eq!(record.secret.as_deref(), Some(parsed.secret));
+        assert_eq!(record.key().as_deref(), Some(key.as_str()));
         assert!(record.verify_secret(parsed.secret));
         let other = generate_key().unwrap();
         assert!(!record.verify_secret(&other.secret));
         assert!(!record.verify_secret(""));
+        // a prefix of the secret is not the secret
+        assert!(!record.verify_secret(&parsed.secret[..10]));
+    }
+
+    #[test]
+    fn keys_made_before_secrets_were_kept_still_work() {
+        let uid = UserId::default();
+        let (mut record, key) = record(&uid, ApiKeyScope::Full, None);
+        let parsed = parse_key(&key).unwrap();
+        let hash = hash_secret(parsed.secret);
+        record.secret = None;
+        record.secret_sha256 = Some(hash.clone());
+        assert!(record.verify_secret(parsed.secret));
+        assert!(!record.verify_secret(&generate_key().unwrap().secret));
         // the hash itself is not accepted as the secret
-        assert!(!record.verify_secret(&record.secret_sha256));
+        assert!(!record.verify_secret(&hash));
+        assert_eq!(record.key(), None);
+        // an older file still parses
+        let json = serde_json::to_string(&record).unwrap();
+        assert!(json.contains("secret_sha256") && !json.contains("\"secret\":"));
+        let back: ApiKeyRecord = serde_json::from_str(&json).unwrap();
+        assert!(back.verify_secret(parsed.secret));
+        // a record with neither accepts nothing
+        record.secret_sha256 = None;
+        assert!(!record.verify_secret(parsed.secret));
+        assert!(!record.verify_secret(""));
+    }
+
+    #[test]
+    fn known_hash() {
         // known answer
         assert_eq!(
             hash_secret("abc"),
@@ -673,12 +790,12 @@ mod tests {
     }
 
     #[test]
-    fn info_never_contains_the_hash() {
+    fn info_never_contains_the_secret() {
         let uid = UserId::default();
         let (record, key) = record(&uid, ApiKeyScope::Full, Some(5));
         let info = serde_json::to_string(&record.info()).unwrap();
-        assert!(!info.contains(&record.secret_sha256));
         assert!(!info.contains(parse_key(&key).unwrap().secret));
+        assert!(!info.contains(&hash_secret(parse_key(&key).unwrap().secret)));
         assert!(info.contains(&format!("\"display\":\"lsk_{}_…\"", record.id)));
         let value: serde_json::Value = serde_json::from_str(&info).unwrap();
         assert_eq!(value["scope"], serde_json::json!({ "type": "full" }));
@@ -898,7 +1015,7 @@ mod manager_tests {
         assert!(user
             .try_action(&UserAction::InstallExtension, false)
             .is_err());
-        assert!(user.owner_only("create atom instances").is_err());
+        assert!(user.owner_only("create atom servers").is_err());
         assert!(crate::handlers::util::check_code_write(
             user.is_owner,
             &crate::global_settings::CodeExecutionSwitch::new(true)

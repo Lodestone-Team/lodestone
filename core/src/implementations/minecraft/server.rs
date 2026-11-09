@@ -209,7 +209,7 @@ impl MinecraftInstance {
                 Some(Ok(()))
             } else if state == State::Stopped {
                 Some(Err(
-                    eyre!("Instance exited unexpectedly before starting").into()
+                    eyre!("Server exited unexpectedly before starting").into()
                 ))
             } else {
                 None
@@ -390,9 +390,7 @@ impl MinecraftInstance {
                 "[{}] Instance is no longer starting after the prelaunch script, not launching the server",
                 name
             );
-            return Err(
-                eyre!("Instance was stopped while the prelaunch script was running").into(),
-            );
+            return Err(eyre!("Server was stopped while the prelaunch script was running").into());
         }
 
         let config = self.config.lock().await.clone();
@@ -419,7 +417,7 @@ impl MinecraftInstance {
         let (stdout, stderr) = {
             let mut process = self.process.lock().await;
             if self.state().await != State::Starting {
-                return Err(eyre!("Instance was stopped before the server process started").into());
+                return Err(eyre!("Server was stopped before its process started").into());
             }
             let mut child = command
                 .spawn()
@@ -647,7 +645,7 @@ impl MinecraftInstance {
             .transition(
                 StateAction::InstanceStop,
                 &caused_by,
-                "Instance stopping as server process exited",
+                "Server stopping because its process exited",
             )
             .await
         {
@@ -681,10 +679,12 @@ impl MinecraftInstance {
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
     async fn start(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
+        // Minecraft only runs once the user agreed to its EULA; never accept it here.
+        super::eula::require_eula_accepted(&self.path_to_instance).await?;
         // Changing the version replaces server.jar, so don't start while it runs.
         let version_guard = self.version_change_lock.try_lock().map_err(|_| Error {
             kind: ErrorKind::BadRequest,
-            source: eyre!("Cannot start the instance while its version is being changed"),
+            source: eyre!("Cannot start the server while its version is being changed"),
         })?;
         // Subscribe first, so a server that exits right away can't be missed.
         let rx = block.then(|| self.event_broadcaster.subscribe());
@@ -794,7 +794,7 @@ impl TServer for MinecraftInstance {
 
         if self.state().await == State::Stopped {
             warn!("[{}] Instance is already stopped", name);
-            return Err(eyre!("Instance is already stopped").into());
+            return Err(eyre!("Server is already stopped").into());
         }
         self.stop_requested.store(true, Ordering::SeqCst);
         let mut process = self.process.lock().await;
@@ -823,10 +823,10 @@ impl TServer for MinecraftInstance {
                 ],
                 State::Stopped,
                 &cause_by,
-                "Instance killed",
+                "Server killed",
             )
             .await;
-            Err(eyre!("Process not available, assuming instance is stopped"))?;
+            Err(eyre!("Process not available, assuming server is stopped"))?;
         }
         Ok(())
     }
@@ -838,7 +838,7 @@ impl TServer for MinecraftInstance {
     async fn send_command(&self, command: &str, cause_by: CausedBy) -> Result<(), Error> {
         let name = self.name().await;
         if self.state().await == State::Stopped {
-            return Err(eyre!("Instance is stopped").into());
+            return Err(eyre!("Server is stopped").into());
         }
         let mut stdin = self.stdin.lock().await;
         let Some(stdin) = stdin.as_mut() else {
@@ -872,7 +872,7 @@ impl TServer for MinecraftInstance {
                 .await;
             }
             return Err(color_eyre::Report::new(e)
-                .wrap_err("Failed to send command to instance")
+                .wrap_err("Failed to send command to server")
                 .into());
         }
         Ok(())

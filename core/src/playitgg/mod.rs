@@ -475,6 +475,11 @@ pub async fn get_tunnels(
             kind: ErrorKind::Internal,
             source: eyre!("Couldn't find Playit key"),
         })?;
+    fetch_tunnels(secret).await.map(Json)
+}
+
+/// The tunnels of the playit.gg account with the agent secret `secret`.
+pub async fn fetch_tunnels(secret: String) -> Result<Vec<PlayitTunnelInfo>, Error> {
     let api = make_client(API_BASE.to_string(), secret);
     let response = with_timeout(
         "listing playit.gg tunnels",
@@ -488,7 +493,7 @@ pub async fn get_tunnels(
         kind: ErrorKind::External,
         source: eyre!("Couldn't connect to Playit: {e:?}"),
     })?;
-    parse_tunnel_list(response).map(Json)
+    parse_tunnel_list(response)
 }
 
 #[cfg(test)]

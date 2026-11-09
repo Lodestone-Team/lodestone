@@ -564,6 +564,51 @@ fn mod_key_bindings_are_shared_only_where_they_exist() {
 }
 
 #[test]
+fn a_new_preferred_instance_fills_the_global_set_on_its_first_exit() {
+    let world = World::new();
+    let a = world.instance("a", None);
+    let jar = world.data.root().join("1.20.1.jar");
+    write_jar(&jar, 3465);
+    set_preferred(&world.data, Some("a"), Some(&a)).unwrap();
+    // Sound isn't shared and the instance overrides its FOV.
+    update_profile(&world.data, |profile| {
+        profile.disabled.insert(Category::Sound);
+    })
+    .unwrap();
+    set_overrides(&a, ["fov"], true).unwrap();
+    let outcome = before_launch(&world.data, "a", &a, "1.20.1", Some(&jar)).unwrap();
+    assert_eq!(outcome.written, 0);
+    assert!(!a.join("minecraft/options.txt").exists());
+    // The game writes its whole file when it first exits.
+    fs::write(a.join("minecraft/options.txt"), fixture("1.20.1")).unwrap();
+    let outcome = world.exit("a", "1.20.1");
+    let ExitOutcome::Emitted(keys) = outcome else {
+        panic!("{outcome:?}");
+    };
+    assert!(keys.contains(&"mouseSensitivity".to_string()), "{keys:?}");
+    let values = world.profile().values;
+    assert_eq!(values["mouseSensitivity"], "0.5");
+    assert_eq!(values["renderDistance"], "12");
+    assert_eq!(values["key_key.forward"], "key.keyboard.w");
+    assert_eq!(values["key_key.swapOffhand"], "key.keyboard.f");
+    assert_eq!(values["graphicsPreset"], "fancy");
+    assert!(!values.contains_key("fov"));
+    assert!(!values.contains_key("soundCategory_music"));
+    assert!(!values.contains_key("resourcePacks"));
+
+    // Another instance's first game adds nothing to the global set.
+    let b = world.instance("b", None);
+    before_launch(&world.data, "b", &b, "1.20.1", Some(&jar)).unwrap();
+    fs::write(
+        b.join("minecraft/options.txt"),
+        fixture("1.20.1").replace("chatScale:1.0", "chatScale:0.5"),
+    )
+    .unwrap();
+    world.exit("b", "1.20.1");
+    assert_eq!(world.profile().values, values);
+}
+
+#[test]
 fn a_game_the_launcher_didnt_see_exit_is_read_back_at_the_next_launch() {
     let world = World::new();
     let a = world.instance("a", Some(&fixture("1.21.11")));
@@ -575,6 +620,74 @@ fn a_game_the_launcher_didnt_see_exit_is_read_back_at_the_next_launch() {
     assert!(matches!(outcome.recovered, Some(ExitOutcome::Emitted(_))));
     assert_eq!(world.profile().values["mouseSensitivity"], "0.42");
     assert_eq!(value(&options_of(&a), "mouseSensitivity"), Some("0.42"));
+}
+
+#[test]
+fn concurrent_changes_are_not_lost() {
+    // Threads take the same file locks another launcher process would.
+    let world = World::new();
+    let a = world.instance("a", Some(&fixture("1.21.11")));
+    set_preferred(&world.data, Some("a"), Some(&a)).unwrap();
+    let root = world.data.root().to_path_buf();
+    let threads: Vec<_> = (0..6)
+        .map(|thread| {
+            let (root, a) = (root.clone(), a.clone());
+            std::thread::spawn(move || {
+                let data = DataDir::at(&root);
+                for i in 0..10 {
+                    match thread {
+                        0 => {
+                            before_launch(&data, "a", &a, "1.21.11", None).unwrap();
+                            after_exit(&data, "a", &a, "1.21.11").unwrap();
+                        }
+                        1 | 2 => {
+                            update_instance(&a, |sharing| {
+                                sharing.overrides.insert(format!("key_{thread}.{i}"));
+                            })
+                            .unwrap();
+                        }
+                        _ => {
+                            update_profile(&data, |profile| {
+                                let key = format!("key_{thread}.{i}");
+                                profile.values.insert(key, "key.keyboard.w".into());
+                            })
+                            .unwrap();
+                        }
+                    }
+                }
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    let profile = world.profile();
+    let sharing = load_instance(&a).unwrap();
+    for i in 0..10 {
+        for thread in [1, 2] {
+            assert!(sharing.overrides.contains(&format!("key_{thread}.{i}")));
+        }
+        for thread in 3..6 {
+            assert!(profile.values.contains_key(&format!("key_{thread}.{i}")));
+        }
+    }
+    assert_eq!(profile.preferred.as_deref(), Some("a"));
+}
+
+#[test]
+fn a_change_waits_for_the_lock() {
+    let world = World::new();
+    let held = lock(world.data.root()).unwrap();
+    let root = world.data.root().to_path_buf();
+    let writer = std::thread::spawn(move || {
+        set_value(&DataDir::at(&root), "renderDistance", "8").unwrap();
+    });
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let on_disk = storage::load::<Profile>(&profile_path(&world.data)).unwrap();
+    assert!(on_disk.document.values.is_empty());
+    drop(held);
+    writer.join().unwrap();
+    assert_eq!(world.profile().values["renderDistance"], "8");
 }
 
 #[test]
@@ -602,6 +715,28 @@ fn crlf_files_keep_their_line_endings() {
     assert_eq!(
         options_of(&a),
         original.replace("mouseSensitivity:0.5\r\n", "mouseSensitivity:0.7\r\n")
+    );
+}
+
+#[test]
+fn lines_that_arent_utf8_are_kept() {
+    // A Windows-1252 server name, as 1.12.2 writes it on Windows.
+    let world = World::new();
+    let a = world.instance("a", None);
+    let path = a.join("minecraft/options.txt");
+    let original = b"version:1343\nlastServer:caf\xe9.example.net\nmouseSensitivity:0.5\nfov:0.0\n";
+    fs::write(&path, original).unwrap();
+    world.set(&[("mouseSensitivity", "0.7")]);
+    world.launch("a", "1.12.2");
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        b"version:1343\nlastServer:caf\xe9.example.net\nmouseSensitivity:0.7\nfov:0.0\n"
+    );
+    set_overrides(&a, ["fov"], true).unwrap();
+    set_instance_value(&a, "1.12.2", None, "fov", "0.25").unwrap();
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        b"version:1343\nlastServer:caf\xe9.example.net\nmouseSensitivity:0.7\nfov:0.25\n"
     );
 }
 
@@ -705,8 +840,57 @@ fn the_data_version_comes_from_the_jar() {
 fn write_jar(path: &Path, world_version: u32) {
     let file = fs::File::create(path).unwrap();
     let mut zip = zip::ZipWriter::new(file);
-    zip.start_file("version.json", zip::write::FileOptions::default())
+    zip.start_file("version.json", zip::write::SimpleFileOptions::default())
         .unwrap();
     write!(zip, "{{\"id\": \"x\", \"world_version\": {world_version}}}").unwrap();
     zip.finish().unwrap();
+}
+
+#[test]
+fn keeping_the_narrator_off_reaches_a_new_instance() {
+    let world = World::new();
+    assert!(!narrator_off(&world.profile()));
+    let profile = set_narrator_off(&world.data, true).unwrap();
+    assert!(narrator_off(&profile));
+
+    // A brand-new instance: no options.txt yet, so its first start would open the
+    // accessibility screen and read it aloud.
+    let a = world.instance("a", None);
+    let jar = world.data.root().join("1.21.11.jar");
+    write_jar(&jar, 4671);
+    let outcome = before_launch(&world.data, "a", &a, "1.21.11", Some(&jar)).unwrap();
+    assert!(outcome.created);
+    let text = options_of(&a);
+    assert_eq!(value(&text, "narrator"), Some("0"));
+    assert_eq!(value(&text, "onboardAccessibility"), Some("false"));
+
+    // An existing instance that had the narrator on gets it turned off.
+    let b = world.instance(
+        "b",
+        Some(&fixture("1.21.11").replace("narrator:0", "narrator:1")),
+    );
+    world.launch("b", "1.21.11");
+    assert_eq!(value(&options_of(&b), "narrator"), Some("0"));
+
+    // Turning it off again stops sharing both values.
+    let profile = set_narrator_off(&world.data, false).unwrap();
+    assert!(!narrator_off(&profile));
+    assert!(!profile.values.contains_key("narrator"));
+    assert!(!profile.values.contains_key("onboardAccessibility"));
+}
+
+#[test]
+fn keeping_the_narrator_off_does_nothing_where_accessibility_isnt_shared() {
+    let world = World::new();
+    set_narrator_off(&world.data, true).unwrap();
+    update_profile(&world.data, |profile| {
+        profile.disabled.insert(Category::Accessibility);
+    })
+    .unwrap();
+    let a = world.instance(
+        "a",
+        Some(&fixture("1.21.11").replace("narrator:0", "narrator:1")),
+    );
+    world.launch("a", "1.21.11");
+    assert_eq!(value(&options_of(&a), "narrator"), Some("1"));
 }

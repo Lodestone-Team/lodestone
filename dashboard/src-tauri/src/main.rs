@@ -248,7 +248,7 @@ async fn main() {
 
     let run_result = lodestone_core::run(lodestone_core::Args {
         is_cli: false,
-        is_desktop: true,
+        is_host: true,
         lodestone_path: None,
         disable_code_execution: false,
     })
@@ -411,14 +411,14 @@ async fn main() {
     }
 }
 
-/// Tells the user that Lodestone could not start. Also printed, in case notifications are
+/// Tells the user that Lodestone Host could not start. Also printed, in case notifications are
 /// unavailable.
 fn show_startup_error(error: &dyn std::fmt::Display) {
-    eprintln!("Lodestone failed to start: {error}");
+    eprintln!("Lodestone Host failed to start: {error}");
     if let Err(e) = Notification::new()
-        .summary("Lodestone failed to start")
+        .summary("Lodestone Host failed to start")
         .body(&format!(
-            "Oh no! Looks like Lodestone was unable to start. Error: {}",
+            "Oh no! Looks like Lodestone Host was unable to start. Error: {}",
             error
         ))
         .auto_icon()

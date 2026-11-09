@@ -1,0 +1,192 @@
+use std::rc::Rc;
+
+use gpui::{
+    App, ElementId, FocusHandle, IntoElement, RenderOnce, SharedString, Window, div, prelude::*,
+};
+use launcher_core::ui_skin::{FontPart, SurfaceId};
+
+use super::a11y::{Accessible, Role, automation_id, child_id};
+use super::focus::{self, SelectNext, SelectPrev};
+use crate::theme::{self, colors, leading, text, weights};
+
+type SelectHandler = Box<dyn Fn(&usize, &mut Window, &mut App) + 'static>;
+
+/// A row of tabs over a rule, after the tab list on the dashboard's settings page.
+///
+/// Each tab is a tab stop; Enter or Space selects the focused one, and Left and Right
+/// move focus to the tab beside it and select it.
+#[derive(IntoElement)]
+pub struct Tabs {
+    id: ElementId,
+    labels: Vec<SharedString>,
+    selected: usize,
+    on_select: Option<SelectHandler>,
+}
+
+impl Tabs {
+    pub fn new(
+        id: impl Into<ElementId>,
+        labels: impl IntoIterator<Item = impl Into<SharedString>>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            labels: labels.into_iter().map(Into::into).collect(),
+            selected: 0,
+            on_select: None,
+        }
+    }
+
+    pub fn selected(mut self, index: usize) -> Self {
+        self.selected = index;
+        self
+    }
+
+    /// Called with the index of the tab that was clicked.
+    pub fn on_select(mut self, handler: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self {
+        let (id, labels) = (self.id.clone(), self.labels.clone());
+        self.on_select = Some(Box::new(move |index, window, cx| {
+            let label = labels.get(*index).map(|l| l.to_string());
+            super::trace_ui(
+                "ui.select",
+                "tabs",
+                &id,
+                serde_json::json!({ "index": index, "label": label }),
+            );
+            handler(index, window, cx)
+        }));
+        self
+    }
+}
+
+impl RenderOnce for Tabs {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let on_select = self.on_select.map(Rc::new);
+        // One handle per tab, kept while the tabs are shown, so the arrow keys can move
+        // focus to a given tab.
+        let handles: Rc<Vec<FocusHandle>> = Rc::new(
+            (0..self.labels.len())
+                .map(|index| {
+                    let key = ElementId::from((self.id.clone(), format!("tab-focus-{index}")));
+                    window
+                        .use_keyed_state(key, cx, |_, cx| cx.focus_handle().tab_stop(true))
+                        .read(cx)
+                        .clone()
+                })
+                .collect(),
+        );
+        let arrow = |forward: bool| {
+            let handles = handles.clone();
+            let on_select = on_select.clone();
+            move |window: &mut Window, cx: &mut App| {
+                let Some(current) = handles.iter().position(|h| h.is_focused(window)) else {
+                    return;
+                };
+                let Some(next) = neighbour(current, handles.len(), forward) else {
+                    return;
+                };
+                handles[next].focus(window, cx);
+                if let Some(on_select) = &on_select {
+                    on_select(&next, window, cx);
+                }
+            }
+        };
+        let (next, prev) = (arrow(true), arrow(false));
+        let tab_count = self.labels.len();
+        let tabs_id = self.id.clone();
+        div()
+            .id(self.id.clone())
+            .role(Role::TabList)
+            .accessibility_id(automation_id(&self.id))
+            .key_context(focus::ARROW_KEYS)
+            .on_action(move |_: &SelectNext, window, cx| next(window, cx))
+            .on_action(move |_: &SelectPrev, window, cx| prev(window, cx))
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .items_end()
+            .gap_4()
+            .w_full()
+            .border_b_2()
+            .border_color(colors::GRAY_700)
+            .text_size(theme::text_size(text::H3))
+            .line_height(theme::line_height(text::H3, leading::NORMAL))
+            .font_weight(weights::BOLD.into())
+            .when_some(crate::theme::fonts::own(FontPart::Tab), |this, font| {
+                this.font_family(font)
+            })
+            .children(self.labels.into_iter().enumerate().map(|(index, label)| {
+                let skin = crate::skin::painted(SurfaceId::Tab);
+                let selected_text = skin
+                    .as_ref()
+                    .and_then(|s| s.text)
+                    .unwrap_or_else(crate::theme::accent::light);
+                let selected = index == self.selected;
+                let on_select = on_select.clone();
+                // The underline and the label's colour fade over to the chosen tab.
+                let t = super::motion::switch(("tab-underline", index), selected, window, cx);
+                div()
+                    .id(("tab", index))
+                    .accessible(Role::Tab, child_id(&tabs_id, index), label.clone())
+                    .aria_selected(selected)
+                    .aria_position_in_set(index + 1)
+                    .aria_size_of_set(tab_count)
+                    .track_focus(&handles[index])
+                    .focus_visible(focus::inner_ring)
+                    .cursor_pointer()
+                    .border_b_2()
+                    .border_color(
+                        crate::theme::accent::light()
+                            .opacity(0)
+                            .mix(crate::theme::accent::light(), t),
+                    )
+                    .text_color(crate::theme::ink::muted().mix(selected_text, t))
+                    // the skin's fill behind the chosen tab
+                    .when_some(
+                        skin.filter(|s| selected && s.paint.is_some()),
+                        |this, skin| {
+                            let tab = this
+                                .px_2()
+                                .rounded_t(crate::theme::px(skin.radius.unwrap_or(6.)));
+                            crate::skin::paint(
+                                tab,
+                                &crate::skin::Painted {
+                                    paint: skin.paint.clone(),
+                                    ..Default::default()
+                                },
+                            )
+                        },
+                    )
+                    .when(!selected, |this| {
+                        this.hover(|style| style.text_color(crate::theme::ink::secondary()))
+                    })
+                    .when_some(on_select, |this, on_select| {
+                        this.on_press(move |_, window, cx| on_select(&index, window, cx))
+                    })
+                    .child(label)
+            }))
+    }
+}
+
+/// The tab beside `current` of `len`, after it or before it; none past either end.
+fn neighbour(current: usize, len: usize, forward: bool) -> Option<usize> {
+    if forward {
+        Some(current + 1).filter(|next| *next < len)
+    } else {
+        current.checked_sub(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::neighbour;
+
+    #[test]
+    fn arrows_stop_at_the_ends() {
+        assert_eq!(neighbour(0, 5, true), Some(1));
+        assert_eq!(neighbour(3, 5, true), Some(4));
+        assert_eq!(neighbour(4, 5, true), None);
+        assert_eq!(neighbour(4, 5, false), Some(3));
+        assert_eq!(neighbour(0, 5, false), None);
+        assert_eq!(neighbour(0, 1, true), None);
+    }
+}

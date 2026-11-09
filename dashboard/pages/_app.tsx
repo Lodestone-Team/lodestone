@@ -4,6 +4,7 @@ import type { AppProps } from 'next/app';
 import { config } from '@fortawesome/fontawesome-svg-core';
 import axios from 'axios';
 import { BrowserRouter } from 'react-router';
+import { BASE_PATH } from 'utils/basePath';
 import { BrowserLocationContextProvider } from 'data/BrowserLocationContext';
 import { ToastContainer, Zoom, IconProps } from 'react-toastify';
 import LoadingStatusIcon from 'components/Atoms/LoadingStatusIcon';
@@ -11,6 +12,8 @@ import ReactGA from 'react-ga4';
 import ClientOnly from 'components/ClientOnly';
 import { useEffect } from 'react';
 import { initTheme, useResolvedTheme } from 'utils/theme';
+import { initHostZoom } from 'utils/zoom';
+import { I18nProvider } from 'i18n';
 
 // Font Awesome styles are imported (into a cascade layer) by globals.css
 config.autoAddCss = false;
@@ -26,11 +29,12 @@ const contextClass = {
   success: '!bg-green',
 };
 
-
 function MyApp({ Component, pageProps }: AppProps) {
   const theme = useResolvedTheme();
   // follow OS theme changes (for the "system" preference) and other tabs
   useEffect(initTheme, []);
+  // Ctrl/⌘ + and − in Lodestone Host
+  useEffect(initHostZoom, []);
 
   const renderIcon = (props: IconProps) => {
     // Cannot assign 'Success' to EventLevel, so I guess there won't be a success toast
@@ -42,37 +46,39 @@ function MyApp({ Component, pageProps }: AppProps) {
       default:
         return <LoadingStatusIcon level={'Info'} bright={true} />;
     }
-  }
+  };
 
   return (
     <main>
       <ClientOnly>
-        <ToastContainer
-          // react-toastify 11 removed the toast body element (and bodyClassName),
-          // the message is now a direct child of the toast
-          toastClassName="!bg-gray-850 cursor-pointer text-medium font-medium tracking-medium"
-          progressClassName={(context) => {
-            const type = context?.type || 'info';
-            return (
-              contextClass[type] + ' relative ' + context?.defaultClassName
-            );
-          }}
-          icon={renderIcon}
-          position={'bottom-right'}
-          closeButton={false}
-          // the default was true before react-toastify 10
-          closeOnClick
-          pauseOnFocusLoss={false}
-          draggable={false}
-          pauseOnHover
-          theme={theme}
-          transition={Zoom}
-        />
-        <BrowserRouter>
-          <BrowserLocationContextProvider>
-            <Component {...pageProps} />
-          </BrowserLocationContextProvider>
-        </BrowserRouter>
+        <I18nProvider>
+          <ToastContainer
+            // react-toastify 11 removed the toast body element (and bodyClassName),
+            // the message is now a direct child of the toast
+            toastClassName="!bg-gray-850 cursor-pointer text-medium font-medium tracking-medium"
+            progressClassName={(context) => {
+              const type = context?.type || 'info';
+              return (
+                contextClass[type] + ' relative ' + context?.defaultClassName
+              );
+            }}
+            icon={renderIcon}
+            position={'bottom-right'}
+            closeButton={false}
+            // the default was true before react-toastify 10
+            closeOnClick
+            pauseOnFocusLoss={false}
+            draggable={false}
+            pauseOnHover
+            theme={theme}
+            transition={Zoom}
+          />
+          <BrowserRouter basename={BASE_PATH || undefined}>
+            <BrowserLocationContextProvider>
+              <Component {...pageProps} />
+            </BrowserLocationContextProvider>
+          </BrowserRouter>
+        </I18nProvider>
       </ClientOnly>
     </main>
   );

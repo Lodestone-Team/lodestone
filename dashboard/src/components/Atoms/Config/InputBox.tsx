@@ -6,15 +6,18 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import InfoTooltip from 'components/InfoTooltip';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import {
   catchAsyncToString,
+  cn,
   DISABLE_AUTOFILL,
   parseFloatStrict,
   parseintStrict,
 } from 'utils/util';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
+import { SettingsRow } from 'components/Settings/SettingsBlocks';
+import { useT } from 'i18n';
 
 const onChangeValidateTimeout = 100;
 
@@ -80,26 +83,29 @@ export default function InputBox({
   const [touched, setTouched] = useState<boolean>(false);
   const [typeModified, setTypeModified] = useState<string>(type); //in case we have password field which can switch between "text" and "password"
   const formRef = useRef<HTMLFormElement>(null);
+  const inputId = useId();
+  const t = useT();
 
   const validate = useCallback(
     async (value: string, submit: boolean) => {
-      if (required && !value && submit) throw new Error('Cannot be empty');
+      if (required && !value && submit)
+        throw new Error(t('common.input.cannotBeEmpty'));
       if (type === 'number' || isFloat) {
         if (!value && submit) {
-          throw new Error('Cannot be empty');
+          throw new Error(t('common.input.cannotBeEmpty'));
         }
         const numValue = isFloat
           ? parseFloatStrict(value)
           : parseintStrict(value);
-        if (isNaN(numValue)) throw new Error('Must be a number');
+        if (isNaN(numValue)) throw new Error(t('common.input.mustBeNumber'));
         if (min != null && numValue < min)
-          throw new Error(`Must be greater than ${min}`);
+          throw new Error(t('common.input.mustBeGreaterThan', { min }));
         if (max != null && numValue > max)
-          throw new Error(`Must be less than ${max}`);
+          throw new Error(t('common.input.mustBeLessThan', { max }));
       }
       if (validateProp) await validateProp(value);
     },
-    [max, min, type, validateProp, required, isFloat]
+    [max, min, type, validateProp, required, isFloat, t]
   );
 
   // we want to validate the input after the user stops typing for a while
@@ -170,8 +176,8 @@ export default function InputBox({
   const errorText = errorProp || error;
   disabled = disabled || !canRead || isLoadingProp;
   description = canRead
-    ? descriptionFunc?.(initialValue || value) ?? description
-    : 'No permission';
+    ? (descriptionFunc?.(initialValue || value) ?? description)
+    : t('common.noPermission');
 
   let icons = [];
 
@@ -231,67 +237,60 @@ export default function InputBox({
   }
 
   return (
-    <div
-      className={`flex flex-row items-center justify-between ${className} group relative gap-4 bg-gray-800 px-4 py-3 text-medium`}
+    <SettingsRow
+      className={cn('group relative', className)}
+      label={
+        <span className="flex flex-row items-center">
+          {label}
+          {tooltipText && (
+            <InfoTooltip tooltip={tooltipText} className="ml-2" />
+          )}
+        </span>
+      }
+      htmlFor={inputId}
+      hint={description}
+      error={errorText}
+      controlClassName="w-5/12"
     >
-      <div className={`flex min-w-0 grow flex-col`}>
-        <div className="flex row">
-          <label className="text-medium font-medium text-gray-300">{label}</label>
-          {tooltipText &&
-            <InfoTooltip
-              tooltip={tooltipText}
-              className="ml-2"
-            />
-          }
-        </div>
-        {errorText ? (
-          <div className="text-small font-medium tracking-medium text-red">
-            {errorText || 'Unknown error'}
-          </div>
-        ) : (
-          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
-            {description}
-          </div>
-        )}
-      </div>
       {isLoadingProp && (
         // the value is still loading: the field's shape (after a moment)
-        <SkeletonGroup className="w-5/12 shrink-0">
+        <SkeletonGroup className="w-full">
           <Skeleton className="h-9 w-full rounded" />
         </SkeletonGroup>
       )}
       <form
         onSubmit={onSubmit}
         onReset={onReset}
-        className={`relative w-5/12 shrink-0 ${isLoadingProp ? 'hidden' : ''}`}
+        className={cn('relative w-full', isLoadingProp && 'hidden')}
         ref={formRef}
         onKeyDown={handleKeyDown}
         id={id}
       >
-        <div
-          className={`pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end py-1.5 px-3`}
-        >
+        <div className="pointer-events-none absolute top-0 right-0 flex h-full flex-row items-center justify-end px-3 py-1.5">
           <div className="pointer-events-auto flex flex-row gap-2">
             {showIcons && icons}
           </div>
         </div>
         <input
+          id={inputId}
           value={value}
           placeholder={placeholder}
           onChange={onChange}
           maxLength={maxLength}
           style={{ paddingRight: `${icons.length * 1.5 + 0.75}rem` }} //0.75, 2.25, 3.75
-          className={`input-shape input-background input-outlines input-text-style w-full ${errorText ? 'input-border-error' : 'input-border-normal'
-            }
-           `}
+          className={cn(
+            'input-shape input-background input-outlines input-text-style w-full',
+            errorText ? 'input-border-error' : 'input-border-normal'
+          )}
           onBlur={() => {
             setValue(value.trim());
           }}
           disabled={disabled}
           type={typeModified}
           autoComplete={DISABLE_AUTOFILL}
+          aria-invalid={errorText ? true : undefined}
         />
       </form>
-    </div>
+    </SettingsRow>
   );
 }

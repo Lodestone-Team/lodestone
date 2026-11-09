@@ -28,8 +28,8 @@ thiserror = "2.0.17"
 # used, which are the same in both.
 toml = { version = ">=0.9.8, <2", default-features = false, features = ["std", "parse", "serde"] }
 url = "2.5.7"
-# Reading and writing `.mrpack` files and jars. Zed only locks zip 0.6, so the launcher
-# turns this feature off.
+# Reading and writing `.mrpack` files and jars. The launcher turns this feature off: it
+# reads jars and packs itself, with only zip's deflate codec.
 zip = { version = "9.0.5", optional = true, default-features = false, features = ["deflate", "deflate64", "bzip2", "zstd", "time"] }
 # TypeScript bindings of the types the core sends to clients. The core exports them into
 # core/bindings.

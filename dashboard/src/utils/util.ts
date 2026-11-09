@@ -7,6 +7,13 @@ import { InstanceState } from 'bindings/InstanceState';
 import { ClientFile } from 'bindings/ClientFile';
 import React from 'react';
 import clsx, { ClassValue } from 'clsx';
+import {
+  formatBytes as formatBytesIntl,
+  formatDate,
+  formatDateTime,
+  formatRelativeTime,
+  t,
+} from 'i18n';
 // eslint-disable-next-line no-restricted-imports
 import { extendTailwindMerge } from 'tailwind-merge';
 
@@ -42,7 +49,7 @@ export const myTwMerge = extendTailwindMerge({
   },
 });
 
-export const supportedZip = ["zip", "gz", "tgz"];
+export const supportedZip = ['zip', 'gz', 'tgz'];
 
 export const capitalizeFirstLetter = (string: string) => {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -92,11 +99,11 @@ export const stateToLabelColor: { [key in InstanceState]: LabelColor } = {
 };
 
 export const stateToColor: { [key in InstanceState]: string } = {
-  Starting: "text-yellow-300",
-  Running: "text-green-300",
-  Stopping: "text-yellow-300",
-  Stopped: "text-gray-faded/30",
-  Error: "text-red-200",
+  Starting: 'text-yellow-300',
+  Running: 'text-green-300',
+  Stopping: 'text-yellow-300',
+  Stopped: 'text-gray-faded/30',
+  Error: 'text-red-200',
 };
 
 export function isAxiosError<ResponseType>(
@@ -146,19 +153,19 @@ export function errorToString(error: unknown): string {
     if (error.response) {
       const data = parseErrorBody(error.response.data);
       if (typeof data === 'string' && data.startsWith('`Authorization`')) {
-        return 'Invalid token: try to log out and log in again';
+        return t('common.invalidToken');
       }
       if (isClientErrorBody(data)) return new ClientError(data).toString();
       return `${error.code}: ${error.response.statusText}`;
     }
-    if (error.code === 'ERR_NETWORK') return 'Network error';
-    return `Network error: ${error.message}`;
+    if (error.code === 'ERR_NETWORK') return t('common.networkError');
+    return t('common.networkErrorWithMessage', { message: error.message });
   }
   if (error === null || error === undefined) return '';
   if (error instanceof Error) return error.message;
   // if it's string
   if (typeof error === 'string') return error;
-  return `Unknown error`;
+  return t('common.unknownError');
 }
 
 /**
@@ -219,7 +226,7 @@ export async function catchAsyncToString(
     await promise;
     return '';
   } catch (e) {
-    return errorToString(e) || 'Unknown error';
+    return errorToString(e) || t('common.unknownError');
   }
 }
 
@@ -227,7 +234,7 @@ export function parseintStrict(value: string): number {
   // parseint passes even if there are trailing characters
   // so we check that the string is the same as the parsed int
   const parsed = parseInt(value);
-  if (parsed.toString() !== value) throw new Error('Not an integer');
+  if (parsed.toString() !== value) throw new Error(t('common.notAnInteger'));
   return parsed;
 }
 
@@ -235,11 +242,9 @@ export function parseFloatStrict(value: string): number {
   // parseFloat passes even if there are trailing characters
   // so we check that the string is the same as the parsed float
   const parsed = parseFloat(value);
-  if (parsed.toString() !== value) throw new Error('Not a valid float');
+  if (parsed.toString() !== value) throw new Error(t('common.notANumber'));
   return parsed;
 }
-
-  
 
 export function getWidth(
   el: HTMLElement,
@@ -310,7 +315,7 @@ export const formatDuration = (duration: number) => {
   }`;
 };
 
-// format message time for notifications
+// format message time for notifications: the time today, else date and time
 export const formatNotificationTime = (time_ms: number) => {
   const now = new Date();
   const time = new Date(time_ms);
@@ -319,33 +324,18 @@ export const formatNotificationTime = (time_ms: number) => {
     now.getMonth() === time.getMonth() &&
     now.getDate() === time.getDate()
   ) {
-    return time.toLocaleTimeString('en-US');
+    return formatDate(time, { timeStyle: 'medium' });
   } else {
-    return time.toLocaleString('en-US');
+    return formatDateTime(time);
   }
 };
 
-// format "time ago"
+// format "time ago", in the dashboard language: "3 minutes ago" within a
+// day, the date before that
 export const formatTimeAgo = (time_ms: number) => {
-  const now = new Date();
-  const time = new Date(time_ms);
-  const diff = now.getTime() - time.getTime();
-  const diffDays = Math.floor(diff / (1000 * 3600 * 24));
-  const diffHours = Math.floor(diff / (1000 * 3600));
-  const diffMinutes = Math.floor(diff / (1000 * 60));
-  const diffSeconds = Math.floor(diff / 1000);
-  if (diffDays > 0) {
-    const date = new Date(time_ms);
-    return `${date.toLocaleString('default', { month: 'long', year: 'numeric', day: 'numeric' })}`;
-  } else if (diffHours > 0) {
-    return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-  } else if (diffMinutes > 0) {
-    return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
-  } else if (diffSeconds > 0) {
-    return `${diffSeconds} second${diffSeconds > 1 ? 's' : ''} ago`;
-  } else {
-    return 'just now';
-  }
+  if (Date.now() - time_ms >= 24 * 3600 * 1000)
+    return formatDate(time_ms, { dateStyle: 'long' });
+  return formatRelativeTime(time_ms);
 };
 
 // format "progress" number of bytes to human readable string
@@ -354,21 +344,11 @@ export const formatBytesDownload = (
   progress: number,
   total: number,
   decimals = 2
-) => {
-  if (total === 0) return '0 Bytes';
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-  const i = Math.floor(Math.log(total) / Math.log(k));
-  if (i > sizes.length - 1)
-    throw new Error('The file is bigger than 1024 YB!? this should not happen');
-  return parseFloat((progress / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-};
+) => formatBytesIntl(progress, decimals, total);
 
-// format number of bytes to human readable string
-export const formatBytes = (bytes: number, decimals = 2) => {
-  return formatBytesDownload(bytes, bytes, decimals);
-};
+// format number of bytes to human readable string, e.g. "1.5 MB"
+export const formatBytes = (bytes: number, decimals = 2) =>
+  formatBytesIntl(bytes, decimals);
 
 export const LODESTONE_EPOCH = BigInt('1667530800000');
 
@@ -377,7 +357,6 @@ export const getSnowflakeTimestamp = (snowflake: string) => {
   const snowflakeBigInt = BigInt(snowflake);
   return Number(snowflakeBigInt >> BigInt(22)) + Number(LODESTONE_EPOCH);
 };
-
 
 export const chooseFiles = async () => {
   const input = document.createElement('input');

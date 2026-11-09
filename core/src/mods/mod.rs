@@ -178,7 +178,7 @@ pub struct ModFolder {
 pub fn unsupported_instance() -> Error {
     Error {
         kind: ErrorKind::BadRequest,
-        source: eyre!("This instance does not support mods or plugins"),
+        source: eyre!("This server does not support mods or plugins"),
     }
 }
 
@@ -245,7 +245,7 @@ impl ModFolder {
         let accepted = self.accepted_loaders();
         if !version.loaders.iter().any(|l| accepted.contains(l)) {
             return Some(format!(
-                "{} {} is for {}, but this instance uses {}",
+                "{} {} is for {}, but this server uses {}",
                 version.name,
                 version.version_number,
                 list(&version.loaders),
@@ -254,7 +254,7 @@ impl ModFolder {
         }
         if !version.game_versions.contains(&self.game_version) {
             return Some(format!(
-                "{} {} is for Minecraft {}, but this instance runs {}",
+                "{} {} is for Minecraft {}, but this server runs {}",
                 version.name,
                 version.version_number,
                 list(&version.game_versions),
@@ -780,7 +780,7 @@ mod tests {
             let err = ModFolder::new(&game, "1.20.1".into(), root).unwrap_err();
             assert_eq!(
                 err.source.to_string(),
-                "This instance does not support mods or plugins"
+                "This server does not support mods or plugins"
             );
         }
     }
@@ -951,11 +951,11 @@ mod tests {
         assert!(folder
             .incompatibility(&version(&["fabric"], &["1.20.1"]))
             .unwrap()
-            .contains("is for fabric, but this instance uses paper"));
+            .contains("is for fabric, but this server uses paper"));
         assert!(folder
             .incompatibility(&version(&["paper"], &["1.19.4"]))
             .unwrap()
-            .contains("is for Minecraft 1.19.4, but this instance runs 1.20.1"));
+            .contains("is for Minecraft 1.19.4, but this server runs 1.20.1"));
     }
 
     #[test]

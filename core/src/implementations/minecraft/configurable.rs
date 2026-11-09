@@ -359,10 +359,10 @@ impl CmdArgSetting {
     pub fn get_description(&self) -> &'static str {
         match self {
             CmdArgSetting::MinRam(_) => {
-                "The minimum amount of RAM to allocate to the server instance, in MB"
+                "The minimum amount of RAM to allocate to the server, in MB"
             }
             CmdArgSetting::MaxRam(_) => {
-                "The maximum amount of RAM to allocate to the server instance, in MB"
+                "The maximum amount of RAM to allocate to the server, in MB"
             }
             CmdArgSetting::JavaCmd(_) => "The command to use to run the java executable",
             CmdArgSetting::Args(_) => {

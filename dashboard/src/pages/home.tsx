@@ -6,9 +6,12 @@ import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import Button from 'components/Atoms/Button';
 import { InstanceContext } from 'data/InstanceContext';
 import { preloadCreateInstanceProps } from 'components/DashboardLayout/CreateInstanceFlow';
+import { useT } from 'i18n';
+import { asset } from 'utils/basePath';
 
 const Home = () => {
-  useDocumentTitle('Home - Lodestone');
+  const t = useT();
+  useDocumentTitle(t('common.pageTitle', { page: t('shell.home.pageTitle') }));
   const { setShowCreateInstance } = useContext(InstanceContext);
   const userLoggedIn = useUserLoggedIn();
   const canCreateInstance = useUserAuthorized('can_create_instance');
@@ -33,23 +36,21 @@ const Home = () => {
     <div className="relative flex flex-col items-center justify-center overflow-auto text-gray-faded/30 light:text-ink-muted">
       <div className="flex h-28 w-28 items-center justify-center rounded-full border border-dashed border-gray-faded/30 align-middle">
         <img
-          src="/assets/placeholder-cube.png"
-          alt="placeholder"
+          src={asset('/assets/placeholder-cube.png')}
+          alt=""
           className="mx-auto w-20"
           style={{ imageRendering: 'pixelated' }}
         />
       </div>
-      <div className="mt-4 text-h2 font-extrabold ">Manage your instances</div>
-      <div className="text-medium font-bold">
-        To start, select an instance from the menu or create a new instance
-      </div>
+      <div className="mt-4 text-h2 font-extrabold">{t('shell.home.title')}</div>
+      <div className="text-medium font-bold">{t('shell.home.subtitle')}</div>
       {userLoggedIn && (
         <div className="mt-5" {...preloadCreateInstanceProps}>
           <Button
             align="start"
             labelGrow={true}
             className="w-full"
-            label="Create a new instance"
+            label={t('shell.home.create')}
             onClick={() => setShowCreateInstance(true)}
             disabled={!canCreateInstance}
           />

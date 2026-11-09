@@ -9,7 +9,7 @@
 
 A free, open source server hosting tool for Minecraft and other multiplayers games. Lodestone is designed to be easy to use, secure, and feature-rich. It is built with Rust, React, and TypeScript.
 
-🔗 Get Started: [https://www.lodestone.cc/](https://www.lodestone.cc/)
+🔗 Get Started: [https://www.lodestone.cc/host](https://www.lodestone.cc/host)
 
 ## Features
 
@@ -38,11 +38,11 @@ Have a feature request? Let us know by creating an issue!
 
 We are deprecating support for Intel Macs due to the lack of hardware to test on. Get in contact with us if you would like to see additional platform supports.
 
-## Lodestone CLI vs Lodestone Desktop
+## Lodestone CLI vs Lodestone Host
 
 Lodestone CLI manages the installation and updates of Lodestone Core - the backend of Lodestone. It does not come with a UI (dashboard), so you must use a web dashboard, either hosted by us or yourself.
 
-Lodestone Desktop integrates Lodestone Core and the dashboard into a single application. It is available for Windows only and is not considered stable yet.
+Lodestone Host is the dashboard and Lodestone Core in a single desktop application. It is available for Windows only and is not considered stable yet.
 
 
 ## Installation
@@ -51,14 +51,14 @@ Lodestone Desktop integrates Lodestone Core and the dashboard into a single appl
 See [here](https://github.com/Lodestone-Team/lodestone/wiki/Docker-Support)
 
 ### Windows
-You can download Lodestone Desktop for Windows from the [releases page](https://github.com/Lodestone-Team/lodestone/releases). Although we recommend using the CLI, see below.
+You can download Lodestone Host for Windows from the [releases page](https://github.com/Lodestone-Team/lodestone/releases). Although we recommend using the CLI, see below.
 
 
 ### Linux and MacOS (Apple Silicon) via CLI
 Download and run [Lodestone CLI](https://github.com/Lodestone-Team/lodestone_cli).
 
 If you would like to use the dashboard we hosts:
-1. Use a chromium based browser (Chrome, Edge, Brave, etc.) and go to [https://www.lodestone.cc/](https://www.lodestone.cc/)
+1. Use a chromium based browser (Chrome, Edge, Brave, etc.) and go to [https://www.lodestone.cc/host](https://www.lodestone.cc/host)
 2. Follow this [guide](https://experienceleague.adobe.com/docs/target/using/experiences/vec/troubleshoot-composer/mixed-content.html?lang=en) to enable mixed content for the site.
 3. If you have browser extensions such as HTTPS Everywhere, disable them for the site.
 

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lodestone</title>
+    <meta
+      name="description"
+      content="Free, open source tools for playing and hosting Minecraft: Lodestone Launcher, Lodestone Host and Lodestone CLI."
+    />
+    <meta name="theme-color" content="#0d0f13" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/images/mark.svg" type="image/svg+xml" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.lodestone.cc/" />
+    <meta property="og:title" content="Lodestone" />
+    <meta
+      property="og:description"
+      content="Free, open source tools for playing and hosting Minecraft."
+    />
+    <meta property="og:image" content="https://www.lodestone.cc/images/og.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="preload" href="/fonts/Satoshi-Variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/ClashGrotesk-Variable.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/main.js" defer></script>
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/" aria-label="Lodestone home">
+        <img src="/images/logo.svg" alt="Lodestone" width="106" height="22" />
+      </a>
+      <nav class="nav">
+        <a class="nav-link" href="/launcher">Launcher</a>
+        <a class="nav-link" href="/host">Host</a>
+        <a
+          class="github"
+          href="https://github.com/Lodestone-Team/lodestone"
+          target="_blank"
+          rel="noopener"
+          aria-label="Lodestone on GitHub"
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+            />
+          </svg>
+          <span class="github-label">GitHub</span>
+          <span class="stars" data-stars hidden>
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M8 .25a.75.75 0 01.67.42l1.88 3.81 4.2.61a.75.75 0 01.42 1.28l-3.04 2.96.72 4.19a.75.75 0 01-1.09.79L8 12.33l-3.76 1.98a.75.75 0 01-1.09-.79l.72-4.19L.83 6.37a.75.75 0 01.42-1.28l4.2-.61L7.33.67A.75.75 0 018 .25z"
+              />
+            </svg>
+            <span data-stars-count></span>
+          </span>
+        </a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <!-- Iron filings lining up around the logo, drawn by main.js. -->
+        <canvas class="field" data-field aria-hidden="true"></canvas>
+
+        <div class="hero-inner">
+          <div class="mark" data-mark aria-hidden="true">
+            <svg viewBox="222 222 580 580" width="140" height="140">
+              <defs>
+                <linearGradient id="hg-gem" x1="330" y1="200" x2="700" y2="830" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#22C980" />
+                  <stop offset="0.55" stop-color="#2F6FA8" />
+                  <stop offset="1" stop-color="#5B4FC0" />
+                </linearGradient>
+                <linearGradient id="hg-hl" x1="512" y1="200" x2="512" y2="520" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#FFFFFF" stop-opacity="0.16" />
+                  <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
+                </linearGradient>
+                <linearGradient id="hg-bar" x1="0" y1="0" x2="17.1" y2="70" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#FFFFFF" />
+                  <stop offset="1" stop-color="#E4E9F2" />
+                </linearGradient>
+                <linearGradient id="hg-foot" x1="19" y1="0" x2="48" y2="0" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#9AA6BC" />
+                  <stop offset="1" stop-color="#DCE3EE" />
+                </linearGradient>
+                <filter id="hg-crease" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="1.6" />
+                </filter>
+                <clipPath id="hg-footclip">
+                  <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" />
+                </clipPath>
+              </defs>
+              <g class="gem-hex">
+                <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" fill="url(#hg-gem)" />
+                <path d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" fill="url(#hg-hl)" />
+                <path class="gem-edge" d="M470.43,236.00 Q512.00,212.00 553.57,236.00 L730.24,338.00 Q771.81,362.00 771.81,410.00 L771.81,614.00 Q771.81,662.00 730.24,686.00 L553.57,788.00 Q512.00,812.00 470.43,788.00 L293.76,686.00 Q252.19,662.00 252.19,614.00 L252.19,410.00 Q252.19,362.00 293.76,338.00 Z" pathLength="100" />
+              </g>
+              <g class="gem-l">
+                <g transform="translate(415.31,362) scale(4.2857)">
+                  <path d="M18,51 H38.5 A9.5,9.5 0 0 1 38.5,70 H18 Z" fill="url(#hg-foot)" />
+                  <g clip-path="url(#hg-footclip)">
+                    <path
+                      d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
+                      fill="#0A1530"
+                      fill-opacity="0.3"
+                      transform="translate(1.4,0)"
+                      filter="url(#hg-crease)"
+                    />
+                  </g>
+                  <path
+                    d="M0,9.5 A9.5,9.5 0 0 1 19,9.5 V59.835 A10.165,10.165 0 0 0 29.165,70 H9.5 A9.5,9.5 0 0 1 0,60.5 Z"
+                    fill="url(#hg-bar)"
+                  />
+                </g>
+              </g>
+            </svg>
+          </div>
+
+          <!-- build.mjs replaces 100k+ with the current count (see stats.mjs). -->
+          <p class="eyebrow">
+            Free and open source
+            <span class="eyebrow-dot" aria-hidden="true"></span>
+            <span class="eyebrow-stat"><span data-core-downloads>100k+</span></span> downloads
+          </p>
+          <h1>
+            <span class="phrase">From your first world</span>
+            <span class="phrase">to your own server.</span>
+          </h1>
+          <p class="lede">Lodestone makes free, open source tools for playing and hosting Minecraft.</p>
+          <div class="actions">
+            <a class="button" href="/launcher">Get the launcher</a>
+            <a class="button button-quiet" href="#products">See everything</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="products" id="products" aria-labelledby="products-title">
+        <h2 class="section-title" id="products-title">What we make</h2>
+
+        <div class="grid">
+          <article class="card card-launcher" data-card>
+            <div class="card-copy">
+              <div class="card-head">
+                <img class="card-icon" src="/launcher/images/icon.svg" alt="" width="28" height="28" />
+                <p class="kicker">Play</p>
+              </div>
+              <h3>Lodestone Launcher</h3>
+              <p>
+                A fast Minecraft launcher with modpacks, mods, shaders and resource packs from Modrinth built in.
+                Keep every instance tidy and switch between them in a click.
+              </p>
+              <a class="card-link" href="/launcher">Get the launcher <span aria-hidden="true">→</span></a>
+            </div>
+            <div class="card-visual launcher-visual" aria-hidden="true">
+              <img
+                class="shot-back"
+                src="/launcher/images/shaders-1120.webp"
+                width="1120"
+                height="700"
+                loading="lazy"
+                alt=""
+              />
+              <img
+                class="shot-front"
+                src="/launcher/images/library-1120.webp"
+                srcset="/launcher/images/library-1120.webp 1120w, /launcher/images/library.webp 2240w"
+                sizes="(max-width: 900px) 120vw, 1000px"
+                width="1120"
+                height="700"
+                loading="lazy"
+                alt=""
+              />
+            </div>
+          </article>
+
+          <article class="card card-host" data-card>
+            <div class="card-copy">
+              <div class="card-head">
+                <img class="card-icon card-icon-tile" src="/images/host-mark.svg" alt="" width="28" height="28" />
+                <p class="kicker">Serve</p>
+              </div>
+              <h3>Lodestone Host</h3>
+              <p>Run Minecraft servers on your own machine and look after them from a dashboard in your browser.</p>
+              <div class="card-links">
+                <a class="card-link" href="/host">Get Lodestone Host <span aria-hidden="true">→</span></a>
+                <a class="card-link card-link-quiet" href="/host/app/">Open the dashboard</a>
+              </div>
+            </div>
+            <div class="card-visual host-visual" aria-hidden="true">
+              <div class="servers">
+                <div class="servers-head">
+                  <span>Servers</span>
+                  <span class="servers-online"><span class="pulse"></span>9 players online</span>
+                </div>
+                <ul>
+                  <li>
+                    <img src="/images/fabric.png" alt="" width="28" height="28" />
+                    <span class="server-name">Weekend survival<small>Fabric 26.3</small></span>
+                    <span class="server-players">6/20</span>
+                    <span class="status is-on"></span>
+                  </li>
+                  <li>
+                    <img src="/images/vanilla.png" alt="" width="28" height="28" />
+                    <span class="server-name">Creative plots<small>Vanilla 26.3</small></span>
+                    <span class="server-players">3/10</span>
+                    <span class="status is-on"></span>
+                  </li>
+                  <li>
+                    <img src="/images/paper.png" alt="" width="28" height="28" />
+                    <span class="server-name">Minigames<small>Paper 26.3</small></span>
+                    <span class="server-players">0/50</span>
+                    <span class="status"></span>
+                  </li>
+                </ul>
+                <svg class="spark" viewBox="0 0 300 48" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0" stop-color="#2EF29A" stop-opacity="0.28" />
+                      <stop offset="1" stop-color="#2EF29A" stop-opacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <path data-spark-fill fill="url(#spark-fill)" />
+                  <path data-spark-line fill="none" stroke="#2EF29A" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+                </svg>
+              </div>
+            </div>
+          </article>
+
+          <article class="card card-cli" data-card>
+            <div class="card-copy">
+              <div class="card-head">
+                <span class="card-icon card-icon-tile card-icon-term">
+                  <svg viewBox="0 0 24 24" width="14" height="14">
+                    <path d="M5 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path d="M12.5 17H19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+                  </svg>
+                </span>
+                <p class="kicker">Automate</p>
+              </div>
+              <h3>Lodestone CLI</h3>
+              <p>Install and update Lodestone Host, then run your servers from the terminal. Scripts and agents get JSON output.</p>
+              <a
+                class="card-link"
+                href="https://github.com/Lodestone-Team/lodestone_cli/releases/latest"
+                target="_blank"
+                rel="noopener"
+                >Download <span aria-hidden="true">→</span></a
+              >
+            </div>
+            <div class="card-visual cli-visual" aria-hidden="true">
+              <div class="term">
+                <div class="term-bar"><span></span><span></span><span></span></div>
+                <!-- main.js types these lines out; without it they show as they are. -->
+                <pre class="term-body" data-term><span class="t-cmd">lodestone_cli server create --flavour fabric --name survival --wait</span>
+<span class="t-out">✓ survival is ready</span>
+<span class="t-cmd">lodestone_cli mods survival install fabric-api</span>
+<span class="t-out">✓ fabric-api installed</span>
+<span class="t-cmd">lodestone_cli server start survival --wait</span>
+<span class="t-out">✓ survival is running</span></pre>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <img class="foot-mark" src="/images/mark.svg" alt="" width="20" height="20" />
+      <span>AGPL-3.0 · Lodestone Team</span>
+      <nav class="foot-links" aria-label="Elsewhere">
+        <a href="https://github.com/Lodestone-Team" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://discord.gg/PkHXRQXkf6" target="_blank" rel="noopener">Discord</a>
+        <a href="https://ko-fi.com/lodestone_team" target="_blank" rel="noopener">Support us</a>
+      </nav>
+    </footer>
+  </body>
+</html>

@@ -1,11 +1,15 @@
-//! How the Content tab looks: the section and sub-view switches, the installed lists,
-//! the Shaders section's shader mod card, Browse, and a project's page.
+//! How the Content tab looks: the kinds and the search over the list, the installed
+//! lists (filtered by the search), the Modrinth results below them while searching,
+//! the Shaders section's shader mod card, and a project's page.
 
+use crate::skin::Skinned;
+use crate::theme::px;
+use launcher_core::ui_skin::SurfaceId;
 use std::sync::Arc;
 
 use gpui::{
     AnyElement, Context, ExternalPaths, IntoElement, ObjectFit, Render, RenderImage, SharedString,
-    Window, div, img, prelude::*, px,
+    Window, div, img, list, prelude::*,
 };
 use launcher_core::{
     content::{
@@ -15,24 +19,53 @@ use launcher_core::{
         shaders::{ShaderLoader, ShaderModOffer},
     },
     instances::Loader,
+    mc_text,
 };
-use lodestone_minecraft::{
-    modrinth::{ModrinthSearchHit, ModrinthSearchIndex, ModrinthVersionType, RawVersion},
-    util::format_byte,
+use lodestone_minecraft::modrinth::{
+    ModrinthSearchHit, ModrinthSearchIndex, ModrinthVersionType, RawVersion,
 };
 
-use super::{ContentView, Load, PAGE_SIZE, ProjectTab, SubView};
+use super::{ContentView, Load, PAGE_SIZE, ProjectTab};
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role, Toggled},
+};
+use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr, trn};
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, IconButton, LoadingDots, Toggle},
+    components::{
+        Button, ButtonSize, ButtonVariant, Icon, IconButton, ListRow, LoadingDots, RichText,
+        Toggle,
+        focus::Dismiss,
+        settings::{popover, popover_panel, select_button},
+    },
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
-/// `72230975` as `72.2M`.
-pub fn compact(value: u64) -> String {
-    match value {
-        0..1_000 => value.to_string(),
-        1_000..1_000_000 => format!("{:.1}k", value as f64 / 1_000.0),
-        _ => format!("{:.1}M", value as f64 / 1_000_000.0),
+/// A count of downloads, follows or followers: the plural `exact` for a small count,
+/// else `shortened` with the count shortened ("1.2k downloads").
+pub(crate) fn counted(value: u64, exact: P, shortened: M) -> String {
+    let short = format::compact(value);
+    if short == format::number(value) {
+        trn!(exact, value)
+    } else {
+        tr!(shortened, count = short)
+    }
+}
+
+/// A content kind's name, as the section switch shows it.
+fn kind_name(kind: ContentKind) -> &'static str {
+    t(match kind {
+        ContentKind::Mod => M::KindMods,
+        ContentKind::ResourcePack => M::KindResourcePacks,
+        ContentKind::ShaderPack => M::KindShaders,
+    })
+}
+
+/// An instance's loader in a label: its name, or "Vanilla".
+fn loader_name(loader: Loader) -> &'static str {
+    match loader {
+        Loader::None => t(M::Vanilla),
+        other => other.label(),
     }
 }
 
@@ -42,14 +75,24 @@ pub fn modrinth_page(project_type: &str, slug: &str) -> String {
 }
 
 pub(crate) fn muted(text: impl Into<SharedString>) -> gpui::Div {
-    div().text_color(colors::GRAY_500).child(text.into())
+    div()
+        .text_color(crate::theme::ink::muted())
+        .child(text.into())
 }
 
 pub(crate) fn small(text: impl Into<SharedString>) -> gpui::Div {
+    small_box().child(text.into())
+}
+
+/// [`small`] text that can be selected and copied, such as a file name or a message.
+pub(crate) fn small_rich(text: RichText) -> gpui::Div {
+    small_box().child(text)
+}
+
+fn small_box() -> gpui::Div {
     div()
         .text_size(theme::text_size(text::SMALL))
         .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-        .child(text.into())
 }
 
 /// A small coloured label.
@@ -97,8 +140,8 @@ pub(crate) fn pills(
     on_select: impl Fn(usize, &mut Window, &mut gpui::App) + 'static,
 ) -> impl IntoElement {
     let on_select = std::rc::Rc::new(on_select);
-    div()
-        .id(id)
+    crate::components::ArrowGroup::new(id)
+        .group_role(Role::TabList)
         .flex()
         .flex_row()
         .flex_none()
@@ -107,26 +150,45 @@ pub(crate) fn pills(
         .rounded(radius::LG)
         .bg(colors::GRAY_900)
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .children(labels.into_iter().enumerate().map(|(index, label)| {
             let on_select = on_select.clone();
-            div()
+            let item = div()
                 .id((id, index))
+                .accessible(Role::Tab, format!("{id}-{index}"), label.clone())
+                .aria_selected(index == selected)
+                .keyboard_focus()
                 .px_3()
                 .py_1()
                 .rounded(radius::MD)
                 .font_weight(weights::BOLD.into())
                 .cursor_pointer()
-                .map(|this| {
-                    if index == selected {
-                        this.bg(colors::GRAY_700).text_color(colors::GRAY_300)
-                    } else {
-                        this.text_color(colors::GRAY_500)
-                            .hover(|style| style.text_color(colors::GRAY_400))
+                .when(index != selected, |this| {
+                    this.hover(|style| style.text_color(crate::theme::ink::secondary()))
+                })
+                .on_press({
+                    let (pills, label) = (id, label.clone());
+                    move |_, window, cx| {
+                        crate::components::trace_ui(
+                            "ui.select",
+                            "pills",
+                            &gpui::ElementId::Name(pills.into()),
+                            serde_json::json!({ "index": index, "label": label.as_ref() }),
+                        );
+                        on_select(index, window, cx)
                     }
                 })
-                .on_click(move |_, window, cx| on_select(index, window, cx))
-                .child(label)
+                .child(label);
+            // The raised background fades over to the chosen pill.
+            crate::components::motion::Animated::new(
+                (id, index + 10_000),
+                index == selected,
+                item,
+                |this, t| {
+                    this.bg(colors::GRAY_700.opacity(0).mix(colors::GRAY_700, t))
+                        .text_color(colors::GRAY_500.mix(colors::GRAY_300, t))
+                },
+            )
         }))
 }
 
@@ -139,16 +201,17 @@ pub(crate) fn card() -> gpui::Div {
         .p_4()
         .rounded(radius::LG)
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_850)
+        .surface(SurfaceId::Card)
 }
 
 pub(crate) fn heading(text_value: impl Into<SharedString>) -> gpui::Div {
     div()
-        .font_family(fonts::HEADING)
+        .font_family(fonts::heading())
         .text_size(theme::text_size(text::H3))
         .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_300)
+        .text_color(crate::theme::ink::text())
         .child(text_value.into())
 }
 
@@ -162,6 +225,100 @@ pub(crate) fn list_box() -> gpui::Div {
         .border_color(colors::GRAY_FADED.opacity(30))
 }
 
+/// What one entry of the list is. See `ContentView::installed_plan`.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum Entry {
+    ShaderMod,
+    NeedsLoader,
+    Loading,
+    Failed(SharedString),
+    /// A note above the list; `true` for a warning.
+    Note(String, bool),
+    Empty,
+    Heading(Heading),
+    /// "Installed · 0": nothing installed matches the search.
+    NoInstalledMatch,
+    /// The Shaders list's "Off" row.
+    ShadersOff,
+    /// A file's row: `first` and `last` in its box.
+    Row {
+        index: usize,
+        file: String,
+        first: bool,
+        last: bool,
+        reorder: Option<(bool, bool)>,
+    },
+    /// "On Modrinth · n", with the sort and the compatibility filter.
+    ModrinthHeading,
+    ModrinthLoading,
+    ModrinthFailed(SharedString),
+    /// No network: Modrinth can't be searched.
+    ModrinthOffline,
+    ModrinthNothing,
+    /// Not searching, with content installed: a placeholder that says the search box
+    /// finds more on Modrinth (and focuses it when clicked).
+    ModrinthPrompt,
+    /// A Modrinth result, by its index in the results.
+    Hit {
+        index: usize,
+        id: String,
+        first: bool,
+        last: bool,
+    },
+    /// Previous and next page of the Modrinth results.
+    Pager,
+    /// "On CurseForge · n", with its sort.
+    CurseForgeHeading,
+    CurseForgeLoading,
+    CurseForgeFailed(SharedString),
+    CurseForgeNothing,
+    /// A CurseForge result, by its index in the results.
+    CfHit {
+        index: usize,
+        id: u64,
+        first: bool,
+        last: bool,
+    },
+    /// Previous and next page of the CurseForge results.
+    CfPager,
+}
+
+/// A heading over installed rows, with how many there are.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Heading {
+    Installed(usize),
+    /// Resource packs in use, the top one winning.
+    Enabled(usize),
+    Available(usize),
+}
+
+/// Whether an installed file matches what was typed: its name, file name or
+/// Modrinth title.
+fn item_matches(item: &Item, query: &str) -> bool {
+    let query = query.to_lowercase();
+    // Without formatting codes, which names of packs often have.
+    let plain = |text: &str| mc_text::strip(text).to_lowercase();
+    plain(&item.display_name()).contains(&query)
+        || plain(&item.file.file_name).contains(&query)
+        || item
+            .modrinth
+            .as_ref()
+            .is_some_and(|m| m.title.to_lowercase().contains(&query))
+}
+
+/// A row drawn as part of a `list_box`: the box's sides, and its top or bottom edge
+/// on the first or last row.
+fn in_box(row: AnyElement, first: bool, last: bool) -> AnyElement {
+    div()
+        .overflow_hidden()
+        .border_x_1()
+        .border_color(colors::GRAY_FADED.opacity(30))
+        .when(first, |this| this.border_t_1().rounded_t(radius::LG))
+        .when(last, |this| this.border_b_1().rounded_b(radius::LG))
+        .child(row)
+        .into_any_element()
+}
+
 pub(crate) fn row_base(id: impl Into<gpui::ElementId>, first: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
@@ -172,6 +329,7 @@ pub(crate) fn row_base(id: impl Into<gpui::ElementId>, first: bool) -> gpui::Sta
         .px_4()
         .py_2p5()
         .bg(colors::GRAY_800)
+        .surface(SurfaceId::Row)
         .when(!first, |this| {
             this.border_t_1()
                 .border_color(colors::GRAY_FADED.opacity(15))
@@ -180,9 +338,9 @@ pub(crate) fn row_base(id: impl Into<gpui::ElementId>, first: bool) -> gpui::Sta
 
 pub(crate) fn version_label(kind: ModrinthVersionType) -> (&'static str, theme::Color) {
     match kind {
-        ModrinthVersionType::Release => ("Release", colors::GREEN_300),
-        ModrinthVersionType::Beta => ("Beta", colors::YELLOW_300),
-        ModrinthVersionType::Alpha => ("Alpha", colors::RED_200),
+        ModrinthVersionType::Release => (t(M::Release), colors::GREEN_300),
+        ModrinthVersionType::Beta => (t(M::Beta), colors::YELLOW_300),
+        ModrinthVersionType::Alpha => (t(M::Alpha), colors::RED_200),
     }
 }
 
@@ -192,25 +350,28 @@ pub(crate) fn short_list(values: &[String], max: usize) -> String {
     if values.len() > max {
         shown.push("…");
     }
-    shown.join(", ")
+    format::list(&shown)
 }
 
 impl ContentView {
     fn kind_label(&self, kind: ContentKind) -> SharedString {
         match self.section(kind).listing.ready() {
-            Some(listing) if !listing.items.is_empty() => {
-                format!("{} {}", kind.label(), listing.items.len()).into()
-            }
-            _ => kind.label().into(),
+            Some(listing) if !listing.items.is_empty() => format!(
+                "{} {}",
+                kind_name(kind),
+                format::number(listing.items.len() as u64)
+            )
+            .into(),
+            _ => kind_name(kind).into(),
         }
     }
 
-    fn target_label(&self, kind: ContentKind, cx: &gpui::App) -> String {
+    pub(crate) fn target_label(&self, kind: ContentKind, cx: &gpui::App) -> String {
         let Some((_, _, target)) = self.context(cx) else {
             return String::new();
         };
         match kind {
-            ContentKind::Mod => format!("{} / {}", target.game_version, target.loader.label()),
+            ContentKind::Mod => format!("{} / {}", target.game_version, loader_name(target.loader)),
             ContentKind::ResourcePack => target.game_version.clone(),
             ContentKind::ShaderPack => format!(
                 "{} / {}",
@@ -220,6 +381,7 @@ impl ContentView {
         }
     }
 
+    /// The kinds, the search over the list, "Update all" and the "⋯" menu.
     fn render_header(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let kind = self.kind;
         let selected = ContentKind::ALL
@@ -231,36 +393,146 @@ impl ContentView {
             .map(|k| self.kind_label(*k))
             .collect();
         let entity = cx.entity();
-        let view = self.section(kind).view;
-        let entity2 = entity.clone();
+        let section = self.section(kind);
+        let updates = section.updates.len();
+        let checking = section.checking_updates;
+        let search = section.browse.search.clone();
+        let busy = self.locked(cx) || self.job.is_some();
+        // One row: the kinds, then the search with Update all and the menu. When
+        // they don't fit beside the kinds, the search group wraps onto a line of its
+        // own, across the whole width.
+        let has_button = updates > 0 || checking;
+        let tools = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .flex_1()
+            // The narrowest the search group gets beside the kinds before it wraps.
+            .min_w(px(if has_button { 440. } else { 300. }))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    // Escape empties the search first; an empty one lets it through.
+                    .on_action(cx.listener(move |this, _: &Dismiss, _, cx| {
+                        if this.query(kind, cx).is_empty() {
+                            cx.propagate();
+                        } else {
+                            this.clear_search(kind, cx);
+                        }
+                    }))
+                    .child(search),
+            )
+            .map(|this| {
+                if updates > 0 {
+                    this.child(
+                        Button::new(
+                            ("update-all", kind as usize),
+                            tr!(M::UpdateAll, count = format::number(updates as u64)),
+                        )
+                        .variant(ButtonVariant::Primary)
+                        .icon(Icon::CircleUp)
+                        .disabled(busy)
+                        .on_click(cx.listener(move |this, _, _, cx| this.update_all(kind, cx))),
+                    )
+                } else if checking {
+                    this.child(
+                        Button::new(("checking-updates", kind as usize), t(M::CheckForUpdates))
+                            .variant(ButtonVariant::Secondary)
+                            .loading(true)
+                            .disabled(true),
+                    )
+                } else {
+                    this
+                }
+            })
+            .child(self.render_menu(kind, cx));
         div()
             .flex()
             .flex_row()
             .flex_wrap()
             .items_center()
-            .justify_between()
-            .gap_3()
-            .child(pills(
+            .gap_x_2()
+            .gap_y_3()
+            .child(div().flex_none().child(pills(
                 "content-kinds",
                 labels,
                 selected,
                 move |index, _, cx| {
                     entity.update(cx, |this, cx| this.select_kind(ContentKind::ALL[index], cx))
                 },
-            ))
-            .child(pills(
-                "content-views",
-                vec!["Installed".into(), "Browse Modrinth".into()],
-                if view == SubView::Installed { 0 } else { 1 },
-                move |index, _, cx| {
-                    let view = if index == 0 {
-                        SubView::Installed
-                    } else {
-                        SubView::Browse
-                    };
-                    entity2.update(cx, |this, cx| this.set_view(kind, view, cx))
-                },
-            ))
+            )))
+            .child(tools)
+    }
+
+    /// "⋯": Check for updates, Add file… and Open folder.
+    fn render_menu(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> impl IntoElement {
+        let can_check = (self.modrinth(cx).is_some() || self.curseforge(cx).is_some())
+            && !self.section(kind).items().is_empty();
+        div()
+            .flex()
+            .flex_col()
+            .items_end()
+            .child(
+                IconButton::new(("content-menu", kind as usize), Icon::Ellipsis)
+                    .label(format!("{}: {}", t(CommonMsg::Menu), kind.label()))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.menu_open = !this.menu_open;
+                        cx.notify();
+                    })),
+            )
+            .when(self.menu_open, |this| {
+                let close = cx.listener(|this, _: &(), _, cx| {
+                    this.menu_open = false;
+                    cx.notify();
+                });
+                let mut panel = popover_panel("content-menu-list")
+                    .w(px(220.))
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                        this.menu_open = false;
+                        cx.notify();
+                    }));
+                if can_check {
+                    panel = panel.child(
+                        ListRow::new("menu-check-updates", t(M::CheckForUpdates))
+                            .icon(Icon::CircleUp)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.menu_open = false;
+                                this.check_updates(kind, cx);
+                            })),
+                    );
+                }
+                panel = panel
+                    .children(
+                        super::add_rows(kind, cx.can_select_mixed_files_and_dirs())
+                            .into_iter()
+                            .map(|(id, label, pick)| {
+                                ListRow::new(id, t(label))
+                                    .icon(Icon::Upload)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.menu_open = false;
+                                        this.pick_files(kind, pick, cx);
+                                    }))
+                            }),
+                    )
+                    .child(
+                        ListRow::new("menu-open-folder", t(CommonMsg::OpenFolder))
+                            .icon(Icon::ArrowUpRightFromSquare)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.menu_open = false;
+                                this.open_folder(kind, cx);
+                                cx.notify();
+                            })),
+                    );
+                // In a box of its own under the button: the popover starts where its
+                // parent does.
+                this.child(div().child(popover(
+                    "content-menu-popover",
+                    panel,
+                    move |window, cx| close(&(), window, cx),
+                )))
+            })
     }
 
     fn render_banners(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -272,21 +544,22 @@ impl ContentView {
             } else {
                 0.0
             };
+            let bytes = tr!(
+                M::BytesProgress,
+                done = format::bytes(snapshot.bytes_done),
+                total = format::bytes(snapshot.bytes_total)
+            );
             let detail = if snapshot.files_total > 1 {
                 format!(
-                    "{} of {} files · {}",
-                    snapshot.files_done.min(snapshot.files_total),
-                    snapshot.files_total,
-                    lodestone_minecraft::util::format_byte_download(
-                        snapshot.bytes_done,
-                        snapshot.bytes_total
+                    "{} · {bytes}",
+                    tr!(
+                        M::FilesProgress,
+                        done = format::number(snapshot.files_done.min(snapshot.files_total)),
+                        total = format::number(snapshot.files_total)
                     )
                 )
             } else {
-                lodestone_minecraft::util::format_byte_download(
-                    snapshot.bytes_done,
-                    snapshot.bytes_total,
-                )
+                bytes
             };
             (job.progress.label(), detail, fraction)
         });
@@ -309,7 +582,13 @@ impl ContentView {
                         .bg(colors::YELLOW_FADED.opacity(20))
                         .text_color(colors::WHITE)
                         .child(Icon::TriangleExclamation.render(px(14.), colors::YELLOW_300))
-                        .child("The game is running. Stop it to change its content: it rewrites options.txt and the shader settings when it exits."),
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .whitespace_normal()
+                                .child(t(M::GameRunning)),
+                        ),
                 )
             })
             .when_some(job, |this, (label, detail, fraction)| {
@@ -323,7 +602,7 @@ impl ContentView {
                         .rounded(radius::MD)
                         .bg(colors::GRAY_850)
                         .border_1()
-                        .border_color(colors::FADE_700)
+                        .border_color(crate::theme::ink::border())
                         .child(
                             div()
                                 .flex()
@@ -331,13 +610,26 @@ impl ContentView {
                                 .items_center()
                                 .gap_3()
                                 .child(LoadingDots)
-                                .child(div().flex_1().font_weight(weights::BOLD.into()).child(label))
-                                .child(small(detail).text_color(colors::GRAY_500))
                                 .child(
-                                    Button::new("cancel-install", "Cancel")
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .font_weight(weights::BOLD.into())
+                                        .child(label),
+                                )
+                                .child(
+                                    small(detail)
+                                        .flex_none()
+                                        .text_color(crate::theme::ink::muted()),
+                                )
+                                .child(
+                                    Button::new("cancel-install", t(CommonMsg::Cancel))
                                         .variant(ButtonVariant::Ghost)
                                         .size(ButtonSize::Slim)
-                                        .on_click(cx.listener(|this, _, _, cx| this.cancel_install(cx))),
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| this.cancel_install(cx)),
+                                        ),
                                 ),
                         )
                         .child(
@@ -350,7 +642,8 @@ impl ContentView {
                                     div()
                                         .h_full()
                                         .rounded(radius::XS)
-                                        .bg(colors::BLUE_200)
+                                        .bg(crate::theme::accent::light())
+                                        .surface(launcher_core::ui_skin::SurfaceId::Progress)
                                         .w(gpui::relative(fraction)),
                                 ),
                         ),
@@ -381,90 +674,21 @@ impl ContentView {
                             div()
                                 .flex_1()
                                 .whitespace_normal()
-                                .text_color(if error { colors::RED_200 } else { colors::GREEN_300 })
-                                .child(message),
+                                .text_color(if error {
+                                    colors::RED_200
+                                } else {
+                                    colors::GREEN_300
+                                })
+                                .child(RichText::minecraft(message)),
                         )
-                        .child(
-                            IconButton::new("dismiss-message", Icon::Xmark)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.message = None;
-                                    cx.notify();
-                                })),
-                        ),
+                        .child(IconButton::new("dismiss-message", Icon::Xmark).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.message = None;
+                                cx.notify();
+                            }),
+                        )),
                 )
             })
-    }
-
-    /// The buttons over an installed list.
-    fn render_toolbar(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> impl IntoElement {
-        let section = self.section(kind);
-        let busy = self.locked(cx) || self.job.is_some();
-        let count = section.items().len();
-        let updates = section.updates.len();
-        let checking = section.checking_updates;
-        let online = self.modrinth(cx).is_some();
-        let summary = match (kind, count) {
-            (_, 0) => String::new(),
-            (ContentKind::ResourcePack, _) => {
-                let enabled = section.items().iter().filter(|i| i.enabled).count();
-                format!("{count} resource packs, {enabled} enabled")
-            }
-            (ContentKind::Mod, _) => {
-                let enabled = section.items().iter().filter(|i| i.enabled).count();
-                format!("{count} mods, {enabled} enabled")
-            }
-            (ContentKind::ShaderPack, _) => format!("{count} shader packs"),
-        };
-        div()
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .flex_1()
-                    .text_color(colors::GRAY_500)
-                    .font_weight(weights::BOLD.into())
-                    .child(summary),
-            )
-            .when(updates > 0, |this| {
-                this.child(
-                    Button::new(
-                        ("update-all", kind as usize),
-                        format!("Update all ({updates})"),
-                    )
-                    .variant(ButtonVariant::Primary)
-                    .icon(Icon::CircleUp)
-                    .size(ButtonSize::Slim)
-                    .disabled(busy)
-                    .on_click(cx.listener(move |this, _, _, cx| this.update_all(kind, cx))),
-                )
-            })
-            .child(
-                Button::new(("check-updates", kind as usize), "Check for updates")
-                    .variant(ButtonVariant::Secondary)
-                    .icon(Icon::CircleUp)
-                    .size(ButtonSize::Slim)
-                    .loading(checking)
-                    .disabled(!online || count == 0)
-                    .on_click(cx.listener(move |this, _, _, cx| this.check_updates(kind, cx))),
-            )
-            .child(
-                Button::new(("add-file", kind as usize), "Add file…")
-                    .variant(ButtonVariant::Secondary)
-                    .icon(Icon::Upload)
-                    .size(ButtonSize::Slim)
-                    .disabled(busy)
-                    .on_click(cx.listener(move |this, _, _, cx| this.pick_files(kind, cx))),
-            )
-            .child(
-                Button::new(("open-folder", kind as usize), "Open folder")
-                    .variant(ButtonVariant::Ghost)
-                    .icon(Icon::ArrowUpRightFromSquare)
-                    .size(ButtonSize::Slim)
-                    .on_click(cx.listener(move |this, _, _, cx| this.open_folder(kind, cx))),
-            )
     }
 
     /// The icon of an installed item: its own, else its Modrinth project's.
@@ -477,7 +701,11 @@ impl ContentView {
         if let Some(icon) = self.section(kind).icons.get(&item.file.file_name) {
             return Some(icon.clone());
         }
-        let url = item.modrinth.as_ref()?.icon_url.clone()?;
+        let url = item
+            .modrinth
+            .as_ref()
+            .and_then(|m| m.icon_url.clone())
+            .or_else(|| item.curseforge.as_ref().and_then(|c| c.icon_url.clone()))?;
         self.remote_icon(&url, cx)
     }
 
@@ -497,20 +725,24 @@ impl ContentView {
         let name = item.file.file_name.clone();
         let icon = self.item_icon(kind, item, cx);
         let update = self.section(kind).updates.get(&name).cloned();
+        // A Modrinth update takes the row's button when there are both.
+        let cf_update = self
+            .section(kind)
+            .cf_updates
+            .get(&name)
+            .cloned()
+            .filter(|_| update.is_none());
+        let curseforge_on = self.curseforge(cx).is_some();
         let confirming = self.confirm_delete.as_ref() == Some(&(kind, name.clone()));
         let title = item.display_name();
         let version = item.display_version();
         let detail = if item.file.is_dir {
-            format!("{name} · folder")
+            tr!(M::ItemFolder, name = name)
         } else {
-            format!("{name} · {}", format_byte(item.file.size))
+            format!("{name} · {}", format::bytes(item.file.size))
         };
-        let warning = item
-            .file
-            .meta
-            .problem
-            .clone()
-            .or_else(|| item.compatibility.warning().map(str::to_string));
+        // The "Older version" or "Newer version" tag says the rest.
+        let warning = item.file.meta.problem.clone();
         let page = item
             .modrinth
             .as_ref()
@@ -524,11 +756,24 @@ impl ContentView {
                     },
                     &m.slug,
                 )
+            })
+            .or_else(|| {
+                item.curseforge
+                    .as_ref()
+                    .map(|c| c.page_url.clone())
+                    .filter(|p| !p.is_empty())
             });
         let enabled = item.enabled;
         let compatibility = item.compatibility;
         let id_base = kind as usize * 100_000 + index;
+        let row_name: SharedString = title.clone().into();
         row_base(("content-row", id_base), first)
+            .accessible(
+                Role::Group,
+                format!("{}-{name}", kind.dir()),
+                row_name.clone(),
+            )
+            .aria_description(detail.clone())
             .when(inner, |this| this.bg(colors::TRANSPARENT).pl_3())
             .child(icon_box(icon, 36.))
             .child(
@@ -553,11 +798,11 @@ impl ContentView {
                                     } else {
                                         colors::WHITE.opacity(50)
                                     })
-                                    .child(title),
+                                    .child(RichText::minecraft(title)),
                             )
                             .when_some(version, |this, version| {
                                 this.child(
-                                    small(version)
+                                    small_rich(RichText::minecraft(version))
                                         .flex_none()
                                         .text_color(colors::WHITE.opacity(50)),
                                 )
@@ -565,24 +810,35 @@ impl ContentView {
                             .when(
                                 kind == ContentKind::ResourcePack
                                     && compatibility == Compatibility::Compatible,
-                                |this| this.child(badge("Compatible", colors::GREEN_300)),
+                                |this| this.child(badge(t(M::Compatible), colors::GREEN_300)),
                             )
                             .when(item.compatibility.warning().is_some(), |this| {
                                 this.child(badge(
                                     if compatibility == Compatibility::TooOld {
-                                        "Older version"
+                                        t(M::OlderVersion)
                                     } else {
-                                        "Newer version"
+                                        t(M::NewerVersion)
                                     },
                                     colors::YELLOW_300,
                                 ))
                             })
-                            .when(item.modrinth.is_none() && !item.file.is_dir, |this| {
-                                this.child(badge("Not on Modrinth", colors::GRAY_500))
+                            .when(
+                                item.modrinth.is_none() && item.curseforge.is_some(),
+                                |this| this.child(badge(t(M::CurseForgeTab), colors::YELLOW_300)),
+                            )
+                            .when(!item.identified() && !item.file.is_dir, |this| {
+                                this.child(badge(
+                                    t(if curseforge_on {
+                                        M::NotOnEitherPlatform
+                                    } else {
+                                        M::NotOnModrinth
+                                    }),
+                                    colors::GRAY_500,
+                                ))
                             }),
                     )
                     .child(
-                        small(detail)
+                        small_rich(RichText::minecraft(detail))
                             .truncate()
                             .text_color(colors::WHITE.opacity(30)),
                     )
@@ -593,11 +849,17 @@ impl ContentView {
                             .clone()
                             .filter(|_| kind == ContentKind::ResourcePack),
                         |this, description| {
-                            this.child(small(description).truncate().text_color(colors::GRAY_400))
+                            this.child(
+                                small_rich(RichText::minecraft(description))
+                                    .truncate()
+                                    .text_color(crate::theme::ink::secondary()),
+                            )
                         },
                     )
                     .when_some(warning, |this, warning| {
-                        this.child(small(warning).text_color(colors::YELLOW_300))
+                        this.child(
+                            small_rich(RichText::new(warning)).text_color(colors::YELLOW_300),
+                        )
                     }),
             )
             .child(
@@ -612,7 +874,30 @@ impl ContentView {
                         this.child(
                             Button::new(
                                 ("update-one", id_base),
-                                format!("Update to {}", update.version_number),
+                                tr!(M::UpdateTo, version = update.version_number),
+                            )
+                            .variant(ButtonVariant::Primary)
+                            .icon(Icon::CircleUp)
+                            .size(ButtonSize::Slim)
+                            .disabled(busy)
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.update_one(kind, &name, cx)),
+                            ),
+                        )
+                    })
+                    .when_some(cf_update, |this, cf_update| {
+                        let name = name.clone();
+                        this.child(
+                            Button::new(
+                                ("cf-update-one", id_base),
+                                if cf_update.downloadable() {
+                                    tr!(
+                                        M::UpdateTo,
+                                        version = cf_update.file.display_name_or_file()
+                                    )
+                                } else {
+                                    t(M::GetOnCurseForge).to_string()
+                                },
                             )
                             .variant(ButtonVariant::Primary)
                             .icon(Icon::CircleUp)
@@ -647,6 +932,7 @@ impl ContentView {
                                 ("modrinth-page", id_base),
                                 Icon::ArrowUpRightFromSquare,
                             )
+                            .label(format!("{} {row_name}", t(CommonMsg::Open)))
                             .on_click(move |_, _, cx| {
                                 cx.stop_propagation();
                                 cx.open_url(&page)
@@ -657,6 +943,7 @@ impl ContentView {
                         let name = name.clone();
                         this.child(
                             Toggle::new(("enabled", id_base), enabled)
+                                .label(row_name.clone())
                                 .disabled(busy)
                                 .on_change(cx.listener(
                                     move |this, value: &bool, _, cx| match kind {
@@ -677,18 +964,20 @@ impl ContentView {
                         let name = name.clone();
                         if confirming {
                             this.child(
-                                Button::new(("confirm-delete", id_base), "Move to Trash")
+                                Button::new(("confirm-delete", id_base), t(CommonMsg::MoveToTrash))
                                     .variant(ButtonVariant::Danger)
                                     .size(ButtonSize::Slim)
+                                    .disabled(self.deleting.is_some())
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         cx.stop_propagation();
                                         this.delete(kind, name.clone(), cx)
                                     })),
                             )
                             .child(
-                                Button::new(("cancel-delete", id_base), "Cancel")
+                                Button::new(("cancel-delete", id_base), t(CommonMsg::Cancel))
                                     .variant(ButtonVariant::Ghost)
                                     .size(ButtonSize::Slim)
+                                    .disabled(self.deleting.is_some())
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         cx.stop_propagation();
                                         this.cancel_delete(cx)
@@ -697,7 +986,7 @@ impl ContentView {
                         } else {
                             this.child(
                                 IconButton::new(("delete", id_base), Icon::TrashCan)
-                                    .disabled(busy)
+                                    .disabled(busy || self.deleting.is_some())
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         cx.stop_propagation();
                                         this.delete(kind, name.clone(), cx)
@@ -709,16 +998,12 @@ impl ContentView {
             .into_any_element()
     }
 
-    fn render_empty(&self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
-        let message = match kind {
-            ContentKind::Mod => "No mods yet. Browse Modrinth, or drop .jar files here.",
-            ContentKind::ResourcePack => {
-                "No resource packs yet. Browse Modrinth, or drop .zip files or folders here."
-            }
-            ContentKind::ShaderPack => {
-                "No shader packs yet. Browse Modrinth, or drop .zip files or folders here."
-            }
-        };
+    fn render_empty(&self, kind: ContentKind) -> AnyElement {
+        let message = t(match kind {
+            ContentKind::Mod => M::NoModsYet,
+            ContentKind::ResourcePack => M::NoResourcePacksYet,
+            ContentKind::ShaderPack => M::NoShaderPacksYet,
+        });
         div()
             .flex()
             .flex_col()
@@ -732,20 +1017,18 @@ impl ContentView {
             .border_color(colors::GRAY_FADED.opacity(10))
             .text_color(colors::GRAY_FADED.opacity(50))
             .font_weight(weights::BOLD.into())
-            .child(message)
             .child(
-                Button::new(("browse-empty", kind as usize), "Browse Modrinth")
-                    .variant(ButtonVariant::Secondary)
-                    .icon(Icon::MagnifyingGlass)
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.set_view(kind, SubView::Browse, cx)),
-                    ),
+                div()
+                    .px_4()
+                    .text_center()
+                    .whitespace_normal()
+                    .child(message),
             )
             .into_any_element()
     }
 
     /// The card for vanilla instances: content that needs a mod loader.
-    fn render_needs_loader(&mut self, what: &str, cx: &mut Context<Self>) -> AnyElement {
+    fn render_needs_loader(&mut self, what: NeedsLoader, cx: &mut Context<Self>) -> AnyElement {
         self.ensure_mod_loader_offer(cx);
         let switching = self.is_switching_loader(cx);
         let busy = self.locked(cx) || self.job.is_some();
@@ -753,7 +1036,7 @@ impl ContentView {
             .context(cx)
             .map(|(_, _, target)| target.game_version)
             .unwrap_or_default();
-        let new_instance = Button::new("new-fabric-instance", "New Fabric instance…")
+        let new_instance = Button::new("new-fabric-instance", t(M::NewFabricInstance))
             .variant(ButtonVariant::Secondary)
             .icon(Icon::SquarePlus)
             .on_click(cx.listener(|this, _, _, cx| this.new_fabric_instance(cx)));
@@ -761,22 +1044,27 @@ impl ContentView {
             Load::Ready(Some(kind)) => {
                 let label = kind.label();
                 (
-                    format!(
-                        "This instance is vanilla Minecraft. {what} run through a mod loader such as {label}; switching keeps your worlds and settings, and {label} installs the next time you press Play."
+                    tr!(
+                        what.pick(M::VanillaSwitchMods, M::VanillaSwitchShaders),
+                        loader = label
                     ),
                     Some(
                         div()
                             .flex()
                             .flex_row()
+                            .flex_wrap()
                             .gap_2()
                             .child(
-                                Button::new("switch-to-mod-loader", format!("Switch to {label}"))
-                                    .variant(ButtonVariant::Primary)
-                                    .loading(switching)
-                                    .disabled(busy)
-                                    .on_click(
-                                        cx.listener(|this, _, _, cx| this.switch_to_mod_loader(cx)),
-                                    ),
+                                Button::new(
+                                    "switch-to-mod-loader",
+                                    tr!(M::SwitchTo, loader = label),
+                                )
+                                .variant(ButtonVariant::Primary)
+                                .loading(switching)
+                                .disabled(busy)
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.switch_to_mod_loader(cx)),
+                                ),
                             )
                             .child(new_instance)
                             .into_any_element(),
@@ -784,17 +1072,19 @@ impl ContentView {
                 )
             }
             Load::Ready(None) => (
-                format!(
-                    "This instance is vanilla Minecraft {game_version}. {what} need a mod loader, and none that Lodestone Launcher supports runs on this version: Fabric starts at 1.14, and Forge has no build for it. A new instance on a newer version can use them."
+                tr!(
+                    what.pick(M::VanillaNoLoaderMods, M::VanillaNoLoaderShaders),
+                    version = game_version
                 ),
                 Some(new_instance.into_any_element()),
             ),
             Load::Failed(err) => (
-                format!(
-                    "This instance is vanilla Minecraft. {what} need a mod loader, but checking which one fits didn't work: {err}"
+                tr!(
+                    what.pick(M::VanillaCheckFailedMods, M::VanillaCheckFailedShaders),
+                    error = err
                 ),
                 Some(
-                    Button::new("retry-mod-loader", "Try again")
+                    Button::new("retry-mod-loader", t(CommonMsg::TryAgain))
                         .variant(ButtonVariant::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.mod_loader_offer = Load::NotLoaded;
@@ -804,17 +1094,20 @@ impl ContentView {
                 ),
             ),
             Load::NotLoaded | Load::Loading => (
-                format!(
-                    "This instance is vanilla Minecraft. {what} run through a mod loader; checking which one runs on Minecraft {game_version}…"
+                tr!(
+                    what.pick(M::VanillaCheckingMods, M::VanillaCheckingShaders),
+                    version = game_version
                 ),
                 None,
             ),
         };
         card()
-            .child(heading(format!("{what} need a mod loader")))
+            .child(heading(t(
+                what.pick(M::ModsNeedLoader, M::ShadersNeedLoader)
+            )))
             .child(
                 div()
-                    .text_color(colors::GRAY_400)
+                    .text_color(crate::theme::ink::secondary())
                     .whitespace_normal()
                     .child(text),
             )
@@ -823,16 +1116,22 @@ impl ContentView {
     }
 
     /// The Shaders section's card: the shader mod in use, or the one to install.
-    fn render_shader_mod(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_shader_mod(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let busy = self.locked(cx) || self.job.is_some();
         if let Some(loader) = self.shaders.loader {
             let using = match (
                 &self.shaders.selection.pack,
                 self.shaders.selection.internal,
             ) {
-                (Some(pack), _) => format!("{} is using {pack}.", loader.label()),
-                (None, true) => format!("{} is using its built-in shaders.", loader.label()),
-                (None, false) => format!("{} is installed; shaders are off.", loader.label()),
+                (Some(pack), _) => {
+                    tr!(
+                        M::ShaderModUsingPack,
+                        shader_mod = loader.label(),
+                        pack = pack
+                    )
+                }
+                (None, true) => tr!(M::ShaderModUsingBuiltIn, shader_mod = loader.label()),
+                (None, false) => tr!(M::ShaderModInstalledOff, shader_mod = loader.label()),
             };
             return card()
                 .flex_row()
@@ -844,13 +1143,22 @@ impl ContentView {
                         .flex()
                         .flex_col()
                         .flex_1()
-                        .child(div().font_weight(weights::BOLD.into()).child(using))
-                        .child(small(format!(
-                            "Pick a pack below. {} reads its choice from {} when the game starts.",
-                            loader.label(),
-                            loader.config_file()
-                        ))
-                        .text_color(colors::GRAY_500)),
+                        .min_w_0()
+                        .child(
+                            div()
+                                .font_weight(weights::BOLD.into())
+                                .whitespace_normal()
+                                .child(RichText::minecraft(using)),
+                        )
+                        .child(
+                            small(tr!(
+                                M::ShaderModPickPack,
+                                shader_mod = loader.label(),
+                                file = loader.config_file()
+                            ))
+                            .whitespace_normal()
+                            .text_color(crate::theme::ink::muted()),
+                        ),
                 )
                 .into_any_element();
         }
@@ -859,52 +1167,77 @@ impl ContentView {
             .map(|(_, _, t)| t.loader)
             .unwrap_or_default();
         if target_loader == Loader::None {
-            return self.render_needs_loader("Shaders", cx);
+            return self.render_needs_loader(NeedsLoader::Shaders, cx);
         }
-        let optifine_note = small(
-            "OptiFine works too, but it isn't on Modrinth and its licence doesn't allow Lodestone to download it. If you prefer it, download it from optifine.net and add the jar with Add file… in Mods (Fabric also needs OptiFabric).",
-        )
+        let optifine_note = small(tr!(
+            M::OptiFineNote,
+            add_file = t(M::AddFile),
+            mods = t(M::KindMods)
+        ))
         .whitespace_normal()
-        .text_color(colors::GRAY_500);
+        .text_color(crate::theme::ink::muted());
         let body: AnyElement = match &self.shader_offer {
             Load::NotLoaded | Load::Loading => div()
                 .flex()
                 .flex_row()
                 .gap_2()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(LoadingDots)
-                .child("Looking for a shader mod for this version on Modrinth")
+                .child(t(M::LookingForShaderMod))
                 .into_any_element(),
             Load::Failed(err) => div()
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .child(small(format!("Couldn't ask Modrinth: {err}")).text_color(colors::RED_200))
+                .child(small(tr!(M::CouldntAskModrinth, error = err)).text_color(colors::RED_200))
                 .child(
-                    Button::new("retry-shader-offer", "Try again")
+                    Button::new("retry-shader-offer", t(CommonMsg::TryAgain))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.load_shader_offer(cx))),
                 )
                 .into_any_element(),
             Load::Ready(ShaderModOffer::Install { loader, version }) => {
-                let label = format!("Install {} {}", loader.label(), version.version_number);
+                let label = tr!(
+                    M::InstallShaderMod,
+                    shader_mod = loader.label(),
+                    version = version.version_number
+                );
+                let runs_on = tr!(
+                    M::ShaderModRunsOn,
+                    shader_mod = loader.label(),
+                    loader = loader_name(target_loader)
+                );
                 let with = match loader {
-                    ShaderLoader::Iris => " It comes with Sodium, which Iris needs.",
-                    ShaderLoader::Oculus => " It comes with Embeddium, which Oculus needs.",
-                    ShaderLoader::OptiFine => "",
+                    ShaderLoader::Iris => Some("Sodium"),
+                    ShaderLoader::Oculus => Some("Embeddium"),
+                    ShaderLoader::OptiFine => None,
+                };
+                let text = match with {
+                    Some(dependency) => {
+                        let gap = match crate::i18n::locale() {
+                            crate::i18n::Locale::ZhHans | crate::i18n::Locale::ZhHant => "",
+                            crate::i18n::Locale::En | crate::i18n::Locale::Fr => " ",
+                        };
+                        let comes_with = tr!(
+                            M::ShaderModComesWith,
+                            dependency = dependency,
+                            shader_mod = loader.label()
+                        );
+                        format!("{runs_on}{gap}{comes_with}")
+                    }
+                    None => runs_on,
                 };
                 div()
                     .flex()
                     .flex_col()
                     .gap_2()
                     .child(
-                        div().text_color(colors::GRAY_400).whitespace_normal().child(format!(
-                            "Minecraft can't load shader packs by itself; a shader mod does that. {} runs on this instance's {}.{with}",
-                            loader.label(),
-                            target_loader.label()
-                        )),
+                        div()
+                            .text_color(crate::theme::ink::secondary())
+                            .whitespace_normal()
+                            .child(text),
                     )
                     .child(
                         div().flex().child(
@@ -912,86 +1245,110 @@ impl ContentView {
                                 .variant(ButtonVariant::Primary)
                                 .icon(Icon::Download)
                                 .disabled(busy)
-                                .on_click(cx.listener(|this, _, _, cx| this.install_shader_mod(cx))),
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.install_shader_mod(cx)),
+                                ),
                         ),
                     )
                     .into_any_element()
             }
             Load::Ready(ShaderModOffer::Unavailable { reason }) => div()
-                .text_color(colors::GRAY_400)
+                .text_color(crate::theme::ink::secondary())
                 .whitespace_normal()
-                .child(format!(
-                    "Minecraft can't load shader packs by itself; a shader mod does that. {reason} Fabric instances can always use Iris."
-                ))
+                .child(tr!(M::ShaderModUnavailable, reason = reason))
                 .into_any_element(),
-            Load::Ready(ShaderModOffer::NeedsModLoader) => return self.render_needs_loader("Shaders", cx),
+            Load::Ready(ShaderModOffer::NeedsModLoader) => {
+                return self.render_needs_loader(NeedsLoader::Shaders, cx);
+            }
         };
         card()
-            .child(heading("Shaders need a shader mod"))
+            .child(heading(t(M::ShadersNeedShaderMod)))
             .child(body)
             .child(optifine_note)
             .into_any_element()
     }
 
-    fn render_installed(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
-        let target = self.context(cx).map(|(_, _, t)| t);
-        let listing = self.section(kind).listing.clone();
-        let mut column = div().flex().flex_col().gap_3();
-        if kind == ContentKind::ShaderPack {
-            column = column.child(self.render_shader_mod(cx));
+    /// What the Installed view lists, top to bottom: the cards and toolbar above the
+    /// list, then one entry per row. Cheap to build every frame; the rows' elements
+    /// are only made for the entries on screen (see [`Self::render_entry`]).
+    fn installed_plan(&self, kind: ContentKind, cx: &gpui::App) -> Vec<Entry> {
+        let query = self.query(kind, cx);
+        let searching = !query.is_empty();
+        let mut plan = Vec::new();
+        if kind == ContentKind::ShaderPack && !searching {
+            plan.push(Entry::ShaderMod);
         }
-        if kind == ContentKind::Mod && target.as_ref().is_some_and(|t| t.loader == Loader::None) {
-            column = column.child(self.render_needs_loader("Mods", cx));
+        if kind == ContentKind::Mod
+            && !searching
+            && self
+                .context(cx)
+                .is_some_and(|(_, _, target)| target.loader == Loader::None)
+        {
+            plan.push(Entry::NeedsLoader);
         }
-        column = column.child(self.render_toolbar(kind, cx));
-        let listing = match listing {
+        let listing = match &self.section(kind).listing {
             Load::NotLoaded | Load::Loading => {
-                return column
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .py_6()
-                            .justify_center()
-                            .text_color(colors::GRAY_500)
-                            .child(LoadingDots)
-                            .child(format!("Reading the {} folder", kind.dir())),
-                    )
-                    .into_any_element();
+                plan.push(Entry::Loading);
+                if searching {
+                    self.modrinth_plan(kind, cx, &mut plan);
+                    self.curseforge_plan(kind, cx, &mut plan);
+                }
+                return plan;
             }
             Load::Failed(err) => {
-                return column
-                    .child(
-                        small(format!("Couldn't read the {} folder: {err}", kind.dir()))
-                            .text_color(colors::RED_200),
-                    )
-                    .into_any_element();
+                plan.push(Entry::Failed(err.clone()));
+                return plan;
             }
             Load::Ready(listing) => listing,
         };
+        let row = |index: usize, item: &Item, first: bool, last: bool, reorder| Entry::Row {
+            index,
+            file: item.file.file_name.clone(),
+            first,
+            last,
+            reorder,
+        };
+        if searching {
+            let matches: Vec<(usize, &Item)> = listing
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| item_matches(item, &query))
+                .collect();
+            if matches.is_empty() {
+                plan.push(Entry::NoInstalledMatch);
+            } else {
+                plan.push(Entry::Heading(Heading::Installed(matches.len())));
+                let count = matches.len();
+                for (position, (index, item)) in matches.into_iter().enumerate() {
+                    plan.push(row(index, item, position == 0, position + 1 == count, None));
+                }
+            }
+            self.modrinth_plan(kind, cx, &mut plan);
+            self.curseforge_plan(kind, cx, &mut plan);
+            return plan;
+        }
         if let Some(error) = &listing.lookup_error {
-            column = column.child(
-                small(format!(
-                    "Some files couldn't be matched to Modrinth: {error}"
-                ))
-                .text_color(colors::GRAY_500),
-            );
+            plan.push(Entry::Note(error.clone(), false));
         }
         if let Some(error) = &listing.options_error {
-            column = column.child(small(error.clone()).text_color(colors::YELLOW_300));
+            plan.push(Entry::Note(error.clone(), true));
         }
         if listing.items.is_empty() {
-            return column.child(self.render_empty(kind, cx)).into_any_element();
+            plan.push(Entry::Heading(Heading::Installed(0)));
+            plan.push(Entry::Empty);
+            // Something to start from: the most relevant projects.
+            self.modrinth_plan(kind, cx, &mut plan);
+            self.curseforge_plan(kind, cx, &mut plan);
+            return plan;
         }
+        let count = listing.items.len();
         match kind {
             ContentKind::Mod => {
-                let mut rows = list_box();
+                plan.push(Entry::Heading(Heading::Installed(count)));
                 for (index, item) in listing.items.iter().enumerate() {
-                    rows = rows.child(self.render_item(kind, index, item, index == 0, None, cx));
+                    plan.push(row(index, item, index == 0, index + 1 == count, None));
                 }
-                column = column.child(rows);
             }
             ContentKind::ResourcePack => {
                 let mut enabled: Vec<(usize, &Item)> = listing
@@ -1008,56 +1365,329 @@ impl ContentView {
                     .filter(|(_, i)| i.priority.is_none())
                     .collect();
                 if !enabled.is_empty() {
-                    column = column.child(
-                        small("ENABLED · the top pack wins where packs overlap")
-                            .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_500),
-                    );
+                    plan.push(Entry::Heading(Heading::Enabled(enabled.len())));
                     let count = enabled.len();
-                    let mut rows = list_box();
                     for (position, (index, item)) in enabled.into_iter().enumerate() {
                         let reorder = Some((position > 0, position + 1 < count));
-                        rows = rows.child(self.render_item(
-                            kind,
+                        plan.push(row(
                             index,
                             item,
                             position == 0,
+                            position + 1 == count,
                             reorder,
-                            cx,
                         ));
                     }
-                    column = column.child(rows);
                 }
                 if !others.is_empty() {
-                    column = column.child(
-                        small("AVAILABLE")
-                            .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_500),
-                    );
-                    let mut rows = list_box();
+                    plan.push(Entry::Heading(Heading::Available(others.len())));
+                    let count = others.len();
                     for (position, (index, item)) in others.into_iter().enumerate() {
-                        rows = rows.child(self.render_item(
-                            kind,
-                            index,
-                            item,
-                            position == 0,
-                            None,
-                            cx,
-                        ));
+                        plan.push(row(index, item, position == 0, position + 1 == count, None));
                     }
-                    column = column.child(rows);
                 }
             }
             ContentKind::ShaderPack => {
+                plan.push(Entry::Heading(Heading::Installed(count)));
+                plan.push(Entry::ShadersOff);
+                for (index, item) in listing.items.iter().enumerate() {
+                    plan.push(row(index, item, false, index + 1 == count, None));
+                }
+            }
+        }
+        // Below what's installed, always the Modrinth section: until something is
+        // typed, a placeholder pointing at the search box.
+        plan.push(Entry::ModrinthHeading);
+        plan.push(Entry::ModrinthPrompt);
+        plan
+    }
+
+    /// Whether the Modrinth section shows its placeholder rather than results: nothing
+    /// is typed and something is installed (with nothing installed, it suggests the
+    /// most relevant projects instead).
+    fn modrinth_prompting(&self, kind: ContentKind, cx: &gpui::App) -> bool {
+        self.query(kind, cx).is_empty()
+            && matches!(&self.section(kind).listing, Load::Ready(listing) if !listing.items.is_empty())
+    }
+
+    /// The Modrinth section's placeholder: the search box finds more there.
+    fn render_modrinth_prompt(&self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let message = t(match kind {
+            ContentKind::Mod => M::ModrinthPromptMods,
+            ContentKind::ResourcePack => M::ModrinthPromptResourcePacks,
+            ContentKind::ShaderPack => M::ModrinthPromptShaderPacks,
+        });
+        let target = self.target_label(kind, cx);
+        div()
+            .id(("modrinth-prompt", kind as usize))
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_2()
+            .py_8()
+            .rounded(radius::XL)
+            .border_2()
+            .border_dashed()
+            .border_color(colors::GRAY_FADED.opacity(10))
+            .text_color(colors::GRAY_FADED.opacity(50))
+            .font_weight(weights::BOLD.into())
+            .cursor_pointer()
+            .hover(|style| style.border_color(colors::GRAY_FADED.opacity(25)))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                let search = this.section(kind).browse.search.clone();
+                window.focus(&gpui::Focusable::focus_handle(search.read(cx), cx), cx);
+            }))
+            .child(Icon::MagnifyingGlass.render(px(20.), colors::GRAY_FADED.opacity(50)))
+            .child(
+                div()
+                    .px_4()
+                    .text_center()
+                    .whitespace_normal()
+                    .child(message),
+            )
+            .when(!target.is_empty(), |this| {
+                this.child(
+                    small(tr!(M::ModrinthPromptTarget, target = target))
+                        .font_weight(weights::MEDIUM.into()),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// The Modrinth part of the list: its heading, then the results not installed yet.
+    fn modrinth_plan(&self, kind: ContentKind, cx: &gpui::App, plan: &mut Vec<Entry>) {
+        plan.push(Entry::ModrinthHeading);
+        match &self.section(kind).browse.results {
+            Load::NotLoaded | Load::Loading if self.modrinth(cx).is_none() => {
+                plan.push(Entry::ModrinthOffline)
+            }
+            Load::NotLoaded | Load::Loading => plan.push(Entry::ModrinthLoading),
+            Load::Failed(err) => plan.push(Entry::ModrinthFailed(err.clone())),
+            Load::Ready(results) => {
+                let installed = self.section(kind).installed_projects();
+                let hits: Vec<(usize, &ModrinthSearchHit)> = results
+                    .hits
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, hit)| !installed.contains_key(&hit.project_id))
+                    .collect();
+                if hits.is_empty() {
+                    plan.push(Entry::ModrinthNothing);
+                }
+                let count = hits.len();
+                for (position, (index, hit)) in hits.into_iter().enumerate() {
+                    plan.push(Entry::Hit {
+                        index,
+                        id: hit.project_id.clone(),
+                        first: position == 0,
+                        last: position + 1 == count,
+                    });
+                }
+                if results.total_hits > PAGE_SIZE {
+                    plan.push(Entry::Pager);
+                }
+            }
+        }
+    }
+
+    /// The CurseForge part of the list, after Modrinth's: its heading, then the results
+    /// not installed yet. Only in builds with Lodestone's CurseForge key.
+    fn curseforge_plan(&self, kind: ContentKind, cx: &gpui::App, plan: &mut Vec<Entry>) {
+        if self.curseforge(cx).is_none() {
+            return;
+        }
+        plan.push(Entry::CurseForgeHeading);
+        match &self.section(kind).cf.results {
+            Load::NotLoaded | Load::Loading => plan.push(Entry::CurseForgeLoading),
+            Load::Failed(err) => plan.push(Entry::CurseForgeFailed(err.clone())),
+            Load::Ready(results) => {
+                let installed: Vec<u64> = self
+                    .section(kind)
+                    .items()
+                    .iter()
+                    .filter_map(|i| i.curseforge.as_ref().map(|c| c.project_id))
+                    .collect();
+                let hits: Vec<(usize, u64)> = results
+                    .hits
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, hit)| !installed.contains(&hit.id))
+                    .map(|(index, hit)| (index, hit.id))
+                    .collect();
+                if hits.is_empty() {
+                    plan.push(Entry::CurseForgeNothing);
+                }
+                let count = hits.len();
+                for (position, (index, id)) in hits.into_iter().enumerate() {
+                    plan.push(Entry::CfHit {
+                        index,
+                        id,
+                        first: position == 0,
+                        last: position + 1 == count,
+                    });
+                }
+                if results.total > PAGE_SIZE as usize {
+                    plan.push(Entry::CfPager);
+                }
+            }
+        }
+    }
+
+    /// Brings the list of `kind` up to date with `plan`: entries that changed are
+    /// measured again, and the scroll position stays where it is.
+    fn sync_installed_list(&mut self, kind: ContentKind, plan: Vec<Entry>) {
+        let section = self.section_mut(kind);
+        let old = &section.plan;
+        if *old == plan {
+            return;
+        }
+        let prefix = old.iter().zip(&plan).take_while(|(a, b)| a == b).count();
+        let suffix = old[prefix..]
+            .iter()
+            .rev()
+            .zip(plan[prefix..].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        section
+            .rows
+            .splice(prefix..old.len() - suffix, plan.len() - prefix - suffix);
+        section.plan = plan;
+    }
+
+    /// The element of entry `ix` of the Installed list of `kind`.
+    fn render_entry(&mut self, kind: ContentKind, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(entry) = self.section(kind).plan.get(ix).cloned() else {
+            return div().into_any_element();
+        };
+        let last_entry = ix + 1 == self.section(kind).plan.len();
+        let element = match &entry {
+            Entry::ShaderMod => self.render_shader_mod(cx),
+            Entry::NeedsLoader => self.render_needs_loader(NeedsLoader::Mods, cx),
+            Entry::Loading => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .py_6()
+                .justify_center()
+                .text_color(crate::theme::ink::muted())
+                .child(LoadingDots)
+                .child(tr!(M::ReadingFolder, folder = kind.dir()))
+                .into_any_element(),
+            Entry::Failed(err) => {
+                small(tr!(M::CouldntReadFolder, folder = kind.dir(), error = err))
+                    .text_color(colors::RED_200)
+                    .into_any_element()
+            }
+            Entry::Note(note, warning) => small(if *warning {
+                note.clone()
+            } else {
+                tr!(M::SomeFilesNotMatched, error = note)
+            })
+            .text_color(if *warning {
+                colors::YELLOW_300
+            } else {
+                colors::GRAY_500
+            })
+            .into_any_element(),
+            Entry::Empty => self.render_empty(kind),
+            Entry::Heading(heading) => {
+                let (message, count) = match heading {
+                    Heading::Installed(n) => (M::InstalledCount, n),
+                    Heading::Enabled(n) => (M::EnabledCount, n),
+                    Heading::Available(n) => (M::AvailableCount, n),
+                };
+                small(tr!(message, count = format::number(*count as u64)))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(crate::theme::ink::muted())
+                    .into_any_element()
+            }
+            Entry::NoInstalledMatch => small(tr!(
+                M::NoInstalledMatch,
+                count = format::number(0),
+                kind = kind_name(kind).to_lowercase()
+            ))
+            .text_color(crate::theme::ink::muted())
+            .into_any_element(),
+            Entry::ModrinthHeading => self.render_modrinth_heading(kind, cx),
+            Entry::ModrinthLoading => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .py_4()
+                .justify_center()
+                .text_color(crate::theme::ink::muted())
+                .child(LoadingDots)
+                .child(t(M::SearchingModrinth))
+                .into_any_element(),
+            Entry::ModrinthFailed(err) => small(err.clone())
+                .text_color(colors::RED_200)
+                .into_any_element(),
+            Entry::ModrinthOffline => muted(t(M::BrowsingNeedsNetwork)).into_any_element(),
+            Entry::ModrinthNothing => muted(t(M::NothingMatches)).into_any_element(),
+            Entry::ModrinthPrompt => self.render_modrinth_prompt(kind, cx),
+            Entry::Hit {
+                index, first, last, ..
+            } => {
+                let hit = match &self.section(kind).browse.results {
+                    Load::Ready(results) => results.hits.get(*index).cloned(),
+                    _ => None,
+                };
+                let Some(hit) = hit else {
+                    return div().into_any_element();
+                };
+                let row = self.render_hit(kind, *index, &hit, *first, cx);
+                in_box(row, *first, *last)
+            }
+            Entry::Pager => self.render_pager(kind, cx),
+            Entry::CurseForgeHeading => self.render_cf_heading(kind, cx),
+            Entry::CurseForgeLoading => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .py_4()
+                .justify_center()
+                .text_color(crate::theme::ink::muted())
+                .child(LoadingDots)
+                .child(t(M::SearchingCurseForge))
+                .into_any_element(),
+            Entry::CurseForgeFailed(err) => small(err.clone())
+                .text_color(colors::RED_200)
+                .into_any_element(),
+            Entry::CurseForgeNothing => muted(t(M::NothingOnCurseForge)).into_any_element(),
+            Entry::CfHit {
+                index, first, last, ..
+            } => {
+                let hit = match &self.section(kind).cf.results {
+                    Load::Ready(results) => results.hits.get(*index).cloned(),
+                    _ => None,
+                };
+                let Some(hit) = hit else {
+                    return div().into_any_element();
+                };
+                let row = self.render_cf_hit(kind, *index, &hit, *first, cx);
+                in_box(row, *first, *last)
+            }
+            Entry::CfPager => self.render_cf_pager(kind, cx),
+            Entry::ShadersOff => {
                 let loader = self.shaders.loader;
                 let busy = self.locked(cx) || self.job.is_some() || loader.is_none();
                 let selected_none = self.shaders.selection.pack.is_none();
-                let mut rows = list_box().child(
+                in_box(
                     row_base("shaders-off", true)
+                        .accessible(Role::RadioButton, "shaders-off", t(M::ShadersOff))
+                        .aria_toggled(if selected_none {
+                            Toggled::True
+                        } else {
+                            Toggled::False
+                        })
                         .when(!busy, |this| {
-                            this.cursor_pointer()
+                            this.keyboard_focus()
+                                .cursor_pointer()
                                 .hover(|style| style.bg(colors::GRAY_750))
-                                .on_click(
+                                .on_press(
                                     cx.listener(|this, _, _, cx| this.select_shader(None, cx)),
                                 )
                         })
@@ -1066,198 +1696,283 @@ impl ContentView {
                             div()
                                 .flex()
                                 .flex_col()
-                                .child(div().font_weight(weights::BOLD.into()).child("Shaders off"))
                                 .child(
-                                    small("Minecraft's normal look.")
-                                        .text_color(colors::WHITE.opacity(30)),
+                                    div()
+                                        .font_weight(weights::BOLD.into())
+                                        .child(t(M::ShadersOff)),
+                                )
+                                .child(
+                                    small(t(M::NormalLook)).text_color(colors::WHITE.opacity(30)),
                                 ),
-                        ),
-                );
-                for (index, item) in listing.items.iter().enumerate() {
+                        )
+                        .into_any_element(),
+                    true,
+                    false,
+                )
+            }
+            Entry::Row {
+                index,
+                first,
+                last,
+                reorder,
+                ..
+            } => {
+                let item = match &self.section(kind).listing {
+                    Load::Ready(listing) => listing.items.get(*index).cloned(),
+                    _ => None,
+                };
+                let Some(item) = item else {
+                    return div().into_any_element();
+                };
+                if kind == ContentKind::ShaderPack {
+                    let loader = self.shaders.loader;
+                    let busy = self.locked(cx) || self.job.is_some() || loader.is_none();
                     let name = item.file.file_name.clone();
-                    let row = self.render_item(kind, index, item, true, None, cx);
                     let selected = item.enabled;
-                    rows = rows.child(
+                    let row = self.render_item(kind, *index, &item, true, None, cx);
+                    in_box(
                         div()
-                            .id(("shader-select", index))
+                            .id(("shader-select", *index))
+                            .accessible(
+                                Role::RadioButton,
+                                format!("shader-select-{name}"),
+                                item.display_name(),
+                            )
+                            .aria_toggled(if selected {
+                                Toggled::True
+                            } else {
+                                Toggled::False
+                            })
                             .flex()
                             .flex_row()
                             .items_center()
                             .bg(colors::GRAY_800)
                             .border_t_1()
                             .border_color(colors::GRAY_FADED.opacity(15))
-                            .when(selected, |this| this.bg(colors::BLUE.opacity(15)))
+                            .when(selected, |this| {
+                                this.bg(crate::theme::accent::base().opacity(15))
+                            })
                             .when(!busy, |this| {
-                                this.cursor_pointer()
+                                this.keyboard_focus()
+                                    .cursor_pointer()
                                     .hover(|style| style.bg(colors::GRAY_750))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                    .on_press(cx.listener(move |this, _, _, cx| {
                                         this.select_shader(Some(name.clone()), cx)
                                     }))
                             })
                             .child(div().pl_4().child(radio(selected)))
-                            .child(div().flex_1().min_w_0().child(row)),
-                    );
+                            .child(div().flex_1().min_w_0().child(row))
+                            .into_any_element(),
+                        false,
+                        *last,
+                    )
+                } else {
+                    let row = self.render_item(kind, *index, &item, *first, *reorder, cx);
+                    in_box(row, *first, *last)
                 }
-                column = column.child(rows);
             }
-        }
-        column.into_any_element()
+        };
+        // The gap between blocks; rows of one box touch.
+        let joined = matches!(
+            entry,
+            Entry::Row { first: false, .. }
+                | Entry::Hit { first: false, .. }
+                | Entry::CfHit { first: false, .. }
+        ) || (matches!(entry, Entry::Row { .. })
+            && kind == ContentKind::ShaderPack
+            && self.query(kind, cx).is_empty());
+        div()
+            .w_full()
+            .when(ix > 0 && !joined, |this| this.pt_3())
+            .when(last_entry, |this| this.pb_4())
+            .child(element)
+            .into_any_element()
     }
 
-    fn render_browse(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
-        if self.modrinth(cx).is_none()
-            && matches!(self.section(kind).browse.results, Load::NotLoaded)
-            && self.section(kind).browse.project.is_none()
-        {
-            return muted("Browsing Modrinth needs the network.").into_any_element();
-        }
-        if self.section(kind).browse.project.is_some() {
-            return self.render_project(kind, cx);
-        }
+    /// "On Modrinth · n", with the sort and the "1.20.1 Fabric only" filter.
+    fn render_modrinth_heading(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
         let browse = &self.section(kind).browse;
-        let search = browse.search.clone();
         let only = browse.only_compatible;
         let index = browse.index;
-        let offset = browse.offset;
-        let results = browse.results.clone();
-        let target_label = self.target_label(kind, cx);
+        let total = browse.results.ready().map(|r| r.total_hits);
         let indexes = [
-            (ModrinthSearchIndex::Relevance, "Relevance"),
-            (ModrinthSearchIndex::Downloads, "Downloads"),
-            (ModrinthSearchIndex::Follows, "Follows"),
-            (ModrinthSearchIndex::Newest, "Newest"),
-            (ModrinthSearchIndex::Updated, "Updated"),
+            (ModrinthSearchIndex::Relevance, M::SortRelevance),
+            (ModrinthSearchIndex::Downloads, M::SortDownloads),
+            (ModrinthSearchIndex::Follows, M::SortFollows),
+            (ModrinthSearchIndex::Newest, M::SortNewest),
+            (ModrinthSearchIndex::Updated, M::SortUpdated),
         ];
-        let selected_index = indexes.iter().position(|(i, _)| *i == index).unwrap_or(0);
-        let entity = cx.entity();
-        let installed = self.section(kind).installed_projects();
-        let mut column = div()
+        let current = indexes
+            .iter()
+            .find(|(i, _)| *i == index)
+            .map_or(M::SortRelevance, |(_, label)| *label);
+        let target = self.target_label(kind, cx);
+        // The placeholder's heading has no count: the results it would count are from
+        // an earlier search, or none.
+        let title = match total.filter(|_| !self.modrinth_prompting(kind, cx)) {
+            Some(total) => tr!(M::OnModrinthCount, count = format::number(total as u64)),
+            None => t(M::OnModrinth).to_string(),
+        };
+        let sort = div()
             .flex()
             .flex_col()
-            .gap_3()
+            .items_end()
             .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(Icon::MagnifyingGlass.render(px(14.), colors::GRAY_500))
-                    .child(div().flex_1().child(search)),
+                select_button(
+                    ("modrinth-sort", kind as usize),
+                    small(t(current)).font_weight(weights::BOLD.into()),
+                )
+                .aria_value(t(current))
+                .expandable(self.sort_open, {
+                    let view = cx.entity().downgrade();
+                    move |_: &mut Window, cx: &mut gpui::App| {
+                        view.update(cx, |this, cx| {
+                            this.sort_open = !this.sort_open;
+                            cx.notify();
+                        })
+                        .ok();
+                    }
+                })
+                .on_press(cx.listener(|this, _, _, cx| {
+                    this.sort_open = !this.sort_open;
+                    cx.notify();
+                })),
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                Toggle::new(("only-compatible", kind as usize), only).on_change(
-                                    cx.listener(move |this, value: &bool, _, cx| {
-                                        this.set_only_compatible(kind, *value, cx)
-                                    }),
-                                ),
-                            )
-                            .child(
-                                small(format!("Only show {}s for {target_label}", kind.noun()))
-                                    .text_color(colors::GRAY_400),
-                            ),
-                    )
-                    .child(pills(
-                        "search-index",
-                        indexes
-                            .iter()
-                            .map(|(_, label)| SharedString::from(*label))
-                            .collect(),
-                        selected_index,
-                        move |i, _, cx| {
-                            let index = indexes[i].0;
-                            entity.update(cx, |this, cx| this.set_index(kind, index, cx))
-                        },
-                    )),
-            );
-        if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
-            column = column.child(self.render_shader_mod(cx));
-        }
-        match results {
-            Load::NotLoaded | Load::Loading => {
-                column = column.child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .justify_center()
-                        .gap_2()
-                        .py_6()
-                        .text_color(colors::GRAY_500)
-                        .child(LoadingDots)
-                        .child("Searching Modrinth"),
-                );
-            }
-            Load::Failed(err) => {
-                column = column.child(small(err).text_color(colors::RED_200));
-            }
-            Load::Ready(results) => {
-                if results.hits.is_empty() {
-                    column = column.child(muted("Nothing on Modrinth matches."));
-                }
-                let mut cards = div().flex().flex_col().gap_2();
-                for (i, hit) in results.hits.iter().enumerate() {
-                    let installed = installed.contains_key(&hit.project_id);
-                    cards = cards.child(self.render_hit(kind, i, hit, installed, cx));
-                }
-                column = column.child(cards);
-                let pages = results.total_hits.div_ceil(PAGE_SIZE).max(1);
-                let page = offset / PAGE_SIZE + 1;
-                if results.total_hits > PAGE_SIZE {
-                    column = column.child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .justify_center()
-                            .gap_3()
-                            .child(
-                                Button::new(("previous-page", kind as usize), "Previous")
-                                    .variant(ButtonVariant::Secondary)
-                                    .size(ButtonSize::Slim)
-                                    .disabled(offset == 0)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.set_page(kind, offset.saturating_sub(PAGE_SIZE), cx)
-                                    })),
-                            )
-                            .child(
-                                small(format!("Page {page} of {pages}"))
-                                    .text_color(colors::GRAY_500),
-                            )
-                            .child(
-                                Button::new(("next-page", kind as usize), "Next")
-                                    .variant(ButtonVariant::Secondary)
-                                    .size(ButtonSize::Slim)
-                                    .disabled(page >= pages)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.set_page(kind, offset + PAGE_SIZE, cx)
-                                    })),
-                            ),
+            .when(self.sort_open, |this| {
+                let close = cx.listener(|this, _: &(), _, cx| {
+                    this.sort_open = false;
+                    cx.notify();
+                });
+                let mut panel = popover_panel("modrinth-sort-list")
+                    .w(px(180.))
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                        this.sort_open = false;
+                        cx.notify();
+                    }));
+                for (i, (value, label)) in indexes.into_iter().enumerate() {
+                    panel = panel.child(
+                        ListRow::new(("modrinth-sort-choice", i), t(label))
+                            .selected(value == index)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.sort_open = false;
+                                this.set_index(kind, value, cx);
+                            })),
                     );
                 }
-            }
-        }
-        column.into_any_element()
+                // In a box of its own under the button: the popover starts where its
+                // parent does.
+                this.child(div().child(popover(
+                    "modrinth-sort-popover",
+                    panel,
+                    move |window, cx| close(&(), window, cx),
+                )))
+            });
+        let chip = div()
+            .id(("only-compatible", kind as usize))
+            .accessible(
+                Role::CheckBox,
+                format!("{}-only-compatible", kind.dir()),
+                tr!(M::OnlyTarget, target = target),
+            )
+            .aria_toggled(if only { Toggled::True } else { Toggled::False })
+            .keyboard_focus()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1()
+            .px_2p5()
+            .py_0p5()
+            .rounded_full()
+            .border_1()
+            .cursor_pointer()
+            .text_size(theme::text_size(text::SMALL))
+            .font_weight(weights::BOLD.into())
+            .map(|this| {
+                if only {
+                    this.bg(crate::theme::accent::base().opacity(25))
+                        .border_color(crate::theme::accent::light().opacity(60))
+                        .text_color(colors::WHITE)
+                } else {
+                    this.border_color(crate::theme::ink::border())
+                        .text_color(crate::theme::ink::secondary())
+                        .hover(|style| {
+                            style
+                                .text_color(crate::theme::ink::text())
+                                .bg(colors::GRAY_750)
+                        })
+                }
+            })
+            .when(only, |this| {
+                this.child(Icon::Check.render(px(10.), colors::WHITE))
+            })
+            .child(tr!(M::OnlyTarget, target = target))
+            .on_press(cx.listener(move |this, _, _, cx| this.set_only_compatible(kind, !only, cx)));
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(
+                div().flex_1().min_w_0().child(
+                    small(title)
+                        .font_weight(weights::BOLD.into())
+                        .text_color(crate::theme::ink::muted()),
+                ),
+            )
+            .child(sort)
+            .child(chip)
+            .into_any_element()
     }
 
+    /// Previous and next page of the Modrinth results.
+    fn render_pager(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let browse = &self.section(kind).browse;
+        let offset = browse.offset;
+        let total = browse.results.ready().map_or(0, |r| r.total_hits);
+        let pages = total.div_ceil(PAGE_SIZE).max(1);
+        let page = offset / PAGE_SIZE + 1;
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .child(
+                Button::new(("previous-page", kind as usize), t(CommonMsg::Previous))
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .disabled(offset == 0)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.set_page(kind, offset.saturating_sub(PAGE_SIZE), cx)
+                    })),
+            )
+            .child(
+                small(tr!(
+                    M::PageOf,
+                    page = format::number(page as u64),
+                    pages = format::number(pages as u64)
+                ))
+                .text_color(crate::theme::ink::muted()),
+            )
+            .child(
+                Button::new(("next-page", kind as usize), t(CommonMsg::Next))
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .disabled(page >= pages)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.set_page(kind, offset + PAGE_SIZE, cx)
+                    })),
+            )
+            .into_any_element()
+    }
+
+    /// A Modrinth result as a row of the list: opens its page, or installs it.
     fn render_hit(
         &mut self,
         kind: ContentKind,
         index: usize,
         hit: &ModrinthSearchHit,
-        installed: bool,
+        first: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let icon = hit
@@ -1265,76 +1980,75 @@ impl ContentView {
             .as_deref()
             .and_then(|url| self.remote_icon(url, cx));
         let id = hit.project_id.clone();
+        let install_id = hit.project_id.clone();
+        let resolving = self.section(kind).resolving.contains(&hit.project_id);
+        let busy = self.locked(cx) || self.job.is_some();
         let client_badge = kind == ContentKind::Mod && hit.client_side == "optional";
-        div()
-            .id(("hit", index))
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_3()
-            .p_3()
-            .rounded(radius::LG)
-            .bg(colors::GRAY_800)
-            .border_1()
-            .border_color(colors::FADE_700)
+        row_base(("hit", index), first)
+            .accessible(
+                Role::ListItem,
+                format!("{}-hit-{}", kind.dir(), hit.project_id),
+                hit.title.clone(),
+            )
+            .aria_description(hit.description.clone())
+            .keyboard_focus()
             .cursor_pointer()
             .hover(|style| style.bg(colors::GRAY_750))
-            .on_click(
+            .on_press(
                 cx.listener(move |this, _, _, cx| this.open_project(kind, id.clone(), None, cx)),
             )
-            .child(icon_box(icon, 48.))
+            .child(icon_box(icon, 36.))
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .gap_0p5()
                     .child(
                         div()
                             .flex()
                             .flex_row()
                             .items_center()
                             .gap_2()
+                            .min_w_0()
                             .child(
                                 div()
                                     .truncate()
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(hit.title.clone()),
                             )
                             .child(
-                                small(format!("by {}", hit.author))
+                                small(tr!(M::ByAuthor, author = hit.author))
                                     .flex_none()
                                     .text_color(colors::WHITE.opacity(50)),
                             )
-                            .when(installed, |this| {
-                                this.child(badge("Installed", colors::GREEN_300))
-                            })
                             .when(client_badge, |this| {
-                                this.child(badge("Optional on servers", colors::GRAY_500))
+                                this.child(badge(t(M::OptionalOnServers), colors::GRAY_500))
                             }),
                     )
                     .child(
-                        small(hit.description.clone())
-                            .text_color(colors::GRAY_400)
-                            .line_clamp(2),
+                        small_rich(RichText::minecraft(hit.description.clone()))
+                            .truncate()
+                            .text_color(crate::theme::ink::secondary()),
                     ),
             )
             .child(
-                div()
-                    .flex()
-                    .flex_col()
+                small(counted(hit.downloads, P::Downloads, M::DownloadsCompact))
                     .flex_none()
-                    .items_end()
-                    .child(
-                        small(format!("{} downloads", compact(hit.downloads)))
-                            .text_color(colors::GRAY_400),
-                    )
-                    .child(
-                        small(format!("{} follows", compact(hit.follows)))
-                            .text_color(colors::GRAY_500),
-                    ),
+                    .text_color(crate::theme::ink::muted()),
+            )
+            .child(
+                Button::new(("install-hit", index), t(CommonMsg::Install))
+                    .variant(ButtonVariant::Primary)
+                    .size(ButtonSize::Slim)
+                    .loading(resolving)
+                    .disabled(busy || resolving)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        // Not also the row's click, which opens the page.
+                        cx.stop_propagation();
+                        this.install_hit(kind, install_id.clone(), cx)
+                    })),
             )
             .into_any_element()
     }
@@ -1350,7 +2064,7 @@ impl ContentView {
         let with_dependencies = view.with_dependencies;
         let confirm_force = view.confirm_force.clone();
         let linked = view.linked_version.clone();
-        let back = Button::new(("back", kind as usize), "Back to results")
+        let back = Button::new(("back", kind as usize), t(CommonMsg::Back))
             .variant(ButtonVariant::Ghost)
             .icon(Icon::ArrowLeft)
             .size(ButtonSize::Slim)
@@ -1377,9 +2091,9 @@ impl ContentView {
                             .flex()
                             .flex_row()
                             .gap_2()
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(LoadingDots)
-                            .child("Loading the project"),
+                            .child(t(M::LoadingProject)),
                     )
                     .into_any_element();
             }
@@ -1389,71 +2103,76 @@ impl ContentView {
             .as_deref()
             .and_then(|url| self.remote_icon(url, cx));
         let page = modrinth_page(&project.project_type, &project.slug);
-        let mut column = div()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .child(div().flex().child(back))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_start()
-                    .gap_4()
-                    .child(icon_box(icon, 72.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .font_family(fonts::TITLE)
-                                    .text_size(theme::text_size(text::H2))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
-                                    .child(project.title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_color(colors::GRAY_400)
-                                    .whitespace_normal()
-                                    .child(project.description.clone()),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .flex_wrap()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        small(format!(
-                                            "{} downloads · {} followers",
-                                            compact(project.downloads),
-                                            compact(project.followers)
-                                        ))
-                                        .text_color(colors::GRAY_500),
-                                    )
-                                    .children(
-                                        project
-                                            .categories
-                                            .iter()
-                                            .take(6)
-                                            .map(|c| badge(c.clone(), colors::BLUE_200)),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        Button::new(("open-modrinth", kind as usize), "View on Modrinth")
-                            .variant(ButtonVariant::Secondary)
-                            .icon(Icon::ArrowUpRightFromSquare)
-                            .size(ButtonSize::Slim)
-                            .on_click(move |_, _, cx| cx.open_url(&page)),
-                    ),
-            );
+        let mut column =
+            div()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .child(div().flex().child(back))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_start()
+                        .gap_4()
+                        .child(icon_box(icon, 72.))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .font_family(fonts::display())
+                                        .text_size(theme::text_size(text::H2))
+                                        .font_weight(weights::BOLD.into())
+                                        .text_color(crate::theme::ink::text())
+                                        .child(project.title.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(crate::theme::ink::secondary())
+                                        .whitespace_normal()
+                                        .child(RichText::minecraft(project.description.clone())),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .flex_wrap()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(
+                                            small(format!(
+                                                "{} · {}",
+                                                counted(
+                                                    project.downloads,
+                                                    P::Downloads,
+                                                    M::DownloadsCompact
+                                                ),
+                                                counted(
+                                                    project.followers,
+                                                    P::Followers,
+                                                    M::FollowersCompact
+                                                )
+                                            ))
+                                            .text_color(crate::theme::ink::muted()),
+                                        )
+                                        .children(project.categories.iter().take(6).map(|c| {
+                                            badge(c.clone(), crate::theme::accent::light())
+                                        })),
+                                ),
+                        )
+                        .child(
+                            Button::new(("open-modrinth", kind as usize), t(M::ViewOnModrinth))
+                                .variant(ButtonVariant::Secondary)
+                                .icon(Icon::ArrowUpRightFromSquare)
+                                .size(ButtonSize::Slim)
+                                .on_click(move |_, _, cx| cx.open_url(&page)),
+                        ),
+                );
         if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
             column = column.child(self.render_shader_mod(cx));
         }
@@ -1462,7 +2181,7 @@ impl ContentView {
             let entity = cx.entity();
             column = column.child(div().flex().child(pills(
                 "project-tabs",
-                vec!["Versions".into(), "Description".into()],
+                vec![t(M::Versions).into(), t(M::Description).into()],
                 match tab {
                     ProjectTab::Versions => 0,
                     ProjectTab::Description => 1,
@@ -1487,7 +2206,7 @@ impl ContentView {
                         .p_4()
                         .rounded(radius::LG)
                         .border_1()
-                        .border_color(colors::FADE_700)
+                        .border_color(crate::theme::ink::border())
                         .bg(colors::GRAY_850)
                         .child(crate::markdown::render(
                             format!("description-{}", project.id),
@@ -1511,9 +2230,9 @@ impl ContentView {
                             .flex()
                             .flex_row()
                             .gap_2()
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(LoadingDots)
-                            .child("Loading versions"),
+                            .child(t(M::LoadingVersions)),
                     )
                     .into_any_element();
             }
@@ -1546,7 +2265,7 @@ impl ContentView {
                 .flex_wrap()
                 .items_center()
                 .gap_4()
-                .child(heading("Versions"))
+                .child(heading(t(M::Versions)))
                 .child(
                     div()
                         .flex()
@@ -1554,18 +2273,17 @@ impl ContentView {
                         .items_center()
                         .gap_2()
                         .child(
-                            Toggle::new(("show-all", kind as usize), show_all).on_change(
-                                cx.listener(move |this, value: &bool, _, cx| {
+                            Toggle::new(("show-all", kind as usize), show_all)
+                                .label(t(M::ShowAllVersions))
+                                .on_change(cx.listener(move |this, value: &bool, _, cx| {
                                     if let Some(view) = this.project_mut(kind) {
                                         view.show_all = *value;
                                     }
                                     cx.notify();
-                                }),
-                            ),
+                                })),
                         )
                         .child(
-                            small("Show versions for other loaders and Minecraft versions")
-                                .text_color(colors::GRAY_400),
+                            small(t(M::ShowAllVersions)).text_color(crate::theme::ink::secondary()),
                         ),
                 )
                 .when(kind == ContentKind::Mod, |this| {
@@ -1577,6 +2295,7 @@ impl ContentView {
                             .gap_2()
                             .child(
                                 Toggle::new(("with-deps", kind as usize), with_dependencies)
+                                    .label(t(M::AlsoInstallDependencies))
                                     .on_change(cx.listener(move |this, value: &bool, _, cx| {
                                         if let Some(view) = this.project_mut(kind) {
                                             view.with_dependencies = *value;
@@ -1585,15 +2304,22 @@ impl ContentView {
                                     })),
                             )
                             .child(
-                                small("Also install required dependencies")
-                                    .text_color(colors::GRAY_400),
+                                small(t(M::AlsoInstallDependencies))
+                                    .text_color(crate::theme::ink::secondary()),
                             ),
                     )
                 }),
         );
         if shown.is_empty() {
             return column
-                .child(muted(format!("No version of {} fits this instance. Turn on \"Show versions…\" to see them all.", project.title)))
+                .child(
+                    muted(tr!(
+                        M::NoVersionFits,
+                        project = project.title,
+                        show_all = t(M::ShowVersionsShort)
+                    ))
+                    .whitespace_normal(),
+                )
                 .into_any_element();
         }
         let mut rows = list_box();
@@ -1601,19 +2327,17 @@ impl ContentView {
             let (type_label, type_color) = version_label(version.version_type);
             let is_installed = installed_versions.contains(&version.id);
             let size = version.primary_file().map_or(0, |f| f.size);
-            let date = version
-                .date_published
-                .get(..10)
-                .unwrap_or_default()
-                .to_string();
+            let day = version.date_published.get(..10).unwrap_or_default();
+            let date = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d")
+                .map_or_else(|_| day.to_string(), |date| format::short_date(date, true));
             let forcing = confirm_force.as_deref() == Some(version.id.as_str());
             let version_for_click = version.clone();
             let project_for_click = project.clone();
             let id = version.id.clone();
             let button = if is_installed {
-                badge("Installed", colors::GREEN_300).into_any_element()
+                badge(t(M::InstalledBadge), colors::GREEN_300).into_any_element()
             } else if problem.is_some() && !forcing {
-                Button::new(("install-anyway", index), "Install anyway…")
+                Button::new(("install-anyway", index), t(M::InstallAnyway))
                     .variant(ButtonVariant::Secondary)
                     .size(ButtonSize::Slim)
                     .disabled(busy)
@@ -1631,16 +2355,16 @@ impl ContentView {
                     self.shaders.loader,
                     self.shader_offer.ready(),
                 ) {
-                    (_, true, _, _) => "Install it anyway".to_string(),
+                    (_, true, _, _) => t(M::InstallItAnyway).to_string(),
                     (
                         ContentKind::ShaderPack,
                         _,
                         None,
                         Some(ShaderModOffer::Install { loader, .. }),
                     ) => {
-                        format!("Install with {}", loader.label())
+                        tr!(M::InstallWith, shader_mod = loader.label())
                     }
-                    _ => "Install".to_string(),
+                    _ => t(CommonMsg::Install).to_string(),
                 };
                 Button::new(("install", index), label)
                     .variant(if forcing {
@@ -1664,6 +2388,12 @@ impl ContentView {
             };
             rows = rows.child(
                 row_base(("version-row", index), index == 0)
+                    .accessible(
+                        Role::Group,
+                        format!("{}-version-{}", kind.dir(), version.id),
+                        version.version_number.clone(),
+                    )
+                    .aria_description(format!("{type_label} · {date}"))
                     .child(
                         div()
                             .flex()
@@ -1689,7 +2419,7 @@ impl ContentView {
                                     "{} · {} · {date} · {}",
                                     short_list(&version.game_versions, 3),
                                     short_list(&version.loaders, 3),
-                                    format_byte(size)
+                                    format::bytes(size)
                                 ))
                                 .truncate()
                                 .text_color(colors::WHITE.opacity(40)),
@@ -1704,11 +2434,26 @@ impl ContentView {
         column = column.child(rows);
         if total > 40 {
             column = column.child(
-                small(format!("{} more versions are on Modrinth.", total - 40))
-                    .text_color(colors::GRAY_500),
+                small(trn!(P::MoreVersions, total - 40)).text_color(crate::theme::ink::muted()),
             );
         }
         column.into_any_element()
+    }
+}
+
+/// What needs a mod loader, on a vanilla instance's card.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum NeedsLoader {
+    Mods,
+    Shaders,
+}
+
+impl NeedsLoader {
+    fn pick(self, mods: M, shaders: M) -> M {
+        match self {
+            NeedsLoader::Mods => mods,
+            NeedsLoader::Shaders => shaders,
+        }
     }
 }
 
@@ -1723,12 +2468,17 @@ fn radio(selected: bool) -> impl IntoElement {
         .rounded(px(8.))
         .border_2()
         .border_color(if selected {
-            colors::BLUE_200
+            crate::theme::accent::light()
         } else {
             colors::GRAY_600
         })
         .when(selected, |this| {
-            this.child(div().size(px(6.)).rounded(px(3.)).bg(colors::BLUE_200))
+            this.child(
+                div()
+                    .size(px(6.))
+                    .rounded(px(3.))
+                    .bg(crate::theme::accent::light()),
+            )
         })
 }
 
@@ -1740,18 +2490,49 @@ impl Render for ContentView {
         for kind in ContentKind::ALL {
             self.ensure_loaded(kind, cx);
         }
-        let view = self.section(kind).view;
-        if view == SubView::Browse
+        let cf_project_open = self.section(kind).cf.project.is_some();
+        let project_open = self.section(kind).browse.project.is_some() || cf_project_open;
+        if !project_open
+            && self.shows_modrinth(kind, cx)
+            && matches!(self.section(kind).cf.results, Load::NotLoaded)
+            && self.curseforge(cx).is_some()
+            && (self.query(kind, cx).is_empty() || self.section(kind).browse.task.is_none())
+        {
+            self.cf_search(kind, cx);
+        }
+        // Nothing installed: the most relevant projects, to start from. (While typing,
+        // the search runs once typing pauses.)
+        if !project_open
+            && self.shows_modrinth(kind, cx)
             && matches!(self.section(kind).browse.results, Load::NotLoaded)
-            && self.section(kind).browse.project.is_none()
+            && self.section(kind).browse.task.is_none()
+            && self.modrinth(cx).is_some()
         {
             self.search(kind, cx);
         }
-        let body = match view {
-            SubView::Installed => self.render_installed(kind, cx),
-            SubView::Browse => self.render_browse(kind, cx),
+        let body = if project_open {
+            div()
+                .id(("content-project", kind as usize))
+                .size_full()
+                .overflow_y_scroll()
+                .child(div().pb_4().child(if cf_project_open {
+                    self.render_cf_project(kind, cx)
+                } else {
+                    self.render_project(kind, cx)
+                }))
+                .into_any_element()
+        } else {
+            // Only the rows on screen are made: a long list scrolls as fast as a short
+            // one.
+            let plan = self.installed_plan(kind, cx);
+            self.sync_installed_list(kind, plan);
+            let entity = cx.entity();
+            list(self.section(kind).rows.clone(), move |ix, _, cx| {
+                entity.update(cx, |this, cx| this.render_entry(kind, ix, cx))
+            })
+            .size_full()
+            .into_any_element()
         };
-        let accepts_drop = view == SubView::Installed;
         div()
             .flex()
             .flex_col()
@@ -1759,20 +2540,20 @@ impl Render for ContentView {
             .gap_3()
             .child(self.render_header(cx))
             .child(self.render_banners(cx))
+            .children(self.render_blocked(cx))
             .child(
                 div()
                     .id(("content-body", kind as usize))
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
                     .rounded(radius::LG)
                     .border_2()
                     .border_color(colors::TRANSPARENT)
-                    .when(accepts_drop, |this| {
+                    .when(!project_open, |this| {
                         this.drag_over::<ExternalPaths>(|style, _, _, _| {
                             style
-                                .border_color(colors::BLUE_200.opacity(60))
-                                .bg(colors::BLUE.opacity(8))
+                                .border_color(crate::theme::accent::light().opacity(60))
+                                .bg(crate::theme::accent::base().opacity(8))
                         })
                         .on_drop(cx.listener(
                             move |this, paths: &ExternalPaths, _, cx| {
@@ -1780,7 +2561,7 @@ impl Render for ContentView {
                             },
                         ))
                     })
-                    .child(div().pb_4().child(body)),
+                    .child(body),
             )
     }
 }

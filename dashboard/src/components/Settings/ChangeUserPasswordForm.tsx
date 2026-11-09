@@ -8,6 +8,7 @@ import { DISABLE_AUTOFILL, errorToString } from 'utils/util';
 import { changePassword } from 'utils/apis';
 import * as yup from 'yup';
 import WarningAlert from 'components/Atoms/WarningAlert';
+import { t as translate, useT } from 'i18n';
 
 export type ChangeUserPasswordValues = {
   password: string;
@@ -15,11 +16,15 @@ export type ChangeUserPasswordValues = {
 };
 
 const validationSchema = yup.object({
-  password: yup.string().required('Password is required'),
+  password: yup
+    .string()
+    .required(() => translate('settings.form.passwordRequired')),
   password_confirm: yup
     .string()
-    .required('Password confirmation is required')
-    .oneOf([yup.ref('password')], 'Passwords must match'),
+    .required(() => translate('settings.form.confirmRequired'))
+    .oneOf([yup.ref('password')], () =>
+      translate('settings.form.passwordsMustMatch')
+    ),
 });
 
 export const ChangeUserPasswordForm = ({
@@ -31,6 +36,7 @@ export const ChangeUserPasswordForm = ({
   onSuccess: () => void;
   onCancel: () => void;
 }) => {
+  const t = useT();
   const initialValues: ChangeUserPasswordValues = {
     password: '',
     password_confirm: '',
@@ -73,17 +79,21 @@ export const ChangeUserPasswordForm = ({
               <p>{status.error}</p>
             </WarningAlert>
           )}
-          <InputField name="password" label="Password" type="password" />
           <InputField
-            name="password_confirm"
-            label="Confirm Password"
+            name="password"
+            label={t('settings.form.password')}
             type="password"
           />
-          <div className="flex flex-row justify-between">
-            <Button onClick={onCancel} label="Cancel" />
+          <InputField
+            name="password_confirm"
+            label={t('settings.form.confirmPassword')}
+            type="password"
+          />
+          <div className="flex flex-row justify-between gap-2">
+            <Button onClick={onCancel} label={t('common.cancel')} />
             <Button
               type="submit"
-              label="Change Password"
+              label={t('settings.form.changePassword')}
               loading={isSubmitting}
             />
           </div>

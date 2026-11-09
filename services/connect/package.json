@@ -1,0 +1,16 @@
+{
+  "name": "lodestone-connect",
+  "private": true,
+  "description": "connect.lodestone.cc: introduces a Lodestone host to the friends who open its invite, so they can connect directly.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  },
+  "devDependencies": {
+    "wrangler": "4.153.0"
+  },
+  "allowScripts": {
+    "workerd@1.20261023.1": true
+  }
+}

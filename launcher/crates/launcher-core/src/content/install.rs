@@ -10,7 +10,10 @@
 //! - nothing is installed if a planned version is incompatible with an installed one;
 //! - an older file of the same project is replaced once the new one is in place; a
 //!   disabled mod stays disabled, an enabled resource pack keeps its place, and the
-//!   selected shader pack stays selected.
+//!   selected shader pack stays selected;
+//! - a mod with the same id as an installed one (from CurseForge, or added by hand)
+//!   replaces it, since the game refuses two mods with one id; a dependency whose id is
+//!   installed already counts as installed and isn't added.
 //!
 //! Files come only from Modrinth's CDN, through the [`Downloader`] (SHA-1 and size
 //! checked, written to a temporary file and renamed), and their SHA-512 is checked before
@@ -19,6 +22,7 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet, VecDeque},
     fs,
+    path::Path,
     sync::Mutex,
 };
 
@@ -34,7 +38,7 @@ use super::{
     modrinth::sort_newest_first,
     options::{self, PackChange},
     provenance::{Entry, ModrinthSource, Provenance, nanos},
-    safe_download_name, shaders,
+    safe_download_name, scan, shaders,
 };
 use crate::game::download::{CancelToken, DownloadItem, Downloader, Progress, ProgressSnapshot};
 
@@ -355,11 +359,17 @@ pub async fn execute(
             bytes_total: total_bytes,
             bytes_done: done_bytes,
         });
-        let (name, removed) =
-            install_file(api, downloader, dirs, target, planned, progress, cancel).await?;
         done_bytes += planned.version.primary_file().map_or(0, |f| f.size);
-        outcome.installed.push((planned.title(), name));
-        outcome.removed.extend(removed);
+        match install_file(api, downloader, dirs, target, planned, progress, cancel).await? {
+            Placed::Installed { name, removed } => {
+                outcome.installed.push((planned.title(), name));
+                outcome.removed.extend(removed);
+            }
+            Placed::AlreadyInstalled { name } => outcome.skipped.push(skipped(
+                planned.title(),
+                format!("Already installed as {name}"),
+            )),
+        }
     }
     progress.downloads.set(ProgressSnapshot {
         files_total: total_files,
@@ -371,11 +381,21 @@ pub async fn execute(
     Ok(outcome)
 }
 
-fn is_hex(value: &str, len: usize) -> bool {
+pub(super) fn is_hex(value: &str, len: usize) -> bool {
     value.len() == len && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Installs one planned file. Returns its name and the names of the files it replaced.
+/// What installing one file did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Placed {
+    /// It is in place as `name`, replacing `removed`.
+    Installed { name: String, removed: Vec<String> },
+    /// A dependency whose mod is installed already (from the other platform, say) as
+    /// `name`; nothing changed.
+    AlreadyInstalled { name: String },
+}
+
+/// Installs one planned file.
 async fn install_file(
     api: &Modrinth,
     downloader: &Downloader,
@@ -384,12 +404,12 @@ async fn install_file(
     planned: &PlannedFile,
     progress: &InstallProgress,
     cancel: &CancelToken,
-) -> Result<(String, Vec<String>), ContentError> {
+) -> Result<Placed, ContentError> {
     let kind = planned.kind;
     let version = &planned.version;
     let dir = dirs.content_dir(kind);
     let mut provenance = Provenance::load(&dirs.instance);
-    let old: Vec<String> = provenance
+    let mut old: Vec<String> = provenance
         .by_project(kind)
         .remove(&version.project_id)
         .unwrap_or_default()
@@ -407,7 +427,10 @@ async fn install_file(
         let same = same.clone();
         let removed = remove_old(dirs, kind, &old, &same, &mut provenance)?;
         save(dirs, kind, &removed, &same, None)?;
-        return Ok((same, removed));
+        return Ok(Placed::Installed {
+            name: same,
+            removed,
+        });
     }
 
     let file = version
@@ -445,17 +468,8 @@ async fn install_file(
             file.filename
         ))
     })?;
-    let disabled = kind == ContentKind::Mod
-        && !old.is_empty()
-        && old.iter().all(|n| super::is_disabled_name(n));
-    let target_name = if disabled { disabled_name(&name) } else { name };
-    let target_path = dir.join(&target_name);
-    if fs::symlink_metadata(&target_path).is_ok() && !old.contains(&target_name) {
-        return Err(ContentError::Conflict(format!(
-            "{target_name} already exists in {}. Remove it first.",
-            kind.dir()
-        )));
-    }
+    // Checked before downloading, and again once the same-id mods are known.
+    target_name(dirs, kind, &name, &old)?;
 
     fs::create_dir_all(&dir).map_err(io_error(&dir))?;
     let staging = dir.join(format!(".lodestone-{}.download", sha1));
@@ -479,12 +493,119 @@ async fn install_file(
             file.filename
         )));
     }
-    if target_path.exists() {
-        // An older file of this project with the same name; Windows can't rename over it.
-        fs::remove_file(&target_path).map_err(io_error(&target_path))?;
-    }
-    if let Err(err) = fs::rename(&staging, &target_path) {
+    let same_mod = same_mod(dirs, kind, &staging, &old)?;
+    if planned.depth > 0
+        && let Some(installed) = same_mod.first()
+    {
         let _ = fs::remove_file(&staging);
+        return Ok(Placed::AlreadyInstalled {
+            name: installed.clone(),
+        });
+    }
+    old.extend(same_mod);
+    let target_name = match target_name(dirs, kind, &name, &old) {
+        Ok(target_name) => target_name,
+        Err(err) => {
+            let _ = fs::remove_file(&staging);
+            return Err(err);
+        }
+    };
+    let size = file.size;
+    let sha1 = item.sha1.clone();
+    let source = ModrinthSource::new(version, planned.project.as_ref(), &sha512);
+    let removed = place(
+        dirs,
+        target,
+        kind,
+        &staging,
+        &target_name,
+        &old,
+        |modified| Entry {
+            size,
+            modified,
+            sha1,
+            sha512: sha512.clone(),
+            modrinth: Some(source),
+            ..Entry::default()
+        },
+    )?;
+    Ok(Placed::Installed {
+        name: target_name,
+        removed,
+    })
+}
+
+/// The installed mods with the same id as the downloaded `staging` file (the same mod
+/// from the other platform, or added by hand), other than the `old` files. Empty for
+/// packs, and for jars without an id.
+pub(super) fn same_mod(
+    dirs: &InstanceDirs,
+    kind: ContentKind,
+    staging: &Path,
+    old: &[String],
+) -> Result<Vec<String>, ContentError> {
+    if kind != ContentKind::Mod {
+        return Ok(Vec::new());
+    }
+    let Some(id) = scan::read_meta(kind, staging, false)
+        .id
+        .filter(|id| !id.trim().is_empty())
+    else {
+        return Ok(Vec::new());
+    };
+    Ok(scan::scan(dirs, kind)?
+        .into_iter()
+        .filter(|f| f.meta.id.as_deref() == Some(id.as_str()) && !old.contains(&f.file_name))
+        .map(|f| f.file_name)
+        .collect())
+}
+
+/// The name a new file named `name` takes: `.disabled` when every file it replaces was a
+/// disabled mod. A file of that name that isn't being replaced is a conflict.
+pub(super) fn target_name(
+    dirs: &InstanceDirs,
+    kind: ContentKind,
+    name: &str,
+    old: &[String],
+) -> Result<String, ContentError> {
+    let disabled = kind == ContentKind::Mod
+        && !old.is_empty()
+        && old.iter().all(|n| super::is_disabled_name(n));
+    let target_name = if disabled {
+        disabled_name(name)
+    } else {
+        name.to_string()
+    };
+    if fs::symlink_metadata(dirs.content_dir(kind).join(&target_name)).is_ok()
+        && !old.contains(&target_name)
+    {
+        return Err(ContentError::Conflict(format!(
+            "{target_name} already exists in {}. Remove it first.",
+            kind.dir()
+        )));
+    }
+    Ok(target_name)
+}
+
+/// Gives the checked download `staging` its name `target_name`, removes the `old` files
+/// it replaces (an enabled resource pack keeps its place, the selected shader pack stays
+/// selected) and records the entry `entry` makes from the file's modification time.
+/// Returns the removed files.
+pub(super) fn place(
+    dirs: &InstanceDirs,
+    target: &Target,
+    kind: ContentKind,
+    staging: &Path,
+    target_name: &str,
+    old: &[String],
+    entry: impl FnOnce(Option<u64>) -> Entry,
+) -> Result<Vec<String>, ContentError> {
+    let target_path = dirs.content_dir(kind).join(target_name);
+    // Renaming replaces an older file of this project with the same name, on Windows
+    // too (std renames with MOVEFILE_REPLACE_EXISTING). Deleting it first would lose it
+    // as well if the rename then failed.
+    if let Err(err) = crate::fsx::rename(staging, &target_path) {
+        let _ = fs::remove_file(staging);
         return Err(io_error(&target_path)(err));
     }
 
@@ -503,25 +624,14 @@ async fn install_file(
         }),
         ContentKind::Mod => None,
     };
-    let removed = remove_old(dirs, kind, &old, &target_name, &mut provenance)?;
+    let mut provenance = Provenance::load(&dirs.instance);
+    let removed = remove_old(dirs, kind, old, target_name, &mut provenance)?;
     let modified = fs::metadata(&target_path)
         .ok()
         .and_then(|m| m.modified().ok())
         .and_then(nanos);
-    let entry = Entry {
-        size: file.size,
-        modified,
-        sha1: item.sha1.clone(),
-        sha512: sha512.clone(),
-        modrinth: Some(ModrinthSource::new(
-            version,
-            planned.project.as_ref(),
-            &sha512,
-        )),
-        looked_up: false,
-    };
-    save(dirs, kind, &removed, &target_name, Some(entry))?;
-    if let Some(from) = enabled_old.filter(|from| from != &target_name) {
+    save(dirs, kind, &removed, target_name, Some(entry(modified)))?;
+    if let Some(from) = enabled_old.filter(|from| from != target_name) {
         match kind {
             ContentKind::ResourcePack => {
                 options::change_packs(
@@ -529,24 +639,24 @@ async fn install_file(
                     &target.game_version,
                     &PackChange::Rename {
                         from,
-                        to: target_name.clone(),
+                        to: target_name.to_string(),
                     },
                 )
                 .map_err(|err| ContentError::Invalid(err.to_string()))?;
             }
             ContentKind::ShaderPack => {
                 if let Some(loader) = target.shader_loader {
-                    shaders::write_selection(&dirs.game, loader, Some(&target_name))?;
+                    shaders::write_selection(&dirs.game, loader, Some(target_name))?;
                 }
             }
             ContentKind::Mod => {}
         }
     }
-    Ok((target_name, removed))
+    Ok(removed)
 }
 
 /// The name on disk of the file with provenance key name `name` (a mod may be disabled).
-fn on_disk(dirs: &InstanceDirs, kind: ContentKind, name: &str) -> Option<String> {
+pub(super) fn on_disk(dirs: &InstanceDirs, kind: ContentKind, name: &str) -> Option<String> {
     let dir = dirs.content_dir(kind);
     [name.to_string(), disabled_name(name)]
         .into_iter()
@@ -556,7 +666,7 @@ fn on_disk(dirs: &InstanceDirs, kind: ContentKind, name: &str) -> Option<String>
 
 /// Records an install in `content.json`: the `removed` files are forgotten (unless they
 /// were `kept` under its other name) and `kept` gets `entry`.
-fn save(
+pub(super) fn save(
     dirs: &InstanceDirs,
     kind: ContentKind,
     removed: &[String],
@@ -578,7 +688,7 @@ fn save(
 }
 
 /// Removes the `old` files except `keep`.
-fn remove_old(
+pub(super) fn remove_old(
     dirs: &InstanceDirs,
     kind: ContentKind,
     old: &[String],

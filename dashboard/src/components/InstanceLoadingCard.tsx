@@ -6,6 +6,7 @@ import { EventLevel } from 'bindings/EventLevel';
 import { OngoingState } from 'data/NotificationContext';
 import ProgressBar from './Atoms/ProgressBar';
 import { Game } from 'bindings/Game';
+import { useT } from 'i18n';
 
 const NotificationLevelToBgColorClass = (
   level: EventLevel,
@@ -50,14 +51,17 @@ export default function InstanceLoadingCard({
   progress_percent?: number;
   progress_title: string;
 }) {
+  const t = useT();
   const stateColor = 'gray';
   const borderClass = 'outline-gray-300 ring-gray-500';
-  const actionMessage = 'Start';
+  const actionMessage = t('server.action.start');
   progress_percent = Math.min(0.99, progress_percent); // Prevents the progress bar from being full when the instance is still loading
   return (
     <div
-      className={`group relative flex w-fit select-none flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 py-4 px-6 text-medium font-bold tracking-tight ${
-        focus ? `bg-gray-900 outline-solid outline-2 ring-[6px] ${borderClass}` : ''
+      className={`group relative flex w-fit flex-col items-stretch gap-y-4 rounded-xl border border-gray-faded/30 bg-gray-800 px-6 py-4 text-medium font-bold tracking-tight select-none ${
+        focus
+          ? `bg-gray-900 ring-[6px] outline-2 outline-solid ${borderClass}`
+          : ''
       }`}
     >
       <div className="absolute top-0 left-0 z-10 flex h-full w-full flex-col overflow-clip rounded-xl bg-[#000]/70 backdrop-blur-[1px] light:bg-gray-850/80">
@@ -82,7 +86,7 @@ export default function InstanceLoadingCard({
         <div className="flex flex-row items-center gap-x-2">
           <h1 className={`text-${stateColor} -mx-1 truncate px-1`}>00/20</h1>
           <Label size="small" color={stateColor}>
-            Stopped
+            {t('common.state.Stopped')}
           </Label>
         </div>
       </div>
@@ -90,7 +94,7 @@ export default function InstanceLoadingCard({
       <div className="flex flex-row items-center justify-between">
         <Button
           label={actionMessage}
-          className="w-20 truncate"
+          className="min-w-20 truncate"
           disabled={true}
         />
         <GameIcon game_type={game_type} className="h-8 w-8" />

@@ -574,6 +574,10 @@ pub struct SetupValue {
     pub auto_start: bool,
     pub restart_on_crash: bool,
     pub setting_sections: IndexMap<String, SectionManifestValue>,
+    /// Whether the user agreed to the Minecraft EULA (https://aka.ms/MinecraftEULA).
+    /// Minecraft instances are only created with the EULA accepted when this is `true`.
+    #[serde(default)]
+    pub accept_eula: bool,
 }
 
 impl SetupValue {

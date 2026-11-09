@@ -206,7 +206,14 @@ impl AuthError {
                 format!("Something went wrong during {step} (HTTP {status}). Try again in a moment.")
             }
             Self::Listener(_) => "Lodestone Launcher couldn't open the local page the browser returns to. Use a code instead.".into(),
-            Self::Keychain(_) => "Lodestone Launcher couldn't save the sign-in to your keychain. Check that the keychain is unlocked and try again.".into(),
+            Self::Keychain(_) => if cfg!(windows) {
+                "Lodestone Launcher couldn't save the sign-in to Windows Credential Manager. Try again."
+            } else if cfg!(target_os = "macos") {
+                "Lodestone Launcher couldn't save the sign-in to your keychain. Check that the keychain is unlocked and try again."
+            } else {
+                "Lodestone Launcher couldn't save the sign-in to your keyring. Check that the keyring is unlocked and try again."
+            }
+            .into(),
             Self::InvalidLink(LinkProblem::NotAUrl) => {
                 "That isn't a web address. Copy the whole address from your browser's address bar after signing in.".into()
             }

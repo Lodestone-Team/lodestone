@@ -16,6 +16,7 @@ import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreInfo } from 'data/SystemInfo';
 import { useDocumentTitle } from 'usehooks-ts';
 import Logo from 'components/Atoms/Logo';
+import { t as translate, useT } from 'i18n';
 
 type ConfigNewCoreFormValues = {
   coreName: string;
@@ -23,12 +24,21 @@ type ConfigNewCoreFormValues = {
 };
 
 const validationSchema = yup.object({
-  coreName: yup.string().required('Core name is required'),
-  domain: yup.string().max(253, 'Domain cannot be longer than 253 characters'),
+  coreName: yup
+    .string()
+    .required(() => translate('shell.coreConfig.coreNameRequired')),
+  domain: yup
+    .string()
+    .max(253, ({ max }) =>
+      translate('shell.coreConfig.domainTooLong', { max })
+    ),
 });
 
 const CoreConfigNew = () => {
-  useDocumentTitle('Configure new core - Lodestone');
+  const t = useT();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('shell.coreConfig.pageTitle') })
+  );
   const { navigateBack, setPathname } = useContext(BrowserLocationContext);
   const { core } = useContext(LodestoneContext);
   const { address, port } = core;
@@ -36,7 +46,11 @@ const CoreConfigNew = () => {
   const { data: coreInfo } = useCoreInfo();
   const { core_name } = coreInfo ?? {};
   const queryClient = useQueryClient();
-  const { data: globalSettings, isPending: isLoading, error } = useGlobalSettings();
+  const {
+    data: globalSettings,
+    isPending: isLoading,
+    error,
+  } = useGlobalSettings();
 
   const initialValues: ConfigNewCoreFormValues = {
     coreName: globalSettings?.core_name || '',
@@ -79,11 +93,11 @@ const CoreConfigNew = () => {
   };
 
   return (
-    <div className="flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 transition-dimensions @container">
+    <div className="@container flex w-[468px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 transition-dimensions">
       <div className="flex flex-col items-start">
-        <Logo alt="logo" className="h-8" />
+        <Logo alt="Lodestone" className="h-8" />
         <h1 className="font-title text-h1 font-medium tracking-medium text-gray-300">
-          Customize your core
+          {t('shell.coreConfig.title')}
         </h1>
         <h2 className="text-h3 font-bold tracking-medium text-white/50">
           {core_name} ({socket})
@@ -103,12 +117,16 @@ const CoreConfigNew = () => {
             className="flex flex-col gap-12"
             autoComplete={DISABLE_AUTOFILL}
           >
-            <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
-              <InputField type="text" name="coreName" label="Core Name" />
+            <div className="grid grid-cols-1 gap-x-8 gap-y-14 @lg:grid-cols-2">
+              <InputField
+                type="text"
+                name="coreName"
+                label={t('shell.coreConfig.coreName')}
+              />
               <InputField
                 type="text"
                 name="domain"
-                label="Public Domain/IP (Optional)"
+                label={t('shell.coreConfig.domain')}
                 placeholder="123.123.123.123"
               />
             </div>
@@ -116,7 +134,7 @@ const CoreConfigNew = () => {
               <Button
                 type="submit"
                 intention="primary"
-                label="Continue"
+                label={t('shell.login.continue')}
                 iconRight={faArrowRight}
                 loading={isSubmitting}
               />

@@ -1,0 +1,11 @@
+{
+  "id": "1.20.1",
+  "launcher": {
+    "name": "Forge One",
+    "loaderVersion": {
+      "version": "47.4.0",
+      "rawVersion": "1.20.1-47.4.0",
+      "type": "Forge"
+    }
+  }
+}

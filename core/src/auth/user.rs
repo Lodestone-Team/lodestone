@@ -11,8 +11,8 @@ use crate::{
     error::{Error, ErrorKind},
     event_broadcaster::EventBroadcaster,
     events::{
-        CausedBy, Event, EventInner, ProgressionEndValue, ProgressionEvent, ProgressionEventInner,
-        ProgressionStartValue, UserEvent, UserEventInner,
+        CausedBy, Event, EventInner, InstanceEventInner, ProgressionEndValue, ProgressionEvent,
+        ProgressionEventInner, ProgressionStartValue, UserEvent, UserEventInner,
     },
     types::{InstanceUuid, Snowflake},
 };
@@ -57,6 +57,26 @@ pub struct User {
     /// Set per request by [`UsersManager::try_auth`]; never saved.
     #[serde(skip)]
     pub auth_source: AuthSource,
+    /// Set per request for a launcher API key of the owner or an admin: it may view, start
+    /// and stop every instance (and nothing else, since `is_owner` and `is_admin` are off).
+    /// See [`api_key::launcher_user`]. Never saved.
+    #[serde(skip)]
+    pub key_all_instances: bool,
+    /// Set per request for a launcher API key: which halves of console access the key
+    /// opted in to. `None` (sessions and other keys) means the console permission applies
+    /// in full, reading and writing. Never saved.
+    #[serde(skip)]
+    pub key_console: Option<KeyConsole>,
+}
+
+/// The console access a launcher API key opted in to, on top of (never beyond) its
+/// user's `can_access_instance_console`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KeyConsole {
+    /// Reading the console's output.
+    pub read: bool,
+    /// Sending commands and chat to the console.
+    pub write: bool,
 }
 
 impl User {
@@ -76,6 +96,8 @@ impl User {
             permissions,
             secret: UserSecret::default(),
             auth_source: AuthSource::Session,
+            key_all_instances: false,
+            key_console: None,
         }
     }
 
@@ -186,20 +208,30 @@ impl User {
         }
         match action {
             UserAction::ViewInstance(instance_id) => {
-                self.is_admin || self.permissions.can_view_instance.contains(instance_id)
+                self.is_admin
+                    || self.key_all_instances
+                    || self.permissions.can_view_instance.contains(instance_id)
             }
             UserAction::StartInstance(instance_id) => {
-                self.is_admin || self.permissions.can_start_instance.contains(instance_id)
+                self.is_admin
+                    || self.key_all_instances
+                    || self.permissions.can_start_instance.contains(instance_id)
             }
             UserAction::StopInstance(instance_id) => {
-                self.is_admin || self.permissions.can_stop_instance.contains(instance_id)
+                self.is_admin
+                    || self.key_all_instances
+                    || self.permissions.can_stop_instance.contains(instance_id)
             }
             UserAction::AccessConsole(instance_id) => {
-                self.is_admin
-                    || self
-                        .permissions
-                        .can_access_instance_console
-                        .contains(instance_id)
+                self.key_console.is_none_or(|console| console.write)
+                    && self.has_console_permission(instance_id)
+            }
+            // Reading the console (its output, chat, and what was typed into it) needs the
+            // console permission, as the dashboard describes it ("read and send commands");
+            // viewing an instance is not enough. A launcher key also needs its read opt-in.
+            UserAction::ReadConsole(instance_id) => {
+                self.key_console.is_none_or(|console| console.read)
+                    && self.has_console_permission(instance_id)
             }
             UserAction::AccessSetting(instance_id) => {
                 self.is_admin
@@ -247,6 +279,18 @@ impl User {
         }
     }
 
+    /// Whether the user's console permission covers `instance_id`, before a launcher
+    /// key's opt-ins: admins have it everywhere, and a launcher key of the owner or an
+    /// admin (`key_all_instances`) too.
+    fn has_console_permission(&self, instance_id: &InstanceUuid) -> bool {
+        self.is_admin
+            || self.key_all_instances
+            || self
+                .permissions
+                .can_access_instance_console
+                .contains(instance_id)
+    }
+
     /// Checks that the user may perform `action`.
     ///
     /// Safe mode only restricts users other than the owner: while it is on, nobody but the
@@ -275,38 +319,41 @@ impl User {
                 kind: ErrorKind::PermissionDenied,
                 source: match action {
                     UserAction::ViewInstance(_) => {
-                        eyre!("You don't have permission to view this instance")
+                        eyre!("You don't have permission to view this server")
                     }
                     UserAction::StartInstance(_) => {
-                        eyre!("You don't have permission to start this instance")
+                        eyre!("You don't have permission to start this server")
                     }
                     UserAction::StopInstance(_) => {
-                        eyre!("You don't have permission to stop this instance")
+                        eyre!("You don't have permission to stop this server")
                     }
                     UserAction::AccessConsole(_) => {
-                        eyre!("You don't have permission to access this instance's console")
+                        eyre!("You don't have permission to access this server's console")
+                    }
+                    UserAction::ReadConsole(_) => {
+                        eyre!("You don't have permission to read this server's console")
                     }
                     UserAction::AccessSetting(_) => {
-                        eyre!("You don't have permission to access this instance's setting")
+                        eyre!("You don't have permission to access this server's setting")
                     }
                     UserAction::ReadResource(_) => {
-                        eyre!("You don't have permission to read this instance's resource")
+                        eyre!("You don't have permission to read this server's resource")
                     }
                     UserAction::WriteResource(_) => {
-                        eyre!("You don't have permission to write this instance's resource")
+                        eyre!("You don't have permission to write this server's resource")
                     }
                     UserAction::AccessMacro(_) => eyre!("Only the owner can use macros"),
                     UserAction::ReadInstanceFile(_) => {
-                        eyre!("You don't have permission to read this instance's file")
+                        eyre!("You don't have permission to read this server's file")
                     }
                     UserAction::WriteInstanceFile(_) => {
-                        eyre!("You don't have permission to write this instance's file")
+                        eyre!("You don't have permission to write this server's file")
                     }
                     UserAction::CreateInstance => {
-                        eyre!("You don't have permission to create instance")
+                        eyre!("You don't have permission to create servers")
                     }
                     UserAction::DeleteInstance => {
-                        eyre!("You don't have permission to delete instance")
+                        eyre!("You don't have permission to delete servers")
                     }
                     UserAction::ReadGlobalFile => {
                         eyre!("You don't have permission to read global file")
@@ -335,6 +382,10 @@ impl User {
     /// the `ClientEvent`s read back from the event database.
     pub fn can_view_event_parts(&self, event_inner: &EventInner, caused_by: &CausedBy) -> bool {
         match event_inner {
+            // what the console shows, and what was typed into it, see ReadConsole
+            EventInner::InstanceEvent(event) if is_console_content(&event.instance_event_inner) => {
+                self.can_perform_action(&UserAction::ReadConsole(event.instance_uuid.clone()))
+            }
             EventInner::InstanceEvent(event) => {
                 self.can_perform_action(&UserAction::ViewInstance(event.instance_uuid.clone()))
             }
@@ -411,12 +462,29 @@ impl User {
     }
 }
 
+/// Whether an instance event carries console content: output, chat, system messages and
+/// the commands sent.
+fn is_console_content(inner: &InstanceEventInner) -> bool {
+    matches!(
+        inner,
+        InstanceEventInner::InstanceOutput { .. }
+            | InstanceEventInner::PlayerMessage { .. }
+            | InstanceEventInner::SystemMessage { .. }
+            | InstanceEventInner::InstanceInput { .. }
+    )
+}
+
 pub enum UserAction {
     // instance specific actions:
     ViewInstance(InstanceUuid),
     StartInstance(InstanceUuid),
     StopInstance(InstanceUuid),
+    /// Sending commands to the console. A launcher key also needs its write opt-in.
     AccessConsole(InstanceUuid),
+    /// Reading the console (output, chat and the commands sent). For sessions and full or
+    /// custom keys this is [`UserAction::ViewInstance`]; a launcher key needs its read
+    /// opt-in and `can_access_instance_console`.
+    ReadConsole(InstanceUuid),
     AccessSetting(InstanceUuid),
     ReadResource(InstanceUuid),
     WriteResource(InstanceUuid),
@@ -444,6 +512,7 @@ impl UserAction {
             UserAction::StartInstance(_) => true,
             UserAction::StopInstance(_) => true,
             UserAction::AccessConsole(_) => true,
+            UserAction::ReadConsole(_) => true,
             UserAction::AccessSetting(_) => true,
             UserAction::ReadResource(_) => true,
             UserAction::WriteResource(_) => false,
@@ -965,6 +1034,20 @@ impl UsersManager {
         scope: ApiKeyScope,
         caused_by: CausedBy,
     ) -> Result<CreatedApiKey, Error> {
+        self.mint_api_key(uid, name, expires_at, scope, caused_by, true)
+            .await
+    }
+
+    /// Creates a key; `limited` applies [`api_key::MAX_API_KEYS_PER_USER`].
+    async fn mint_api_key(
+        &mut self,
+        uid: &UserId,
+        name: String,
+        expires_at: Option<i64>,
+        scope: ApiKeyScope,
+        caused_by: CausedBy,
+        limited: bool,
+    ) -> Result<CreatedApiKey, Error> {
         let username = self
             .users
             .get(uid)
@@ -974,7 +1057,7 @@ impl UsersManager {
             })?
             .username
             .clone();
-        if self.api_keys.count_for_user(uid) >= api_key::MAX_API_KEYS_PER_USER {
+        if limited && self.api_keys.count_for_user(uid) >= api_key::MAX_API_KEYS_PER_USER {
             return Err(Error {
                 kind: ErrorKind::BadRequest,
                 source: eyre!(
@@ -997,7 +1080,8 @@ impl UsersManager {
             expires_at,
             last_used_at: None,
             scope,
-            secret_sha256: api_key::hash_secret(&new.secret),
+            secret: Some(new.secret.clone()),
+            secret_sha256: None,
         };
         let info = record.info();
         self.api_keys.insert(record).await?;
@@ -1011,6 +1095,32 @@ impl UsersManager {
             caused_by,
         );
         Ok(CreatedApiKey { key: new.key, info })
+    }
+
+    /// Creates a full-scope key for `uid` named `name`, for a local claim
+    /// ([`crate::local_claim`]): first revokes `uid`'s other keys of that name (the
+    /// claiming program uses one name per computer, so each claim replaces the last), and
+    /// isn't limited by [`api_key::MAX_API_KEYS_PER_USER`], so a user with many keys can
+    /// still claim. Returns the key and how many were replaced.
+    pub async fn replace_claim_key(
+        &mut self,
+        uid: &UserId,
+        name: String,
+    ) -> Result<(CreatedApiKey, usize), Error> {
+        let same_name: Vec<String> = self
+            .api_keys
+            .list_for_user(uid)
+            .into_iter()
+            .filter(|key| key.name == name)
+            .map(|key| key.id)
+            .collect();
+        for id in &same_name {
+            self.revoke_api_key(uid, id, CausedBy::System).await?;
+        }
+        let created = self
+            .mint_api_key(uid, name, None, ApiKeyScope::Full, CausedBy::System, false)
+            .await?;
+        Ok((created, same_name.len()))
     }
 
     /// Revokes the key `id` of `uid`. It stops working at once. 404 if `uid` has no such
@@ -1396,6 +1506,61 @@ mod permission_tests {
     }
 
     #[test]
+    fn reading_the_console_needs_the_console_permission_not_just_view() {
+        let (viewed, console) = (uuid("viewed"), uuid("console"));
+        let mut perms = UserPermission::default();
+        perms.can_view_instance.insert(viewed.clone());
+        perms.can_view_instance.insert(console.clone());
+        perms.can_access_instance_console.insert(console.clone());
+        let member = user(false, false, perms);
+        let admin = user(false, true, UserPermission::default());
+        let owner = user(true, false, UserPermission::default());
+
+        // viewing an instance no longer lets a user read its console
+        assert!(member.can_perform_action(&UserAction::ViewInstance(viewed.clone())));
+        assert!(!member.can_perform_action(&UserAction::ReadConsole(viewed.clone())));
+        assert!(member
+            .try_action(&UserAction::ReadConsole(viewed.clone()), false)
+            .is_err());
+        // the console permission does
+        assert!(member.can_perform_action(&UserAction::ReadConsole(console.clone())));
+        // admins and the owner read every console
+        assert!(admin.can_perform_action(&UserAction::ReadConsole(viewed.clone())));
+        assert!(owner
+            .try_action(&UserAction::ReadConsole(viewed.clone()), false)
+            .is_ok());
+
+        // the same rule filters the event stream: console output is hidden without the
+        // permission, while other events about the instance are still shown
+        let event = |uuid: &InstanceUuid, inner: InstanceEventInner| {
+            EventInner::InstanceEvent(crate::events::InstanceEvent {
+                instance_uuid: uuid.clone(),
+                instance_name: "server".into(),
+                instance_event_inner: inner,
+            })
+        };
+        let output = |uuid: &InstanceUuid| {
+            event(
+                uuid,
+                InstanceEventInner::InstanceOutput {
+                    message: "[Server] hi".into(),
+                },
+            )
+        };
+        let state = |uuid: &InstanceUuid| {
+            event(
+                uuid,
+                InstanceEventInner::StateTransition {
+                    to: crate::traits::t_server::State::Running,
+                },
+            )
+        };
+        assert!(!member.can_view_event_parts(&output(&viewed), &CausedBy::System));
+        assert!(member.can_view_event_parts(&state(&viewed), &CausedBy::System));
+        assert!(member.can_view_event_parts(&output(&console), &CausedBy::System));
+    }
+
+    #[test]
     fn manager_cannot_escalate_or_edit_self() {
         let mut manager_perms = UserPermission::default();
         manager_perms.can_manage_permission = true;
@@ -1715,11 +1880,11 @@ mod permission_tests {
         let owner = user(true, false, UserPermission::default());
         let admin = user(false, true, all_permissions(&[uuid("a")]));
         assert!(owner.owner_only("do it").is_ok());
-        let err = admin.owner_only("manage atom instances").unwrap_err();
+        let err = admin.owner_only("manage atom servers").unwrap_err();
         assert!(matches!(err.kind, ErrorKind::PermissionDenied));
         assert_eq!(
             err.source.to_string(),
-            "Only the owner can manage atom instances"
+            "Only the owner can manage atom servers"
         );
     }
 

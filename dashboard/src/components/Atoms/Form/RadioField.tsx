@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { FieldHookConfig, useField } from 'formik';
+import { useT } from 'i18n';
 import { RadioGroup } from '@headlessui/react';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 
@@ -7,13 +8,17 @@ export type RadioFieldProps = FieldHookConfig<string> & {
   label?: string;
   loading?: boolean;
   options: string[];
+  /** the text of an option, when it isn't the option (the value) itself */
+  optionLabel?: (option: string) => string;
 };
 
 /**
  * A radio button field, meant to be used with Formik.
  */
 export default function RadioField(props: RadioFieldProps) {
-  const { label, className, disabled, options, loading, ...rest } = props;
+  const { label, className, disabled, options, optionLabel, loading, ...rest } =
+    props;
+  const t = useT();
   const [field, meta] = useField(props);
   const { value } = field;
   if (value === undefined) {
@@ -45,7 +50,7 @@ export default function RadioField(props: RadioFieldProps) {
   return (
     <div className={`flex flex-col gap-1 ${className} group relative text-h3`}>
       <label className="absolute -top-6 text-medium font-medium tracking-medium text-gray-300">
-        {label ? `${label}:` : ''}
+        {label ? t('common.fieldLabel', { label }) : ''}
       </label>
       <div className="relative mt-1">
         <RadioGroup
@@ -76,27 +81,26 @@ export default function RadioField(props: RadioFieldProps) {
               <RadioGroup.Option
                 value={option}
                 key={option}
-                className={`input-background input-outlines input-text-style w-full overflow-clip rounded-none p-0 first:rounded-l-md last:rounded-r-md ui-disabled:text-white/50 ui-not-disabled:cursor-pointer ui-not-disabled:text-gray-300
-              ${
-                isError
-                  ? 'input-border-error ui-not-disabled:focus-visible:ring-red-faded/30'
-                  : 'input-border-normal ui-not-disabled:focus-visible:ring-blue-faded/50'
-              }`}
+                className={`input-background input-outlines input-text-style w-full overflow-clip rounded-none p-0 first:rounded-l-md last:rounded-r-md ui-disabled:text-white/50 ui-not-disabled:cursor-pointer ui-not-disabled:text-gray-300 ${
+                  isError
+                    ? 'input-border-error ui-not-disabled:focus-visible:ring-red-faded/30'
+                    : 'input-border-normal ui-not-disabled:focus-visible:ring-blue-faded/50'
+                }`}
               >
                 {({ checked }) => {
                   return (
                     <span
-                      className={`block h-full w-full select-none py-1.5 px-3 text-center ${
+                      className={`block h-full w-full px-3 py-1.5 text-center select-none ${
                         disabledVisual
                           ? checked || selectedValue.toString() == option
                             ? 'bg-blue-faded/30 text-white/50'
                             : 'bg-gray-800 text-white/50'
                           : checked || selectedValue.toString() == option
-                          ? 'bg-[#2B4554] text-gray-300 light:bg-fill-selected'
-                          : 'text-white/75'
+                            ? 'bg-[#2B4554] text-gray-300 light:bg-fill-selected'
+                            : 'text-white/75'
                       }`}
                     >
-                      {option}
+                      {optionLabel ? optionLabel(option) : option}
                     </span>
                   );
                 }}
@@ -106,10 +110,9 @@ export default function RadioField(props: RadioFieldProps) {
         </RadioGroup>
         {errorText && (
           <div
-            className={`absolute -bottom-6 whitespace-nowrap text-right font-sans text-small not-italic text-red
-          `}
+            className={`absolute -bottom-6 text-right font-sans text-small whitespace-nowrap text-red not-italic`}
           >
-            {errorText || 'Unknown error'}
+            {errorText || t('common.unknownError')}
           </div>
         )}
       </div>

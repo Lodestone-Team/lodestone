@@ -166,6 +166,19 @@ fn is_instance_code_path(root: &FsPath, path: &FsPath, is_dir: bool) -> bool {
     }
 }
 
+/// The instance's folder with its symlinks resolved, as `scoped_join` resolves the
+/// paths it joins. Otherwise a folder reached through a symlink (macOS's temporary
+/// folders, `/var` → `/private/var`, or a data folder moved behind a link) doesn't
+/// prefix the joined paths: listing it showed nothing, moving failed, and every
+/// write counted as code. Not on Windows, where a resolved path takes the `\\?\`
+/// form that `scoped_join_win_safe` doesn't expect.
+async fn real_root(root: PathBuf) -> PathBuf {
+    if cfg!(windows) {
+        return root;
+    }
+    tokio::fs::canonicalize(&root).await.unwrap_or(root)
+}
+
 fn fs_target(path: PathBuf, is_dir: bool) -> FSTarget {
     if is_dir {
         FSTarget::Directory(path)
@@ -195,9 +208,9 @@ async fn list_instance_files(
     }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
 
@@ -243,9 +256,9 @@ async fn read_instance_file(
     }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(root, relative_path)?;
 
@@ -290,9 +303,9 @@ async fn write_instance_file(
     }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
@@ -334,9 +347,9 @@ async fn make_instance_directory(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
     if is_instance_code_path(&root, &path, true) {
@@ -377,9 +390,9 @@ async fn copy_instance_files(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     // join each path to the root
     let paths_source = relative_paths_source
@@ -563,9 +576,9 @@ async fn move_instance_file(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path_source = scoped_join_win_safe(&root, relative_path_source)?;
     let path_dest = scoped_join_win_safe(&root, relative_path_dest)?;
@@ -649,9 +662,9 @@ async fn remove_instance_file(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(root, &relative_path)?;
     let metadata = tokio::fs::symlink_metadata(&path)
@@ -694,15 +707,15 @@ async fn remove_instance_dir(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
     if path == root {
         return Err(Error {
             kind: ErrorKind::PermissionDenied,
-            source: eyre!("Cannot delete instance root"),
+            source: eyre!("Cannot delete the server's root folder"),
         });
     }
     // the folder itself, or anything in it, is protected
@@ -736,9 +749,9 @@ async fn new_instance_file(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, relative_path)?;
     // if target has a protected extension, or no extension, deny
@@ -773,9 +786,9 @@ async fn get_instance_file_url(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path = scoped_join_win_safe(&root, &relative_path)?;
 
@@ -847,9 +860,9 @@ async fn upload_instance_file(
     let caused_by = requester.caused_by();
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path_to_dir = scoped_join_win_safe(&root, relative_path)?;
     if is_instance_code_path(&root, &path_to_dir, true) {
@@ -1028,9 +1041,9 @@ pub async fn unzip_instance_file(
     let can_write_protected = can_write_protected(&requester);
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let path_to_zip_file = scoped_join_win_safe(&root, &relative_path)?;
 
@@ -1120,9 +1133,9 @@ async fn zip_instance_files(
     )?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
-    let root = instance.path().await;
+    let root = real_root(instance.path().await).await;
     drop(instance);
     let ZipRequest {
         mut target_relative_paths,
@@ -1259,6 +1272,95 @@ mod tests {
 
     fn dir(name: &str) -> bool {
         is_protected(FsPath::new(name), true)
+    }
+
+    /// A folder reached through a symlink prefixes the paths joined to it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_root_is_resolved_as_joined_paths_are() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(real.join("config")).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let root = real_root(link.clone()).await;
+        let joined = scoped_join_win_safe(&root, "config").unwrap();
+        assert_eq!(joined.strip_prefix(&root).unwrap(), FsPath::new("config"));
+        assert!(!is_instance_code_path(
+            &root,
+            &root.join("config/a.yml"),
+            false
+        ));
+    }
+
+    /// With the root resolved, symlinks inside the instance still can't lead out of it:
+    /// they resolve as if the instance folder were the whole file system. A link to a
+    /// code folder or a protected file is checked as its target.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn symlinks_in_the_instance_stay_inside_and_are_checked_as_their_targets() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let outside = temp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "secret").unwrap();
+        let real = temp.path().join("real");
+        std::fs::create_dir_all(real.join("macros")).unwrap();
+        std::fs::write(real.join("start.sh"), "").unwrap();
+        std::fs::write(real.join("prelaunch.ts"), "").unwrap();
+        // the instance folder is reached through a link, as /var is on macOS
+        let link = temp.path().join("link");
+        symlink(&real, &link).unwrap();
+        let root = real_root(link).await;
+        assert_eq!(root, std::fs::canonicalize(&real).unwrap());
+
+        symlink(&outside, real.join("abs")).unwrap();
+        symlink("../outside", real.join("up")).unwrap();
+        symlink("../../../../../..", real.join("deep")).unwrap();
+        symlink(outside.join("secret.txt"), real.join("notes.txt")).unwrap();
+        symlink("macros", real.join("cfg")).unwrap();
+        symlink("/macros", real.join("cfg_abs")).unwrap();
+        symlink("start.sh", real.join("readme.txt")).unwrap();
+        symlink("prelaunch.ts", real.join("boot.txt")).unwrap();
+
+        let outside = std::fs::canonicalize(&outside).unwrap();
+        for path in [
+            "abs/secret.txt",
+            "up/secret.txt",
+            "deep/outside/secret.txt",
+            "notes.txt",
+            "../outside/secret.txt",
+            "../../../../outside/secret.txt",
+            "/outside/secret.txt",
+            outside.join("secret.txt").to_str().unwrap(),
+            "cfg/../../outside/secret.txt",
+        ] {
+            let joined = scoped_join_win_safe(&root, path).unwrap();
+            assert!(joined.starts_with(&root), "{path} -> {}", joined.display());
+            assert!(!joined.starts_with(&outside), "{path}");
+            assert!(
+                std::fs::read_to_string(&joined).is_err(),
+                "{path} reads the outside file"
+            );
+        }
+
+        // a link to the macros folder is the macros folder
+        for path in ["cfg/a.txt", "cfg_abs/a.txt", "cfg"] {
+            let joined = scoped_join_win_safe(&root, path).unwrap();
+            assert_eq!(
+                joined.strip_prefix(&root).unwrap().iter().next().unwrap(),
+                "macros"
+            );
+            assert!(is_instance_code_path(&root, &joined, false), "{path}");
+        }
+        // a harmless name linked to a protected file is that file
+        let joined = scoped_join_win_safe(&root, "readme.txt").unwrap();
+        assert_eq!(joined, root.join("start.sh"));
+        assert!(is_protected(&joined, false));
+        // and one linked to a script is that script
+        let joined = scoped_join_win_safe(&root, "boot.txt").unwrap();
+        assert_eq!(joined, root.join("prelaunch.ts"));
+        assert!(is_instance_code_path(&root, &joined, false));
     }
 
     #[test]

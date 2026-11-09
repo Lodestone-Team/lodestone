@@ -90,6 +90,16 @@ pub struct LogLine {
 }
 
 impl LogLine {
+    /// Whether the game logged that its window is opening: Minecraft logs the LWJGL
+    /// version as it creates the window ("Backend library: LWJGL version 3.3.3" from
+    /// 1.13 on, "LWJGL Version: 2.9.4" before). Mods don't change either line. A
+    /// plain line (a version without log4j's XML events) has its prefix in the
+    /// message, so the text is looked for anywhere in it.
+    pub fn opens_game_window(&self) -> bool {
+        self.message.contains("Backend library: LWJGL version")
+            || self.message.contains("LWJGL Version:")
+    }
+
     pub fn plain(stream: Stream, text: &str) -> Self {
         Self {
             level: guess_level(stream, text),
@@ -345,16 +355,17 @@ fn unescape(text: &str) -> String {
 
 /// A log timestamp (milliseconds since the Unix epoch) as local `HH:MM:SS`.
 pub fn format_time(timestamp_ms: u64) -> String {
-    let seconds = (timestamp_ms / 1000) as libc::time_t;
-    // SAFETY: `localtime_r` writes only into `tm`, which outlives the call, and
-    // `seconds` is a valid `time_t`.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let converted = unsafe { !libc::localtime_r(&seconds, &mut tm).is_null() };
-    if !converted {
-        let day = timestamp_ms / 1000 % 86_400;
-        return format!("{:02}:{:02}:{:02}", day / 3600, day / 60 % 60, day % 60);
+    use chrono::TimeZone as _;
+    match chrono::Local
+        .timestamp_millis_opt(timestamp_ms as i64)
+        .single()
+    {
+        Some(time) => time.format("%H:%M:%S").to_string(),
+        None => {
+            let day = timestamp_ms / 1000 % 86_400;
+            format!("{:02}:{:02}:{:02}", day / 3600, day / 60 % 60, day % 60)
+        }
     }
-    format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
 }
 
 /// Replaces each secret in a line with `<redacted>`. Old versions print the session
@@ -512,6 +523,25 @@ mod tests {
             line.to_text(),
             "[Render thread/ERROR] Crash\njava.lang.Error\n\tat x"
         );
+    }
+
+    #[test]
+    fn notices_the_game_window_opening() {
+        let event = |message: &str| LogLine {
+            message: message.into(),
+            ..LogLine::plain(Stream::Stdout, "")
+        };
+        assert!(event("Backend library: LWJGL version 3.3.3+5").opens_game_window());
+        assert!(event("LWJGL Version: 2.9.4").opens_game_window());
+        assert!(
+            LogLine::plain(
+                Stream::Stdout,
+                "[12:00:01] [Client thread/INFO]: LWJGL Version: 2.9.1"
+            )
+            .opens_game_window()
+        );
+        assert!(!event("Setting user: Lodestoner").opens_game_window());
+        assert!(!event("Loading Minecraft 1.21.4 with Fabric Loader 0.16.10").opens_game_window());
     }
 
     #[test]

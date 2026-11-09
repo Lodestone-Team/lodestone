@@ -45,7 +45,7 @@ pub async fn get_console_history(
     Query(query): Query<ConsoleHistoryQuery>,
 ) -> Result<Json<ConsoleHistoryPage>, Error> {
     requester
-        .require(&state, UserAction::ViewInstance(uuid.clone()))
+        .require(&state, UserAction::ReadConsole(uuid.clone()))
         .await?;
     let mut page = console_history(
         &state.sqlite_pool,
@@ -126,6 +126,7 @@ mod tests {
     fn can_view(instances: &[&InstanceUuid]) -> UserPermission {
         UserPermission {
             can_view_instance: instances.iter().map(|uuid| (*uuid).clone()).collect(),
+            can_access_instance_console: instances.iter().map(|uuid| (*uuid).clone()).collect(),
             ..Default::default()
         }
     }
@@ -231,6 +232,16 @@ mod tests {
         let users = &core.state.users_manager;
         let only_a = add_user(users, "only-a", false, can_view(&[&a])).await;
         let nothing = add_user(users, "nothing", false, Default::default()).await;
+        let view_only = add_user(
+            users,
+            "view-only",
+            false,
+            UserPermission {
+                can_view_instance: [&a].into_iter().cloned().collect(),
+                ..Default::default()
+            },
+        )
+        .await;
         let owner = add_user(users, "owner", true, Default::default()).await;
 
         let (status, page) = core.history(&a, "", Some(&only_a)).await;
@@ -243,6 +254,9 @@ mod tests {
         assert!(!body.to_string().contains("from b"));
         let (status, _) = core.history(&a, "", Some(&nothing)).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, body) = core.history(&a, "", Some(&view_only)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(!body.to_string().contains("from a"));
 
         let (status, page) = core.history(&b, "", Some(&owner)).await;
         assert_eq!(status, StatusCode::OK, "{page}");

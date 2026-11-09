@@ -1,28 +1,43 @@
 //! The app's instances: the list from `launcher-core`, the selected one, and each
 //! instance's run (installing, playing) with its console log.
 
+pub mod appearance;
 pub mod console;
 pub mod content;
 pub mod fields;
+mod files;
+pub mod import;
 pub mod loader_picker;
+mod main_instance;
+pub mod mod_finder;
 pub mod modpack_browser;
 pub mod modpacks;
 pub mod new_instance;
 pub mod settings;
+pub mod share_dialog;
+pub(crate) mod shared_options_i18n;
 pub mod shared_settings;
+pub mod slideshow;
+pub mod snapshots;
+mod undo;
 pub mod worlds;
+pub use files::FileOp;
+pub use undo::InstanceSnapshot;
+// Read access for the control API (`crate::control`) and the performance sampler.
+pub(crate) mod control;
 
 use std::{
     collections::{HashMap, VecDeque},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant, SystemTime},
 };
 
 use futures::StreamExt as _;
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, RenderImage, SharedString, Task};
+use launcher_core::settings::AfterLaunch;
 use launcher_core::{
-    content::{InstanceDirs, Modrinth, Target},
+    content::{CurseForge, InstanceDirs, Modrinth, Target},
     export,
     game::{
         crash::{self, CrashSummary, Outcome},
@@ -42,9 +57,13 @@ use launcher_core::{
 use lodestone_minecraft::versions::mojang::MojangVersion;
 
 use crate::accounts::Accounts;
+use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
 
 /// The console keeps this many rows; older ones are dropped.
 pub const MAX_LOG_ROWS: usize = 10_000;
+
+/// The shortest time between two redraws for game output.
+const LOG_BATCH_INTERVAL: Duration = Duration::from_millis(66);
 
 /// One row of the console. A multi-line message or a stack trace is several rows.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,6 +84,8 @@ pub struct GameLog {
     recent: VecDeque<LogLine>,
     /// Bumped on every change, so views know to scroll.
     pub revision: u64,
+    /// Rows pushed since the start, never reset: where a reader of new rows is.
+    pushed: u64,
 }
 
 impl GameLog {
@@ -96,6 +117,7 @@ impl GameLog {
                 text: SharedString::from(text.replace('\t', "    ")),
                 stream: line.stream,
             });
+            self.pushed += 1;
             first = false;
         }
         while self.rows.len() > MAX_LOG_ROWS {
@@ -180,10 +202,19 @@ pub enum PlayState {
 struct Run {
     state: RunState,
     log: GameLog,
+    /// Whether this run's game has finished loading (see [`crash::reached_menu`]).
+    reached_menu: bool,
+    /// Whether this run's mod loader refused the mods (see [`crash::mods_refused`]).
+    mods_refused: bool,
     /// The preparation or the output reader. Dropping it cancels it.
     task: Option<Task<()>>,
     /// Redraws the progress while preparing.
     ticker: Option<Task<()>>,
+    /// The game's window has opened ([`InstancesEvent::GameWindowOpened`] was sent).
+    window_opened: bool,
+    /// Sends [`InstancesEvent::GameWindowOpened`] after a while if the log never
+    /// says the window opened.
+    window_wait: Option<Task<()>>,
 }
 
 impl Default for Run {
@@ -191,8 +222,12 @@ impl Default for Run {
         Self {
             state: RunState::Idle,
             log: GameLog::default(),
+            reached_menu: false,
+            mods_refused: false,
             task: None,
             ticker: None,
+            window_opened: false,
+            window_wait: None,
         }
     }
 }
@@ -220,15 +255,33 @@ pub enum LoaderVersions {
 /// What the crash dialog shows.
 #[derive(Clone, Debug)]
 pub struct CrashInfo {
+    pub instance_id: String,
     pub instance_name: String,
     pub summary: CrashSummary,
+    /// The mods the crash points at, strongest evidence first.
+    pub suspects: Vec<crash::suspects::Suspect>,
     pub exit_code: Option<i32>,
     pub report: Option<PathBuf>,
     pub log_text: String,
+    /// Whether it crashed before the game finished loading.
+    pub at_startup: bool,
+    /// Whether the mod loader refused the mods (one is missing what it needs).
+    pub mods_refused: bool,
 }
 
 pub enum InstancesEvent {
     Crashed(CrashInfo),
+    /// The game of the instance exited without crashing: closed, or stopped
+    /// (`stopped`) from the launcher.
+    Exited {
+        id: String,
+        stopped: bool,
+    },
+    /// The game of the instance has finished loading.
+    ReachedMenu(String),
+    /// The instance's mod loader refused its mods. Forge and NeoForge then wait on an
+    /// error screen instead of exiting.
+    ModsRefused(String),
     LaunchFailed {
         title: SharedString,
         message: SharedString,
@@ -240,7 +293,25 @@ pub enum InstancesEvent {
     },
     /// The instance's loader was changed outside its Settings tab.
     LoaderChanged(String),
+    /// A `.lodesnap` file was dropped or picked: offer to make an instance from it.
+    ImportSnapshot(std::path::PathBuf),
+    /// A game's window opened: the log said so, or it has run for
+    /// [`WINDOW_WAIT`] without saying. Sent once per run.
+    GameWindowOpened(String),
+    /// A game exited, after any [`InstancesEvent::Crashed`] for it.
+    GameExited(String),
+    /// A new instance, with no main instance yet: offer to make it the main one.
+    OfferMain(String),
+    /// `id` is to become the main instance, but `current` is: ask first.
+    ConfirmMain {
+        id: String,
+        current: String,
+    },
 }
+
+/// How long a game runs before it counts as having opened its window when the log
+/// never says so (an unusual version or a mod that changes the log).
+const WINDOW_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub struct Instances {
     store: InstanceStore,
@@ -260,6 +331,48 @@ pub struct Instances {
     settings: Settings,
     /// Decoded custom icons, with the modification time they were read at.
     icons: HashMap<String, (Option<SystemTime>, Arc<RenderImage>)>,
+    /// Decodes the icons that are new or changed (see `files.rs`).
+    icon_task: Option<Task<()>>,
+    /// Instances whose files are being copied, moved to the Trash or given an image,
+    /// off the window's thread (see `files.rs`).
+    file_ops: HashMap<String, FileOp>,
+    /// Instance images read for Undo, with the file's modification time and size when
+    /// read: a change that leaves an image alone doesn't read it again.
+    undo_images: HashMap<PathBuf, (SystemTime, u64, Arc<Vec<u8>>)>,
+    /// Decoded Play backgrounds, and those being decoded.
+    backgrounds: HashMap<String, appearance::BackgroundEntry>,
+    background_tasks: HashMap<String, appearance::BackgroundTask>,
+    /// Small copies of the instances' Play backgrounds, for a skin that shows them
+    /// behind the sidebar's rows: by id, with the file's modification time.
+    sidebar_banners: HashMap<
+        String,
+        (
+            Option<std::time::SystemTime>,
+            appearance::BackgroundSource,
+            Arc<RenderImage>,
+            launcher_core::ui_skin::readable::Backdrop,
+        ),
+    >,
+    sidebar_banner_tasks: HashMap<String, Task<()>>,
+    /// The instance list and skin the sidebar banners were last checked against
+    /// ([`Self::load_sidebar_banners`] runs every frame; checking stats files and
+    /// reads skins).
+    sidebar_banners_checked: Option<(u64, u64)>,
+    /// Goes up with each [`Self::reload`].
+    list_generation: u64,
+    /// [`Self::required_java`]'s answers by game version: the instance Settings tab
+    /// asks on every frame, and each answer reads and parses a version file. An
+    /// installed version's answer never changes; a missing one is asked again after
+    /// a reload (the reload generation it was found at).
+    required_java: std::cell::RefCell<HashMap<String, (Option<u32>, u64)>>,
+    /// Goes up when an instance's slideshow changes, so the Play tab lists it again.
+    slideshow_revision: u64,
+    /// The instance whose background is decoded for the Play tab, and the one before,
+    /// kept for a quick switch back. No other background stays decoded.
+    background_shown: Option<String>,
+    background_previous: Option<String>,
+    /// Display-size copies of the banner's images, in `<data>/cache/hero`.
+    hero_cache: launcher_core::hero_cache::HeroCache,
     loader_versions: HashMap<(LoaderKind, String), LoaderVersions>,
     loader_tasks: HashMap<(LoaderKind, String), Task<()>>,
     /// Exports in progress.
@@ -269,6 +382,9 @@ pub struct Instances {
     /// The Modrinth client the Content tab shares, with its cache. `None` keeps the
     /// offscreen screenshots offline.
     modrinth: Option<Arc<Modrinth>>,
+    /// The CurseForge client: `None` without Lodestone's API key (in builds made without
+    /// it) or offline.
+    curseforge: Option<Arc<CurseForge>>,
     /// The downloader for content files.
     content_downloader: Downloader,
     /// "Switch to Fabric" in progress.
@@ -276,10 +392,20 @@ pub struct Instances {
     /// Modpacks being made into instances.
     imports: Vec<modpacks::ImportJob>,
     next_import: u64,
+    /// Files of an imported CurseForge pack the user downloads from curseforge.com, by
+    /// instance; the Content tab takes them when it shows that instance.
+    /// Each instance's snapshots, newest first, once read (see snapshots.rs).
+    snapshot_rows: HashMap<String, Vec<snapshots::SnapshotRow>>,
+    snapshot_tasks: HashMap<String, Task<()>>,
+    pending_downloads:
+        HashMap<String, Vec<launcher_core::content::curseforge_install::CfPlannedFile>>,
     /// Modpack updates in progress, by instance.
     modpack_updates: HashMap<String, modpacks::UpdateJob>,
     /// Redraws while imports and updates run.
     import_ticker: Option<Task<()>>,
+    /// Counts changes to the shared game settings made in the launcher's Settings, so
+    /// an instance's Settings tab shows the new values.
+    shared_revision: u64,
 }
 
 impl EventEmitter<InstancesEvent> for Instances {}
@@ -294,6 +420,20 @@ fn gpui_sleep(cx: &App) -> Sleep {
 }
 
 impl Instances {
+    /// Adds the decoded icons, Play backgrounds and sidebar banners, for the
+    /// performance monitor.
+    pub fn tally_images(&self, tally: &mut crate::perf::ImageTally) {
+        for (_, image) in self.icons.values() {
+            tally.add(image);
+        }
+        for (_, _, background) in self.backgrounds.values() {
+            tally.add(&background.image);
+        }
+        for (_, _, image, _) in self.sidebar_banners.values() {
+            tally.add(image);
+        }
+    }
+
     pub fn new(data_dir: DataDir, accounts: Entity<Accounts>, cx: &mut Context<Self>) -> Self {
         Self::with_urls(data_dir, accounts, MojangUrls::production(), cx)
     }
@@ -308,6 +448,7 @@ impl Instances {
         let download_http =
             launcher_core::http::download_client().expect("could not start the HTTP client");
         let modrinth = Arc::new(Modrinth::production(http.clone()));
+        let curseforge = CurseForge::production(http.clone()).map(Arc::new);
         let content_downloader = Downloader::new(download_http.clone(), gpui_sleep(cx));
         let installer = Installer::new(
             http,
@@ -316,6 +457,10 @@ impl Instances {
             data_dir.clone(),
         );
         let store = InstanceStore::new(data_dir.instances_dir());
+        // Copies of images that are gone, and the oldest past the limit.
+        let hero_cache = launcher_core::hero_cache::HeroCache::new(&data_dir);
+        let pruning = hero_cache.clone();
+        cx.background_spawn(async move { pruning.prune() }).detach();
         let (settings, settings_notice) = match launcher_settings::load(&data_dir.settings_file()) {
             Ok(settings) => (settings, None),
             Err(err) => (
@@ -323,6 +468,14 @@ impl Instances {
                 Some(SharedString::from(err.to_string())),
             ),
         };
+        crate::i18n::apply(settings.language);
+        crate::theme::zoom::set(settings.zoom);
+        crate::skin::apply(
+            settings.skin.as_deref(),
+            &launcher_core::ui_skin::SkinStore::new(&data_dir),
+            cx,
+        );
+        crate::set_menus(cx);
         let mut this = Self {
             store,
             data_dir,
@@ -338,15 +491,34 @@ impl Instances {
             versions_task: None,
             settings,
             icons: HashMap::new(),
+            icon_task: None,
+            file_ops: HashMap::new(),
+            undo_images: HashMap::new(),
+            backgrounds: HashMap::new(),
+            background_tasks: HashMap::new(),
+            sidebar_banners: HashMap::new(),
+            sidebar_banner_tasks: HashMap::new(),
+            sidebar_banners_checked: None,
+            list_generation: 0,
+            required_java: Default::default(),
+            slideshow_revision: 0,
+            background_shown: None,
+            background_previous: None,
+            hero_cache,
             loader_versions: HashMap::new(),
             loader_tasks: HashMap::new(),
             exports: Vec::new(),
             preview_state: None,
+            shared_revision: 0,
             modrinth: Some(modrinth),
+            curseforge,
             content_downloader,
             loader_switch: None,
             imports: Vec::new(),
             next_import: 0,
+            pending_downloads: HashMap::new(),
+            snapshot_rows: HashMap::new(),
+            snapshot_tasks: HashMap::new(),
             modpack_updates: HashMap::new(),
             import_ticker: None,
         };
@@ -355,53 +527,25 @@ impl Instances {
             this.notice = settings_notice;
         }
         this.selected = this.list.first().map(|i| i.id.clone());
+        // Only the selected instance's background is decoded: now there is one.
+        this.load_backgrounds(cx);
         this
     }
 
-    /// Reads the instance folders again.
+    /// Reads the instance folders again. After a change to one instance, its own
+    /// `update_listed` or `refresh` (`files.rs`) reads less.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let (list, broken) = self.store.list();
         self.list = list;
         self.notice = (!broken.is_empty()).then(|| {
-            format!(
-                "{} instance folder(s) couldn't be read, such as {}.",
+            trn!(
+                P::BrokenFolders,
                 broken.len(),
-                broken[0].dir.display()
+                path = broken[0].dir.display()
             )
             .into()
         });
-        if self
-            .selected
-            .as_ref()
-            .is_some_and(|id| !self.list.iter().any(|i| &i.id == id))
-        {
-            self.selected = self.list.first().map(|i| i.id.clone());
-        }
-        self.load_icons();
-        cx.notify();
-    }
-
-    /// Decodes the custom icons that are new or changed since the last reload.
-    fn load_icons(&mut self) {
-        let mut icons = HashMap::new();
-        for instance in &self.list {
-            let Some(path) = self.store.icon_path(instance) else {
-                continue;
-            };
-            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-            match self.icons.remove(&instance.id) {
-                Some((time, image)) if time == modified => {
-                    icons.insert(instance.id.clone(), (time, image));
-                }
-                _ => {
-                    if let Ok(image) = image::open(&path) {
-                        let image = crate::images::render_image(image.to_rgba8());
-                        icons.insert(instance.id.clone(), (modified, image));
-                    }
-                }
-            }
-        }
-        self.icons = icons;
+        self.list_changed(cx);
     }
 
     /// The instance's custom icon, if it has one.
@@ -424,11 +568,24 @@ impl Instances {
         change: impl FnOnce(&mut Settings),
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        let before = undo::LauncherValues::of(&self.settings);
         let result = launcher_settings::update(&self.data_dir.settings_file(), change);
         cx.notify();
         match result {
             Ok(settings) => {
+                launcher_core::trace::settings_changed(
+                    "launcher",
+                    &self.settings,
+                    &settings,
+                    serde_json::Value::Null,
+                );
+                let cli_changed = settings.cli != self.settings.cli;
                 self.settings = settings;
+                self.record_settings(before, cx);
+                if cli_changed {
+                    // opens or closes the control socket; later, as it reads this
+                    cx.defer(crate::control::apply);
+                }
                 Ok(())
             }
             Err(err) => Err(err.to_string()),
@@ -442,6 +599,289 @@ impl Instances {
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
         self.update_settings(|settings| settings.instance_defaults = defaults, cx)
+    }
+
+    /// Settings > Developer > Command line.
+    pub fn cli_settings(&self) -> launcher_core::settings::CliSettings {
+        self.settings.cli
+    }
+
+    /// Changes Settings > Developer > Command line. Only the window calls this: no
+    /// control method does, so a client can't widen its own access.
+    pub fn set_cli_settings(
+        &mut self,
+        cli: launcher_core::settings::CliSettings,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(err) = self.update_settings(|settings| settings.cli = cli, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// "Group instances automatically".
+    pub fn auto_groups(&self) -> bool {
+        self.settings.auto_groups
+    }
+
+    pub fn set_auto_groups(&mut self, on: bool, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.auto_groups = on, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// Settings > General > "Update automatically".
+    pub fn auto_update(&self) -> bool {
+        self.settings.auto_update
+    }
+
+    pub fn set_auto_update(&mut self, on: bool, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.auto_update = on, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// Settings > General > "Beta builds".
+    /// Settings > General > "When a game starts".
+    pub fn after_launch(&self) -> AfterLaunch {
+        self.settings.after_launch
+    }
+
+    pub fn set_after_launch(&mut self, after: AfterLaunch, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.after_launch = after, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// Whether any instance is installing or starting (not yet running).
+    pub fn any_preparing(&self) -> bool {
+        self.runs
+            .values()
+            .any(|run| matches!(run.state, RunState::Preparing { .. }))
+    }
+
+    /// Whether any game is running.
+    pub fn any_running(&self) -> bool {
+        self.runs
+            .values()
+            .any(|run| matches!(run.state, RunState::Running { .. }))
+    }
+
+    pub fn update_channel(&self) -> launcher_core::update::UpdateChannel {
+        self.settings.update_channel
+    }
+
+    pub fn set_update_channel(
+        &mut self,
+        channel: launcher_core::update::UpdateChannel,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(err) = self.update_settings(|settings| settings.update_channel = channel, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// Settings > General > Language.
+    pub fn language(&self) -> crate::i18n::Language {
+        self.settings.language
+    }
+
+    /// Changes the language, saves it, and redraws every window in it.
+    pub fn set_language(&mut self, language: crate::i18n::Language, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.language = language, cx) {
+            self.notice = Some(err.into());
+        }
+        crate::i18n::apply(language);
+        crate::set_menus(cx);
+        cx.refresh_windows();
+    }
+
+    /// Changes the interface's zoom (within the levels), saves it, and redraws.
+    pub fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
+        let zoom = crate::theme::zoom::set(zoom);
+        if let Err(err) = self.update_settings(|settings| settings.zoom = zoom, cx) {
+            self.notice = Some(err.into());
+        }
+        cx.refresh_windows();
+    }
+
+    /// The sidebar's width (logical pixels at 100% zoom) and whether it is folded
+    /// into the rail of icons.
+    pub fn sidebar(&self) -> (f32, bool) {
+        (
+            self.settings
+                .sidebar_width
+                .unwrap_or(crate::theme::layout::SIDEBAR_DEFAULT),
+            self.settings.sidebar_collapsed,
+        )
+    }
+
+    /// Saves the sidebar's width and fold, once a drag ends.
+    pub fn set_sidebar(&mut self, width: f32, collapsed: bool, cx: &mut Context<Self>) {
+        if (width, collapsed) == self.sidebar() {
+            return;
+        }
+        let width = (width != crate::theme::layout::SIDEBAR_DEFAULT).then_some(width);
+        if let Err(err) = self.update_settings(
+            |settings| {
+                settings.sidebar_width = width;
+                settings.sidebar_collapsed = collapsed;
+            },
+            cx,
+        ) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// The launcher's skins folder.
+    pub fn skins(&self) -> launcher_core::ui_skin::SkinStore {
+        launcher_core::ui_skin::SkinStore::new(&self.data_dir)
+    }
+
+    /// The chosen skin's id; `None` for the default look.
+    pub fn skin(&self) -> Option<&str> {
+        self.settings.skin.as_deref()
+    }
+
+    /// Uses skin `id` (the default look for `None`), saves the choice and shows it.
+    pub fn set_skin(&mut self, id: Option<String>, cx: &mut Context<Self>) {
+        let id = id.filter(|id| id != "default");
+        if let Err(err) = self.update_settings(|settings| settings.skin = id.clone(), cx) {
+            self.notice = Some(err.into());
+        }
+        crate::skin::apply(self.settings.skin.as_deref(), &self.skins(), cx);
+    }
+
+    /// The small copy of an instance's Play background for its sidebar row.
+    pub fn sidebar_banner(
+        &self,
+        id: &str,
+    ) -> Option<(Arc<RenderImage>, launcher_core::ui_skin::readable::Backdrop)> {
+        self.sidebar_banners
+            .get(id)
+            .map(|(_, _, image, backdrop)| (image.clone(), *backdrop))
+    }
+
+    /// Makes the sidebar rows' copies of the Play backgrounds that are missing or
+    /// changed, in the background; forgets those that are gone. Only while the skin
+    /// shows them.
+    pub fn load_sidebar_banners(&mut self, cx: &mut Context<Self>) {
+        // Called on every frame: look again only when the instances or the skin
+        // changed (which a reload or an apply follows).
+        let checked = (self.list_generation, crate::skin::generation(cx));
+        if self.sidebar_banners_checked == Some(checked) {
+            return;
+        }
+        self.sidebar_banners_checked = Some(checked);
+        let wanted: Vec<(
+            String,
+            appearance::BackgroundSource,
+            Option<std::time::SystemTime>,
+        )> = self
+            .list
+            .iter()
+            .filter_map(|instance| {
+                let (source, modified) = self.background_source(instance)?;
+                Some((instance.id.clone(), source, modified))
+            })
+            .collect();
+        let mut gone = Vec::new();
+        self.sidebar_banners.retain(|id, (time, source, image, _)| {
+            let keep = wanted
+                .iter()
+                .any(|(w, s, m)| w == id && m == time && s == source);
+            if !keep {
+                gone.push(image.clone());
+            }
+            keep
+        });
+        crate::images::release(gone, cx);
+        for (id, source, modified) in wanted {
+            if self.sidebar_banners.contains_key(&id) || self.sidebar_banner_tasks.contains_key(&id)
+            {
+                continue;
+            }
+            let cache = self.hero_cache.clone();
+            let decode = cx.background_spawn({
+                let source = source.clone();
+                async move {
+                    let image = image::DynamicImage::ImageRgba8(source.decode(&cache)?);
+                    // the row's size at 2×, cropped to fill it, and how it looks behind
+                    // the row's text
+                    let thumb = image
+                        .resize_to_fill(440, 96, image::imageops::FilterType::Triangle)
+                        .to_rgba8();
+                    let backdrop = launcher_core::ui_skin::readable::Backdrop::measure(
+                        thumb.pixels().map(|p| {
+                            launcher_core::ui_skin::Rgb(
+                                ((p[0] as u32) << 16) | ((p[1] as u32) << 8) | p[2] as u32,
+                            )
+                        }),
+                    )?;
+                    Some((thumb, backdrop))
+                }
+            });
+            let task_id = id.clone();
+            let task = cx.spawn(async move |this, cx| {
+                let decoded = decode.await;
+                this.update(cx, |this, cx| {
+                    this.sidebar_banner_tasks.remove(&task_id);
+                    if let Some((image, backdrop)) = decoded {
+                        this.sidebar_banners.insert(
+                            task_id,
+                            (
+                                modified,
+                                source,
+                                crate::images::render_image(image),
+                                backdrop,
+                            ),
+                        );
+                        cx.notify();
+                    }
+                })
+                .ok();
+            });
+            self.sidebar_banner_tasks.insert(id, task);
+        }
+    }
+
+    /// Forgets the sidebar rows' copies, when the skin stops showing them.
+    pub fn forget_sidebar_banners(&mut self, cx: &mut App) {
+        let gone = self
+            .sidebar_banners
+            .drain()
+            .map(|(_, (_, _, image, _))| image);
+        crate::images::release(gone.collect::<Vec<_>>(), cx);
+        self.sidebar_banners_checked = None;
+        self.sidebar_banner_tasks.clear();
+    }
+
+    /// Shows the chosen skin again, after its pack changed.
+    pub fn reload_skin(&mut self, cx: &mut Context<Self>) {
+        crate::skin::apply(self.settings.skin.as_deref(), &self.skins(), cx);
+    }
+
+    /// Sets an instance's own Play button colour and accent (`None`: the skin's), and
+    /// records the change for Undo.
+    pub fn set_instance_colors(
+        &mut self,
+        id: &str,
+        play_color: Option<launcher_core::ui_skin::Rgb>,
+        accent: Option<launcher_core::ui_skin::Rgb>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.undoable(id, cx, |this, cx| {
+            let mut instance = this.store.get(id).map_err(|err| err.to_string())?;
+            instance.play_color = play_color;
+            instance.accent = accent;
+            this.store.save(&instance).map_err(|err| err.to_string())?;
+            this.update_listed(instance, cx);
+            Ok(())
+        })
+    }
+
+    /// The instances by sidebar group, as the sidebar lists them.
+    pub fn grouped(&self) -> Vec<(Option<String>, Vec<&Instance>)> {
+        launcher_core::instances::grouped(&self.list, self.settings.auto_groups)
     }
 
     pub fn is_group_collapsed(&self, group: &str) -> bool {
@@ -469,7 +909,7 @@ impl Instances {
 
     /// The group names in use, for suggestions.
     pub fn groups(&self) -> Vec<String> {
-        launcher_core::instances::grouped(&self.list)
+        launcher_core::instances::grouped(&self.list, false)
             .into_iter()
             .filter_map(|(name, _)| name)
             .collect()
@@ -553,6 +993,17 @@ impl Instances {
 
     pub fn select(&mut self, id: &str, cx: &mut Context<Self>) {
         self.selected = Some(id.to_string());
+        self.load_backgrounds(cx);
+        cx.notify();
+    }
+
+    pub fn shared_revision(&self) -> u64 {
+        self.shared_revision
+    }
+
+    /// The shared game settings changed in the launcher's Settings.
+    pub fn shared_settings_changed(&mut self, cx: &mut Context<Self>) {
+        self.shared_revision += 1;
         cx.notify();
     }
 
@@ -560,6 +1011,20 @@ impl Instances {
         self.runs
             .get(id)
             .is_some_and(|run| !matches!(run.state, RunState::Idle))
+    }
+
+    /// Whether any instance is installing, starting or running.
+    pub fn any_active(&self) -> bool {
+        self.runs
+            .values()
+            .any(|run| !matches!(run.state, RunState::Idle))
+    }
+
+    /// The game has started but its window hasn't opened yet.
+    pub fn is_launching(&self, id: &str) -> bool {
+        self.runs
+            .get(id)
+            .is_some_and(|run| matches!(run.state, RunState::Running { .. }) && !run.window_opened)
     }
 
     pub fn is_running(&self, id: &str) -> bool {
@@ -621,35 +1086,15 @@ impl Instances {
             .store
             .create(name, version, loader)
             .map_err(|err| err.to_string())?;
+        self.pick_skin_banner(&instance.id);
         self.selected = Some(instance.id.clone());
-        self.reload(cx);
+        self.refresh(&instance.id, cx);
         Ok(instance)
     }
 
-    /// Copies the instance and selects the copy.
-    pub fn duplicate(&mut self, id: &str, cx: &mut Context<Self>) -> Result<Instance, String> {
-        let copy = self.store.duplicate(id).map_err(|err| err.to_string())?;
-        self.selected = Some(copy.id.clone());
-        self.reload(cx);
-        Ok(copy)
-    }
-
-    pub fn set_icon(
-        &mut self,
-        id: &str,
-        image: &Path,
-        cx: &mut Context<Self>,
-    ) -> Result<(), String> {
-        self.store
-            .set_icon(id, image)
-            .map_err(|err| err.to_string())?;
-        self.reload(cx);
-        Ok(())
-    }
-
     pub fn clear_icon(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
-        self.store.clear_icon(id).map_err(|err| err.to_string())?;
-        self.reload(cx);
+        let instance = self.store.clear_icon(id).map_err(|err| err.to_string())?;
+        self.update_listed(instance, cx);
         Ok(())
     }
 
@@ -663,8 +1108,11 @@ impl Instances {
         let instance_dir = self.store.dir(id);
         let write = cx.background_spawn(async move {
             // Files that came from Modrinth are listed by URL; the rest are copied.
+            // Files only on CurseForge are left out rather than handed out.
             let on_modrinth = export::modrinth_files(&instance_dir);
-            let plan = export::plan(&instance, &game_dir, &on_modrinth)?;
+            let curseforge_only = export::curseforge_only_files(&instance_dir);
+            let plan =
+                export::plan_leaving_out(&instance, &game_dir, &on_modrinth, &curseforge_only)?;
             export::write(&plan, &out)?;
             Ok::<_, export::ExportError>((plan, out))
         });
@@ -672,26 +1120,43 @@ impl Instances {
             let result = write.await;
             this.update(cx, |_, cx| {
                 cx.emit(match result {
-                    Ok((plan, out)) => InstancesEvent::Notice {
-                        title: "Modpack exported".into(),
-                        message: format!(
-                            "{} file(s) saved to {}.{}",
+                    Ok((plan, out)) => {
+                        let saved = trn!(
+                            P::FilesSaved,
                             plan.overrides.len() + plan.index.files.len(),
-                            out.display(),
-                            if plan.skipped.is_empty() {
-                                String::new()
-                            } else {
-                                format!(
-                                    " {} file(s) were left out, such as {}.",
-                                    plan.skipped.len(),
-                                    plan.skipped[0].0
+                            path = out.display()
+                        );
+                        let others = plan.skipped.len() - plan.curseforge_left_out.len();
+                        let mut message = match plan
+                            .skipped
+                            .iter()
+                            .find(|(_, why)| !why.contains("CurseForge"))
+                        {
+                            Some((first, _)) if others > 0 => tr!(
+                                M::TwoSentences,
+                                first = saved,
+                                second = trn!(P::FilesLeftOut, others, name = first)
+                            ),
+                            _ => saved,
+                        };
+                        if !plan.curseforge_left_out.is_empty() {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(
+                                    P::CurseForgeLeftOut,
+                                    plan.curseforge_left_out.len(),
+                                    names = crate::i18n::format::list(&plan.curseforge_left_out)
                                 )
-                            }
-                        )
-                        .into(),
-                    },
+                            );
+                        }
+                        InstancesEvent::Notice {
+                            title: t(M::ModpackExported).into(),
+                            message: message.into(),
+                        }
+                    }
                     Err(err) => InstancesEvent::LaunchFailed {
-                        title: "Couldn't export the modpack".into(),
+                        title: t(M::CouldntExportModpack).into(),
                         message: err.to_string().into(),
                     },
                 });
@@ -701,19 +1166,17 @@ impl Instances {
     }
 
     pub fn save(&mut self, instance: &Instance, cx: &mut Context<Self>) -> Result<(), String> {
+        let before = self.store.get(&instance.id).ok();
         self.store.save(instance).map_err(|err| err.to_string())?;
-        self.reload(cx);
-        Ok(())
-    }
-
-    /// Moves the instance to the Trash.
-    pub fn delete(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
-        if self.is_active(id) {
-            return Err("Stop the game before deleting its instance.".into());
+        if let Some(before) = before {
+            launcher_core::trace::settings_changed(
+                "instance",
+                &before,
+                instance,
+                serde_json::json!({ "instance": instance.id }),
+            );
         }
-        self.store.delete(id).map_err(|err| err.to_string())?;
-        self.runs.remove(id);
-        self.reload(cx);
+        self.update_listed(instance.clone(), cx);
         Ok(())
     }
 
@@ -725,15 +1188,25 @@ impl Instances {
         {
             return None;
         }
+        if let Some((java, generation)) = self.required_java.borrow().get(game_version)
+            && (java.is_some() || *generation == self.list_generation)
+        {
+            return *java;
+        }
         let path = self
             .data_dir
             .versions_dir()
             .join(game_version)
             .join(format!("{game_version}.json"));
-        let bytes = std::fs::read(path).ok()?;
-        launcher_core::game::version::VersionJson::parse(&bytes)
-            .ok()
-            .map(|version| version.java_major())
+        let java = std::fs::read(path).ok().and_then(|bytes| {
+            launcher_core::game::version::VersionJson::parse(&bytes)
+                .ok()
+                .map(|version| version.java_major())
+        });
+        self.required_java
+            .borrow_mut()
+            .insert(game_version.to_string(), (java, self.list_generation));
+        java
     }
 
     pub fn game_dir(&self, id: &str) -> PathBuf {
@@ -745,9 +1218,37 @@ impl Instances {
         self.modrinth.clone()
     }
 
+    /// Whether an imported pack left files for the user to download into `id`.
+    pub fn has_pending_downloads(&self, id: &str) -> bool {
+        self.pending_downloads.contains_key(id)
+    }
+
+    pub fn take_pending_downloads(
+        &mut self,
+        id: &str,
+    ) -> Option<Vec<launcher_core::content::curseforge_install::CfPlannedFile>> {
+        self.pending_downloads.remove(id)
+    }
+
+    /// The CurseForge client, when this build has an API key and the app is online.
+    pub fn curseforge(&self) -> Option<Arc<CurseForge>> {
+        self.curseforge.clone()
+    }
+
+    /// The installer, for resolving imported instances' versions and loaders.
+    pub fn installer(&self) -> Installer {
+        self.installer.clone()
+    }
+
+    /// The instance store, for imports that build instances in the background.
+    pub fn store(&self) -> InstanceStore {
+        self.store.clone()
+    }
+
     /// Keeps the Content tab off the network, for the offscreen screenshots.
     pub fn preview_offline(&mut self) {
         self.modrinth = None;
+        self.curseforge = None;
     }
 
     pub fn content_downloader(&self) -> Downloader {
@@ -813,7 +1314,7 @@ impl Instances {
                 this.loader_switch = None;
                 let failed = |message: String, cx: &mut Context<Self>| {
                     cx.emit(InstancesEvent::LaunchFailed {
-                        title: "Couldn't switch to a mod loader".into(),
+                        title: t(M::CouldntSwitchLoader).into(),
                         message: message.into(),
                     });
                     cx.notify();
@@ -821,13 +1322,7 @@ impl Instances {
                 let (kind, version) = match result {
                     Ok(Some(pick)) => pick,
                     Ok(None) => {
-                        return failed(
-                            format!(
-                                "No mod loader Lodestone Launcher supports runs on Minecraft {}: Fabric starts at 1.14, and Forge has no build for it.",
-                                instance.game_version
-                            ),
-                            cx,
-                        );
+                        return failed(tr!(M::NoModLoaderFor, version = instance.game_version), cx);
                     }
                     Err(err) => return failed(err.to_string(), cx),
                 };
@@ -838,12 +1333,12 @@ impl Instances {
                     Ok(()) => {
                         cx.emit(InstancesEvent::LoaderChanged(id.clone()));
                         cx.emit(InstancesEvent::Notice {
-                            title: format!("Switched to {}", kind.label()).into(),
-                            message: format!(
-                                "{} now uses {} {}. It installs the next time you press Play.",
-                                changed.name,
-                                kind.label(),
-                                version.display
+                            title: tr!(M::SwitchedTo, loader = kind.label()).into(),
+                            message: tr!(
+                                M::SwitchedToMessage,
+                                name = changed.name,
+                                loader = kind.label(),
+                                version = version.display
                             )
                             .into(),
                         });
@@ -867,6 +1362,14 @@ impl Instances {
         };
         match self.runs.get(&instance.id).map(|run| &run.state) {
             None | Some(RunState::Idle) => PlayState::Ready,
+            // Java has started, but until the game's window opens there's nothing to see.
+            Some(RunState::Running { .. }) if !self.runs[&instance.id].window_opened => {
+                PlayState::Preparing {
+                    label: t(M::StageLaunching).into(),
+                    detail: None,
+                    fraction: None,
+                }
+            }
             Some(RunState::Running { .. }) => PlayState::Playing,
             Some(RunState::Preparing { progress, .. }) => {
                 let (stage, snapshot) = progress.snapshot();
@@ -899,13 +1402,31 @@ impl Instances {
 
     /// Installs what the instance needs and starts the game.
     pub fn play(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.play_joining(id, None, cx)
+    }
+
+    /// Like [`Self::play`], joining the server `join` once the game has started.
+    pub fn play_joining(
+        &mut self,
+        id: &str,
+        join: Option<launch::JoinServer>,
+        cx: &mut Context<Self>,
+    ) {
         if self.is_active(id) {
             return;
         }
         if self.modpack_updates.contains_key(id) {
             cx.emit(InstancesEvent::LaunchFailed {
-                title: "The modpack is updating".into(),
-                message: "Wait for the update to finish, then press Play.".into(),
+                title: t(M::ModpackUpdating).into(),
+                message: t(M::WaitForUpdate).into(),
+            });
+            return;
+        }
+        // its folder is on its way to the Trash
+        if self.file_op(id) == Some(FileOp::Delete) {
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntStartMinecraft).into(),
+                message: t(M::FilesBusy).into(),
             });
             return;
         }
@@ -915,19 +1436,34 @@ impl Instances {
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let run = self.runs.entry(id.to_string()).or_default();
+        run.reached_menu = false;
+        run.mods_refused = false;
         run.log.note(
             Level::Info,
-            format!(
-                "Preparing Minecraft {} ({})",
-                instance.game_version,
-                instance.loader_label()
+            tr!(
+                M::PreparingNote,
+                version = instance.game_version,
+                loader = loader_label(&instance)
             ),
         );
+        if let Some(join) = &join {
+            run.log
+                .note(Level::Info, tr!(M::JoiningNote, address = join.address()));
+        }
         run.state = RunState::Preparing {
             progress: progress.clone(),
             cancel: cancel.clone(),
         };
         run.ticker = Some(ticker(id.to_string(), cx));
+        launcher_core::trace::emit("game.prepare", || {
+            serde_json::json!({
+                "instance": id,
+                "name": instance.name,
+                "version": instance.game_version,
+                "loader": loader_label(&instance),
+                "join": join.as_ref().map(|j| j.address()),
+            })
+        });
         cx.notify();
 
         let account = self
@@ -946,7 +1482,7 @@ impl Instances {
                 Ok(account) => account,
                 Err(message) => {
                     this.update(cx, |this, cx| {
-                        this.fail(&id, "Couldn't sign in".into(), message.into(), cx)
+                        this.fail(&id, t(M::CouldntSignIn).into(), message.into(), cx)
                     })
                     .ok();
                     return;
@@ -981,12 +1517,13 @@ impl Instances {
                     prepare_progress.set_stage(Stage::Natives);
                     prepared.extract_natives(&data, &natives_dir)?;
                     let paths = prepared.launch_paths(&data, &game_dir, &natives_dir)?;
-                    let command = launch::build(
+                    let command = launch::build_joining(
                         &prepared.version,
                         &prepared.java_platform,
                         &paths,
                         &account,
                         &settings,
+                        join.as_ref(),
                     )
                     .map_err(|err| InstallError::Invalid(err.to_string()))?;
                     Ok::<_, InstallError>((command, prepared.rosetta))
@@ -1005,19 +1542,19 @@ impl Instances {
                 }
                 Err(InstallError::Cancelled) => {
                     if let Some(run) = this.runs.get_mut(&id) {
-                        run.log.note(Level::Warn, "Cancelled");
+                        run.log.note(Level::Warn, t(M::Cancelled));
                     }
                     this.set_idle(&id, cx);
                 }
                 Err(InstallError::RosettaMissing) => this.fail(
                     &id,
-                    "Rosetta 2 is needed".into(),
-                    platform::ROSETTA_MISSING.into(),
+                    t(M::RosettaNeeded).into(),
+                    rosetta_missing().into(),
                     cx,
                 ),
                 Err(err) => this.fail(
                     &id,
-                    "Couldn't start Minecraft".into(),
+                    t(M::CouldntStartMinecraft).into(),
                     err.to_string().into(),
                     cx,
                 ),
@@ -1043,10 +1580,10 @@ impl Instances {
         let run = self.runs.entry(id.to_string()).or_default();
         run.log.note(
             Level::Info,
-            format!(
-                "Verifying the game files of Minecraft {} ({})",
-                instance.game_version,
-                instance.loader_label()
+            tr!(
+                M::VerifyingNote,
+                version = instance.game_version,
+                loader = loader_label(&instance)
             ),
         );
         run.state = RunState::Preparing {
@@ -1092,26 +1629,21 @@ impl Instances {
                     this.set_idle(&id, cx);
                     let (_, _, repaired) = progress.stats.counts();
                     cx.emit(InstancesEvent::Notice {
-                        title: "Game files verified".into(),
+                        title: t(M::GameFilesVerified).into(),
                         message: if repaired == 0 {
-                            format!("Every file was intact. {summary}").into()
+                            tr!(M::EveryFileIntact, summary = summary).into()
                         } else {
-                            format!("{repaired} missing or damaged file(s) were downloaded again. {summary}").into()
+                            trn!(P::FilesRepaired, repaired, summary = summary).into()
                         },
                     });
                 }
                 Err(InstallError::Cancelled) => {
                     if let Some(run) = this.runs.get_mut(&id) {
-                        run.log.note(Level::Warn, "Cancelled");
+                        run.log.note(Level::Warn, t(M::Cancelled));
                     }
                     this.set_idle(&id, cx);
                 }
-                Err(err) => this.fail(
-                    &id,
-                    "Couldn't verify the game files".into(),
-                    err.to_string().into(),
-                    cx,
-                ),
+                Err(err) => this.fail(&id, t(M::CouldntVerify).into(), err.to_string().into(), cx),
             })
             .ok();
         });
@@ -1132,6 +1664,10 @@ impl Instances {
     }
 
     fn set_idle(&mut self, id: &str, cx: &mut Context<Self>) {
+        launcher_core::trace::emit(
+            "game.state",
+            || serde_json::json!({ "instance": id, "state": "idle" }),
+        );
         self.take_notes(id);
         if let Some(run) = self.runs.get_mut(id) {
             run.state = RunState::Idle;
@@ -1149,8 +1685,15 @@ impl Instances {
         cx: &mut Context<Self>,
     ) {
         if let Some(run) = self.runs.get_mut(id) {
-            run.log.note(Level::Error, format!("{title}: {message}"));
+            run.log.note(
+                Level::Error,
+                tr!(M::TitleAndMessage, title = title, message = message),
+            );
         }
+        launcher_core::trace::emit(
+            "game.failed",
+            || serde_json::json!({ "instance": id, "title": title.to_string(), "message": message.to_string() }),
+        );
         self.set_idle(id, cx);
         cx.emit(InstancesEvent::LaunchFailed { title, message });
     }
@@ -1166,22 +1709,26 @@ impl Instances {
             progress.set_stage(Stage::Starting);
         }
         if rosetta {
-            run.log.note(
-                Level::Info,
-                "This version runs in an Intel (x86_64) Java under Rosetta 2.",
-            );
+            run.log.note(Level::Info, t(M::RosettaNote));
         }
         // The command line is shown with the access token redacted.
-        run.log
-            .note(Level::Info, format!("Starting Java: {}", command.display()));
+        run.log.note(
+            Level::Info,
+            tr!(M::StartingJavaNote, command = command.display()),
+        );
         let (process, events) = match GameProcess::spawn(&command, Redactor::new(command.secrets()))
         {
             Ok(spawned) => spawned,
             Err(err) => {
                 self.fail(
                     id,
-                    "Couldn't start Java".into(),
-                    format!("{}: {err}", command.program.display()).into(),
+                    t(M::CouldntStartJava).into(),
+                    tr!(
+                        M::TitleAndMessage,
+                        title = command.program.display(),
+                        message = err
+                    )
+                    .into(),
                     cx,
                 );
                 return;
@@ -1189,26 +1736,88 @@ impl Instances {
         };
         let started = Instant::now();
         let started_unix = launcher_core::instances::now();
+        let pid = process.pid();
+        launcher_core::trace::emit(
+            "game.launch",
+            || serde_json::json!({ "instance": id, "pid": pid }),
+        );
         run.state = RunState::Running {
             process: Arc::new(process),
             started,
         };
         run.ticker = None;
+        run.window_opened = false;
+        run.window_wait = Some(cx.spawn({
+            let id = id.to_string();
+            async move |this, cx| {
+                cx.background_executor().timer(WINDOW_WAIT).await;
+                this.update(cx, |this, cx| {
+                    if let Some(run) = this.runs.get_mut(&id)
+                        && matches!(run.state, RunState::Running { .. })
+                        && !run.window_opened
+                    {
+                        run.window_opened = true;
+                        cx.emit(InstancesEvent::GameWindowOpened(id.clone()));
+                        cx.notify();
+                    }
+                })
+                .ok();
+            }
+        }));
+        let started_id = id.to_string();
         let id = id.to_string();
         run.task = Some(cx.spawn(async move |this, cx| {
-            let mut events = events.ready_chunks(256);
+            let mut events = events.ready_chunks(4096);
             while let Some(batch) = events.next().await {
                 let mut exited = None;
                 let alive = this.update(cx, |this, cx| {
+                    let mut milestones = Vec::new();
                     if let Some(run) = this.runs.get_mut(&id) {
                         for event in batch {
                             match event {
-                                GameEvent::Line(line) => run.log.push(line),
+                                GameEvent::Line(line) => {
+                                    if !run.reached_menu && crash::reached_menu(&line.message) {
+                                        run.reached_menu = true;
+                                        milestones.push(InstancesEvent::ReachedMenu(id.clone()));
+                                    }
+                                    if !run.mods_refused
+                                        && (crash::mods_refused(&line.message)
+                                            || line
+                                                .throwable
+                                                .as_deref()
+                                                .is_some_and(crash::mods_refused))
+                                    {
+                                        run.mods_refused = true;
+                                        milestones.push(InstancesEvent::ModsRefused(id.clone()));
+                                    }
+                                    launcher_core::trace::emit("game.log", || {
+                                        serde_json::json!({
+                                            "instance": id,
+                                            "level": line.level.to_string(),
+                                            "thread": line.thread,
+                                            "logger": line.logger,
+                                            "text": line.message,
+                                        })
+                                    });
+                                    if !run.window_opened && line.opens_game_window() {
+                                        run.window_opened = true;
+                                        run.window_wait = None;
+                                        launcher_core::trace::emit(
+                                            "game.window",
+                                            || serde_json::json!({ "instance": id }),
+                                        );
+                                        cx.emit(InstancesEvent::GameWindowOpened(id.clone()));
+                                    }
+                                    run.log.push(line)
+                                }
                                 GameEvent::Exited { code, stopped } => {
                                     exited = Some((code, stopped))
                                 }
                             }
                         }
+                    }
+                    for milestone in milestones {
+                        cx.emit(milestone);
                     }
                     cx.notify();
                 });
@@ -1222,8 +1831,19 @@ impl Instances {
                     .ok();
                     return;
                 }
+                // Each batch redraws the window. A modded game prints thousands of
+                // lines as it starts: let what arrives meanwhile gather into the next
+                // batch (the channel is unbounded, so the game never waits), so the
+                // log redraws at most about 15 times a second.
+                cx.background_executor().timer(LOG_BATCH_INTERVAL).await;
             }
         }));
+        // Played as of now, so a game that crashes (or a launcher that quits) before
+        // it exits still counts; the play time is added when it exits.
+        match self.store.record_start(&started_id, started_unix) {
+            Ok(instance) => self.update_listed(instance, cx),
+            Err(err) => self.notice = Some(tr!(M::CouldntSavePlayed, error = err).into()),
+        }
         cx.notify();
     }
 
@@ -1241,11 +1861,20 @@ impl Instances {
         let game_dir = self.store.game_dir(id);
         let report = crash::new_crash_report(&game_dir, before);
         let outcome = crash::outcome(code, stopped, report);
+        launcher_core::trace::emit("game.exit", || {
+            serde_json::json!({
+                "instance": id,
+                "code": code,
+                "stopped": stopped,
+                "crashed": matches!(outcome, Outcome::Crashed { .. }),
+                "secs": started.elapsed().as_secs(),
+            })
+        });
         if let Err(err) = self
             .store
             .record_play(id, started_unix, started.elapsed().as_secs())
         {
-            self.notice = Some(format!("Couldn't save the play time: {err}").into());
+            self.notice = Some(tr!(M::CouldntSavePlayTime, error = err).into());
         }
         let name = self
             .list
@@ -1253,11 +1882,13 @@ impl Instances {
             .find(|i| i.id == id)
             .map(|i| i.name.clone())
             .unwrap_or_default();
+        let dirs = self.content_dirs(id);
+        let exited = !matches!(outcome, Outcome::Crashed { .. });
         if let Some(run) = self.runs.get_mut(id) {
             let message = match (code, stopped) {
-                (_, true) => "Stopped".to_string(),
-                (Some(code), _) => format!("Minecraft exited with code {code}"),
-                (None, _) => "Minecraft was ended by a signal".to_string(),
+                (_, true) => t(M::StoppedNote).to_string(),
+                (Some(code), _) => tr!(M::ExitedWithCode, code = code),
+                (None, _) => t(M::EndedBySignal).to_string(),
             };
             let level = if matches!(outcome, Outcome::Crashed { .. }) {
                 Level::Error
@@ -1265,23 +1896,55 @@ impl Instances {
                 Level::Info
             };
             run.log.note(level, message);
+            let at_startup = !run.reached_menu;
+            let mods_refused = run.mods_refused;
             if let Outcome::Crashed { exit_code, report } = outcome {
-                let report_text = report
-                    .as_ref()
-                    .and_then(|path| std::fs::read_to_string(path).ok());
-                let summary = crash::summarize(report_text.as_deref(), &run.log.recent());
-                cx.emit(InstancesEvent::Crashed(CrashInfo {
-                    instance_name: name,
-                    summary,
-                    exit_code,
-                    report,
-                    log_text: run.log.to_text(|_| true),
-                }));
+                // Finding the mods involved opens their jars, so the report is read and
+                // the crash worked out off the window's thread. It takes well under a
+                // second: the game has just read the same files.
+                let recent = run.log.recent();
+                let log_text = run.log.to_text(|_| true);
+                let instance_id = id.to_string();
+                let work = cx.background_spawn(async move {
+                    let report_text = report
+                        .as_ref()
+                        .and_then(|path| std::fs::read_to_string(path).ok());
+                    let summary = crash::summarize(report_text.as_deref(), &recent);
+                    let suspects = crash::suspects::find(&dirs, report_text.as_deref(), &recent);
+                    CrashInfo {
+                        instance_id,
+                        instance_name: name,
+                        summary,
+                        suspects,
+                        exit_code,
+                        report,
+                        log_text,
+                        at_startup,
+                        mods_refused,
+                    }
+                });
+                cx.spawn(async move |this, cx| {
+                    let crash = work.await;
+                    this.update(cx, |_, cx| cx.emit(InstancesEvent::Crashed(crash)))
+                        .ok();
+                })
+                .detach();
             }
+        }
+        if let Some(run) = self.runs.get_mut(id) {
+            run.window_wait = None;
         }
         self.read_back_shared_settings(id);
         self.set_idle(id, cx);
-        self.reload(cx);
+        self.refresh(id, cx);
+        // After it is idle, so whoever hears it can start the game again.
+        if exited {
+            cx.emit(InstancesEvent::Exited {
+                id: id.to_string(),
+                stopped,
+            });
+        }
+        cx.emit(InstancesEvent::GameExited(id.to_string()));
     }
 
     /// Cancels the preparation, or kills the game.
@@ -1293,10 +1956,10 @@ impl Instances {
             RunState::Idle => {}
             RunState::Preparing { cancel, .. } => {
                 cancel.cancel();
-                run.log.note(Level::Warn, "Cancelling…");
+                run.log.note(Level::Warn, t(M::CancellingNote));
             }
             RunState::Running { process, .. } => {
-                run.log.note(Level::Warn, "Stopping Minecraft");
+                run.log.note(Level::Warn, t(M::StoppingNote));
                 process.stop();
             }
         }
@@ -1339,18 +2002,18 @@ pub fn progress_state(stage: Stage, snapshot: ProgressSnapshot) -> PlayState {
     );
     if !downloading || snapshot.files_total == 0 {
         return PlayState::Preparing {
-            label: stage.label().into(),
+            label: stage_label(stage).into(),
             detail: None,
             fraction: None,
         };
     }
     let mb = |bytes: u64| (bytes as f64 / (1024.0 * 1024.0)).round() as u64;
-    let detail = format!(
-        "{}/{} · {} MB/{} MB",
-        thousands(snapshot.files_done),
-        thousands(snapshot.files_total),
-        thousands(mb(snapshot.bytes_done)),
-        thousands(mb(snapshot.bytes_total)),
+    let detail = tr!(
+        M::ProgressDetail,
+        files_done = thousands(snapshot.files_done),
+        files_total = thousands(snapshot.files_total),
+        done = thousands(mb(snapshot.bytes_done)),
+        total = thousands(mb(snapshot.bytes_total)),
     );
     let fraction = if snapshot.bytes_total > 0 {
         snapshot.bytes_done as f32 / snapshot.bytes_total as f32
@@ -1358,7 +2021,7 @@ pub fn progress_state(stage: Stage, snapshot: ProgressSnapshot) -> PlayState {
         snapshot.files_done as f32 / snapshot.files_total as f32
     };
     PlayState::Preparing {
-        label: stage.label().into(),
+        label: stage_label(stage).into(),
         detail: Some(detail.into()),
         fraction: Some(fraction.clamp(0.0, 1.0)),
     }
@@ -1366,43 +2029,185 @@ pub fn progress_state(stage: Stage, snapshot: ProgressSnapshot) -> PlayState {
 
 /// `1234567` as `1,234,567`.
 pub fn thousands(value: u64) -> String {
-    let digits = value.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, c) in digits.chars().enumerate() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
+    crate::i18n::format::number(value)
 }
 
 /// "Checked 4,091 game files in 45 ms: 4,091 unchanged, 0 hashed, 0 downloaded."
 fn check_summary(progress: &InstallProgress, elapsed: Duration) -> String {
     let (trusted, hashed, downloaded) = progress.stats.counts();
-    format!(
-        "Checked {} game files in {} ms: {} unchanged since the last check, {} hashed, {} downloaded.",
-        thousands(trusted + hashed + downloaded),
-        thousands(elapsed.as_millis() as u64),
-        thousands(trusted),
-        thousands(hashed),
-        thousands(downloaded),
+    trn!(
+        P::CheckSummary,
+        trusted + hashed + downloaded,
+        ms = thousands(elapsed.as_millis() as u64),
+        unchanged = thousands(trusted),
+        hashed = thousands(hashed),
+        downloaded = thousands(downloaded),
     )
 }
 
-/// "2 h 5 min", "12 min", "Never".
+/// What the Play button says while the game is prepared: "Downloading assets".
+pub fn stage_label(stage: Stage) -> &'static str {
+    t(match stage {
+        Stage::Preparing => M::StagePreparing,
+        Stage::Java => M::StageJava,
+        Stage::Libraries => M::StageLibraries,
+        Stage::Loader => M::StageLoader,
+        Stage::Processors => M::StageProcessors,
+        Stage::Assets => M::StageAssets,
+        Stage::Natives => M::StageNatives,
+        Stage::Starting => M::StageStarting,
+    })
+}
+
+/// Why a version needs Rosetta and how to install it, for the "Rosetta 2 is needed"
+/// dialog.
+pub fn rosetta_missing() -> &'static str {
+    t(M::RosettaMissing)
+}
+
+/// The instance's loader and its version, "Fabric 0.16.10", or "Vanilla".
+pub fn loader_label(instance: &Instance) -> String {
+    match instance.loader.kind() {
+        Some(_) => instance.loader_label(),
+        None => t(M::Vanilla).into(),
+    }
+}
+
+/// "2 h 5 min", "12 min", "Not played yet".
 pub fn play_time(seconds: u64) -> String {
-    match seconds {
-        0 => "Not played yet".into(),
-        1..60 => "Less than a minute".into(),
-        60..3600 => format!("{} min", seconds / 60),
-        _ => format!("{} h {} min", seconds / 3600, seconds / 60 % 60),
+    crate::i18n::format::play_time(seconds)
+}
+
+/// When something happened, relative to now, for "Last played".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ago {
+    JustNow,
+    Minutes(u64),
+    Hours(u64),
+    Yesterday,
+    Days(u64),
+    /// Longer ago: the date, "Mar 12", with the year when it isn't this year's.
+    On(String),
+}
+
+impl Ago {
+    /// How long ago `then` (Unix seconds) was, in this Mac's time zone.
+    pub fn since(then: u64) -> Self {
+        Self::between(then, launcher_core::instances::now(), &chrono::Local)
+    }
+
+    /// How long before `now` `then` was, by the calendar of `zone`. A time after
+    /// `now` (a clock that moved back) is "just now".
+    pub fn between<Tz: chrono::TimeZone>(then: u64, now: u64, zone: &Tz) -> Self {
+        let elapsed = now.saturating_sub(then);
+        let day = |unix: u64| {
+            zone.timestamp_opt(unix.min(i64::MAX as u64) as i64, 0)
+                .earliest()
+                .map(|time| time.date_naive())
+        };
+        let (Some(then_day), Some(today)) = (day(then), day(now)) else {
+            return Ago::JustNow;
+        };
+        let days = (today - then_day).num_days();
+        match elapsed {
+            0..60 => Ago::JustNow,
+            60..3600 => Ago::Minutes(elapsed / 60),
+            // Late last night is still "3 hours ago" in the morning.
+            _ if days <= 0 || elapsed < 6 * 3600 => Ago::Hours(elapsed / 3600),
+            _ if days == 1 => Ago::Yesterday,
+            _ if days < 7 => Ago::Days(days as u64),
+            _ => Ago::On(crate::i18n::format::short_date(
+                then_day,
+                chrono::Datelike::year(&then_day) != chrono::Datelike::year(&today),
+            )),
+        }
+    }
+
+    /// "Just now", "5 minutes ago", "2 hours ago", "Yesterday", "3 days ago" or
+    /// "Mar 12".
+    pub fn label(&self) -> String {
+        use crate::i18n::{FormatMsg, FormatPlural, t, trn};
+        match self {
+            Ago::JustNow => t(FormatMsg::JustNow).into(),
+            Ago::Minutes(n) => trn!(FormatPlural::MinutesAgo, *n),
+            Ago::Hours(n) => trn!(FormatPlural::HoursAgo, *n),
+            Ago::Yesterday => t(FormatMsg::Yesterday).into(),
+            Ago::Days(n) => trn!(FormatPlural::DaysAgo, *n),
+            Ago::On(date) => date.clone(),
+        }
+    }
+
+    /// "Played just now", "Played 2 hours ago", "Played yesterday" or "Played on
+    /// Mar 12".
+    pub fn played(&self) -> String {
+        use crate::i18n::{FormatMsg, t, tr};
+        match self {
+            Ago::JustNow => t(FormatMsg::PlayedJustNow).into(),
+            Ago::Yesterday => t(FormatMsg::PlayedYesterday).into(),
+            Ago::On(date) => tr!(FormatMsg::PlayedOn, date = date),
+            other => tr!(FormatMsg::PlayedAgo, ago = other.label()),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn says_how_long_ago() {
+        use chrono::TimeZone;
+        let utc = chrono::Utc;
+        let at = |y, mo, d, h, mi| {
+            utc.with_ymd_and_hms(y, mo, d, h, mi, 0)
+                .unwrap()
+                .timestamp() as u64
+        };
+        let now = at(2026, 11, 8, 15, 0);
+        let ago = |then: u64| Ago::between(then, now, &utc);
+        let label = |then: u64| ago(then).label();
+        assert_eq!(label(now), "Just now");
+        assert_eq!(label(now - 59), "Just now");
+        assert_eq!(label(now + 300), "Just now", "a clock that moved back");
+        assert_eq!(label(now - 60), "1 minute ago");
+        assert_eq!(label(now - 5 * 60), "5 minutes ago");
+        assert_eq!(label(now - 3599), "59 minutes ago");
+        assert_eq!(label(now - 3600), "1 hour ago");
+        assert_eq!(label(at(2026, 11, 8, 0, 30)), "14 hours ago");
+        // Before midnight, but only a few hours ago.
+        let morning = at(2026, 11, 8, 2, 0);
+        assert_eq!(
+            Ago::between(at(2026, 11, 7, 23, 0), morning, &utc).label(),
+            "3 hours ago"
+        );
+        assert_eq!(
+            Ago::between(at(2026, 11, 7, 18, 0), morning, &utc).label(),
+            "Yesterday"
+        );
+        assert_eq!(label(at(2026, 11, 7, 20, 0)), "Yesterday");
+        assert_eq!(label(at(2026, 11, 7, 0, 5)), "Yesterday");
+        assert_eq!(label(at(2026, 11, 6, 23, 0)), "2 days ago");
+        assert_eq!(label(at(2026, 11, 2, 12, 0)), "6 days ago");
+        assert_eq!(label(at(2026, 11, 1, 12, 0)), "Nov 1");
+        assert_eq!(label(at(2026, 3, 12, 9, 0)), "Mar 12");
+        assert_eq!(label(at(2025, 12, 31, 9, 0)), "Dec 31, 2025");
+        // The calendar is the given zone's: 01:00 UTC on the 7th is still the 6th in
+        // New York.
+        let new_york = chrono::FixedOffset::west_opt(5 * 3600).unwrap();
+        assert_eq!(
+            Ago::between(at(2026, 11, 7, 1, 0), now, &utc).label(),
+            "Yesterday"
+        );
+        assert_eq!(
+            Ago::between(at(2026, 11, 7, 1, 0), now, &new_york).label(),
+            "2 days ago"
+        );
+
+        assert_eq!(ago(now).played(), "Played just now");
+        assert_eq!(ago(now - 7200).played(), "Played 2 hours ago");
+        assert_eq!(ago(at(2026, 11, 7, 20, 0)).played(), "Played yesterday");
+        assert_eq!(ago(at(2026, 3, 12, 9, 0)).played(), "Played on Mar 12");
+    }
 
     #[test]
     fn formats_progress() {

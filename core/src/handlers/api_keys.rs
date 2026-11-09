@@ -26,7 +26,7 @@ async fn check_scope_instances(state: &AppState, scope: &ApiKeyScope) -> Result<
         if !state.instances.contains_key(uuid) && !state.docker_bridge.is_watched(uuid).await {
             return Err(Error {
                 kind: ErrorKind::BadRequest,
-                source: eyre!("Instance {uuid} does not exist"),
+                source: eyre!("Server {uuid} does not exist"),
             });
         }
     }
@@ -337,6 +337,100 @@ mod tests {
         }
     }
 
+    async fn login_with_key(core: &Core, key: &str) -> (StatusCode, Value) {
+        let response = core
+            .client
+            .post(format!("{}/user/login_api_key", core.base))
+            .json(&json!({ "key": key }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        (status, response.json().await.unwrap_or(Value::Null))
+    }
+
+    #[tokio::test]
+    async fn signing_in_with_a_key_keeps_its_scope() {
+        let core = core().await;
+        let (full, _) = core
+            .create_key(&core.owner_jwt, "dashboard", json!({ "type": "full" }))
+            .await;
+        let (status, body) = login_with_key(&core, &format!("  {full}\n")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["user"]["username"], "owner");
+        assert_eq!(body["user"]["is_owner"], true);
+        // the key is then the session's token
+        let (status, me) = core.call(Method::GET, "/user/info", &full, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(me["is_owner"], true);
+
+        // a custom key signs in as the owner without owner powers, with only its permissions
+        let (narrow, info) = core
+            .create_key(&core.owner_jwt, "viewer", custom(view_only()))
+            .await;
+        let (status, body) = login_with_key(&core, &narrow).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["user"]["is_owner"], false);
+        assert_eq!(body["user"]["is_admin"], false);
+        assert_eq!(
+            body["user"]["permissions"]["can_view_instance"],
+            json!([INSTANCE])
+        );
+        assert_eq!(body["user"]["permissions"]["can_create_instance"], false);
+
+        // revoking ends it at once
+        let id = info["id"].as_str().unwrap().to_string();
+        let (status, _) = core
+            .call(
+                Method::DELETE,
+                &format!("/user/api_keys/{id}"),
+                &core.owner_jwt,
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            login_with_key(&core, &narrow).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            core.call(Method::GET, "/user/info", &narrow, None).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_key_sign_ins_are_limited() {
+        let core = core().await;
+        let (key, _) = core
+            .create_key(&core.owner_jwt, "dashboard", json!({ "type": "full" }))
+            .await;
+        // the right id with wrong secrets
+        let wrong = format!("{}{}", &key[..key.len() - 4], "AAAA");
+        for _ in 0..crate::auth::login_limiter::MAX_FAILURES {
+            assert_eq!(
+                login_with_key(&core, &wrong).await.0,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        assert_eq!(
+            login_with_key(&core, &wrong).await.0,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(
+            login_with_key(&core, "not a key").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn key_sign_in_refuses_session_tokens() {
+        let core = core().await;
+        // a valid session JWT is not an API key
+        let (status, _) = login_with_key(&core, &core.owner_jwt).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
     #[tokio::test]
     async fn create_list_and_revoke_with_a_session() {
         let core = core().await;
@@ -379,6 +473,7 @@ mod tests {
         let text = serde_json::to_string(&list).unwrap();
         assert!(!text.contains(&key[16..]), "the secret is never listed");
         assert!(!text.contains("secret_sha256"));
+        assert!(!text.contains("\"secret\""));
 
         // revoking works at once
         let (status, _) = core
@@ -559,7 +654,7 @@ mod tests {
                 )
                 .await;
             assert_eq!(status, StatusCode::FORBIDDEN);
-            assert_eq!(message(&body), "Only the owner can create atom instances");
+            assert_eq!(message(&body), "Only the owner can create atom servers");
             let (status, body) = core
                 .call(Method::POST, "/instance/create_generic", &full, Some(atom))
                 .await;
@@ -668,12 +763,31 @@ mod tests {
             Err(StatusCode::UNAUTHORIZED)
         );
 
-        // console: a query token
-        let console = core.ws_url(&format!(
-            "/instance/{INSTANCE}/console/stream?token={}",
-            query_token(&narrow)
-        ));
-        let (mut console, _) = tokio_tungstenite::connect_async(&console).await.unwrap();
+        // console: a query token. Reading it needs the console permission; a key that can
+        // only view the instance gets no console output.
+        let (with_console, _) = core
+            .create_key(
+                &core.owner_jwt,
+                "console",
+                custom(UserPermission {
+                    can_view_instance: [instance()].into(),
+                    can_access_instance_console: [instance()].into(),
+                    ..Default::default()
+                }),
+            )
+            .await;
+        let console_url = |token: &str| {
+            core.ws_url(&format!(
+                "/instance/{INSTANCE}/console/stream?token={}",
+                query_token(token)
+            ))
+        };
+        let (mut console, _) = tokio_tungstenite::connect_async(&console_url(&with_console))
+            .await
+            .unwrap();
+        let (mut view_only_console, _) = tokio_tungstenite::connect_async(&console_url(&narrow))
+            .await
+            .unwrap();
         core.state
             .event_broadcaster
             .send(Event::new_instance_output(
@@ -683,6 +797,15 @@ mod tests {
             ));
         let frame = next_frame(&mut console).await.unwrap().unwrap();
         assert!(frame.to_text().unwrap().contains("hello from the console"));
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                view_only_console.next()
+            )
+            .await
+            .is_err(),
+            "a view-only key must not receive console output"
+        );
 
         // events: the token is in the filter
         let events = |token: &str| {

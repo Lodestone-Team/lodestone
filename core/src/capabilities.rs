@@ -56,8 +56,8 @@ impl Capability {
 
     fn description(self) -> &'static str {
         match self {
-            Capability::Macros => "Macros, tasks, instance scripts and extensions are",
-            Capability::GenericInstances => "Atom (generic) instances are",
+            Capability::Macros => "Macros, tasks, server scripts and extensions are",
+            Capability::GenericInstances => "Atom (generic) servers are",
         }
     }
 

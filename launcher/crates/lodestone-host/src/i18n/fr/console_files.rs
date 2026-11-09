@@ -1,0 +1,124 @@
+use crate::i18n::{ConsoleFilesMsg as M, ConsoleFilesPlural as P};
+
+pub fn text(message: M) -> &'static str {
+    match message {
+        M::ConsoleSearch => "Rechercher dans la console…",
+        M::ConsoleRegex => "Regex",
+        M::ConsoleStatusNoPermission => "Aucune autorisation d’accès à la console",
+        M::ConsoleStatusLoading => "Chargement de la console…",
+        M::ConsoleStatusBuffered => "Historique des messages. Pas de mises à jour en direct",
+        M::ConsoleStatusLive => "Console en direct",
+        M::ConsoleStatusLiveNoBuffer => {
+            "Console en direct, mais impossible de récupérer l’historique. Votre connexion Internet est peut-être instable"
+        }
+        M::ConsoleStatusClosed => "La console est fermée",
+        M::ConsoleStatusError => "Connexion perdue ou erreur",
+        M::ConsoleServerStopped => "Le serveur est arrêté",
+        M::ConsoleInputNoPermission => "Aucune autorisation",
+        M::ConsoleInputPlaceholder => "Saisir une commande…",
+        M::ConsoleNoPermission => "Vous n’avez pas l’autorisation d’accéder à cette console",
+        M::ConsoleLoading => "Chargement de la console",
+        M::ConsoleEmpty => "Aucun message dans la console pour l’instant",
+        M::ConsoleSendFailed => "Impossible d’envoyer la commande : {error}",
+        M::ConsoleLinkedUser => "L’utilisateur Lodestone qui a associé ce compte Minecraft",
+        M::ConsoleOwnerOnlyAtom => "Seul le propriétaire peut contrôler les serveurs atom",
+        M::ConsoleJumpToLatest => "Aller à la fin",
+        M::Console => "Console",
+        M::FilesDropToUpload => "Relâchez pour importer les fichiers",
+        M::FilesAddRemove => "Ajouter/Retirer",
+        M::FilesSelectAll => "Tout sélectionner",
+        M::FilesDeselectAll => "Tout désélectionner",
+        M::FilesCutSelected => "Couper la sélection",
+        M::FilesDownloadSelected => "Télécharger la sélection",
+        M::FilesUnarchiveSelected => "Extraire la sélection",
+        M::FilesDeleteSelected => "Supprimer la sélection",
+        M::FilesDiscardChanges => "Annuler les modifications",
+        M::FilesUpload => "Importer",
+        M::FilesZippingForDownload => "Compression du dossier pour le téléchargement…",
+        M::FilesDownloadFailed => "Échec du téléchargement de {name} : {error}",
+        M::FilesDownloaded => "{name} téléchargé",
+        M::FilesShowInFolder => "Afficher dans le dossier",
+        M::FilesOnlyFilesUnzip => "Seuls les fichiers peuvent être extraits",
+        M::FilesOnlyFilesUpload => "Seuls des fichiers peuvent être importés",
+        M::FilesDeleteMessage => "Voulez-vous vraiment supprimer les éléments suivants ?",
+        M::FilesDeleteDirectory => "(dossier)",
+        M::FilesDeleteUnknownType => "(type inconnu)",
+        M::FilesLoadingFile => "Chargement du fichier",
+        M::FilesEditorTitle => "Éditeur de fichiers",
+        M::FilesNoReadPermission => "Vous n’avez pas l’autorisation de lire ce dossier",
+        M::FilesLoading => "Chargement des fichiers",
+        M::FilesEmpty => "Aucun fichier ici…",
+        M::FilesUnknownTime => "Date inconnue",
+        M::FilesCut => "Couper",
+        M::FilesPaste => "Coller",
+        M::FilesPasteInto => "Coller dans {name}",
+        M::FilesZip => "Compresser",
+        M::FilesZipTo => "Compresser en {archive}",
+        M::FilesZipFile => "Compresser {name} en {archive}",
+        M::FilesUnzipHere => "Extraire ici",
+        M::FilesUnzipHereSmart => "Extraire ici (intelligent)",
+        M::FilesUnzipTo => "Extraire dans {name}",
+        M::FilesUnsupportedZip => "Type d’archive non pris en charge",
+        M::FilesNewFolder => "Nouveau dossier",
+        M::FilesNewFile => "Nouveau fichier",
+        M::FilesNameFile => "Nommez votre fichier",
+        M::FilesNameFilePlaceholder => "Sans titre",
+        M::FilesCreateFile => "Créer le fichier",
+        M::FilesNameFolder => "Nommez votre dossier",
+        M::FilesNameFolderPlaceholder => "Dossier sans titre",
+        M::FilesCreateFolder => "Créer le dossier",
+        M::FilesRenameFile => "Renommer le fichier",
+        M::FilesNameRequired => "Saisissez un nom.",
+        M::FilesDeletedFile => "Fichier supprimé : {name}",
+        M::FilesDeletedFolder => "Dossier supprimé : {path}",
+        M::FilesMoveFailed => "Échec du déplacement de {name} : {error}",
+        M::FilesZipFailed => "Échec du lancement de la compression : {error}",
+        M::FilesUnzipFailed => "Échec de la décompression de {name} : {error}",
+        M::FilesUnzipping => "Décompression de {name}…",
+        M::FilesSaveFailed => "Échec de l’enregistrement de {name} : {error}",
+        M::FilesSaveChanges => "Enregistrer les modifications de {name} ?",
+        M::FilesTooLarge => {
+            "Ce fichier est trop volumineux pour être ouvert ici (plus de {size}). Téléchargez-le plutôt."
+        }
+        M::FilesReadOnly => "Lecture seule",
+        M::FilesSelect => "Sélectionner {name}",
+        M::FilesList => "Fichiers",
+        M::FilesResize => "Redimensionner la liste des fichiers",
+        M::ConsoleCommand => "Commande",
+    }
+}
+
+pub fn plural(message: P) -> [&'static str; 2] {
+    match message {
+        P::FilesPasteCount => ["Coller {count} fichier", "Coller {count} fichiers"],
+        P::FilesDeleteTitle => ["Supprimer {count} fichier", "Supprimer {count} fichiers"],
+        P::FilesSelected => [
+            "{count} élément sélectionné",
+            "{count} éléments sélectionnés",
+        ],
+        P::FilesInClipboard => [
+            "{count} élément dans le presse-papiers",
+            "{count} éléments dans le presse-papiers",
+        ],
+        P::FilesZipFiles => [
+            "Compresser {count} fichier en {archive}",
+            "Compresser {count} fichiers en {archive}",
+        ],
+        P::FilesCopiedToClipboard => [
+            "{count} élément copié dans le presse-papiers",
+            "{count} éléments copiés dans le presse-papiers",
+        ],
+        P::FilesCutToClipboard => [
+            "{count} élément coupé dans le presse-papiers",
+            "{count} éléments coupés dans le presse-papiers",
+        ],
+        P::FilesUploading => [
+            "Importation de {count} fichier",
+            "Importation de {count} fichiers",
+        ],
+        P::FilesZipping => [
+            "Compression de {count} élément…",
+            "Compression de {count} éléments…",
+        ],
+    }
+}

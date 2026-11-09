@@ -3,10 +3,12 @@
 members = [
     "core", # lodestone_core
     "crates/lodestone-minecraft", # lodestone_minecraft, shared with launcher/
-    "dashboard/src-tauri" #lodestone-client
+    "crates/lodestone-trace", # lodestone_trace, debug traces, shared with launcher/
+    "crates/lodestone-connect", # lodestone_connect, Lodestone Connect tunnels, shared with launcher/
+    "dashboard/src-tauri" #lodestone-host
 ]
 # Build the client with `npm run tauri build` in dashboard/
-default-members = ["core", "crates/lodestone-minecraft"]
+default-members = ["core", "crates/lodestone-minecraft", "crates/lodestone-trace", "crates/lodestone-connect"]
 resolver = "2"
 
 [profile.github-release]

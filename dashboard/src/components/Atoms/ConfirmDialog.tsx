@@ -1,6 +1,8 @@
 import { Dialog, Transition } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from './Modal';
 import { Fragment, ReactNode, useEffect, useState } from 'react';
 import Button from './Button';
+import { useT } from 'i18n';
 
 export interface DialogProps {
   title: string;
@@ -25,38 +27,29 @@ export default function ConfirmDialog({
   isOpen,
   zIndex = 10,
 }: DialogProps) {
+  const t = useT();
   const [isLoading, setIsLoading] = useState(false);
   useEffect(() => {
     setIsLoading(false);
   }, [isOpen]);
 
   return (
-    <Transition
-      appear
-      show={isOpen}
-      as={Fragment}
-      enter="ease-out duration-200"
-      enterFrom="opacity-0"
-      enterTo="opacity-100"
-      leave="ease-in duration-150"
-      leaveFrom="opacity-100"
-      leaveTo="opacity-0"
-    >
+    <Transition appear show={isOpen} as={Fragment}>
       <Dialog
         as="div"
-        className="relative"
+        className="relative z-60"
         style={{
           zIndex,
         }}
         onClose={onClose}
       >
-        <div className="fixed inset-0 bg-scrim" />
+        <ModalBackdrop />
         <div className="fixed inset-0 overflow-y-auto drop-shadow-lg">
           <div className="flex min-h-full items-center justify-center">
-            <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-6 rounded-2xl border border-gray-faded/30 bg-gray-850 p-12">
+            <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-6 rounded-2xl border border-gray-faded/30 bg-gray-850 p-12">
               <Dialog.Title
                 as="h1"
-                className="text-h1 font-extrabold leading-tight tracking-tight text-gray-300"
+                className="text-h1 leading-tight font-extrabold tracking-tight text-gray-300"
               >
                 {title}
               </Dialog.Title>
@@ -68,14 +61,14 @@ export default function ConfirmDialog({
               </Dialog.Description>
               <div className="flex flex-row gap-2">
                 <Button
-                  label={closeButtonText || 'Cancel'}
+                  label={closeButtonText || t('common.cancel')}
                   className={onConfirm ? 'w-fit' : 'grow'}
                   onClick={onClose}
                   disabled={isLoading}
                 />
                 {onConfirm && (
                   <Button
-                    label={confirmButtonText || 'Confirm'}
+                    label={confirmButtonText || t('common.confirm')}
                     intention={type === 'danger' ? 'danger' : 'info'}
                     loading={isLoading}
                     onClick={async () => {
@@ -91,7 +84,7 @@ export default function ConfirmDialog({
                   />
                 )}
               </div>
-            </Dialog.Panel>
+            </ModalPanel>
           </div>
         </div>
       </Dialog>

@@ -25,7 +25,7 @@ fn get_instance(instance_uuid: &InstanceUuid) -> anyhow::Result<GameInstance> {
         .instances
         .get(instance_uuid)
         .map(|entry| entry.value().clone())
-        .ok_or_else(|| anyhow::anyhow!("Instance not found"))
+        .ok_or_else(|| anyhow::anyhow!("Server not found"))
 }
 
 #[op2]
@@ -60,7 +60,7 @@ async fn start_instance(
                 block,
             )
             .await
-            .context("Failed to start instance")
+            .context("Failed to start server")
     })
     .await
 }
@@ -82,7 +82,7 @@ async fn stop_instance(
                 block,
             )
             .await
-            .context("Failed to stop instance")
+            .context("Failed to stop server")
     })
     .await
 }
@@ -104,7 +104,7 @@ async fn restart_instance(
                 block,
             )
             .await
-            .context("Failed to restart instance")
+            .context("Failed to restart server")
     })
     .await
 }
@@ -122,7 +122,7 @@ async fn kill_instance(
                 macro_pid: task_pid,
             })
             .await
-            .context("Failed to kill instance")
+            .context("Failed to kill server")
     })
     .await
 }
@@ -160,7 +160,7 @@ async fn send_command(
                     .unwrap_or(CausedBy::Unknown),
             )
             .await
-            .context("Failed to send command to instance")
+            .context("Failed to send command to server")
     })
     .await
 }
@@ -305,7 +305,7 @@ async fn set_instance_name(
         instance
             .set_name(name)
             .await
-            .context("Failed to set instance name")
+            .context("Failed to set server name")
     })
     .await
 }
@@ -323,7 +323,7 @@ async fn set_instance_description(
         instance
             .set_description(description)
             .await
-            .context("Failed to set instance description")
+            .context("Failed to set server description")
     })
     .await
 }
@@ -341,7 +341,7 @@ async fn set_instance_port(
         instance
             .set_port(port)
             .await
-            .context("Failed to set instance port")
+            .context("Failed to set server port")
     })
     .await
 }
@@ -358,7 +358,7 @@ async fn set_instance_auto_start(
         instance
             .set_auto_start(auto_start)
             .await
-            .context("Failed to set instance auto start")
+            .context("Failed to set server auto start")
     })
     .await
 }
@@ -373,7 +373,7 @@ async fn is_rcon_available(
         match &instance {
             GameInstance::MinecraftInstance(v) => Ok(v.get_rcon().lock().await.is_some()),
             GameInstance::GenericInstance(_) => {
-                bail!("RCON not available for atom instances")
+                bail!("RCON not available for atom servers")
             }
         }
     })
@@ -393,7 +393,7 @@ async fn try_send_rcon_command(
         match &instance {
             GameInstance::MinecraftInstance(v) => Ok(v.send_rcon(&command).await.ok()),
             GameInstance::GenericInstance(_) => {
-                bail!("RCON not available for atom instances")
+                bail!("RCON not available for atom servers")
             }
         }
     })
@@ -423,7 +423,7 @@ async fn send_rcon_command(
                 }
             }
             GameInstance::GenericInstance(_) => {
-                bail!("RCON not available for atom instances")
+                bail!("RCON not available for atom servers")
             }
         }
     })
@@ -441,13 +441,13 @@ async fn wait_till_rcon_available_impl(instance_uuid: InstanceUuid) -> anyhow::R
                     break Ok(());
                 }
                 if !app_state().instances.contains_key(&instance_uuid) {
-                    bail!("Instance was removed while waiting for RCON");
+                    bail!("Server was removed while waiting for RCON");
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         }
         GameInstance::GenericInstance(_) => {
-            bail!("RCON not available for atom instances")
+            bail!("RCON not available for atom servers")
         }
     }
 }

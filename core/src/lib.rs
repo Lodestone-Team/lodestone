@@ -74,7 +74,6 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 use traits::{t_configurable::TConfigurable, t_server::MonitorReport, t_server::TServer};
 use types::{DotLodestoneConfig, InstanceUuid};
-use uuid::Uuid;
 
 /// `#[test]`s that export the TypeScript bindings of types from `lodestone_minecraft` into
 /// `bindings/`, like the tests `#[ts(export)]` adds for the core's own types.
@@ -96,12 +95,14 @@ pub(crate) use export_shared_bindings;
 pub mod auth;
 pub mod capabilities;
 mod command_console;
+mod core_uuid;
 pub mod db;
 #[cfg(feature = "deno")]
 mod deno_ops;
 mod docker_bridge;
 pub mod error;
 // its event filters are used by macros, which need the `deno` feature
+pub mod connect;
 #[cfg_attr(not(feature = "deno"), allow(dead_code))]
 mod event_broadcaster;
 mod events;
@@ -109,8 +110,11 @@ mod extension;
 pub mod global_settings;
 mod handlers;
 pub mod implementations;
+mod listen;
+pub mod local_claim;
 pub mod macro_executor;
 mod migration;
+mod minecraft_links;
 mod modpack;
 mod modrinth;
 mod mods;
@@ -119,8 +123,11 @@ mod persist;
 pub mod playitgg;
 mod port_manager;
 pub mod prelude;
+pub mod product;
+mod public_listing;
 pub mod tauri_export;
 mod tls;
+pub mod trace;
 mod traits;
 pub mod types;
 pub mod util;
@@ -205,6 +212,21 @@ pub(crate) mod test_util {
                 Arc::new(crate::modrinth::fake::FakeModrinth::default()),
                 crate::modpack::store::PackStore::new(dir.join("modpacks")),
             )),
+            public_listing: Arc::new(
+                crate::public_listing::PublicListing::load(
+                    dir.join("public_listing.json"),
+                    dir.join("client-packs"),
+                )
+                .await,
+            ),
+            // never Minecraft's real services: tests that link accounts use a mock
+            minecraft_links: Arc::new(
+                crate::minecraft_links::MinecraftLinks::load(
+                    dir.join("minecraft_links.json"),
+                    "http://127.0.0.1:9/minecraft/profile",
+                )
+                .await,
+            ),
             global_settings: Arc::new(Mutex::new(global_settings)),
             macro_executor: crate::macro_executor::MacroExecutor::new(
                 tx.clone(),
@@ -217,6 +239,18 @@ pub(crate) mod test_util {
                 dir.join("docker_bridge.json"),
             )
             .await,
+            local_claims: Arc::new(crate::local_claim::LocalClaims::new(dir)),
+            // an address nothing answers on: tests never reach connect.lodestone.cc
+            connect: Arc::new(crate::connect::ConnectShares::new(
+                dir.join("connect"),
+                lodestone_connect::Service::parse("http://127.0.0.1:9").unwrap(),
+                lodestone_connect::GatherOptions {
+                    portmap: false,
+                    loopback_only: true,
+                },
+            )),
+            product: crate::product::CoreProduct::Core,
+            launched_by: crate::product::LaunchedBy::Direct,
         }
     }
 
@@ -229,7 +263,13 @@ pub(crate) mod test_util {
             .unwrap();
         let addr = listener.local_addr().unwrap();
         let app = axum::Router::new().nest("/api/v1", crate::api_router(state));
-        tokio::spawn(async move { axum::serve(listener, app).await });
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+        });
         format!("http://{addr}/api/v1")
     }
 }
@@ -266,6 +306,18 @@ pub struct AppState {
     tls_info: Arc<tls::TlsInfo>,
     /// The Modrinth client, stored modpacks and mod change tracking.
     mods: Arc<mods::ModsState>,
+    /// The instances listed for Lodestone Launcher, and the caches of the public routes.
+    public_listing: Arc<public_listing::PublicListing>,
+    /// Lodestone users' Minecraft accounts.
+    minecraft_links: Arc<minecraft_links::MinecraftLinks>,
+    /// Owner access claimed through the data folder, see [`local_claim`].
+    local_claims: Arc<local_claim::LocalClaims>,
+    /// The instances shared with friends through Lodestone Connect.
+    connect: Arc<connect::ConnectShares>,
+    /// Lodestone Host or the standalone core, reported in `/info`. Fixed at startup.
+    product: product::CoreProduct,
+    /// What started the core, reported in `/info`. Fixed at startup.
+    launched_by: product::LaunchedBy,
 }
 
 impl AppState {
@@ -311,10 +363,12 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_instance_routes(shared_state.clone()))
         .merge(get_system_routes(shared_state.clone()))
         .merge(get_checks_routes(shared_state.clone()))
+        .merge(handlers::connect::get_connect_routes(shared_state.clone()))
         .merge(get_user_routes(shared_state.clone()))
         .merge(get_api_key_routes(shared_state.clone()))
         .merge(get_core_info_routes(shared_state.clone()))
         .merge(get_setup_route(shared_state.clone()))
+        .merge(local_claim::get_local_claim_routes(shared_state.clone()))
         .merge(get_monitor_routes(shared_state.clone()))
         .merge(get_instance_macro_routes(shared_state.clone()))
         .merge(get_instance_fs_routes(shared_state.clone()))
@@ -326,6 +380,20 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_modrinth_routes(shared_state.clone()))
         .merge(get_instance_mods_routes(shared_state.clone()))
         .merge(get_modpack_routes(shared_state.clone()))
+        .merge(handlers::server_content::get_server_content_routes(
+            shared_state.clone(),
+        ))
+        .merge(handlers::public_instances::get_public_instance_routes(
+            shared_state.clone(),
+        ))
+        .merge(handlers::launcher_live::get_launcher_live_routes(
+            shared_state.clone(),
+        ))
+        .merge(handlers::minecraft_links::get_minecraft_link_routes(
+            shared_state.clone(),
+        ))
+        .merge(handlers::trace::get_trace_routes(shared_state.clone()))
+        .layer(axum::middleware::from_fn(crate::trace::http_middleware))
         .layer(cors)
         .layer(trace)
 }
@@ -543,6 +611,7 @@ fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
         tracing_subscriber::registry()
             .with(fmt_layer_stdout)
             .with(fmt_layer_file)
+            .with(crate::trace::TraceLayer.with_filter(crate::trace::layer_filter()))
             .with(EnvFilter::from("lodestone_core=debug"))
             .init();
     }
@@ -582,10 +651,28 @@ fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
             // .with(ErrorLayer::default())
             .with(fmt_layer_stdout)
             .with(fmt_layer_file)
+            .with(crate::trace::TraceLayer.with_filter(crate::trace::layer_filter()))
             .init();
     }
 
     _guard
+}
+
+/// What the core prints about the first-time setup key, which lets whoever has it
+/// create the owner account.
+///
+/// It goes to the console only (`println!`), never through the logger, so the key is
+/// not written to the log files. Under Lodestone Host (`is_host`) nothing is printed:
+/// the Host makes the owner account through the local claim and doesn't need the key,
+/// and it keeps the core's console output in a log file of its own.
+fn setup_key_notice(key: &str, is_host: bool) -> Option<String> {
+    (!is_host).then(|| {
+        format!(
+            "First time setup key: {key}\n\
+             This is a one-time, in-memory randomly generated key that allows you to create the owner account.\n\
+             DO NOT SHARE THIS KEY WITH ANYONE!"
+        )
+    })
 }
 
 fn output_sys_info() {
@@ -679,8 +766,9 @@ async fn check_for_core_update() {
 pub struct Args {
     #[arg(long, default_value = "false")]
     pub is_cli: bool,
-    #[arg(long, default_value = "false")]
-    pub is_desktop: bool,
+    /// Set by Lodestone Host, which runs the core inside its own process.
+    #[arg(long, alias = "is-desktop", default_value = "false")]
+    pub is_host: bool,
     #[arg(short, long)]
     pub lodestone_path: Option<PathBuf>,
     /// Turn off macros, atom instances, extensions, instance scripts and custom Java
@@ -690,8 +778,38 @@ pub struct Args {
     pub disable_code_execution: bool,
 }
 
+/// How a core run by another program is started, beyond [`Args`]. The core's own
+/// binary sets these from its command line (`--port`, `--stop-with-stdin`); Lodestone
+/// Host's GPUI app passes them when it runs the core as a child process.
+#[derive(Debug, Clone, Default)]
+pub struct RunOptions {
+    /// Serve on exactly this port, and fail when it is taken. Without it the core uses
+    /// 16662: a release build fails when it is taken, a debug build tries the next ports.
+    pub port: Option<u16>,
+    /// Shut down (stopping the servers, as on Ctrl+C) when stdin closes. A parent
+    /// process that holds the core's stdin then stops it by closing the pipe, and the
+    /// core also stops when the parent dies, on every system.
+    pub stop_with_stdin: bool,
+}
+
 pub async fn run(
     args: Args,
+) -> Result<
+    (
+        impl Future<Output = ()>,
+        AppState,
+        tracing_appender::non_blocking::WorkerGuard,
+        tokio::sync::oneshot::Sender<()>,
+    ),
+    Error,
+> {
+    run_with(args, RunOptions::default()).await
+}
+
+/// [`run`], with [`RunOptions`].
+pub async fn run_with(
+    args: Args,
+    options: RunOptions,
 ) -> Result<
     (
         impl Future<Output = ()>,
@@ -707,6 +825,9 @@ pub async fn run(
     // `ServerConfig::builder()` would panic (deno's fetch(), the TLS listener). Install
     // aws-lc-rs explicitly before anything touches TLS. Errors only if one is already set.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let product = product::CoreProduct::from_is_host(args.is_host);
+    let in_docker = product::in_docker();
+    let launched_by = product::LaunchedBy::from_flags(args.is_host, args.is_cli, in_docker);
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
@@ -750,10 +871,10 @@ pub async fn run(
         source: Report::msg("Failed to set current dir"),
     })?;
     let guard = setup_tracing();
-    if args.is_desktop {
-        info!("Lodestone Core running in Tauri");
+    if args.is_host {
+        info!("Lodestone Core running in Lodestone Host");
     }
-    if !args.is_cli && !args.is_desktop {
+    if !args.is_cli && !args.is_host && !in_docker {
         warn!("Lodestone Core is not meant to be run as a standalone program. Please use Lodestone CLI instead.");
         warn!("Download it here: https://github.com/Lodestone-Team/lodestone_cli")
     }
@@ -817,9 +938,11 @@ pub async fn run(
 
     let first_time_setup_key = if !users_manager.as_ref().iter().any(|(_, user)| user.is_owner) {
         let key = rand_alphanumeric(16);
-        info!("First time setup key: {key}");
-        info!("This is a one-time, in-memory randomly generated key that allows you to create the owner account.");
-        info!("DO NOT SHARE THIS KEY WITH ANYONE!");
+        info!("No owner account yet");
+        // The key goes to the console only: the log files keep no secret.
+        if let Some(notice) = setup_key_notice(&key, args.is_host) {
+            println!("{notice}");
+        }
         Some(key)
     } else {
         None
@@ -855,14 +978,25 @@ pub async fn run(
     for (_, instance) in snapshot_instances(&instances) {
         allocated_ports.insert(instance.port().await);
     }
+    // claims a previous run left are never finished
+    let local_claims = local_claim::LocalClaims::new(&lodestone_path);
+    local_claims.clean_up().await;
     let shared_state = AppState {
+        local_claims: Arc::new(local_claims),
+        connect: Arc::new(connect::ConnectShares::new(
+            connect::connect_dir(path_to_stores()),
+            connect::ConnectShares::service_from_env(),
+            lodestone_connect::GatherOptions::default(),
+        )),
+        product,
+        launched_by,
         instances: Arc::new(instances),
         users_manager: Arc::new(RwLock::new(users_manager)),
         events_buffer: Arc::new(Mutex::new(AllocRingBuffer::new(512))),
         console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
         monitor_buffer: Arc::new(Mutex::new(HashMap::new())),
         event_broadcaster: tx.clone(),
-        uuid: Uuid::new_v4().to_string(),
+        uuid: core_uuid::load_or_create(&path_to_stores().join("core_uuid")),
         up_since: chrono::Utc::now().timestamp(),
         port_manager: Arc::new(Mutex::new(PortManager::new(allocated_ports))),
         first_time_setup_key: Arc::new(Mutex::new(first_time_setup_key)),
@@ -879,6 +1013,20 @@ pub async fn run(
             Arc::new(modrinth::ModrinthClient::new()),
             modpack::store::PackStore::new(path_to_tmp().join("modpacks")),
         )),
+        public_listing: Arc::new(
+            public_listing::PublicListing::load(
+                path_to_stores().join("public_listing.json"),
+                path_to_tmp().join("client-packs"),
+            )
+            .await,
+        ),
+        minecraft_links: Arc::new(
+            minecraft_links::MinecraftLinks::load(
+                path_to_stores().join("minecraft_links.json"),
+                minecraft_links::MINECRAFT_PROFILE_URL,
+            )
+            .await,
+        ),
         global_settings: Arc::new(Mutex::new(global_settings)),
         macro_executor,
         sqlite_pool: Pool::connect_with(
@@ -904,6 +1052,9 @@ pub async fn run(
         .await?,
     };
 
+    // the core's events, for the owner's debug traces (local only)
+    crate::trace::forward_events(shared_state.event_broadcaster.subscribe());
+
     if let Some(key) = stored_playitgg_key {
         let playitgg_key = shared_state.playitgg_key.clone();
         tokio::spawn(async move {
@@ -920,10 +1071,20 @@ pub async fn run(
         shared_state.users_manager.clone(),
     ));
 
-    command_console::init(shared_state.clone());
+    let (stdin_closed_tx, stdin_closed_rx) = tokio::sync::oneshot::channel::<()>();
+    command_console::init(
+        shared_state.clone(),
+        options.stop_with_stdin.then_some(stdin_closed_tx),
+    );
     init_app_state(shared_state.clone());
     // mod changes made while an instance runs need a restart; this notices the restart
     tokio::spawn(shared_state.mods.restart.clone().watch(tx.subscribe()));
+
+    // instances shared with friends when the core last stopped
+    {
+        let state = shared_state.clone();
+        tokio::spawn(async move { state.connect.resume_all(&state).await });
+    }
 
     for (_, instance) in snapshot_instances(&shared_state.instances) {
         if instance.auto_start().await {
@@ -1025,23 +1186,27 @@ pub async fn run(
 
     // Pick the port now, so a port conflict is reported to the caller of `run` instead of
     // exiting the process from inside the library.
-    #[allow(unused_mut)]
-    let mut port = 16_662_u16;
-    #[cfg(not(debug_assertions))]
-    if port_in_use(port) {
-        return Err(Error {
-            kind: ErrorKind::Internal,
-            source: Report::msg(format!(
-                "Port {port} is already in use. Is another Lodestone Core running?"
-            )),
-        });
+    let mut port = options.port.unwrap_or(16_662_u16);
+    if options.port.is_some() || cfg!(not(debug_assertions)) {
+        if port_in_use(port) {
+            return Err(Error {
+                kind: ErrorKind::Internal,
+                source: Report::msg(format!(
+                    "Port {port} is already in use. Is another Lodestone Core running?"
+                )),
+            });
+        }
+    } else {
+        while port_in_use(port) {
+            debug!("Port {port} is already in use, trying next port");
+            port += 1;
+        }
     }
-    #[cfg(debug_assertions)]
-    while port_in_use(port) {
-        debug!("Port {port} is already in use, trying next port");
-        port += 1;
-    }
-    let addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], port));
+    let listeners = listen::bind_all_interfaces(port).map_err(|e| Error {
+        kind: ErrorKind::Internal,
+        source: Report::msg(format!("Failed to listen on port {port}: {e}")),
+    })?;
+    let listen_description = listeners.describe();
 
     Ok((
         {
@@ -1052,9 +1217,13 @@ pub async fn run(
                     // a page to open in a browser to trust the core's certificate
                     .route("/", axum::routing::get(tls::root_page))
                     .nest("/api/v1", api_routes);
-                let axum_server_handle = axum_server::Handle::<SocketAddr>::new();
+                let axum_server_handles: Vec<_> = listeners
+                    .listeners
+                    .iter()
+                    .map(|_| axum_server::Handle::<SocketAddr>::new())
+                    .collect();
                 let server_task = tokio::spawn({
-                    let axum_server_handle = axum_server_handle.clone();
+                    let axum_server_handles = axum_server_handles.clone();
                     async move {
                         let https = tls_setup.config.is_some();
                         let acceptor_allows_lan_http = allow_lan_http.clone();
@@ -1068,7 +1237,7 @@ pub async fn run(
                             } else {
                                 "from this machine only"
                             };
-                            info!("Lodestone Core live on {addr}, over HTTPS, and plain HTTP {plain_http}");
+                            info!("Lodestone Core live on {listen_description}, over HTTPS, and plain HTTP {plain_http}");
                         } else {
                             warn!(
                                 "HTTPS is not available. Lodestone Core is serving plain HTTP on all network interfaces, \
@@ -1076,14 +1245,35 @@ pub async fn run(
                                  To enable HTTPS, put cert.pem and key.pem in {}",
                                 tls_dir.display()
                             );
-                            info!("Lodestone Core live on {addr}, over plain HTTP");
+                            info!("Lodestone Core live on {listen_description}, over plain HTTP");
                         }
-                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc for setup instructions.");
-                        axum_server::bind(addr)
-                            .acceptor(acceptor)
-                            .handle(axum_server_handle)
-                            .serve(app.into_make_service())
-                            .await
+                        info!("Note that Lodestone Core does not host the web dashboard itself. Please visit https://www.lodestone.cc/host for setup instructions.");
+                        // one server per listener (two only where there are no dual-stack
+                        // sockets), all behind the same acceptor, so the same TLS and
+                        // LAN-HTTP rules apply whichever address family a client uses
+                        futures::future::try_join_all(
+                            listeners
+                                .listeners
+                                .into_iter()
+                                .zip(axum_server_handles)
+                                .map(|(listener, handle)| {
+                                    let acceptor = acceptor.clone();
+                                    let app = app.clone();
+                                    async move {
+                                        axum_server::from_tcp(listener)?
+                                            .acceptor(acceptor)
+                                            .handle(handle)
+                                            .serve(
+                                                app.into_make_service_with_connect_info::<
+                                                    SocketAddr,
+                                                >(),
+                                            )
+                                            .await
+                                    }
+                                }),
+                        )
+                        .await
+                        .map(|_| ())
                     }
                 });
                 // capture file into the move block
@@ -1097,10 +1287,21 @@ pub async fn run(
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
                     _ = shutdown_rx => info!("Shutdown signal received"),
+                    // only with `stop_with_stdin`: otherwise the sender is dropped at
+                    // once, the receive fails and this branch is never taken
+                    Ok(()) = stdin_closed_rx => info!("Stdin closed, shutting down"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
                 info!("Shutting down web server");
-                axum_server_handle.shutdown();
+                for handle in &axum_server_handles {
+                    handle.shutdown();
+                }
+                // friends joined through Lodestone Connect hear that sharing stopped
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    shared_state.connect.stop_all(),
+                )
+                .await;
                 if let Err(e) = shared_state
                     .users_manager
                     .read()
@@ -1293,5 +1494,17 @@ mod restore_tests {
         }
 
         assert_eq!(snapshot_files(&instances), before);
+    }
+}
+
+#[cfg(test)]
+mod setup_key_tests {
+    use super::setup_key_notice;
+
+    #[test]
+    fn the_setup_key_goes_to_the_console_but_never_under_the_host() {
+        let notice = setup_key_notice("abc123", false).expect("a standalone core shows it");
+        assert!(notice.contains("First time setup key: abc123"));
+        assert_eq!(setup_key_notice("abc123", true), None);
     }
 }

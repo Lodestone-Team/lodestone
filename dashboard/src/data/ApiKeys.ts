@@ -6,6 +6,7 @@ import { CreatedApiKey } from 'bindings/CreatedApiKey';
 import { PublicUser } from 'bindings/PublicUser';
 import { UserPermission } from 'bindings/UserPermission';
 import { CoreConnectionInfo } from 'data/LodestoneContext';
+import { t } from 'i18n';
 import { ApiError, axiosWrapper, errorToString } from 'utils/util';
 
 /*
@@ -109,24 +110,24 @@ export const removeApiKeyFromCache = (
 
 /* Expiry */
 
+/** The expiry choices: `id` is the form value, `labelKey` its text */
 export const API_KEY_EXPIRY_CHOICES = [
-  { label: '30 days', days: 30 },
-  { label: '90 days', days: 90 },
-  { label: '1 year', days: 365 },
-  { label: 'Never', days: null },
+  { id: '30d', labelKey: 'settings.apiKeys.expiry.30d', days: 30 },
+  { id: '90d', labelKey: 'settings.apiKeys.expiry.90d', days: 90 },
+  { id: '1y', labelKey: 'settings.apiKeys.expiry.1y', days: 365 },
+  { id: 'never', labelKey: 'settings.apiKeys.expiry.never', days: null },
 ] as const;
 
-export type ApiKeyExpiryLabel =
-  (typeof API_KEY_EXPIRY_CHOICES)[number]['label'];
+export type ApiKeyExpiry = (typeof API_KEY_EXPIRY_CHOICES)[number]['id'];
 
-export const DEFAULT_API_KEY_EXPIRY: ApiKeyExpiryLabel = '90 days';
+export const DEFAULT_API_KEY_EXPIRY: ApiKeyExpiry = '90d';
 
 /** The expires_at, in unix seconds, of an expiry choice made at nowMs. */
 export const expiresAtFor = (
-  label: ApiKeyExpiryLabel,
+  expiry: ApiKeyExpiry,
   nowMs: number = Date.now()
 ): number | null => {
-  const choice = API_KEY_EXPIRY_CHOICES.find((c) => c.label === label);
+  const choice = API_KEY_EXPIRY_CHOICES.find((c) => c.id === expiry);
   if (!choice || choice.days === null) return null;
   return Math.floor(nowMs / 1000) + choice.days * 24 * 60 * 60;
 };
@@ -170,16 +171,30 @@ export const countPermissions = (permissions: UserPermission) => {
   return { permissions: granted, instances: instances.size };
 };
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-
-/** "Full access", or "Custom: 3 instances, 5 permissions". */
+/**
+ * "Full access", "Custom: 3 servers, 5 permissions", or the fixed scope of a
+ * Lodestone Launcher device, in the current language (call it at render).
+ */
 export const apiKeyScopeSummary = (scope: ApiKeyScope) => {
-  if (scope.type === 'full') return 'Full access';
+  if (scope.type === 'full') return t('settings.apiKeys.scope.full');
+  if (scope.type === 'launcher') {
+    return t(
+      scope.console_read && scope.console_write
+        ? 'settings.apiKeys.scope.launcherConsole'
+        : scope.console_read
+          ? 'settings.apiKeys.scope.launcherConsoleRead'
+          : scope.console_write
+            ? 'settings.apiKeys.scope.launcherConsoleWrite'
+            : 'settings.apiKeys.scope.launcher'
+    );
+  }
   const { permissions, instances } = countPermissions(scope.permissions);
-  return `Custom: ${plural(instances, 'instance')}, ${plural(
-    permissions,
-    'permission'
-  )}`;
+  return t('settings.apiKeys.scope.custom', {
+    servers: t('settings.apiKeys.scope.servers', { count: instances }),
+    permissions: t('settings.apiKeys.scope.permissions', {
+      count: permissions,
+    }),
+  });
 };
 
 // Mirrors User::can_perform_action in the core: admins have these on every
@@ -226,7 +241,7 @@ export const apiKeyErrorMessage = (error: unknown) => {
     error.status === 403 &&
     error.message.includes('signed-in session')
   ) {
-    return 'API keys can only be managed when you sign in with your password, not with an API key.';
+    return t('settings.apiKeys.passwordSessionOnly');
   }
   return errorToString(error);
 };

@@ -2,26 +2,34 @@
 //! environment variables. The launcher's Settings page edits the global values; an
 //! instance's Settings tab edits its overrides of them.
 
-use gpui::{
-    App, AppContext as _, Context, Entity, IntoElement, SharedString, Window, div, prelude::*, px,
-};
+use gpui::{App, AppContext as _, Context, Entity, IntoElement, SharedString, div, prelude::*};
+use launcher_core::wording;
 use launcher_core::{
     instances::{Resolution, WindowSettings, format_env, parse_env},
     settings::max_ram_is_high,
 };
 
 use crate::{
-    components::{TextInput, Toggle},
-    instances::thousands,
-    theme::{self, colors, fonts, text, weights},
+    components::TextInput,
+    i18n::{CommonMsg, InstanceSettingsMsg as M, Text, format, t, tr},
+    theme::{self, text, weights},
 };
 
-/// Parses memory in MiB, with an optional `G`/`M` suffix: `4G`, `4096`, `512M`.
+/// Parses memory in MiB, with an optional `G`/`M` suffix: `4G`, `4096`, `512M`, and
+/// the French units: `4 Go`, `512 Mo`. A decimal comma is read as a point.
 pub fn parse_ram(text: &str) -> Option<u32> {
-    let text = text.trim().to_ascii_uppercase();
-    let (number, factor) = if let Some(gib) = text.strip_suffix("GB").or(text.strip_suffix('G')) {
+    let text = text.trim().to_ascii_uppercase().replace(',', ".");
+    let (number, factor) = if let Some(gib) = text
+        .strip_suffix("GB")
+        .or(text.strip_suffix("GO"))
+        .or(text.strip_suffix('G'))
+    {
         (gib.trim(), 1024.0)
-    } else if let Some(mib) = text.strip_suffix("MB").or(text.strip_suffix('M')) {
+    } else if let Some(mib) = text
+        .strip_suffix("MB")
+        .or(text.strip_suffix("MO"))
+        .or(text.strip_suffix('M'))
+    {
         (mib.trim(), 1.0)
     } else {
         (text.as_str(), 1.0)
@@ -45,20 +53,22 @@ pub struct MemoryCheck {
 pub fn check_memory(min: &str, max: &str, total_bytes: Option<u64>) -> MemoryCheck {
     let (Some(min), Some(max)) = (parse_ram(min), parse_ram(max)) else {
         return MemoryCheck {
-            error: Some(
-                "Enter memory in MB (such as 4096) or GB (such as 4G), at least 256 MB.".into(),
-            ),
+            error: Some(t(M::MemoryFormat).into()),
             ..MemoryCheck::default()
         };
     };
     if min > max {
         return MemoryCheck {
-            error: Some("The minimum is more than the maximum.".into()),
+            error: Some(t(M::MemoryMinAboveMax).into()),
             ..MemoryCheck::default()
         };
     }
     let warning = max_ram_is_high(max, total_bytes).then(|| {
-        "That is more than three quarters of this Mac's memory, which leaves too little for macOS and your other apps.".to_string()
+        tr!(
+            M::MemoryTooHigh,
+            computer = t(CommonMsg::ThisComputer),
+            os = wording::OS
+        )
     });
     MemoryCheck {
         values: Some((min, max)),
@@ -70,30 +80,31 @@ pub fn check_memory(min: &str, max: &str, total_bytes: Option<u64>) -> MemoryChe
 /// "This Mac has 16 GB of memory."
 pub fn total_memory_label(total_bytes: Option<u64>) -> Option<SharedString> {
     total_bytes.map(|bytes| {
-        format!(
-            "This Mac has {} GB of memory.",
-            thousands(bytes / (1024 * 1024 * 1024))
+        tr!(
+            M::TotalMemory,
+            computer = t(CommonMsg::ThisComputerStart),
+            size = format::memory_mb(bytes / (1024 * 1024))
         )
         .into()
     })
 }
 
-/// "512 MB – 4,096 MB".
+/// "512 MB – 4 GB".
 pub fn memory_label((min, max): (u32, u32)) -> String {
-    format!(
-        "{} MB – {} MB",
-        thousands(min.into()),
-        thousands(max.into())
+    tr!(
+        M::MemoryRange,
+        min = format::memory_mb(min.into()),
+        max = format::memory_mb(max.into())
     )
 }
 
 pub fn window_label(window: &WindowSettings) -> String {
     let size = match window.resolution {
         Some(r) => format!("{} × {}", r.width, r.height),
-        None => "The game's default size".to_string(),
+        None => t(M::WindowDefaultSize).to_string(),
     };
     if window.fullscreen {
-        format!("{size}, fullscreen")
+        tr!(M::WindowFullscreen, size = size)
     } else {
         size
     }
@@ -116,10 +127,34 @@ pub fn input<V: 'static>(
     text: String,
     placeholder: &str,
 ) -> Entity<TextInput> {
-    let placeholder = placeholder.to_string();
+    input_with(cx, text, placeholder.to_string())
+}
+
+/// A text field with a placeholder that can be a message, which follows the
+/// language: `input_with(cx, text, InstanceSettingsMsg::Value)`.
+pub fn input_with<V: 'static>(
+    cx: &mut Context<V>,
+    text: String,
+    placeholder: impl Into<Text>,
+) -> Entity<TextInput> {
+    labeled(cx, text, placeholder, "", Text::default())
+}
+
+/// A text field named `label` for assistive technology and automation, which find it
+/// by `automation_id`.
+pub fn labeled<V: 'static>(
+    cx: &mut Context<V>,
+    text: String,
+    placeholder: impl Into<Text>,
+    automation_id: &'static str,
+    label: impl Into<Text>,
+) -> Entity<TextInput> {
+    let (placeholder, label) = (placeholder.into(), label.into());
     cx.new(|cx| {
         TextInput::new(cx)
             .with_placeholder(placeholder)
+            .with_label(label)
+            .with_automation_id(automation_id)
             .with_text(text)
     })
 }
@@ -141,23 +176,61 @@ impl Fields {
             .map(|r| (r.width.to_string(), r.height.to_string()))
             .unwrap_or_default();
         Self {
-            min_ram: input(cx, values.memory.0.to_string(), "512"),
-            max_ram: input(cx, values.memory.1.to_string(), "4096"),
-            jvm_args: input(cx, values.jvm_args.to_string(), "-XX:+UseG1GC"),
-            game_args: input(
+            min_ram: labeled(cx, values.memory.0.to_string(), "512", "min-ram", M::Memory),
+            max_ram: labeled(
+                cx,
+                values.memory.1.to_string(),
+                "4096",
+                "max-ram",
+                M::Memory,
+            ),
+            jvm_args: labeled(
+                cx,
+                values.jvm_args.to_string(),
+                "-XX:+UseG1GC",
+                "jvm-args",
+                M::JvmArguments,
+            ),
+            game_args: labeled(
                 cx,
                 values.game_args.to_string(),
                 "--quickPlaySingleplayer World",
+                "game-args",
+                M::GameArguments,
             ),
-            width: input(cx, width, "854"),
-            height: input(cx, height, "480"),
-            env: input(
+            width: labeled(cx, width, "854", "window-width", M::Window),
+            height: labeled(cx, height, "480", "window-height", M::Window),
+            env: labeled(
                 cx,
                 format_env(values.env),
-                "MESA_GL_VERSION_OVERRIDE=4.5 NAME=\"a value\"",
+                M::EnvPlaceholder,
+                "environment-variables",
+                M::EnvironmentVariables,
             ),
             fullscreen: values.window.fullscreen,
         }
+    }
+
+    /// Puts `values` back in the fields, for "Discard".
+    pub fn set<V: 'static>(&mut self, values: &Values<'_>, cx: &mut Context<V>) {
+        let (width, height) = values
+            .window
+            .resolution
+            .map(|r| (r.width.to_string(), r.height.to_string()))
+            .unwrap_or_default();
+        let texts = [
+            (&self.min_ram, values.memory.0.to_string()),
+            (&self.max_ram, values.memory.1.to_string()),
+            (&self.jvm_args, values.jvm_args.to_string()),
+            (&self.game_args, values.game_args.to_string()),
+            (&self.width, width),
+            (&self.height, height),
+            (&self.env, format_env(values.env)),
+        ];
+        for (input, text_) in texts {
+            input.update(cx, |input, cx| input.set_text(text_, cx));
+        }
+        self.fullscreen = values.window.fullscreen;
     }
 
     fn text(input: &Entity<TextInput>, cx: &App) -> String {
@@ -188,7 +261,7 @@ impl Fields {
                 let parse = |s: &str| s.parse::<u32>().ok().filter(|v| (100..=16384).contains(v));
                 match (parse(&width), parse(&height)) {
                     (Some(width), Some(height)) => Some(Resolution { width, height }),
-                    _ => return Err("The window size needs a width and a height in pixels.".into()),
+                    _ => return Err(t(M::WindowSizeInvalid).into()),
                 }
             }
         };
@@ -199,53 +272,8 @@ impl Fields {
     }
 
     pub fn env(&self, cx: &App) -> Result<std::collections::BTreeMap<String, String>, String> {
-        parse_env(&Self::text(&self.env, cx)).map_err(|err| format!("Environment variables: {err}"))
+        parse_env(&Self::text(&self.env, cx)).map_err(|err| tr!(M::EnvInvalid, error = err))
     }
-}
-
-/// A section heading with a hint.
-pub fn section(title: &'static str, hint: Option<SharedString>) -> gpui::Div {
-    div().flex().flex_col().gap_2().child(
-        div()
-            .flex()
-            .flex_row()
-            .items_baseline()
-            .gap_2()
-            .child(
-                div()
-                    .font_family(fonts::HEADING)
-                    .text_size(theme::text_size(text::H3))
-                    .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_300)
-                    .child(title),
-            )
-            .when_some(hint, |this, hint| {
-                this.child(
-                    div()
-                        .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::GRAY_500)
-                        .child(hint),
-                )
-            }),
-    )
-}
-
-pub fn field(caption: &'static str, input: impl IntoElement) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .flex_1()
-        .gap_1()
-        .child(caption_text(caption))
-        .child(input)
-}
-
-pub fn caption_text(caption: &'static str) -> impl IntoElement {
-    div()
-        .text_size(theme::text_size(text::SMALL))
-        .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_500)
-        .child(caption)
 }
 
 /// A line of feedback under a field.
@@ -255,104 +283,6 @@ pub fn status(text_: impl Into<SharedString>, color: theme::Color) -> impl IntoE
         .font_weight(weights::BOLD.into())
         .text_color(color)
         .child(text_.into())
-}
-
-/// A toggle with its label.
-pub fn labelled_toggle(
-    id: &'static str,
-    label: &'static str,
-    value: bool,
-    on_change: impl Fn(&bool, &mut Window, &mut App) + 'static,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .child(Toggle::new(id, value).on_change(on_change))
-        .child(
-            div()
-                .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_400)
-                .child(label),
-        )
-}
-
-/// What an instance shows while it follows the launcher's setting.
-pub fn inherited(text_: impl Into<SharedString>) -> impl IntoElement {
-    div()
-        .px_3()
-        .py_2()
-        .rounded(theme::radius::LG)
-        .border_1()
-        .border_color(colors::FADE_700)
-        .bg(colors::GRAY_850)
-        .flex()
-        .flex_row()
-        .gap_2()
-        .child(
-            div()
-                .text_color(colors::GRAY_300)
-                .font_weight(weights::BOLD.into())
-                .child(text_.into()),
-        )
-        .child(
-            div()
-                .text_color(colors::GRAY_500)
-                .child("from the launcher's Settings"),
-        )
-}
-
-/// The memory inputs and their checks.
-pub fn memory_inputs(fields: &Fields, check: &MemoryCheck) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .gap_4()
-                .max_w(px(420.))
-                .child(field("MINIMUM (MB)", fields.min_ram.clone()))
-                .child(field("MAXIMUM (MB)", fields.max_ram.clone())),
-        )
-        .when_some(check.error.clone(), |this, error| {
-            this.child(status(error, colors::RED_200))
-        })
-        .when_some(check.warning.clone(), |this, warning| {
-            this.child(status(warning, colors::YELLOW))
-        })
-}
-
-/// The window inputs; `on_fullscreen` is called with the new value.
-pub fn window_inputs(
-    fields: &Fields,
-    id: &'static str,
-    on_fullscreen: impl Fn(&bool, &mut Window, &mut App) + 'static,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_end()
-        .gap_4()
-        .child(
-            div()
-                .w(px(120.))
-                .child(field("WIDTH", fields.width.clone())),
-        )
-        .child(
-            div()
-                .w(px(120.))
-                .child(field("HEIGHT", fields.height.clone())),
-        )
-        .child(div().pb_2().child(labelled_toggle(
-            id,
-            "Fullscreen",
-            fields.fullscreen,
-            on_fullscreen,
-        )))
 }
 
 #[cfg(test)]
@@ -365,6 +295,8 @@ mod tests {
         assert_eq!(parse_ram("4G"), Some(4096));
         assert_eq!(parse_ram(" 2.5 gb "), Some(2560));
         assert_eq!(parse_ram("512M"), Some(512));
+        assert_eq!(parse_ram("4 Go"), Some(4096));
+        assert_eq!(parse_ram("1,5G"), Some(1536));
         assert_eq!(parse_ram("100"), None);
         assert_eq!(parse_ram("lots"), None);
         assert_eq!(parse_ram(""), None);
@@ -382,10 +314,11 @@ mod tests {
         assert_eq!(high.values, Some((1024, 14336)));
         assert!(high.warning.unwrap().contains("three quarters"));
         assert!(check_memory("x", "4G", total).error.is_some());
-        assert_eq!(memory_label((512, 4096)), "512 MB – 4,096 MB");
+        assert_eq!(memory_label((512, 4096)), "512 MB – 4 GB");
+        assert_eq!(memory_label((512, 6144 + 512)), "512 MB – 6.5 GB");
         assert_eq!(
             total_memory_label(total).unwrap(),
-            "This Mac has 16 GB of memory."
+            format!("{} has 16 GB of memory.", t(CommonMsg::ThisComputerStart))
         );
     }
 }

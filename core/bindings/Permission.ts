@@ -3,27 +3,27 @@
 /**
  * https://docs.deno.com/runtime/manual/basics/permissions
  */
-export type Permission = {
+export type Permission = { 
 /**
  * Allow read and write to the file system.
  */
-full_disk_access: boolean,
+full_disk_access: boolean, 
 /**
  * Allow any network access.
  */
-full_network_access: boolean,
+full_network_access: boolean, 
 /**
  * Allow access to all environment variables.
  */
-full_env_access: boolean,
+full_env_access: boolean, 
 /**
  * Allow reading the file system.
  */
-disk_read: boolean,
+disk_read: boolean, 
 /**
  * Allow writing to the file system.
  */
-disk_write: boolean, sys_info: boolean,
+disk_write: boolean, sys_info: boolean, 
 /**
  * Allow running subprocesses.
  */

@@ -1,32 +1,10 @@
-//! A small set of in-house components styled after the dashboard's atoms.
+//! The components: the shared ones from `lodestone_ui::components`, and the launcher's
+//! own Play button.
 //!
 //! Run `cargo run --example components` to see each one.
 
-mod button;
-mod dialog;
-mod icon;
-mod list_row;
+pub use lodestone_ui::components::*;
+
 mod play_button;
-mod tabs;
-mod text_input;
-mod toggle;
 
-pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
-pub use dialog::Dialog;
-pub use icon::Icon;
-pub use list_row::ListRow;
 pub use play_button::{PlayButton, PlayButtonState};
-pub use tabs::Tabs;
-pub use text_input::TextInput;
-pub use toggle::Toggle;
-
-use gpui::{App, ClickEvent, Window};
-
-/// A click handler, as components store them.
-type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
-
-/// Registers the components' key bindings. Call once at startup.
-pub fn init(cx: &mut App) {
-    dialog::init(cx);
-    text_input::init(cx);
-}

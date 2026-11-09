@@ -38,6 +38,9 @@ COPY --from=build /app/target/release/lodestone_core ./main
 # specify default port
 EXPOSE 16662
 
+# tells the core it runs in this image, for `launched_by` in /api/v1/info
+ENV LODESTONE_DOCKER=1
+
 RUN groupadd user && useradd -g user user
 
 RUN mkdir -p /home/user/.lodestone

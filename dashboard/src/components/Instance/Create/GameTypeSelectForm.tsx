@@ -7,31 +7,28 @@ import {
   game_to_game_title,
   HandlerGameType_to_Game,
 } from 'data/GameTypeMappings';
-import SelectGenericGameCard from './SelectGenericGameCard';
 import { GameInstanceContext } from 'data/GameInstanceContext';
 import { useContext } from 'react';
+import { useT } from 'i18n';
 export default function GameTypeSelectForm({
-  manifestLoading,
-  manifestError,
   onSelectModpack,
   className,
 }: {
-  manifestLoading: boolean;
-  manifestError: boolean;
   /** opens the "create from a Modrinth modpack" flow */
   onSelectModpack: () => void;
   className?: string;
 }) {
+  const t = useT();
   const { gameType: selectedGameType, setGameType } =
     useContext(GameInstanceContext);
   const { data: game_types, isPending: isLoading } = InstanceGameTypes();
   const heading = (
     <>
       <p className="text-left text-h2 font-extrabold tracking-medium text-gray-300">
-        Select a game
+        {t('create.gameType.title')}
       </p>
-      <p className="text-left text-medium font-medium italic leading-5 tracking-medium text-white/50">
-        What will your instance be used for?
+      <p className="text-left text-medium leading-5 font-medium tracking-medium text-white/50 italic">
+        {t('create.gameType.subtitle')}
       </p>
     </>
   );
@@ -39,11 +36,11 @@ export default function GameTypeSelectForm({
     // the cards' shapes, in place (a full-window spinner used to cover the
     // dialog here)
     return (
-      <div className={clsx(className, ' overflow-y-auto p-2')}>
+      <div className={clsx(className, 'overflow-y-auto p-2')}>
         {heading}
         <SkeletonGroup className="box-border grid grid-cols-2 gap-9 pt-9">
-          <Skeleton className="col-span-2 h-14" />
-          {Array.from({ length: 5 }, (_, i) => (
+          <Skeleton className="col-span-2 h-32" />
+          {Array.from({ length: 4 }, (_, i) => (
             <Skeleton key={i} className="h-32" />
           ))}
         </SkeletonGroup>
@@ -51,24 +48,17 @@ export default function GameTypeSelectForm({
     );
   }
   return (
-    <div className={clsx(className, ' overflow-y-auto p-2')}>
+    <div className={clsx(className, 'overflow-y-auto p-2')}>
       {heading}
       <div className="box-border grid grid-cols-2 gap-9 pt-9">
-        <SelectGenericGameCard
-          key={'Generic'}
-          title={'Learn about Docker Instance (beta)'}
-          game_type={{
-            type: 'Generic',
-            game_name: 'Generic',
-            game_display_name: 'Docker Instance',
-          }}
-          className={clsx(
-            'Generic' === selectedGameType &&
-              'enabled:generic-gametype-selected enabled:hover:generic-gametype-selected '
-          )}
-          onClick={() => setGameType('Generic')}
-          manifestLoading={manifestLoading}
-          errorText={manifestError ? 'Error fetching the instance' : ''}
+        <SelectGameCard
+          key="modrinth-modpack"
+          title={t('create.gameType.modpack')}
+          description={t('create.gameType.modpackDescription')}
+          game_type={HandlerGameType_to_Game['MinecraftFabric']}
+          badge={t('create.gameType.new')}
+          className="col-span-2"
+          onClick={onSelectModpack}
         />
         {game_types.map((game_type) => {
           const game = HandlerGameType_to_Game[game_type];
@@ -86,13 +76,6 @@ export default function GameTypeSelectForm({
             />
           );
         })}
-        <SelectGameCard
-          key="modrinth-modpack"
-          title="Modrinth modpack"
-          description="Create a Fabric server from a Modrinth modpack"
-          game_type={HandlerGameType_to_Game['MinecraftFabric']}
-          onClick={onSelectModpack}
-        />
       </div>
     </div>
   );

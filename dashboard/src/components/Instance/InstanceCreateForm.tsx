@@ -3,11 +3,7 @@ import { Form, Formik, FormikHelpers, FormikProps } from 'formik';
 import { useRef, useState, useEffect, useMemo } from 'react';
 import useAnalyticsEventTracker, { useEffectOnce } from 'utils/hooks';
 import { axiosWrapper, catchAsyncToString, errorToString } from 'utils/util';
-import {
-  autoSettingPageObject,
-  basicSettingsPageObject,
-  formId,
-} from './Create/form';
+import { autoSettingsPage, basicSettingsPage, formId } from './Create/form';
 import { generateValidationSchema, generateInitialValues } from './Create/form';
 import { FormFromManifest } from './Create/FormFromManifest';
 import GameTypeSelectForm from './Create/GameTypeSelectForm';
@@ -17,7 +13,6 @@ import {
 } from 'data/InstanceGameTypes';
 import { HandlerGameType } from 'bindings/HandlerGameType';
 import WarningAlert from 'components/Atoms/WarningAlert';
-import clsx from 'clsx';
 import * as yup from 'yup';
 import { GameInstanceContext } from 'data/GameInstanceContext';
 import { ConfigurableValue } from 'bindings/ConfigurableValue';
@@ -27,6 +22,9 @@ import { SectionManifestValue } from 'bindings/SectionManifestValue';
 import { toast } from 'react-toastify';
 import { ModpackPreset } from 'data/InstanceContext';
 import ModpackCreateForm from './Create/ModpackCreateForm';
+import WizardSteps from './Create/WizardSteps';
+import EulaCheckbox from './Create/EulaCheckbox';
+import { useT } from 'i18n';
 
 export type GenericHandlerGameType = 'Generic' | HandlerGameType;
 export type FormPage = {
@@ -43,6 +41,7 @@ export default function InstanceCreateForm({
   /** start on this Modrinth modpack instead of the game selection */
   modpackPreset?: ModpackPreset | null;
 }) {
+  const t = useT();
   const [activeStep, setActiveStep] = useState(0);
   // the "Modrinth modpack" flow replaces the manifest steps
   const [modpackMode, setModpackMode] = useState(modpackPreset !== null);
@@ -50,6 +49,8 @@ export default function InstanceCreateForm({
   const [genericFetchReady, setGenericFetchReady] = useState(false); //if the button has been pressed to fetch the manifest -> enables the query
   const [urlValid, setUrlValid] = useState(false); //if the query returned a valid manifest
   const [url, setUrl] = useState<string>(''); //the url the user enters
+  // the user's own agreement to the Minecraft EULA: never ticked for them
+  const [eulaAccepted, setEulaAccepted] = useState(false);
   const [setupManifest, setSetupManifest] = useState<SetupManifest | null>(
     null
   );
@@ -75,33 +76,27 @@ export default function InstanceCreateForm({
     useRef<FormikProps<Record<string, ConfigurableValue | null>>>(null);
 
   const formPages = useMemo<FormPage[]>(() => {
-    if (!setupManifest)
-      return [
-        {
-          name: 'Basic Settings',
-          description: 'Basic settings for your server.',
-          page: { setting_sections: { section_1: basicSettingsPageObject } },
-        },
-      ];
+    const basicPage: FormPage = {
+      name: t('create.step.basicSettings'),
+      description: t('create.basicSettings.description'),
+      page: { setting_sections: { section_1: basicSettingsPage() } },
+    };
+    if (!setupManifest) return [basicPage];
 
     return [
+      basicPage,
       {
-        name: 'Basic Settings',
-        description: 'Basic settings for your server.',
-        page: { setting_sections: { section_1: basicSettingsPageObject } },
-      },
-      {
-        name: 'Instance Settings',
-        description: 'Configure your server.',
+        name: t('create.step.serverSettings'),
+        description: t('create.serverSettings.description'),
         page: setupManifest,
       },
       {
-        name: 'Auto Settings',
-        description: 'Automatically configure your server.',
-        page: { setting_sections: { section_1: autoSettingPageObject } },
+        name: t('create.step.autoSettings'),
+        description: t('create.autoSettings.description'),
+        page: { setting_sections: { section_1: autoSettingsPage() } },
       },
     ];
-  }, [setupManifest]);
+  }, [setupManifest, t]);
 
   useEffectOnce(() => {
     gaEventTracker('Create Instance Start');
@@ -122,8 +117,6 @@ export default function InstanceCreateForm({
     }
   }, [gameType, isLoading, setup_manifest, error, genericFetchReady]);
 
-
-
   const [initialValues, setInitialValues] = useState<
     Record<string, ConfigurableValue | null>
   >({});
@@ -134,12 +127,13 @@ export default function InstanceCreateForm({
   const currentValidationSchema = validationSchema[activeStep];
 
   const sections = [
-    'Select Game',
-    'Basic Settings',
-    'Instance Settings',
-    'Auto Settings',
+    t('create.step.selectGame'),
+    t('create.step.basicSettings'),
+    t('create.step.serverSettings'),
+    t('create.step.autoSettings'),
   ];
   const formReady = activeStep === sections.length - 1;
+  const needsEula = gameType !== 'Generic';
   // throws on failure
   const createInstance = async (value: SetupValue) => {
     if (gameType === 'Generic') {
@@ -175,13 +169,14 @@ export default function InstanceCreateForm({
       auto_start: values.auto_start?.value as boolean,
       restart_on_crash: values.restart_on_crash?.value as boolean,
       setting_sections: sectionValues,
+      accept_eula: needsEula && eulaAccepted,
     };
 
     try {
       await createInstance(parsedValues);
     } catch (e) {
       // keep the dialog open so the user's input isn't lost
-      toast.error('Error creating instance: ' + errorToString(e));
+      toast.error(t('create.createFailed', { error: errorToString(e) }));
       actions.setSubmitting(false);
       return;
     }
@@ -218,6 +213,10 @@ export default function InstanceCreateForm({
     actions: FormikHelpers<Record<string, ConfigurableValue | null>>
   ) {
     if (formReady) {
+      if (needsEula && !eulaAccepted) {
+        actions.setSubmitting(false);
+        return;
+      }
       await submitForm(values, actions);
     } else {
       if (setup_manifest) {
@@ -229,13 +228,19 @@ export default function InstanceCreateForm({
     }
   }
 
-  function handleBack() {
-    if(activeStep === 1) {
+  // Back to an earlier step; the values typed so far stay.
+  function goToStep(step: number) {
+    if (step >= activeStep) return;
+    if (step === 0) {
       setGenericFetchReady(false);
       setUrlValid(false);
       setUrl('');
     }
-    setActiveStep(activeStep - 1);
+    setActiveStep(step);
+  }
+
+  function handleBack() {
+    goToStep(activeStep - 1);
   }
 
   if (modpackMode)
@@ -273,24 +278,14 @@ export default function InstanceCreateForm({
             id={formId}
             className="flex max-h-[700px] min-h-[560px] w-[812px] rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg"
           >
-            <div className="w-[180px] border-r border-gray-700 pt-8 ">
-              {sections.map((section, i) => (
-                <div
-                  key={i}
-                  className={clsx(
-                    'px-4 py-2 text-left font-sans text-medium font-medium leading-5 tracking-medium text-white/50 ',
-                    activeStep === i && 'font-extrabold text-white'
-                  )}
-                >
-                  {section}
-                </div>
-              ))}
-            </div>
-            <div className="flex w-[632px] flex-col p-8">
+            <WizardSteps
+              steps={sections}
+              current={activeStep}
+              onSelect={isSubmitting ? undefined : goToStep}
+            />
+            <div className="flex min-w-0 flex-1 flex-col p-8">
               {activeStep == 0 ? (
                 <GameTypeSelectForm
-                  manifestLoading={isLoading}
-                  manifestError={!!error}
                   onSelectModpack={() => setModpackMode(true)}
                 />
               ) : (
@@ -302,7 +297,7 @@ export default function InstanceCreateForm({
                   {status && (
                     <WarningAlert>
                       <p>
-                        Please ensure your fields are filled out correctly
+                        {t('create.checkFields')}
                         <br />
                         {status.error}
                       </p>
@@ -310,17 +305,31 @@ export default function InstanceCreateForm({
                   )}
                 </FormFromManifest>
               )}
+              {formReady && needsEula && (
+                <div className="pt-6">
+                  <EulaCheckbox
+                    checked={eulaAccepted}
+                    onChange={setEulaAccepted}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              )}
               <div className="flex flex-row justify-between pt-6">
                 {activeStep !== 0 ? (
-                  <Button onClick={handleBack} label="Back" />
+                  <Button onClick={handleBack} label={t('common.back')} />
                 ) : (
                   <div></div>
                 )}
                 <Button
                   type="submit"
-                  label={formReady ? 'Create Instance' : 'Next'}
+                  label={
+                    formReady ? t('create.createServer') : t('common.next')
+                  }
                   loading={isSubmitting}
-                  disabled={gameType === 'Generic' && !urlValid}
+                  disabled={
+                    (gameType === 'Generic' && !urlValid) ||
+                    (formReady && needsEula && !eulaAccepted)
+                  }
                 />
               </div>
             </div>

@@ -1,5 +1,6 @@
 The icons in this directory are from Font Awesome Free 7.3.1 by Fonticons, Inc.
-(https://fontawesome.com), the same icon set the Lodestone dashboard uses.
+(https://fontawesome.com), the same icon set the Lodestone dashboard uses, except
+the window buttons (window-*.svg; see below).
 
 They are licensed under the Creative Commons Attribution 4.0 International
 License (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
@@ -7,4 +8,13 @@ Full Font Awesome Free license: https://fontawesome.com/license/free
 
 Each file holds the unmodified path data of one icon, wrapped in an <svg> element:
 arrow-up-right-from-square, caret-down, check, copy, expand, gear, plus,
-right-from-bracket, square-plus, triangle-exclamation, user and xmark.
+right-from-bracket, square-plus, triangle-exclamation, user and xmark; circle-info,
+circle-check and circle-exclamation; link, user-group, chevron-down, chevron-right,
+chevron-left, pen, floppy-disk and circle-user; server, folder, folder-plus, file,
+file-pen, file-circle-plus, arrows-rotate, scissors, paste, file-zipper, list-check
+and clipboard-question.
+
+window-minimize, window-maximize, window-restore and window-close are plain
+lines and squares drawn for the launcher's own window buttons, which it shows on
+Linux desktops that leave window decorations to apps. They are part of
+Lodestone and under its license.

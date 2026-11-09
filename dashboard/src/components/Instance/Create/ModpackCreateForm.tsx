@@ -31,14 +31,18 @@ import * as yup from 'yup';
 import FormInputField from './SetupFormFields/FormInputField';
 import FormRadioField from './SetupFormFields/FormRadioField';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
+import { t, useT } from 'i18n';
+import WizardSteps from './WizardSteps';
+import EulaCheckbox from './EulaCheckbox';
 
 type Step = 'source' | 'version' | 'settings';
 
-const STEPS: Array<[Step, string]> = [
-  ['source', 'Select Modpack'],
-  ['version', 'Select Version'],
-  ['settings', 'Instance Settings'],
-];
+// message keys, translated at render
+const STEPS = [
+  ['source', 'create.step.selectModpack'],
+  ['version', 'create.step.selectVersion'],
+  ['settings', 'create.step.serverSettings'],
+] as const satisfies ReadonlyArray<readonly [Step, string]>;
 
 const VERSIONS_PAGE_SIZE = 20;
 const SETTINGS_FORM_ID = 'modpackInstanceSettingsForm';
@@ -53,28 +57,33 @@ type SettingsValues = {
   restart_on_crash: boolean;
 };
 
+// the messages are functions: yup calls them when it validates, so they are
+// in the language of that moment
 const settingsSchema = yup.object({
-  name: yup.string().trim().required('Name is required'),
+  name: yup
+    .string()
+    .trim()
+    .required(() => t('create.modpack.nameRequired')),
   description: yup.string(),
   port: yup
     .number()
-    .typeError('Port must be a number')
-    .integer('Port must be an integer')
-    .min(1, 'Port must be between 1 and 65535')
-    .max(65535, 'Port must be between 1 and 65535')
-    .required('Port is required'),
+    .typeError(() => t('create.modpack.portNumber'))
+    .integer(() => t('create.modpack.portInteger'))
+    .min(1, () => t('create.modpack.portRange'))
+    .max(65535, () => t('create.modpack.portRange'))
+    .required(() => t('create.modpack.portRequired')),
   min_ram: yup
     .number()
-    .typeError('Minimum RAM must be a number')
-    .integer('Minimum RAM must be an integer')
-    .min(1, 'Minimum RAM must be at least 1 MB')
-    .required('Minimum RAM is required'),
+    .typeError(() => t('create.modpack.minRamNumber'))
+    .integer(() => t('create.modpack.minRamInteger'))
+    .min(1, () => t('create.modpack.minRamMin'))
+    .required(() => t('create.modpack.minRamRequired')),
   max_ram: yup
     .number()
-    .typeError('Maximum RAM must be a number')
-    .integer('Maximum RAM must be an integer')
-    .min(yup.ref('min_ram'), 'Maximum RAM must be at least the minimum RAM')
-    .required('Maximum RAM is required'),
+    .typeError(() => t('create.modpack.maxRamNumber'))
+    .integer(() => t('create.modpack.maxRamInteger'))
+    .min(yup.ref('min_ram'), () => t('create.modpack.maxRamMin'))
+    .required(() => t('create.modpack.maxRamRequired')),
   auto_start: yup.boolean(),
   restart_on_crash: yup.boolean(),
 });
@@ -100,47 +109,57 @@ const StepTitle = ({
 );
 
 /** What the core found in the pack, and whether Lodestone can run it. */
-const ModpackSummary = ({ info }: { info: ModpackInfo }) => (
-  <div className="flex flex-col gap-3">
-    <div className={sectionClass}>
-      {(
-        [
+const ModpackSummary = ({ info }: { info: ModpackInfo }) => {
+  const t = useT();
+  return (
+    <div className="flex flex-col gap-3">
+      <div className={sectionClass}>
+        {(
           [
-            'Modpack',
-            `${info.name}${info.version_number ? ` ${info.version_number}` : ''}`,
-          ],
-          ['Minecraft', info.game_version],
-          [
-            'Loader',
-            `${info.loader}${info.loader_version ? ` ${info.loader_version}` : ''}`,
-          ],
-          [
-            'Server files',
-            `${info.server_file_count} (${formatBytes(info.server_download_size)} to download)`,
-          ],
-        ] as Array<[string, string]>
-      ).map(([label, value]) => (
-        <div
-          key={label}
-          className="flex flex-row justify-between gap-4 bg-gray-800 px-4 py-2 text-medium"
-        >
-          <span className="text-white/50">{label}</span>
-          <span className="truncate text-gray-300">{value}</span>
-        </div>
-      ))}
-    </div>
-    {info.summary && (
-      <div className="line-clamp-2 text-medium text-white/50">
-        {info.summary}
+            [
+              t('create.modpack.summary.modpack'),
+              `${info.name}${info.version_number ? ` ${info.version_number}` : ''}`,
+            ],
+            ['Minecraft', info.game_version],
+            [
+              t('create.modpack.summary.loader'),
+              `${info.loader}${info.loader_version ? ` ${info.loader_version}` : ''}`,
+            ],
+            [
+              t('create.modpack.summary.serverFiles'),
+              t('create.modpack.summary.serverFilesValue', {
+                count: info.server_file_count,
+                size: formatBytes(info.server_download_size),
+              }),
+            ],
+          ] as Array<[string, string]>
+        ).map(([label, value]) => (
+          <div
+            key={label}
+            className="flex flex-row justify-between gap-4 bg-gray-800 px-4 py-2 text-medium"
+          >
+            <span className="shrink-0 text-white/50">{label}</span>
+            <span className="min-w-0 truncate text-gray-300" title={value}>
+              {value}
+            </span>
+          </div>
+        ))}
       </div>
-    )}
-    {info.unsupported_reason && (
-      <WarningAlert>
-        This modpack can&apos;t be used: {info.unsupported_reason}
-      </WarningAlert>
-    )}
-  </div>
-);
+      {info.summary && (
+        <div className="line-clamp-2 text-medium text-white/50">
+          {info.summary}
+        </div>
+      )}
+      {info.unsupported_reason && (
+        <WarningAlert>
+          {t('create.modpack.unsupported', {
+            reason: info.unsupported_reason,
+          })}
+        </WarningAlert>
+      )}
+    </div>
+  );
+};
 
 /** A version row's shape while the versions load, so nothing jumps. */
 const VersionRowSkeleton = () => (
@@ -166,16 +185,20 @@ const VersionPicker = ({
   inspectingId: string | null;
   onSelect: (version: ModrinthVersion) => void;
 }) => {
+  const t = useT();
   const [shown, setShown] = useState(VERSIONS_PAGE_SIZE);
   if (error)
     return (
       <div className="text-medium text-red-200">
-        Failed to load versions: {errorToString(error)}
+        {t('create.modpack.versionsFailed', { error: errorToString(error) })}
       </div>
     );
   if (!versions)
     return (
-      <SkeletonGroup label="Loading versions" className={sectionClass}>
+      <SkeletonGroup
+        label={t('create.modpack.loadingVersions')}
+        className={sectionClass}
+      >
         {Array.from({ length: 6 }, (_, i) => (
           <VersionRowSkeleton key={i} />
         ))}
@@ -184,7 +207,7 @@ const VersionPicker = ({
   if (versions.length === 0)
     return (
       <div className="text-medium text-white/50">
-        This modpack has no versions.
+        {t('create.modpack.noVersions')}
       </div>
     );
   return (
@@ -215,7 +238,12 @@ const VersionPicker = ({
                 </div>
               </div>
               <Button
-                label={version.id === selectedId ? 'Selected' : 'Select'}
+                label={
+                  version.id === selectedId
+                    ? t('create.modpack.selected')
+                    : t('create.modpack.select')
+                }
+                className="shrink-0"
                 size="slim"
                 intention={version.id === selectedId ? 'primary' : 'info'}
                 loading={inspectingId === version.id}
@@ -228,7 +256,9 @@ const VersionPicker = ({
       </div>
       {versions.length > shown && (
         <Button
-          label={`Show more (${versions.length - shown} left)`}
+          label={t('create.modpack.showMore', {
+            count: versions.length - shown,
+          })}
           className="self-center"
           onClick={() => setShown(shown + VERSIONS_PAGE_SIZE)}
         />
@@ -250,27 +280,32 @@ const ProjectHeader = ({
   title: string | undefined;
   description: string | undefined;
   iconUrl: string | null | undefined;
-}) => (
-  <div className="flex h-10 flex-row items-center gap-3">
-    <ModIcon url={iconUrl} />
-    {title === undefined ? (
-      <SkeletonGroup
-        label="Loading modpack"
-        className="flex grow flex-col gap-2"
-      >
-        <Skeleton className="h-4 w-1/3 rounded-sm" />
-        <Skeleton className="h-3 w-2/3 rounded-sm" />
-      </SkeletonGroup>
-    ) : (
-      <div className="flex min-w-0 flex-col">
-        <span className="truncate text-h3 font-bold text-gray-300">
-          {title}
-        </span>
-        <span className="truncate text-small text-white/50">{description}</span>
-      </div>
-    )}
-  </div>
-);
+}) => {
+  const t = useT();
+  return (
+    <div className="flex h-10 flex-row items-center gap-3">
+      <ModIcon url={iconUrl} />
+      {title === undefined ? (
+        <SkeletonGroup
+          label={t('create.modpack.loadingModpack')}
+          className="flex grow flex-col gap-2"
+        >
+          <Skeleton className="h-4 w-1/3 rounded-sm" />
+          <Skeleton className="h-3 w-2/3 rounded-sm" />
+        </SkeletonGroup>
+      ) : (
+        <div className="flex min-w-0 flex-col">
+          <span className="truncate text-h3 font-bold text-gray-300">
+            {title}
+          </span>
+          <span className="truncate text-small text-white/50">
+            {description}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
 
 /** The first port from 25565 that no existing instance uses. */
 const firstFreePort = (usedPorts: number[]) => {
@@ -295,6 +330,7 @@ export default function ModpackCreateForm({
   onBack: () => void;
   onComplete: () => void;
 }) {
+  const t = useT();
   const gaEventTracker = useAnalyticsEventTracker('Create Instance');
   const { instanceList } = useContext(InstanceContext);
   const [step, setStep] = useState<Step>(preset ? 'version' : 'source');
@@ -308,6 +344,8 @@ export default function ModpackCreateForm({
   const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // the user's own agreement to the Minecraft EULA: never ticked for them
+  const [eulaAccepted, setEulaAccepted] = useState(false);
   // the search result the pack was picked from, shown until the project loads
   const [pickedHit, setPickedHit] = useState<ModrinthSearchHit | null>(null);
   const { data: project } = useModrinthProject(projectId);
@@ -339,7 +377,9 @@ export default function ModpackCreateForm({
       setSource({ type: 'modrinth', version_id: versionId });
     } catch (error) {
       if (request !== inspectRequest.current) return;
-      toast.error(`Failed to read the modpack: ${errorToString(error)}`);
+      toast.error(
+        t('create.modpack.inspectFailed', { error: errorToString(error) })
+      );
     } finally {
       if (request === inspectRequest.current) setInspectingId(null);
     }
@@ -355,7 +395,9 @@ export default function ModpackCreateForm({
 
   const pick = (picked: ModrinthPick) => {
     if (picked.projectType !== 'modpack') {
-      toast.error(`That is a ${picked.projectType}, not a modpack`);
+      toast.error(
+        t('create.modpack.notAModpack', { type: picked.projectType })
+      );
       return;
     }
     setProjectId(picked.projectId);
@@ -370,20 +412,22 @@ export default function ModpackCreateForm({
     const [file] = await pickFiles('.mrpack', false);
     if (!file) return;
     if (!file.name.toLowerCase().endsWith('.mrpack')) {
-      toast.error('Choose a .mrpack file');
+      toast.error(t('create.modpack.chooseMrpack'));
       return;
     }
     setUploading(true);
     try {
       const result = await uploadModpack(file);
-      if (!result.upload_id) throw new Error('The core returned no upload id');
+      if (!result.upload_id) throw new Error(t('create.modpack.noUploadId'));
       setProjectId(null);
       setPickedHit(null);
       setInfo(result);
       setSource({ type: 'upload', upload_id: result.upload_id });
       leaveSource('version');
     } catch (error) {
-      toast.error(`Failed to upload the modpack: ${errorToString(error)}`);
+      toast.error(
+        t('create.modpack.uploadFailed', { error: errorToString(error) })
+      );
     } finally {
       setUploading(false);
     }
@@ -399,11 +443,26 @@ export default function ModpackCreateForm({
     } else onBack();
   };
 
+  // A step in the rail that's done: "Select game" leaves the modpack flow; the
+  // others go back as Back does.
+  const goToStep = (i: number) => {
+    if (i === 0) onBack();
+    else if (i === 1 && !preset && step !== 'source') {
+      cancelInspect();
+      setStep('source');
+      setInfo(null);
+      setSource(null);
+    } else if (i === 2 && step === 'settings') setStep('version');
+  };
+
   const submit = async (
     values: SettingsValues,
     actions: FormikHelpers<SettingsValues>
   ) => {
-    if (!source) return;
+    if (!source || !eulaAccepted) {
+      actions.setSubmitting(false);
+      return;
+    }
     setSubmitting(true);
     try {
       await createModpackInstance({
@@ -415,10 +474,11 @@ export default function ModpackCreateForm({
         max_ram: values.max_ram,
         auto_start: values.auto_start,
         restart_on_crash: values.restart_on_crash,
+        accept_eula: true,
       });
     } catch (error) {
       // keep the dialog open so the input isn't lost
-      toast.error('Error creating instance: ' + errorToString(error));
+      toast.error(t('create.createFailed', { error: errorToString(error) }));
       actions.setSubmitting(false);
       setSubmitting(false);
       return;
@@ -451,23 +511,18 @@ export default function ModpackCreateForm({
     // A fixed height: the dialog is centered, so a height that followed the
     // content would move the whole dialog on every step and loading state.
     <div className="flex h-175 max-h-[calc(100vh-2rem)] w-203 rounded-2xl border-2 border-gray-faded/10 bg-gray-850 drop-shadow-lg">
-      <div className="w-45 shrink-0 border-r border-gray-700 pt-8">
-        <div className="px-4 py-2 text-left font-sans text-medium leading-5 font-medium tracking-medium text-white/50">
-          Select Game
-        </div>
-        {STEPS.map(([id, label]) => (
-          <div
-            key={id}
-            className={cn(
-              'px-4 py-2 text-left font-sans text-medium leading-5 font-medium tracking-medium text-white/50',
-              step === id && 'font-extrabold text-white'
-            )}
-          >
-            {label}
-          </div>
-        ))}
-      </div>
-      <div className="flex w-158 min-w-0 flex-col p-8">
+      <WizardSteps
+        steps={[
+          t('create.step.selectGame'),
+          ...STEPS.map(([, labelKey]) => t(labelKey)),
+        ]}
+        // "Select game" comes before the modpack's own steps
+        current={1 + STEPS.findIndex(([id]) => id === step)}
+        onSelect={submitting ? undefined : goToStep}
+        // a preset pack was picked elsewhere: there's no search to go back to
+        canSelect={(i) => !(i === 1 && preset)}
+      />
+      <div className="flex min-w-0 flex-1 flex-col p-8">
         <div className="flex min-h-0 grow flex-col text-left">
           {/* not needed when a preset skips it (Back then leaves the flow) */}
           {!preset && (
@@ -476,26 +531,26 @@ export default function ModpackCreateForm({
               className={cn(scrollAreaClass, step !== 'source' && 'hidden')}
             >
               <StepTitle
-                title="Select a modpack"
-                description="Search Modrinth, paste a Modrinth link, or upload a .mrpack file. Only Fabric modpacks are supported."
+                title={t('create.modpack.sourceTitle')}
+                description={t('create.modpack.sourceDescription')}
               />
               <ModrinthSearch
                 projectType="modpack"
                 loader={onlyFabric ? 'fabric' : undefined}
                 index={index}
-                placeholder="Search modpacks, or paste a Modrinth link"
+                placeholder={t('create.modpack.searchPlaceholder')}
                 onPick={pick}
                 toolbar={
                   <div className="flex flex-row flex-wrap items-center justify-between gap-3">
                     <Checkbox
-                      label="Only show Fabric modpacks"
+                      label={t('create.modpack.onlyFabric')}
                       checked={onlyFabric}
                       onChange={setOnlyFabric}
                     />
                     <div className="flex flex-row items-center gap-2">
                       <SortSelect value={index} onChange={setIndex} />
                       <Button
-                        label="Upload .mrpack"
+                        label={t('create.modpack.upload')}
                         icon={faUpload}
                         loading={uploading}
                         onClick={upload}
@@ -509,11 +564,11 @@ export default function ModpackCreateForm({
           {step === 'version' && (
             <div key="version" className="flex min-h-0 grow flex-col p-2">
               <StepTitle
-                title="Select a version"
+                title={t('create.modpack.versionTitle')}
                 description={
                   source?.type === 'upload'
-                    ? 'The uploaded modpack.'
-                    : 'Pick the modpack version to install.'
+                    ? t('create.modpack.versionUploaded')
+                    : t('create.modpack.versionDescription')
                 }
               />
               {projectId && (
@@ -541,19 +596,17 @@ export default function ModpackCreateForm({
               <div className="mt-4 flex min-h-38 shrink-0 flex-col justify-center">
                 {inspectingId !== null ? (
                   <div className="text-medium text-white/50">
-                    Downloading the modpack file
                     {inspectingFile
-                      ? ` (${formatBytes(inspectingFile.size)})`
-                      : ''}{' '}
-                    to read it...
+                      ? t('create.modpack.downloadingSize', {
+                          size: formatBytes(inspectingFile.size),
+                        })
+                      : t('create.modpack.downloading')}
                   </div>
                 ) : info ? (
                   <ModpackSummary info={info} />
                 ) : (
                   <div className="text-medium text-white/50">
-                    Select a version to see what it contains. Lodestone
-                    downloads its modpack file to read it; nothing is installed
-                    until you click Create Instance.
+                    {t('create.modpack.versionHint')}
                   </div>
                 )}
               </div>
@@ -570,8 +623,8 @@ export default function ModpackCreateForm({
               >
                 <Form id={SETTINGS_FORM_ID}>
                   <StepTitle
-                    title="Instance settings"
-                    description="Configure your server."
+                    title={t('create.modpack.settingsTitle')}
+                    description={t('create.serverSettings.description')}
                   />
                   {info && (
                     <div className="mb-4 text-medium text-white/50">
@@ -582,50 +635,57 @@ export default function ModpackCreateForm({
                   <div className={sectionClass}>
                     <FormInputField
                       name="name"
-                      label="Name"
+                      label={t('create.field.name')}
                       type="text"
-                      description="The name of the instance"
+                      description={t('create.field.nameDescription')}
                     />
                     <FormInputField
                       name="description"
-                      label="Description"
+                      label={t('create.field.description')}
                       type="text"
-                      description="The description of the instance"
+                      description={t('create.field.descriptionDescription')}
                       optional
                     />
                     <FormInputField
                       name="port"
-                      label="Port"
+                      label={t('create.field.port')}
                       type="number"
-                      description="The port to run the server on"
+                      description={t('create.field.portDescription')}
                     />
                   </div>
                   <div className={cn(sectionClass, 'mt-6')}>
                     <FormInputField
                       name="min_ram"
-                      label="Minimum RAM"
+                      label={t('create.field.minRam')}
                       type="number"
-                      description="The minimum amount of RAM to allocate to the server, in MB"
+                      description={t('create.field.minRamDescription')}
                     />
                     <FormInputField
                       name="max_ram"
-                      label="Maximum RAM"
+                      label={t('create.field.maxRam')}
                       type="number"
-                      description="The maximum amount of RAM to allocate to the server, in MB"
+                      description={t('create.field.maxRamDescription')}
                     />
                   </div>
                   <div className={cn(sectionClass, 'mt-6')}>
                     <FormRadioField
                       name="auto_start"
-                      label="Auto Start"
+                      label={t('create.field.autoStart')}
                       options={['false', 'true']}
-                      description="The instance will start automatically when the application starts"
+                      description={t('create.field.autoStartDescription')}
                     />
                     <FormRadioField
                       name="restart_on_crash"
-                      label="Restart on Crash"
+                      label={t('create.field.restartOnCrash')}
                       options={['false', 'true']}
-                      description="The instance will restart automatically if it crashes"
+                      description={t('create.field.restartOnCrashDescription')}
+                    />
+                  </div>
+                  <div className="mt-6">
+                    <EulaCheckbox
+                      checked={eulaAccepted}
+                      onChange={setEulaAccepted}
+                      disabled={submitting}
                     />
                   </div>
                 </Form>
@@ -634,7 +694,11 @@ export default function ModpackCreateForm({
           )}
         </div>
         <div className="flex flex-row justify-between pt-6">
-          <Button onClick={back} label="Back" disabled={submitting} />
+          <Button
+            onClick={back}
+            label={t('common.back')}
+            disabled={submitting}
+          />
           {/* Separate keys, so React mounts a new <button> instead of turning the
               clicked Next button into the submit button during the same click,
               which would submit the settings form before it is shown. */}
@@ -643,15 +707,15 @@ export default function ModpackCreateForm({
               key="create"
               type="submit"
               form={SETTINGS_FORM_ID}
-              label="Create Instance"
+              label={t('create.createServer')}
               intention="primary"
               loading={submitting}
-              disabled={!canContinue}
+              disabled={!canContinue || !eulaAccepted}
             />
           ) : step === 'version' ? (
             <Button
               key="next"
-              label="Next"
+              label={t('common.next')}
               disabled={!canContinue || busy}
               onClick={() => setStep('settings')}
             />

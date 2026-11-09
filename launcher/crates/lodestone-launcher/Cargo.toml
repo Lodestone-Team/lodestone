@@ -16,7 +16,7 @@ default = ["runtime-shaders"]
 runtime-shaders = ["gpui_platform/runtime_shaders"]
 # Adds `--screenshot <file.png>` to the app and the components example, rendering
 # the window offscreen. Needs GPUI's test support, so it is for development only.
-screenshot = ["gpui_platform/test-support", "dep:zip"]
+screenshot = ["gpui_platform/test-support", "lodestone-ui/screenshot", "dep:zip"]
 
 [dependencies]
 anyhow.workspace = true
@@ -27,11 +27,41 @@ gpui_platform = { workspace = true, features = ["font-kit"] }
 http_client.workspace = true
 image.workspace = true
 launcher-core.workspace = true
+# The components, theme, fonts and translations shared with Lodestone Host.
+lodestone-ui.workspace = true
 url.workspace = true
 lodestone_minecraft.workspace = true
+lodestone_trace.workspace = true
+log.workspace = true
 serde_json.workspace = true
+# The control socket for lodestone-launcher-cli (`src/control`).
+launcher-control.workspace = true
+serde.workspace = true
 # Writes the sample mods and packs of the offscreen screenshots.
 zip = { workspace = true, optional = true }
+
+# GPUI's Linux windowing backends. The workspace takes `gpui_platform` without its
+# default features, and without these it runs headless on Linux: `open_window`
+# succeeds but no window ever reaches the compositor.
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+gpui_platform = { workspace = true, features = ["wayland", "x11"] }
+
+[target.'cfg(windows)'.dependencies]
+# The system menu of the window's own title bar (`shell::top_bar`).
+raw-window-handle.workspace = true
+# The Windows display language (`i18n/system.rs`), and the title bar's system menu.
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Gdi",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+# The app icon in the Windows executable (`build.rs`). Unused when building for other systems.
+embed-resource.workspace = true
 
 [[example]]
 name = "components"

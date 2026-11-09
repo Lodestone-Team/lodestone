@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useLocation } from 'react-router';
 import { RadioGroup } from '@headlessui/react';
 import { InstanceContext } from 'data/InstanceContext';
 import { useContext } from 'react';
@@ -16,6 +16,7 @@ import { isUserAuthorized, useUserInfo } from 'data/UserInfo';
 import { getModSupport, modTabTitle } from 'utils/mods';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { useCoreCapabilities } from 'data/SystemInfo';
+import { useT } from 'i18n';
 
 export const SelectedInstanceInfo = ({
   className = '',
@@ -24,11 +25,13 @@ export const SelectedInstanceInfo = ({
   className?: string;
   children?: React.ReactNode;
 }) => {
+  const t = useT();
   // the "Instance List" view event is sent by InstanceList, once per mount
   const { selectedInstance, isReady } = useContext(InstanceContext);
 
   const { setPathname, searchParams } = useContext(BrowserLocationContext);
-  const setActive = useMemo(() => location.pathname.split('/')[2], [location.pathname]);
+  // the location this page renders (the settings modal can be open over it)
+  const setActive = useLocation().pathname.split('/')[2];
   const { data: globalSettings } = useGlobalSettings();
   // macros are owner only
   const { canManage } = useCodeExecution();
@@ -45,7 +48,7 @@ export const SelectedInstanceInfo = ({
 
   const visibleTabs = tabs.filter(
     (tab) =>
-      (tab.title !== 'Playitgg' || globalSettings?.playit_enabled) &&
+      (tab.path !== 'playitgg' || globalSettings?.playit_enabled) &&
       (tab.path !== 'macros' ||
         (canManage && macros && !capabilitiesPending)) &&
       (tab.path !== 'mods' || (modSupport && canReadFiles))
@@ -61,8 +64,8 @@ export const SelectedInstanceInfo = ({
     // instead of flashing the "no instance selected" box.
     return (
       <SkeletonGroup className="mx-1 flex flex-col gap-y-1 px-1 pb-1">
-        <div className="text-small leading-snug font-bold text-gray-faded/30 light:text-ink-muted">
-          SELECTED INSTANCE
+        <div className="text-small leading-snug font-bold text-gray-faded/30 uppercase light:text-ink-muted">
+          {t('shell.nav.selectedInstance')}
         </div>
         <div className="my-2 flex flex-col gap-3 border-b-2 border-gray-faded/30 pb-2">
           <Skeleton className="h-7 w-full" />
@@ -77,16 +80,16 @@ export const SelectedInstanceInfo = ({
   if (!selectedInstance || !uuid) {
     return (
       <div className="mx-1 px-1 text-gray-faded/30">
-        <div className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
-          SELECTED INSTANCE
+        <div className="text-small leading-snug font-bold text-gray-faded/30 uppercase light:text-ink-muted">
+          {t('shell.nav.selectedInstance')}
         </div>
         <div className="mt-2 flex h-[17.625rem] justify-center rounded-md border border-dashed text-center text-gray-faded/30 light:border-line-strong light:text-ink-muted">
-          <div className="mt-20 w-[5.5rem]">
+          <div className="mt-20 w-[5.5rem] min-w-min">
             <div className="text-h1">
               <FontAwesomeIcon icon={faExpand} />
             </div>
             <div className="mt-2 text-medium font-bold">
-              Any selected instance will appear here
+              {t('shell.nav.noSelection')}
             </div>
           </div>
         </div>
@@ -96,11 +99,11 @@ export const SelectedInstanceInfo = ({
 
   return (
     <RadioGroup
-      className={`child:w-full mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 ${className}`}
+      className={`mx-1 flex min-h-0 flex-col gap-y-1 overflow-x-hidden px-1 pb-1 child:w-full ${className}`}
       onChange={setPathname}
     >
-      <RadioGroup.Label className="text-small font-bold leading-snug text-gray-faded/30 light:text-ink-muted">
-        SELECTED INSTANCE
+      <RadioGroup.Label className="text-small leading-snug font-bold text-gray-faded/30 uppercase light:text-ink-muted">
+        {t('shell.nav.selectedInstance')}
       </RadioGroup.Label>
 
       <InstanceCard {...selectedInstance} key={selectedInstance.uuid} />
@@ -116,11 +119,11 @@ export const SelectedInstanceInfo = ({
               className={clsx(
                 'flex flex-row items-center gap-x-1.5',
                 'cursor-pointer rounded-md px-2 py-1',
-                'text-medium font-medium leading-5 tracking-normal',
+                'text-medium leading-5 font-medium tracking-normal',
                 'hover:bg-gray-800',
-                'focus-visible:outline-hidden focus-visible:ring-4 focus-visible:ring-blue-faded/50',
+                'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden',
                 setActive === tab.path
-                  ? 'bg-gray-800 outline-solid outline-1 outline-fade-700'
+                  ? 'bg-gray-800 outline-1 outline-fade-700 outline-solid'
                   : ''
               )}
               onClick={() => setPathname(`/dashboard/${tab.path}`)}
@@ -137,7 +140,7 @@ export const SelectedInstanceInfo = ({
               <div className="text-gray-300">
                 {tab.path === 'mods' && modSupport
                   ? modTabTitle(modSupport.kind)
-                  : tab.title}
+                  : t(tab.titleKey)}
               </div>
             </button>
           </RadioGroup.Option>

@@ -1,0 +1,40 @@
+[package]
+name = "lodestone-ui"
+description = "The components, theme, fonts and translations Lodestone Launcher and Lodestone Host share"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[features]
+# Offscreen rendering for the apps' `--screenshot`, and the components' window tests
+# (`cargo test -p lodestone-ui --features screenshot`). Needs GPUI's test support, so it
+# is for development only. The shaders compile at runtime, as in the apps' default
+# builds, so it builds with only the Command Line Tools.
+screenshot = ["dep:gpui_platform", "gpui_platform/test-support", "gpui_platform/runtime_shaders"]
+
+[dependencies]
+accesskit.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+futures.workspace = true
+gpui.workspace = true
+gpui_platform = { workspace = true, optional = true }
+image.workspace = true
+launcher-core.workspace = true
+log.workspace = true
+# The console's colour codes (`components/console_line.rs`).
+lodestone_minecraft.workspace = true
+serde_json.workspace = true
+unicode-segmentation.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# The Windows display language (`i18n/system.rs`) and the reduced-motion setting
+# (`components/dialog.rs`).
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_System_SystemServices",
+    "Win32_UI_WindowsAndMessaging",
+] }

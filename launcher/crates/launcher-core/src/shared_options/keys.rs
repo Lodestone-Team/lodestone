@@ -476,6 +476,14 @@ pub const SPECS: &[Spec] = &[
     ),
     access("hideSplashTexts", "Hide splash texts", Bool, V1_20_3),
     access("narratorHotkey", "Narrator hotkey", Bool, V1_20_2),
+    // Until it is false, the game's first start opens an accessibility screen that the
+    // narrator reads aloud.
+    access(
+        "onboardAccessibility",
+        "Accessibility screen on first start",
+        Bool,
+        V1_19_4,
+    ),
     access("rotateWithMinecart", "Rotate with minecarts", Bool, V1_21_2),
     access("allowCursorChanges", "Allow cursor changes", Bool, V1_21_9),
     // Language

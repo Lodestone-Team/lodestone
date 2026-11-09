@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use super::{
     platform::{Arch, Os, Platform},
+    process::NoConsoleWindow as _,
     rules::{self, Features},
     version::{Argument, VersionJson},
 };
@@ -194,7 +195,8 @@ impl LaunchCommand {
         command
             .args(&self.args)
             .current_dir(&self.cwd)
-            .envs(self.env.iter().map(|(key, value)| (key, value)));
+            .envs(self.env.iter().map(|(key, value)| (key, value)))
+            .no_console_window();
         command
     }
 }
@@ -230,14 +232,6 @@ fn utf8(path: &Path) -> Result<String, LaunchError> {
     path.to_str()
         .map(str::to_string)
         .ok_or_else(|| LaunchError::NonUtf8Path(path.to_owned()))
-}
-
-/// The classpath separator of `os`.
-fn classpath_separator(os: Os) -> &'static str {
-    match os {
-        Os::Windows => ";",
-        Os::MacOs | Os::Linux => ":",
-    }
 }
 
 /// The values of `${...}` placeholders.
@@ -320,6 +314,64 @@ fn evaluate(arguments: &[Argument], platform: &Platform, features: &Features) ->
     out
 }
 
+/// A multiplayer server to join as soon as the game has started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JoinServer {
+    /// A host name or IP address (IPv6 without brackets).
+    pub host: String,
+    pub port: u16,
+}
+
+impl JoinServer {
+    /// `host:port`, with an IPv6 address in brackets, as the game's server list takes it.
+    pub fn address(&self) -> String {
+        if self.host.contains(':') {
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
+    }
+}
+
+/// How a version joins a server it is started with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JoinArguments {
+    /// `--quickPlayMultiplayer host:port`, from the version file's
+    /// `is_quick_play_multiplayer` argument (1.20 and later, since snapshot 23w14a).
+    QuickPlay,
+    /// `--server host --port port`, which the game reads from 1.6 to 1.19.4 (and
+    /// which 1.20 replaced with Quick Play).
+    ServerAndPort,
+    /// Versions before 1.6 take their arguments by position and cannot join a server
+    /// at startup.
+    Unsupported,
+}
+
+/// Which arguments make `version` join a server at startup. Decided from the version
+/// file itself, as the official launcher does, rather than from version numbers.
+pub fn join_arguments(version: &VersionJson) -> JoinArguments {
+    match (&version.arguments, &version.minecraft_arguments) {
+        (Some(arguments), _) => {
+            let quick_play = arguments.game.iter().any(|argument| match argument {
+                Argument::Plain(_) => false,
+                Argument::Conditional { rules, .. } => rules.iter().any(|rule| {
+                    rule.features
+                        .as_ref()
+                        .is_some_and(|f| f.contains_key("is_quick_play_multiplayer"))
+                }),
+            });
+            if quick_play {
+                JoinArguments::QuickPlay
+            } else {
+                JoinArguments::ServerAndPort
+            }
+        }
+        // 1.6 to 1.12.2 name their arguments; older versions list them by position
+        (None, Some(legacy)) if legacy.contains("--username") => JoinArguments::ServerAndPort,
+        _ => JoinArguments::Unsupported,
+    }
+}
+
 /// Builds the command that starts `version` on `platform` (the platform of the
 /// Java that runs it).
 pub fn build(
@@ -329,13 +381,28 @@ pub fn build(
     account: &LaunchAccount,
     settings: &GameSettings,
 ) -> Result<LaunchCommand, LaunchError> {
+    build_joining(version, platform, paths, account, settings, None)
+}
+
+/// Like [`build`], joining `join` once the game has started, with the arguments
+/// [`join_arguments`] picks. Versions that cannot join at startup start normally.
+pub fn build_joining(
+    version: &VersionJson,
+    platform: &Platform,
+    paths: &LaunchPaths,
+    account: &LaunchAccount,
+    settings: &GameSettings,
+    join: Option<&JoinServer>,
+) -> Result<LaunchCommand, LaunchError> {
     let logging = version.client_logging();
     if version.uses_log4j() && (logging.is_none() || paths.logging_config.is_none()) {
         return Err(LaunchError::NoLoggingConfig(version.id.clone()));
     }
 
+    let join_with = join.map(|server| (server, join_arguments(version)));
     let features = Features {
         has_custom_resolution: settings.resolution.is_some(),
+        is_quick_play_multiplayer: matches!(join_with, Some((_, JoinArguments::QuickPlay))),
         ..Features::default()
     };
     let classpath = paths
@@ -343,7 +410,7 @@ pub fn build(
         .iter()
         .map(|path| utf8(path))
         .collect::<Result<Vec<_>, _>>()?
-        .join(classpath_separator(platform.os));
+        .join(platform.os.classpath_separator());
     let (width, height) = settings.resolution.unwrap_or((854, 480));
     let uuid = account.uuid.simple().to_string();
     let token = account.access_token.expose().to_string();
@@ -354,7 +421,7 @@ pub fn build(
         ("classpath", classpath),
         (
             "classpath_separator",
-            classpath_separator(platform.os).to_string(),
+            platform.os.classpath_separator().to_string(),
         ),
         ("library_directory", utf8(&paths.libraries_dir)?),
         ("auth_player_name", account.username.clone()),
@@ -381,7 +448,10 @@ pub fn build(
             utf8(&paths.game_dir.join("quickPlay").join("log.json"))?,
         ),
         ("quickPlaySingleplayer", String::new()),
-        ("quickPlayMultiplayer", String::new()),
+        (
+            "quickPlayMultiplayer",
+            join.map(JoinServer::address).unwrap_or_default(),
+        ),
         ("quickPlayRealms", String::new()),
     ]);
 
@@ -435,6 +505,22 @@ pub fn build(
                 .map(|arg| values.substitute(&arg)),
         );
     }
+    if platform.os == Os::Windows {
+        // On Windows, Java writes System.out and System.err to a pipe in the ANSI code
+        // page, so anything outside it (a user name in a path, non-Latin chat or mod
+        // output) reached the console as U+FFFD. Ask for UTF-8, which the log reader
+        // expects: `stdout.encoding` from Java 19, `sun.stdout.encoding` before. Before
+        // the instance's own arguments, so those can still set something else.
+        args.extend(
+            [
+                "-Dstdout.encoding=UTF-8",
+                "-Dstderr.encoding=UTF-8",
+                "-Dsun.stdout.encoding=UTF-8",
+                "-Dsun.stderr.encoding=UTF-8",
+            ]
+            .map(str::to_string),
+        );
+    }
     args.extend(settings.jvm_args.iter().cloned());
     if let (Some(logging), Some(config)) = (logging, &paths.logging_config) {
         args.push(logging.argument.replace("${path}", &utf8(config)?));
@@ -444,6 +530,14 @@ pub fn build(
         game.push("--fullscreen".to_string());
     }
     args.extend(game.iter().map(|arg| values.substitute(arg)));
+    if let Some((server, JoinArguments::ServerAndPort)) = join_with {
+        args.extend([
+            "--server".to_string(),
+            server.host.clone(),
+            "--port".to_string(),
+            server.port.to_string(),
+        ]);
+    }
     args.extend(settings.game_args.iter().cloned());
 
     Ok(LaunchCommand {
@@ -488,6 +582,23 @@ pub fn split_args(text: &str) -> Vec<String> {
     args
 }
 
+/// Joins arguments into text that [`split_args`] splits back into the same arguments,
+/// quoting only those that need it: `-Dname=a b` and `-Xss2m` are `"-Dname=a b" -Xss2m`.
+/// Backslashes stay as they are, so Windows paths need no escaping.
+pub fn join_args<S: AsRef<str>>(args: &[S]) -> String {
+    let quote = |arg: &str| {
+        if !arg.is_empty() && !arg.contains(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
+            return arg.to_string();
+        }
+        // `split_args` has no escapes, so a `"` closes the quotes and goes in single ones.
+        format!("\"{}\"", arg.replace('"', r#""'"'""#))
+    };
+    args.iter()
+        .map(|arg| quote(arg.as_ref()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -508,6 +619,27 @@ mod tests {
             ["-Xss2m", "-Dname=a b", "-Dq=its", ""]
         );
         assert!(split_args("   ").is_empty());
+    }
+
+    #[test]
+    fn joins_arguments_so_they_split_back() {
+        let args = [
+            "-Xss2m",
+            r"-Dpath=C:\Path With Spaces\x",
+            r"-Dunc=\\server\share\dir",
+            r"-Ddir=C:\dir\",
+            r#"-Dq=say "hi", it's"#,
+            "",
+            "-Dtab=a\tb",
+        ];
+        let text = join_args(&args);
+        assert_eq!(
+            text,
+            "-Xss2m \"-Dpath=C:\\Path With Spaces\\x\" -Dunc=\\\\server\\share\\dir \
+             -Ddir=C:\\dir\\ \"-Dq=say \"'\"'\"hi\"'\"'\", it's\" \"\" \"-Dtab=a\tb\""
+        );
+        assert_eq!(split_args(&text), args);
+        assert_eq!(join_args::<&str>(&[]), "");
     }
 
     #[test]

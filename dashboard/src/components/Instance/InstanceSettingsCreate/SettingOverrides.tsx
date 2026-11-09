@@ -1,6 +1,7 @@
 import { MOTDRender } from 'components/Atoms/MOTDRender';
 import { parse } from 'utils/motd';
 import { convertUnicode } from 'utils/util';
+import { asset } from 'utils/basePath';
 
 export const SettingOverrides: Record<string, any> = {
   motd: {
@@ -9,7 +10,7 @@ export const SettingOverrides: Record<string, any> = {
     descriptionFunc: (motd: string) => (
       <div
         className={`mt-1 whitespace-pre-wrap p-2 font-minecraft text-medium text-[gray]`}
-        style={{ backgroundImage: `url(/assets/dirt.png)` }}
+        style={{ backgroundImage: `url(${asset('/assets/dirt.png')})` }}
       >
         <MOTDRender motd={parse(convertUnicode(motd))} />
       </div>

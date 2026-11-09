@@ -1,22 +1,50 @@
 //! Settings > Shared game settings: which categories are shared, the instance they sync
 //! from, "Copy from instance…", "Reset", and the shared values themselves.
 
-use std::collections::BTreeSet;
+use crate::theme::px;
+use std::{collections::BTreeSet, path::PathBuf};
 
 use gpui::{
-    Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div, prelude::*, px,
+    AnyElement, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
+    prelude::*,
 };
 use launcher_core::shared_options::{self, Category, Profile, Row};
 
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, ListRow, TextInput, Toggle},
-    instances::{
-        Instances,
-        fields::{self, section},
-        shared_settings::{note_box, value_pill},
+    components::{
+        Button, ButtonSize, ButtonVariant, Icon, ListRow, TextInput, Toggle,
+        a11y::Accessible,
+        settings::{
+            SettingRow, Toast, card, link, muted_link, popover, popover_panel, section,
+            select_button, value,
+        },
     },
-    theme::{self, colors, radius, text, weights},
+    i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, t, tr, trn},
+    instances::{Instances, shared_options_i18n, shared_settings::value_control},
+    theme::{self, colors, text, weights},
 };
+
+/// A category's name, in the current language.
+fn category_label(category: Category) -> &'static str {
+    t(match category {
+        Category::Controls => M::CategoryControls,
+        Category::Video => M::CategoryVideo,
+        Category::Sound => M::CategorySound,
+        Category::Accessibility => M::CategoryAccessibility,
+        Category::Language => M::CategoryLanguage,
+    })
+}
+
+/// What a category holds, in the current language.
+fn category_description(category: Category) -> &'static str {
+    t(match category {
+        Category::Controls => M::CategoryControlsHint,
+        Category::Video => M::CategoryVideoHint,
+        Category::Sound => M::CategorySoundHint,
+        Category::Accessibility => M::CategoryAccessibilityHint,
+        Category::Language => M::CategoryLanguageHint,
+    })
+}
 
 /// Which instance list is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,17 +61,18 @@ pub struct SharedSettings {
     expanded: BTreeSet<Category>,
     editing: Option<(String, Entity<TextInput>)>,
     confirm_reset: bool,
-    message: Option<(SharedString, bool)>,
-    /// The instances and how many are running at the last look, to reload when a game
-    /// stops or an instance is added or deleted.
-    signature: (Vec<String>, usize),
+    toast: Toast,
+    /// The instances and how many are running at the last look, and
+    /// [`Instances::shared_revision`], to reload when a game stops, an instance is
+    /// added or deleted, or Undo puts the shared settings back.
+    signature: (Vec<String>, usize, u64),
     _observe: Subscription,
 }
 
-fn signature(instances: &Instances) -> (Vec<String>, usize) {
+fn signature(instances: &Instances) -> (Vec<String>, usize, u64) {
     let ids: Vec<String> = instances.list().iter().map(|i| i.id.clone()).collect();
     let active = ids.iter().filter(|id| instances.is_active(id)).count();
-    (ids, active)
+    (ids, active, instances.shared_revision())
 }
 
 impl SharedSettings {
@@ -63,7 +92,7 @@ impl SharedSettings {
             expanded: BTreeSet::new(),
             editing: None,
             confirm_reset: false,
-            message: None,
+            toast: Toast::default(),
             _observe: observe,
         };
         this.reload(cx);
@@ -80,9 +109,28 @@ impl SharedSettings {
         let data = self.instances.read(cx).data_dir().clone();
         match shared_options::load_profile(&data) {
             Ok(profile) => self.profile = profile,
-            Err(err) => self.message = Some((err.to_string().into(), true)),
+            Err(err) => self.say(err.to_string(), true, cx),
         }
         cx.notify();
+    }
+
+    /// The shared settings as they are now (and `instance`'s sharing state), for Undo.
+    fn undo_files(&self, instance: Option<PathBuf>, cx: &Context<Self>) -> crate::undo::Files {
+        let data = self.instances.read(cx).data_dir().clone();
+        let mut paths = vec![shared_options::profile_path(&data)];
+        paths.extend(instance.map(|dir| shared_options::instance_path(&dir)));
+        crate::undo::Files::read(&paths)
+    }
+
+    fn record_undo(&mut self, before: crate::undo::Files, cx: &mut Context<Self>) {
+        self.instances.update(cx, |instances, cx| {
+            instances.record_shared(before, None, cx)
+        });
+    }
+
+    fn say(&mut self, message: impl Into<SharedString>, error: bool, cx: &mut Context<Self>) {
+        self.toast
+            .show(message, error, |this: &mut Self| &mut this.toast, cx);
     }
 
     fn done(
@@ -94,14 +142,19 @@ impl SharedSettings {
         match result {
             Ok(profile) => {
                 self.profile = profile;
-                self.message = ok.map(|m| (m.into(), false));
+                self.instances
+                    .update(cx, |instances, cx| instances.shared_settings_changed(cx));
+                if let Some(message) = ok {
+                    self.say(message, false, cx);
+                }
             }
-            Err(err) => self.message = Some((err.to_string().into(), true)),
+            Err(err) => self.say(err.to_string(), true, cx),
         }
         cx.notify();
     }
 
     fn set_category(&mut self, category: Category, shared: bool, cx: &mut Context<Self>) {
+        let before = self.undo_files(None, cx);
         let data = self.instances.read(cx).data_dir().clone();
         let result = shared_options::update_profile(&data, |profile| {
             if shared {
@@ -110,23 +163,44 @@ impl SharedSettings {
                 profile.disabled.insert(category);
             }
         });
+        self.record_undo(before, cx);
         self.done(result, None, cx);
     }
 
+    /// Picks the main instance. Another instance taking over from the current main
+    /// asks first (in the shell), so it isn't changed here.
     fn sync_from(&mut self, id: Option<String>, cx: &mut Context<Self>) {
         self.picker = None;
+        if let Some(id) = &id {
+            let name = self
+                .instances
+                .read(cx)
+                .instance_name(id)
+                .unwrap_or_default();
+            let done = self
+                .instances
+                .update(cx, |instances, cx| instances.request_main(id, cx));
+            if done {
+                self.say(tr!(M::SyncedFrom, name = name), false, cx);
+            }
+            self.reload(cx);
+            return;
+        }
         let instances = self.instances.read(cx);
         let data = instances.data_dir().clone();
         let dir = id.as_deref().map(|id| instances.instance_dir(id));
         let message = match id.as_deref().and_then(|id| instances.instance_name(id)) {
-            Some(name) => format!("Settings changed in-game in {name} now update every instance."),
-            None => "No instance updates the shared settings now; edit them here.".into(),
+            Some(name) => tr!(M::SyncedFrom, name = name),
+            None => t(M::SyncedFromNone).into(),
         };
+        let before = self.undo_files(dir.clone(), cx);
         let result = shared_options::set_preferred(&data, id.as_deref(), dir.as_deref());
+        self.record_undo(before, cx);
         self.done(result, Some(message), cx);
     }
 
     fn copy_from(&mut self, id: String, cx: &mut Context<Self>) {
+        let before = self.undo_files(None, cx);
         self.picker = None;
         let instances = self.instances.read(cx);
         let data = instances.data_dir().clone();
@@ -141,25 +215,21 @@ impl SharedSettings {
         let jar = instances.client_jar(&version);
         match shared_options::copy_from_instance(&data, &dir, &version, Some(&jar)) {
             Ok(count) => {
-                self.message = Some((format!("Copied {count} values from {name}.").into(), false));
+                self.record_undo(before, cx);
+                self.say(trn!(P::CopiedValues, count, name = name), false, cx);
                 self.reload(cx);
             }
-            Err(err) => {
-                self.message = Some((err.to_string().into(), true));
-                cx.notify();
-            }
+            Err(err) => self.say(err.to_string(), true, cx),
         }
     }
 
     fn reset(&mut self, cx: &mut Context<Self>) {
+        let before = self.undo_files(None, cx);
         self.confirm_reset = false;
         let data = self.instances.read(cx).data_dir().clone();
         let result = shared_options::reset(&data);
-        self.done(
-            result,
-            Some("The shared values are cleared. Instances keep their own options.txt.".into()),
-            cx,
-        );
+        self.record_undo(before, cx);
+        self.done(result, Some(t(M::SharedCleared).into()), cx);
     }
 
     fn save_edit(&mut self, cx: &mut Context<Self>) {
@@ -168,35 +238,65 @@ impl SharedSettings {
         };
         let text = input.read(cx).text().to_string();
         let data = self.instances.read(cx).data_dir().clone();
+        let before = self.undo_files(None, cx);
         let result = shared_options::set_value(&data, &key, &text);
         if result.is_err() {
             self.editing = Some((key, input));
         }
+        self.record_undo(before, cx);
+        self.done(result, None, cx);
+    }
+
+    fn set_narrator_off(&mut self, off: bool, cx: &mut Context<Self>) {
+        let before = self.undo_files(None, cx);
+        let data = self.instances.read(cx).data_dir().clone();
+        let result = shared_options::set_narrator_off(&data, off);
+        let message = if off {
+            t(M::NarratorKeptOff)
+        } else {
+            t(M::NarratorPerInstance)
+        };
+        self.record_undo(before, cx);
+        self.done(result, Some(message.into()), cx);
+    }
+
+    /// Saves a value picked with a switch, choice or slider straight away.
+    fn set_now(&mut self, key: &str, text: &str, cx: &mut Context<Self>) {
+        let before = self.undo_files(None, cx);
+        let data = self.instances.read(cx).data_dir().clone();
+        let result = shared_options::set_value(&data, key, text);
+        self.record_undo(before, cx);
         self.done(result, None, cx);
     }
 
     fn picker_list(&self, picker: Picker, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let instances = self.instances.read(cx);
-        let mut list = div()
-            .flex()
-            .flex_col()
-            .p_1()
-            .max_w(px(360.))
-            .rounded(radius::LG)
-            .border_1()
-            .border_color(colors::FADE_700)
-            .bg(colors::GRAY_800);
+        let mut list = popover_panel(match picker {
+            Picker::SyncFrom => "sync-from-list",
+            Picker::CopyFrom => "copy-from-list",
+        })
+        .w(px(320.))
+        .max_h(px(320.))
+        .overflow_y_scroll()
+        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+            this.picker = None;
+            cx.notify();
+        }));
         if picker == Picker::SyncFrom {
             list = list.child(
-                ListRow::new("sync-none", "No instance")
-                    .detail("edit here only")
+                ListRow::new("sync-none", t(M::NoInstance))
+                    .detail(t(M::EditHereOnly))
                     .selected(self.profile.preferred.is_none())
                     .on_click(cx.listener(|this, _, _, cx| this.sync_from(None, cx))),
             );
         }
         for (index, instance) in instances.list().iter().enumerate() {
             let id = instance.id.clone();
-            let detail = format!("{} · {}", instance.game_version, instance.loader.label());
+            let detail = format!(
+                "{} · {}",
+                instance.game_version,
+                super::loader_name(instance.loader)
+            );
             let row = ListRow::new(("shared-pick", index), instance.name.clone())
                 .icon(Icon::Cube)
                 .detail(detail);
@@ -214,12 +314,7 @@ impl SharedSettings {
         list
     }
 
-    fn value_row(
-        &self,
-        index: usize,
-        row: &Row,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement + use<> {
+    fn value_row(&self, index: usize, row: &Row, cx: &mut Context<Self>) -> AnyElement {
         let editing = self
             .editing
             .as_ref()
@@ -230,68 +325,71 @@ impl SharedSettings {
         let shown = row
             .shared
             .as_deref()
-            .map(|v| row.show(v))
+            .map(|v| shared_options_i18n::show(row, v))
             .unwrap_or_default();
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_1()
-            .border_t_1()
-            .border_color(colors::FADE_700)
-            .child(
-                div()
-                    .w(px(220.))
-                    .flex_none()
-                    .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_300)
-                    .child(row.label.clone()),
+        let label = shared_options_i18n::label(row);
+        let line = SettingRow::new(label.clone())
+            .key(SharedString::from(format!("shared-option-{key}")))
+            .indent();
+        if editing.is_none()
+            && let Some(control) = value_control(
+                ("shared-value", index),
+                row,
+                row.shared.as_deref(),
+                cx.listener({
+                    let key = key.clone();
+                    move |this, text: &String, _, cx| this.set_now(&key, text, cx)
+                }),
             )
-            .child(match editing {
-                Some(input) => div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(div().w(px(200.)).child(input))
-                    .child(
-                        Button::new(("shared-value-save", index), "Save")
-                            .variant(ButtonVariant::Primary)
-                            .size(ButtonSize::Slim)
-                            .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
-                    )
-                    .child(
-                        Button::new(("shared-value-cancel", index), "Cancel")
-                            .variant(ButtonVariant::Ghost)
-                            .size(ButtonSize::Slim)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.editing = None;
-                                cx.notify();
-                            })),
-                    )
-                    .into_any_element(),
-                None => div()
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    .items_center()
-                    .gap_2()
-                    .child(value_pill(shown, false))
-                    .child(div().flex_1())
-                    .child(
-                        Button::new(("shared-value-edit", index), "Edit")
-                            .variant(ButtonVariant::Ghost)
-                            .size(ButtonSize::Slim)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                let input = fields::input(cx, text_.clone(), "Value");
-                                this.editing = Some((key.clone(), input));
-                                cx.notify();
-                            })),
-                    )
-                    .into_any_element(),
-            })
+        {
+            return line.child(control).into_any_element();
+        }
+        match editing {
+            Some(input) => line
+                .child(div().w(px(200.)).child(input))
+                .child(
+                    Button::new(("shared-value-save", index), t(CommonMsg::Save))
+                        .variant(ButtonVariant::Primary)
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| this.save_edit(cx))),
+                )
+                .child(
+                    muted_link(("shared-value-cancel", index), t(CommonMsg::Cancel)).on_press(
+                        cx.listener(|this, _, _, cx| {
+                            this.editing = None;
+                            cx.notify();
+                        }),
+                    ),
+                ),
+            None => line.child(value(shown, false)).child(
+                link(("shared-value-edit", index), t(CommonMsg::Edit)).on_press(cx.listener(
+                    move |this, _, _, cx| {
+                        let text = text_.clone();
+                        let (label, automation_id) = (
+                            label.clone(),
+                            format!("shared-value-input-{}", key.as_str()),
+                        );
+                        let input = cx.new(|cx| {
+                            TextInput::new(cx)
+                                .with_placeholder(M::Value)
+                                .with_label(label)
+                                .with_automation_id(automation_id)
+                                .with_text(text)
+                        });
+                        this.editing = Some((key.clone(), input));
+                        cx.notify();
+                    },
+                )),
+            ),
+        }
+        .into_any_element()
+    }
+}
+
+impl SharedSettings {
+    /// Drawn by the Settings dialog, at the bottom of its page.
+    pub fn toast(&self) -> &Toast {
+        &self.toast
     }
 }
 
@@ -304,289 +402,231 @@ impl Render for SharedSettings {
             .as_deref()
             .and_then(|id| self.instances.read(cx).instance_name(id));
         let has_instances = !self.instances.read(cx).list().is_empty();
-
-        let mut categories = div().flex().flex_col().gap_2();
-        for category in Category::ALL {
-            let count = rows.iter().filter(|r| r.category == category).count();
-            let shared = self.profile.shares(category);
-            categories = categories.child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        Toggle::new(("share-category", category as usize), shared).on_change(
-                            cx.listener(move |this, value: &bool, _, cx| {
-                                this.set_category(category, *value, cx)
-                            }),
-                        ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
-                                    .child(category.label()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .text_color(colors::GRAY_500)
-                                    .child(category.description()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_size(theme::text_size(text::SMALL))
-                            .text_color(colors::GRAY_500)
-                            .child(format!(
-                                "{count} value{}",
-                                if count == 1 { "" } else { "s" }
-                            )),
-                    ),
-            );
-        }
-        // TODO(M5b): share servers.dat once the NBT reader lands.
-        categories = categories.child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_3()
-                .child(Toggle::new("share-servers", false).disabled(true))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .child(
-                            div()
-                                .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_500)
-                                .child("Server list"),
-                        )
-                        .child(
-                            div()
-                                .text_size(theme::text_size(text::SMALL))
-                                .text_color(colors::GRAY_500)
-                                .child("Coming soon. Resource and shader packs stay per instance."),
-                        ),
-                ),
-        );
-
-        let sync_label = match &preferred_name {
-            Some(name) => format!("Sync from: {name}"),
-            None => "Sync from: no instance".to_string(),
-        };
         let sync_hint = if preferred_name.is_some() {
-            "Settings you change in-game in this instance update the shared ones. Other instances only receive them."
+            t(M::SyncFromHint)
         } else {
-            "Nothing is read back from the games: shared values change only here."
+            t(M::SyncFromNoneHint)
         };
 
-        let left = div()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .flex_1()
-            .min_w_0()
-            .child(categories);
-
-        let mut right = div().flex().flex_col().gap_3().flex_1().min_w_0().child(
+        let sync = SettingRow::new(t(M::SyncFrom)).hint(sync_hint).child(
             div()
                 .flex()
                 .flex_col()
-                .gap_1()
-                .child(fields::caption_text("SYNC FROM"))
+                .items_end()
                 .child(
-                    div().flex().flex_row().child(
-                        Button::new("sync-from", sync_label)
-                            .variant(ButtonVariant::Secondary)
-                            .icon_right(Icon::CaretDown)
-                            .disabled(!has_instances)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.picker = match this.picker {
-                                    Some(Picker::SyncFrom) => None,
-                                    _ => Some(Picker::SyncFrom),
-                                };
-                                cx.notify();
-                            })),
-                    ),
-                )
-                .child(
-                    div()
-                        .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::GRAY_500)
-                        .child(sync_hint),
-                ),
-        );
-        if self.picker == Some(Picker::SyncFrom) {
-            right = right.child(self.picker_list(Picker::SyncFrom, cx));
-        }
-        right = right.child(
-            div()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .items_center()
-                .gap_2()
-                .child(
-                    Button::new("copy-from-instance", "Copy from instance…")
-                        .variant(ButtonVariant::Secondary)
-                        .disabled(!has_instances)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.picker = match this.picker {
-                                Some(Picker::CopyFrom) => None,
-                                _ => Some(Picker::CopyFrom),
-                            };
-                            cx.notify();
-                        })),
-                )
-                .child(if self.confirm_reset {
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            Button::new("confirm-reset-shared", "Clear every shared value")
-                                .variant(ButtonVariant::Danger)
-                                .on_click(cx.listener(|this, _, _, cx| this.reset(cx))),
+                    select_button(
+                        "sync-from",
+                        div().font_weight(weights::BOLD.into()).child(
+                            preferred_name
+                                .clone()
+                                .unwrap_or_else(|| t(M::NoInstance).into()),
+                        ),
+                    )
+                    .aria_label(t(M::SyncFrom))
+                    .aria_value(preferred_name.unwrap_or_else(|| t(M::NoInstance).into()))
+                    .when(has_instances, |button| {
+                        let shell = cx.entity().downgrade();
+                        button.expandable(self.picker == Some(Picker::SyncFrom), move |_, cx| {
+                            shell
+                                .update(cx, |this, cx| this.toggle_picker(Picker::SyncFrom, cx))
+                                .ok();
+                        })
+                    })
+                    .when(has_instances, |button| {
+                        button.on_press(
+                            cx.listener(|this, _, _, cx| this.toggle_picker(Picker::SyncFrom, cx)),
                         )
-                        .child(
-                            Button::new("cancel-reset-shared", "Cancel")
-                                .variant(ButtonVariant::Ghost)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.confirm_reset = false;
-                                    cx.notify();
-                                })),
-                        )
-                        .into_any_element()
-                } else {
-                    Button::new("reset-shared", "Reset")
-                        .variant(ButtonVariant::Danger)
-                        .disabled(rows.is_empty())
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.confirm_reset = true;
-                            cx.notify();
-                        }))
-                        .into_any_element()
+                    }),
+                )
+                .when(self.picker == Some(Picker::SyncFrom), |this| {
+                    let close = cx.listener(|this, _: &(), _, cx| {
+                        this.picker = None;
+                        cx.notify();
+                    });
+                    this.child(popover(
+                        "syncfrom-popover",
+                        self.picker_list(Picker::SyncFrom, cx),
+                        move |window, cx| close(&(), window, cx),
+                    ))
                 }),
         );
-        if self.picker == Some(Picker::CopyFrom) {
-            right = right.child(self.picker_list(Picker::CopyFrom, cx));
-        }
+        let copy = SettingRow::new(t(M::StartFromInstance)).child(
+            div()
+                .flex()
+                .flex_col()
+                .items_end()
+                .child(
+                    Button::new("copy-from-instance", t(M::CopyFromInstance))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .disabled(!has_instances)
+                        .on_click(
+                            cx.listener(|this, _, _, cx| this.toggle_picker(Picker::CopyFrom, cx)),
+                        ),
+                )
+                .when(self.picker == Some(Picker::CopyFrom), |this| {
+                    let close = cx.listener(|this, _: &(), _, cx| {
+                        this.picker = None;
+                        cx.notify();
+                    });
+                    this.child(popover(
+                        "copyfrom-popover",
+                        self.picker_list(Picker::CopyFrom, cx),
+                        move |window, cx| close(&(), window, cx),
+                    ))
+                }),
+        );
+        let reset = SettingRow::new(t(M::ClearShared))
+            .danger()
+            .hint(t(M::ClearSharedHint));
+        let reset = if self.confirm_reset {
+            reset
+                .child(
+                    Button::new("confirm-reset-shared", t(M::ClearEveryShared))
+                        .variant(ButtonVariant::Danger)
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| this.reset(cx))),
+                )
+                .child(
+                    muted_link("cancel-reset-shared", t(CommonMsg::Cancel)).on_press(cx.listener(
+                        |this, _, _, cx| {
+                            this.confirm_reset = false;
+                            cx.notify();
+                        },
+                    )),
+                )
+        } else {
+            reset.child(
+                Button::new("reset-shared", t(M::ClearEllipsis))
+                    .variant(ButtonVariant::Danger)
+                    .size(ButtonSize::Slim)
+                    .disabled(rows.is_empty())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.confirm_reset = true;
+                        cx.notify();
+                    })),
+            )
+        };
 
-        let mut values = div().flex().flex_col().gap_2();
-        if rows.is_empty() {
-            values = values.child(note_box(
-                "No shared values yet. Copy them from an instance, or pick one to sync from and play it.",
-            ));
-        }
+        let mut categories: Vec<AnyElement> = Vec::new();
         let mut index = 0;
         for category in Category::ALL {
             let in_category: Vec<&Row> = rows.iter().filter(|r| r.category == category).collect();
-            if in_category.is_empty() {
-                continue;
-            }
-            let mut group = div()
-                .flex()
-                .flex_col()
-                .rounded(radius::LG)
-                .border_1()
-                .border_color(colors::FADE_700)
-                .bg(colors::GRAY_850)
-                .child(
-                    div()
-                        .px_3()
-                        .py_2()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            Button::new(("shared-values", category as usize), category.label())
-                                .variant(ButtonVariant::Ghost)
-                                .size(ButtonSize::Slim)
-                                .icon_right(if self.expanded.contains(&category) {
-                                    Icon::ArrowUp
-                                } else {
-                                    Icon::ArrowDown
-                                })
-                                .on_click(cx.listener(move |this, _, _, cx| {
+            let count = in_category.len();
+            let shared = self.profile.shares(category);
+            let expanded = self.expanded.contains(&category) && count > 0;
+            categories.push(
+                SettingRow::new(category_label(category))
+                    .hint(category_description(category))
+                    .child(
+                        div()
+                            .text_size(theme::text_size(text::SMALL))
+                            .text_color(crate::theme::ink::muted())
+                            .child(match count {
+                                0 => t(M::NoValuesYet).to_string(),
+                                n => trn!(P::Values, n),
+                            }),
+                    )
+                    .when(count > 0, |row| {
+                        row.child(
+                            link(
+                                ("shared-values", category as usize),
+                                if expanded { t(M::Hide) } else { t(M::Show) },
+                            )
+                            .expandable(expanded, {
+                                let shell = cx.entity().downgrade();
+                                move |_, cx| {
+                                    shell
+                                        .update(cx, |this, cx| {
+                                            if !this.expanded.remove(&category) {
+                                                this.expanded.insert(category);
+                                            }
+                                            cx.notify();
+                                        })
+                                        .ok();
+                                }
+                            })
+                            .on_press(cx.listener(
+                                move |this, _, _, cx| {
                                     if !this.expanded.remove(&category) {
                                         this.expanded.insert(category);
                                     }
                                     cx.notify();
-                                })),
+                                },
+                            )),
                         )
-                        .child(
-                            div()
-                                .text_size(theme::text_size(text::SMALL))
-                                .text_color(colors::GRAY_500)
-                                .child(format!("{} values", in_category.len())),
-                        )
-                        .when(!self.profile.shares(category), |this| {
-                            this.child(
-                                div()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .text_color(colors::GRAY_500)
-                                    .child("not shared"),
-                            )
-                        }),
-                );
-            if self.expanded.contains(&category) {
+                    })
+                    .child(
+                        Toggle::new(("share-category", category as usize), shared)
+                            .label(category_label(category))
+                            .on_change(cx.listener(move |this, value: &bool, _, cx| {
+                                this.set_category(category, *value, cx)
+                            })),
+                    )
+                    .into_any_element(),
+            );
+            if expanded {
                 for row in in_category {
-                    group = group.child(self.value_row(index, row, cx));
+                    categories.push(self.value_row(index, row, cx));
                     index += 1;
                 }
             }
-            values = values.child(group);
         }
+        // TODO(M5b): share servers.dat once the NBT reader lands.
+        categories.push(
+            SettingRow::new(t(M::ServerList))
+                .hint(t(M::ServerListHint))
+                .child(
+                    Toggle::new("share-servers", false)
+                        .label(t(M::ServerList))
+                        .disabled(true),
+                )
+                .into_any_element(),
+        );
+
+        let accessibility_shared = self.profile.shares(Category::Accessibility);
+        let narrator = SettingRow::new(t(M::KeepNarratorOff))
+            .hint(t(M::KeepNarratorOffHint))
+            .note_opt((!accessibility_shared).then(|| {
+                (
+                    SharedString::from(tr!(
+                        M::NarratorNotShared,
+                        category = t(M::CategoryAccessibility)
+                    )),
+                    colors::YELLOW,
+                )
+            }))
+            .child(
+                Toggle::new("narrator-off", shared_options::narrator_off(&self.profile))
+                    .label(t(M::KeepNarratorOff))
+                    .disabled(!accessibility_shared)
+                    .on_change(
+                        cx.listener(|this, off: &bool, _, cx| this.set_narrator_off(*off, cx)),
+                    ),
+            );
 
         div()
             .id("shared-game-settings")
             .flex()
             .flex_col()
-            .gap_4()
+            .gap_8()
             .w_full()
-            .max_w(px(1000.))
-            .px_8()
-            .pt_6()
+            .child(section(t(M::Source), None).child(card([
+                sync.into_any_element(),
+                copy.into_any_element(),
+                reset.into_any_element(),
+            ])))
+            .child(section(t(M::NarratorSection), None).child(card([narrator.into_any_element()])))
             .child(
-                section(
-                    "Shared game settings",
-                    Some(
-                        "One set of options.txt settings for every instance. An instance can override single values in its Settings tab."
-                            .into(),
-                    ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .gap_8()
-                        .w_full()
-                        .child(left)
-                        .child(right),
-                ),
+                section(t(M::WhatsShared), Some(t(M::WhatsSharedLead).into()))
+                    .child(card(categories)),
             )
-            .when_some(self.message.clone(), |this, (message, error)| {
-                this.child(fields::status(
-                    message,
-                    if error {
-                        colors::RED_200
-                    } else {
-                        colors::GREEN_300
-                    },
-                ))
-            })
-            .child(values)
+    }
+}
+
+impl SharedSettings {
+    fn toggle_picker(&mut self, picker: Picker, cx: &mut Context<Self>) {
+        self.picker = (self.picker != Some(picker)).then_some(picker);
+        cx.notify();
     }
 }

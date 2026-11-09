@@ -7,6 +7,9 @@ import { useContext } from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { TlsInfo } from 'bindings/TlsInfo';
 import { CoreCapabilities } from 'bindings/CoreCapabilities';
+import { CoreProduct } from 'bindings/CoreProduct';
+import { LaunchedBy } from 'bindings/LaunchedBy';
+import { t } from 'i18n';
 
 // The /system routes require login; axios sends the token by default
 // (set in pages/index.tsx).
@@ -67,6 +70,10 @@ export interface CoreInfo {
   tls?: TlsInfo;
   /** The core's optional features. Missing on older cores, which have them all. */
   capabilities?: Partial<CoreCapabilities>;
+  /** Lodestone Host or the standalone core. Missing on older cores: treat as `core`. */
+  product?: CoreProduct;
+  /** What started the core. Missing on older cores: unknown. */
+  launched_by?: LaunchedBy;
 }
 
 /**
@@ -94,8 +101,7 @@ export const useCoreInfo = (refetchInterval: number | false = false) => {
 };
 
 /** Shown instead of the macro features on a core built without Deno. */
-export const NO_SCRIPTING_MESSAGE =
-  "This core was built without scripting support (Deno), so macros aren't available.";
+export const noScriptingMessage = () => t('shell.noScripting');
 
 /**
  * The optional features of the core, from /info. A feature the core doesn't
@@ -116,8 +122,8 @@ export const useCoreCapabilities = () => {
 };
 
 /**
- * Whether this dashboard can reach a core on this machine: in the desktop
- * app, or when the dashboard page itself is served over http. An https page
+ * Whether this dashboard can reach a core on this machine: in Lodestone
+ * Host, or when the dashboard page itself is served over http. An https page
  * can't call the local core (plain http), browsers block it as mixed content.
  */
 export const canReachLocalCore = () =>

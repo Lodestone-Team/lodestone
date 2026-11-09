@@ -1,4 +1,5 @@
 import { Dialog } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from 'components/Atoms/Modal';
 import { useQueryClient } from '@tanstack/react-query';
 import Button from 'components/Atoms/Button';
 import InputBox from 'components/Atoms/Config/InputBox';
@@ -9,12 +10,13 @@ import { useCodeExecution } from 'data/CodeExecution';
 import { GlobalSettingsData } from 'bindings/GlobalSettingsData';
 import { LodestoneContext } from 'data/LodestoneContext';
 import {
-  NO_SCRIPTING_MESSAGE,
+  noScriptingMessage,
   useCoreCapabilities,
   useCoreInfo,
 } from 'data/SystemInfo';
 import { useUserInfo } from 'data/UserInfo';
 import { Form, Formik, FormikHelpers } from 'formik';
+import { MessageKey, useI18n } from 'i18n';
 import { useContext, useState } from 'react';
 import { toast } from 'react-toastify';
 import * as yup from 'yup';
@@ -30,29 +32,50 @@ import InputField from 'components/Atoms/Form/InputField';
 import { useDocumentTitle } from 'usehooks-ts';
 import WarningAlert from 'components/Atoms/WarningAlert';
 import { TlsMode } from 'bindings/TlsMode';
+import { PublicInstanceRows } from 'components/Instance/PublicListingSetting';
+import {
+  SettingsCard,
+  SettingsPage,
+  SettingsRow,
+  SettingsSection,
+  SettingsValue,
+} from 'components/Settings/SettingsBlocks';
+import { notifySaved } from 'components/Settings/savedToast';
 
-const tlsModeLabels: Record<TlsMode, string> = {
-  self_signed: 'Built-in self-signed certificate',
-  user_provided: 'Your own certificate (tls/cert.pem)',
-  none: 'Unavailable, plain HTTP only',
-};
+const tlsModeLabels = {
+  self_signed: 'settings.core.tls.selfSigned',
+  user_provided: 'settings.core.tls.userProvided',
+  none: 'settings.core.tls.none',
+} as const satisfies Record<TlsMode, MessageKey>;
+
+const CORE_NAME_MAX_LENGTH = 32;
+const DOMAIN_MAX_LENGTH = 253;
 
 // a read-only row in the Information section
-const InfoRow = ({ children }: { children: React.ReactNode }) => (
-  <div className="relative flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
-    <div className="flex min-w-0 grow flex-col">
-      <label className="text-medium font-medium text-gray-300">
-        {children}
-      </label>
-    </div>
-  </div>
+const InfoRow = ({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) => (
+  <SettingsRow label={label} controlClassName="min-w-0 shrink">
+    <SettingsValue className="wrap-break-word">{children}</SettingsValue>
+  </SettingsRow>
 );
 
 export const CoreSettings = () => {
-  useDocumentTitle('Lodestone Core Settings - Lodestone');
+  const { t, rich, formatBytes } = useI18n();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('settings.core.documentTitle') })
+  );
   const { core } = useContext(LodestoneContext);
   const queryClient = useQueryClient();
-  const { data: globalSettings, isPending: isLoading, error } = useGlobalSettings();
+  const {
+    data: globalSettings,
+    isPending: isLoading,
+    error,
+  } = useGlobalSettings();
   const { data: coreInfo } = useCoreInfo();
   const { data: userInfo } = useUserInfo();
   const can_change_core_settings = userInfo?.is_owner ?? false;
@@ -69,30 +92,26 @@ export const CoreSettings = () => {
   // without Deno, code execution only covers custom Java commands
   const { macros: macrosAvailable, isPending: capabilitiesPending } =
     useCoreCapabilities();
-  const codeExecutionCovers = macrosAvailable
-    ? 'macros, atom instances, extensions, instance scripts and custom Java commands'
-    : 'custom Java commands';
   // use a promise to track if safemode is successfully disabled
 
   const errorString = errorToString(error);
   // TODO: better form error displaying
   const nameField = (
     <InputBox
-      label="Core Name"
+      label={t('settings.core.name.label')}
       value={globalSettings?.core_name}
       isLoading={isLoading}
       error={errorString}
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
-      description={
-        'A nickname for this core. This is what you and others will see when you connect to this core'
-      }
       validate={async (name) => {
         // don't be empty
-        if (name === '') throw new Error('Name cannot be empty');
+        if (name === '') throw new Error(t('settings.core.name.empty'));
         // don't be too long
-        if (name.length > 32)
-          throw new Error('Name cannot be longer than 32 characters');
+        if (name.length > CORE_NAME_MAX_LENGTH)
+          throw new Error(
+            t('settings.core.name.tooLong', { max: CORE_NAME_MAX_LENGTH })
+          );
       }}
       onSubmit={async (name) => {
         await axiosPutSingleValue('/global_settings/name', name);
@@ -104,29 +123,28 @@ export const CoreSettings = () => {
           ...coreInfo,
           core_name: name,
         });
+        notifySaved();
       }}
     />
   );
 
   const domainField = (
     <InputBox
-      label="Public Domain/IP"
+      label={t('settings.core.domain.label')}
       value={globalSettings?.domain ?? ''}
       isLoading={isLoading}
       error={errorString}
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
-      description={
-        //TODO: more info needed once we add more functionality
-        'The domain or public IP address of this core'
-      }
       placeholder={`${core?.address}`}
       validate={async (domain) => {
         // can be empty
         if (domain === '') return;
         // don't be too long
-        if (domain.length > 253)
-          throw new Error('Domain cannot be longer than 253 characters');
+        if (domain.length > DOMAIN_MAX_LENGTH)
+          throw new Error(
+            t('settings.core.domain.tooLong', { max: DOMAIN_MAX_LENGTH })
+          );
       }}
       onSubmit={async (domain) => {
         await axiosPutSingleValue('/global_settings/domain', domain);
@@ -134,22 +152,21 @@ export const CoreSettings = () => {
           ...globalSettings,
           domain: domain,
         });
+        notifySaved();
       }}
-      tooltipText={"This is your public IP if you are port-forwarded. If not, leave this as is."}
+      tooltipText={t('settings.core.domain.tooltip')}
     />
   );
 
   const unsafeModeField = (
     <ToggleBox
-      label={'Safe Mode'}
+      label={t('settings.core.safeMode.label')}
       value={globalSettings?.safe_mode ?? false}
       isLoading={isLoading}
       error={errorString}
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
-      description={
-        'Attempts to prevent non-owner users from accessing adminstrative permissions on your machine'
-      }
+      description={t('settings.core.safeMode.hint')}
       onChange={async (value) => {
         if (value) {
           await axiosPutSingleValue('/global_settings/safe_mode', value);
@@ -157,6 +174,7 @@ export const CoreSettings = () => {
             ...globalSettings,
             safe_mode: value,
           });
+          notifySaved();
         } else {
           setShowSafemodeDialog(true);
         }
@@ -172,13 +190,14 @@ export const CoreSettings = () => {
       (old: GlobalSettingsData | undefined) =>
         old && { ...old, code_execution_enabled: value }
     );
+    notifySaved();
     // the core decides the final state (e.g. a lock), so read it back
     queryClient.invalidateQueries({ queryKey: ['global_settings'] });
   };
 
   const codeExecutionField = (
     <ToggleBox
-      label={'Code Execution'}
+      label={t('settings.core.codeExecution.label')}
       value={codeExecutionEnabled}
       isLoading={isLoading || capabilitiesPending}
       error={errorString}
@@ -186,14 +205,15 @@ export const CoreSettings = () => {
       canRead={userInfo !== undefined}
       description={
         <>
-          Allow {codeExecutionCovers} to run on this core.
+          {macrosAvailable
+            ? t('settings.core.codeExecution.hint')
+            : t('settings.core.codeExecution.hintJavaOnly')}
           {!macrosAvailable && (
-            <span className="block italic">{NO_SCRIPTING_MESSAGE}</span>
+            <span className="block italic">{noScriptingMessage()}</span>
           )}
           {codeExecutionLocked && (
             <span className="block italic">
-              Locked by the server administrator
-              (LODESTONE_DISABLE_CODE_EXECUTION or --disable-code-execution).
+              {t('settings.core.codeExecution.locked')}
             </span>
           )}
         </>
@@ -216,19 +236,18 @@ export const CoreSettings = () => {
       (old: GlobalSettingsData | undefined) =>
         old && { ...old, allow_lan_http: value }
     );
+    notifySaved();
   };
 
   const allowLanHttpField = (
     <ToggleBox
-      label={'Allow LAN access over plain HTTP'}
+      label={t('settings.core.lanHttp.label')}
       value={allowLanHttp}
       isLoading={isLoading}
       error={errorString}
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
-      description={
-        'Let other devices connect with http:// instead of https://. Passwords and session tokens then cross your network unencrypted. This machine can always use http://.'
-      }
+      description={t('settings.core.lanHttp.hint')}
       onChange={async (value) => {
         if (value) {
           setShowAllowLanHttpDialog(true);
@@ -242,46 +261,96 @@ export const CoreSettings = () => {
 
   const enablePlayitField = (
     <ToggleBox
-      label={'Enable Playit Integration'}
+      label={t('settings.core.playit.label')}
       value={globalSettings?.playit_enabled ?? false}
       isLoading={isLoading}
       error={errorString}
       disabled={!can_change_core_settings}
       canRead={userInfo !== undefined}
-      description={
-        'Enable Playit integration allowing users to open their servers for public facing access without port forwarding'
-      }
+      description={t('settings.core.playit.hint')}
       onChange={async (value) => {
         await axiosPutSingleValue('/global_settings/playit_enabled', value);
         queryClient.setQueryData(['global_settings'], {
           ...globalSettings,
           playit_enabled: value,
         });
+        notifySaved();
         await stopCli();
       }}
       optimistic={true}
     />
   );
 
+  const localClaimSupported =
+    typeof globalSettings?.allow_local_claim === 'boolean';
+  const allowLocalClaimField = (
+    <ToggleBox
+      label={t('settings.core.localClaim.label')}
+      value={globalSettings?.allow_local_claim === true}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={t('settings.core.localClaim.hint')}
+      onChange={async (value) => {
+        await axiosPutSingleValue('/global_settings/allow_local_claim', value);
+        queryClient.setQueryData(
+          ['global_settings'],
+          (old: GlobalSettingsData | undefined) =>
+            old && { ...old, allow_local_claim: value }
+        );
+        notifySaved();
+      }}
+      optimistic={false}
+    />
+  );
+
+  const listPubliclySupported =
+    typeof globalSettings?.list_instances_publicly === 'boolean';
+  const listInstancesPubliclyField = (
+    <ToggleBox
+      label={t('settings.core.listPublicly.label')}
+      value={globalSettings?.list_instances_publicly === true}
+      isLoading={isLoading}
+      error={errorString}
+      disabled={!can_change_core_settings}
+      canRead={userInfo !== undefined}
+      description={t('settings.core.listPublicly.hint')}
+      onChange={async (value) => {
+        await axiosPutSingleValue(
+          '/global_settings/list_instances_publicly',
+          value
+        );
+        queryClient.setQueryData(
+          ['global_settings'],
+          (old: GlobalSettingsData | undefined) =>
+            old && { ...old, list_instances_publicly: value }
+        );
+        notifySaved();
+      }}
+      optimistic={false}
+    />
+  );
 
   const openPortModal = (
     <Dialog
       open={showOpenPortDialog}
       onClose={() => setShowOpenPortDialog(false)}
+      className="relative z-60"
     >
-      <div className="fixed inset-0 bg-scrim-strong" />
+      <ModalBackdrop strong />
       <div className="fixed inset-0 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-4 text-center">
-          <Dialog.Panel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pb-8 pt-16">
+          <ModalPanel className="flex w-[500px] flex-col items-stretch justify-center gap-12 rounded-3xl bg-gray-800 px-8 pt-16 pb-8">
             <Formik
               initialValues={{ port: 25565 }}
               validationSchema={yup.object({
                 port: yup
                   .number()
-                  .typeError('Port must be a number')
-                  .required('Port is required')
-                  .min(1, 'Port must be between 1 and 65535')
-                  .max(65535, 'Port must be between 1 and 65535'),
+                  .typeError(() => t('settings.core.openPort.portNotNumber'))
+                  .required(() => t('settings.core.openPort.portRequired'))
+                  .min(1, () => t('settings.core.openPort.portRange'))
+                  .max(65535, () => t('settings.core.openPort.portRange')),
               })}
               onSubmit={async (
                 values: { port: number },
@@ -297,7 +366,9 @@ export const CoreSettings = () => {
                 }
                 actions.resetForm();
                 setShowOpenPortDialog(false);
-                toast.info(`Port ${values.port} opened`);
+                toast.info(
+                  t('settings.core.openPort.opened', { port: values.port })
+                );
               }}
             >
               {({ isSubmitting }) => (
@@ -308,25 +379,25 @@ export const CoreSettings = () => {
                 >
                   <InputField
                     name="port"
-                    label="Port to open"
+                    label={t('settings.core.openPort.portLabel')}
                     placeholder="25565"
                     type="number"
                   />
-                  <div className="flex flex-row justify-between">
+                  <div className="flex flex-row justify-between gap-2">
                     <Button
                       onClick={() => setShowOpenPortDialog(false)}
-                      label="Cancel"
+                      label={t('common.cancel')}
                     />
                     <Button
                       type="submit"
-                      label="Open Port"
+                      label={t('settings.core.openPort.button')}
                       loading={isSubmitting}
                     />
                   </div>
                 </Form>
               )}
             </Formik>
-          </Dialog.Panel>
+          </ModalPanel>
         </div>
       </div>
     </Dialog>
@@ -334,7 +405,7 @@ export const CoreSettings = () => {
 
   const safeModeDialog = (
     <ConfirmDialog
-      title="Turn off safe mode?"
+      title={t('settings.core.safeMode.offTitle')}
       isOpen={showSafemodeDialog}
       onConfirm={async () => {
         const error = await catchAsyncToString(
@@ -348,22 +419,21 @@ export const CoreSettings = () => {
           ...globalSettings,
           safe_mode: false,
         });
+        notifySaved();
         setShowSafemodeDialog(false);
       }}
-      confirmButtonText="Turn off"
+      confirmButtonText={t('settings.core.turnOff')}
       onClose={() => setShowSafemodeDialog(false)}
-      closeButtonText="Cancel"
+      closeButtonText={t('common.cancel')}
       type={'info'}
     >
-      Are you sure you want to turn off safe mode? This will allow you to give
-      users other than yourself the ability to run potentially dangerous
-      commands. Make sure you trust all the users you give these permissions to.
+      {t('settings.core.safeMode.offBody')}
     </ConfirmDialog>
   );
 
   const codeExecutionDialog = (
     <ConfirmDialog
-      title="Turn off code execution?"
+      title={t('settings.core.codeExecution.offTitle')}
       isOpen={showCodeExecutionDialog}
       onConfirm={async () => {
         const error = await catchAsyncToString(setCodeExecution(false));
@@ -373,22 +443,20 @@ export const CoreSettings = () => {
         }
         setShowCodeExecutionDialog(false);
       }}
-      confirmButtonText="Turn off"
+      confirmButtonText={t('settings.core.turnOff')}
       onClose={() => setShowCodeExecutionDialog(false)}
-      closeButtonText="Cancel"
+      closeButtonText={t('common.cancel')}
       type={'danger'}
     >
       {macrosAvailable
-        ? 'Running macros and atom instances will be stopped. Macros, atom instances, extensions, instance scripts and custom Java commands'
-        : 'Custom Java commands'}{' '}
-      will not run on this core until you turn code execution back on. Nothing
-      is started again automatically.
+        ? t('settings.core.codeExecution.offBody')
+        : t('settings.core.codeExecution.offBodyJavaOnly')}
     </ConfirmDialog>
   );
 
   const allowLanHttpDialog = (
     <ConfirmDialog
-      title="Allow plain HTTP from other devices?"
+      title={t('settings.core.lanHttp.confirmTitle')}
       isOpen={showAllowLanHttpDialog}
       onConfirm={async () => {
         const error = await catchAsyncToString(setAllowLanHttp(true));
@@ -398,63 +466,49 @@ export const CoreSettings = () => {
         }
         setShowAllowLanHttpDialog(false);
       }}
-      confirmButtonText="Allow"
+      confirmButtonText={t('settings.core.lanHttp.allow')}
       onClose={() => setShowAllowLanHttpDialog(false)}
-      closeButtonText="Cancel"
+      closeButtonText={t('common.cancel')}
       type={'danger'}
     >
-      Devices on your network will be able to connect over plain HTTP. Passwords
-      and session tokens sent that way cross the network unencrypted, so anyone
-      else on the network can read them and take over accounts on this core.
-      Only allow this if a device cannot use https://.
+      {t('settings.core.lanHttp.confirmBody')}
     </ConfirmDialog>
   );
 
   const openPortField = (
-    <div className="relative flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
-      <div className="flex min-w-0 grow flex-col">
-        <label className="text-medium font-medium text-gray-300">
-          Open Port
-        </label>
-        {can_change_core_settings ? (
-          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
-            Attempt to port forward on your router using{' '}
-            <a
-              href="https://en.wikipedia.org/wiki/Universal_Plug_and_Play"
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-200 hover:underline"
-            >
-              UPnP
-            </a>
-            . This will allow people on the internet to connect to your server.
-          </div>
-        ) : (
-          <div className="overflow-hidden text-ellipsis text-medium font-medium tracking-medium text-white/50">
-            No permission
-          </div>
-        )}
-      </div>
-      <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
-        <Button
-          label="Open Port"
-          intention="danger"
-          disabled={!can_change_core_settings}
-          onClick={() => {
-            setShowOpenPortDialog(true);
-          }}
-        />
-      </div>
-    </div>
+    <SettingsRow
+      label={t('settings.core.openPort.label')}
+      hint={
+        can_change_core_settings
+          ? rich('settings.core.openPort.hint', {
+              upnp: (
+                <a
+                  href="https://en.wikipedia.org/wiki/Universal_Plug_and_Play"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-200 hover:underline"
+                >
+                  UPnP
+                </a>
+              ),
+            })
+          : t('settings.core.openPort.noPermission')
+      }
+    >
+      <Button
+        label={t('settings.core.openPort.button')}
+        intention="danger"
+        className="whitespace-nowrap"
+        disabled={!can_change_core_settings}
+        onClick={() => {
+          setShowOpenPortDialog(true);
+        }}
+      />
+    </SettingsRow>
   );
 
-  function formatRamSize(totalRam?: number): string {
-    if (!totalRam) return "No ram? How are you running lodestone?";
-    const exponent = Math.floor(Math.log2(totalRam) / 10);
-    const size = (totalRam / Math.pow(1024, exponent)).toFixed(2);
-    const unit = ['B', 'KB', 'MB', 'GB', 'TB'][exponent];
-    return `${size} ${unit}`;
-  }
+  const formatRamSize = (totalRam?: number): string =>
+    totalRam ? formatBytes(totalRam) : t('settings.core.info.noRam');
 
   return (
     <>
@@ -462,86 +516,96 @@ export const CoreSettings = () => {
       {codeExecutionDialog}
       {allowLanHttpDialog}
       {openPortModal}
-      <div className="relative mx-auto flex h-full w-full max-w-2xl flex-col @container ">
-        <div className="flex w-full flex-col gap-12 overflow-y-scroll px-4 pt-8">
-          <h1 className="dashboard-instance-heading">Core Settings</h1>
-          {allowLanHttp && (
-            <WarningAlert>
-              <p>
-                Other devices can connect to this core over plain HTTP, so
-                passwords and session tokens can cross your network unencrypted.{' '}
-                {can_change_core_settings
-                  ? 'Turn off "Allow LAN access over plain HTTP" below and connect with https:// instead.'
-                  : 'Connect with https:// and ask the owner to turn off plain HTTP access.'}
-              </p>
-            </WarningAlert>
-          )}
-          <div className="flex w-full flex-col gap-4 @4xl:flex-row">
-            <div className="w-[28rem]">
-              <h2 className="text-h2 font-bold tracking-medium">
-                General Settings
-              </h2>
-              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-                These settings are for the core itself.
-              </h3>
-            </div>
-            <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-              {nameField}
-              {domainField}
-              {enablePlayitField}
-            </div>
-          </div>
-          <div className="flex w-full flex-col gap-4 @4xl:flex-row">
-            <div className="w-[28rem]">
-              <h2 className="text-h2 font-bold tracking-medium">Danger Zone</h2>
-              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-                These settings can cause irreversible damage to your server!
-              </h3>
-            </div>
-            <div className="mb-10 w-full rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-              {unsafeModeField}
-              {can_change_core_settings && codeExecutionField}
-              {can_change_core_settings &&
-                allowLanHttpSupported &&
-                allowLanHttpField}
-              {openPortField}
-            </div>
-          </div>
-          <div className="flex w-full flex-col gap-4 @4xl:flex-row">
-            <div className="w-[28rem]">
-              <h2 className="text-h2 font-bold tracking-medium">
-                Information
-              </h2>
-              <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-                This is information about your core and dashboard
-              </h3>
-            </div>
-            <div className="w-full rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-              <InfoRow>Core version: {coreInfo?.version}</InfoRow>
-              <InfoRow>Dashboard version: {DASHBOARD_VERSION}</InfoRow>
-              <InfoRow>OS: {coreInfo?.os}</InfoRow>
-              <InfoRow>Architecture: {coreInfo?.arch}</InfoRow>
-              <InfoRow>CPU: {coreInfo?.cpu}</InfoRow>
-              <InfoRow>CPU Cores: {coreInfo?.cpu_count}</InfoRow>
-              <InfoRow>Total RAM: {formatRamSize(coreInfo?.total_ram)}</InfoRow>
-              {coreInfo?.tls && (
-                <InfoRow>
-                  HTTPS certificate:{' '}
-                  {tlsModeLabels[coreInfo.tls.mode] ?? coreInfo.tls.mode}
-                </InfoRow>
-              )}
-              {coreInfo?.tls?.fingerprint_sha256 && (
-                <InfoRow>
-                  Certificate fingerprint (SHA-256):{' '}
-                  <span className="font-mono text-small break-all">
+      <SettingsPage title={t('settings.core.title')}>
+        {allowLanHttp && (
+          <WarningAlert>
+            <p>
+              {can_change_core_settings
+                ? t('settings.core.lanHttp.warningOwner', {
+                    setting: t('settings.core.lanHttp.label'),
+                  })
+                : t('settings.core.lanHttp.warningOther')}
+            </p>
+          </WarningAlert>
+        )}
+        <SettingsSection title={t('settings.core.section.core')}>
+          <SettingsCard>
+            {nameField}
+            {domainField}
+            {enablePlayitField}
+          </SettingsCard>
+        </SettingsSection>
+        {can_change_core_settings && listPubliclySupported && (
+          <SettingsSection
+            title={t('settings.core.section.public')}
+            lead={t('settings.core.section.publicLead')}
+          >
+            <SettingsCard>
+              {listInstancesPubliclyField}
+              <PublicInstanceRows
+                switchOn={globalSettings?.list_instances_publicly === true}
+              />
+            </SettingsCard>
+          </SettingsSection>
+        )}
+        <SettingsSection title={t('settings.core.section.info')}>
+          <SettingsCard>
+            <InfoRow label={t('settings.core.info.coreVersion')}>
+              {coreInfo?.version}
+            </InfoRow>
+            <InfoRow label={t('settings.core.info.dashboardVersion')}>
+              {DASHBOARD_VERSION}
+            </InfoRow>
+            <InfoRow label={t('settings.core.info.os')}>{coreInfo?.os}</InfoRow>
+            <InfoRow label={t('settings.core.info.arch')}>
+              {coreInfo?.arch}
+            </InfoRow>
+            <InfoRow label={t('settings.core.info.cpu')}>
+              {coreInfo?.cpu}
+            </InfoRow>
+            <InfoRow label={t('settings.core.info.cpuCores')}>
+              {coreInfo?.cpu_count}
+            </InfoRow>
+            <InfoRow label={t('settings.core.info.totalRam')}>
+              {formatRamSize(coreInfo?.total_ram)}
+            </InfoRow>
+            {coreInfo?.tls && (
+              <InfoRow label={t('settings.core.info.httpsCertificate')}>
+                {coreInfo.tls.mode in tlsModeLabels
+                  ? t(tlsModeLabels[coreInfo.tls.mode])
+                  : coreInfo.tls.mode}
+              </InfoRow>
+            )}
+            {coreInfo?.tls?.fingerprint_sha256 && (
+              <SettingsRow
+                label={t('settings.core.info.fingerprint')}
+                hint={
+                  <span className="font-mono break-all">
                     {coreInfo.tls.fingerprint_sha256}
                   </span>
-                </InfoRow>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+                }
+              />
+            )}
+          </SettingsCard>
+        </SettingsSection>
+        <SettingsSection
+          title={t('settings.core.section.danger')}
+          lead={t('settings.core.section.dangerLead')}
+          danger
+        >
+          <SettingsCard danger>
+            {unsafeModeField}
+            {can_change_core_settings && codeExecutionField}
+            {can_change_core_settings &&
+              allowLanHttpSupported &&
+              allowLanHttpField}
+            {can_change_core_settings &&
+              localClaimSupported &&
+              allowLocalClaimField}
+            {openPortField}
+          </SettingsCard>
+        </SettingsSection>
+      </SettingsPage>
     </>
   );
 };
