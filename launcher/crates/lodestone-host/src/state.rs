@@ -63,6 +63,9 @@ pub enum HostEvent {
     SwitchCore(Option<Box<crate::session::Session>>),
     /// A page asks the shell to show another route (see [`HostState::navigate`]).
     Navigate(crate::routes::Route),
+    /// Something asks for the Settings dialog, on a page (see
+    /// [`HostState::open_settings`]).
+    OpenSettings(crate::routes::SettingsPage),
     /// A page asks for the "New server" dialog.
     OpenCreateInstance,
     /// A page asks for the "New server" dialog on a Modrinth modpack (Mods › Browse:
@@ -125,6 +128,12 @@ impl HostState {
     /// Asks the shell to show `route`: for a page that leads elsewhere.
     pub fn navigate(&mut self, route: crate::routes::Route, cx: &mut Context<Self>) {
         cx.emit(HostEvent::Navigate(route));
+    }
+
+    /// Asks the shell for the Settings dialog, on `page`, over the page shown: for a
+    /// link to a setting (Account, Updates, …).
+    pub fn open_settings(&mut self, page: crate::routes::SettingsPage, cx: &mut Context<Self>) {
+        cx.emit(HostEvent::OpenSettings(page));
     }
 
     /// Asks the shell for the "New server" dialog.

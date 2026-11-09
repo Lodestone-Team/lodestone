@@ -40,6 +40,7 @@ pub fn text(message: M) -> &'static str {
         M::TabMacros => "宏",
         M::TabEventLogs => "事件日志",
         M::Settings => "设置",
+        M::SettingsMenu => "设置…",
         M::SettingsCore => "Core",
         M::SettingsGeneral => "常规",
         M::SettingsUsers => "用户",

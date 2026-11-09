@@ -1,7 +1,8 @@
 //! The dashboard's layout (`components/DashboardLayout`): the top bar, the sidebar with
 //! the selected instance, its tabs and every instance, and the page of the current
-//! [`Route`].
+//! [`Route`]; the Settings open in a dialog over it ([`settings`]).
 
+pub mod settings;
 pub mod sidebar;
 mod top_bar;
 
@@ -11,7 +12,7 @@ use gpui::{
 };
 use launcher_core::cores::admin::InstanceState;
 use lodestone_ui::{
-    components::{DialogSlot, Tabs, UnderDialogs},
+    components::{DialogSlot, UnderDialogs},
     theme::{colors, fonts, ink, layout, px, text, weights},
 };
 
@@ -22,6 +23,7 @@ use crate::{
         create_instance::{CreateInstance, CreateInstanceEvent},
     },
     routes::{InstanceTab, Route, SettingsPage},
+    shell::settings::SettingsModal,
     state::{HostEvent, HostState},
 };
 
@@ -32,6 +34,10 @@ pub struct HostShell {
     create: DialogSlot<HostShell, Entity<CreateInstance>>,
     /// The other cores (package D), from the footer's "Change core".
     cores: DialogSlot<HostShell, Entity<pages::cores::CoresDialog>>,
+    /// The Settings dialog, over the page.
+    settings: DialogSlot<HostShell, SettingsModal>,
+    /// The Settings' page shown last, where they open again.
+    settings_page: SettingsPage,
     /// The core shown is this computer's (not another one's).
     pub on_local: bool,
     /// Asks to accept the Minecraft EULA when a server doesn't start without it.
@@ -53,6 +59,7 @@ impl HostShell {
             cx.observe(&state, |this, _, cx| this.check_route(cx)),
             cx.subscribe(&state, |this, _, event, cx| match event {
                 HostEvent::Navigate(route) => this.navigate(route.clone(), cx),
+                HostEvent::OpenSettings(page) => this.open_settings(Some(*page), cx),
                 HostEvent::OpenCreateInstance => this.open_create(cx),
                 HostEvent::OpenCreateModpack(preset) => {
                     this.open_create_with(Some(preset.clone()), cx)
@@ -74,6 +81,8 @@ impl HostShell {
             page: None,
             create: DialogSlot::new(|this: &mut HostShell| &mut this.create),
             cores: DialogSlot::new(|this: &mut HostShell| &mut this.cores),
+            settings: DialogSlot::new(|this: &mut HostShell| &mut this.settings),
+            settings_page: SettingsPage::General,
             on_local: true,
             eula,
             notifications,
@@ -108,7 +117,9 @@ impl HostShell {
         }
     }
 
+    /// Shows `route`. The Settings close, so it isn't hidden under them.
     pub fn navigate(&mut self, route: Route, cx: &mut Context<Self>) {
+        self.close_settings(cx);
         if self.route != route {
             self.route = route;
             cx.notify();
@@ -222,7 +233,6 @@ impl HostShell {
                 let label = (*tab == InstanceTab::Console).then_some(instance.state);
                 Some((sidebar::tab_name(*tab, instance).to_string(), label))
             }
-            Route::Settings(page) => Some((settings_name(*page).to_string(), None)),
         }
     }
 
@@ -255,8 +265,12 @@ impl HostShell {
             )
     }
 
-    /// The window's title: the page, then the app (the dashboard's `pageTitle`).
+    /// The window's title: the page (or the Settings' page), then the app (the
+    /// dashboard's `pageTitle`).
     fn title(&self, cx: &Context<Self>) -> String {
+        if let Some(page) = self.settings_open() {
+            return format!("{} – {}", settings::page_name(page), crate::APP_NAME);
+        }
         let page = match &self.route {
             Route::Home => None,
             Route::Instance { uuid, tab } => {
@@ -269,7 +283,6 @@ impl HostShell {
                     }
                 })
             }
-            Route::Settings(page) => Some(settings_name(*page).to_string()),
         };
         match page {
             Some(page) => format!("{page} – {}", crate::APP_NAME),
@@ -278,17 +291,8 @@ impl HostShell {
     }
 }
 
-fn settings_name(page: SettingsPage) -> &'static str {
-    match page {
-        SettingsPage::General => t(ShellMsg::SettingsGeneral),
-        SettingsPage::Users => t(ShellMsg::SettingsUsers),
-        SettingsPage::Profile => t(ShellMsg::SettingsProfile),
-        SettingsPage::Updates => t(crate::i18n::CoreMsg::UpdatesTitle),
-    }
-}
-
 /// How wide a page's content may grow, as the dashboard's tabs (`max-w-4xl`, and
-/// `max-w-6xl` for the console and the files) and its settings.
+/// `max-w-6xl` for the console and the files).
 pub fn page_max_width(route: &Route) -> Option<gpui::Pixels> {
     match route {
         Route::Home => None,
@@ -297,7 +301,6 @@ pub fn page_max_width(route: &Route) -> Option<gpui::Pixels> {
             ..
         } => Some(gpui::px(1152.)),
         Route::Instance { .. } => Some(gpui::px(896.)),
-        Route::Settings(_) => None,
     }
 }
 
@@ -305,33 +308,6 @@ impl Render for HostShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.page(cx);
         let heading = self.heading(cx);
-        let settings_tabs = match &self.route {
-            Route::Settings(current) => {
-                let selected = SettingsPage::ALL
-                    .iter()
-                    .position(|page| page == current)
-                    .unwrap_or(0);
-                let this = cx.entity().downgrade();
-                Some(
-                    Tabs::new(
-                        "settings-pages",
-                        [
-                            t(ShellMsg::SettingsGeneral),
-                            t(ShellMsg::SettingsUsers),
-                            t(ShellMsg::SettingsProfile),
-                            t(crate::i18n::CoreMsg::UpdatesTitle),
-                        ],
-                    )
-                    .selected(selected)
-                    .on_select(move |index, _, cx| {
-                        let page = SettingsPage::ALL[*index];
-                        this.update(cx, |this, cx| this.navigate(Route::Settings(page), cx))
-                            .ok();
-                    }),
-                )
-            }
-            _ => None,
-        };
         let error = self.state.read(cx).error.clone();
         let toasts = self.state.read(cx).toasts.clone();
         let title = self.title(cx);
@@ -396,7 +372,6 @@ impl Render for HostShell {
                         }),
                 )
             })
-            .children(settings_tabs)
             .child(div().flex_1().min_h_0().child(page));
         div()
             .relative()
@@ -478,6 +453,9 @@ impl Render for HostShell {
                 self.cores
                     .render(window, |dialog| Some(dialog.clone().into_any_element())),
             )
+            .children(self.settings.render(window, |modal| {
+                Some(self.render_settings(modal, window, cx))
+            }))
             .child(self.eula.clone())
             .child(toasts)
             .min_w(layout::sidebar_width())

@@ -182,7 +182,8 @@ mod screenshot {
                     )
                     .await;
             }
-            // `--settings general|users|profile`: a Settings page
+            // `--settings general|users|profile|updates`: the Settings dialog on a page,
+            // over the page shown
             if let Some(page) = arg_after("--settings").and_then(|name| {
                 lodestone_host::routes::SettingsPage::ALL
                     .into_iter()
@@ -190,9 +191,8 @@ mod screenshot {
             }) {
                 window
                     .update(cx, |app, _, cx| {
-                        app.shell()?.update(cx, |shell, cx| {
-                            shell.navigate(lodestone_host::routes::Route::Settings(page), cx)
-                        });
+                        app.shell()?
+                            .update(cx, |shell, cx| shell.open_settings(Some(page), cx));
                         Some(())
                     })
                     .ok();

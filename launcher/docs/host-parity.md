@@ -49,11 +49,16 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
   connection and instances being made. Pages read it, subscribe to its `HostEvent`s,
   ask the shell to navigate (`HostState::navigate`) or open the "New server" dialog,
   and fetch what only they show through `state.read(cx).admin`.
-- **Navigation.** `routes.rs`: `Route` (Home, an instance's `InstanceTab`, a
-  `SettingsPage`) with the dashboard's tab visibility rules; `pages/mod.rs::open` makes
-  each route's page. The shell (`shell/`) is the top bar, the sidebar (selected
-  instance card with power buttons and tabs, all instances with live state, "New
-  server", connection, user, settings) and the page.
+- **Navigation.** `routes.rs`: `Route` (Home, an instance's `InstanceTab`) with the
+  dashboard's tab visibility rules; `pages/mod.rs::open` makes each route's page. The
+  shell (`shell/`) is the top bar, the sidebar (selected instance card with power
+  buttons and tabs, all instances with live state, "New server", connection, user,
+  settings) and the page. The settings are a dialog over the page
+  (`shell/settings.rs`, a `SettingsPage` each, made by `pages::open_settings`), opened
+  by the sidebar's Settings, the app menu's Settings… (⌘,) or
+  `HostState::open_settings(page)` for a link to a setting.
+- **Dialogs** live in a `lodestone_ui::components::DialogSlot` (not an `Option`) and
+  are drawn with `window_layer`, so they fade out when they close.
 - **Window.** Closing the window keeps the Host, the core and its servers running
   (macOS: the app hides; elsewhere it minimizes). The macOS menu bar icon (`tray.rs`,
   AppKit through `objc2`) shows the window or quits; the Dock icon and a second start
@@ -81,7 +86,8 @@ python3 scripts/host_dev_bundle.py --open             # "Lodestone Host Dev.app"
   `LODESTONE_HOST_DATA_DIR` to temporary folders when running it.
 - Never start a Minecraft server while testing (that accepts Mojang's EULA): test
   power buttons against an unknown instance id, or a fixture instance you don't start.
-- More screenshot flags: `--settings general|users|profile|updates`, `--cores`,
+- More screenshot flags: `--settings general|users|profile|updates` (the Settings
+  dialog on that page, over the page shown), `--cores`,
   `--notifications`, `--create games|basic|server|auto|modpack`, `--demo` (sample data
   on the Console, Files and Overview), `--find <text>` (the editor's find bar, with
   `--tab files --demo`), `--degraded` (the "live updates stopped" banner), `--height <px>`.
@@ -958,7 +964,7 @@ Conventions in the code that every area relies on:
   list); left nav groups **Core** (General, Users) and **Account** (Profile), then a **Users** list (owner
   only: avatar, name, "You" tag, sorted self first then name; "Unselect" link). Close button / Esc /
   backdrop → back to the page it was opened from. Clicks on toasts don't close it.
-  - *Host:* Different on purpose: Settings is a page beside the sidebar with tabs (General, Users, Profile, Updates); the owner's user list is on Users. Anything in the sidebar leaves it, so there is no close button.
+  - *Host:* The Settings dialog over the page (`shell/settings.rs`), as the launcher's: the pages on the left in groups Core (General, Users), Account (Profile) and Lodestone Host (Updates), the page on the right; ×, Escape and the backdrop close it, and the page behind stays. Below 760 × 560 it fills the window under the top bar. The owner's user list is on Users, not in the left list. Also opened by the app menu's Settings… (⌘,).
 
 ### 7.1 Core › General — `pages/settings/CoreSettings.tsx`  
 **Package: D.**

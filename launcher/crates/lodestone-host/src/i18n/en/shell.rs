@@ -48,6 +48,8 @@ crate::i18n::messages! {
         TabEventLogs = "Event logs",
         /// The settings and their pages.
         Settings = "Settings",
+        /// The app menu's item that opens the Settings dialog.
+        SettingsMenu = "Settings…",
         SettingsCore = "Core",
         SettingsGeneral = "General",
         SettingsUsers = "Users",

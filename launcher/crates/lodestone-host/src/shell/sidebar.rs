@@ -16,7 +16,7 @@ use lodestone_ui::{
 use super::HostShell;
 use crate::{
     i18n::{CommonMsg, ShellMsg, t, tr},
-    routes::{InstanceTab, ModSupport, Route, SettingsPage, TabContext, mod_support},
+    routes::{InstanceTab, ModSupport, Route, TabContext, mod_support},
     state::{Connection, Creating, HostState, power_actions},
 };
 
@@ -295,7 +295,7 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
         .map(|s| s.core_name.clone())
         .unwrap_or_else(|| state.info.core_name.clone());
     let username = state.me.username.clone();
-    let settings_selected = matches!(shell.route, Route::Settings(_));
+    let settings_selected = shell.settings_open().is_some();
 
     div()
         .id("sidebar")
@@ -360,9 +360,7 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                     ListRow::new("settings", t(ShellMsg::Settings))
                         .icon(Icon::Gear)
                         .selected(settings_selected)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.navigate(Route::Settings(SettingsPage::General), cx)
-                        })),
+                        .on_click(cx.listener(|this, _, _, cx| this.open_settings(None, cx))),
                 )
                 // other cores (package D)
                 .child(

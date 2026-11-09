@@ -138,6 +138,16 @@ impl Prefs {
         });
     }
 
+    /// The default settings, saved nowhere: for tests, which must not touch the
+    /// Host's folder.
+    #[cfg(test)]
+    pub fn init_for_tests(cx: &mut App) {
+        cx.set_global(Prefs {
+            data: PrefsData::default(),
+            path: None,
+        });
+    }
+
     pub fn get(cx: &App) -> &PrefsData {
         &cx.global::<Prefs>().data
     }

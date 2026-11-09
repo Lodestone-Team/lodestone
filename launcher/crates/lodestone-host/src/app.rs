@@ -471,6 +471,12 @@ impl Render for HostApp {
             .on_action(|_: &focus::FocusPrev, window, cx| focus::step(false, window, cx))
             .on_action(cx.listener(|this, _: &crate::ZoomIn, _, cx| this.zoom_by(true, cx)))
             .on_action(cx.listener(|this, _: &crate::ZoomOut, _, cx| this.zoom_by(false, cx)))
+            // the Settings dialog, once signed in (the app menu's Settings…)
+            .on_action(cx.listener(|this, _: &crate::OpenSettings, _, cx| {
+                if let Some(shell) = this.shell() {
+                    shell.update(cx, |shell, cx| shell.open_settings(None, cx));
+                }
+            }))
             .on_action(cx.listener(|_, _: &crate::ResetZoom, _, cx| {
                 crate::prefs::Prefs::update(cx, |prefs| prefs.zoom = 1.0);
             }))

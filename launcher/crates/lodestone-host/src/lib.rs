@@ -36,7 +36,7 @@ use gpui::{
 
 actions!(
     lodestone_host,
-    [Quit, ShowWindow, ZoomIn, ZoomOut, ResetZoom]
+    [Quit, ShowWindow, ZoomIn, ZoomOut, ResetZoom, OpenSettings]
 );
 
 /// The window's title and the app menu's name.
@@ -64,6 +64,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-+", ZoomIn, None),
         KeyBinding::new("cmd--", ZoomOut, None),
         KeyBinding::new("cmd-0", ResetZoom, None),
+        KeyBinding::new("cmd-,", OpenSettings, None),
     ]);
     #[cfg(not(target_os = "macos"))]
     cx.bind_keys([
@@ -72,6 +73,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-+", ZoomIn, None),
         KeyBinding::new("ctrl--", ZoomOut, None),
         KeyBinding::new("ctrl-0", ResetZoom, None),
+        KeyBinding::new("ctrl-,", OpenSettings, None),
     ]);
     set_menus(cx);
 }
@@ -79,7 +81,11 @@ pub fn init(cx: &mut App) {
 /// The app menu, in the current language.
 pub fn set_menus(cx: &mut App) {
     use i18n::{ShellMsg, t};
-    cx.set_menus([Menu::new(APP_NAME).items([MenuItem::action(t(ShellMsg::QuitHost), Quit)])]);
+    cx.set_menus([Menu::new(APP_NAME).items([
+        MenuItem::action(t(ShellMsg::SettingsMenu), OpenSettings),
+        MenuItem::separator(),
+        MenuItem::action(t(ShellMsg::QuitHost), Quit),
+    ])]);
     // the Dock icon's menu, for a window closed to the background
     cx.set_dock_menu(vec![MenuItem::action(t(ShellMsg::ShowHost), ShowWindow)]);
 }
