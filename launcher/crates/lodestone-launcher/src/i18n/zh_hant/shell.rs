@@ -140,6 +140,15 @@ pub fn text(message: M) -> &'static str {
         M::ManageAccounts => "管理帳號",
         M::GroupAutomatically => "自動將實例分組",
         M::GroupAutomaticallyHint => "依載入器為未分組的實例分組。",
+        M::WhenAGameStarts => "遊戲啟動後",
+        M::AfterLaunchStay => "保持開啟",
+        M::AfterLaunchMinimize => "最小化",
+        M::AfterLaunchQuit => "結束",
+        M::AfterLaunchStayHint => "啟動器在遊戲旁保持開啟。",
+        M::AfterLaunchMinimizeHint => "遊戲視窗開啟後啟動器最小化，遊戲關閉時恢復。",
+        M::AfterLaunchQuitHint => {
+            "遊戲視窗開啟後啟動器結束。遊戲會繼續執行，但不會記錄其記錄檔、當機報告和遊玩時間。"
+        }
         M::OfflineAccount => "離線帳號",
         M::MicrosoftAccount => "Microsoft 帳號",
         M::SignInAgain => "重新登入",

@@ -170,6 +170,17 @@ pub fn text(message: M) -> &'static str {
         M::ManageAccounts => "Gérer les comptes",
         M::GroupAutomatically => "Grouper les instances automatiquement",
         M::GroupAutomaticallyHint => "Classe les instances sans groupe par chargeur de mods.",
+        M::WhenAGameStarts => "Au lancement d’un jeu",
+        M::AfterLaunchStay => "Rester ouvert",
+        M::AfterLaunchMinimize => "Réduire",
+        M::AfterLaunchQuit => "Quitter",
+        M::AfterLaunchStayHint => "Le lanceur reste ouvert à côté du jeu.",
+        M::AfterLaunchMinimizeHint => {
+            "Le lanceur se réduit dès que la fenêtre du jeu s’ouvre, et revient quand le jeu se ferme."
+        }
+        M::AfterLaunchQuitHint => {
+            "Le lanceur se ferme dès que la fenêtre du jeu s’ouvre. Le jeu continue, mais son journal, son rapport de plantage et son temps de jeu ne sont pas enregistrés."
+        }
         M::OfflineAccount => "Compte hors ligne",
         M::MicrosoftAccount => "Compte Microsoft",
         M::SignInAgain => "Se reconnecter",

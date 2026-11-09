@@ -57,6 +57,10 @@ pub struct Settings {
     /// ([`crate::update`]). Stable by default; left out of the file while stable.
     #[serde(default, skip_serializing_if = "is_default")]
     pub update_channel: UpdateChannel,
+    /// Settings > General > "When a game starts": what the launcher's window does
+    /// once the game's window opens. Minimize by default; left out of the file then.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub after_launch: AfterLaunch,
     /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
@@ -87,6 +91,7 @@ impl Default for Settings {
             language: Language::System,
             auto_update: true,
             update_channel: UpdateChannel::Stable,
+            after_launch: AfterLaunch::Minimize,
             zoom: 1.0,
             skin: None,
             sidebar_width: None,
@@ -130,6 +135,31 @@ pub enum UpdateChannel {
     #[default]
     #[serde(rename = "stable", other)]
     Stable,
+}
+
+/// What the launcher does once a game's window opens, from Settings > General >
+/// "When a game starts".
+///
+/// A value this build does not know reads as [`AfterLaunch::Minimize`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AfterLaunch {
+    /// The window stays as it is.
+    #[serde(rename = "stay")]
+    Stay,
+    /// The launcher quits. The game keeps running, but its log, crash report and
+    /// play time are no longer recorded.
+    #[serde(rename = "quit")]
+    Quit,
+    /// The window is minimized, and comes back when the game exits. Last, as serde
+    /// wants of the variant that reads unknown values.
+    #[default]
+    #[serde(rename = "minimize", other)]
+    Minimize,
+}
+
+impl AfterLaunch {
+    /// The choices, in the order Settings lists them.
+    pub const ALL: [AfterLaunch; 3] = [AfterLaunch::Stay, AfterLaunch::Minimize, AfterLaunch::Quit];
 }
 
 impl Language {
@@ -363,6 +393,30 @@ mod tests {
         let unknown: Settings =
             serde_json::from_value(json!({"update_channel": "nightly"})).unwrap();
         assert_eq!(unknown.update_channel, UpdateChannel::Stable);
+    }
+
+    #[test]
+    fn after_launch_defaults_to_minimize_and_stays_out_of_the_file() {
+        let settings: Settings = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(settings.after_launch, AfterLaunch::Minimize);
+        assert!(
+            serde_json::to_value(&settings)
+                .unwrap()
+                .get("after_launch")
+                .is_none()
+        );
+
+        for (value, name) in [(AfterLaunch::Stay, "stay"), (AfterLaunch::Quit, "quit")] {
+            let settings: Settings = serde_json::from_value(json!({"after_launch": name})).unwrap();
+            assert_eq!(settings.after_launch, value);
+            assert_eq!(
+                serde_json::to_value(&settings).unwrap()["after_launch"],
+                json!(name)
+            );
+        }
+
+        let unknown: Settings = serde_json::from_value(json!({"after_launch": "hide"})).unwrap();
+        assert_eq!(unknown.after_launch, AfterLaunch::Minimize);
     }
 
     #[test]

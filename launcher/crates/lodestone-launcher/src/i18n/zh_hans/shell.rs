@@ -140,6 +140,15 @@ pub fn text(message: M) -> &'static str {
         M::ManageAccounts => "管理账户",
         M::GroupAutomatically => "自动分组实例",
         M::GroupAutomaticallyHint => "按加载器为未分组的实例分组。",
+        M::WhenAGameStarts => "游戏启动后",
+        M::AfterLaunchStay => "保持打开",
+        M::AfterLaunchMinimize => "最小化",
+        M::AfterLaunchQuit => "退出",
+        M::AfterLaunchStayHint => "启动器在游戏旁保持打开。",
+        M::AfterLaunchMinimizeHint => "游戏窗口打开后启动器最小化，游戏关闭时恢复。",
+        M::AfterLaunchQuitHint => {
+            "游戏窗口打开后启动器退出。游戏会继续运行，但不会记录其日志、崩溃报告和游戏时长。"
+        }
         M::OfflineAccount => "离线账户",
         M::MicrosoftAccount => "Microsoft 账户",
         M::SignInAgain => "重新登录",
