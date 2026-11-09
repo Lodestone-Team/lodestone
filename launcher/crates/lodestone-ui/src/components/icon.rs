@@ -34,10 +34,18 @@ pub enum Icon {
     WindowMinimize,
     WindowRestore,
     Xmark,
+    Link,
+    UserGroup,
+    ChevronDown,
+    ChevronRight,
+    ChevronLeft,
+    Pen,
+    FloppyDisk,
+    CircleUser,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 29] = [
+    pub const ALL: [Icon; 37] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -67,6 +75,14 @@ impl Icon {
         Icon::WindowMinimize,
         Icon::WindowRestore,
         Icon::Xmark,
+        Icon::Link,
+        Icon::UserGroup,
+        Icon::ChevronDown,
+        Icon::ChevronRight,
+        Icon::ChevronLeft,
+        Icon::Pen,
+        Icon::FloppyDisk,
+        Icon::CircleUser,
     ];
 
     /// The asset path of the icon's SVG.
@@ -101,6 +117,14 @@ impl Icon {
             Icon::WindowMinimize => "icons/window-minimize.svg",
             Icon::WindowRestore => "icons/window-restore.svg",
             Icon::Xmark => "icons/xmark.svg",
+            Icon::Link => "icons/link.svg",
+            Icon::UserGroup => "icons/user-group.svg",
+            Icon::ChevronDown => "icons/chevron-down.svg",
+            Icon::ChevronRight => "icons/chevron-right.svg",
+            Icon::ChevronLeft => "icons/chevron-left.svg",
+            Icon::Pen => "icons/pen.svg",
+            Icon::FloppyDisk => "icons/floppy-disk.svg",
+            Icon::CircleUser => "icons/circle-user.svg",
         }
     }
 
@@ -111,7 +135,9 @@ impl Icon {
         let message = match self {
             Icon::ArrowDown => M::MoveDown,
             Icon::ArrowUp => M::MoveUp,
-            Icon::ArrowLeft => M::Back,
+            Icon::ArrowLeft | Icon::ChevronLeft => M::Back,
+            Icon::Pen => M::Edit,
+            Icon::FloppyDisk => M::Save,
             Icon::Bars => M::Menu,
             Icon::Check => M::Done,
             Icon::Copy => M::Copy,
@@ -135,7 +161,12 @@ impl Icon {
             | Icon::User
             | Icon::WindowMaximize
             | Icon::WindowMinimize
-            | Icon::WindowRestore => return format!("{self:?}").into(),
+            | Icon::WindowRestore
+            | Icon::Link
+            | Icon::UserGroup
+            | Icon::ChevronDown
+            | Icon::ChevronRight
+            | Icon::CircleUser => return format!("{self:?}").into(),
         };
         t(message).into()
     }
