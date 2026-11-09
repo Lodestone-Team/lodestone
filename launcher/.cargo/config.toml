@@ -1,0 +1,15 @@
+# Settings for the launcher's builds. Cargo merges this over the repository's
+# `.cargo/config.toml`, and for the keys set in both, this file wins.
+
+# Link the C runtime statically, as Zed does: otherwise the launcher needs
+# VCRUNTIME140.dll from the Visual C++ Redistributable, which a fresh Windows
+# install doesn't have, and won't start without it. `windows_slim_errors` makes the
+# `windows` crate keep only error codes, not their messages (also Zed's).
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static", "--cfg", "windows_slim_errors"]
+
+[profile.release]
+# Whole-program LTO across the launcher and GPUI: a smaller, faster binary than
+# "thin" for a few more minutes of build time. The repository's config sets
+# strip, opt-level = "s" and codegen-units = 1, which the launcher keeps.
+lto = "fat"
