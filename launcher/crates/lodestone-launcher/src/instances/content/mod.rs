@@ -1,12 +1,18 @@
-//! The Content tab: an instance's mods, resource packs and shader packs, each with what
-//! is installed and a Modrinth browser, after the dashboard's Mods tab.
+//! The Content tab: an instance's mods, resource packs and shader packs. One search
+//! field filters what is installed and, as it is typed, searches Modrinth too: the
+//! list shows the installed matches first, then the Modrinth results.
 //!
 //! The work is done by `launcher-core::content`; this view keeps the state of each
 //! section, runs that work in the background and refuses changes while the game runs.
 
 pub(crate) mod view;
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use gpui::{
     AppContext as _, Context, Entity, EventEmitter, PathPromptOptions, RenderImage, SharedString,
@@ -28,7 +34,7 @@ use lodestone_minecraft::modrinth::{
 };
 
 use super::Instances;
-use crate::components::TextInput;
+use crate::components::{Icon, TextInput};
 use crate::i18n::{ContentMsg as M, format, t, tr};
 
 /// Results per page.
@@ -57,14 +63,6 @@ impl<T> Load<T> {
     pub fn is_loading(&self) -> bool {
         matches!(self, Load::Loading)
     }
-}
-
-/// What a section shows.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum SubView {
-    #[default]
-    Installed,
-    Browse,
 }
 
 /// The parts of a project's page.
@@ -112,8 +110,9 @@ pub struct Section {
     pub checking_updates: bool,
     /// Whether updates were looked for once on their own, after the first listing.
     auto_checked: bool,
-    pub view: SubView,
     pub browse: Browse,
+    /// Modrinth projects whose Install was clicked, while their version is picked.
+    pub resolving: HashSet<String>,
     /// The Installed list's scroll state and the entries it was last told about.
     rows: gpui::ListState,
     plan: Vec<view::Entry>,
@@ -123,12 +122,11 @@ pub struct Section {
 
 impl Section {
     fn new(kind: ContentKind, cx: &mut Context<ContentView>) -> Self {
-        let placeholder = match kind {
-            ContentKind::Mod => M::SearchModsPlaceholder,
-            ContentKind::ResourcePack => M::SearchResourcePacksPlaceholder,
-            ContentKind::ShaderPack => M::SearchShaderPacksPlaceholder,
-        };
-        let search = cx.new(|cx| TextInput::new(cx).with_placeholder(placeholder));
+        let search = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::SearchInstalledOrModrinth)
+                .with_leading_icon(Icon::MagnifyingGlass)
+        });
         Self {
             kind,
             listing: Load::NotLoaded,
@@ -136,7 +134,7 @@ impl Section {
             updates: HashMap::new(),
             checking_updates: false,
             auto_checked: false,
-            view: SubView::Installed,
+            resolving: HashSet::new(),
             browse: Browse {
                 search,
                 text: String::new(),
@@ -223,6 +221,10 @@ pub struct ContentView {
     was_active: bool,
     /// The instance's "Beta and alpha updates" at the last check.
     prerelease: bool,
+    /// The "⋯" menu beside the search is open.
+    pub menu_open: bool,
+    /// The Modrinth sort menu is open.
+    pub sort_open: bool,
     _prompt: Option<Task<()>>,
     _observe: Vec<Subscription>,
 }
@@ -266,6 +268,8 @@ impl ContentView {
             descriptions: HashMap::new(),
             was_active: false,
             prerelease: false,
+            menu_open: false,
+            sort_open: false,
             _prompt: None,
             _observe: observe,
         };
@@ -329,14 +333,12 @@ impl ContentView {
 
     fn reset(&mut self, cx: &mut Context<Self>) {
         for kind in ContentKind::ALL {
-            let view = self.section(kind).view;
             let fresh = Section::new(kind, cx);
             let section = self.section_mut(kind);
-            // Keep the search box (its observer) and the sub-view.
+            // Keep the search box (its observer).
             let search = section.browse.search.clone();
             *section = fresh;
             section.browse.search = search;
-            section.view = view;
             section
                 .browse
                 .search
@@ -412,11 +414,68 @@ impl ContentView {
         cx.notify();
     }
 
-    pub fn set_view(&mut self, kind: ContentKind, view: SubView, cx: &mut Context<Self>) {
-        self.section_mut(kind).view = view;
-        if view == SubView::Browse && matches!(self.section(kind).browse.results, Load::NotLoaded) {
-            self.search(kind, cx);
+    /// What is typed in the section's search, trimmed.
+    pub fn query(&self, kind: ContentKind, cx: &gpui::App) -> String {
+        self.section(kind)
+            .browse
+            .search
+            .read(cx)
+            .text()
+            .trim()
+            .to_string()
+    }
+
+    /// Whether the list shows Modrinth results: while searching, and while nothing is
+    /// installed (then the most relevant projects, to start from).
+    pub fn shows_modrinth(&self, kind: ContentKind, cx: &gpui::App) -> bool {
+        !self.query(kind, cx).is_empty()
+            || self
+                .section(kind)
+                .listing
+                .ready()
+                .is_some_and(|listing| listing.items.is_empty())
+    }
+
+    /// Empties the search, as Escape in the field does.
+    pub fn clear_search(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+        let search = self.section(kind).browse.search.clone();
+        search.update(cx, |input, cx| input.set_text("", cx));
+    }
+
+    /// "Install" on a Modrinth result: the newest version that fits (a release when
+    /// there is one), with its dependencies. When none fits, its page opens instead,
+    /// with every version listed.
+    pub fn install_hit(&mut self, kind: ContentKind, project_id: String, cx: &mut Context<Self>) {
+        let (Some((id, _, target)), Some(api)) = (self.context(cx), self.modrinth(cx)) else {
+            return;
+        };
+        if !self.can_change(cx) || !self.section_mut(kind).resolving.insert(project_id.clone()) {
+            return;
         }
+        let project = project_id.clone();
+        let work = cx.background_spawn(async move {
+            let versions = api.versions(&project, &[], &[]).await?;
+            Ok::<_, launcher_core::content::modrinth::ModrinthError>(install::pick_version(
+                &target, kind, versions,
+            ))
+        });
+        cx.spawn(async move |this, cx| {
+            let picked = work.await;
+            this.update(cx, |this, cx| {
+                this.section_mut(kind).resolving.remove(&project_id);
+                if this.instance_id.as_deref() != Some(id.as_str()) {
+                    return;
+                }
+                match picked {
+                    Ok(Some(version)) => this.install_version(kind, version, None, false, cx),
+                    Ok(None) => this.open_project(kind, project_id, None, cx),
+                    Err(err) => this.set_message(err.to_string(), true, cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
         cx.notify();
     }
 
@@ -1003,11 +1062,22 @@ impl ContentView {
         }
         self.section_mut(kind).browse.text = text.clone();
         self.section_mut(kind).browse.offset = 0;
+        // Typing leaves a project's page for the list it filters.
+        self.section_mut(kind).browse.project = None;
+        if text.trim().is_empty() {
+            // Back to the installed list; Modrinth is searched again only if nothing is
+            // installed.
+            let browse = &mut self.section_mut(kind).browse;
+            browse.task = None;
+            browse.results = Load::NotLoaded;
+            cx.notify();
+            return;
+        }
         let task = cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SEARCH_DELAY).await;
             this.update(cx, |this, cx| {
                 if text.contains("modrinth.com/") {
-                    this.open_link(kind, &text, cx);
+                    this.open_link(kind, text.trim(), cx);
                 } else {
                     this.search(kind, cx);
                 }
@@ -1015,6 +1085,7 @@ impl ContentView {
             .ok();
         });
         self.section_mut(kind).browse.task = Some(task);
+        cx.notify();
     }
 
     pub fn set_only_compatible(&mut self, kind: ContentKind, value: bool, cx: &mut Context<Self>) {
@@ -1047,7 +1118,7 @@ impl ContentView {
             return;
         };
         let browse = &self.section(kind).browse;
-        let text = browse.search.read(cx).text().to_string();
+        let text = browse.search.read(cx).text().trim().to_string();
         let (game_version, loaders) = if browse.only_compatible {
             (
                 Some(target.game_version.clone()),
@@ -1108,7 +1179,6 @@ impl ContentView {
                     match ContentKind::from_project_type(&target.project.project_type) {
                         Some(project_kind) => {
                             this.kind = project_kind;
-                            this.section_mut(project_kind).view = SubView::Browse;
                             let version = target.version.map(|v| v.id);
                             this.open_project(project_kind, target.project.id.clone(), version, cx);
                         }
@@ -1188,7 +1258,9 @@ impl ContentView {
 
     pub fn close_project(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
         self.section_mut(kind).browse.project = None;
-        if matches!(self.section(kind).browse.results, Load::NotLoaded) {
+        if matches!(self.section(kind).browse.results, Load::NotLoaded)
+            && self.shows_modrinth(kind, cx)
+        {
             self.search(kind, cx);
         }
         cx.notify();
@@ -1315,7 +1387,6 @@ impl ContentView {
     ) {
         self.kind = kind;
         let section = self.section_mut(kind);
-        section.view = SubView::Browse;
         section.browse.text = text.to_string();
         section.browse.results = Load::Ready(results);
         let search = section.browse.search.clone();
@@ -1333,7 +1404,6 @@ impl ContentView {
     ) {
         self.kind = kind;
         let section = self.section_mut(kind);
-        section.view = SubView::Browse;
         section.browse.project = Some(ProjectView {
             project_id: project.id.clone(),
             tab: ProjectTab::default(),

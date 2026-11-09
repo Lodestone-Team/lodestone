@@ -5,13 +5,15 @@ pub fn text(message: M) -> &'static str {
         M::KindMods => "模组",
         M::KindResourcePacks => "资源包",
         M::KindShaders => "光影",
-        M::InstalledTab => "已安装",
-        M::BrowseModrinth => "浏览 Modrinth",
         M::Vanilla => "原版",
-
-        M::SearchModsPlaceholder => "在 Modrinth 上搜索模组，或粘贴 Modrinth 链接",
-        M::SearchResourcePacksPlaceholder => "在 Modrinth 上搜索资源包，或粘贴 Modrinth 链接",
-        M::SearchShaderPacksPlaceholder => "在 Modrinth 上搜索光影包，或粘贴 Modrinth 链接",
+        M::SearchInstalledOrModrinth => "搜索已安装内容或 Modrinth",
+        M::InstalledCount => "已安装 · {count}",
+        M::EnabledCount => "已启用 · {count} · 重叠时以最上面的包为准",
+        M::AvailableCount => "可用 · {count}",
+        M::OnModrinthCount => "Modrinth 上 · {count}",
+        M::OnModrinth => "Modrinth 上",
+        M::NoInstalledMatch => "已安装 · {count} · 没有匹配的已安装{kind}。",
+        M::OnlyTarget => "仅限 {target}",
 
         M::StopGameFirst => "请先停止游戏：游戏退出时会重写这些文件。",
         M::WaitForInstall => "请等待安装完成。",
@@ -52,8 +54,6 @@ pub fn text(message: M) -> &'static str {
         M::Compatible => "兼容",
         M::OlderVersion => "旧版本",
         M::NewerVersion => "新版本",
-        M::MadeForOlder => "为较旧的 Minecraft 版本制作",
-        M::MadeForNewer => "为较新的 Minecraft 版本制作",
         M::NotOnModrinth => "不在 Modrinth 上",
         M::UpdateTo => "更新到 {version}",
         M::NoModsYet => "还没有模组。浏览 Modrinth，或将 .jar 文件拖放到这里。",
@@ -62,8 +62,6 @@ pub fn text(message: M) -> &'static str {
         M::ReadingFolder => "正在读取 {folder} 文件夹",
         M::CouldntReadFolder => "无法读取 {folder} 文件夹：{error}",
         M::SomeFilesNotMatched => "部分文件无法与 Modrinth 匹配：{error}",
-        M::EnabledHeader => "已启用 · 资源包重叠时，靠上的优先",
-        M::AvailableHeader => "可用",
         M::ShadersOff => "关闭光影",
         M::NormalLook => "Minecraft 的原始画面。",
 
@@ -123,9 +121,6 @@ pub fn text(message: M) -> &'static str {
         M::SortFollows => "关注数",
         M::SortNewest => "最新",
         M::SortUpdated => "最近更新",
-        M::OnlyShowModsFor => "仅显示适用于 {target} 的模组",
-        M::OnlyShowResourcePacksFor => "仅显示适用于 {target} 的资源包",
-        M::OnlyShowShaderPacksFor => "仅显示适用于 {target} 的光影包",
         M::SearchingModrinth => "正在搜索 Modrinth",
         M::NothingMatches => "Modrinth 上没有匹配的结果。",
         M::PageOf => "第 {page} 页，共 {pages} 页",
@@ -136,7 +131,6 @@ pub fn text(message: M) -> &'static str {
         M::FollowsCompact => "{count}人关注",
         M::FollowersCompact => "{count}位关注者",
 
-        M::BackToResults => "返回结果",
         M::LoadingProject => "正在加载项目",
         M::ViewOnModrinth => "在 Modrinth 上查看",
         M::Versions => "版本",
@@ -157,9 +151,6 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ResourcePacksEnabled => ["{count} 个资源包，已启用 {enabled} 个"; 2],
-        P::ModsEnabled => ["{count} 个模组，已启用 {enabled} 个"; 2],
-        P::ShaderPacks => ["{count} 个光影包"; 2],
         P::Downloads => ["{count} 次下载"; 2],
         P::Follows => ["{count} 人关注"; 2],
         P::Followers => ["{count} 位关注者"; 2],
