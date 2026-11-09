@@ -488,8 +488,17 @@ h1 .phrase + .phrase {
   flex: none;
 }
 
+/* The square marks fill their box and the hexagon doesn't, so the squares are
+   drawn smaller to look the same size. The margin keeps them in the same 28px
+   slot, so every label starts at the same place. */
+.card-icon-tile {
+  width: 24px;
+  height: 24px;
+  margin: 2px;
+}
+
 .card-icon-term {
-  border-radius: 7px;
+  border-radius: 6px;
   background: linear-gradient(160deg, #23292e, #15191c);
   box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--green);
@@ -515,6 +524,11 @@ h1 .phrase + .phrase {
   margin: 10px 0 0;
   max-width: 46ch;
   color: var(--text-muted);
+}
+
+.card .kicker {
+  margin: 0;
+  line-height: 1;
 }
 
 .card-links {
