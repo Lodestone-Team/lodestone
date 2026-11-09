@@ -138,6 +138,27 @@ impl AdminClient {
 }
 
 impl AdminClient {
+    /// Like [`AdminClient::send_raw`], with its own time limit: for requests that
+    /// download or upload a lot (a modpack) or wait for something (a share link).
+    pub async fn send_slow(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<(Vec<u8>, String)>,
+        limit: u64,
+        timeout: std::time::Duration,
+    ) -> Result<Vec<u8>, CoreError> {
+        let auth = Auth::Bearer(&self.token);
+        let response = self
+            .client
+            .send_typed(method, path, auth, body, None, limit, timeout)
+            .await?;
+        check(&response, auth)?;
+        Ok(response.body)
+    }
+}
+
+impl AdminClient {
     /// `GET /info`: everything the core says about itself.
     pub async fn full_info(&self) -> Result<FullCoreInfo, CoreError> {
         self.get("info").await

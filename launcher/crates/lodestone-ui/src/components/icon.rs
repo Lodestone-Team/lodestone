@@ -34,13 +34,21 @@ pub enum Icon {
     WindowMinimize,
     WindowRestore,
     Xmark,
+    Link,
+    UserGroup,
+    ChevronDown,
+    ChevronRight,
+    ChevronLeft,
+    Pen,
+    FloppyDisk,
+    CircleUser,
     CircleInfo,
     CircleCheck,
     CircleExclamation,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 32] = [
+    pub const ALL: [Icon; 40] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -70,6 +78,14 @@ impl Icon {
         Icon::WindowMinimize,
         Icon::WindowRestore,
         Icon::Xmark,
+        Icon::Link,
+        Icon::UserGroup,
+        Icon::ChevronDown,
+        Icon::ChevronRight,
+        Icon::ChevronLeft,
+        Icon::Pen,
+        Icon::FloppyDisk,
+        Icon::CircleUser,
         Icon::CircleInfo,
         Icon::CircleCheck,
         Icon::CircleExclamation,
@@ -107,6 +123,14 @@ impl Icon {
             Icon::WindowMinimize => "icons/window-minimize.svg",
             Icon::WindowRestore => "icons/window-restore.svg",
             Icon::Xmark => "icons/xmark.svg",
+            Icon::Link => "icons/link.svg",
+            Icon::UserGroup => "icons/user-group.svg",
+            Icon::ChevronDown => "icons/chevron-down.svg",
+            Icon::ChevronRight => "icons/chevron-right.svg",
+            Icon::ChevronLeft => "icons/chevron-left.svg",
+            Icon::Pen => "icons/pen.svg",
+            Icon::FloppyDisk => "icons/floppy-disk.svg",
+            Icon::CircleUser => "icons/circle-user.svg",
             Icon::CircleInfo => "icons/circle-info.svg",
             Icon::CircleCheck => "icons/circle-check.svg",
             Icon::CircleExclamation => "icons/circle-exclamation.svg",
@@ -120,7 +144,9 @@ impl Icon {
         let message = match self {
             Icon::ArrowDown => M::MoveDown,
             Icon::ArrowUp => M::MoveUp,
-            Icon::ArrowLeft => M::Back,
+            Icon::ArrowLeft | Icon::ChevronLeft => M::Back,
+            Icon::Pen => M::Edit,
+            Icon::FloppyDisk => M::Save,
             Icon::Bars => M::Menu,
             Icon::Check => M::Done,
             Icon::Copy => M::Copy,
@@ -145,6 +171,11 @@ impl Icon {
             | Icon::WindowMaximize
             | Icon::WindowMinimize
             | Icon::WindowRestore
+            | Icon::Link
+            | Icon::UserGroup
+            | Icon::ChevronDown
+            | Icon::ChevronRight
+            | Icon::CircleUser
             | Icon::CircleInfo
             | Icon::CircleCheck
             | Icon::CircleExclamation => return format!("{self:?}").into(),

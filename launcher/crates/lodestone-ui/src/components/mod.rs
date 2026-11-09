@@ -65,3 +65,8 @@ pub fn trace_ui(topic: &str, control: &str, id: &gpui::ElementId, detail: serde_
         event
     });
 }
+
+mod checkbox;
+mod line_chart;
+pub use checkbox::{Checkbox, check_box};
+pub use line_chart::LineChart;
