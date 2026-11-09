@@ -146,7 +146,30 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
     };
 
     let list: Vec<AnyElement> = match &state.instances {
-        None => Vec::new(),
+        None => (0..3)
+            .map(|i| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(8.))
+                    .py(px(8.))
+                    .child(
+                        div()
+                            .size(px(16.))
+                            .rounded(radius::DEFAULT)
+                            .bg(colors::GRAY_700),
+                    )
+                    .child(
+                        div()
+                            .h(px(10.))
+                            .w(gpui::relative([0.6, 0.45, 0.7][i]))
+                            .rounded(radius::DEFAULT)
+                            .bg(colors::GRAY_700),
+                    )
+                    .into_any_element()
+            })
+            .collect(),
         Some(list) if list.is_empty() && state.creating.is_empty() => vec![
             div()
                 .px(px(8.))
@@ -176,7 +199,13 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                     .when(selected_uuid.as_deref() == Some(uuid.as_str()), |this| {
                         this.bg(colors::GRAY_750)
                     })
-                    .child(Icon::Cube.render(px(14.), ink::faint()))
+                    .child(crate::instance_icons::game_icon(
+                        format!("instance-icon-{uuid}"),
+                        &instance.game_type,
+                        instance.icon_url.as_deref(),
+                        px(16.),
+                        cx,
+                    ))
                     .child(
                         div()
                             .flex_1()
@@ -184,8 +213,13 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                             .truncate()
                             .child(instance.name.clone()),
                     )
-                    .child(dot(state_color(instance.state)))
-                    .tooltip(text_tooltip(state_name(instance.state)))
+                    .child(
+                        div()
+                            .id(gpui::SharedString::from(format!("instance-state-{uuid}")))
+                            .p(px(2.))
+                            .child(dot(state_color(instance.state)))
+                            .tooltip(text_tooltip(state_name(instance.state))),
+                    )
                     .on_click(cx.listener(move |this, _, _, cx| this.select(&uuid, cx)))
                     .into_any_element()
             })
@@ -196,22 +230,43 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                     .map(|total| (creating.progress / total * 100.0).clamp(0.0, 99.0) as u32);
                 div()
                     .flex()
-                    .items_center()
-                    .gap(px(8.))
+                    .flex_col()
+                    .gap(px(4.))
                     .px(px(8.))
                     .py(px(6.))
                     .text_size(text::MEDIUM)
                     .text_color(ink::muted())
                     .child(
                         div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .child(tr!(ShellMsg::SettingUp, name = creating.name)),
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(lodestone_ui::components::LoadingDots)
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(tr!(ShellMsg::SettingUp, name = creating.name)),
+                            )
+                            .when_some(percent, |this, percent| {
+                                this.child(lodestone_ui::i18n::format::percent(percent.into()))
+                            }),
                     )
-                    .when_some(percent, |this, percent| {
-                        this.child(lodestone_ui::i18n::format::percent(percent.into()))
-                    })
+                    .child(
+                        div()
+                            .h(px(3.))
+                            .w_full()
+                            .rounded_full()
+                            .bg(colors::GRAY_700)
+                            .child(
+                                div()
+                                    .h_full()
+                                    .rounded_full()
+                                    .bg(lodestone_ui::theme::accent::base())
+                                    .w(gpui::relative(percent.unwrap_or(0) as f32 / 100.0)),
+                            ),
+                    )
                     .into_any_element()
             }))
             .collect(),
@@ -371,6 +426,32 @@ fn selected_card(
             }))
         })
         .collect::<Vec<_>>();
+    // "Share" next to Start: opens the Overview, which starts sharing
+    let share = (matches!(
+        instance.game_type,
+        launcher_core::cores::admin::models::Game::MinecraftJava { .. }
+    ) && me.may(InstancePermission::Settings, &uuid)
+        && !atom_blocked)
+        .then(|| {
+            let uuid = uuid.clone();
+            Button::new("sidebar-share", t(crate::i18n::InstancesMsg::ShareShort))
+                .size(ButtonSize::Slim)
+                .variant(ButtonVariant::Secondary)
+                .icon(Icon::Link)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let uuid = uuid.clone();
+                    this.state
+                        .update(cx, |state, _| state.share_requested = Some(uuid.clone()));
+                    this.navigate(
+                        Route::Instance {
+                            uuid,
+                            tab: InstanceTab::Overview,
+                        },
+                        cx,
+                    );
+                }))
+        });
+    let address = instance_address(state.settings.as_ref(), instance.port);
     let players = match (instance.player_count, instance.max_player_count) {
         (Some(online), Some(max)) => Some(tr!(ShellMsg::PlayersOnline, online = online, max = max)),
         _ => None,
@@ -420,11 +501,25 @@ fn selected_card(
                 .border_color(ink::border())
                 .child(
                     div()
-                        .text_size(text::H3)
-                        .font_weight(weights::BOLD.face())
-                        .text_color(ink::text())
-                        .truncate()
-                        .child(instance.name.clone()),
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(crate::instance_icons::game_icon(
+                            "selected-instance-icon",
+                            &instance.game_type,
+                            instance.icon_url.as_deref(),
+                            px(20.),
+                            cx,
+                        ))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_size(text::H3)
+                                .font_weight(weights::BOLD.face())
+                                .text_color(ink::text())
+                                .truncate()
+                                .child(instance.name.clone()),
+                        ),
                 )
                 .child(
                     div()
@@ -442,13 +537,66 @@ fn selected_card(
                     this.child(
                         div()
                             .text_size(text::SMALL)
-                            .text_color(ink::muted())
+                            .text_color(state_color(instance.state))
                             .child(players),
                     )
                 })
-                .when(!powers.is_empty(), |this| {
-                    this.child(div().flex().gap(px(6.)).children(powers))
+                .child(address_chip(&address, cx))
+                .when(!powers.is_empty() || share.is_some(), |this| {
+                    this.child(
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap(px(6.))
+                            .children(powers)
+                            .children(share),
+                    )
                 }),
         )
         .children(tabs)
+}
+
+/// The address players join an instance at: the core's public domain or address, else
+/// `localhost` (the dashboard's `domain || address`), and the instance's port.
+pub fn instance_address(settings: Option<&GlobalSettingsData>, port: u32) -> String {
+    let domain = settings
+        .and_then(|s| s.domain.clone())
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| "localhost".to_string());
+    format!("{domain}:{port}")
+}
+
+/// The "Copy IP" chip (`ClipboardTextfield`): a click copies the address.
+fn address_chip(address: &str, cx: &mut Context<HostShell>) -> impl IntoElement + use<> {
+    let text = address.to_string();
+    div()
+        .id("copy-address")
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .self_start()
+        .max_w_full()
+        .px(px(6.))
+        .py(px(2.))
+        .rounded(radius::MD)
+        .bg(colors::BLUE_FADED.opacity(20))
+        .text_size(text::SMALL)
+        .font_family(lodestone_ui::theme::fonts::mono())
+        .text_color(colors::BLUE_200)
+        .cursor_pointer()
+        .hover(|style| style.bg(colors::BLUE_FADED.opacity(35)))
+        .child(div().truncate().child(text.clone()))
+        .child(Icon::Copy.render(px(10.), colors::BLUE_200))
+        .tooltip(text_tooltip(t(crate::i18n::InstancesMsg::CopyAddress)))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+            let message = crate::instance_icons::copied(&text);
+            this.state.update(cx, |state, cx| {
+                state.toast(
+                    lodestone_ui::components::Toast::success(message).key("copied"),
+                    cx,
+                )
+            });
+        }))
 }
