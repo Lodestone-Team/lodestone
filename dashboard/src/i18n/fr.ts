@@ -840,6 +840,14 @@ export const fr: Messages = {
   'server.card.copyIp': 'Copier l’IP',
   'server.card.online': '{players}/{max} en ligne',
 
+  // InstanceCard : démarrer un serveur dont le CLUF de Minecraft n’est pas accepté
+  'server.eula.title': 'Accepter le CLUF de Minecraft',
+  'server.eula.body':
+    '{name} ne démarre qu’après votre accord avec le {link}. L’acceptez-vous ?',
+  'server.eula.accept': 'J’accepte, démarrer le serveur',
+  'server.eula.acceptFailed':
+    'Impossible d’accepter le CLUF de Minecraft : {error}',
+
   // InstanceLoadingPill
   'server.loading.settingUp': 'Configuration… ({percent})',
 
@@ -1020,6 +1028,10 @@ export const fr: Messages = {
   'create.createFailed': 'Erreur lors de la création du serveur : {error}',
   'create.unknownValueType':
     'Erreur lors de la génération du formulaire : type de valeur inconnu.',
+  'create.eula.agree': 'J’accepte le {link}',
+  'create.eula.link': 'CLUF de Minecraft',
+  'create.eula.required':
+    'Un serveur Minecraft ne fonctionne qu’après votre accord avec le CLUF de Minecraft.',
 
   // form.ts and ModpackCreateForm: the dashboard's own setup fields
   'create.field.name': 'Nom',

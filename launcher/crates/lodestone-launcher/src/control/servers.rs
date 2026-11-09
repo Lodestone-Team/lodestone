@@ -844,6 +844,8 @@ pub fn host(call: Call, cx: &mut App) -> Reply {
         password: Secret::new(params.password),
         name: name.clone(),
         max_ram,
+        // checked above: the user agreed
+        accept_eula: params.accept_eula,
     };
     let job_stage = stage.clone();
     let id = instance.id.clone();

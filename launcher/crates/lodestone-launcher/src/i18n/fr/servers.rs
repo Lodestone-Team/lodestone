@@ -372,6 +372,7 @@ pub fn text(message: M) -> &'static str {
         M::EulaAgree => {
             "J’accepte le CLUF de Minecraft ({url}). Lodestone Core l’accepte pour le nouveau serveur."
         }
+        M::ReadEula => "Lire le CLUF",
         M::CreateServer => "Créer le serveur",
         M::NameTheServer => "Donnez un nom au serveur.",
         M::HostNeedsPassword => {

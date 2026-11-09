@@ -754,6 +754,12 @@ export const zhHans: Messages = {
   'server.card.copyIp': '复制 IP',
   'server.card.online': '{players}/{max} 在线',
 
+  // InstanceCard：启动未接受 Minecraft EULA 的服务器
+  'server.eula.title': '接受 Minecraft EULA',
+  'server.eula.body': '你同意 {link} 后，{name} 才能启动。你同意吗？',
+  'server.eula.accept': '我同意，启动服务器',
+  'server.eula.acceptFailed': '无法接受 Minecraft EULA：{error}',
+
   // InstanceLoadingPill
   'server.loading.settingUp': '正在设置…（{percent}）',
 
@@ -902,6 +908,10 @@ export const zhHans: Messages = {
   'create.createServer': '创建服务器',
   'create.createFailed': '创建服务器出错：{error}',
   'create.unknownValueType': '生成表单出错：未知的值类型。',
+  'create.eula.agree': '我同意 {link}',
+  'create.eula.link': 'Minecraft EULA',
+  'create.eula.required':
+    '只有在你同意 Minecraft EULA 后，Minecraft 服务器才能运行。',
 
   // form.ts and ModpackCreateForm: the dashboard's own setup fields
   'create.field.name': '名称',

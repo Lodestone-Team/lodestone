@@ -299,6 +299,8 @@ crate::i18n::messages! {
         Memory = "Memory",
         GamePortHint = "The game port is the first free one from {port} on the core's machine.",
         EulaAgree = "I agree to the Minecraft EULA ({url}). Lodestone Core accepts it for the new server.",
+        /// Opens https://aka.ms/MinecraftEULA in the browser.
+        ReadEula = "Read the EULA",
         CreateServer = "Create server",
         NameTheServer = "Give the server a name.",
         HostNeedsPassword = "Enter your username and password for this core. Creating a server needs more than the key on {computer} may do.",

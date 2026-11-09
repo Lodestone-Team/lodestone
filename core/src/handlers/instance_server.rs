@@ -12,6 +12,8 @@ use serde_json::{json, Value};
 use crate::{
     auth::user::UserAction,
     error::{Error, ErrorKind},
+    implementations::minecraft::{eula::EulaStatus, MinecraftInstance},
+    prelude::GameInstance,
     types::InstanceUuid,
 };
 
@@ -151,6 +153,50 @@ pub async fn get_instance_state(
     Ok(Json(json!(get_instance(&state, &uuid)?.state().await)))
 }
 
+/// The Minecraft instance `uuid`, for the EULA endpoints.
+fn minecraft_instance(state: &AppState, uuid: &InstanceUuid) -> Result<MinecraftInstance, Error> {
+    match get_instance(state, uuid)? {
+        GameInstance::MinecraftInstance(instance) => Ok(instance),
+        #[cfg(feature = "deno")]
+        GameInstance::GenericInstance(_) => Err(Error {
+            kind: ErrorKind::BadRequest,
+            source: eyre!("Only Minecraft servers have a Minecraft EULA"),
+        }),
+    }
+}
+
+/// `GET /instance/{uuid}/eula`: whether the user accepted the Minecraft EULA for a
+/// Minecraft instance. A server only starts once it is accepted.
+pub async fn get_instance_eula(
+    State(state): State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    requester: AuthedUser,
+) -> Result<Json<EulaStatus>, Error> {
+    requester
+        .require(&state, UserAction::ViewInstance(uuid.clone()))
+        .await?;
+    let instance = minecraft_instance(&state, &uuid)?;
+    Ok(Json(EulaStatus {
+        accepted: instance.eula_accepted().await?,
+    }))
+}
+
+/// `PUT /instance/{uuid}/eula`: the user agrees to the Minecraft EULA
+/// (https://aka.ms/MinecraftEULA) for a Minecraft instance, which writes `eula=true` to
+/// its `eula.txt`. Needs the permission to start the instance.
+pub async fn accept_instance_eula(
+    State(state): State<AppState>,
+    Path(uuid): Path<InstanceUuid>,
+    requester: AuthedUser,
+) -> Result<Json<EulaStatus>, Error> {
+    requester
+        .require(&state, UserAction::StartInstance(uuid.clone()))
+        .await?;
+    let instance = minecraft_instance(&state, &uuid)?;
+    instance.accept_eula().await?;
+    Ok(Json(EulaStatus { accepted: true }))
+}
+
 pub fn get_instance_server_routes(state: AppState) -> Router {
     Router::new()
         .route("/instance/{uuid}/start", put(start_instance))
@@ -159,5 +205,12 @@ pub fn get_instance_server_routes(state: AppState) -> Router {
         .route("/instance/{uuid}/kill", put(kill_instance))
         .route("/instance/{uuid}/console", post(send_command))
         .route("/instance/{uuid}/state", get(get_instance_state))
+        .route(
+            "/instance/{uuid}/eula",
+            get(get_instance_eula).put(accept_instance_eula),
+        )
         .with_state(state)
 }
+
+#[cfg(test)]
+mod tests;

@@ -679,6 +679,8 @@ impl MinecraftInstance {
 #[async_trait::async_trait]
 impl TServer for MinecraftInstance {
     async fn start(&self, cause_by: CausedBy, block: bool) -> Result<(), Error> {
+        // Minecraft only runs once the user agreed to its EULA; never accept it here.
+        super::eula::require_eula_accepted(&self.path_to_instance).await?;
         // Changing the version replaces server.jar, so don't start while it runs.
         let version_guard = self.version_change_lock.try_lock().map_err(|_| Error {
             kind: ErrorKind::BadRequest,

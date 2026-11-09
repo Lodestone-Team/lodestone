@@ -961,6 +961,16 @@ export const en = {
   /** online players / maximum, e.g. "3/20 Online" */
   'server.card.online': '{players}/{max} Online',
 
+  // InstanceCard: starting a server whose Minecraft EULA isn't accepted
+  'server.eula.title': 'Accept the Minecraft EULA',
+  /** {link} is create.eula.link, a link to the EULA; {name} is the server's name */
+  'server.eula.body':
+    '{name} only starts after you agree to the {link}. Do you agree to it?',
+  /** the confirm button: accepts the EULA and starts the server */
+  'server.eula.accept': 'I agree, start the server',
+  /** {error}: the core's error message */
+  'server.eula.acceptFailed': 'Could not accept the Minecraft EULA: {error}',
+
   // InstanceLoadingPill: a server being created, in the sidebar
   /** {percent} is formatted, e.g. "45%" */
   'server.loading.settingUp': 'Setting up… ({percent})',
@@ -1157,6 +1167,13 @@ export const en = {
   /** {error}: the core's error message */
   'create.createFailed': 'Error creating server: {error}',
   'create.unknownValueType': 'Error generating form: Unknown value type.',
+  /** the required box before creating a Minecraft server; {link} is create.eula.link, a link to the EULA */
+  'create.eula.agree': 'I agree to the {link}',
+  /** the text of the link to Mojang's EULA */
+  'create.eula.link': 'Minecraft EULA',
+  /** under the box while it is not ticked */
+  'create.eula.required':
+    'A Minecraft server only runs after you agree to the Minecraft EULA.',
 
   // form.ts and ModpackCreateForm: the dashboard's own setup fields
   'create.field.name': 'Name',

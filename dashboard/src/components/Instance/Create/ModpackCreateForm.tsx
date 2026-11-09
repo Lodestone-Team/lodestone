@@ -33,6 +33,7 @@ import FormRadioField from './SetupFormFields/FormRadioField';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { t, useT } from 'i18n';
 import WizardSteps from './WizardSteps';
+import EulaCheckbox from './EulaCheckbox';
 
 type Step = 'source' | 'version' | 'settings';
 
@@ -343,6 +344,8 @@ export default function ModpackCreateForm({
   const [inspectingId, setInspectingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // the user's own agreement to the Minecraft EULA: never ticked for them
+  const [eulaAccepted, setEulaAccepted] = useState(false);
   // the search result the pack was picked from, shown until the project loads
   const [pickedHit, setPickedHit] = useState<ModrinthSearchHit | null>(null);
   const { data: project } = useModrinthProject(projectId);
@@ -456,7 +459,10 @@ export default function ModpackCreateForm({
     values: SettingsValues,
     actions: FormikHelpers<SettingsValues>
   ) => {
-    if (!source) return;
+    if (!source || !eulaAccepted) {
+      actions.setSubmitting(false);
+      return;
+    }
     setSubmitting(true);
     try {
       await createModpackInstance({
@@ -468,6 +474,7 @@ export default function ModpackCreateForm({
         max_ram: values.max_ram,
         auto_start: values.auto_start,
         restart_on_crash: values.restart_on_crash,
+        accept_eula: true,
       });
     } catch (error) {
       // keep the dialog open so the input isn't lost
@@ -674,6 +681,13 @@ export default function ModpackCreateForm({
                       description={t('create.field.restartOnCrashDescription')}
                     />
                   </div>
+                  <div className="mt-6">
+                    <EulaCheckbox
+                      checked={eulaAccepted}
+                      onChange={setEulaAccepted}
+                      disabled={submitting}
+                    />
+                  </div>
                 </Form>
               </Formik>
             </div>
@@ -696,7 +710,7 @@ export default function ModpackCreateForm({
               label={t('create.createServer')}
               intention="primary"
               loading={submitting}
-              disabled={!canContinue}
+              disabled={!canContinue || !eulaAccepted}
             />
           ) : step === 'version' ? (
             <Button
