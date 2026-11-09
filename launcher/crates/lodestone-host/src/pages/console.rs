@@ -12,8 +12,8 @@ use std::collections::{HashMap, VecDeque};
 
 use gpui::{
     AnyElement, App, Context, Entity, FollowMode, Global, IntoElement, KeyBinding, ListAlignment,
-    ListState, ParentElement, Render, SharedString, Styled, StyledText, Subscription, Task, Window,
-    actions, div, list, prelude::*,
+    ListState, ParentElement, Pixels, Render, SharedString, Styled, StyledText, Subscription, Task,
+    Window, actions, div, list, prelude::*,
 };
 use launcher_core::cores::{
     CoreError,
@@ -26,7 +26,7 @@ use launcher_core::cores::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, Checkbox, CopySelection, Icon, TextInput, Toast,
+        Button, ButtonSize, Checkbox, CopySelection, Icon, Scrollbar, TextInput, Toast,
         a11y::{Accessible, Role},
         console_line::{ParsedConsoleLine, console_text, parse_console_line},
         log_view::{self, LineSource, LogSelection, SelectAll},
@@ -343,6 +343,9 @@ pub struct ConsolePage {
     can_read: bool,
     linked: LinkedPlayers,
     list: ListState,
+    /// About how tall a line is, for the scroll bar: the list counts lines it hasn't
+    /// drawn yet as this tall until it draws them.
+    row_hint: Pixels,
     selection: LogSelection,
     /// Following new lines is paused while a press selects.
     follow_paused: bool,
@@ -407,6 +410,7 @@ impl ConsolePage {
             can_read: false,
             linked: LinkedPlayers::default(),
             list,
+            row_hint: px(24.),
             selection,
             follow_paused: false,
             search,
@@ -582,8 +586,12 @@ impl ConsolePage {
     }
 
     fn add(&mut self, lines: Vec<ConsoleLine>, cx: &mut Context<Self>) {
+        let first = self.list.item_count() == 0;
         match self.log.merge(lines, &self.linked) {
-            Change::Appended { removed, added } => {
+            Change::Appended { added: 0, .. } if first => {}
+            // New lines after the last, which the list draws as they come when it
+            // follows. The first lines (the history) are laid out all at once below.
+            Change::Appended { removed, added } if !first => {
                 if removed > 0 {
                     self.list.splice(0..removed, 0);
                 }
@@ -592,9 +600,9 @@ impl ConsolePage {
                     self.list.splice(at..at, added);
                 }
             }
-            Change::Rebuilt => {
+            Change::Appended { .. } | Change::Rebuilt => {
                 let following = self.list.is_following_tail();
-                self.list.reset(self.log.shown_len());
+                self.reset_list();
                 if following {
                     self.list.set_follow_mode(FollowMode::Tail);
                 }
@@ -630,10 +638,17 @@ impl ConsolePage {
         self.selection.copy(&self.log, cx);
     }
 
+    /// Sets the list to the lines shown, each as tall as a line until drawn, so the
+    /// scroll bar's thumb is about the right size from the start.
+    fn reset_list(&self) {
+        self.list
+            .reset_with_uniform_height(self.log.shown_len(), self.row_hint);
+    }
+
     fn refilter(&mut self, cx: &mut Context<Self>) {
         let text = self.search.read(cx).text().to_string();
         self.log.set_filter(&text, self.regex);
-        self.list.reset(self.log.shown_len());
+        self.reset_list();
         self.list.set_follow_mode(FollowMode::Tail);
         cx.notify();
     }
@@ -741,30 +756,39 @@ impl ConsolePage {
             "[12:00:05] [Server thread/INFO]: <Notch> hello! This is a long chat message that wraps onto the next line when the window is too narrow to show it on one line, as the dashboard's console does.",
             "[12:00:06] [Server thread/INFO]: Alex[/127.0.0.1:50000] logged in with entity id 120 at (0.5, 64.0, 0.5)",
         ];
-        let lines = messages
-            .iter()
-            .enumerate()
-            .map(|(i, message)| ConsoleLine {
+        // Earlier lines, so the console scrolls.
+        let earlier = (0..40).map(|i| ConsoleLine {
+            snowflake: 500 + i,
+            message: format!(
+                "[11:59:{:02}] [Worker-Main-{}/INFO]: Preparing spawn area: {}%",
+                i + 10,
+                i % 4 + 1,
+                i * 5 / 2
+            ),
+        });
+        let lines = earlier
+            .chain(messages.iter().enumerate().map(|(i, message)| ConsoleLine {
                 snowflake: 1_000 + i as i64,
                 message: message.to_string(),
-            })
+            }))
             .collect();
         self.add(lines, cx);
         self.history(cx, |h| h.push("say hello".into()));
         cx.notify();
     }
 
-    /// Selects from the middle of the third line shown to the middle of the sixth,
-    /// for the development screenshots' `--select-lines`.
+    /// Selects from the middle of the third of the last ten lines shown to the middle
+    /// of the sixth, for the development screenshots' `--select-lines`.
     #[cfg(feature = "screenshot")]
     pub fn select_for_screenshot(&mut self, cx: &mut Context<Self>) {
         use lodestone_ui::components::log_view::{Caret, Selection};
         if self.log.shown_len() < 6 {
             return;
         }
+        let first = self.log.shown_len().saturating_sub(10);
         self.selection.set(Some(Selection::new(
-            Caret::new(self.log.line_id(2), 12),
-            Caret::new(self.log.line_id(5), 30),
+            Caret::new(self.log.line_id(first + 2), 12),
+            Caret::new(self.log.line_id(first + 5), 30),
         )));
         cx.notify();
     }
@@ -858,7 +882,9 @@ pub(crate) fn skeleton_code(lines: usize) -> gpui::Div {
 }
 
 impl Render for ConsolePage {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A line of small text (at gpui's 1.618 line height) and the row's padding.
+        self.row_hint = text::SMALL.to_pixels(window.rem_size()) * 1.618 + px(4.);
         let stopped = self
             .state
             .read(cx)
@@ -900,6 +926,16 @@ impl Render for ConsolePage {
                 .py(px(12.)),
                 move |by, _, _| state.scroll_by(by),
             )
+            .relative()
+            .child({
+                let page = cx.entity().downgrade();
+                Scrollbar::new("console-scrollbar", self.list.clone())
+                    .label(t(M::Console))
+                    .on_scroll(move |_, cx| {
+                        // "Jump to latest" shows while the list doesn't follow.
+                        page.update(cx, |_, cx| cx.notify()).ok();
+                    })
+            })
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::copy))
             .into_any_element()
