@@ -324,9 +324,10 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                 .child(selected_block)
                 .child(section(t(ShellMsg::AllInstances)))
                 .children(list)
+                // a row like the others, as the footer's
                 .child(
-                    div().pt(px(8.)).child(
-                        Button::new(
+                    div().pt(px(4.)).child(
+                        ListRow::new(
                             "new-server",
                             if may_create {
                                 t(ShellMsg::NewServer)
@@ -334,9 +335,7 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                                 t(ShellMsg::NoPermission)
                             },
                         )
-                        .variant(ButtonVariant::Ghost)
                         .icon(Icon::SquarePlus)
-                        .full_width()
                         .disabled(!may_create)
                         .on_click(cx.listener(|this, _, _, cx| this.open_create(cx))),
                     ),

@@ -20,6 +20,7 @@ pub struct ListRow {
     icon: Option<Icon>,
     detail: Option<SharedString>,
     selected: bool,
+    disabled: bool,
     on_click: Option<ClickHandler>,
 }
 
@@ -31,6 +32,7 @@ impl ListRow {
             icon: None,
             detail: None,
             selected: false,
+            disabled: false,
             on_click: None,
         }
     }
@@ -48,6 +50,12 @@ impl ListRow {
 
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    /// Dimmed, and takes no clicks or focus, as a button that can't be used.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
         self
     }
 
@@ -83,7 +91,7 @@ impl RenderOnce for ListRow {
             .when_some(self.detail.clone(), |this, detail| {
                 this.aria_description(detail)
             })
-            .keyboard_focus()
+            .when(!self.disabled, |this| this.keyboard_focus())
             .flex()
             .flex_row()
             .items_center()
@@ -99,8 +107,11 @@ impl RenderOnce for ListRow {
             .line_height(rems(1.25))
             .font_weight(weights::MEDIUM.into())
             .text_color(crate::theme::ink::text())
-            .cursor_pointer()
-            .hover(|style| style.bg(colors::GRAY_700).text_color(colors::WHITE))
+            .when(self.disabled, |this| this.opacity(0.4))
+            .when(!self.disabled, |this| {
+                this.cursor_pointer()
+                    .hover(|style| style.bg(colors::GRAY_700).text_color(colors::WHITE))
+            })
             .when(self.selected, |this| {
                 this.bg(colors::GRAY_750)
                     .border_color(crate::theme::ink::border())
@@ -118,6 +129,9 @@ impl RenderOnce for ListRow {
                         .child(detail),
                 )
             })
-            .when_some(self.on_click, |this, on_click| this.on_press(on_click))
+            .when_some(
+                self.on_click.filter(|_| !self.disabled),
+                |this, on_click| this.on_press(on_click),
+            )
     }
 }
