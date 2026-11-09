@@ -370,7 +370,7 @@ pub mod accent {
     use super::{Color, colors};
 
     /// The panels links sit on.
-    const PANEL: Rgb = Rgb(0x26282C);
+    pub(crate) const PANEL: Rgb = Rgb(0x26282C);
     /// No custom accent.
     const NONE: u32 = u32::MAX;
 

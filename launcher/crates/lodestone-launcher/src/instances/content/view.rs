@@ -19,6 +19,7 @@ use launcher_core::{
         shaders::{ShaderLoader, ShaderModOffer},
     },
     instances::Loader,
+    mc_text,
 };
 use lodestone_minecraft::modrinth::{
     ModrinthSearchHit, ModrinthSearchIndex, ModrinthVersionType, RawVersion,
@@ -29,7 +30,8 @@ use crate::components::KeyboardFocus;
 use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr, trn};
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, IconButton, ListRow, LoadingDots, Toggle,
+        Button, ButtonSize, ButtonVariant, Icon, IconButton, ListRow, LoadingDots, RichText,
+        Toggle,
         focus::Dismiss,
         settings::{popover, popover_panel, select_button},
     },
@@ -76,10 +78,18 @@ pub(crate) fn muted(text: impl Into<SharedString>) -> gpui::Div {
 }
 
 pub(crate) fn small(text: impl Into<SharedString>) -> gpui::Div {
+    small_box().child(text.into())
+}
+
+/// [`small`] text that can be selected and copied, such as a file name or a message.
+pub(crate) fn small_rich(text: RichText) -> gpui::Div {
+    small_box().child(text)
+}
+
+fn small_box() -> gpui::Div {
     div()
         .text_size(theme::text_size(text::SMALL))
         .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-        .child(text.into())
 }
 
 /// A small coloured label.
@@ -277,8 +287,10 @@ pub(super) enum Heading {
 /// Modrinth title.
 fn item_matches(item: &Item, query: &str) -> bool {
     let query = query.to_lowercase();
-    item.display_name().to_lowercase().contains(&query)
-        || item.file.file_name.to_lowercase().contains(&query)
+    // Without formatting codes, which names of packs often have.
+    let plain = |text: &str| mc_text::strip(text).to_lowercase();
+    plain(&item.display_name()).contains(&query)
+        || plain(&item.file.file_name).contains(&query)
         || item
             .modrinth
             .as_ref()
@@ -654,7 +666,7 @@ impl ContentView {
                                 } else {
                                     colors::GREEN_300
                                 })
-                                .child(message),
+                                .child(RichText::minecraft(message)),
                         )
                         .child(IconButton::new("dismiss-message", Icon::Xmark).on_click(
                             cx.listener(|this, _, _, cx| {
@@ -766,11 +778,11 @@ impl ContentView {
                                     } else {
                                         colors::WHITE.opacity(50)
                                     })
-                                    .child(title),
+                                    .child(RichText::minecraft(title)),
                             )
                             .when_some(version, |this, version| {
                                 this.child(
-                                    small(version)
+                                    small_rich(RichText::minecraft(version))
                                         .flex_none()
                                         .text_color(colors::WHITE.opacity(50)),
                                 )
@@ -806,7 +818,7 @@ impl ContentView {
                             }),
                     )
                     .child(
-                        small(detail)
+                        small_rich(RichText::minecraft(detail))
                             .truncate()
                             .text_color(colors::WHITE.opacity(30)),
                     )
@@ -818,14 +830,16 @@ impl ContentView {
                             .filter(|_| kind == ContentKind::ResourcePack),
                         |this, description| {
                             this.child(
-                                small(description)
+                                small_rich(RichText::minecraft(description))
                                     .truncate()
                                     .text_color(crate::theme::ink::secondary()),
                             )
                         },
                     )
                     .when_some(warning, |this, warning| {
-                        this.child(small(warning).text_color(colors::YELLOW_300))
+                        this.child(
+                            small_rich(RichText::new(warning)).text_color(colors::YELLOW_300),
+                        )
                     }),
             )
             .child(
@@ -1110,7 +1124,7 @@ impl ContentView {
                             div()
                                 .font_weight(weights::BOLD.into())
                                 .whitespace_normal()
-                                .child(using),
+                                .child(RichText::minecraft(using)),
                         )
                         .child(
                             small(tr!(
@@ -1890,7 +1904,7 @@ impl ContentView {
                             }),
                     )
                     .child(
-                        small(hit.description.clone())
+                        small_rich(RichText::minecraft(hit.description.clone()))
                             .truncate()
                             .text_color(crate::theme::ink::secondary()),
                     ),
@@ -1997,7 +2011,7 @@ impl ContentView {
                                     div()
                                         .text_color(crate::theme::ink::secondary())
                                         .whitespace_normal()
-                                        .child(project.description.clone()),
+                                        .child(RichText::minecraft(project.description.clone())),
                                 )
                                 .child(
                                     div()

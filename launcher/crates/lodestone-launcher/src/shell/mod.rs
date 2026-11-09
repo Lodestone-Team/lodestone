@@ -44,7 +44,8 @@ use crate::{
         sign_in::{SignInDialog, SignInEvent, Stage},
     },
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Icon, focus, settings::Toast, window_frame,
+        Button, ButtonVariant, Dialog, DialogSlot, Icon, RichText, focus, settings::Toast,
+        window_frame,
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     instances::{
@@ -1686,7 +1687,7 @@ fn render_crash(
             .child(
                 div()
                     .text_color(crate::theme::ink::secondary())
-                    .child(headline),
+                    .child(RichText::new(headline)),
             )
             .when_some(summary.exception.clone(), |this, exception| {
                 this.child(
@@ -1700,7 +1701,7 @@ fn render_crash(
                         .font_family(fonts::mono())
                         .text_size(theme::text_size(text::SMALL))
                         .text_color(colors::RED_200)
-                        .child(exception),
+                        .child(RichText::new(exception)),
                 )
             })
             .when(!summary.causes.is_empty(), |this| {

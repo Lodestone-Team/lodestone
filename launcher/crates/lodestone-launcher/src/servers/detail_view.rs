@@ -1,6 +1,7 @@
 //! How a server's page looks: its state and controls, the console with the
 //! dashboard's colours, the chat box, the players, and the Minecraft account link.
 
+use crate::components::RichText;
 use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{
@@ -269,7 +270,7 @@ impl ServerDetail {
                             .text_size(theme::text_size(text::H1))
                             .font_weight(weights::BOLD.into())
                             .text_color(crate::theme::ink::text())
-                            .child(server.name.clone()),
+                            .child(RichText::minecraft(server.name.clone())),
                     )
                     .child(
                         small(format!(

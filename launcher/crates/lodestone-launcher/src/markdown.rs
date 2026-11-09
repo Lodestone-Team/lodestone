@@ -7,9 +7,10 @@
 use crate::theme::px;
 use std::{collections::HashMap, ops::Range, sync::Arc};
 
+use crate::components::RichText;
 use gpui::{
-    AnyElement, FontStyle, HighlightStyle, InteractiveText, IntoElement, ObjectFit, RenderImage,
-    SharedString, StrikethroughStyle, StyledText, UnderlineStyle, div, img, prelude::*,
+    AnyElement, FontStyle, HighlightStyle, IntoElement, ObjectFit, RenderImage, SharedString,
+    StrikethroughStyle, StyledText, UnderlineStyle, div, img, prelude::*,
 };
 use launcher_core::markdown::{Block, Inline};
 
@@ -128,17 +129,15 @@ impl Renderer<'_> {
         if content.trim().is_empty() {
             return None;
         }
-        let styled = StyledText::new(content)
+        let content = SharedString::from(content);
+        let styled = StyledText::new(content.clone())
             .with_highlights(highlights)
             .with_font_family_overrides(code);
-        let id = self.id();
-        if links.is_empty() {
-            return Some(styled.into_any_element());
-        }
+        // Selectable, so a description's text can be copied; links open on a click.
         let (ranges, targets): (Vec<_>, Vec<_>) = links.into_iter().unzip();
         Some(
-            InteractiveText::new(id, styled)
-                .on_click(ranges, move |index, _, cx| {
+            RichText::styled(self.id(), content, styled)
+                .links(ranges, move |index, _, cx| {
                     if let Some(url) = targets.get(index) {
                         cx.open_url(url);
                     }

@@ -10,6 +10,7 @@ mod icon;
 mod list_row;
 pub mod motion;
 mod play_button;
+mod rich_text;
 mod segmented;
 pub mod settings;
 mod slider;
@@ -27,6 +28,7 @@ pub use focus::{ArrowGroup, FocusScope, KeyboardFocus};
 pub use icon::Icon;
 pub use list_row::ListRow;
 pub use play_button::{PlayButton, PlayButtonState};
+pub use rich_text::{RichText, clear_selection};
 pub use segmented::segmented;
 pub use slider::Slider;
 pub use tabs::Tabs;
@@ -43,6 +45,7 @@ type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 pub fn init(cx: &mut App) {
     focus::init(cx);
     text_input::init(cx);
+    rich_text::init(cx);
 }
 
 /// Emits `ui.click` (or another `ui.*` topic) for a shared control, with its element

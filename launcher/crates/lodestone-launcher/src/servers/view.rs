@@ -1,6 +1,7 @@
 //! How the Servers page looks: each core as a card with its servers, and the dialogs
 //! over the window (Add server, the mod update prompt).
 
+use crate::components::RichText;
 use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{
@@ -355,7 +356,7 @@ impl Servers {
                                     .truncate()
                                     .font_weight(weights::BOLD.into())
                                     .text_color(crate::theme::ink::text())
-                                    .child(server.name.clone()),
+                                    .child(RichText::minecraft(server.name.clone())),
                             )
                             .when(linked, |this| {
                                 this.child(
@@ -490,7 +491,7 @@ impl Servers {
                                             .text_size(theme::text_size(text::H3))
                                             .font_weight(weights::BOLD.into())
                                             .text_color(crate::theme::ink::text())
-                                            .child(core.saved.name.clone()),
+                                            .child(RichText::new(core.saved.name.clone())),
                                     )
                                     .when(trusted, |this| {
                                         this.child(badge(t(M::BadgeTrusted), colors::GREEN_300))
@@ -503,7 +504,12 @@ impl Servers {
                                     }),
                             )
                             .child(
-                                small(format!("{} · {account}", display_address(&core.url)))
+                                div()
+                                    .text_size(theme::text_size(text::SMALL))
+                                    .child(RichText::new(format!(
+                                        "{} · {account}",
+                                        display_address(&core.url)
+                                    )))
                                     .truncate()
                                     .text_color(crate::theme::ink::muted()),
                             ),
