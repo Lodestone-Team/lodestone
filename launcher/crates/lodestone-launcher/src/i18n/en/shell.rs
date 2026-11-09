@@ -470,6 +470,9 @@ crate::i18n::messages! {
         UpdatesSection = "Updates",
         UpdateAutomatically = "Update automatically",
         UpdateAutomaticallyHint = "Downloads new builds from GitHub in the background.",
+        /// Settings > General > Updates: update to beta builds too.
+        BetaBuilds = "Beta builds",
+        BetaBuildsHint = "Get new features before everyone else. Beta builds can have bugs. Turning this off keeps your build until a stable one is newer.",
         /// The running build: the number of commits it was built from.
         BuildNumber = "Build {build}",
         /// {commit} is the first seven characters of the commit.

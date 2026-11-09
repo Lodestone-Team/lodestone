@@ -531,6 +531,10 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAutomaticallyHint => {
             "Télécharge les nouveaux builds depuis GitHub en arrière-plan."
         }
+        M::BetaBuilds => "Builds bêta",
+        M::BetaBuildsHint => {
+            "Profitez des nouveautés avant tout le monde. Les builds bêta peuvent comporter des bugs. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’un build stable plus récent sorte."
+        }
         M::BuildNumber => "Build {build}",
         M::BuildNumberCommit => "Build {build} · {commit}",
         M::DevelopmentBuild => "Build de développement",

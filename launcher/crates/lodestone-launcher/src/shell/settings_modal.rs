@@ -8,6 +8,7 @@ use crate::theme::px;
 use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
 use launcher_core::accounts::AccountKind;
 use launcher_core::ui_skin::SurfaceId;
+use launcher_core::update::UpdateChannel;
 
 use super::{LauncherShell, account_box, developer};
 use crate::components::{
@@ -608,6 +609,7 @@ impl LauncherShell {
     /// with where updating stands and what can be done about it.
     fn render_updates(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let auto_update = self.instances.read(cx).auto_update();
+        let beta = self.instances.read(cx).update_channel() == UpdateChannel::Beta;
         let updater = self.updater.read(cx);
         let state = updater.state().clone();
         let build = updater.build();
@@ -624,16 +626,9 @@ impl LauncherShell {
             UpdateState::Idle => (t(M::UpdateNotChecked).into(), false),
             UpdateState::Checking => (t(M::UpdateChecking).into(), false),
             UpdateState::UpToDate => (t(M::UpToDate).into(), false),
-            UpdateState::Available(manifest) => (
-                tr!(
-                    M::UpdateAvailable,
-                    build = manifest
-                        .for_platform()
-                        .map_or(manifest.build, |(build, _)| build)
-                )
-                .into(),
-                false,
-            ),
+            UpdateState::Available(found) => {
+                (tr!(M::UpdateAvailable, build = found.build()).into(), false)
+            }
             UpdateState::Downloading { build, done, total } => (
                 tr!(
                     M::UpdateDownloading,
@@ -711,6 +706,26 @@ impl LauncherShell {
                                 .update(cx, |instances, cx| instances.set_auto_update(on, cx));
                             this.updater
                                 .update(cx, |updater, cx| updater.automatic_changed(cx));
+                        })),
+                )
+                .into_any_element(),
+            SettingRow::new(t(M::BetaBuilds))
+                .hint(t(M::BetaBuildsHint))
+                .child(
+                    Toggle::new("beta-builds", beta)
+                        .label(t(M::BetaBuilds))
+                        .disabled(build.is_none())
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            let channel = if *value {
+                                UpdateChannel::Beta
+                            } else {
+                                UpdateChannel::Stable
+                            };
+                            this.instances.update(cx, |instances, cx| {
+                                instances.set_update_channel(channel, cx)
+                            });
+                            this.updater
+                                .update(cx, |updater, cx| updater.channel_changed(cx));
                         })),
                 )
                 .into_any_element(),
