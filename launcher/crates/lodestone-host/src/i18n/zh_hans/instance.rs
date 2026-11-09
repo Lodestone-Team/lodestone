@@ -1,9 +1,69 @@
 use crate::i18n::{InstanceMsg as M, InstancePlural as P};
 
 pub fn text(message: M) -> &'static str {
-    match message {}
+    match message {
+        M::Automation => "自动化",
+        M::AutomationLead => "Lodestone 何时自动启动此服务器。",
+        M::AutoStart => "自动启动",
+        M::AutoStartHint => "Lodestone Core 启动时启动此服务器",
+        M::RestartOnCrash => "崩溃后重启",
+        M::RestartOnCrashHint => "此服务器崩溃时重新启动它",
+        M::NotAvailable => "暂时不可用",
+        M::NotAvailableHint => "请至少启动此服务器一次",
+        M::NoPermission => "没有权限",
+        M::SettingsFailed => "无法加载设置：{error}",
+        M::DangerZone => "危险区域",
+        M::DangerZoneLead => "这些设置可能对你的服务器造成不可逆的损害。",
+        M::DeleteServer => "删除服务器",
+        M::DeleteServerHint => "永久删除此服务器及其数据",
+        M::DeleteTitle => "删除“{name}”",
+        M::DeleteConfirm => "我明白，删除此服务器",
+        M::DeleteCannotUndo => "此操作无法撤销。",
+        M::DeleteWarning => "此实例的设置、世界和备份将被永久删除。继续之前，请备份所有重要数据。",
+        M::Deleting => "正在删除 {name}…",
+        M::OwnerOnlyAtom => "只有所有者可以控制 atom 服务器。",
+        M::CommandLineReadOnly => "此核心已禁用代码执行，此设置为只读。",
+        M::CommandLineOwnerOnly => "只有所有者可以更改此设置。",
+        M::CannotBeEmpty => "不能为空",
+        M::MustBeNumber => "必须是数字",
+        M::MustBeGreaterThan => "必须大于 {min}",
+        M::MustBeLessThan => "必须小于 {max}",
+        M::ShowPassword => "显示",
+        M::HidePassword => "隐藏",
+        M::Revert => "还原",
+        M::ResourcePack => "资源包",
+        M::ResourcePackLead => "玩家加入时会被要求下载的资源包。",
+        M::PackUrl => "URL",
+        M::PackUrlHint => "资源包 zip 的直接链接。留空则不使用资源包。",
+        M::PackSha1 => "SHA-1",
+        M::PackSha1Hint => "让玩家可以校验下载内容并缓存资源包。",
+        M::PackSha1Error => "SHA-1 应为 40 个十六进制字符。",
+        M::PackCompute => "计算",
+        M::PackDownloaded => "已下载 {size}。",
+        M::PackRequired => "强制使用资源包",
+        M::PackRequiredHint => "拒绝资源包的玩家会被断开连接。",
+        M::PackPrompt => "提示信息",
+        M::PackPromptHint => "询问玩家时显示的消息。纯文本或 JSON 文本组件。",
+        M::PackRemove => "移除资源包",
+        M::PackSaved => "资源包已保存",
+        M::PackSavedRestart => "资源包已保存。重启服务器后生效。",
+        M::PackUrlSpaces => "URL 不能包含空格。",
+        M::PackNotAUrl => "这不是有效的 URL。",
+        M::PackUrlScheme => "URL 必须以 http:// 或 https:// 开头。",
+        M::Eula => "Minecraft EULA",
+        M::EulaLead => "只有在你同意 Minecraft EULA 后，Minecraft 服务器才能运行。",
+        M::EulaAccepted => "已接受",
+        M::EulaAcceptedHint => "你已为此服务器同意 Minecraft EULA。",
+        M::EulaNotAccepted => "未接受",
+        M::EulaNotAcceptedHint => "你同意 Minecraft EULA 之前，此服务器不会启动。",
+        M::EulaRead => "阅读 EULA",
+        M::EulaAgree => "我同意 Minecraft EULA",
+        M::EulaAcceptFailed => "无法接受 Minecraft EULA：{error}",
+        M::EulaNoPermission => "你需要启动此服务器的权限才能接受。",
+    }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
-    match message {}
+    match message {
+    }
 }
