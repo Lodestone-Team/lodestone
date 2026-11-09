@@ -83,7 +83,7 @@ export const setThemePreference = (next: ThemePreference) => {
   } catch {
     // storage blocked: the choice lasts until the page is closed
   }
-  // The desktop window (title bar buttons) follows too. With "system" it is
+  // Lodestone Host's window (title bar buttons) follows too. With "system" it is
   // given back to the OS, so prefers-color-scheme reports the OS setting again.
   setTauriWindowTheme(next === 'system' ? null : next);
   applyTheme();

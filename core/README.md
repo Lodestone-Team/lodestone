@@ -176,7 +176,7 @@ cargo build -p lodestone_core --no-default-features
 cargo test -p lodestone_core --no-default-features
 ```
 
-The desktop app forwards the feature: `cargo build -p lodestone-client --no-default-features`.
+Lodestone Host forwards the feature: `cargo build -p lodestone-host --no-default-features`.
 
 Without the feature:
 

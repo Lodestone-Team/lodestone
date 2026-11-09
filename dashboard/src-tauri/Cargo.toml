@@ -1,7 +1,7 @@
 [package]
-name = "lodestone-client"
-description = "Lodestone's Desktop Client"
-default-run = "lodestone-client"
+name = "lodestone-host"
+description = "Lodestone Host: the dashboard and Lodestone Core in one desktop app"
+default-run = "lodestone-host"
 rust-version.workspace = true
 authors.workspace = true
 homepage.workspace = true

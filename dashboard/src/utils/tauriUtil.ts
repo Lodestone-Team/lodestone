@@ -19,13 +19,13 @@ export const tauri = globalTauriExists ? window.__TAURI__ : undefined; // Export
 
 export const useTauri = (): tauri | undefined => tauri; // Export a hook that returns the `tauri` object
 
-// True in the macOS desktop app. Its window uses an overlay title bar (see tauri.conf.json:
+// True in Lodestone Host on macOS. Its window uses an overlay title bar (see tauri.conf.json:
 // titleBarStyle "Overlay"), so the page draws under the traffic-light buttons and has to
 // provide its own drag regions and leave room for the buttons.
 export const isTauriMacOS: boolean =
   globalTauriExists && /Mac/i.test(window.navigator.userAgent);
 
-// Sets the desktop window's light or dark appearance (on macOS the title bar buttons drawn
+// Sets Lodestone Host's window's light or dark appearance (on macOS the title bar buttons drawn
 // over the page), or null to follow the OS again. Needs core:window:allow-set-theme.
 export const setTauriWindowTheme = (theme: 'light' | 'dark' | null) => {
   tauri?.window
@@ -34,11 +34,11 @@ export const setTauriWindowTheme = (theme: 'light' | 'dark' | null) => {
     .catch((e: unknown) => console.warn('Failed to set the window theme', e));
 };
 
-// The desktop app's answer to is_debug_build, kept for the page's lifetime:
+// Lodestone Host's answer to is_debug_build, kept for the page's lifetime:
 // asking again on every mount showed the release look until the answer came.
 let tauriDebugBuildCache: boolean | undefined;
 
-// True for local development: the Next dev server, or a debug build of the desktop app.
+// True for local development: the Next dev server, or a debug build of Lodestone Host.
 export const useIsDevBuild = (): boolean => {
   const [tauriDebugBuild, setTauriDebugBuild] = useState(
     tauriDebugBuildCache ?? false
