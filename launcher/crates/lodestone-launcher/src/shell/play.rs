@@ -325,42 +325,85 @@ fn placeholder(message: impl Into<SharedString>) -> impl IntoElement {
 /// "Play without joining" under it.
 pub const BOTTOM_BAR_HEIGHT: f32 = 108.0;
 
+/// What Play shows and does for an instance: the Play bar's button, and the one over
+/// the instance's icon in the sidebar.
+pub(super) struct PlayTarget {
+    pub state: PlayButtonState,
+    /// "and join Survival SMP", or why Play waits.
+    pub caption: Option<String>,
+    /// Play joins the server the instance was made for.
+    pub joins: bool,
+}
+
+impl LauncherShell {
+    /// What Play shows and does for the instance `id`. An instance made for a server
+    /// plays on it: the same mod check as the Servers page, then the game joins.
+    pub(super) fn play_target(&self, id: &str, cx: &gpui::App) -> PlayTarget {
+        let state = match self.instances.read(cx).play_state_of(id) {
+            PlayState::NoInstance => PlayButtonState::Disabled,
+            PlayState::Ready => PlayButtonState::Ready,
+            PlayState::Playing => PlayButtonState::Playing,
+            PlayState::Preparing {
+                label,
+                detail,
+                fraction,
+            } => PlayButtonState::Preparing {
+                label,
+                detail,
+                fraction,
+            },
+        };
+        let servers = self.servers.read(cx);
+        let link = servers.instance_link(id);
+        let busy = servers.instance_busy(id).map(|busy| busy.label());
+        let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
+        let (state, caption) = match (&link, busy) {
+            (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),
+            (Some(link), None) if joins => {
+                (state, Some(tr!(M::AndJoin, server = link.server_name)))
+            }
+            _ => (state, None),
+        };
+        PlayTarget {
+            state,
+            caption,
+            joins,
+        }
+    }
+
+    /// Play: starts the instance `id`, joining its server when `joins`.
+    pub(super) fn press_play(&mut self, id: &str, joins: bool, cx: &mut Context<Self>) {
+        if joins {
+            self.servers
+                .update(cx, |servers, cx| servers.play_instance(id, cx));
+        } else {
+            self.instances
+                .update(cx, |instances, cx| instances.play(id, cx));
+        }
+    }
+}
+
 /// The bar under the tabs: Play.
 fn play_bar(
     shell: &LauncherShell,
     instance: Option<&Instance>,
     cx: &mut Context<LauncherShell>,
 ) -> impl IntoElement {
-    let state = match shell.instances.read(cx).play_state() {
-        PlayState::NoInstance => PlayButtonState::Disabled,
-        PlayState::Ready => PlayButtonState::Ready,
-        PlayState::Playing => PlayButtonState::Playing,
-        PlayState::Preparing {
-            label,
-            detail,
-            fraction,
-        } => PlayButtonState::Preparing {
-            label,
-            detail,
-            fraction,
+    let id = instance.map(|i| i.id.clone());
+    let PlayTarget {
+        state,
+        caption,
+        joins,
+    } = match &id {
+        Some(id) => shell.play_target(id, cx),
+        None => PlayTarget {
+            state: PlayButtonState::Disabled,
+            caption: None,
+            joins: false,
         },
     };
-    let id = instance.map(|i| i.id.clone());
     let stop_id = id.clone();
-    // An instance made for a server plays on it: the same mod check as the Servers
-    // page, then the game joins. "Play without joining" is the plain Play.
-    let servers = shell.servers.read(cx);
-    let link = id.as_ref().and_then(|id| servers.instance_link(id));
-    let busy = id
-        .as_ref()
-        .and_then(|id| servers.instance_busy(id))
-        .map(|busy| busy.label());
-    let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
-    let (state, caption) = match (&link, busy) {
-        (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),
-        (Some(link), None) if joins => (state, Some(tr!(M::AndJoin, server = link.server_name))),
-        _ => (state, None),
-    };
+    // "Play without joining" is the plain Play.
     let single_id = id.clone();
     let resolved = crate::skin::resolve(&crate::skin::look(cx).spec, instance);
     div()
@@ -393,15 +436,8 @@ fn play_bar(
                         .layer(resolved.play_layer)
                         .when_some(caption, |button, caption| button.caption(caption))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            let Some(id) = &id else {
-                                return;
-                            };
-                            if joins {
-                                this.servers
-                                    .update(cx, |servers, cx| servers.play_instance(id, cx));
-                            } else {
-                                this.instances
-                                    .update(cx, |instances, cx| instances.play(id, cx));
+                            if let Some(id) = &id {
+                                this.press_play(id, joins, cx);
                             }
                         }))
                         .on_stop(cx.listener(move |this, _, _, cx| {
@@ -418,8 +454,7 @@ fn play_bar(
                             .variant(ButtonVariant::Ghost)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 if let Some(id) = &single_id {
-                                    this.instances
-                                        .update(cx, |instances, cx| instances.play(id, cx));
+                                    this.press_play(id, false, cx);
                                 }
                             })),
                     )

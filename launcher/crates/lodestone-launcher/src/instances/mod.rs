@@ -1364,13 +1364,23 @@ impl Instances {
         if let Some(state) = &self.preview_state {
             return state.clone();
         }
-        let Some(instance) = self.selected() else {
-            return PlayState::NoInstance;
-        };
-        match self.runs.get(&instance.id).map(|run| &run.state) {
+        match self.selected() {
+            Some(instance) => self.play_state_of(&instance.id),
+            None => PlayState::NoInstance,
+        }
+    }
+
+    /// The Play button's state for the instance `id`, selected or not.
+    pub fn play_state_of(&self, id: &str) -> PlayState {
+        if let Some(state) = &self.preview_state
+            && self.selected().is_some_and(|selected| selected.id == id)
+        {
+            return state.clone();
+        }
+        match self.runs.get(id).map(|run| &run.state) {
             None | Some(RunState::Idle) => PlayState::Ready,
             // Java has started, but until the game's window opens there's nothing to see.
-            Some(RunState::Running { .. }) if !self.runs[&instance.id].window_opened => {
+            Some(RunState::Running { .. }) if !self.runs[id].window_opened => {
                 PlayState::Preparing {
                     label: t(M::StageLaunching).into(),
                     detail: None,

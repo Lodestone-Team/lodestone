@@ -62,10 +62,11 @@ pub enum Icon {
     PuzzlePiece,
     CodeCompare,
     Inbox,
+    Play,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 57] = [
+    pub const ALL: [Icon; 58] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -123,6 +124,7 @@ impl Icon {
         Icon::PuzzlePiece,
         Icon::CodeCompare,
         Icon::Inbox,
+        Icon::Play,
     ];
 
     /// The asset path of the icon's SVG.
@@ -185,6 +187,7 @@ impl Icon {
             Icon::PuzzlePiece => "icons/puzzle-piece.svg",
             Icon::CodeCompare => "icons/code-compare.svg",
             Icon::Inbox => "icons/inbox.svg",
+            Icon::Play => "icons/play.svg",
         }
     }
 
@@ -246,7 +249,8 @@ impl Icon {
             | Icon::ChartLine
             | Icon::PuzzlePiece
             | Icon::CodeCompare
-            | Icon::Inbox => return format!("{self:?}").into(),
+            | Icon::Inbox
+            | Icon::Play => return format!("{self:?}").into(),
         };
         t(message).into()
     }

@@ -89,6 +89,8 @@ crate::i18n::messages! {
         /// Under PLAY, for an instance made for a server.
         AndJoin = "and join {server}",
         PlayWithoutJoining = "Play without joining",
+        /// The Play button over an instance's icon in the sidebar, for assistive technology.
+        PlayNamed = "Play {name}",
 
         // Dialogs over the window.
         /// The title of a dialog that deletes an instance or a world.
