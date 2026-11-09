@@ -428,6 +428,8 @@ pub struct IconButton {
     id: ElementId,
     icon: Icon,
     disabled: bool,
+    /// Its tooltip and accessible name.
+    label: Option<SharedString>,
     on_click: Option<ClickHandler>,
 }
 
@@ -437,12 +439,19 @@ impl IconButton {
             id: id.into(),
             icon,
             disabled: false,
+            label: None,
             on_click: None,
         }
     }
 
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Names the button: a tooltip, and its name for screen readers.
+    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+        self.label = Some(label.into());
         self
     }
 
@@ -470,6 +479,10 @@ impl RenderOnce for IconButton {
         div()
             .id(self.id.clone())
             .when(!self.disabled, |this| this.keyboard_focus_outer())
+            .when_some(self.label, |this, label| {
+                this.aria_label(label.clone())
+                    .tooltip(super::text_tooltip(label))
+            })
             .group("icon-button")
             .flex()
             .flex_none()

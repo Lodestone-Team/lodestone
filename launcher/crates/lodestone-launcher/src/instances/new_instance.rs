@@ -21,7 +21,7 @@ use super::{Instances, Versions, loader_picker::LoaderPicker, modpack_browser::M
 use crate::components::KeyboardFocus;
 use crate::{
     components::{
-        Button, ButtonVariant, Dialog, Icon, IconButton, LoadingDots, TextInput,
+        Button, ButtonVariant, Dialog, Icon, LoadingDots, TextInput,
         motion::Animated,
         settings::{popover, popover_panel, select_button},
     },
@@ -785,10 +785,6 @@ impl Render for NewInstanceDialog {
                 move |_, cx| entity.update(cx, |_, cx| cx.emit(NewInstanceDismissed))
             })
             .header_end(switch)
-            .header_end(
-                IconButton::new("close-new-instance", Icon::Xmark)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(NewInstanceDismissed))),
-            )
             .child(
                 div()
                     .flex()
@@ -811,11 +807,6 @@ impl Render for NewInstanceDialog {
                     .icon(Icon::Download)
                     .on_click(cx.listener(|this, _, _, cx| this.pick_mrpack(cx))),
             )
-            .footer(
-                Button::new("cancel-new-instance", t(CommonMsg::Cancel))
-                    .variant(ButtonVariant::Ghost)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(NewInstanceDismissed))),
-            )
             .map(|dialog| match mode {
                 Mode::Version => dialog.footer(
                     Button::new("create-instance", t(M::CreateInstance))
@@ -836,6 +827,11 @@ impl Render for NewInstanceDialog {
                         .on_click(cx.listener(|this, _, _, cx| this.import_code(cx))),
                 ),
             })
+            .footer(
+                Button::new("cancel-new-instance", t(CommonMsg::Cancel))
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(NewInstanceDismissed))),
+            )
     }
 }
 

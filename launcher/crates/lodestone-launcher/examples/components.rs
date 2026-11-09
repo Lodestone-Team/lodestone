@@ -280,13 +280,14 @@ impl Render for Gallery {
                 Dialog::new("dialog", "Delete instance?", focus.clone())
                     .on_close(move |_, cx| entity.update(cx, Self::close_dialog))
                     .child("This removes the instance and its worlds. It cannot be undone.")
-                    .footer(
-                        Button::new("cancel", "Cancel")
-                            .on_click(cx.listener(|this, _, _, cx| this.close_dialog(cx))),
-                    )
+                    // the main action first, Cancel last; the × closes it too
                     .footer(
                         Button::new("confirm", "Delete")
                             .variant(ButtonVariant::Danger)
+                            .on_click(cx.listener(|this, _, _, cx| this.close_dialog(cx))),
+                    )
+                    .footer(
+                        Button::new("cancel", "Cancel")
                             .on_click(cx.listener(|this, _, _, cx| this.close_dialog(cx))),
                     )
                     .into_any_element(),

@@ -93,7 +93,12 @@ pub fn text(message: M) -> &'static str {
         M::LeaveWorldsOutSize => "Ne pas copier les mondes ({size})",
         M::Import => "Importer",
         M::ChooseFolder => "Choisir un dossier…",
-        M::StopAndClose => "Arrêter et fermer",
+        M::StopImportingTitle => "Arrêter l’importation\u{202F}?",
+        M::StopImportingBody => {
+            "Les importations en cours s’arrêtent, et ce qu’elles ont déjà copié est supprimé. Les instances déjà importées restent."
+        }
+        M::StopImporting => "Arrêter l’importation",
+        M::KeepImporting => "Continuer l’importation",
 
         M::NotAModpack => "Ce n’est pas un modpack",
         M::NotMrpack => {

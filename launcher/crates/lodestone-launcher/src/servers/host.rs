@@ -260,10 +260,6 @@ impl Render for HostDialog {
                         .variant(ButtonVariant::Primary)
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(HostEvent::ShowServers))),
                 )
-                .footer(
-                    Button::new("host-close", t(CommonMsg::Close))
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(HostEvent::Dismissed))),
-                )
                 .into_any_element();
         }
 
