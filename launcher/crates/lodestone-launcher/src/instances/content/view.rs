@@ -495,13 +495,17 @@ impl ContentView {
                     );
                 }
                 panel = panel
-                    .child(
-                        ListRow::new("menu-add-file", t(M::AddFile))
-                            .icon(Icon::Upload)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.menu_open = false;
-                                this.pick_files(kind, cx);
-                            })),
+                    .children(
+                        super::add_rows(kind, cx.can_select_mixed_files_and_dirs())
+                            .into_iter()
+                            .map(|(id, label, pick)| {
+                                ListRow::new(id, t(label))
+                                    .icon(Icon::Upload)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.menu_open = false;
+                                        this.pick_files(kind, pick, cx);
+                                    }))
+                            }),
                     )
                     .child(
                         ListRow::new("menu-open-folder", t(CommonMsg::OpenFolder))

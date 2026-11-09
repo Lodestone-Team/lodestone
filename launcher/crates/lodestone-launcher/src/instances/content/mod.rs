@@ -17,8 +17,7 @@ use std::{
 };
 
 use gpui::{
-    AppContext as _, Context, Entity, EventEmitter, PathPromptOptions, RenderImage, SharedString,
-    Subscription, Task,
+    AppContext as _, Context, Entity, EventEmitter, RenderImage, SharedString, Subscription, Task,
 };
 use launcher_core::{
     content::{
@@ -39,8 +38,26 @@ use lodestone_minecraft::modrinth::{
 
 use super::Instances;
 use crate::components::{Icon, TextInput};
-use crate::file_dialog;
+use crate::file_dialog::{self, Pick};
 use crate::i18n::{ContentMsg as M, format, t, tr};
+
+/// The "Add …" rows of a tab's menu, given `cx.can_select_mixed_files_and_dirs()`:
+/// each row's id, label and dialog. Mods are only files; resource and shader packs
+/// are `.zip` files or folders, which get a row each where the dialog can't show both.
+pub fn add_rows(kind: ContentKind, mixed: bool) -> Vec<(&'static str, M, Pick)> {
+    let picks = if kind.allows_folders() {
+        Pick::file_or_folder(mixed)
+    } else {
+        &[Pick::Files]
+    };
+    picks
+        .iter()
+        .map(|&pick| match pick {
+            Pick::Files | Pick::FilesOrFolders => ("menu-add-file", M::AddFile, pick),
+            Pick::Folders => ("menu-add-folder", M::AddFolder, pick),
+        })
+        .collect()
+}
 
 /// Results per page.
 pub const PAGE_SIZE: u32 = 20;
@@ -1081,24 +1098,19 @@ impl ContentView {
         }));
     }
 
-    /// "Add file…": the system's file dialog.
-    pub fn pick_files(&mut self, kind: ContentKind, cx: &mut Context<Self>) {
+    /// "Add file…" or "Add folder…": the system's file dialog.
+    pub fn pick_files(&mut self, kind: ContentKind, pick: Pick, cx: &mut Context<Self>) {
         if !self.can_change(cx) {
             return;
         }
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: kind.allows_folders(),
-            multiple: true,
-            prompt: Some(
-                t(match kind {
-                    ContentKind::Mod => M::AddToMods,
-                    ContentKind::ResourcePack => M::AddToResourcePacks,
-                    ContentKind::ShaderPack => M::AddToShaders,
-                })
-                .into(),
-            ),
-        });
+        let picked = cx.prompt_for_paths(pick.options(
+            true,
+            t(match kind {
+                ContentKind::Mod => M::AddToMods,
+                ContentKind::ResourcePack => M::AddToResourcePacks,
+                ContentKind::ShaderPack => M::AddToShaders,
+            }),
+        ));
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
@@ -1605,6 +1617,41 @@ pub(crate) fn outcome_message(outcome: &InstallOutcome) -> String {
 mod tests {
     use super::*;
     use launcher_core::content::install::Skipped;
+
+    /// Where the dialog can't show files and folders together (Linux, Windows), a
+    /// pack's `.zip` gets "Add file…" and an unzipped pack "Add folder…"; on macOS
+    /// "Add file…" takes either, as before. Mods are always files.
+    #[test]
+    fn add_rows_offer_files_wherever_the_dialog_cant_show_both() {
+        let rows = |kind: ContentKind, mixed: bool| -> Vec<_> {
+            add_rows(kind, mixed)
+                .into_iter()
+                .map(|(id, label, pick)| {
+                    let options = pick.options(true, "Add");
+                    (id, label, options.files, options.directories)
+                })
+                .collect()
+        };
+        for mixed in [false, true] {
+            assert_eq!(
+                rows(ContentKind::Mod, mixed),
+                [("menu-add-file", M::AddFile, true, false)]
+            );
+        }
+        for kind in [ContentKind::ResourcePack, ContentKind::ShaderPack] {
+            assert_eq!(
+                rows(kind, false),
+                [
+                    ("menu-add-file", M::AddFile, true, false),
+                    ("menu-add-folder", M::AddFolder, false, true),
+                ]
+            );
+            assert_eq!(
+                rows(kind, true),
+                [("menu-add-file", M::AddFile, true, true)]
+            );
+        }
+    }
 
     #[test]
     fn outcome_messages() {
