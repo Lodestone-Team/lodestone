@@ -59,6 +59,7 @@ pub fn text(message: M) -> &'static str {
         M::NoInstances => "沒有實例",
         M::AndJoin => "並加入 {server}",
         M::PlayWithoutJoining => "開始遊戲但不加入",
+        M::PlayNamed => "啟動「{name}」",
 
         M::DeleteNamed => "刪除「{name}」？",
         M::DeleteWorldBody => "這個世界的資料夾會移到{trash}，你可以從那裡還原。它的備份會保留。",

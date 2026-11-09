@@ -423,25 +423,26 @@ pub struct LoadingDots;
 
 impl RenderOnce for LoadingDots {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let dot = |index: usize| {
-            div()
-                .size(px(5.))
-                .rounded_full()
-                .bg(colors::GRAY_500)
-                .with_animation(
-                    ("loading-dot", index),
-                    Animation::new(Duration::from_millis(700))
-                        .repeat()
-                        .with_easing(gpui::pulsating_between(0.2, 1.0)),
-                    move |dot, delta| {
-                        // Offset each dot's phase so the pulse travels across them.
-                        let phase = (delta + index as f32 / 3.0) % 1.0;
-                        dot.opacity(phase)
-                    },
-                )
-        };
-        div().flex().gap(px(3.)).children((0..3).map(dot))
+        loading_dots(colors::GRAY_500)
     }
+}
+
+/// [`LoadingDots`] in `color`, for over an image or a dark scrim.
+pub fn loading_dots(color: Color) -> impl IntoElement {
+    let dot = |index: usize| {
+        div().size(px(5.)).rounded_full().bg(color).with_animation(
+            ("loading-dot", index),
+            Animation::new(Duration::from_millis(700))
+                .repeat()
+                .with_easing(gpui::pulsating_between(0.2, 1.0)),
+            move |dot, delta| {
+                // Offset each dot's phase so the pulse travels across them.
+                let phase = (delta + index as f32 / 3.0) % 1.0;
+                dot.opacity(phase)
+            },
+        )
+    };
+    div().flex().gap(px(3.)).children((0..3).map(dot))
 }
 
 /// A square button with only an icon, after the dashboard's `IconButton` atom.
