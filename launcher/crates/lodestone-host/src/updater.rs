@@ -46,13 +46,18 @@ pub fn this_build() -> Option<Build> {
         option_env!("LODESTONE_HOST_BUILD"),
         option_env!("LODESTONE_HOST_COMMIT"),
     )
+    .map(|build| build.with_channel(option_env!("LODESTONE_HOST_CHANNEL")))
 }
 
 /// Where new builds come from.
 pub trait UpdateSource: Send + Sync + 'static {
-    /// The newest build in the stable channel, or the stable and beta ones, newer than
-    /// `running`; `None` when there is none.
-    fn check(&self, beta: bool, running: u64) -> BoxFuture<'static, Result<Option<Found>, String>>;
+    /// The newest build `channel` reads (stable releases; betas too; developer builds
+    /// too), newer than `running`; `None` when there is none.
+    fn check(
+        &self,
+        channel: UpdateChannel,
+        running: u64,
+    ) -> BoxFuture<'static, Result<Option<Found>, String>>;
 
     /// Downloads `found` and keeps it ready to install, telling `progress` how many
     /// bytes are done.
@@ -208,9 +213,9 @@ impl Updater {
         };
         self.state = UpdateState::Checking;
         cx.notify();
-        let beta = Prefs::get(cx).beta_builds;
+        let channel = Prefs::get(cx).update_channel();
         let running = downloaded.or(self.build).unwrap_or(0);
-        let work = cx.background_spawn(source.check(beta, running));
+        let work = cx.background_spawn(source.check(channel, running));
         self.work = Some(cx.spawn(async move |this, cx| {
             let result = work.await;
             this.update(cx, |this, cx| {
@@ -393,13 +398,12 @@ pub fn core_path(exe: &Path) -> PathBuf {
 }
 
 impl UpdateSource for ReleaseSource {
-    fn check(&self, beta: bool, running: u64) -> BoxFuture<'static, Result<Option<Found>, String>> {
+    fn check(
+        &self,
+        channel: UpdateChannel,
+        running: u64,
+    ) -> BoxFuture<'static, Result<Option<Found>, String>> {
         let http = self.http.clone();
-        let channel = if beta {
-            UpdateChannel::Beta
-        } else {
-            UpdateChannel::Stable
-        };
         Box::pin(launcher_core::http::in_http_runtime(async move {
             let found = update::find_update_for(Product::HOST, http.as_ref(), channel)
                 .await

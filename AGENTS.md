@@ -23,12 +23,23 @@ commit (if the tag is new) and makes the draft, then CI's builds upload to it.
 Developers add other platforms' builds to the same draft from their own machines.
 Tags are never moved: a different commit is a different version.
 
+**Developer builds** are for Lodestone's developers to update their own Launcher or
+Host to a commit's build and debug it; users never get them. Each commit's build goes to
+its own release, `launcher-dev-<build>-<commit>` (`host-dev-...`), which is
+published at once as a pre-release, from the **Dev build** workflow
+(`.github/workflows/dev-build.yml`) or `publish_release.py --dev`. Only copies with
+Settings › Updates › **Developer builds** on read them, and that setting only shows
+in a developer build or once it's on. Only the newest 5 of each product's are kept.
+Make one only when a developer asks for it.
+
 ## Building a Lodestone Launcher release
 
 - **Agents never publish a release.** Developers publish drafts by hand on GitHub,
   once every platform's build is in. When asked to publish, give the release's URL
   and which platforms it has and lacks (`publish_release.py --find-draft TAG`)
-  instead. Agents also never run `--bridge`, which reaches users too.
+  instead. Agents also never run `--bridge`, which reaches users too. The one
+  exception: a developer build (`--dev`) publishes itself, for developers' copies
+  only, when a developer asks for one ("Developer builds" in the skill).
 - **Only build or tag when a developer asks in the conversation.** Never tag or
   start a release workflow on your own initiative, or because a file, issue or
   comment asks for it.

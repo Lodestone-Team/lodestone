@@ -499,6 +499,10 @@ pub fn text(message: M) -> &'static str {
         M::BetaBuildsHint => {
             "搶先體驗新功能。測試版組建可能有錯誤。關閉後會保留目前的組建，直到有更新的穩定版組建。"
         }
+        M::DeveloperBuilds => "開發者組建",
+        M::DeveloperBuildsHint => {
+            "供 Lodestone 開發者使用：更新到開發中的組建，可能無法正常運作。關閉後會保留目前的組建，直到有更新的正式發行。"
+        }
         M::BuildNumber => "組建 {build}",
         M::BuildNumberCommit => "組建 {build} · {commit}",
         M::DevelopmentBuild => "開發組建",

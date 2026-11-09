@@ -375,6 +375,10 @@ pub fn text(message: M) -> &'static str {
         M::BetaBuildsHint => {
             "Profitez des nouveautés avant tout le monde. Les builds bêta peuvent comporter des bugs. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’un build stable plus récent sorte."
         }
+        M::DeveloperBuilds => "Builds de développeur",
+        M::DeveloperBuildsHint => {
+            "Pour les développeurs de Lodestone : met à jour vers des builds de travaux en cours, qui peuvent ne pas fonctionner. Si vous désactivez cette option, vous gardez votre build jusqu’à ce qu’une version plus récente sorte."
+        }
         M::BuildNumber => "Build {build}",
         M::BuildNumberCommit => "Build {build} · {commit}",
         M::DevelopmentBuild => "Build de développement",

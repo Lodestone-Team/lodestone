@@ -273,6 +273,8 @@ crate::i18n::messages! {
         UpdateAutomaticallyHint = "Downloads new builds in the background.",
         BetaBuilds = "Beta builds",
         BetaBuildsHint = "Get new features before everyone else. Beta builds can have bugs. Turning this off keeps your build until a stable one is newer.",
+        DeveloperBuilds = "Developer builds",
+        DeveloperBuildsHint = "For Lodestone's developers: updates to builds of work in progress, which may not work. Turning this off keeps your build until a release is newer.",
         BuildNumber = "Build {build}",
         BuildNumberCommit = "Build {build} · {commit}",
         DevelopmentBuild = "Development build",

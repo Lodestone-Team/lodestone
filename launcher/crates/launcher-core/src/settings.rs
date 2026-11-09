@@ -128,11 +128,18 @@ pub enum Language {
     System,
 }
 
-/// Which builds the launcher updates to, from Settings > General > "Beta builds".
+/// Which builds the launcher updates to, from Settings > General > "Beta builds"
+/// (and "Developer builds", which only developers see).
 ///
 /// A value this build does not know reads as [`UpdateChannel::Stable`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UpdateChannel {
+    /// Developers' builds (`launcher-dev-<build>-<commit>`, for developers only),
+    /// betas and stable releases, whichever has the newest build. Settings only
+    /// offers it in a developer build, or once it is on; a launcher from before it
+    /// reads it as stable.
+    #[serde(rename = "dev")]
+    Dev,
     /// Pre-releases (`launcher-vX.Y.Z-beta.N`) and stable releases, whichever has
     /// the newer build.
     #[serde(rename = "beta")]

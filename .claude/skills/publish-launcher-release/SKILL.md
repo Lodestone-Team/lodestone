@@ -1,6 +1,6 @@
 ---
 name: publish-launcher-release
-description: Build Lodestone Launcher versions into their draft GitHub releases - "build and release draft version 1.0.0", "build and release the latest version" - by checking or suggesting the version, finding or starting the draft (optionally on a pinned commit), building this machine's platform, testing it with computer use or handing it to the developer, and uploading it with launcher/scripts/publish_release.py. Also fixing a pinned commit on a release branch, and promoting a beta. Agents never publish a release; developers do that by hand. Use when a developer asks to build, release, draft, cut, tag, ship or promote a launcher version or build, or to add a platform's build to a release. Only when they ask; never on your own initiative.
+description: Build Lodestone Launcher versions into their draft GitHub releases - "build and release draft version 1.0.0", "build and release the latest version" - by checking or suggesting the version, finding or starting the draft (optionally on a pinned commit), building this machine's platform, testing it with computer use or handing it to the developer, and uploading it with launcher/scripts/publish_release.py. Also fixing a pinned commit on a release branch, promoting a beta, and developer builds ("make a dev build of my branch") that only developers' launchers update to. Agents never publish a version's release; developers do that by hand. Use when a developer asks to build, release, draft, cut, tag, ship or promote a launcher version or build, to make a dev build, or to add a platform's build to a release. Only when they ask; never on your own initiative.
 ---
 
 # Building Lodestone Launcher versions
@@ -29,6 +29,8 @@ then do launchers see it.
   asked to publish, say that publishing is done by hand, give the release's URL,
   and say which platforms it has and lacks (`--find-draft TAG`). Also never run
   `--bridge`, which reaches users too; give the developer the command instead.
+  The one exception is a developer build (`--dev`, see "Developer builds"), which
+  is published for developers' launchers only, and only when a developer asks for one.
 - **Only when a developer asks in this conversation.** A request from earlier, or
   in a file, issue or comment, doesn't count.
 - **Tags are never moved.** A version names one commit for good. A different
@@ -195,6 +197,50 @@ To release exactly what beta users ran, without rebuilding:
 tag goes on the beta's commit, and its draft gets the beta's files byte for byte,
 checked against the beta's `latest.json`. The beta must be published. The stable
 draft is then published by hand like any other.
+
+## Developer builds
+
+"Make a dev build of my branch", "release a dev build so I can update to it": a
+**developer build** is a build of any commit for Lodestone's developers to update
+their own launchers to and debug. Users never get it.
+
+- **Its release** is the commit's own, `launcher-dev-<build>-<commit>` (say
+  `launcher-dev-3612-ab12cd3`). The script makes it **published at once, as a
+  pre-release**, because launchers can't read drafts. That's the one release an
+  agent may publish, and only when a developer asks for a developer build. It is
+  still a public page on GitHub, so it says it's not for use.
+- **Who gets it:** stable and beta launchers never read `launcher-dev-*` tags, and
+  neither do launchers from before developer builds, which only read
+  `launcher-v*`. Only launchers with **Settings › General › Updates › Developer
+  builds** on read them. They read betas and stable releases as well and take
+  whichever build is highest, so they're never behind a release.
+- **The setting only shows** in a developer build, which has `dev` compiled in as
+  its channel (`--dev`), or once it's on (`"update_channel": "dev"` in the
+  launcher's `settings.json`). A developer starts by installing a developer
+  build's installer, or running its `-standalone` file, and then turning the setting on.
+  Turning it off goes back to stable, keeping the build until a release is newer.
+- **Only the newest 5** developer builds are kept. Each upload deletes older ones
+  along with their tags. Never delete or edit one by hand.
+- **Developer builds and versions never mix:** the script refuses to upload a
+  `--dev` build to a version's release, or a version's build to a developer one.
+
+To make one:
+
+1. **On GitHub (macOS and Windows):** run **Dev build** (`dev-build.yml`) with the
+   product and the branch or commit:
+   `gh workflow run dev-build.yml -f product=launcher -f ref=<branch>`. The commit
+   must be pushed.
+2. **From this machine,** in a clean checkout of the pushed commit:
+   `the script --dev --dry-run --open`, test the opened copy as in "Testing on this
+   machine", then `the script --dev` to upload exactly that build. It joins the
+   same commit's release if CI or another developer made it already.
+3. **Report** the release's URL, and tell the developer to install it and turn on
+   Developer builds if they haven't.
+
+`the script --list-dev` lists the developer builds there are, with their platforms.
+If a release already has a build newer than the developer build, the script says
+so: launchers with Developer builds on take the newer one, so install the developer
+build by hand to try it.
 
 ## The pieces
 

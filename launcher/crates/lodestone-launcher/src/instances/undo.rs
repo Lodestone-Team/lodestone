@@ -85,10 +85,19 @@ impl LauncherValues {
         } else if self.auto_update != other.auto_update {
             arrow(t(SM::UpdateAutomatically), on_off(self.auto_update))
         } else if self.update_channel != other.update_channel {
-            arrow(
-                t(SM::BetaBuilds),
-                on_off(self.update_channel == UpdateChannel::Beta),
-            )
+            if UpdateChannel::Dev == self.update_channel
+                || UpdateChannel::Dev == other.update_channel
+            {
+                arrow(
+                    t(SM::DeveloperBuilds),
+                    on_off(self.update_channel == UpdateChannel::Dev),
+                )
+            } else {
+                arrow(
+                    t(SM::BetaBuilds),
+                    on_off(self.update_channel == UpdateChannel::Beta),
+                )
+            }
         } else if self.after_launch != other.after_launch {
             let choice = match self.after_launch {
                 AfterLaunch::Stay => t(SM::AfterLaunchStay),
