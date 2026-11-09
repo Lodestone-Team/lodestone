@@ -249,9 +249,14 @@ impl ShareCode {
     }
 }
 
-/// A Modrinth project or version id: short, letters and digits only.
+/// A Modrinth project or version id: short; letters and digits, and `-` or `_` after
+/// the first character. Never a path.
 fn is_modrinth_id(id: &str) -> bool {
-    (1..=32).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric())
+    (1..=32).contains(&id.len())
+        && id.as_bytes()[0].is_ascii_alphanumeric()
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// A Minecraft or loader version: short, without separators or anything odd.
