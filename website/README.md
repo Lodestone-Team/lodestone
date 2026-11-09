@@ -1,13 +1,16 @@
 # www.lodestone.cc
 
-The site has two parts, built together by `build.mjs` into `website/dist`:
+The site has three parts, built together by `build.mjs` into `website/dist`:
 
-| Path    | What                                   | Source           |
-| ------- | -------------------------------------- | ---------------- |
-| `/`     | Lodestone Launcher landing page        | `website/src`    |
-| `/core` | Lodestone Core web dashboard           | `dashboard/`     |
+| Path        | What                                       | Source                  |
+| ----------- | ------------------------------------------ | ----------------------- |
+| `/`         | Home page: all the Lodestone products      | `website/src`           |
+| `/launcher` | Lodestone Launcher page, with the download | `website/src/launcher`  |
+| `/core`     | Lodestone Core web dashboard               | `dashboard/`            |
 
-The landing page is plain HTML, CSS and JavaScript with no build step. The
+The two pages are plain HTML, CSS and JavaScript with no build step. They share
+the fonts in `src/fonts`; everything else of the launcher page's is under
+`src/launcher`. The
 dashboard is built with `DASHBOARD_BASE_PATH=/core`, which sets Next's
 `basePath` and prefixes the dashboard's own `public/` files (see
 `dashboard/src/utils/basePath.ts`). Builds without that variable, like the Tauri
@@ -17,14 +20,30 @@ app, are served from the root as before.
 
 ```bash
 node website/build.mjs                  # everything
-node website/build.mjs --landing-only   # just the landing page
+node website/build.mjs --landing-only   # just the two pages
 node website/serve.mjs                  # http://localhost:8888, with _redirects applied
 ```
 
 To run it on Cloudflare's own runtime instead, build first, then run
 `npx wrangler dev` in `website/`.
 
-## The landing page
+## The home page
+
+- **Logo.** The gem (`src/images/mark.svg`, the launcher's logo), drawn inline
+  in `index.html` so `styles.css` can animate it: the gem turns into place, the
+  L rises into it, then a glint crosses it every few seconds. The Core card
+  keeps Core's own mark (`src/images/core-mark.svg`, from the dashboard).
+- **Iron filings.** `main.js` draws a grid of short strokes on a canvas behind
+  the logo and turns each one along the field of a magnet at the logo; the
+  pointer is a second magnet. It stops drawing while the hero is off screen,
+  and with reduced motion it draws them once, already lined up.
+- **Cards.** The Core card's server list and the CLI card's commands are
+  illustrations, not live data. The CLI commands are real `lodestone_cli`
+  commands; their output is shortened.
+- **Social preview.** `src/images/og.jpg` is a 1200×630 capture of the hero.
+- **Download count and star count** work as on the launcher page (below).
+
+## The launcher page
 
 - **Download button.** `main.js` detects the visitor's OS and picks the
   matching file from the `launcher-latest` (stable) release through the GitHub
@@ -43,7 +62,7 @@ To run it on Cloudflare's own runtime instead, build first, then run
   in `stats.mjs`, raise it now and then), so the number never drops. Set
   `GITHUB_TOKEN` as a build variable in Cloudflare to avoid the API's
   unauthenticated limit.
-- **Screenshots.** `src/images/<view>.webp` (2240×1400) and `<view>-1120.webp`
+- **Screenshots.** `src/launcher/images/<view>.webp` (2240×1400) and `<view>-1120.webp`
   (half size), taken from the launcher at 150% zoom in a 1493×933 window. The
   tabs above the screenshot list the views.
 
