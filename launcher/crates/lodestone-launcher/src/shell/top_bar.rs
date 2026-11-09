@@ -1,11 +1,14 @@
 use crate::theme::px;
 use gpui::{
-    AnyElement, Context, IntoElement, MouseButton, WindowControlArea, div, img, prelude::*,
+    AnyElement, Context, IntoElement, MouseButton, Window, WindowControlArea, div, img, prelude::*,
 };
 
 use super::{LauncherShell, Page};
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, KeyboardFocus},
+    components::{
+        Button, ButtonSize, ButtonVariant, KeyboardFocus,
+        window_frame::{self, Side},
+    },
     i18n::{ShellMsg as M, t},
     theme::{self, colors, layout, radius, text},
     updater::UpdateState,
@@ -20,9 +23,21 @@ pub const TOP_BAR_HEIGHT: f32 = 42.0;
 /// On macOS it replaces the title bar: the window's traffic-light buttons sit in its
 /// left column and its empty areas move the window, as in the dashboard app. The
 /// right column holds the update notice.
-pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+///
+/// On Linux desktops that leave the window's frame to the app (GNOME), it is the title
+/// bar too: it holds the window's buttons where the desktop puts them (see
+/// [`window_frame`]), a double click maximizes, and a right click opens the window
+/// menu.
+pub fn render(
+    shell: &LauncherShell,
+    window: &Window,
+    cx: &mut Context<LauncherShell>,
+) -> impl IntoElement {
     // Equal side columns keep the logo centred in the window.
     let side = || div().flex_1().flex_basis(px(0.)).h_full();
+    let own_frame = window_frame::client_tiling(window).is_some();
+    let offered = window.window_controls();
+    let double_click_zooms = own_frame && offered.maximize && window.is_resizable();
 
     div()
         .id("top-bar")
@@ -36,6 +51,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .h(gpui::px(TOP_BAR_HEIGHT + 1.0))
         .px_4()
         .bg(colors::GRAY_800)
+        .map(|this| window_frame::fit_top_corners(this, window))
         .border_b_1()
         .border_color(colors::GRAY_FADED.opacity(30))
         // Move the window when the bar is dragged, as Zed's title bar does: a mouse
@@ -55,12 +71,27 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 window.start_window_move();
             }
         }))
-        .on_click(|event, window, _| {
+        .on_click(move |event, window, _| {
             if event.click_count() == 2 {
-                window.titlebar_double_click();
+                if double_click_zooms {
+                    window.zoom_window();
+                } else {
+                    window.titlebar_double_click();
+                }
             }
         })
-        .child(side())
+        .when(own_frame && offered.window_menu, |this| {
+            this.on_mouse_down(MouseButton::Right, |event, window, _| {
+                window.show_window_menu(event.position)
+            })
+        })
+        .child(
+            side()
+                .flex()
+                .flex_row()
+                .items_center()
+                .children(window_frame::controls(Side::Left, window, cx)),
+        )
         .child(
             div()
                 .id("logo")
@@ -83,7 +114,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .flex_row()
                 .items_center()
                 .justify_end()
-                .children(update_notice(shell, cx)),
+                .children(update_notice(shell, cx))
+                .children(window_frame::controls(Side::Right, window, cx)),
         )
 }
 

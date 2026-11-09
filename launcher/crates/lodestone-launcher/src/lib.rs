@@ -106,6 +106,11 @@ pub fn set_menus(cx: &mut App) {
 ///
 /// On macOS the title bar is transparent so the app's top bar can sit under the
 /// traffic-light buttons, as in the dashboard's Tauri app.
+///
+/// On Linux the compositor draws the window's frame where it offers to (KDE), and the
+/// launcher draws its own where it doesn't (GNOME; see
+/// `components::window_frame`). `LODESTONE_LAUNCHER_CLIENT_DECORATIONS=1` asks for the
+/// launcher's own frame everywhere, to see it on a desktop that would draw one.
 pub fn window_options(title: &str, width: f32, height: f32, cx: &App) -> WindowOptions {
     let title = SharedString::from(title.to_string());
     let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
@@ -115,8 +120,16 @@ pub fn window_options(title: &str, width: f32, height: f32, cx: &App) -> WindowO
         titlebar: Some(titlebar(title)),
         app_owns_titlebar_drag: cfg!(target_os = "macos"),
         app_id: Some("dev.lodestone.launcher".into()),
+        window_decorations: client_decorations_forced().then_some(gpui::WindowDecorations::Client),
         ..Default::default()
     }
+}
+
+/// `LODESTONE_LAUNCHER_CLIENT_DECORATIONS=1`, a developer switch: see [`window_options`].
+fn client_decorations_forced() -> bool {
+    cfg!(not(target_os = "macos"))
+        && std::env::var_os("LODESTONE_LAUNCHER_CLIENT_DECORATIONS")
+            .is_some_and(|value| value == "1")
 }
 
 #[cfg(target_os = "macos")]

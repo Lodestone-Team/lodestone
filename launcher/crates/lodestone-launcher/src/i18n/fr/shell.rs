@@ -483,6 +483,9 @@ pub fn text(message: M) -> &'static str {
         M::RestartToUpdate => "Redémarrer",
         M::UpdateReadyBadge => "Mise à jour prête",
         M::UpdateAvailableBadge => "Mise à jour disponible",
+        M::MinimizeWindow => "Réduire",
+        M::MaximizeWindow => "Agrandir",
+        M::RestoreWindow => "Restaurer",
 
         M::RestOnModrinth => "La suite de la description est sur Modrinth.",
         M::Storage => "Stockage",
