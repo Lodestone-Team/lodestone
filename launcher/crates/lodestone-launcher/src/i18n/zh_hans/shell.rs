@@ -107,6 +107,21 @@ pub fn text(message: M) -> &'static str {
                 "游戏无法创建窗口或初始化 OpenGL。请更新显卡驱动，或尝试不使用自定义窗口大小或全屏。"
             }
         }
+        M::CauseModPatch => {
+            "某个模组无法把它的修改载入游戏。它可能是为其他 Minecraft 版本制作的，或者需要另一个模组的更新版本。请更新或禁用该模组。"
+        }
+        M::ProbablyCausedBy => "很可能由此导致",
+        M::ModsInvolved => "涉及的模组",
+        M::ModsInvolvedHint => "其中任何一个都可能是原因。试着逐个禁用它们。",
+        M::EvidenceFailedToPatch => "它加载失败，可能是为其他 Minecraft 版本制作的。",
+        M::EvidenceCrashedInItsCode => "崩溃发生在这个模组内部。",
+        M::EvidencePatchedCrashingCode => "它修改了游戏中崩溃的部分。",
+        M::EvidenceInStack => "游戏崩溃时它正在运行。",
+        M::TurnOffMod => "禁用",
+        M::TurnOnMod => "启用",
+        M::ModTurnedOff => {
+            "已禁用。再玩一次，看看问题是否解决。你可以在这里或“内容”标签页中重新启用它。"
+        }
         M::CopyLog => "复制日志",
 
         M::UpdateTitle => "更新“{name}”？",

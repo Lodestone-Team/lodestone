@@ -10,7 +10,10 @@ use launcher_core::{
     accounts::Account,
     auth::{AuthError, MsaConfig},
     game::{
-        crash::{Cause, CrashSummary},
+        crash::{
+            Cause, CrashSummary,
+            suspects::{Evidence, Suspect},
+        },
         download::ProgressSnapshot,
         install::{InstallProgress, Stage as InstallStage},
         log4j::{Level, LogLine, Stream},
@@ -74,6 +77,9 @@ pub const SCENES: &[&str] = &[
     "logs",
     "instance-settings",
     "crash",
+    "crash-mods",
+    "mod-finder",
+    "mod-finder-found",
     "rosetta",
     "content-mods",
     "content-browse",
@@ -448,6 +454,9 @@ fn has_instances(scene: &str) -> bool {
             | "logs"
             | "instance-settings"
             | "crash"
+            | "crash-mods"
+            | "mod-finder"
+            | "mod-finder-found"
             | "rosetta"
     ) || scene.starts_with("content-")
         || scene.starts_with("modpack-")
@@ -735,7 +744,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                 });
                 instances.preview_preparing(&first.id, progress);
             }
-            "logs" | "crash" => instances.preview_log(&first.id, sample_log()),
+            "logs" | "crash" | "crash-mods" => instances.preview_log(&first.id, sample_log()),
             "playing" => instances.preview_play_state(crate::instances::PlayState::Playing),
             "launching" => instances.preview_play_state(crate::instances::PlayState::Preparing {
                 label: crate::i18n::t(crate::i18n::InstancesMsg::StageLaunching).into(),
@@ -911,18 +920,79 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         }
         "crash" => shell.show_crash(
             CrashInfo {
+                instance_id: "preview".into(),
                 instance_name: "Survival 1.20.1".into(),
                 summary: CrashSummary {
                     exception: Some("java.lang.OutOfMemoryError: Java heap space".into()),
                     description: Some("Initializing game".into()),
                     causes: vec![Cause::OutOfMemory],
                 },
+                suspects: Vec::new(),
                 exit_code: Some(-1),
                 report: Some("crash-reports/crash-2026-11-07_12.00.00-client.txt".into()),
                 log_text: String::new(),
+                at_startup: true,
+                mods_refused: false,
             },
             cx,
         ),
+        "crash-mods" => {
+            // A modded instance, so the dialog offers "Find it for me".
+            let (instance_id, instance_name) = shell
+                .instances()
+                .read(cx)
+                .list()
+                .iter()
+                .find(|i| i.loader != launcher_core::instances::Loader::None)
+                .map(|i| (i.id.clone(), i.name.clone()))
+                .unwrap_or_default();
+            shell.show_crash(
+            CrashInfo {
+                instance_id,
+                instance_name,
+                summary: CrashSummary {
+                    exception: Some(
+                        "java.lang.NullPointerException: Cannot invoke \"net.minecraft.class_1799.method_7909()\" because \"stack\" is null".into(),
+                    ),
+                    description: Some("Rendering screen".into()),
+                    causes: Vec::new(),
+                },
+                suspects: [
+                    ("zenith-1.2.3.jar", "Zenith", Evidence::PatchedCrashingCode),
+                    ("fancymenu-3.5.0.jar", "FancyMenu", Evidence::PatchedCrashingCode),
+                    ("sodium-0.6.0.jar", "Sodium", Evidence::InStack),
+                ]
+                .into_iter()
+                .map(|(file_name, name, evidence)| Suspect {
+                    file_name: file_name.into(),
+                    name: name.into(),
+                    evidence,
+                })
+                .collect(),
+                exit_code: Some(-1),
+                report: Some("crash-reports/crash-2026-11-07_12.00.00-client.txt".into()),
+                log_text: String::new(),
+                at_startup: false,
+                mods_refused: false,
+            },
+            cx,
+        );
+        }
+        "mod-finder" | "mod-finder-found" => {
+            let instances = shell.instances().clone();
+            let id = instances
+                .read(cx)
+                .list()
+                .iter()
+                .find(|i| i.loader != launcher_core::instances::Loader::None)
+                .map(|i| i.id.clone())
+                .unwrap_or_default();
+            let found = scene == "mod-finder-found";
+            let finder = cx.new(|cx| {
+                crate::instances::mod_finder::ModFinder::preview(instances, &id, found, cx)
+            });
+            shell.show_mod_finder(finder, cx);
+        }
         "rosetta" => shell.preview_launch_failed(
             crate::i18n::t(crate::i18n::InstancesMsg::RosettaNeeded),
             crate::instances::rosetta_missing(),

@@ -13,6 +13,8 @@ use std::{
 
 use super::log4j::{Level, LogLine};
 
+pub mod suspects;
+
 /// A likely cause of a crash, in plain language.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cause {
@@ -26,6 +28,8 @@ pub enum Cause {
     JvmOptions,
     /// OpenGL or the window could not be set up.
     Graphics,
+    /// A mod couldn't patch the game (a Mixin failure).
+    ModPatch,
 }
 
 impl Cause {
@@ -49,6 +53,9 @@ impl Cause {
                 } else {
                     "The game couldn't set up its window or OpenGL. Update your graphics drivers, or try without a custom window size or fullscreen."
                 }
+            }
+            Cause::ModPatch => {
+                "A mod couldn't load its changes into the game. It's probably made for a different Minecraft version, or it needs a newer version of another mod. Update the mod or turn it off."
             }
         }
     }
@@ -137,7 +144,7 @@ fn looks_like_exception(line: &str) -> bool {
 
 /// The causes whose signs appear in `text`.
 pub fn causes(text: &str) -> Vec<Cause> {
-    let checks: [(Cause, &[&str]); 5] = [
+    let checks: [(Cause, &[&str]); 6] = [
         (
             Cause::WrongJava,
             &[
@@ -186,12 +193,46 @@ pub fn causes(text: &str) -> Vec<Cause> {
                 "WGL: The driver does not appear to support OpenGL",
             ],
         ),
+        (
+            Cause::ModPatch,
+            &[
+                "Mixin apply for mod",
+                "Mixin apply failed",
+                "MixinApplyError",
+                "InvalidInjectionException",
+                "Critical injection failure",
+                "FAILED during APPLY",
+            ],
+        ),
     ];
     checks
         .into_iter()
         .filter(|(_, signs)| signs.iter().any(|sign| text.contains(sign)))
         .map(|(cause, _)| cause)
         .collect()
+}
+
+/// Whether a log line says the game has finished loading: the sound engine starts at
+/// the end of the first resource reload, just before the main menu, in every version
+/// and loader since 1.12.
+pub fn reached_menu(line: &str) -> bool {
+    line.contains("Sound engine started")
+}
+
+/// Whether the log says the mod loader refused the mods: one needs a mod that's
+/// missing or of the wrong version, or two can't be loaded together. Fabric and Quilt
+/// exit; Forge and NeoForge show an error screen and stay open.
+pub fn mods_refused(text: &str) -> bool {
+    const SIGNS: &[&str] = &[
+        "Incompatible mods found!",
+        "Incompatible mod set!",
+        "Mod resolution failed",
+        "Mod resolution encountered an incompatible mod set",
+        "Missing or unsupported mandatory dependencies",
+        "Mod loading failures have occurred",
+        "Failed to resolve mods",
+    ];
+    SIGNS.iter().any(|sign| text.contains(sign))
 }
 
 /// The names of the crash reports in `<game dir>/crash-reports` now.
@@ -318,6 +359,19 @@ mod tests {
             causes("GLFW error 65543: NSGL: Failed to find a suitable pixel format"),
             [Cause::Graphics]
         );
+    }
+
+    #[test]
+    fn recognises_loading_milestones() {
+        assert!(reached_menu("Sound engine started"));
+        assert!(!reached_menu("Starting up SoundSystem..."));
+        assert!(mods_refused(
+            "Incompatible mods found!\n - Mod 'Zenith' (zenith) requires mod 'Porting Lib'"
+        ));
+        assert!(mods_refused(
+            "Missing or unsupported mandatory dependencies:\n\tMod ID: 'flywheel'"
+        ));
+        assert!(!mods_refused("Loading 212 mods"));
     }
 
     #[test]

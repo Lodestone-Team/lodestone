@@ -100,6 +100,14 @@ impl Notices {
                     "exception": crash.summary.exception,
                     "description": crash.summary.description,
                     "causes": crash.summary.causes.iter().map(|c| c.explanation()).collect::<Vec<_>>(),
+                    "suspects": crash.suspects.iter().map(|s| json!({
+                        "file": s.file_name,
+                        "name": s.name,
+                        "evidence": format!("{:?}", s.evidence),
+                    })).collect::<Vec<_>>(),
+                    "likely": launcher_core::game::crash::suspects::likely(&crash.suspects),
+                    "at_startup": crash.at_startup,
+                    "mods_refused": crash.mods_refused,
                 }),
             ),
             InstancesEvent::LaunchFailed { title, message } => {
@@ -115,6 +123,27 @@ impl Notices {
             InstancesEvent::LoaderChanged(id) => self.push(
                 "loader_changed",
                 "Loader changed",
+                "",
+                Some(id.clone()),
+                Value::Null,
+            ),
+            InstancesEvent::Exited { id, stopped } => self.push(
+                "exited",
+                "Minecraft exited",
+                "",
+                Some(id.clone()),
+                json!({ "stopped": stopped }),
+            ),
+            InstancesEvent::ReachedMenu(id) => self.push(
+                "reached_menu",
+                "Minecraft finished loading",
+                "",
+                Some(id.clone()),
+                Value::Null,
+            ),
+            InstancesEvent::ModsRefused(id) => self.push(
+                "mods_refused",
+                "The mod loader refused the mods",
                 "",
                 Some(id.clone()),
                 Value::Null,

@@ -25,6 +25,7 @@ impl Modal {
             Modal::Snapshot { .. } => "snapshot",
             Modal::Share { .. } => "share",
             Modal::Crash { .. } => "crash",
+            Modal::ModFinder { .. } => "mod_finder",
             Modal::LaunchFailed { .. } => "launch_failed",
             Modal::DeleteInstance { .. } => "delete_instance",
             Modal::SignIn { .. } => "sign_in",
