@@ -390,6 +390,94 @@ pub fn text(message: M) -> &'static str {
         M::WorldImported => {
             "已作为世界“{folder}”导入到 {instance}。请从“单人游戏”中打开它；它是一个副本，因此更改不会同步回服务器。"
         }
+        M::FriendsTitle => "好友的服务器",
+        M::FriendsHint => "好友通过 Lodestone Connect 邀请链接与你共享的服务器。",
+        M::JoinAFriend => "加入好友",
+        M::NoFriendsYet => {
+            "好友在 Lodestone Host 中共享服务器后，会得到一个邀请链接。打开该链接，或点击“加入好友”将其粘贴到这里。"
+        }
+        M::SharedBy => "由 {name} 共享",
+        M::FriendCheck => "检查",
+        M::FriendChecking => "正在检查…",
+        M::FriendPlayingNow => "正在游戏中",
+        M::StopTrusting => "不再信任",
+        M::ConnectedVia => "已直接连接（{how}），延迟 {ms} 毫秒",
+        M::ViaSameComputer => "同一台电脑",
+        M::ViaLocalNetwork => "通过局域网",
+        M::ViaIpv6 => "通过 IPv6",
+        M::ViaInternet => "通过互联网",
+        M::JoinFriendTitle => "加入好友的服务器",
+        M::JoinFriendIntro => {
+            "粘贴好友发给你的邀请链接。它以 https://connect.lodestone.cc/j/ 开头。"
+        }
+        M::InvitePlaceholder => "邀请链接（https://connect.lodestone.cc/j/…）",
+        M::NotAnInvite => {
+            "这不是 Lodestone 邀请链接。邀请链接以 https://connect.lodestone.cc/j/ 开头。"
+        }
+        M::PasteInviteFirst => "请先粘贴邀请链接。",
+        M::ConnectingTo => "正在连接到 {name}…",
+        M::ConnectingToFriend => "正在连接到好友的服务器…",
+        M::StageFinding => "正在寻找你和好友网络之间的直接连接，这需要几秒钟。",
+        M::StageFindingSlow => "仍在寻找。某些网络最多需要一分钟。",
+        M::StageReading => "已连接。正在读取服务器信息…",
+        M::FactVersion => "版本",
+        M::FactMods => "模组",
+        M::FactStatus => "状态",
+        M::FactConnection => "连接",
+        M::FactInstance => "实例",
+        M::FriendHasMods => "此服务器使用模组。Lodestone Launcher 会为你安装相同的模组。",
+        M::FriendNoMods => "无需模组",
+        M::PlaysWithLinked => "{name}（为此服务器创建，其模组会与服务器保持一致）",
+        M::PlaysWithInstance => "你的实例 {name}（版本相同）",
+        M::MakesInstance => "点击“开始游戏”会创建一个版本相同的新实例。",
+        M::MakesInstanceWithMods => "点击“开始游戏”会创建一个与服务器版本和模组相同的新实例。",
+        M::FriendServerStopped => "服务器已停止",
+        M::FriendServerStoppedBody => "请好友启动服务器。服务器运行前，Minecraft 无法加入。",
+        M::FriendStarting => "正在准备游戏…",
+        M::FriendInstanceBusy => "该实例已在运行。请先退出游戏。",
+        M::FriendLinkEnded => "此邀请链接已失效",
+        M::FriendLinkEndedBody => {
+            "好友已停止共享该服务器，或者创建了新的链接。请向好友索取新链接。"
+        }
+        M::FriendNotSharing => "好友目前没有共享此服务器",
+        M::FriendNotSharingBody => {
+            "好友的电脑或 Lodestone Host 可能已关闭。请稍后再试，或请好友开始共享。"
+        }
+        M::FriendNoPath => "你和好友的网络无法直接连接",
+        M::FriendNoPathBody => {
+            "Lodestone Connect 会直接连接两台电脑，但这两个网络阻止了这种连接。请尝试换一个网络（例如手机热点），或请好友在路由器上设置端口转发。"
+        }
+        M::FriendWrongHost => "这不是好友的服务器",
+        M::FriendWrongHostBody => {
+            "响应的电脑并不是此链接所指向的电脑，因此 Lodestone Launcher 在发送任何内容之前就停止了。可能有人冒充好友的服务器。请向好友索取新链接，并且只使用直接从好友那里得到的链接。"
+        }
+        M::FriendOffline => "这台电脑似乎未联网",
+        M::FriendOfflineBody => "请检查网络连接，然后重试。",
+        M::FriendServiceUnreachable => "无法连接到 Lodestone Connect",
+        M::FriendServiceUnreachableBody => {
+            "connect.lodestone.cc 没有响应（{detail}）。请检查网络连接，然后重试。"
+        }
+        M::FriendJoinFailed => "无法加入",
+        M::FriendJoinFailedBody => "出现问题：{detail}",
+        M::FriendTunnelEnded => "与 {name} 的连接已断开",
+        M::FriendTunnelEndedBody => {
+            "好友已停止共享，或者其电脑已断网。Minecraft 会提示连接已丢失。等好友回来后再开始游戏。"
+        }
+        M::FriendLinkMissing => {
+            "Lodestone Launcher 无法读取此服务器的邀请链接。请再次打开好友发来的链接。"
+        }
+        M::FriendRemoved => {
+            "此实例是为好友的服务器（{link}）创建的，但该服务器已不在 Lodestone Launcher 中。请再次打开其邀请链接以加入。"
+        }
+        M::FriendsReadFailed => "无法读取好友的服务器",
+        M::FriendsSaveFailed => "无法保存好友的服务器",
+        M::EulaNotAccepted => "此服务器尚未接受 Minecraft EULA",
+        M::EulaNotAcceptedBody => {
+            "在有人接受 Mojang 的 Minecraft EULA（{url}）之前，服务器无法启动。请先阅读，只有在你同意时才接受。"
+        }
+        M::AcceptEula => "接受 Minecraft EULA",
+        M::EulaAccepted => "你已为此服务器接受 Minecraft EULA，现在可以启动了。",
+        M::EulaAcceptFailed => "无法接受 EULA：{error}",
         M::PackSaved => {
             "已保存到实例的资源包中，文件名为 {file}。在资源包列表中启用它，即可在其他服务器上使用。"
         }

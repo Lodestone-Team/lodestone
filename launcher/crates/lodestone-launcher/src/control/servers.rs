@@ -627,6 +627,10 @@ pub fn join_instance(call: Call, instance: Instance, options: JoinOptions, cx: &
                 None => {}
             }
             let servers = control.servers.read(cx);
+            // an instance made for a friend's server joins through the join dialog
+            if let Some(err) = super::friends::dialog_error(servers) {
+                return Some(Err(err));
+            }
             let busy = servers.instance_busy(&id).is_some();
             match notice_of(servers) {
                 Some(notice) if !busy && Some(&notice) != before.as_ref() => Some(Err(notice_error(&notice))),

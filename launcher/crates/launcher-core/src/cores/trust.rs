@@ -50,6 +50,12 @@ pub fn needs_advisory(core: &SavedCore, kind: PullKind) -> bool {
     kind.is_executable() && !core.is_trusted()
 }
 
+/// The same for a friend's server (Lodestone Connect): for code, unless the user
+/// trusts it under its current certificate.
+pub fn friend_needs_advisory(friend: &super::friends::FriendServer, kind: PullKind) -> bool {
+    kind.is_executable() && !friend.is_trusted()
+}
+
 /// A file the launcher is about to install, by its path in the game folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PulledFile {

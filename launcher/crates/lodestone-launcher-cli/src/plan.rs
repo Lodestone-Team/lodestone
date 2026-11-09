@@ -132,6 +132,14 @@ fn game_settings(s: &GameSettingsArgs) -> Vec<(&'static str, Value)> {
     ]
 }
 
+/// Whether a `friends join` argument is an invite link rather than a server's name.
+fn looks_like_link(text: &str) -> bool {
+    let text = text.trim().to_ascii_lowercase();
+    ["https://", "http://", "lodestone://", "lhp2://"]
+        .iter()
+        .any(|scheme| text.starts_with(scheme))
+}
+
 fn update_mods(update: bool, skip: bool) -> Value {
     match (update, skip) {
         (true, _) => json!(true),
@@ -754,6 +762,43 @@ pub fn plan(
                 call("servers.resource_pack", pairs)
             }
         },
+        Command::Friends(c) => match c {
+            Friends::List => call("friends.list", vec![]),
+            Friends::Join {
+                link_or_name,
+                no_play,
+                update_mods: update,
+                skip_update,
+                accept_advisory,
+            } => {
+                let target = if link_or_name == "-" {
+                    let line = read_stdin().map_err(|err| {
+                        usage(format!("Couldn't read the invite link from stdin: {err}"))
+                    })?;
+                    let link = line.trim().to_string();
+                    if link.is_empty() {
+                        return Err(usage("The invite link on stdin is empty."));
+                    }
+                    ("link", json!(link))
+                } else if looks_like_link(link_or_name) {
+                    ("link", json!(link_or_name.trim()))
+                } else {
+                    ("friend", json!(link_or_name))
+                };
+                let pairs = vec![
+                    target,
+                    ("play", json!(!no_play)),
+                    ("update_mods", update_mods(*update, *skip_update)),
+                    ("accept_advisory", json!(accept_advisory)),
+                ];
+                if *no_play {
+                    call("friends.join", pairs)
+                } else {
+                    long("friends.join", pairs)
+                }
+            }
+            Friends::Remove { friend } => call("friends.remove", vec![("friend", json!(friend))]),
+        },
         Command::Prompts(c) => match c {
             Prompts::List => call("prompts.list", vec![]),
             Prompts::Answer {
@@ -1065,6 +1110,31 @@ mod tests {
         assert_eq!(params["override"], json!(["guiScale"]));
         assert_eq!(params["set"], json!({ "guiScale": "2" }));
         assert!(plan_of(&["instances", "group", "S"]).is_err());
+    }
+
+    #[test]
+    fn friends_join_takes_a_link_a_name_or_stdin() {
+        let link = "https://connect.lodestone.cc/j/ABCDEFGH23#ab.01";
+        let (method, params, long) = call_of(&["friends", "join", link]);
+        assert_eq!(method, "friends.join");
+        assert!(long);
+        assert_eq!(params["link"], link);
+        assert_eq!(params["play"], true);
+        assert!(params.get("friend").is_none());
+        let (_, params, long) = call_of(&["friends", "join", "Alex's SMP", "--no-play"]);
+        assert!(!long);
+        assert_eq!(params["friend"], "Alex's SMP");
+        assert_eq!(params["play"], false);
+        // "-": the link from stdin, so it stays out of the shell's history
+        let cli = Cli::try_parse_from(["lodestone-launcher-cli", "friends", "join", "-"]).unwrap();
+        let mut stdin = || Ok(format!("{link}\n"));
+        match plan(&cli.command, &mut stdin).unwrap() {
+            Plan::Call { params, .. } => assert_eq!(params["link"], link),
+            other => panic!("not a call: {other:?}"),
+        }
+        let (method, params, _) = call_of(&["friends", "remove", "Alex's SMP"]);
+        assert_eq!(method, "friends.remove");
+        assert_eq!(params["friend"], "Alex's SMP");
     }
 
     #[test]

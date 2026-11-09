@@ -17,9 +17,15 @@ use launcher_core::{
     game::download::{Progress, ProgressSnapshot},
 };
 
+use launcher_core::cores::{
+    connect::{ConnectionKind, Invite, JoinError, SharedServer},
+    friends::FriendServer,
+};
+
 use crate::{
     servers::{
         Busy, CoreStatus, Servers,
+        friends::{FriendStatus, PreviewJoin},
         tools::{PackState, ToolBusy},
     },
     shell::{LauncherShell, Page},
@@ -47,6 +53,13 @@ pub const SCENES: &[&str] = &[
     "servers-trust",
     "servers-advisory",
     "servers-local",
+    "servers-friends",
+    "servers-join-paste",
+    "servers-join-connecting",
+    "servers-join-ready",
+    "servers-join-ready-mods",
+    "servers-join-failed",
+    "servers-join-no-path",
 ];
 
 /// Made-up fingerprints.
@@ -416,12 +429,99 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 cx,
             );
         }
+        scene if scene == "servers-friends" || scene.starts_with("servers-join") => {
+            servers.preview(vec![home(true)], Vec::new());
+            servers.preview_friends(made_up_friends());
+            apply_join(scene, servers, cx);
+        }
         _ => servers.preview(Vec::new(), Vec::new()),
     }
 }
 
 /// The instance page of an instance made for a server: the link under its name, and
 /// "Play and join".
+/// A server a friend shares, as the host describes it.
+fn shared(name: &str, loader: &str, version: Option<&str>, modpack: bool) -> SharedServer {
+    SharedServer {
+        core_name: "Alex's Lodestone".into(),
+        core_uuid: "alex".into(),
+        instance_uuid: name.to_lowercase().replace(' ', "-"),
+        name: name.into(),
+        game_version: "1.21.4".into(),
+        loader: loader.into(),
+        loader_version: version.map(str::to_string),
+        modpack,
+        state: Some("Running".into()),
+        player_count: Some(3),
+        max_player_count: Some(20),
+    }
+}
+
+/// Made-up friends' servers: one checked and online, one offline, one not asked yet.
+fn made_up_friends() -> Vec<(FriendServer, FriendStatus)> {
+    let entry = |code: &str, server: &SharedServer, trusted: bool| {
+        let invite = Invite::parse(&format!(
+            "https://connect.lodestone.cc/j/{code}#{}.{}",
+            "ab".repeat(32),
+            "01".repeat(16)
+        ))
+        .expect("a made-up invite");
+        let mut saved = FriendServer::new(&invite, server, 1_700_000_000);
+        saved.set_trusted(trusted);
+        saved
+    };
+    let smp = shared("Alex's SMP", "fabric", Some("0.16.14"), true);
+    let creative = shared("Creative build", "vanilla", None, false);
+    let mut sky = shared("Sam's Skyblock", "paper", Some("196"), false);
+    sky.core_name = "Sam's PC".into();
+    vec![
+        (
+            entry("ABCDEFGH23", &smp, true),
+            FriendStatus::Online {
+                server: Box::new(smp.clone()),
+                kind: ConnectionKind::Internet,
+                rtt: std::time::Duration::from_millis(34),
+            },
+        ),
+        (entry("JKMNPQRS45", &creative, false), FriendStatus::Unknown),
+        (
+            entry("TVWXYZ0167", &sky, false),
+            FriendStatus::Offline(JoinError::HostOffline),
+        ),
+    ]
+}
+
+fn apply_join(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) {
+    let stage = match scene {
+        "servers-join-paste" => PreviewJoin::Paste {
+            text: "https://connect.lodestone.cc/j/ABCDEF".into(),
+            error: true,
+        },
+        "servers-join-connecting" => PreviewJoin::Connecting {
+            name: Some("Alex's SMP".into()),
+            reading: false,
+        },
+        "servers-join-ready" => PreviewJoin::Ready {
+            server: shared("Creative build", "vanilla", None, false),
+            kind: ConnectionKind::LocalNetwork,
+        },
+        "servers-join-ready-mods" => PreviewJoin::Ready {
+            server: shared("Alex's SMP", "fabric", Some("0.16.14"), true),
+            kind: ConnectionKind::Internet,
+        },
+        "servers-join-failed" => PreviewJoin::Failed {
+            error: JoinError::WrongHost,
+            name: None,
+        },
+        "servers-join-no-path" => PreviewJoin::Failed {
+            error: JoinError::NoPath,
+            name: Some("Alex's SMP".into()),
+        },
+        _ => return,
+    };
+    servers.preview_join(stage, cx);
+}
+
 pub fn apply_linked_instance(shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
     let Some(id) = shell.instances().read(cx).selected().map(|i| i.id.clone()) else {
         return;
