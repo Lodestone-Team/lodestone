@@ -250,7 +250,11 @@ pub fn fill(instance_dir: &Path, scene: &str) {
     );
     if matches!(
         scene,
-        "content-mods" | "content-shaders" | "content-browse" | "content-project"
+        "content-mods"
+            | "content-shaders"
+            | "content-browse"
+            | "content-project"
+            | "content-formatted-shaders"
     ) {
         fabric_mod(
             &mods.join("iris-1.7.6+mc1.20.1.jar"),
@@ -366,6 +370,9 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         dirs.game.join("config/iris.properties"),
         "#This file stores configuration options for Iris\nenableShaders=true\nshaderPack=ComplementaryReimagined_r5.3.zip\n",
     );
+    if scene.starts_with("content-formatted") {
+        formatted(&packs, &shaders, &dirs.game);
+    }
     let _ = provenance.save(&dirs.instance);
     if scene == "loader-change" {
         for world in ["New World", "Creative build"] {
@@ -374,6 +381,55 @@ pub fn fill(instance_dir: &Path, scene: &str) {
             let _ = fs::write(dir.join("level.dat"), b"not a real level");
         }
     }
+}
+
+/// Packs whose names and descriptions use Minecraft's formatting: `§` codes in file
+/// names, a JSON text component, and the dark colours the launcher lightens.
+fn formatted(packs: &Path, shaders: &Path, game: &Path) {
+    let description = json!([
+        {"text": "A ", "color": "gray"},
+        {"text": "golden", "color": "gold", "bold": true},
+        {"text": " look, ", "color": "gray"},
+        {"text": "secret", "obfuscated": true},
+        " and ",
+        {"text": "pink", "color": "#FF77AA", "italic": true},
+        {"text": " · ", "color": "dark_gray"},
+        {"text": "struck", "strikethrough": true},
+        " ",
+        {"text": "underlined", "underlined": true, "color": "aqua"}
+    ]);
+    write_zip(
+        &packs.join("§6§lGold§fCraft §7[§a1.20§7].zip"),
+        &[
+            (
+                "pack.mcmeta",
+                json!({"pack": {"pack_format": 15, "description": description}})
+                    .to_string()
+                    .into_bytes(),
+            ),
+            ("pack.png", png([200, 160, 40])),
+        ],
+    );
+    resource_pack(
+        &packs.join("§0Dark §1Blue §8Grey.zip"),
+        "§0black §1dark blue §8dark grey §4dark red§r, lightened to read",
+        json!({"pack_format": 15}),
+        [40, 40, 90],
+    );
+    // Enabled, so they are at the top of the list.
+    let _ = fs::write(
+        game.join("options.txt"),
+        "version:3465\nresourcePacks:[\"vanilla\",\"file/FreshAnimations_v1.9.zip\",\"file/§0Dark §1Blue §8Grey.zip\",\"file/§6§lGold§fCraft §7[§a1.20§7].zip\"]\nlang:en_us\n",
+    );
+    let astra = "§r§lAstra§4§lLex§r§l_By_LexBoosT_§4§lV93.0§r§l.zip";
+    write_zip(
+        &shaders.join(astra),
+        &[("shaders/final.fsh", b"x".to_vec())],
+    );
+    let _ = fs::write(
+        game.join("config/iris.properties"),
+        format!("enableShaders=true\nshaderPack={astra}\n"),
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -461,14 +517,14 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             icons(),
             cx,
         ),
-        "content-resourcepacks" => {
+        "content-resourcepacks" | "content-formatted" => {
             view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx)
         }
         "content-menu" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
             view.menu_open = true;
         }
-        "content-shaders" => {
+        "content-shaders" | "content-formatted-shaders" => {
             view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
         }
         "content-shaders-missing" => view.preview_state(

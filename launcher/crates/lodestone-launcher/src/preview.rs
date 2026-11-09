@@ -79,6 +79,8 @@ pub const SCENES: &[&str] = &[
     "content-shaders",
     "content-shaders-missing",
     "content-shaders-vanilla",
+    "content-formatted",
+    "content-formatted-shaders",
     "content-description",
     "loader-change",
     "new-instance-modpack",

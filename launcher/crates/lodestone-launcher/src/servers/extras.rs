@@ -3,6 +3,7 @@
 //! and LAN worlds ([`super::lan`]). Their state is one field of [`Servers`], and their
 //! dialogs are drawn by the Servers overlay (`ServersOverlay` in [`super::view`]).
 
+use crate::components::RichText;
 use gpui::{App, Entity, IntoElement, SharedString, Subscription, div, prelude::*};
 
 use super::{
@@ -43,14 +44,17 @@ pub(super) fn label(value: impl Into<SharedString>) -> gpui::Div {
         .child(value.into())
 }
 
+/// A small line of text, which can be selected and copied.
+#[track_caller]
 pub(super) fn note(value: impl Into<SharedString>) -> gpui::Div {
     div()
         .text_size(theme::text_size(text::SMALL))
         .line_height(theme::line_height(text::SMALL, leading::NORMAL))
         .text_color(crate::theme::ink::muted())
-        .child(value.into())
+        .child(RichText::new(value))
 }
 
+#[track_caller]
 pub(super) fn error_line(value: impl Into<SharedString>) -> gpui::Div {
     note(value)
         .font_weight(weights::BOLD.into())

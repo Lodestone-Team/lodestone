@@ -14,7 +14,7 @@ use launcher_core::content::{
 
 use super::Instances;
 use crate::{
-    components::{Button, ButtonVariant, Dialog, Icon, LoadingDots},
+    components::{Button, ButtonVariant, Dialog, Icon, LoadingDots, RichText},
     i18n::{
         CommonMsg, ContentMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, format, t,
         tr, trn,
@@ -178,7 +178,7 @@ impl Render for ShareDialog {
                 .into_any_element(),
             State::Failed(error) => div()
                 .text_color(colors::RED_200)
-                .child(error.clone())
+                .child(RichText::new(error.clone()))
                 .into_any_element(),
             State::Ready { plan, code } => {
                 let counts = div()
@@ -247,7 +247,7 @@ impl Render for ShareDialog {
                                         .min_w_0()
                                         .truncate()
                                         .text_color(colors::GRAY_300)
-                                        .child(item.file_name.clone()),
+                                        .child(RichText::minecraft(item.file_name.clone())),
                                 )
                                 .child(div().flex_none().text_color(colors::GRAY_500).child(reason))
                         }))

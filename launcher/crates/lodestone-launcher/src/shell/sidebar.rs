@@ -1,3 +1,4 @@
+use crate::components::RichText;
 use crate::theme::px;
 use gpui::{
     AnyElement, Context, ExternalPaths, IntoElement, ObjectFit, SharedString, Transformation, div,
@@ -892,6 +893,9 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 .font_weight(weights::MEDIUM.into())
                 .text_color(crate::skin::sidebar_inks().faint)
                 .truncate()
-                .child(tr!(M::AppVersion, version = env!("CARGO_PKG_VERSION"))),
+                .child(RichText::new(tr!(
+                    M::AppVersion,
+                    version = env!("CARGO_PKG_VERSION")
+                ))),
         )
 }

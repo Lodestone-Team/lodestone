@@ -6,6 +6,7 @@
 //! allowed, nothing arrives, so after a few quiet seconds the section says where to
 //! allow it.
 
+use crate::components::RichText;
 use crate::skin::Skinned;
 use crate::theme::px;
 use launcher_core::ui_skin::SurfaceId;
@@ -242,7 +243,7 @@ impl Servers {
                                         .truncate()
                                         .font_weight(weights::BOLD.into())
                                         .text_color(crate::theme::ink::text())
-                                        .child(world_title(world)),
+                                        .child(RichText::minecraft(world_title(world))),
                                 )
                                 .child(note(world.address()).font_family(fonts::mono())),
                         )
@@ -353,7 +354,10 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
     let world = picker.world.clone();
     Dialog::new(
         "lan-join",
-        tr!(M::JoinWorld, world = world_title(&world)),
+        tr!(
+            M::JoinWorld,
+            world = launcher_core::mc_text::strip(&world_title(&world))
+        ),
         picker.focus.clone(),
     )
     .on_close(move |_, cx| {

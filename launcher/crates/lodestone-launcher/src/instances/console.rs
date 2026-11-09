@@ -14,7 +14,7 @@ use gpui::{
 use launcher_core::game::log4j::{Level, Stream};
 
 use super::{Instances, LogRow};
-use crate::components::KeyboardFocus;
+use crate::components::{KeyboardFocus, RichText};
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, TextInput},
     i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, trn},
@@ -211,7 +211,7 @@ fn row_element(index: usize, row: &LogRow) -> gpui::Stateful<gpui::Div> {
                     }
                     _ => color,
                 })
-                .child(row.text.clone()),
+                .child(RichText::new(row.text.clone())),
         )
 }
 

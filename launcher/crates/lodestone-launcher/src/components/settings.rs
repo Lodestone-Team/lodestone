@@ -92,6 +92,8 @@ pub struct SettingRow {
     below: Option<AnyElement>,
     leading: Option<AnyElement>,
     indent: bool,
+    /// The name can be selected, for a name worth copying such as an account's.
+    selectable_label: bool,
 }
 
 impl SettingRow {
@@ -105,7 +107,14 @@ impl SettingRow {
             below: None,
             leading: None,
             indent: false,
+            selectable_label: false,
         }
+    }
+
+    /// Lets the name be selected and copied. Not for names that label a control.
+    pub fn selectable_label(mut self) -> Self {
+        self.selectable_label = true;
+        self
     }
 
     pub fn hint(mut self, hint: impl Into<SharedString>) -> Self {
@@ -191,7 +200,10 @@ impl RenderOnce for SettingRow {
                                 div()
                                     .font_weight(weights::BOLD.into())
                                     .text_color(self.label_color)
-                                    .child(self.label),
+                                    .child(
+                                        super::RichText::new(self.label)
+                                            .selectable(self.selectable_label),
+                                    ),
                             )
                             .when_some(self.hint, |this, hint| {
                                 this.child(
@@ -202,7 +214,7 @@ impl RenderOnce for SettingRow {
                                             leading::NORMAL,
                                         ))
                                         .text_color(crate::theme::ink::muted())
-                                        .child(hint),
+                                        .child(super::RichText::new(hint)),
                                 )
                             }),
                     )
@@ -225,14 +237,15 @@ impl RenderOnce for SettingRow {
                         .line_height(theme::line_height(text::SMALL, leading::NORMAL))
                         .font_weight(weights::BOLD.into())
                         .text_color(color)
-                        .child(note),
+                        .child(super::RichText::new(note)),
                 )
             })
             .children(self.below)
     }
 }
 
-/// A value shown in a row. Inherited values are dimmer.
+/// A value shown in a row, which can be copied. Inherited values are dimmer.
+#[track_caller]
 pub fn value(text_: impl Into<SharedString>, inherited: bool) -> Div {
     div()
         .max_w(px(280.))
@@ -242,7 +255,7 @@ pub fn value(text_: impl Into<SharedString>, inherited: bool) -> Div {
         } else {
             colors::GRAY_300
         })
-        .child(text_.into())
+        .child(super::RichText::new(text_))
 }
 
 /// A small outlined label, such as "Default" or "Recommended".
@@ -556,7 +569,8 @@ impl Toast {
                             .and_then(|p| p.text)
                             .unwrap_or_else(crate::theme::ink::text),
                     )
-                    .child(message),
+                    // Messages name packs and worlds, which may have `§` codes.
+                    .child(super::RichText::minecraft(message)),
             )
             .when_some(action, |pill, (label, action)| {
                 pill.child(

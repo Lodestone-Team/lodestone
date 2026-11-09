@@ -364,6 +364,110 @@ mod screenshot {
                         .await;
                 }
             }
+            // `--drag X,Y>X,Y` (repeatable with `;`): a left-button drag between window
+            // points, as selecting text does. `--right-click X,Y` opens a context menu.
+            let point = |at: &str| {
+                let (x, y) = at.split_once(',')?;
+                Some(gpui::point(
+                    gpui::px(x.trim().parse::<f32>().ok()?),
+                    gpui::px(y.trim().parse::<f32>().ok()?),
+                ))
+            };
+            if let Some(drags) = arg_after("--drag") {
+                for drag in drags.split(';') {
+                    let Some((from, to)) = drag
+                        .split_once('>')
+                        .and_then(|(a, b)| Some((point(a)?, point(b)?)))
+                    else {
+                        continue;
+                    };
+                    window
+                        .update(cx, |_, window, cx| {
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                    position: from,
+                                    ..Default::default()
+                                }),
+                                cx,
+                            );
+                            window.draw(cx).clear(cx);
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                    button: gpui::MouseButton::Left,
+                                    position: from,
+                                    modifiers: Default::default(),
+                                    click_count: 1,
+                                    first_mouse: false,
+                                }),
+                                cx,
+                            );
+                            window.draw(cx).clear(cx);
+                            for step in 1..=8 {
+                                let position = from + (to - from) * (step as f32 / 8.0);
+                                window.dispatch_event(
+                                    gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                        position,
+                                        pressed_button: Some(gpui::MouseButton::Left),
+                                        modifiers: Default::default(),
+                                    }),
+                                    cx,
+                                );
+                                window.draw(cx).clear(cx);
+                            }
+                            window.dispatch_event(
+                                gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                    button: gpui::MouseButton::Left,
+                                    position: to,
+                                    modifiers: Default::default(),
+                                    click_count: 1,
+                                }),
+                                cx,
+                            );
+                            window.draw(cx).clear(cx);
+                        })
+                        .ok();
+                    cx.background_executor()
+                        .timer(Duration::from_millis(300))
+                        .await;
+                }
+            }
+            if let Some(position) = arg_after("--right-click").as_deref().and_then(point) {
+                window
+                    .update(cx, |_, window, cx| {
+                        window.dispatch_event(
+                            gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                position,
+                                ..Default::default()
+                            }),
+                            cx,
+                        );
+                        window.draw(cx).clear(cx);
+                        window.dispatch_event(
+                            gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                button: gpui::MouseButton::Right,
+                                position,
+                                modifiers: Default::default(),
+                                click_count: 1,
+                                first_mouse: false,
+                            }),
+                            cx,
+                        );
+                        window.dispatch_event(
+                            gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+                                button: gpui::MouseButton::Right,
+                                position,
+                                modifiers: Default::default(),
+                                click_count: 1,
+                            }),
+                            cx,
+                        );
+                        window.draw(cx).clear(cx);
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(300))
+                    .await;
+            }
             if let Some(steps) = arg_after("--bench-scroll").and_then(|n| n.parse().ok()) {
                 bench_scroll(window, steps, cx);
             }

@@ -2,6 +2,7 @@
 //! pages listed on the left and the open page on the right. Other dialogs, such as
 //! signing in, open over it.
 
+use crate::components::RichText;
 use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
@@ -463,7 +464,10 @@ impl LauncherShell {
                 .px_2p5()
                 .text_size(theme::text_size(text::CAPTION))
                 .text_color(colors::GRAY_FADED.opacity(30))
-                .child(tr!(M::AppVersion, version = env!("CARGO_PKG_VERSION"))),
+                .child(RichText::new(tr!(
+                    M::AppVersion,
+                    version = env!("CARGO_PKG_VERSION")
+                ))),
         )
     }
 
@@ -736,6 +740,7 @@ impl LauncherShell {
             let (switch_id, remove_id) = (account.id.clone(), account.id.clone());
             rows.push(
                 SettingRow::new(account.username.clone())
+                    .selectable_label()
                     .leading(account_box::avatar(accounts, Some(account), px(28.)))
                     .hint(kind)
                     .when(account.uses_launcher_identity(), |row| {

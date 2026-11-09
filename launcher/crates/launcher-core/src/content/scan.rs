@@ -147,11 +147,12 @@ pub fn scan(dirs: &InstanceDirs, kind: ContentKind) -> Result<Vec<ScannedFile>, 
         });
     }
     read_metas(&dir, &mut found);
-    found.sort_by(|a, b| {
-        a.file_name
-            .to_lowercase()
-            .cmp(&b.file_name.to_lowercase())
-            .then_with(|| a.file_name.cmp(&b.file_name))
+    // By name as shown, so a pack named "§6Gold" sorts under G.
+    found.sort_by_cached_key(|file| {
+        (
+            crate::mc_text::strip(&file.file_name).to_lowercase(),
+            file.file_name.clone(),
+        )
     });
     Ok(found)
 }
@@ -599,7 +600,14 @@ pub(crate) mod tests {
             names,
             ["Faithful.zip", "Folder pack", "Nested.zip", "Nothing.zip"]
         );
-        assert_eq!(files[0].meta.description.as_deref(), Some("Faithful 32x"));
+        assert_eq!(
+            files[0]
+                .meta
+                .description
+                .as_deref()
+                .map(crate::mc_text::strip),
+            Some("Faithful 32x".to_string())
+        );
         assert_eq!(files[0].meta.formats.unwrap().min.major, 15);
         assert!(files[0].meta.icon.is_some());
         assert_eq!(files[0].display_name(), "Faithful");
