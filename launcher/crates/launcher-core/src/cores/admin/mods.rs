@@ -328,18 +328,7 @@ impl AdminClient {
         game_version: Option<&str>,
         loader: Option<&str>,
     ) -> Result<Vec<ModrinthVersion>, CoreError> {
-        let mut query = url::form_urlencoded::Serializer::new(String::new());
-        if let Some(version) = game_version.filter(|v| !v.is_empty()) {
-            query.append_pair("game_version", version);
-        }
-        if let Some(loader) = loader.filter(|l| !l.is_empty()) {
-            query.append_pair("loader", loader);
-        }
-        let query = query.finish();
-        let mut path = format!("modrinth/project/{}/versions", segment(id));
-        if !query.is_empty() {
-            path = format!("{path}?{query}");
-        }
+        let path = versions_path(id, game_version, loader);
         let bytes = self
             .send_slow(
                 Method::GET,
@@ -360,11 +349,32 @@ impl AdminClient {
     /// `GET /modrinth/resolve?url=`: the project (and version) a modrinth.com link
     /// points to.
     pub async fn modrinth_resolve(&self, link: &str) -> Result<ModrinthUrlTarget, CoreError> {
-        let query: String = url::form_urlencoded::Serializer::new(String::new())
-            .append_pair("url", link.trim())
-            .finish();
-        self.get(&format!("modrinth/resolve?{query}")).await
+        let path = query_path("modrinth/resolve", &[("url", Some(link.trim()))]);
+        self.get(&path).await
     }
+}
+
+/// `path?name=value&…` for the pairs that have a non-empty value.
+fn query_path(path: &str, pairs: &[(&str, Option<&str>)]) -> String {
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    for (name, value) in pairs {
+        if let Some(value) = value.filter(|v| !v.is_empty()) {
+            query.append_pair(name, value);
+        }
+    }
+    let query = query.finish();
+    if query.is_empty() {
+        path.to_string()
+    } else {
+        format!("{path}?{query}")
+    }
+}
+
+fn versions_path(id: &str, game_version: Option<&str>, loader: Option<&str>) -> String {
+    query_path(
+        &format!("modrinth/project/{}/versions", segment(id)),
+        &[("game_version", game_version), ("loader", loader)],
+    )
 }
 
 /// Modrinth answers through the core; the dashboard waits 30 s.
