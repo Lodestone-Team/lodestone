@@ -120,7 +120,12 @@ labels and values are the same.
   performance monitor (`activate_window`). A native file picker opens in front too.
 - **`focus` on Windows** can bring the window forward (UI Automation's `SetFocus`).
   `press` and `select` don't.
-- **A minimized window can't be captured** on either platform.
+- **A minimized window can't be captured** on either platform, and on Windows its tree
+  holds only the title bar. `publish_release.py --open` can start the test copy
+  minimized; restore it with the window's `WindowPattern`
+  (`SetWindowVisualState(Normal)`) first.
+- **A release test copy** (`publish_release.py --open`) has the build in its file name,
+  so `--app launcher` doesn't match it; pass the `--pid` that `--open` printed.
 - **The New instance version list** isn't reachable yet; make the instance with the
   command line (`lodestone-launcher-cli instances create`) instead.
 - **Debug builds panic on a duplicate automation id** once a client walks the tree

@@ -101,6 +101,12 @@ checklist it prints:
   running Host first, and Settings › Apps lists "Lodestone Host" with the build.
 - On a Mac, the disk image's window shows the app, an arrow and Applications.
 
+Test it in the background the launcher's way ("Testing on this machine" in its
+skill): `launcher/scripts/ui_drive.ps1` or `ui_drive.swift` with `--pid` set to the
+process id `--open` printed (`--app host` won't match the test copy's file name),
+and `screenshot` for what the tree doesn't hold. Use computer-use tools only as a
+last resort, after asking; on Windows they take the developer's pointer and keyboard.
+
 To test without the developer's data, set both folders to temporary ones:
 
 ```bash

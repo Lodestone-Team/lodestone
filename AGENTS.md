@@ -55,8 +55,9 @@ Make one only when a developer asks for it.
 - **"Build and release the latest version"**: add this machine's build to the open
   draft. `--find-draft` shows it (version, commit, platforms it has and lacks).
   Build its commit in a worktree with `--dry-run --tag draft --open`, test the
-  opened copy (with computer-use tools if the session has them, otherwise hand it
-  to the developer and wait for their go-ahead), then upload with `--tag draft`.
+  opened copy in the background with `launcher/scripts/ui_drive` (see "Testing the
+  launcher's and Host's UI"; otherwise hand it to the developer and wait for their
+  go-ahead), then upload with `--tag draft`.
 - **A pinned commit that no longer builds is fixed on a release branch** made from
   it (`release/launcher-vX.Y.Z`), with build and release fixes only. The version
   is tagged on the fixed commit, and the branch then goes to `main` in a PR,
@@ -141,8 +142,10 @@ plan: how the Host works, the feature checklist and the work packages. In short:
 ## Testing the launcher's and Host's UI
 
 Drive the app in the background, so the developer can keep using their machine; use
-computer-use tools only when these can't do it. `launcher/docs/ui-automation.md` has the
-details.
+computer-use tools only when these can't do it, and ask first: on Windows they take the
+developer's pointer and keyboard and minimize their windows while they run.
+`launcher/docs/ui-automation.md` has the details. This holds for testing release builds
+too.
 
 - **Press, fill in and read controls** with `launcher/scripts/ui_drive.swift` (macOS,
   accessibility API) or `launcher/scripts/ui_drive.ps1` (Windows, UI Automation). They
