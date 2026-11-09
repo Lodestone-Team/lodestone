@@ -987,6 +987,13 @@ impl Instances {
             .any(|run| !matches!(run.state, RunState::Idle))
     }
 
+    /// The game has started but its window hasn't opened yet.
+    pub fn is_launching(&self, id: &str) -> bool {
+        self.runs
+            .get(id)
+            .is_some_and(|run| matches!(run.state, RunState::Running { .. }) && !run.window_opened)
+    }
+
     pub fn is_running(&self, id: &str) -> bool {
         self.runs
             .get(id)
@@ -1322,6 +1329,14 @@ impl Instances {
         };
         match self.runs.get(&instance.id).map(|run| &run.state) {
             None | Some(RunState::Idle) => PlayState::Ready,
+            // Java has started, but until the game's window opens there's nothing to see.
+            Some(RunState::Running { .. }) if !self.runs[&instance.id].window_opened => {
+                PlayState::Preparing {
+                    label: t(M::StageLaunching).into(),
+                    detail: None,
+                    fraction: None,
+                }
+            }
             Some(RunState::Running { .. }) => PlayState::Playing,
             Some(RunState::Preparing { progress, .. }) => {
                 let (stage, snapshot) = progress.snapshot();
@@ -1708,6 +1723,7 @@ impl Instances {
                     {
                         run.window_opened = true;
                         cx.emit(InstancesEvent::GameWindowOpened(id.clone()));
+                        cx.notify();
                     }
                 })
                 .ok();

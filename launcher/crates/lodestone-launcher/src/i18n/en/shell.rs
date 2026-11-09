@@ -35,6 +35,8 @@ crate::i18n::messages! {
         Play = "Play",
         /// Shown in capitals on the Play button while the game runs.
         Playing = "Playing",
+        /// A game that has started but whose window hasn't opened yet.
+        Launching = "Launching",
         TabContent = "Content",
         TabWorlds = "Worlds",
         /// The instance's Settings tab, the sidebar's Settings and the dialog.
