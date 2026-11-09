@@ -62,8 +62,6 @@ pub fn text(message: M) -> &'static str {
         M::LinkedToRemoved => {
             "Liée à {server} sur {core} (ce core a été retiré de la page Serveurs)"
         }
-        M::PickerInstance => "Instance",
-        M::PickerVersion => "Version",
         M::NoInstances => "Aucune instance",
         M::AndJoin => "et rejoindre {server}",
         M::PlayWithoutJoining => "Jouer sans rejoindre",

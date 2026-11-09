@@ -85,9 +85,6 @@ crate::i18n::messages! {
         /// Under the instance's name: {server} is a server, {core} a Lodestone Core.
         LinkedTo = "Linked to {server} on {core}",
         LinkedToRemoved = "Linked to {server} on {core} (that core was removed from the Servers page)",
-        /// The bottom bar's pickers (shown in capitals).
-        PickerInstance = "Instance",
-        PickerVersion = "Version",
         NoInstances = "No instances",
         /// Under PLAY, for an instance made for a server.
         AndJoin = "and join {server}",
