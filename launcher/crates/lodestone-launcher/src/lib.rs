@@ -232,6 +232,15 @@ mod screenshot {
             cx.background_executor()
                 .timer(Duration::from_millis(1500))
                 .await;
+            // A skin's images take longer in a debug build.
+            for _ in 0..40 {
+                if !cx.update(|cx| crate::skin::decoding(cx)) {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+            }
             // Keys the scene presses, to show keyboard focus.
             let keys = crate::preview::requested_scene()
                 .map(|scene| crate::preview::keystrokes(&scene))

@@ -34,6 +34,7 @@ pub const SCENES: &[&str] = &[
     "skin-glass",
     "skin-neon",
     "skin-overrides",
+    "skin-bright",
     "sidebar-resized",
     "sidebar-rail",
     "sidebar-rail-skin",
@@ -726,6 +727,20 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 _ => crate::shell::SettingsPage::Defaults,
             };
             shell.open_settings(Some(page), None, cx);
+        }
+        "skin-bright" => {
+            // a pack with a bright sky behind the sidebar and no tint: the text has
+            // to look after itself
+            let instances = shell.instances().clone();
+            let store = instances.read(cx).skins();
+            let mut spec = launcher_core::ui_skin::SkinSpec::named("Bright");
+            spec.sidebar.image = Some("builtin:sky".into());
+            spec.banner.in_sidebar = true;
+            if store.save("bright", &spec).is_ok() {
+                instances.update(cx, |instances, cx| {
+                    instances.set_skin(Some("bright".into()), cx)
+                });
+            }
         }
         "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" => {
             let instances = shell.instances().clone();
