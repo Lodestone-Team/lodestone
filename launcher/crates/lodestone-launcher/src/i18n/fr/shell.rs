@@ -11,6 +11,13 @@ pub fn text(message: M) -> &'static str {
         M::ZoomIn => "Zoom avant",
         M::ZoomOut => "Zoom arrière",
         M::ActualSize => "Taille réelle",
+        M::EditMenu => "Édition",
+        M::Undo => "Annuler",
+        M::Redo => "Rétablir",
+        M::Undid => "Annulé\u{a0}: {change}",
+        M::Redid => "Rétabli\u{a0}: {change}",
+        M::ChangeTo => "{setting} → {value}",
+        M::SettingsOf => "Paramètres de {name}",
 
         M::Play => "Jouer",
         M::Playing => "En jeu",

@@ -18,6 +18,17 @@ crate::i18n::messages! {
         ZoomOut = "Zoom Out",
         /// Back to 100% zoom.
         ActualSize = "Actual Size",
+        /// The menu bar's Edit menu, and its items.
+        EditMenu = "Edit",
+        Undo = "Undo",
+        Redo = "Redo",
+        /// A toast after Undo: {change} says what the setting is now, "Language → Français".
+        Undid = "Undid: {change}",
+        Redid = "Redid: {change}",
+        /// {setting} is a setting's name, {value} its value now.
+        ChangeTo = "{setting} → {value}",
+        /// Several settings of an instance at once.
+        SettingsOf = "Settings of {name}",
 
         // The instance's tabs, and the Play button.
         /// The Play tab, and the large Play button (shown in capitals there).

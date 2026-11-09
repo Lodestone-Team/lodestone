@@ -124,6 +124,7 @@ pub mod prelude;
 mod public_listing;
 pub mod tauri_export;
 mod tls;
+pub mod trace;
 mod traits;
 pub mod types;
 pub mod util;
@@ -359,6 +360,8 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(handlers::minecraft_links::get_minecraft_link_routes(
             shared_state.clone(),
         ))
+        .merge(handlers::trace::get_trace_routes(shared_state.clone()))
+        .layer(axum::middleware::from_fn(crate::trace::http_middleware))
         .layer(cors)
         .layer(trace)
 }
@@ -576,6 +579,7 @@ fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
         tracing_subscriber::registry()
             .with(fmt_layer_stdout)
             .with(fmt_layer_file)
+            .with(crate::trace::TraceLayer.with_filter(crate::trace::layer_filter()))
             .with(EnvFilter::from("lodestone_core=debug"))
             .init();
     }
@@ -615,6 +619,7 @@ fn setup_tracing() -> tracing_appender::non_blocking::WorkerGuard {
             // .with(ErrorLayer::default())
             .with(fmt_layer_stdout)
             .with(fmt_layer_file)
+            .with(crate::trace::TraceLayer.with_filter(crate::trace::layer_filter()))
             .init();
     }
 
@@ -950,6 +955,9 @@ pub async fn run(
         )
         .await?,
     };
+
+    // the core's events, for the owner's debug traces (local only)
+    crate::trace::forward_events(shared_state.event_broadcaster.subscribe());
 
     if let Some(key) = stored_playitgg_key {
         let playitgg_key = shared_state.playitgg_key.clone();

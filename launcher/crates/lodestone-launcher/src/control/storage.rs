@@ -91,7 +91,16 @@ pub fn clean(call: Call, cx: &mut App) -> Reply {
     let data = instances.data_dir().clone();
     let list = instances.list().to_vec();
     cx.background_spawn(async move {
-        match disk::clean(&data, &list, &running, what, &Cancel::new()) {
+        let result = disk::clean(&data, &list, &running, what, &Cancel::new());
+        launcher_core::trace::emit("storage.clean", || match &result {
+            Ok(cleaned) => json!({
+                "what": what.name(),
+                "freed_bytes": cleaned.bytes,
+                "files": cleaned.files,
+            }),
+            Err(err) => json!({ "what": what.name(), "error": err.to_string() }),
+        });
+        match result {
             Ok(cleaned) => Ok(json!({
                 "what": what.name(),
                 "freed_bytes": cleaned.bytes,

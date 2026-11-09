@@ -117,6 +117,8 @@ struct Opened {
     had_focus: Rc<Cell<bool>>,
     /// A dialog, which focus falls back to while it is open.
     modal: bool,
+    /// The scope's element id, for the debug traces.
+    name: String,
 }
 
 /// What [`install`], the scopes and [`DialogSlot`](super::DialogSlot) share. The
@@ -347,6 +349,8 @@ pub(super) fn open_scope(
 ) -> FocusHandle {
     let given = given.cloned();
     let first = given.clone();
+    let key = key.into();
+    let name = key.to_string();
     let state = window.use_keyed_state(key, cx, move |window, cx| {
         let handle = first.unwrap_or_else(|| cx.focus_handle());
         let had_focus = Rc::new(Cell::new(false));
@@ -363,8 +367,13 @@ pub(super) fn open_scope(
                     opener: opener.map(|opener| opener.downgrade()),
                     had_focus: had,
                     modal,
+                    name: name.clone(),
                 })
             });
+            launcher_core::trace::emit(
+                "ui.scope",
+                || serde_json::json!({ "action": "open", "scope": name, "dialog": modal }),
+            );
             if !scope.contains_focused(window, cx) {
                 scope.focus(window, cx);
             }
@@ -471,12 +480,22 @@ impl RenderOnce for FocusScope {
 
 /// Gives focus back to what opened `scope`, if it is still shown.
 fn give_back(scope: &FocusHandle, window: &mut Window, cx: &mut App) {
-    let opener = with_registry(|r| {
-        r.opened
+    let (opener, name) = with_registry(|r| {
+        let opened = r
+            .opened
             .iter()
-            .find(|opened| opened.scope.upgrade().as_ref() == Some(scope))
-            .and_then(|opened| opened.opener.as_ref()?.upgrade())
+            .find(|opened| opened.scope.upgrade().as_ref() == Some(scope));
+        (
+            opened.and_then(|opened| opened.opener.as_ref()?.upgrade()),
+            opened.map(|opened| opened.name.clone()),
+        )
     });
+    if let Some(name) = name {
+        launcher_core::trace::emit(
+            "ui.scope",
+            || serde_json::json!({ "action": "dismiss", "scope": name }),
+        );
+    }
     if let Some(opener) = opener.filter(|opener| can_take_focus(opener, window)) {
         opener.focus(window, cx);
     }

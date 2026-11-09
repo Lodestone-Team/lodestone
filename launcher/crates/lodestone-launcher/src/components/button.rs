@@ -191,7 +191,16 @@ impl Button {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_click = Some(Box::new(handler));
+        let (id, label) = (self.id.clone(), self.label.clone());
+        self.on_click = Some(Box::new(move |event, window, cx| {
+            super::trace_ui(
+                "ui.click",
+                "button",
+                &id,
+                serde_json::json!({ "label": label.as_ref() }),
+            );
+            handler(event, window, cx)
+        }));
         self
     }
 }
@@ -361,7 +370,16 @@ impl IconButton {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.on_click = Some(Box::new(handler));
+        let (id, icon) = (self.id.clone(), format!("{:?}", self.icon));
+        self.on_click = Some(Box::new(move |event, window, cx| {
+            super::trace_ui(
+                "ui.click",
+                "icon_button",
+                &id,
+                serde_json::json!({ "icon": icon }),
+            );
+            handler(event, window, cx)
+        }));
         self
     }
 }

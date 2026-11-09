@@ -33,7 +33,16 @@ impl Toggle {
 
     /// Called with the new value when the toggle is clicked.
     pub fn on_change(mut self, handler: impl Fn(&bool, &mut Window, &mut App) + 'static) -> Self {
-        self.on_change = Some(Box::new(handler));
+        let id = self.id.clone();
+        self.on_change = Some(Box::new(move |value, window, cx| {
+            super::trace_ui(
+                "ui.toggle",
+                "toggle",
+                &id,
+                serde_json::json!({ "value": value }),
+            );
+            handler(value, window, cx)
+        }));
         self
     }
 }

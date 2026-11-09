@@ -173,6 +173,16 @@ impl StorageSettings {
             this.update(cx, |this, cx| {
                 this.cleaning = false;
                 this.work = None;
+                launcher_core::trace::emit("storage.clean", || match &result {
+                    Ok(cleaned) => serde_json::json!({
+                        "what": what.name(),
+                        "freed_bytes": cleaned.bytes,
+                        "files": cleaned.files,
+                    }),
+                    Err(err) => {
+                        serde_json::json!({ "what": what.name(), "error": err.to_string() })
+                    }
+                });
                 let (message, error) = match result {
                     Ok(cleaned) => (
                         tr!(M::StorageFreed, size = format::bytes(cleaned.bytes)),

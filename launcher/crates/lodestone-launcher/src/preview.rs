@@ -74,6 +74,7 @@ pub const SCENES: &[&str] = &[
     "instance-linked",
     "settings",
     "settings-general",
+    "undo-toast",
     "settings-accounts",
     "settings-developer",
     "settings-storage",
@@ -83,6 +84,9 @@ pub const SCENES: &[&str] = &[
     "icon-picker",
     "icon-picker-emoji",
     "background-picker",
+    "play-slideshow",
+    "play-slideshow-fade",
+    "background-picker-slideshow",
     "instance-settings-narrow",
     "instance-settings-narrow-open",
     "settings-narrow",
@@ -125,6 +129,10 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
         // "Save your changes?", opened without a window, closed with Escape; Settings
         // stays open and takes focus back.
         "focus-escape-prompt" => &["escape", "tab"],
+        // Settings > General with "Group instances automatically" turned off, then
+        // Undo: the switch is on again and the toast offers Redo.
+        "undo-toast" if cfg!(target_os = "macos") => &["cmd-z"],
+        "undo-toast" => &["ctrl-z"],
         _ => &[],
     }
 }
@@ -133,7 +141,8 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
 fn is_appearance_scene(scene: &str) -> bool {
     scene.starts_with("play-background")
         || scene.starts_with("icon-picker")
-        || scene == "background-picker"
+        || scene.starts_with("background-picker")
+        || scene.starts_with("play-slideshow")
 }
 
 /// A made-up landscape for the background scenes: a pale sky over a snowfield (bright
@@ -345,6 +354,21 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                             if background_image(bright).save(&file).is_ok() {
                                 let _ = store.set_background(&instance.id, &file);
                             }
+                        }
+                        // A slideshow of its own two images: the bright one, then the dark.
+                        if scene.starts_with("play-slideshow")
+                            || scene == "background-picker-slideshow"
+                        {
+                            for bright in [true, false] {
+                                let file = data_dir.root().join(format!("slide-{bright}.png"));
+                                if background_image(bright).save(&file).is_ok() {
+                                    let _ = store.add_slideshow_image(&instance.id, &file);
+                                }
+                            }
+                            let _ = store.set_slideshow(
+                                &instance.id,
+                                Some(launcher_core::instances::SlideshowSource::Custom),
+                            );
                         }
                     }
                 }
@@ -620,11 +644,33 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "import" | "import-progress" => import::apply(scene, shell, cx),
-        "icon-picker" | "icon-picker-emoji" | "background-picker" => {
+        "play-slideshow-fade" => {
+            // Once the first image is up, hold the next one halfway through its fade.
+            let slideshow = shell.slideshow().clone();
+            cx.spawn(async move |_, cx| {
+                for _ in 0..40 {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(25))
+                        .await;
+                    let ready = slideshow.read_with(cx, |s, _| s.is_ready());
+                    if ready {
+                        slideshow.update(cx, |s, cx| s.preview_fade(cx));
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
+        "icon-picker"
+        | "icon-picker-emoji"
+        | "background-picker"
+        | "background-picker-slideshow" => {
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view().cloned() {
                 settings.update(cx, |settings, cx| match scene {
-                    "background-picker" => settings.preview_background_picker(cx),
+                    "background-picker" | "background-picker-slideshow" => {
+                        settings.preview_background_picker(cx)
+                    }
                     _ => settings.preview_icon_picker(scene == "icon-picker-emoji"),
                 });
             }
@@ -670,6 +716,13 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             let confirm = (scene == "settings-storage-confirm")
                 .then_some(launcher_core::disk::Clean::UnusedGameFiles);
             shell.preview_storage(storage_report(), confirm, cx);
+        }
+        "undo-toast" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::General), None, cx);
+            shell
+                .instances()
+                .clone()
+                .update(cx, |instances, cx| instances.set_auto_groups(false, cx));
         }
         "instance-linked" => servers::apply_linked_instance(shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),

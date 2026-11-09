@@ -11,6 +11,13 @@ pub fn text(message: M) -> &'static str {
         M::ZoomIn => "放大",
         M::ZoomOut => "縮小",
         M::ActualSize => "實際大小",
+        M::EditMenu => "編輯",
+        M::Undo => "還原",
+        M::Redo => "重做",
+        M::Undid => "已還原：{change}",
+        M::Redid => "已重做：{change}",
+        M::ChangeTo => "{setting} → {value}",
+        M::SettingsOf => "{name} 的設定",
 
         M::Play => "開始遊戲",
         M::Playing => "遊戲中",

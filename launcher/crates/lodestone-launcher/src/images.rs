@@ -21,9 +21,12 @@ pub struct BundledImages {
 impl Global for BundledImages {}
 
 /// The scale passed to GPUI's SVG renderer, as its own `img()` loader does. The
-/// renderer doubles it, so the hero (1600×640 in its viewBox) is rasterized at
-/// 3200×1280 pixels, sharp on Retina displays.
+/// renderer doubles it.
 const SVG_SCALE: f32 = 1.0;
+/// The hero's scale: its 1600×640 viewBox is rasterized at 2400×960 pixels, sharp at
+/// 2× in the banner of a typical window (about 1000 points wide) while taking half
+/// the memory of 3200×1280.
+const HERO_SCALE: f32 = 0.75;
 
 /// Starts decoding the bundled images on the background executor, in parallel.
 pub fn decode(cx: &App) -> Task<anyhow::Result<BundledImages>> {
@@ -38,7 +41,7 @@ pub fn decode(cx: &App) -> Task<anyhow::Result<BundledImages>> {
         })
     };
     let logo = render(LOGO_PATH, SVG_SCALE);
-    let hero = render(HERO_PATH, SVG_SCALE);
+    let hero = render(HERO_PATH, HERO_SCALE);
     cx.background_spawn(async move {
         Ok(BundledImages {
             logo: logo.await?,
@@ -147,10 +150,10 @@ mod tests {
     fn bundled_images_render() {
         let renderer = gpui::SvgRenderer::new(Arc::new(Assets));
         let hero = renderer
-            .render_single_frame(Assets::embedded(HERO_PATH).unwrap(), SVG_SCALE)
+            .render_single_frame(Assets::embedded(HERO_PATH).unwrap(), HERO_SCALE)
             .unwrap();
-        assert_eq!(hero.size(0).width.0, 3200);
-        assert_eq!(hero.size(0).height.0, 1280);
+        assert_eq!(hero.size(0).width.0, 2400);
+        assert_eq!(hero.size(0).height.0, 960);
         let logo = renderer
             .render_single_frame(Assets::embedded(LOGO_PATH).unwrap(), SVG_SCALE)
             .unwrap();

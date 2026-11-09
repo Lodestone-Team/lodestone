@@ -42,7 +42,17 @@ impl Tabs {
 
     /// Called with the index of the tab that was clicked.
     pub fn on_select(mut self, handler: impl Fn(&usize, &mut Window, &mut App) + 'static) -> Self {
-        self.on_select = Some(Box::new(handler));
+        let (id, labels) = (self.id.clone(), self.labels.clone());
+        self.on_select = Some(Box::new(move |index, window, cx| {
+            let label = labels.get(*index).map(|l| l.to_string());
+            super::trace_ui(
+                "ui.select",
+                "tabs",
+                &id,
+                serde_json::json!({ "index": index, "label": label }),
+            );
+            handler(index, window, cx)
+        }));
         self
     }
 }

@@ -26,6 +26,8 @@ pub enum Plan {
     },
     /// Events as JSON lines.
     Events { params: Value, count: Option<usize> },
+    /// Trace events: lines for people, JSON lines otherwise.
+    Trace { params: Value, count: Option<usize> },
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -231,14 +233,33 @@ pub fn plan(
                 instance,
                 image,
                 clear,
-            } => call(
-                "instances.set_background",
-                vec![
+                slideshow,
+                add,
+            } => {
+                if image.is_none() && !clear && slideshow.is_none() && add.is_empty() {
+                    return Err(usage("Give --image, --clear, --slideshow or --add."));
+                }
+                let mut params = vec![
                     ("instance", json!(instance)),
                     ("image", path_value(image)?),
                     ("clear", json!(clear)),
-                ],
-            ),
+                ];
+                if let Some(slideshow) = slideshow {
+                    let slideshow = match slideshow.as_str() {
+                        "all" => "all_instances",
+                        other => other,
+                    };
+                    params.push(("slideshow", json!(slideshow)));
+                }
+                if !add.is_empty() {
+                    let paths = add
+                        .iter()
+                        .map(|p| path_value(&Some(p.clone())))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    params.push(("add", json!(paths)));
+                }
+                call("instances.set_background", params)
+            }
             Instances::Duplicate(i) => {
                 call("instances.duplicate", vec![("instance", json!(i.instance))])
             }
@@ -745,6 +766,18 @@ pub fn plan(
             },
             Jobs::Cancel { job } => call("jobs.cancel", vec![("job", json!(job))]),
         },
+        Command::Trace(t) => match t {
+            Trace::Topics => call("trace.topics", vec![]),
+            Trace::Snapshot => call("trace.snapshot", vec![]),
+            Trace::Watch(w) => Plan::Trace {
+                params: params(vec![
+                    ("topics", json!(w.topics)),
+                    ("backlog", json!(w.backlog)),
+                    ("since", json!(w.since)),
+                ]),
+                count: w.count,
+            },
+        },
         Command::Events(e) => Plan::Events {
             params: params(vec![
                 ("topics", json!(e.topics)),
@@ -835,6 +868,11 @@ mod tests {
                 false
             )
         );
+        let (method, params, _) =
+            call_of(&["instances", "background", "Survival", "--slideshow", "all"]);
+        assert_eq!(method, "instances.set_background");
+        assert_eq!(params["slideshow"], json!("all_instances"));
+        assert!(params.get("add").is_none());
         let (_, params, _) = call_of(&["play", "launch", "Smp", "--skip-update"]);
         assert_eq!(params["update_mods"], json!(false));
         let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);
@@ -920,6 +958,25 @@ mod tests {
             plan_of(&["events", "--topics", "state,notices", "--count", "3"]).unwrap(),
             Plan::Events { count: Some(3), .. }
         ));
+        assert_eq!(
+            plan_of(&[
+                "trace",
+                "watch",
+                "ui",
+                "*.error",
+                "--backlog",
+                "5",
+                "--count",
+                "2"
+            ])
+            .unwrap(),
+            Plan::Trace {
+                params: json!({ "topics": ["ui", "*.error"], "backlog": 5 }),
+                count: Some(2),
+            }
+        );
+        assert_eq!(call_of(&["trace", "snapshot"]).0, "trace.snapshot");
+        assert_eq!(call_of(&["trace", "topics"]).0, "trace.topics");
         assert!(
             Cli::try_parse_from([
                 "lodestone-launcher-cli",
