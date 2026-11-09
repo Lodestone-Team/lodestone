@@ -521,6 +521,17 @@ impl ArrowGroup {
             id,
         }
     }
+
+    /// Reports the group to assistive technology and automation as `role` (a radio
+    /// group, a list), found by its element id.
+    pub fn group_role(mut self, role: super::a11y::Role) -> Self {
+        use gpui::StatefulInteractiveElement as _;
+        self.base = self
+            .base
+            .role(role)
+            .accessibility_id(super::a11y::automation_id(&self.id));
+        self
+    }
 }
 
 impl Styled for ArrowGroup {

@@ -393,6 +393,7 @@ impl Render for StorageSettings {
                     .collect::<Vec<_>>()
                     .join(" · ");
                     SettingRow::new(usage.name.clone())
+                        .key(("storage-instance", index))
                         .hint(detail)
                         .child(size(usage.total()))
                         .child(
@@ -492,6 +493,7 @@ impl Render for StorageSettings {
                     detail.push(runtime.used_by.join(", "));
                 }
                 SettingRow::new(name)
+                    .key(SharedString::from(format!("runtime-{}", runtime.component)))
                     .hint_opt((!detail.is_empty()).then(|| detail.join(" · ")))
                     .when(runtime.unused(), |row| {
                         row.child(tag(t(M::StorageUnusedTag), colors::GRAY_500))

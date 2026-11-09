@@ -14,7 +14,10 @@ use gpui::{
 use launcher_core::game::log4j::{Level, Stream};
 
 use super::{Instances, LogRow};
-use crate::components::{KeyboardFocus, RichText};
+use crate::components::{
+    KeyboardFocus, RichText,
+    a11y::{Accessible, Role, Toggled},
+};
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon, TextInput},
     i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, trn},
@@ -63,7 +66,11 @@ pub struct Console {
 
 impl Console {
     pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| TextInput::new(cx).with_placeholder(M::SearchLog));
+        let search = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::SearchLog)
+                .with_automation_id("log-search")
+        });
         let observe = vec![
             cx.observe(&instances, |_, _, cx| cx.notify()),
             cx.observe(&search, |_, _, cx| cx.notify()),
@@ -246,6 +253,8 @@ impl Render for Console {
             let level = *level;
             div()
                 .id(SharedString::from(format!("chip-{key}")))
+                .accessible(Role::CheckBox, format!("log-level-{key}"), t(*label))
+                .aria_toggled(if on { Toggled::True } else { Toggled::False })
                 .flex_none()
                 .whitespace_nowrap()
                 .keyboard_focus()

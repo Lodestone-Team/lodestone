@@ -12,7 +12,10 @@ use gpui::{
 use launcher_core::game::loaders::{LoaderChoice, LoaderKind, LoaderVersion};
 
 use super::{Instances, LoaderVersions};
-use crate::components::{ArrowGroup, KeyboardFocus};
+use crate::components::{
+    ArrowGroup, KeyboardFocus,
+    a11y::{Accessible, Role, Toggled},
+};
 use crate::{
     components::{
         LoadingDots,
@@ -189,6 +192,13 @@ fn version_row(index: usize, version: &LoaderVersion, selected: bool) -> gpui::S
     let tag = version_tag(version);
     div()
         .id(("loader-version", index))
+        .accessible(
+            Role::ListItem,
+            format!("loader-version-{}", version.id),
+            version.display.clone(),
+        )
+        .aria_selected(selected)
+        .when_some(tag, |this, (tag, _)| this.aria_description(tag))
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -231,6 +241,7 @@ impl LoaderPicker {
     fn segmented(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let options = loader_options();
         ArrowGroup::new("loader-segments")
+            .group_role(Role::RadioGroup)
             .flex()
             .flex_row()
             .p(px(2.))
@@ -243,6 +254,19 @@ impl LoaderPicker {
                 let selected = self.kind == kind;
                 div()
                     .id(("loader-segment", index))
+                    .accessible(
+                        Role::RadioButton,
+                        format!(
+                            "loader-{}",
+                            kind.map_or("vanilla".to_string(), |kind| kind.label().to_lowercase())
+                        ),
+                        label,
+                    )
+                    .aria_toggled(if selected {
+                        Toggled::True
+                    } else {
+                        Toggled::False
+                    })
                     .keyboard_focus()
                     .px_2p5()
                     .py_1()
@@ -299,6 +323,21 @@ impl LoaderPicker {
             .selected
             .as_ref()
             .and_then(|id| list.iter().find(|v| &v.id == id));
+        let chosen_text: SharedString = chosen.map_or_else(
+            || SharedString::from(t(M::ChooseVersion)),
+            |v| v.display.clone().into(),
+        );
+        let toggle = {
+            let picker = cx.entity().downgrade();
+            move |_: &mut Window, cx: &mut gpui::App| {
+                picker
+                    .update(cx, |this, cx| {
+                        this.open = !this.open;
+                        cx.notify();
+                    })
+                    .ok();
+            }
+        };
         let label = div()
             .flex()
             .flex_row()
@@ -332,6 +371,9 @@ impl LoaderPicker {
             })
             .child(
                 select_button("loader-version-select", label)
+                    .aria_label(t(M::LoaderVersion))
+                    .aria_value(chosen_text)
+                    .expandable(self.open, toggle)
                     .when(form, |this| this.w(px(300.)).justify_between())
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.open = !this.open;

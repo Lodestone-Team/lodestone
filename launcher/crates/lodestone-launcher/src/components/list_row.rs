@@ -4,7 +4,11 @@ use gpui::{
     rems,
 };
 
-use super::{ClickHandler, Icon, focus::KeyboardFocus};
+use super::{
+    ClickHandler, Icon,
+    a11y::{Accessible, Role},
+    focus::KeyboardFocus,
+};
 use crate::theme::{self, colors, radius, text, weights};
 
 /// A selectable row with an icon, a label and optional trailing detail, after the
@@ -73,7 +77,12 @@ impl RenderOnce for ListRow {
             colors::GRAY_FADED.opacity(30)
         };
         div()
-            .id(self.id)
+            .id(self.id.clone())
+            .accessible_id(Role::ListItem, &self.id, self.label.clone())
+            .aria_selected(self.selected)
+            .when_some(self.detail.clone(), |this, detail| {
+                this.aria_description(detail)
+            })
             .keyboard_focus()
             .flex()
             .flex_row()

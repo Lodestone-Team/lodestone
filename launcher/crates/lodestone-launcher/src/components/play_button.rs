@@ -6,6 +6,7 @@ use gpui::{
 use launcher_core::ui_skin::SurfaceId;
 
 use super::ClickHandler;
+use super::a11y::{Accessible, Role};
 use super::focus::KeyboardFocus;
 use crate::{
     i18n::{CommonMsg, ShellMsg, t},
@@ -114,9 +115,11 @@ impl PlayButton {
     }
 }
 
-fn shell(id: ElementId, shape: Shape) -> gpui::Stateful<gpui::Div> {
+/// The button's frame, named `label` for assistive technology and automation.
+fn shell(id: ElementId, shape: Shape, label: SharedString) -> gpui::Stateful<gpui::Div> {
     div()
-        .id(id)
+        .id(id.clone())
+        .accessible_id(Role::Button, &id, label)
         .relative()
         .flex()
         .flex_none()
@@ -162,8 +165,10 @@ fn side_button(
     label: impl Into<SharedString>,
     on_click: Option<ClickHandler>,
 ) -> impl IntoElement {
+    let label: SharedString = label.into();
     div()
         .id(id)
+        .accessible(Role::Button, id, label.clone())
         .keyboard_focus_outer()
         .flex_none()
         .px_3()
@@ -179,7 +184,7 @@ fn side_button(
         .cursor_pointer()
         .hover(|style| style.bg(colors::RED_300).text_color(colors::WHITE))
         .when_some(on_click, |this, on_click| this.on_click(on_click))
-        .child(label.into())
+        .child(label)
 }
 
 impl RenderOnce for PlayButton {
@@ -213,7 +218,11 @@ impl RenderOnce for PlayButton {
         match self.state {
             PlayButtonState::Disabled | PlayButtonState::Ready => {
                 let disabled = self.state == PlayButtonState::Disabled;
-                shell(self.id, shape)
+                let name: SharedString = match &self.caption {
+                    Some(caption) => format!("{} {caption}", t(ShellMsg::Play)).into(),
+                    None => t(ShellMsg::Play).into(),
+                };
+                shell(self.id, shape, name)
                     .justify_center()
                     .font_family(fonts::title())
                     .text_size(theme::text_size(text::H1))
@@ -297,52 +306,66 @@ impl RenderOnce for PlayButton {
                 label,
                 detail,
                 fraction,
-            } => shell(self.id, shape)
-                .bg(colors::GRAY_800)
-                .border_color(progress.opacity(50))
-                .child(
-                    // The progress fill, behind the text.
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .h_full()
-                        .w(relative(fraction.unwrap_or(0.0)))
-                        .bg(progress.opacity(35)),
-                )
-                .child(
-                    div()
-                        .relative()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .pl_4()
-                        .child(
+            } => shell(
+                self.id,
+                shape,
+                match &detail {
+                    Some(detail) => format!("{label}, {detail}").into(),
+                    None => label.clone(),
+                },
+            )
+            .role(Role::ProgressIndicator)
+            .when_some(fraction, |this, fraction| {
+                this.aria_numeric_value(f64::from(fraction) * 100.)
+                    .aria_min_numeric_value(0.)
+                    .aria_max_numeric_value(100.)
+            })
+            .bg(colors::GRAY_800)
+            .border_color(progress.opacity(50))
+            .child(
+                // The progress fill, behind the text.
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .h_full()
+                    .w(relative(fraction.unwrap_or(0.0)))
+                    .bg(progress.opacity(35)),
+            )
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .pl_4()
+                    .child(
+                        div()
+                            .truncate()
+                            .font_weight(weights::BOLD.into())
+                            .text_color(colors::WHITE)
+                            .child(label),
+                    )
+                    .when_some(detail, |this, detail| {
+                        this.child(
                             div()
                                 .truncate()
-                                .font_weight(weights::BOLD.into())
-                                .text_color(colors::WHITE)
-                                .child(label),
+                                .text_size(theme::text_size(text::SMALL))
+                                .font_weight(weights::MEDIUM.into())
+                                .text_color(crate::theme::ink::text())
+                                .child(detail),
                         )
-                        .when_some(detail, |this, detail| {
-                            this.child(
-                                div()
-                                    .truncate()
-                                    .text_size(theme::text_size(text::SMALL))
-                                    .font_weight(weights::MEDIUM.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(detail),
-                            )
-                        }),
-                )
-                .child(div().relative().child(side_button(
-                    "play-cancel",
-                    t(CommonMsg::Cancel),
-                    self.on_stop,
-                )))
-                .into_any_element(),
-            PlayButtonState::Playing => shell(self.id, shape)
+                    }),
+            )
+            .child(div().relative().child(side_button(
+                "play-cancel",
+                t(CommonMsg::Cancel),
+                self.on_stop,
+            )))
+            .into_any_element(),
+            PlayButtonState::Playing => shell(self.id, shape, t(ShellMsg::Playing).into())
+                .role(Role::Status)
                 .bg(colors::GRAY_800)
                 .border_color(colors::GREEN_400)
                 .child(

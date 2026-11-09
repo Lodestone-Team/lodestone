@@ -13,10 +13,26 @@ use launcher_core::ui_skin::SurfaceId;
 use super::LauncherShell;
 use crate::{
     accounts::{Accounts, SessionState},
-    components::{FocusScope, Icon, KeyboardFocus, LoadingDots},
+    components::{
+        FocusScope, Icon, KeyboardFocus, LoadingDots,
+        a11y::{Accessible, Role, Toggled, automation_id},
+    },
     i18n::{CommonMsg, ShellMsg as M, t, tr},
     theme::{self, colors, layout, leading, radius, shadow, text, weights},
 };
+
+/// Opens or closes the account menu, for assistive technology's Expand and Collapse.
+fn menu_toggle(
+    open: bool,
+    cx: &Context<LauncherShell>,
+) -> impl Fn(&mut gpui::Window, &mut gpui::App) + Clone + 'static {
+    let shell = cx.entity().downgrade();
+    move |_, cx| {
+        shell
+            .update(cx, |this, cx| this.set_account_menu(!open, cx))
+            .ok();
+    }
+}
 
 /// The skin head, or a placeholder for offline accounts and while it loads.
 pub fn avatar(accounts: &Accounts, account: Option<&Account>, size: Pixels) -> AnyElement {
@@ -92,8 +108,11 @@ pub fn render_compact(shell: &LauncherShell, cx: &mut Context<LauncherShell>) ->
         Some(account) => account.username.clone().into(),
         None => t(CommonMsg::SignIn).into(),
     };
+    let toggle = menu_toggle(menu_open, cx);
     let button = div()
         .id("account-box")
+        .accessible(Role::Button, "account-box", name.clone())
+        .expandable(menu_open, toggle)
         .keyboard_focus()
         .p_1()
         .rounded(radius::LG)
@@ -135,8 +154,12 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .is_some_and(|a| matches!(accounts.session(&a.id), Some(SessionState::Refreshing)));
     let avatar = avatar(accounts, active.as_ref(), px(32.));
 
+    let toggle = menu_toggle(menu_open, cx);
     let button = div()
         .id("account-box")
+        .accessible(Role::Button, "account-box", name.clone())
+        .aria_description(detail.clone())
+        .expandable(menu_open, toggle)
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -226,8 +249,11 @@ fn menu_row_with(
     color: theme::Color,
     wrap: bool,
 ) -> gpui::Stateful<gpui::Div> {
+    let id = id.into();
+    let label: SharedString = label.into();
     div()
-        .id(id)
+        .id(id.clone())
+        .accessible(Role::MenuItem, automation_id(&id), label.clone())
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -252,7 +278,7 @@ fn menu_row_with(
                         this.min_w_0().truncate()
                     }
                 })
-                .child(label.into()),
+                .child(label),
         )
 }
 
@@ -287,6 +313,12 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 account.username.clone(),
                 colors::GRAY_300,
             )
+            .role(Role::MenuItemRadio)
+            .aria_toggled(if is_active {
+                Toggled::True
+            } else {
+                Toggled::False
+            })
             .map(|row| {
                 let needs_sign_in = matches!(
                     accounts.session(&account.id),
@@ -327,6 +359,8 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
 
     let panel = div()
         .id("account-menu")
+        .role(Role::Menu)
+        .accessibility_id("account-menu")
         .occlude()
         .flex()
         .flex_col()

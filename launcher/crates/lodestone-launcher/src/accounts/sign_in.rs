@@ -10,7 +10,10 @@ use std::time::Duration;
 
 use super::{Accounts, auth_errors};
 use crate::{
-    components::{Button, ButtonVariant, Dialog, Icon, TextInput},
+    components::{
+        Button, ButtonVariant, Dialog, Icon, TextInput,
+        a11y::{Accessible, Role},
+    },
     i18n::{CommonMsg, ShellMsg as M, t, tr},
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
@@ -90,7 +93,9 @@ impl SignInDialog {
             identity,
             link: None,
             link_input: cx.new(|cx| {
-                TextInput::new(cx).with_placeholder(format!("{}?code=…", auth_errors::LINK_PAGE))
+                TextInput::new(cx)
+                    .with_placeholder(format!("{}?code=…", auth_errors::LINK_PAGE))
+                    .with_automation_id("sign-in-link")
             }),
         }
     }
@@ -455,6 +460,8 @@ impl Render for SignInDialog {
                             .child(muted(tr!(M::GoToHost, host = host)))
                             .child(
                                 div()
+                                    .id("device-code")
+                                    .accessible(Role::Label, "device-code", user_code.clone())
                                     .flex()
                                     .justify_center()
                                     .py_3()
@@ -526,31 +533,34 @@ impl Render for SignInDialog {
             Stage::Failed(err) => {
                 // Mojang approving the app is only pending for Lodestone's own client.
                 let not_approved = *err == AuthError::AppNotApproved && !launcher_identity;
-                dialog =
-                    dialog
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .gap_3()
-                                .p_4()
-                                .rounded(radius::LG)
-                                .bg(colors::YELLOW_FADED.opacity(10))
-                                .border_1()
-                                .border_color(colors::YELLOW_FADED.opacity(50))
-                                .child(div().pt(px(3.)).child(
+                dialog = dialog
+                    .child(
+                        div()
+                            .id("sign-in-error")
+                            .accessible(Role::Status, "sign-in-error", auth_errors::message(err))
+                            .flex()
+                            .flex_row()
+                            .gap_3()
+                            .p_4()
+                            .rounded(radius::LG)
+                            .bg(colors::YELLOW_FADED.opacity(10))
+                            .border_1()
+                            .border_color(colors::YELLOW_FADED.opacity(50))
+                            .child(
+                                div().pt(px(3.)).child(
                                     Icon::TriangleExclamation.render(px(16.), colors::YELLOW),
-                                ))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .child(muted(auth_errors::message(err))),
                                 ),
-                        )
-                        .when(not_approved, |this| {
-                            this.child(div().mt_2().child(muted(t(M::ExpectedUntilApproved))))
-                        });
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(muted(auth_errors::message(err))),
+                            ),
+                    )
+                    .when(not_approved, |this| {
+                        this.child(div().mt_2().child(muted(t(M::ExpectedUntilApproved))))
+                    });
                 if not_approved && offline_enabled {
                     dialog = dialog.footer(
                         Button::new("use-offline", t(M::AddOfflineAccount))

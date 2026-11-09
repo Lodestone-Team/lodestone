@@ -5,6 +5,7 @@ use gpui::{
 };
 use launcher_core::ui_skin::{FontPart, SurfaceId};
 
+use super::a11y::{Accessible, Role, automation_id, child_id};
 use super::focus::{self, SelectNext, SelectPrev};
 use crate::theme::{self, colors, leading, text, weights};
 
@@ -90,8 +91,12 @@ impl RenderOnce for Tabs {
             }
         };
         let (next, prev) = (arrow(true), arrow(false));
+        let tab_count = self.labels.len();
+        let tabs_id = self.id.clone();
         div()
-            .id(self.id)
+            .id(self.id.clone())
+            .role(Role::TabList)
+            .accessibility_id(automation_id(&self.id))
             .key_context(focus::ARROW_KEYS)
             .on_action(move |_: &SelectNext, window, cx| next(window, cx))
             .on_action(move |_: &SelectPrev, window, cx| prev(window, cx))
@@ -121,6 +126,10 @@ impl RenderOnce for Tabs {
                 let t = super::motion::switch(("tab-underline", index), selected, window, cx);
                 div()
                     .id(("tab", index))
+                    .accessible(Role::Tab, child_id(&tabs_id, index), label.clone())
+                    .aria_selected(selected)
+                    .aria_position_in_set(index + 1)
+                    .aria_size_of_set(tab_count)
                     .track_focus(&handles[index])
                     .focus_visible(focus::inner_ring)
                     .cursor_pointer()

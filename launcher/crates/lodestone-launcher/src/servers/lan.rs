@@ -28,7 +28,10 @@ use launcher_core::{
 };
 
 use super::{Servers, ServersEvent, extras::note};
-use crate::components::KeyboardFocus;
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role},
+};
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Dialog, Icon, LoadingDots},
     i18n::{ServersMsg as M, t, tr},
@@ -223,6 +226,8 @@ impl Servers {
                     let picked = world.clone();
                     div()
                         .id(SharedString::from(id.clone()))
+                        .accessible(Role::ListItem, id.clone(), world_title(world))
+                        .aria_description(world.address().to_string())
                         .flex()
                         .flex_row()
                         .items_center()
@@ -383,8 +388,11 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
             .children(instances.into_iter().map(|(id, name, detail, _)| {
                 let servers = servers.clone();
                 let pick = id.clone();
+                let pick_id = SharedString::from(format!("lan-pick-{id}"));
                 div()
-                    .id(SharedString::from(format!("lan-pick-{id}")))
+                    .id(pick_id.clone())
+                    .accessible(Role::Button, pick_id, name.clone())
+                    .aria_description(detail.clone())
                     .keyboard_focus()
                     .flex()
                     .flex_row()

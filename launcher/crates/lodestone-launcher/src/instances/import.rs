@@ -28,13 +28,16 @@ use launcher_core::{
 };
 
 use super::Instances;
-use crate::components::KeyboardFocus;
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role, Toggled},
+};
 use crate::{
     components::{
         Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, LoadingDots, Toggle,
     },
     file_dialog,
-    i18n::{InstancesMsg as M, InstancesPlural as P, format, t, tr, trn},
+    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, format, t, tr, trn},
     theme::{self, colors, leading, radius, text, weights},
 };
 
@@ -541,7 +544,14 @@ impl ImportDialog {
         let note = found.notes.first().cloned();
         let id = SharedString::from(format!("import-{key}"));
         div()
-            .id(id)
+            .id(id.clone())
+            .accessible(Role::CheckBox, id, found.name.clone())
+            .aria_toggled(if checked {
+                Toggled::True
+            } else {
+                Toggled::False
+            })
+            .aria_description(format!("{} · {size_text}", version_label(found)))
             .keyboard_focus()
             .flex()
             .flex_row()
@@ -804,6 +814,7 @@ impl ImportDialog {
                                 SharedString::from(format!("cancel-{key}")),
                                 Icon::Xmark,
                             )
+                            .label(t(CommonMsg::Cancel))
                             .on_click(cx.listener(move |this, _, _, cx| this.cancel(&key, cx))),
                         )
                     })
@@ -943,6 +954,7 @@ impl Render for ImportDialog {
                                     .gap_2()
                                     .child(
                                         Toggle::new("import-without-worlds", without_worlds)
+                                            .label(worlds_caption.clone())
                                             .on_change(move |value, _, cx| {
                                                 let value = *value;
                                                 entity.update(cx, |this, cx| {

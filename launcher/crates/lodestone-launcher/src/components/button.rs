@@ -6,7 +6,11 @@ use gpui::{
     RenderOnce, SharedString, Styled, Window, div, prelude::*,
 };
 
-use super::{ClickHandler, Icon, focus::KeyboardFocus};
+use super::{
+    ClickHandler, Icon,
+    a11y::{Accessible, Role},
+    focus::KeyboardFocus,
+};
 use crate::skin::{Paint, Painted};
 use crate::theme::{self, Color, colors, leading, radius, text, weights};
 use launcher_core::ui_skin::{FontPart, SurfaceId};
@@ -133,6 +137,8 @@ pub struct Button {
     pill: bool,
     /// Text and hover colours in place of the variant's.
     ink: Option<(Color, Color)>,
+    /// Its name for assistive technology, when the label is a symbol such as "+".
+    accessible_label: Option<SharedString>,
     on_click: Option<ClickHandler>,
 }
 
@@ -151,8 +157,16 @@ impl Button {
             full_width: false,
             pill: false,
             ink: None,
+            accessible_label: None,
             on_click: None,
         }
+    }
+
+    /// The button's name for assistive technology and automation, when its label is a
+    /// symbol ("+") or nothing: "Zoom In".
+    pub fn accessible_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.accessible_label = Some(label.into());
+        self
     }
 
     pub fn variant(mut self, variant: ButtonVariant) -> Self {
@@ -274,6 +288,13 @@ impl RenderOnce for Button {
         // a gradient or image fill lightens on hover instead of changing colour
         let fade_on_hover = layered.is_some();
         let inactive = self.disabled || self.loading;
+        let name = match &self.accessible_label {
+            Some(label) => label.clone(),
+            None if self.label.is_empty() && self.loading => {
+                crate::i18n::t(crate::i18n::CommonMsg::Loading).into()
+            }
+            None => self.label.clone(),
+        };
         let text_color = if self.disabled {
             colors::WHITE.opacity(50)
         } else {
@@ -322,7 +343,8 @@ impl RenderOnce for Button {
             });
 
         div()
-            .id(self.id)
+            .id(self.id.clone())
+            .accessible_id(Role::Button, &self.id, name)
             .when(!self.disabled, |this| match palette.bg {
                 Some(_) => this.keyboard_focus_outer(),
                 None => this.keyboard_focus(),
@@ -428,7 +450,7 @@ pub struct IconButton {
     id: ElementId,
     icon: Icon,
     disabled: bool,
-    /// Its tooltip and accessible name.
+    /// Its tooltip and accessible name; without one, it is named after its icon.
     label: Option<SharedString>,
     on_click: Option<ClickHandler>,
 }
@@ -449,7 +471,8 @@ impl IconButton {
         self
     }
 
-    /// Names the button: a tooltip, and its name for screen readers.
+    /// Names the button: a tooltip, and its name for screen readers and automation.
+    /// Without one, it is named after its icon.
     pub fn label(mut self, label: impl Into<SharedString>) -> Self {
         self.label = Some(label.into());
         self
@@ -476,12 +499,13 @@ impl IconButton {
 impl RenderOnce for IconButton {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let color = colors::GRAY_FADED.opacity(30);
+        let name = self.label.clone().unwrap_or_else(|| self.icon.label());
         div()
             .id(self.id.clone())
+            .accessible_id(Role::Button, &self.id, name)
             .when(!self.disabled, |this| this.keyboard_focus_outer())
             .when_some(self.label, |this, label| {
-                this.aria_label(label.clone())
-                    .tooltip(super::text_tooltip(label))
+                this.tooltip(super::text_tooltip(label))
             })
             .group("icon-button")
             .flex()

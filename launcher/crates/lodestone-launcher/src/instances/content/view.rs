@@ -26,7 +26,10 @@ use lodestone_minecraft::modrinth::{
 };
 
 use super::{ContentView, Load, PAGE_SIZE, ProjectTab};
-use crate::components::KeyboardFocus;
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role, Toggled},
+};
 use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr, trn};
 use crate::{
     components::{
@@ -138,6 +141,7 @@ pub(crate) fn pills(
 ) -> impl IntoElement {
     let on_select = std::rc::Rc::new(on_select);
     crate::components::ArrowGroup::new(id)
+        .group_role(Role::TabList)
         .flex()
         .flex_row()
         .flex_none()
@@ -151,6 +155,8 @@ pub(crate) fn pills(
             let on_select = on_select.clone();
             let item = div()
                 .id((id, index))
+                .accessible(Role::Tab, format!("{id}-{index}"), label.clone())
+                .aria_selected(index == selected)
                 .keyboard_focus()
                 .px_3()
                 .py_1()
@@ -466,12 +472,12 @@ impl ContentView {
             .flex_col()
             .items_end()
             .child(
-                IconButton::new(("content-menu", kind as usize), Icon::Ellipsis).on_click(
-                    cx.listener(|this, _, _, cx| {
+                IconButton::new(("content-menu", kind as usize), Icon::Ellipsis)
+                    .label(format!("{}: {}", t(CommonMsg::Menu), kind.label()))
+                    .on_click(cx.listener(|this, _, _, cx| {
                         this.menu_open = !this.menu_open;
                         cx.notify();
-                    }),
-                ),
+                    })),
             )
             .when(self.menu_open, |this| {
                 let close = cx.listener(|this, _: &(), _, cx| {
@@ -753,7 +759,14 @@ impl ContentView {
         let enabled = item.enabled;
         let compatibility = item.compatibility;
         let id_base = kind as usize * 100_000 + index;
+        let row_name: SharedString = title.clone().into();
         row_base(("content-row", id_base), first)
+            .accessible(
+                Role::Group,
+                format!("{}-{name}", kind.dir()),
+                row_name.clone(),
+            )
+            .aria_description(detail.clone())
             .when(inner, |this| this.bg(colors::TRANSPARENT).pl_3())
             .child(icon_box(icon, 36.))
             .child(
@@ -912,6 +925,7 @@ impl ContentView {
                                 ("modrinth-page", id_base),
                                 Icon::ArrowUpRightFromSquare,
                             )
+                            .label(format!("{} {row_name}", t(CommonMsg::Open)))
                             .on_click(move |_, _, cx| {
                                 cx.stop_propagation();
                                 cx.open_url(&page)
@@ -922,6 +936,7 @@ impl ContentView {
                         let name = name.clone();
                         this.child(
                             Toggle::new(("enabled", id_base), enabled)
+                                .label(row_name.clone())
                                 .disabled(busy)
                                 .on_change(cx.listener(
                                     move |this, value: &bool, _, cx| match kind {
@@ -1594,6 +1609,12 @@ impl ContentView {
                 let selected_none = self.shaders.selection.pack.is_none();
                 in_box(
                     row_base("shaders-off", true)
+                        .accessible(Role::RadioButton, "shaders-off", t(M::ShadersOff))
+                        .aria_toggled(if selected_none {
+                            Toggled::True
+                        } else {
+                            Toggled::False
+                        })
                         .when(!busy, |this| {
                             this.keyboard_focus()
                                 .cursor_pointer()
@@ -1644,6 +1665,16 @@ impl ContentView {
                     in_box(
                         div()
                             .id(("shader-select", *index))
+                            .accessible(
+                                Role::RadioButton,
+                                format!("shader-select-{name}"),
+                                item.display_name(),
+                            )
+                            .aria_toggled(if selected {
+                                Toggled::True
+                            } else {
+                                Toggled::False
+                            })
                             .flex()
                             .flex_row()
                             .items_center()
@@ -1721,6 +1752,17 @@ impl ContentView {
                     ("modrinth-sort", kind as usize),
                     small(t(current)).font_weight(weights::BOLD.into()),
                 )
+                .aria_value(t(current))
+                .expandable(self.sort_open, {
+                    let view = cx.entity().downgrade();
+                    move |_: &mut Window, cx: &mut gpui::App| {
+                        view.update(cx, |this, cx| {
+                            this.sort_open = !this.sort_open;
+                            cx.notify();
+                        })
+                        .ok();
+                    }
+                })
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.sort_open = !this.sort_open;
                     cx.notify();
@@ -1757,6 +1799,12 @@ impl ContentView {
             });
         let chip = div()
             .id(("only-compatible", kind as usize))
+            .accessible(
+                Role::CheckBox,
+                format!("{}-only-compatible", kind.dir()),
+                tr!(M::OnlyTarget, target = target),
+            )
+            .aria_toggled(if only { Toggled::True } else { Toggled::False })
             .keyboard_focus()
             .flex()
             .flex_row()
@@ -1867,6 +1915,12 @@ impl ContentView {
         let busy = self.locked(cx) || self.job.is_some();
         let client_badge = kind == ContentKind::Mod && hit.client_side == "optional";
         row_base(("hit", index), first)
+            .accessible(
+                Role::ListItem,
+                format!("{}-hit-{}", kind.dir(), hit.project_id),
+                hit.title.clone(),
+            )
+            .aria_description(hit.description.clone())
             .keyboard_focus()
             .cursor_pointer()
             .hover(|style| style.bg(colors::GRAY_750))
@@ -2149,14 +2203,14 @@ impl ContentView {
                         .items_center()
                         .gap_2()
                         .child(
-                            Toggle::new(("show-all", kind as usize), show_all).on_change(
-                                cx.listener(move |this, value: &bool, _, cx| {
+                            Toggle::new(("show-all", kind as usize), show_all)
+                                .label(t(M::ShowAllVersions))
+                                .on_change(cx.listener(move |this, value: &bool, _, cx| {
                                     if let Some(view) = this.project_mut(kind) {
                                         view.show_all = *value;
                                     }
                                     cx.notify();
-                                }),
-                            ),
+                                })),
                         )
                         .child(
                             small(t(M::ShowAllVersions)).text_color(crate::theme::ink::secondary()),
@@ -2171,6 +2225,7 @@ impl ContentView {
                             .gap_2()
                             .child(
                                 Toggle::new(("with-deps", kind as usize), with_dependencies)
+                                    .label(t(M::AlsoInstallDependencies))
                                     .on_change(cx.listener(move |this, value: &bool, _, cx| {
                                         if let Some(view) = this.project_mut(kind) {
                                             view.with_dependencies = *value;
@@ -2263,6 +2318,12 @@ impl ContentView {
             };
             rows = rows.child(
                 row_base(("version-row", index), index == 0)
+                    .accessible(
+                        Role::Group,
+                        format!("{}-version-{}", kind.dir(), version.id),
+                        version.version_number.clone(),
+                    )
+                    .aria_description(format!("{type_label} · {date}"))
                     .child(
                         div()
                             .flex()

@@ -18,7 +18,10 @@ use launcher_core::content::{
 use launcher_core::game::loaders::LoaderKind;
 
 use super::{Instances, Versions, loader_picker::LoaderPicker, modpack_browser::ModpackBrowser};
-use crate::components::KeyboardFocus;
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role, Toggled},
+};
 use crate::{
     components::{
         Button, ButtonVariant, Dialog, Icon, LoadingDots, TextInput,
@@ -126,9 +129,22 @@ impl file_dialog::ShowsError for NewInstanceDialog {
 impl NewInstanceDialog {
     pub fn new(instances: Entity<Instances>, cx: &mut Context<Self>) -> Self {
         instances.update(cx, |instances, cx| instances.load_versions(cx));
-        let name = cx.new(|cx| TextInput::new(cx).with_placeholder(M::MyInstance));
-        let search = cx.new(|cx| TextInput::new(cx).with_placeholder(M::SearchVersions));
-        let code = cx.new(|cx| TextInput::new(cx).with_placeholder(M::PasteShareCode));
+        let name = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::MyInstance)
+                .with_label(M::Name)
+                .with_automation_id("new-instance-name")
+        });
+        let search = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::SearchVersions)
+                .with_automation_id("game-version-search")
+        });
+        let code = cx.new(|cx| {
+            TextInput::new(cx)
+                .with_placeholder(M::PasteShareCode)
+                .with_automation_id("share-code")
+        });
         let observe = vec![
             cx.observe(&instances, |this, _, cx| {
                 this.pick_default(cx);
@@ -491,6 +507,13 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
     let date: SharedString = release_date(version.release_time.as_deref()).into();
     div()
         .id(("version", index))
+        .accessible(
+            Role::ListItem,
+            format!("game-version-{}", version.id),
+            version.id.clone(),
+        )
+        .aria_selected(selected)
+        .aria_description(format!("{} · {date}", kind_label(version.kind)))
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -613,6 +636,8 @@ fn form_row(name: impl Into<SharedString>, control: impl IntoElement) -> impl In
 fn filter_chip(id: &'static str, caption: &'static str, on: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
+        .accessible(Role::CheckBox, id, caption)
+        .aria_toggled(if on { Toggled::True } else { Toggled::False })
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -688,6 +713,19 @@ fn loader_card(
     let (name, letter, tile, ink, about) = loader_look(kind);
     div()
         .id(("loader-card", index))
+        .accessible(
+            Role::RadioButton,
+            format!(
+                "loader-card-{}",
+                kind.map_or("vanilla".to_string(), |kind| kind.label().to_lowercase())
+            ),
+            name,
+        )
+        .aria_toggled(if selected {
+            Toggled::True
+        } else {
+            Toggled::False
+        })
         .keyboard_focus()
         .flex_1()
         .min_w_0()
@@ -925,6 +963,23 @@ impl NewInstanceDialog {
                 .cloned(),
             _ => None,
         };
+        let chosen_text: SharedString = match &chosen {
+            Some(version) => version.id.clone().into(),
+            None => t(M::ChooseVersion).into(),
+        };
+        let toggle = {
+            let form = cx.entity().downgrade();
+            move |window: &mut Window, cx: &mut gpui::App| {
+                form.update(cx, |this, cx| {
+                    this.versions_open = !this.versions_open;
+                    if this.versions_open {
+                        this.search.focus_handle(cx).focus(window, cx);
+                    }
+                    cx.notify();
+                })
+                .ok();
+            }
+        };
         let label = match (&versions, chosen) {
             (_, Some(version)) => div()
                 .flex()
@@ -968,6 +1023,9 @@ impl NewInstanceDialog {
             .items_start()
             .child(
                 select_button("game-version-select", label)
+                    .aria_label(t(M::MinecraftVersion))
+                    .aria_value(chosen_text)
+                    .expandable(self.versions_open, toggle)
                     .w(px(300.))
                     .justify_between()
                     .on_click(cx.listener(|this, _, window, cx| {

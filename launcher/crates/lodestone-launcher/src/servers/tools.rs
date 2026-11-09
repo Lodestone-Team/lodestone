@@ -158,7 +158,9 @@ impl ServerTools {
             targets,
             target,
             username: cx.new(|cx| {
-                let input = TextInput::new(cx).with_placeholder(M::Username);
+                let input = TextInput::new(cx)
+                    .with_placeholder(M::Username)
+                    .with_automation_id("server-tools-username");
                 match username {
                     Some(username) => input.with_text(username),
                     None => input,
@@ -167,6 +169,7 @@ impl ServerTools {
             password: cx.new(|cx| {
                 TextInput::new(cx)
                     .with_placeholder(M::Password)
+                    .with_automation_id("server-tools-password")
                     .with_masked()
             }),
             pack: PackState::Loading,

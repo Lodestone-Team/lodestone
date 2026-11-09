@@ -7,7 +7,10 @@ use gpui::{
 };
 use launcher_core::{Secret, cores::live::LauncherScope};
 
-use crate::components::KeyboardFocus;
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role, Toggled},
+};
 use crate::{
     components::{Button, ButtonVariant, Dialog, TextInput, Toggle},
     i18n::{CommonMsg, ServersMsg as M, t, tr},
@@ -107,16 +110,23 @@ impl AddServerDialog {
         let signing_in = address.is_some();
         Self {
             address: cx.new(|cx| {
-                let input = TextInput::new(cx).with_placeholder(M::AddressPlaceholder);
+                let input = TextInput::new(cx)
+                    .with_placeholder(M::AddressPlaceholder)
+                    .with_automation_id("add-server-address");
                 match &address {
                     Some(address) => input.with_text(address.clone()).with_disabled(true),
                     None => input,
                 }
             }),
-            username: cx.new(|cx| TextInput::new(cx).with_placeholder(M::UsernameOptional)),
+            username: cx.new(|cx| {
+                TextInput::new(cx)
+                    .with_placeholder(M::UsernameOptional)
+                    .with_automation_id("add-server-username")
+            }),
             password: cx.new(|cx| {
                 TextInput::new(cx)
                     .with_placeholder(M::Password)
+                    .with_automation_id("add-server-password")
                     .with_masked()
             }),
             expiry: KeyExpiry::default(),
@@ -224,27 +234,27 @@ impl AddServerDialog {
             .child(label(t(M::ConsoleAccess)))
             .child(row(
                 t(M::ReadConsole),
-                Toggle::new("console-read", self.console.console_read).on_change(
-                    move |value, _, cx| {
+                Toggle::new("console-read", self.console.console_read)
+                    .label(t(M::ReadConsole))
+                    .on_change(move |value, _, cx| {
                         let value = *value;
                         read.update(cx, |this, cx| {
                             this.console.console_read = value;
                             cx.notify();
                         })
-                    },
-                ),
+                    }),
             ))
             .child(row(
                 t(M::SendChat),
-                Toggle::new("console-write", self.console.console_write).on_change(
-                    move |value, _, cx| {
+                Toggle::new("console-write", self.console.console_write)
+                    .label(t(M::SendChat))
+                    .on_change(move |value, _, cx| {
                         let value = *value;
                         write.update(cx, |this, cx| {
                             this.console.console_write = value;
                             cx.notify();
                         })
-                    },
-                ),
+                    }),
             ))
             .child(
                 div()
@@ -277,6 +287,7 @@ impl Render for AddServerDialog {
         });
         let expiry = self.expiry;
         let pills = crate::components::ArrowGroup::new("key-expiry")
+            .group_role(Role::RadioGroup)
             .flex()
             .flex_row()
             .gap_1()
@@ -289,6 +300,12 @@ impl Render for AddServerDialog {
                 let selected = choice == expiry;
                 div()
                     .id(choice.id())
+                    .accessible(Role::RadioButton, choice.id(), choice.label())
+                    .aria_toggled(if selected {
+                        Toggled::True
+                    } else {
+                        Toggled::False
+                    })
                     .keyboard_focus()
                     .px_3()
                     .py_1()

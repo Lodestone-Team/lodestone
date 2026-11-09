@@ -22,6 +22,7 @@ use super::{
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, LoadingDots, Toggle,
+        a11y::{Accessible, Role},
     },
     i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, format, t, tr, trn},
     theme::{self, colors, fonts, leading, radius, text, weights},
@@ -320,8 +321,16 @@ impl Servers {
         }
 
         let status = status_label(server);
+        let element_id = SharedString::from(format!("server-{row_id}"));
+        let description: SharedString = if linked {
+            format!("{status} · {} · {}", detail(server), t(M::InstanceReady)).into()
+        } else {
+            format!("{status} · {}", detail(server)).into()
+        };
         div()
-            .id(SharedString::from(format!("server-{row_id}")))
+            .id(element_id.clone())
+            .accessible(Role::ListItem, element_id, server.name.clone())
+            .aria_description(description)
             .flex()
             .flex_row()
             .items_center()
@@ -453,8 +462,13 @@ impl Servers {
                 )
                 .into_any_element(),
         };
+        let card_id = SharedString::from(format!("core-{}", core.saved.uuid));
+        let card_description: SharedString =
+            format!("{} · {account}", display_address(&core.url)).into();
         div()
-            .id(SharedString::from(format!("core-{}", core.saved.uuid)))
+            .id(card_id.clone())
+            .accessible(Role::Group, card_id, core.saved.name.clone())
+            .aria_description(card_description)
             .flex()
             .flex_col()
             .w_full()
@@ -528,6 +542,7 @@ impl Servers {
                             )
                             .child(
                                 Toggle::new(SharedString::from(format!("trust-{index}")), trusted)
+                                    .label(t(M::TrustedForMods))
                                     .on_change(cx.listener(move |this, value: &bool, _, cx| {
                                         this.set_trusted(index, *value, cx)
                                     })),
@@ -600,6 +615,10 @@ impl Render for Servers {
                             .flex_1()
                             .child(
                                 div()
+                                    .id("servers-title")
+                                    .role(Role::Heading)
+                                    .aria_level(1)
+                                    .aria_label(t(M::ServersTitle))
                                     .font_family(fonts::heading())
                                     .text_size(theme::text_size(text::H1))
                                     .font_weight(weights::BOLD.into())
@@ -622,7 +641,10 @@ impl Render for Servers {
                     NoticeKind::Success => (colors::GREEN_300, Some(Icon::Check)),
                     NoticeKind::Info => (crate::theme::accent::light(), None),
                 };
+                let notice_label: SharedString = format!("{title}: {message}").into();
                 div()
+                    .id("servers-notice")
+                    .accessible(Role::Status, "servers-notice", notice_label)
                     .flex()
                     .flex_row()
                     .items_start()

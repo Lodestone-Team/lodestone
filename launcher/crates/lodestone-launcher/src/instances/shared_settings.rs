@@ -289,7 +289,13 @@ impl InstanceSharedSettings {
 
     fn edit(&mut self, row: &Row, cx: &mut Context<Self>) {
         let text = row.local.clone().unwrap_or_default();
-        let input = super::fields::input_with(cx, text, M::Value);
+        let input = super::fields::labeled(
+            cx,
+            text,
+            M::Value,
+            "shared-option-value",
+            shared_options_i18n::label(row),
+        );
         self.editing = Some((row.key.clone(), input));
         cx.notify();
     }
@@ -415,7 +421,9 @@ impl InstanceSharedSettings {
             |v| shared_options_i18n::show(row, v),
         );
         let edit_row = row.clone();
-        let line = SettingRow::new(shared_options_i18n::label(row)).indent();
+        let line = SettingRow::new(shared_options_i18n::label(row))
+            .key(SharedString::from(format!("shared-option-{}", row.key)))
+            .indent();
         let line =
             match (row.overridden, editing) {
                 (true, Some(input)) => line
@@ -584,6 +592,7 @@ impl Render for InstanceSharedSettings {
                 })
                 .child(
                     Toggle::new("use-shared-settings", enabled)
+                        .label(t(M::UseSharedSettings))
                         .disabled(busy)
                         .on_change(
                             cx.listener(|this, value: &bool, _, cx| this.set_enabled(*value, cx)),
@@ -675,10 +684,12 @@ pub(crate) fn value_control(
 ) -> Option<AnyElement> {
     let (name, index) = id;
     let on_set = std::rc::Rc::new(on_set);
+    let label = shared_options_i18n::label(row);
     Some(match row.control() {
         Control::Toggle => {
             let on = value == Some("true");
             Toggle::new((name, index), on)
+                .label(label)
                 .on_change(move |on: &bool, window, cx| {
                     on_set(&if *on { "true" } else { "false" }.to_string(), window, cx)
                 })
@@ -709,6 +720,7 @@ pub(crate) fn value_control(
                 .unwrap_or(min);
             let shown = row.clone();
             Slider::new((name, index), current, min, max, step)
+                .label(label)
                 .format(move |n| {
                     shared_options_i18n::show(&shown, &slider_text(min, max, step, n)).into()
                 })

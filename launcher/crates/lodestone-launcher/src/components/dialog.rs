@@ -44,6 +44,7 @@ use gpui::{
     MouseButton, ParentElement, RenderOnce, SharedString, Window, div, point, prelude::*,
 };
 
+use super::a11y::{Accessible, Role, child_id};
 use super::{Icon, IconButton, focus};
 use crate::i18n::{CommonMsg, t};
 use crate::theme::{self, colors, layout, leading, radius, shadow, text, weights};
@@ -200,6 +201,7 @@ impl RenderOnce for Dialog {
 
         let frameless = self.frameless;
         let edge_to_edge = self.edge_to_edge;
+        let name = self.title.clone();
         let panel = div()
             .id("dialog-panel")
             .relative()
@@ -285,7 +287,10 @@ impl RenderOnce for Dialog {
                 },
             );
 
-        let root = div().id(self.id.clone()).key_context("Dialog");
+        let root = div()
+            .id(self.id.clone())
+            .accessible(Role::Dialog, child_id(&self.id, "dialog"), name)
+            .key_context("Dialog");
         focus::trap(root, &focus_handle, on_dismiss)
             .absolute()
             .inset_0()

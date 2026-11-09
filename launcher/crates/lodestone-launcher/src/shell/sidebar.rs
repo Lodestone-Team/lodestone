@@ -8,7 +8,10 @@ use launcher_core::instances::{AutoGroup, Instance, last_played};
 use launcher_core::ui_skin::{FontPart, SurfaceId};
 
 use super::{LauncherShell, Page, account_box};
-use crate::components::KeyboardFocus;
+use crate::components::{
+    KeyboardFocus,
+    a11y::{Accessible, Role},
+};
 use crate::skin::Skinned;
 use crate::{
     components::{Align, Button, ButtonVariant, Icon},
@@ -25,6 +28,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
     let dragging = shell.sidebar_dragging();
     div()
         .id("sidebar")
+        .role(Role::Navigation)
+        .accessibility_id("sidebar")
         .relative()
         .flex()
         .flex_col()
@@ -283,6 +288,7 @@ fn rail_button(
 ) -> impl IntoElement {
     div()
         .id(id)
+        .accessible(Role::Button, id, label)
         .keyboard_focus()
         .size(px(40.))
         .flex()
@@ -334,8 +340,18 @@ fn rail_instance(
         RowPlace::List => format!("instance-{id}"),
         RowPlace::LastPlayed => format!("last-played-{id}"),
     };
+    let description: Option<SharedString> = match (running, active) {
+        (true, _) => Some(t(M::Playing).into()),
+        _ => played_summary(instance).map(Into::into),
+    };
+    let element_id = SharedString::from(element_id);
     div()
-        .id(SharedString::from(element_id))
+        .id(element_id.clone())
+        .accessible(Role::ListItem, element_id, instance.name.clone())
+        .aria_selected(is_selected)
+        .when_some(description, |this, description| {
+            this.aria_description(description)
+        })
         .keyboard_focus()
         .relative()
         .size(px(44.))
@@ -514,8 +530,17 @@ fn instance_row(
         .then(|| instances.sidebar_banner(&id))
         .flatten();
     let banner_readability = crate::skin::look(cx).spec.banner.readability;
+    let description: SharedString = if running {
+        format!("{detail} · {}", t(M::Playing)).into()
+    } else {
+        detail.clone().into()
+    };
+    let element_id = SharedString::from(element_id);
     div()
-        .id(SharedString::from(element_id))
+        .id(element_id.clone())
+        .accessible(Role::ListItem, element_id, instance.name.clone())
+        .aria_selected(is_selected)
+        .aria_description(description)
         .keyboard_focus()
         .relative()
         .overflow_hidden()
@@ -627,8 +652,28 @@ fn group_header(
     } else {
         caret
     };
+    let header_id = SharedString::from(format!("group-{name}"));
+    let toggle = {
+        let group = group.clone();
+        let shell = cx.entity().downgrade();
+        move |_: &mut gpui::Window, cx: &mut gpui::App| {
+            let group = group.clone();
+            shell
+                .update(cx, |this, cx| {
+                    this.instances
+                        .update(cx, |instances, cx| instances.toggle_group(&group, cx))
+                })
+                .ok();
+        }
+    };
     div()
-        .id(SharedString::from(format!("group-{name}")))
+        .id(header_id.clone())
+        .accessible(
+            Role::Button,
+            header_id,
+            format!("{} ({count})", group_label(name)),
+        )
+        .expandable(!collapsed, toggle)
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -802,6 +847,7 @@ fn page_link(
 ) -> impl IntoElement {
     div()
         .id(id)
+        .accessible(Role::Link, id, label)
         .keyboard_focus()
         .flex()
         .flex_row()
@@ -857,6 +903,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .child(
             div()
                 .id("settings")
+                .accessible(Role::Button, "settings", t(M::Settings))
                 .keyboard_focus()
                 .flex()
                 .flex_row()
