@@ -390,6 +390,11 @@ crate::i18n::messages! {
         CopyCodeAndOpen = "Copy code and open {host}",
         /// The button beside the sign-in code.
         CopySignInCode = "Copy code",
+        /// Asked on Back or closing once the sign-in code has been copied.
+        StopSigningInTitle = "Stop signing in?",
+        StopSigningInBody = "Microsoft is still waiting for the code you copied. If you stop now, entering it won't sign you in.",
+        StopSigningIn = "Stop signing in",
+        KeepWaiting = "Keep waiting",
         LinkInstructions = "Sign in in the browser window that opened. Microsoft then shows a page saying it is not normally shown. Copy the full address from the browser's address bar and paste it only into this launcher.",
         /// {url} is the start of the address to paste.
         LinkStartsWith = "It starts with {url}",

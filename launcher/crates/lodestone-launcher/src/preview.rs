@@ -57,6 +57,7 @@ pub const SCENES: &[&str] = &[
     "sign-in",
     "sign-in-browser",
     "sign-in-code",
+    "sign-in-stop",
     "sign-in-not-approved",
     "launcher-identity",
     "sign-in-launcher",
@@ -1205,6 +1206,18 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),
         "sign-in" => shell.open_sign_in_at(Stage::Choose, None, cx),
         "sign-in-browser" => shell.open_sign_in_at(Stage::Browser, None, cx),
+        "sign-in-stop" => {
+            shell.open_sign_in_at(
+                Stage::DeviceCode {
+                    user_code: "F7K2-9QXM".into(),
+                    verification_uri: launcher_core::auth::DEVICE_LOGIN_URL.into(),
+                    opened: true,
+                },
+                None,
+                cx,
+            );
+            shell.preview_ask_to_stop_signing_in(cx);
+        }
         "sign-in-code" => shell.open_sign_in_at(
             Stage::DeviceCode {
                 user_code: "F7K2-9QXM".into(),
