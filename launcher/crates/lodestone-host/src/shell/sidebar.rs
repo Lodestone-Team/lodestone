@@ -67,6 +67,22 @@ pub fn tab_name(tab: InstanceTab, instance: &InstanceInfo) -> &'static str {
     })
 }
 
+/// A tab's icon, as the dashboard's tab list (`pages/InstanceTabs/tabList.tsx`) shows
+/// it beside the name.
+pub fn tab_icon(tab: InstanceTab) -> Icon {
+    match tab {
+        InstanceTab::Overview => Icon::ChartLine,
+        InstanceTab::Settings => Icon::Gear,
+        InstanceTab::Console => Icon::Server,
+        InstanceTab::Files => Icon::Folder,
+        InstanceTab::Mods => Icon::PuzzlePiece,
+        InstanceTab::Macros => Icon::CodeCompare,
+        InstanceTab::EventLogs => Icon::Inbox,
+        // the dashboard's is a car in a tunnel
+        InstanceTab::Playit => Icon::Link,
+    }
+}
+
 fn dot(color: Color) -> impl IntoElement {
     div().flex_none().size(px(8.)).rounded_full().bg(color)
 }
@@ -513,6 +529,7 @@ fn selected_card(
                 gpui::SharedString::from(format!("tab-{tab:?}")),
                 tab_name(tab, instance),
             )
+            .icon(tab_icon(tab))
             .selected(selected_tab == Some(tab))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.navigate(
