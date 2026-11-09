@@ -48,6 +48,21 @@ sent while someone watches. Nothing is written to disk or sent anywhere, typed t
 never traced, and payloads are scrubbed of anything that looks like a password, token
 or key.
 
+## Performance
+
+`perf` (or `perf show`) reads the launcher's memory, CPU, threads, open files, frame
+rate and frame times, a running game's memory and CPU, and what the launcher holds
+(decoded images, the Modrinth cache, jobs, downloads, CLI clients, the trace bus).
+`perf watch` prints one reading a second. Settings → Developer → Performance monitor
+shows the same in a small window.
+
+## Access
+
+Settings → Developer → Command line decides what the CLI may do: whether the socket is
+open at all, full or read-only access, debug traces, and game logs. These settings
+change only in the launcher's window. `ping` reports them; refused commands fail with
+`permission_denied` (exit 9).
+
 ## For AI agents
 
 See [SKILL.md](SKILL.md): when to use it, the commands, the JSON shapes, the exit codes,

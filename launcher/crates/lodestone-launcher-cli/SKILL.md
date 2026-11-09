@@ -367,6 +367,23 @@ lodestone-launcher-cli trace watch '*.error' log.warn --backlog 200
 lodestone-launcher-cli trace watch game.log --backlog 0 --timeout 60   # console lines, live only
 ```
 
+Performance ("the launcher is slow", "it uses a lot of memory", "the game stutters"):
+
+```sh
+lodestone-launcher-cli perf                 # one reading, taken over a second
+lodestone-launcher-cli perf watch --count 30   # a reading every second, as JSON lines
+```
+
+`perf` reports the launcher's `memory_bytes` (on macOS the physical footprint, the
+number Activity Monitor shows), `cpu_percent` (of **one** core, so it can pass 100 on
+several cores; `cores` says how many there are), `threads` and `open_files`; `frames`
+(`fps`, `avg_ms`/`p95_ms`/`max_ms` between frames while it draws, `idle` when nothing
+redrew for 2 s); each running game's process (`games[].process`); decoded `images`,
+the Modrinth `content_cache`, `jobs`, `downloads` (`bytes_per_sec`), `cli_clients` and
+the `trace` bus (`null` while traces are off). The user can open the same numbers in
+Settings → Developer → Performance monitor. Both only read, so they work with
+read-only access.
+
 ## JSON shapes
 
 An instance (`instances list`, `instances show`, `instances create`):
@@ -401,6 +418,8 @@ A log row (`play logs`, `--follow`, `log` events):
 Events (`events`): `{"event": "state", "data": {"instance": "survival", "state": "running", "previous": "preparing"}}`;
 `event` is `log`, `state`, `progress`, `job`, `job_progress`, `notice` (`kind`:
 `crashed`, `launch_failed`, `notice`, `server_failed`, …) or `lagged`.
+
+A `perf watch` line: the same object as `perf`, with `at` (Unix seconds).
 
 Trace events (`trace watch`): `{"seq": 412, "at_ms": 1762611727120, "topic": "ui.click", "data": {"control": "button", "id": "create-instance", "label": "Create instance"}}`.
 Topics: `ui.click`/`ui.toggle`/`ui.select` (shared controls: id, label or value),
