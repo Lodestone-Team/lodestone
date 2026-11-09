@@ -27,8 +27,8 @@ mod window_layer;
 
 pub use a11y::Accessible;
 pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
-pub use dialog::Dialog;
 pub use dialog::prefers_reduced_motion;
+pub use dialog::{Dialog, UnderDialogs};
 pub use dialog_slot::{DialogSlot, EXIT, EXIT_REDUCED, Presence};
 pub use focus::{ArrowGroup, FocusScope, KeyboardFocus};
 pub use icon::Icon;

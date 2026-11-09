@@ -37,11 +37,12 @@
 use crate::skin::Skinned;
 use crate::theme::px;
 use launcher_core::ui_skin::SurfaceId;
-use std::{rc::Rc, time::Duration};
+use std::{cell::Cell, panic::Location, rc::Rc, time::Duration};
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, BoxShadow, ElementId, FocusHandle, Hsla, IntoElement,
-    MouseButton, ParentElement, RenderOnce, SharedString, Window, div, point, prelude::*,
+    Animation, AnimationExt, AnyElement, App, Bounds, BoxShadow, Element, ElementId, FocusHandle,
+    GlobalElementId, Hsla, InspectorElementId, IntoElement, LayoutId, MouseButton, ParentElement,
+    Pixels, RenderOnce, SharedString, Window, div, point, prelude::*,
 };
 
 use super::a11y::{Accessible, Role, child_id};
@@ -201,6 +202,11 @@ impl RenderOnce for Dialog {
             window,
             cx,
         );
+        // A dialog fading out no longer hides the window from assistive technology:
+        // focus has gone back to what opened it.
+        if !focus::in_closing(&focus_handle, window) {
+            DIALOG_OPEN.set(true);
+        }
         let on_dismiss = self.on_close.clone();
         let close = self.on_close.clone().map(close_button);
         let on_backdrop = self.on_close.filter(|_| self.backdrop_closes);
@@ -325,6 +331,108 @@ impl RenderOnce for Dialog {
     }
 }
 
+thread_local! {
+    /// Whether an open [`Dialog`] is in the frame being drawn. [`UnderDialogs`] clears
+    /// it before the dialogs render, and reads it once they all have.
+    static DIALOG_OPEN: Cell<bool> = const { Cell::new(false) };
+}
+
+/// What a window's dialogs cover (its top bar, sidebar and page), hidden from
+/// assistive technology while a dialog is open, as the backdrop hides it from the
+/// mouse. Without it, UI Automation and screen readers list every control behind a
+/// dialog beside the dialog's own, as if they could be used.
+///
+/// Wrap all of the window's content in one, except its dialogs and what stays usable
+/// over them (toasts, the window's buttons), which come after it. A dialog that a page
+/// opens must be drawn outside it too, in a [`window_layer`](super::window_layer)
+/// (deferred draws report to assistive technology from the window's root). It changes
+/// nothing on screen: it takes its content's place in the layout.
+pub struct UnderDialogs {
+    id: ElementId,
+    content: AnyElement,
+}
+
+impl UnderDialogs {
+    pub fn new(id: impl Into<ElementId>, content: impl IntoElement) -> Self {
+        Self {
+            id: id.into(),
+            content: content.into_any_element(),
+        }
+    }
+}
+
+impl IntoElement for UnderDialogs {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for UnderDialogs {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
+    fn source_location(&self) -> Option<&'static Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        // The window's dialogs render after this: in the content's deferred draws, or
+        // after it in the window.
+        DIALOG_OPEN.set(false);
+        (self.content.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.content.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut (),
+        _prepaint: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.content.paint(window, cx);
+    }
+
+    /// A container that assistive technology sees through (AccessKit leaves out a
+    /// `GenericContainer` and shows its children in its place), until it is hidden.
+    fn a11y_role(&self) -> Option<Role> {
+        Some(Role::GenericContainer)
+    }
+
+    /// Read once every element has rendered, so with this frame's dialogs.
+    fn write_a11y_info(&self, node: &mut accesskit::Node) {
+        if DIALOG_OPEN.get() {
+            node.set_hidden();
+        }
+    }
+}
+
 /// The ×, which calls `on_close` like Escape and a click on the backdrop.
 fn close_button(on_close: CloseHandler) -> impl IntoElement {
     div()
@@ -415,9 +523,10 @@ mod tests {
         VisualTestContext, Window, div, prelude::*,
     };
 
-    use super::Dialog;
+    use super::{Dialog, UnderDialogs};
     use crate::components::Button;
     use crate::theme::px;
+    use gpui::Element as _;
 
     #[derive(Clone, Copy, Debug)]
     enum Variant {
@@ -539,6 +648,59 @@ mod tests {
         assert_eq!(closed(&view, cx), 1);
         cx.simulate_click(gpui::point(px(4.), px(4.)), Modifiers::none());
         assert_eq!(closed(&view, cx), 2);
+    }
+
+    /// A window's content under a [`DialogSlot`](crate::components::DialogSlot).
+    struct Covered {
+        slot: crate::components::DialogSlot<Covered, FocusHandle>,
+    }
+
+    impl Render for Covered {
+        fn render(&mut self, window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let dialogs = self.slot.render(window, |focus| {
+                Some(Dialog::new("dialog", "Dialog", focus.clone()).into_any_element())
+            });
+            div()
+                .relative()
+                .size_full()
+                .child(UnderDialogs::new(
+                    "under-dialogs",
+                    Button::new("behind", "Behind"),
+                ))
+                .children(dialogs)
+        }
+    }
+
+    /// Whether the last frame drawn hid the content under its dialogs.
+    fn content_hidden() -> bool {
+        let mut node = accesskit::Node::new(super::Role::GenericContainer);
+        UnderDialogs::new("probe", div()).write_a11y_info(&mut node);
+        node.is_hidden()
+    }
+
+    #[test]
+    fn the_content_under_an_open_dialog_is_hidden_from_assistive_technology() {
+        let mut cx = TestAppContext::single();
+        cx.update(crate::components::init);
+        let (view, cx) = cx.add_window_view(|_, _| Covered {
+            slot: crate::components::DialogSlot::new(|this: &mut Covered| &mut this.slot),
+        });
+        cx.run_until_parked();
+        assert!(!content_hidden(), "shown without a dialog");
+
+        view.update(cx, |this, cx| {
+            let focus = cx.focus_handle();
+            this.slot.open(focus, cx);
+        });
+        cx.run_until_parked();
+        assert!(content_hidden(), "hidden while the dialog is open");
+
+        // Shown again as soon as the dialog starts fading out.
+        view.update(cx, |this, cx| {
+            this.slot.close(cx);
+        });
+        cx.run_until_parked();
+        assert!(!content_hidden(), "shown while the dialog fades out");
     }
 
     #[test]

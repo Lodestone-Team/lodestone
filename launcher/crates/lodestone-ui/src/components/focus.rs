@@ -150,7 +150,7 @@ fn shown(handle: &FocusHandle, window: &Window) -> bool {
 }
 
 /// Whether `handle` is in a dialog that is fading out.
-fn in_closing(handle: &FocusHandle, window: &Window) -> bool {
+pub(super) fn in_closing(handle: &FocusHandle, window: &Window) -> bool {
     let closing: Vec<FocusHandle> = with_registry(|r| {
         r.closing.retain(|scope| scope.upgrade().is_some());
         r.closing

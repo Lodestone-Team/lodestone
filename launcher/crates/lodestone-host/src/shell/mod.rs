@@ -11,7 +11,7 @@ use gpui::{
 };
 use launcher_core::cores::admin::InstanceState;
 use lodestone_ui::{
-    components::Tabs,
+    components::{Tabs, UnderDialogs},
     theme::{colors, fonts, ink, layout, px, text, weights},
 };
 
@@ -417,48 +417,57 @@ impl Render for HostShell {
                 gpui::MouseButton::Left,
                 cx.listener(|this, _, _, cx| this.end_sidebar_drag(cx)),
             )
-            .child(top_bar::render(self.notifications.clone(), window, cx))
-            .when(degraded, |this| this.child(self.degraded_banner(cx)))
-            .child(
+            .child(UnderDialogs::new(
+                "under-dialogs",
                 div()
+                    .flex()
+                    .flex_col()
                     .flex_1()
                     .min_h_0()
-                    .flex()
-                    .flex_row()
-                    .child(sidebar::render(self, cx))
-                    // the sidebar's edge, to drag
+                    .w_full()
+                    .child(top_bar::render(self.notifications.clone(), window, cx))
+                    .when(degraded, |this| this.child(self.degraded_banner(cx)))
                     .child(
                         div()
-                            .id("sidebar-edge")
-                            .flex_none()
-                            .w(gpui::px(4.))
-                            .ml(gpui::px(-4.))
-                            .h_full()
-                            .cursor_col_resize()
-                            .hover(|style| style.bg(colors::GRAY_700))
-                            .on_mouse_down(
-                                gpui::MouseButton::Left,
-                                cx.listener(|this, _, _, cx| {
-                                    this.sidebar_dragging = true;
-                                    cx.stop_propagation();
-                                }),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("main")
                             .flex_1()
-                            .min_w_0()
-                            .h_full()
-                            .overflow_y_scroll()
+                            .min_h_0()
                             .flex()
-                            .flex_col()
-                            .px(px(40.))
-                            .py(px(32.))
-                            .bg(colors::GRAY_800)
-                            .child(content),
+                            .flex_row()
+                            .child(sidebar::render(self, cx))
+                            // the sidebar's edge, to drag
+                            .child(
+                                div()
+                                    .id("sidebar-edge")
+                                    .flex_none()
+                                    .w(gpui::px(4.))
+                                    .ml(gpui::px(-4.))
+                                    .h_full()
+                                    .cursor_col_resize()
+                                    .hover(|style| style.bg(colors::GRAY_700))
+                                    .on_mouse_down(
+                                        gpui::MouseButton::Left,
+                                        cx.listener(|this, _, _, cx| {
+                                            this.sidebar_dragging = true;
+                                            cx.stop_propagation();
+                                        }),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id("main")
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h_full()
+                                    .overflow_y_scroll()
+                                    .flex()
+                                    .flex_col()
+                                    .px(px(40.))
+                                    .py(px(32.))
+                                    .bg(colors::GRAY_800)
+                                    .child(content),
+                            ),
                     ),
-            )
+            ))
             .when_some(self.create.clone(), |this, dialog| this.child(dialog))
             .when_some(self.cores.clone(), |this, dialog| {
                 this.child(div().absolute().inset_0().child(dialog))

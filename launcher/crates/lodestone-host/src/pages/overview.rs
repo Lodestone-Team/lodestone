@@ -26,7 +26,7 @@ use launcher_core::cores::{
 use lodestone_ui::{
     components::{
         Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, LineChart, LoadingDots,
-        TextInput, Toast, text_tooltip,
+        TextInput, Toast, text_tooltip, window_layer,
     },
     theme::{Color, colors, fonts, ink, px, radius, text, weights},
 };
@@ -1470,7 +1470,7 @@ impl Render for OverviewPage {
             .child(div().max_w(px(900.)).child(performance))
             .child(div().max_w(px(900.)).child(players))
             .child(div().max_w(px(900.)).child(details))
-            .children(dialogs)
+            .children(window_layer(window, dialogs))
             .into_any_element()
     }
 }
