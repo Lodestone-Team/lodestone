@@ -15,7 +15,7 @@ use gpui::{
 };
 
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Icon},
+    components::{Button, ButtonSize, ButtonVariant, Icon, window_frame::Side},
     i18n::{ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     perf::{ProcessReading, Sample, Sampler, Sources},
     theme::{self, Color, colors, fonts, px, text, weights},
@@ -39,7 +39,15 @@ pub fn open(sources: Sources, cx: &mut App) -> Option<WindowHandle<PerfMonitor>>
     {
         return Some(handle);
     }
-    let mut options = crate::window_options(t(M::PerfMonitor), 420., 640., cx);
+    // On Windows the caption buttons take the bar's right end (macOS's traffic lights
+    // take less, at the left), so the window starts wider there to keep the title, the
+    // drag area and Copy beside them.
+    let width = if cfg!(target_os = "windows") {
+        540.
+    } else {
+        420.
+    };
+    let mut options = crate::window_options(t(M::PerfMonitor), width, 640., cx);
     options.window_min_size = Some(size(px(360.), px(320.)));
     // above the launcher's other windows
     options.kind = WindowKind::Floating;
@@ -216,6 +224,7 @@ impl Render for PerfMonitor {
             return div().into_any_element();
         };
         let mac = cfg!(target_os = "macos");
+        let windows = cfg!(target_os = "windows");
         let launcher = &now.launcher;
         let memory_series = self.series(|s| s.launcher.memory.map(|m| m as f64));
         let cpu_series = self.series(|s| s.launcher.cpu_percent);
@@ -364,14 +373,23 @@ impl Render for PerfMonitor {
                     .items_center()
                     .gap_2()
                     .h(gpui::px(super::top_bar::TOP_BAR_HEIGHT + 1.0))
+                    // macOS's traffic lights sit at the left end. Elsewhere the
+                    // window's own buttons, drawn over the bar by `window_controls`,
+                    // take room at either end, as in the main window's top bar.
                     .pl(px(if mac { 84. } else { 16. }))
-                    .pr_3()
+                    // On Windows the caption buttons end the bar, flush with the edge.
+                    .when(!windows, |bar| bar.pr_3())
+                    .children(super::top_bar::controls_room(Side::Left, window, cx))
                     .bg(colors::GRAY_800)
                     .border_b_1()
                     .border_color(colors::GRAY_FADED.opacity(30))
                     .child(Icon::Gear.render(px(14.), colors::GRAY_400))
                     .child(
                         div()
+                            // gives way first in a narrow window, so Copy never
+                            // slides under the window's buttons
+                            .min_w_0()
+                            .truncate()
                             .font_weight(weights::BOLD.into())
                             .text_size(theme::text_size(text::MEDIUM))
                             .child(t(M::PerfMonitor)),
@@ -404,7 +422,10 @@ impl Render for PerfMonitor {
                                 cx.notify();
                             }
                         })),
-                    ),
+                    )
+                    // room for the window's buttons, which `window_controls` draws
+                    // over this end of the bar
+                    .children(super::top_bar::controls_room(Side::Right, window, cx)),
             )
             .child(
                 div()
