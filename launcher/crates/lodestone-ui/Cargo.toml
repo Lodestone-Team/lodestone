@@ -24,6 +24,8 @@ gpui_platform = { workspace = true, optional = true }
 image.workspace = true
 launcher-core.workspace = true
 log.workspace = true
+# The console's colour codes (`components/console_line.rs`).
+lodestone_minecraft.workspace = true
 serde_json.workspace = true
 unicode-segmentation.workspace = true
 

@@ -49,6 +49,7 @@ pub const TOP_BAR_HEIGHT: f32 = 42.0;
 /// Sets up the fonts, the components, key bindings and the app menu. Call once.
 pub fn init(cx: &mut App) {
     lodestone_ui::init(cx);
+    pages::init(cx);
     #[cfg(target_os = "macos")]
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),

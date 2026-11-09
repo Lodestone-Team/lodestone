@@ -24,6 +24,7 @@
 pub mod console;
 pub mod core_settings;
 pub mod create_instance;
+pub mod eula_prompt;
 pub mod event_logs;
 pub mod files;
 pub mod home;
@@ -46,6 +47,11 @@ use crate::{
     routes::{InstanceTab, Route, SettingsPage},
     state::HostState,
 };
+
+/// Registers the pages' key bindings. Call once, after `lodestone_ui::init`.
+pub fn init(cx: &mut App) {
+    console::init(cx);
+}
 
 /// The page for `route`.
 pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
@@ -79,6 +85,15 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
             SettingsPage::Users => cx.new(|cx| users::UsersPage::new(state, cx)).into(),
             SettingsPage::Profile => cx.new(|cx| profile::ProfilePage::new(state, cx)).into(),
         },
+    }
+}
+
+/// Fills the page with sample data (console lines, …), for the development
+/// screenshots' `--demo`.
+#[cfg(feature = "screenshot")]
+pub fn demo(view: &AnyView, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<console::ConsolePage>() {
+        page.update(cx, |page, cx| page.demo(cx));
     }
 }
 
