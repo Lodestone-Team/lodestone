@@ -32,11 +32,6 @@ on:
         required: false
         type: string
         default: ""
-      dev:
-        description: A developer build (dev-build.yml), for developers' own copies only
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -69,28 +64,22 @@ jobs:
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         prefix-key: rust-cache
-        # Developer builds use their own cargo profile, so they keep their own cache.
-        shared-key: host-macos-${{ inputs.dev && 'dev' || 'release' }}
+        shared-key: host-macos-release
         workspaces: |
           launcher
           .
 
     # Built before the signing certificate and the Apple account are in reach, so
     # no build script ever runs beside them. The staging step below builds again
-    # with the same settings, which does nothing. Developer builds use the
-    # `dev-build` profile, as `publish_release.py --dev` does.
+    # with the same settings, which does nothing.
     - name: Build
-      env:
-        PROFILE: ${{ inputs.dev && 'dev-build' || 'release' }}
-        LODESTONE_HOST_CHANNEL: ${{ inputs.dev && 'dev' || '' }}
       run: |
         export LODESTONE_HOST_BUILD="$(git rev-list --count HEAD)"
         export LODESTONE_HOST_COMMIT="$(git rev-parse HEAD)"
-        [ -n "$LODESTONE_HOST_CHANNEL" ] || unset LODESTONE_HOST_CHANNEL
         for target in aarch64-apple-darwin x86_64-apple-darwin; do
-          (cd launcher && cargo build --profile "$PROFILE" --locked -p lodestone-host --target "$target")
+          (cd launcher && cargo build --release --locked -p lodestone-host --target "$target")
           # Never with Deno.
-          cargo build --profile "$PROFILE" --locked -p lodestone_core --no-default-features --target "$target"
+          cargo build --release --locked -p lodestone_core --no-default-features --target "$target"
         done
 
     - name: Import the signing certificate
@@ -123,7 +112,6 @@ jobs:
         APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
       run: >-
         python3 launcher/scripts/publish_release.py --product host
-        ${{ inputs.dev && '--dev' || '' }}
         --stage "$RUNNER_TEMP/host-macos"
         --target aarch64-apple-darwin --target x86_64-apple-darwin
 
