@@ -266,6 +266,119 @@ impl Instances {
         );
     }
 
+    /// Creates an instance from a share code and installs its content in the
+    /// background, like a modpack import (with its progress in the sidebar). Returns
+    /// the new instance's id.
+    /// Makes the empty instance a share code describes: its Minecraft version and
+    /// loader, named `name`, else the code's name, else "1.21.1 Fabric".
+    pub fn create_from_share_code(
+        &mut self,
+        code: &launcher_core::content::share::ShareCode,
+        name: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Result<launcher_core::instances::Instance, String> {
+        use launcher_core::game::loaders::LoaderChoice;
+        let name = name
+            .or_else(|| code.name.clone())
+            .unwrap_or_else(|| match code.loader.kind() {
+                Some(kind) => format!("{} {}", code.game_version, kind.label()),
+                None => code.game_version.clone(),
+            });
+        let loader = code
+            .loader
+            .kind()
+            .zip(code.loader_version.clone())
+            .map(|(kind, version)| LoaderChoice { kind, version });
+        self.create(&name, &code.game_version, loader.as_ref(), cx)
+    }
+
+    pub fn import_share_code(
+        &mut self,
+        code: launcher_core::content::share::ShareCode,
+        name: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Result<String, String> {
+        use launcher_core::content::share;
+        let instance = self.create_from_share_code(&code, name, cx)?;
+        let id = instance.id.clone();
+        let name = instance.name.clone();
+        if code.items.is_empty() {
+            return Ok(id);
+        }
+        let Some(api) = self.modrinth.clone() else {
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::ShareCodeContentFailed).into(),
+                message: t(M::ShareCodeOffline).into(),
+            });
+            return Ok(id);
+        };
+        let (Some(target), dirs) = (self.content_target(&id), self.content_dirs(&id)) else {
+            return Ok(id);
+        };
+        self.next_import += 1;
+        let job_id = self.next_import;
+        let progress = Arc::new(InstallProgress::default());
+        let cancel = CancelToken::new();
+        let downloader = self.content_downloader.clone();
+        let work = {
+            let progress = progress.clone();
+            let cancel = cancel.clone();
+            cx.background_spawn(async move {
+                share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel).await
+            })
+        };
+        let instance_name = name.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.imports.retain(|job| job.id != job_id);
+                this.reload(cx);
+                match result {
+                    Ok(outcome) => {
+                        let installed = trn!(P::ShareCodeInstalled, outcome.installed.len());
+                        let message = match outcome.failed.len() {
+                            0 => installed,
+                            _ => tr!(
+                                M::TwoSentences,
+                                first = installed,
+                                second = tr!(
+                                    M::ShareCodeNotInstalled,
+                                    names = crate::i18n::format::list(
+                                        &outcome
+                                            .failed
+                                            .iter()
+                                            .map(|(title, _)| title.clone())
+                                            .collect::<Vec<_>>()
+                                    )
+                                )
+                            ),
+                        };
+                        cx.emit(InstancesEvent::Notice {
+                            title: tr!(M::ShareCodeReady, name = instance_name).into(),
+                            message: message.into(),
+                        });
+                    }
+                    Err(err) => cx.emit(InstancesEvent::LaunchFailed {
+                        title: t(M::ShareCodeContentFailed).into(),
+                        message: err.to_string().into(),
+                    }),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self.imports.push(ImportJob {
+            id: job_id,
+            name: name.into(),
+            progress,
+            cancel,
+            _task: task,
+        });
+        self.start_import_ticker(cx);
+        cx.notify();
+        Ok(id)
+    }
+
     fn start_import(
         &mut self,
         label: String,

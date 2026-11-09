@@ -11,6 +11,7 @@ pub mod modpack_browser;
 pub mod modpacks;
 pub mod new_instance;
 pub mod settings;
+pub mod share_dialog;
 pub(crate) mod shared_options_i18n;
 pub mod shared_settings;
 pub mod slideshow;

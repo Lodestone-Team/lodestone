@@ -22,6 +22,7 @@ impl Modal {
         match self {
             Modal::NewInstance { .. } => "new_instance",
             Modal::Import { .. } => "import",
+            Modal::Share { .. } => "share",
             Modal::Crash { .. } => "crash",
             Modal::LaunchFailed { .. } => "launch_failed",
             Modal::DeleteInstance { .. } => "delete_instance",

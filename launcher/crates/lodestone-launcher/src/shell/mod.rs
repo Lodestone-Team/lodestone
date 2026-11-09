@@ -54,7 +54,10 @@ use crate::{
         import::{ImportDialog, ImportDismissed},
         modpacks::UpdatePrompt,
         new_instance::{NewInstanceDialog, NewInstanceDismissed},
-        settings::{DeleteRequested, HostRequested, InstanceSettings, LoaderChangePrompt},
+        settings::{
+            DeleteRequested, HostRequested, InstanceSettings, LoaderChangePrompt, ShareRequested,
+        },
+        share_dialog::{ShareDialog, ShareDismissed},
         worlds::{WorldsEvent, WorldsView},
     },
     servers::{Servers, ServersEvent, view::ServersOverlay},
@@ -128,6 +131,11 @@ enum Modal {
     /// "Import from another launcher".
     Import {
         dialog: Entity<ImportDialog>,
+        _events: Subscription,
+    },
+    /// "Share code" for an instance.
+    Share {
+        dialog: Entity<ShareDialog>,
         _events: Subscription,
     },
     Crash {
@@ -228,7 +236,7 @@ pub struct LauncherShell {
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
-    settings: Option<(Entity<InstanceSettings>, [Subscription; 4])>,
+    settings: Option<(Entity<InstanceSettings>, [Subscription; 5])>,
     page: Page,
     tab: InstanceTab,
     /// The launcher's Settings, a large dialog under the other dialogs.
@@ -898,6 +906,9 @@ impl LauncherShell {
                     cx.subscribe(&settings, |this, _, prompt: &UpdatePrompt, cx| {
                         this.show_modpack_update(prompt.clone(), cx)
                     }),
+                    cx.subscribe(&settings, |this, _, ShareRequested(id), cx| {
+                        this.open_share(id, cx)
+                    }),
                     cx.subscribe(&settings, |this, _, HostRequested(id), cx| {
                         this.servers
                             .update(cx, |servers, cx| servers.open_host(id, cx))
@@ -1209,6 +1220,7 @@ impl LauncherShell {
         match self.modal.current() {
             Some(Modal::NewInstance { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Import { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::Share { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::SignIn { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Offline { dialog: open, .. }) => open.entity_id() == dialog,
             _ => false,
@@ -1259,6 +1271,30 @@ impl LauncherShell {
         }
         self.modal.open(
             Modal::NewInstance {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
+    }
+
+    /// Opens "Share code" for the instance `id`.
+    pub fn open_share(&mut self, id: &str, cx: &mut Context<Self>) {
+        let instances = self.instances.clone();
+        let dialog = cx.new(|cx| ShareDialog::new(instances, id, cx));
+        self.show_share(dialog, cx);
+    }
+
+    /// Shows the share dialog (a prepared one for the offscreen screenshots).
+    pub fn show_share(&mut self, dialog: Entity<ShareDialog>, cx: &mut Context<Self>) {
+        self.account_menu_open = false;
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &ShareDismissed, cx| {
+            if this.is_open_dialog(dialog.entity_id()) {
+                this.close_modal(cx)
+            }
+        });
+        self.modal.open(
+            Modal::Share {
                 dialog,
                 _events: subscription,
             },
@@ -1409,6 +1445,7 @@ impl LauncherShell {
         Some(match modal {
             Modal::NewInstance { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Import { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::Share { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Crash {
                 crash,
                 focus,

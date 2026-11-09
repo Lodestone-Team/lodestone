@@ -995,6 +995,8 @@ impl Render for TextInput {
             .flex()
             .items_center()
             .w_full()
+            // Text longer than the field (a pasted share code) stays inside it.
+            .overflow_hidden()
             // `input-shape`: rounded py-2 px-2.5
             .py_2()
             .px(px(10.))

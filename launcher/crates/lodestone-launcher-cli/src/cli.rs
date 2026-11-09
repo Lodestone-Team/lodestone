@@ -296,6 +296,27 @@ pub enum Instances {
     /// Checks every game file and downloads missing or broken ones.
     #[command(after_help = "Examples:\n  lodestone-launcher-cli instances verify Survival")]
     Verify(InstanceArg),
+    /// Prints a share code: the instance's Modrinth mods, resource packs and shaders,
+    /// for another Lodestone Launcher to paste. Lists what it leaves out (CurseForge
+    /// and hand-added files aren't shared).
+    #[command(
+        name = "share-code",
+        after_help = "Examples:\n  lodestone-launcher-cli instances share-code Survival\n  lodestone-launcher-cli instances share-code Survival --json | jq -r .code"
+    )]
+    ShareCode(InstanceArg),
+    /// Makes an instance from a share code and installs its content from Modrinth.
+    /// Waits for the downloads.
+    #[command(
+        name = "import-code",
+        after_help = "Examples:\n  lodestone-launcher-cli instances import-code 'LDS1:…'\n  lodestone-launcher-cli instances import-code \"$CODE\" --name \"Friend's pack\""
+    )]
+    ImportCode {
+        /// The code, starting with LDS1:.
+        code: String,
+        /// The new instance's name; the code's own name without it.
+        #[arg(long)]
+        name: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

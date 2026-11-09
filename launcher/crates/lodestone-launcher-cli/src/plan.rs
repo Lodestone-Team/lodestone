@@ -272,6 +272,17 @@ pub fn plan(
                 ],
             ),
             Instances::Verify(i) => long("instances.verify", vec![("instance", json!(i.instance))]),
+            Instances::ShareCode(i) => call(
+                "instances.share_code",
+                vec![("instance", json!(i.instance))],
+            ),
+            Instances::ImportCode { code, name } => {
+                let mut params = vec![("code", json!(code))];
+                if let Some(name) = name {
+                    params.push(("name", json!(name)));
+                }
+                long("instances.import_code", params)
+            }
         },
         Command::Play(c) => match c {
             Play::Launch {
@@ -874,6 +885,22 @@ mod tests {
             (
                 "content.install",
                 json!({ "instance": "Survival", "project": "sodium", "no_deps": true, "force": false }),
+                true
+            )
+        );
+        assert_eq!(
+            call_of(&["instances", "share-code", "Survival"]),
+            (
+                "instances.share_code",
+                json!({ "instance": "Survival" }),
+                false
+            )
+        );
+        assert_eq!(
+            call_of(&["instances", "import-code", "LDS1:abc", "--name", "Copy"]),
+            (
+                "instances.import_code",
+                json!({ "code": "LDS1:abc", "name": "Copy" }),
                 true
             )
         );

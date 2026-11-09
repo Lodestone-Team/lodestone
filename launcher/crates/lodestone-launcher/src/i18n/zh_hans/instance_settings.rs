@@ -149,6 +149,25 @@ pub fn text(message: M) -> &'static str {
         M::HostOnCore => "在 Lodestone Core 上托管",
         M::HostHint => "用此实例的模组创建服务器。",
         M::HostButton => "托管…",
+        M::ShareCodeRow => "分享码",
+        M::ShareButton => "分享…",
+        M::ShareTitle => "分享 {name}",
+        M::ShareIntro => {
+            "另一个 Lodestone Launcher 可以用这个分享码创建同样的实例：相同的 Minecraft 版本、加载器和 Modrinth 内容。"
+        }
+        M::ShareReading => "正在读取内容…",
+        M::ShareNotSharedBody => "分享码只包含来自 Modrinth 的内容。如有需要，请另行发送这些文件。",
+        M::ShareFromCurseForge => "来自 CurseForge",
+        M::ShareAddedByHand => "手动添加",
+        M::ShareMore => "还有 {count} 个",
+        M::CopyCode => "复制分享码",
+        M::CodeCopied => "已复制",
+        M::ShareCodeMode => "分享码",
+        M::PasteShareCode => "粘贴分享码",
+        M::CodeNotACode => "这不是 Lodestone 分享码。",
+        M::CodeNewer => "此分享码来自更新版本的 Lodestone Launcher。",
+        M::CodeTooLarge => "分享码太长。",
+        M::CodeDamaged => "分享码已损坏，请重新复制。",
         M::DeleteInstance => "删除实例",
         M::DeleteHint => "包括其中的世界和模组。",
         M::DeleteButton => "删除…",
@@ -218,6 +237,7 @@ pub fn text(message: M) -> &'static str {
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
+        P::ShareNotShared => ["有 {count} 个文件不会被分享"; 2],
         P::LoaderNextStartModsOff => {
             ["{loader} 将在游戏下次启动时安装。已禁用 {count} 个模组。"; 2]
         }

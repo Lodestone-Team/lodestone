@@ -4,6 +4,12 @@ crate::i18n::messages! {
     pub enum InstancesMsg {
         /// Two sentences one after the other, as one message: "{first} {second}".
         TwoSentences = "{first} {second}",
+        /// After an instance was made from a share code; {name} is its name.
+        ShareCodeReady = "{name} is ready",
+        /// {names} lists what couldn't be installed.
+        ShareCodeNotInstalled = "Not installed: {names}.",
+        ShareCodeContentFailed = "Couldn't install the share code's content",
+        ShareCodeOffline = "Modrinth can't be reached, so the instance was made without its content.",
         /// An error's title and its text, in the console: "Couldn't start Java: …".
         TitleAndMessage = "{title}: {message}",
         /// An instance without a mod loader.
@@ -162,6 +168,10 @@ crate::i18n::messages! {
     }
 
     pub enum InstancesPlural {
+        ShareCodeInstalled = (
+            "Installed {count} item from the code.",
+            "Installed {count} items from the code."
+        ),
         /// "Checked 4,091 game files in 45 ms: 4,091 unchanged since the last check, 0 hashed, 0 downloaded."
         CheckSummary = (
             "Checked {count} game file in {ms} ms: {unchanged} unchanged since the last check, {hashed} hashed, {downloaded} downloaded.",

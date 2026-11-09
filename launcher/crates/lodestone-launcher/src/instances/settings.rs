@@ -82,6 +82,9 @@ pub struct DeleteRequested(pub String);
 /// "Host on a Lodestone core…" was clicked for this instance.
 pub struct HostRequested(pub String);
 
+/// "Share…" was clicked for this instance: the shell opens the share code dialog.
+pub struct ShareRequested(pub String);
+
 /// Asks the shell to confirm a loader change that leaves mods behind or puts worlds at
 /// risk.
 #[derive(Clone, Debug)]
@@ -219,6 +222,7 @@ pub struct InstanceSettings {
 
 impl EventEmitter<DeleteRequested> for InstanceSettings {}
 impl EventEmitter<HostRequested> for InstanceSettings {}
+impl EventEmitter<ShareRequested> for InstanceSettings {}
 impl EventEmitter<LoaderChangePrompt> for InstanceSettings {}
 impl EventEmitter<UpdatePrompt> for InstanceSettings {}
 
@@ -2419,6 +2423,16 @@ impl Render for InstanceSettings {
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Slim)
                         .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
+                )
+                .into_any_element(),
+            SettingRow::new(t(M::ShareCodeRow))
+                .child(
+                    Button::new("share-instance", t(M::ShareButton))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.emit(ShareRequested(this.instance_id.clone()))
+                        })),
                 )
                 .into_any_element(),
             SettingRow::new(t(M::Duplicate))
