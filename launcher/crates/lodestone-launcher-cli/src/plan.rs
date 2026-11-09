@@ -783,6 +783,80 @@ pub fn plan(
                 vec![("path", json!(absolute(path)?)), ("id", json!(id))],
             ),
         },
+        Command::Snapshots(c) => {
+            let parts = |p: &crate::cli::PartsArgs| {
+                vec![
+                    (
+                        "include",
+                        if p.include.is_empty() {
+                            Value::Null
+                        } else {
+                            json!(p.include)
+                        },
+                    ),
+                    (
+                        "worlds",
+                        if p.worlds.is_empty() {
+                            Value::Null
+                        } else {
+                            json!(p.worlds)
+                        },
+                    ),
+                ]
+            };
+            match c {
+                Snapshots::List(i) => call("snapshots.list", vec![("instance", json!(i.instance))]),
+                Snapshots::Create {
+                    instance,
+                    name,
+                    parts: p,
+                } => {
+                    let mut pairs = vec![("instance", json!(instance)), ("name", json!(name))];
+                    pairs.extend(parts(p));
+                    long("snapshots.create", pairs)
+                }
+                Snapshots::Revert {
+                    instance,
+                    snapshot,
+                    parts: p,
+                } => {
+                    let mut pairs =
+                        vec![("instance", json!(instance)), ("snapshot", json!(snapshot))];
+                    pairs.extend(parts(p));
+                    long("snapshots.revert", pairs)
+                }
+                Snapshots::Export {
+                    instance,
+                    snapshot,
+                    path,
+                } => long(
+                    "snapshots.export",
+                    vec![
+                        ("instance", json!(instance)),
+                        ("snapshot", json!(snapshot)),
+                        ("path", json!(absolute(path)?)),
+                    ],
+                ),
+                Snapshots::Import {
+                    path,
+                    preview,
+                    parts: p,
+                } => {
+                    let mut pairs = vec![("path", json!(absolute(path)?))];
+                    if *preview {
+                        pairs.push(("preview", json!(true)));
+                        call("snapshots.import", pairs)
+                    } else {
+                        pairs.extend(parts(p));
+                        long("snapshots.import", pairs)
+                    }
+                }
+                Snapshots::Delete { instance, snapshot } => call(
+                    "snapshots.delete",
+                    vec![("instance", json!(instance)), ("snapshot", json!(snapshot))],
+                ),
+            }
+        }
         Command::Storage(c) => match c {
             Storage::Show => call("storage.show", vec![]),
             Storage::Clean { what } => call("storage.clean", vec![("what", json!(what))]),
@@ -929,6 +1003,40 @@ mod tests {
         assert_eq!(params, json!({ "path": "/tmp/Cozy.zip", "use": true }));
         let (_, params, _) = call_of(&["play", "launch", "Smp", "--skip-update"]);
         assert_eq!(params["update_mods"], json!(false));
+        assert_eq!(
+            call_of(&[
+                "snapshots",
+                "create",
+                "S",
+                "--name",
+                "Before",
+                "--include",
+                "worlds",
+                "--world",
+                "New World"
+            ]),
+            (
+                "snapshots.create",
+                json!({ "instance": "S", "name": "Before", "include": ["worlds"], "worlds": ["New World"] }),
+                true
+            )
+        );
+        assert_eq!(
+            call_of(&["snapshots", "revert", "S", "latest"]),
+            (
+                "snapshots.revert",
+                json!({ "instance": "S", "snapshot": "latest" }),
+                true
+            )
+        );
+        assert_eq!(
+            call_of(&["snapshots", "import", "/tmp/a.lodesnap", "--preview"]),
+            (
+                "snapshots.import",
+                json!({ "path": "/tmp/a.lodesnap", "preview": true }),
+                false
+            )
+        );
         let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);
         assert_eq!(
             params,

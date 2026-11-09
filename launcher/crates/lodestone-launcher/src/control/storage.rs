@@ -33,6 +33,7 @@ pub fn show(call: Call, cx: &mut App) -> Reply {
                     "unused_runtimes": report.unused_runtimes(),
                     "cache": report.cache,
                     "leftovers": report.leftovers.bytes,
+                    "snapshots": report.snapshots.bytes,
                     "logs": report.logs.bytes,
                     "other": report.other,
                 }),
