@@ -203,7 +203,7 @@ pub fn text(message: M) -> &'static str {
         M::FirstTimeSetupSection => "首次设置",
         M::ResetFirstTimeSetup => "重置首次设置",
         M::ResetFirstTimeSetupHint => {
-            "下一个新建的实例会再次被提议设为主实例。这会清除当前主实例；共享值保留。"
+            "下一个新建的实例会再次被提议设为主实例，下次启动时也会再次提议关闭复述功能。这会清除当前主实例；共享值保留。"
         }
         M::FirstTimeSetupReset => "首次设置已重置。新建一个实例即可看到。",
         M::StartFromInstance => "从某个实例开始",
@@ -236,6 +236,12 @@ pub fn text(message: M) -> &'static str {
         M::NarratorNotShared => "“{category}”未共享，因此每个实例保留自己的复述功能设置。",
         M::NarratorKeptOff => "复述功能在每个实例中都保持关闭，包括新实例。",
         M::NarratorPerInstance => "各实例恢复使用自己的复述功能设置。",
+        M::NarratorOfferTitle => "始终关闭复述功能？",
+        M::NarratorOfferBody => {
+            "Lodestone Launcher 可以在你的所有实例（包括新实例）中保持关闭 Minecraft 的复述功能，并跳过首次启动时的辅助功能界面。"
+        }
+        M::NarratorOfferAccept => "保持关闭",
+        M::NarratorOfferDismiss => "忽略",
 
         M::SigningIn => "正在登录…",
         M::OfflineCouldntConnect => "离线 – 无法连接",

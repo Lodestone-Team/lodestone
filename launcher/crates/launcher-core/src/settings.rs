@@ -66,6 +66,11 @@ pub struct Settings {
     /// the file until then.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub main_instance_offered: bool,
+    /// The notification at start that offers to keep the narrator off in every
+    /// instance was accepted or dismissed, so it doesn't come back (Settings >
+    /// Developer can ask again). Left out of the file until then.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub narrator_offered: bool,
     /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
@@ -98,6 +103,7 @@ impl Default for Settings {
             update_channel: UpdateChannel::Stable,
             after_launch: AfterLaunch::Minimize,
             main_instance_offered: false,
+            narrator_offered: false,
             zoom: 1.0,
             skin: None,
             sidebar_width: None,

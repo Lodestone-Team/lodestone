@@ -205,7 +205,7 @@ pub fn text(message: M) -> &'static str {
         M::FirstTimeSetupSection => "首次設定",
         M::ResetFirstTimeSetup => "重設首次設定",
         M::ResetFirstTimeSetupHint => {
-            "下一個新建的實例會再次被提議設為主實例。這會清除目前的主實例；共用值保留。"
+            "下一個新建的實例會再次被提議設為主實例，下次啟動時也會再次提議關閉朗讀功能。這會清除目前的主實例；共用值保留。"
         }
         M::FirstTimeSetupReset => "首次設定已重設。新建一個實例即可看到。",
         M::StartFromInstance => "從某個實例開始",
@@ -238,6 +238,12 @@ pub fn text(message: M) -> &'static str {
         M::NarratorNotShared => "「{category}」未共用，因此每個實例保留自己的朗讀功能設定。",
         M::NarratorKeptOff => "朗讀功能在每個實例中都保持關閉，包括新實例。",
         M::NarratorPerInstance => "各實例恢復使用自己的朗讀功能設定。",
+        M::NarratorOfferTitle => "保持關閉朗讀功能？",
+        M::NarratorOfferBody => {
+            "Lodestone Launcher 可以在你的所有實例（包括新實例）中保持關閉 Minecraft 的朗讀功能，並略過首次啟動時的協助工具畫面。"
+        }
+        M::NarratorOfferAccept => "保持關閉",
+        M::NarratorOfferDismiss => "忽略",
 
         M::SigningIn => "正在登入…",
         M::OfflineCouldntConnect => "離線 – 無法連線",

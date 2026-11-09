@@ -249,7 +249,7 @@ pub fn text(message: M) -> &'static str {
         M::FirstTimeSetupSection => "Première configuration",
         M::ResetFirstTimeSetup => "Réinitialiser la première configuration",
         M::ResetFirstTimeSetupHint => {
-            "La prochaine nouvelle instance sera de nouveau proposée comme instance principale. L’instance principale actuelle est retirée\u{a0}; les valeurs partagées restent."
+            "La prochaine nouvelle instance sera de nouveau proposée comme instance principale, et la désactivation du narrateur sera proposée au prochain démarrage. L’instance principale actuelle est retirée\u{a0}; les valeurs partagées restent."
         }
         M::FirstTimeSetupReset => {
             "La première configuration est réinitialisée. Créez une instance pour la voir."
@@ -292,6 +292,12 @@ pub fn text(message: M) -> &'static str {
         M::NarratorPerInstance => {
             "Chaque instance garde à nouveau son propre réglage du narrateur."
         }
+        M::NarratorOfferTitle => "Laisser le narrateur désactivé\u{a0}?",
+        M::NarratorOfferBody => {
+            "Lodestone Launcher peut laisser le narrateur de Minecraft désactivé dans toutes vos instances, y compris les nouvelles, et ignorer l’écran d’accessibilité du premier lancement."
+        }
+        M::NarratorOfferAccept => "Le laisser désactivé",
+        M::NarratorOfferDismiss => "Ignorer",
 
         M::SigningIn => "Connexion…",
         M::OfflineCouldntConnect => "Hors ligne – connexion impossible",
