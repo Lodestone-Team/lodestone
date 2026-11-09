@@ -38,6 +38,8 @@ pub const SCENES: &[&str] = &[
     "settings-skin-bright",
     "skin-showcase",
     "settings-skin-showcase",
+    "skin-materials",
+    "settings-skin-materials",
     "skin-banner",
     "background-picker-banners",
     "skin-editor",
@@ -45,6 +47,7 @@ pub const SCENES: &[&str] = &[
     "skin-editor-fonts",
     "skin-editor-banners",
     "skin-editor-readability",
+    "skin-editor-material",
     "sidebar-resized",
     "sidebar-rail",
     "sidebar-rail-skin",
@@ -303,6 +306,97 @@ fn showcase_skin() -> launcher_core::ui_skin::SkinSpec {
     spec.fonts.play = Some("Lodestone Pixel".into());
     spec.fonts.button = Some("Clash Grotesk".into());
     spec.fonts.tab = Some("Clash Grotesk".into());
+    spec
+}
+
+/// A skin of see-through panels over a busy picture: frosted, blurred and
+/// translucent, for the material scenes.
+fn materials_skin() -> launcher_core::ui_skin::SkinSpec {
+    use launcher_core::ui_skin::{
+        Fill, ImageFill, Material, MaterialKind, Rgb, SkinSpec, SurfaceId, SurfaceSpec, Tokens,
+    };
+    let glass = |kind: MaterialKind, color: u32, radius: u8| SurfaceSpec {
+        fill: Some(Fill::solid(Rgb(color))),
+        border: Some(Rgb(0x5A6A8C)),
+        radius: Some(radius),
+        material: Some(Material::of(kind)),
+        ..SurfaceSpec::default()
+    };
+    let bar = |material: Material, color: u32| SurfaceSpec {
+        fill: Some(Fill::solid(Rgb(color))),
+        material: Some(material),
+        ..SurfaceSpec::default()
+    };
+    let mut spec = SkinSpec::named("Materials");
+    spec.author = Some("Lodestone".into());
+    spec.accent = Some(Rgb(0x9FD6FF));
+    spec.surfaces = [
+        (
+            SurfaceId::Window,
+            SurfaceSpec {
+                fill: Some(Fill::Image(ImageFill {
+                    image: "builtin:aurora".into(),
+                    fit: launcher_core::ui_skin::Fit::Cover,
+                    tint: None,
+                    tint_opacity: 0,
+                    blur: 0,
+                })),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::TopBar,
+            bar(Material::of(MaterialKind::Frost), 0x0C1222),
+        ),
+        (
+            SurfaceId::Sidebar,
+            SurfaceSpec {
+                text: Some(Rgb(0xF4F7FF)),
+                muted: Some(Rgb(0xD0D8EA)),
+                ..bar(
+                    Material {
+                        blur: Some(28),
+                        opacity: Some(50),
+                        ..Material::of(MaterialKind::Blur)
+                    },
+                    0x080C18,
+                )
+            },
+        ),
+        (
+            SurfaceId::PlayBar,
+            bar(Material::of(MaterialKind::Blur), 0x080C18),
+        ),
+        (SurfaceId::Card, glass(MaterialKind::Frost, 0x141C30, 14)),
+        (
+            SurfaceId::Row,
+            glass(MaterialKind::Translucent, 0x0C1222, 10),
+        ),
+        (
+            SurfaceId::Input,
+            glass(MaterialKind::Translucent, 0x0A0F1C, 8),
+        ),
+        (SurfaceId::Dialog, glass(MaterialKind::Frost, 0x101828, 16)),
+        (
+            SurfaceId::SettingsNav,
+            bar(Material::of(MaterialKind::Blur), 0x0A101E),
+        ),
+        (
+            SurfaceId::SettingCard,
+            glass(MaterialKind::Translucent, 0x0C1222, 12),
+        ),
+        (SurfaceId::Popover, glass(MaterialKind::Frost, 0x121A2C, 12)),
+        (SurfaceId::Toast, glass(MaterialKind::Frost, 0x121A2C, 12)),
+    ]
+    .into_iter()
+    .collect();
+    spec.tokens = Tokens {
+        text: Some(Rgb(0xF4F7FF)),
+        secondary: Some(Rgb(0xDCE3F2)),
+        muted: Some(Rgb(0xC4CEE2)),
+        faint: Some(Rgb(0xAEB9D0)),
+        border: Some(Rgb(0x4A5878)),
+    };
     spec
 }
 
@@ -960,11 +1054,24 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
             }
         }
+        "skin-materials" | "settings-skin-materials" => {
+            let instances = shell.instances().clone();
+            let store = instances.read(cx).skins();
+            if store.save("materials", &materials_skin()).is_ok() {
+                instances.update(cx, |instances, cx| {
+                    instances.set_skin(Some("materials".into()), cx)
+                });
+            }
+            if scene == "settings-skin-materials" {
+                shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
+            }
+        }
         "skin-editor"
         | "skin-editor-gradient"
         | "skin-editor-fonts"
         | "skin-editor-banners"
-        | "skin-editor-readability" => {
+        | "skin-editor-readability"
+        | "skin-editor-material" => {
             use crate::shell::skin_editor::Pane;
             use launcher_core::ui_skin::SurfaceId;
             let instances = shell.instances().clone();
@@ -974,6 +1081,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 "skin-editor-fonts" => ("showcase", Pane::Fonts),
                 "skin-editor-banners" => ("grassblock", Pane::Banners),
                 "skin-editor-readability" => ("bright", Pane::Readability),
+                "skin-editor-material" => ("materials", Pane::Surface(SurfaceId::Card)),
                 _ => ("grassblock", Pane::Surface(SurfaceId::Sidebar)),
             };
             match skin {
@@ -988,6 +1096,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                         spec.fonts.heading = Some(file);
                     }
                     let _ = store.save("showcase", &spec);
+                }
+                "materials" => {
+                    let _ = store.save("materials", &materials_skin());
                 }
                 "bright" => {
                     let mut spec = launcher_core::ui_skin::SkinSpec::named("Bright");

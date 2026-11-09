@@ -33,8 +33,8 @@ pub mod fonts;
 pub mod surface;
 
 pub use surface::{
-    Fill, FontPart, Fonts, Gradient, GradientKind, ImageFill, SkinBanner, Stop, SurfaceId,
-    SurfaceSpec, Surfaces, Tokens,
+    Fill, FontPart, Fonts, Gradient, GradientKind, ImageFill, Material, MaterialKind, SkinBanner,
+    Stop, SurfaceId, SurfaceSpec, Surfaces, Tokens,
 };
 
 /// The version of [`SkinSpec`] this build reads and writes.

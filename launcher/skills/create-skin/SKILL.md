@@ -124,6 +124,11 @@ Each surface takes:
 - `radius`: corners, 0–32 px.
 - `text`: the surface's own text colour. It is only used on `sidebar`, `toast` and the controls (the buttons, `tab`, `pill`, `play_button`); setting it anywhere else is refused. On the other surfaces, text uses `tokens`. A control without `text` gets white or near-black, whichever reads better on its fill.
 - `muted`: only on `sidebar`. It covers the sidebar's quieter text: headers, subtitles, counts, the footer and its icons.
+- `material`: glass. What is behind the panel shows through it: `"translucent"` (as it is), `"blur"` or `"frost"` (blurred, with a pale veil and grain), or `{"kind": "frost", "blur": 24, "opacity": 35, "frost": 10, "grain": 20}`.
+  - `blur` is 0–40 px (16 for `blur`, 20 for `frost`; `translucent` doesn't blur). `opacity` (0–100) is how much of the panel's own fill shows over it; without it, a see-through solid's own opacity, else 60 / 55 / 40. `frost` and `grain` are 0–100.
+  - Only on the panels: `top_bar`, `sidebar`, `main`, `play_bar`, `card`, `setting_card`, `row`, `dialog`, `settings_nav`, `popover`, `input`, `toast`. Refused on `window`, `hero` and the controls.
+  - It shows what the skin paints behind it: the `window` for the bars, `main`, dialogs, menus and notices; `main` (or the `window` through a see-through `main`) for cards, rows and inputs; the dialog, and the dimmed window behind it, for `setting_card` and `settings_nav`. Give the `window` an image for glass to have something to blur.
+  - Readability checks count the material: what is behind, softened by the blur, under the veil and the fill at its opacity.
 
 ### Tokens, accent and progress
 
@@ -286,6 +291,7 @@ cargo build -p lodestone-launcher --features screenshot
 B=target/debug/lodestone-launcher
 timeout 60 $B --scene skin-grassblock --screenshot grassblock.png   # a built-in skin
 timeout 60 $B --scene skin-showcase --screenshot showcase.png       # gradients and fonts
+timeout 60 $B --scene skin-materials --screenshot materials.png     # frosted, blurred and translucent panels
 timeout 60 $B --scene settings-skin --screenshot settings.png       # the Settings window
 timeout 60 $B --scene skin-editor-readability --screenshot ed.png   # the editor's suggestions
 ```
@@ -375,6 +381,7 @@ Anyone can import the `.zip` in Settings → Skin → Import….
 | stored image | sidebar 1024 × 2048; hero and banners 2560 × 1600; other surfaces 2048 × 2048 |
 | gradient | 2–8 stops; angle −360 to 360 |
 | border, radius, blur | 0–4 px, 0–32 px, 0–20 px |
+| material | blur 0–40 px; opacity, frost, grain 0–100 |
 | fonts | .ttf/.otf, 2 MB each, 4 per pack |
 | banners | 16; ids 1–32 of `a-z 0-9 -` |
 | Play label | 16 characters |

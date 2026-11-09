@@ -38,6 +38,9 @@ use crate::theme::{Color, colors};
 
 use crate::instances::appearance::{Background, Scrim, scrim_for};
 
+mod glass;
+pub use glass::Glass;
+
 /// How a surface is filled, ready to draw.
 #[derive(Clone)]
 pub enum Paint {
@@ -58,6 +61,16 @@ pub struct Painted {
     pub radius: Option<f32>,
     pub text: Option<Color>,
     pub muted: Option<Color>,
+    /// What is behind it, blurred or frosted, drawn under its fill (a material).
+    pub glass: Option<Glass>,
+    /// How much of an image fill shows, 0 to 1, when a material makes it
+    /// see-through; `None` for all of it.
+    pub see_through: Option<f32>,
+    /// Whether it is a see-through material at all: the element's own background
+    /// is cleared, so what is behind shows.
+    pub material: bool,
+    /// The layer it is, when blurred surfaces may show it ([`glass::recorder`]).
+    pub records: Option<SurfaceId>,
 }
 
 /// The skin the window shows.
@@ -72,6 +85,9 @@ pub struct Look {
     pub hero: Option<Background>,
     /// The font families the skin uses, by part, once loaded.
     pub fonts: HashMap<FontPart, SharedString>,
+    /// Layers' pictures, blurred for the materials that show them, by layer and
+    /// blur.
+    pub blurred: HashMap<(SurfaceId, u8), Arc<RenderImage>>,
 }
 
 impl Look {
@@ -82,22 +98,41 @@ impl Look {
             .into_iter()
             .filter_map(|surface| {
                 let own = spec.surface(surface)?;
+                // a material shows the fill over what is behind at its opacity
+                let material = own.material.filter(|_| surface.takes_material());
+                let alpha = material.map_or(100, |m| u32::from(m.opacity(own.fill.as_ref())));
                 let paint = match &own.fill {
-                    Some(Fill::Solid { color, opacity }) => Some(Paint::Solid(
-                        Color::rgb(color.0).opacity(u32::from(*opacity)),
-                    )),
+                    Some(Fill::Solid { color, opacity }) => {
+                        Some(Paint::Solid(Color::rgb(color.0).opacity(match material {
+                            Some(_) => alpha,
+                            None => u32::from(*opacity),
+                        })))
+                    }
                     Some(Fill::Gradient(gradient)) if gradient.is_simple() => {
+                        let stop = |i: usize| Color::rgb(gradient.stops[i].color.0).opacity(alpha);
                         Some(Paint::Gradient(gpui::linear_gradient(
                             f32::from(gradient.angle),
-                            gpui::linear_color_stop(Color::rgb(gradient.stops[0].color.0), 0.),
-                            gpui::linear_color_stop(Color::rgb(gradient.stops[1].color.0), 1.),
+                            gpui::linear_color_stop(stop(0), 0.),
+                            gpui::linear_color_stop(stop(1), 1.),
                         )))
+                    }
+                    // a see-through surface without a fill: its own colour, faintly
+                    None if material.is_some() => {
+                        Some(Paint::Solid(Color::rgb(surface.base().0).opacity(alpha)))
                     }
                     _ => None,
                 };
                 Some((
                     surface,
                     Painted {
+                        glass: material.and_then(|_| Glass::of(&spec, surface)),
+                        see_through: material.map(|_| alpha as f32 / 100.0),
+                        material: material.is_some(),
+                        records: matches!(
+                            surface,
+                            SurfaceId::Window | SurfaceId::Main | SurfaceId::Dialog
+                        )
+                        .then_some(surface),
                         paint,
                         border: own
                             .border
@@ -138,7 +173,21 @@ impl Look {
             backdrops: HashMap::new(),
             hero: None,
             fonts,
+            blurred: HashMap::new(),
         }
+    }
+
+    /// Takes the blurred layer pictures, and gives each blurred surface the one it
+    /// shows.
+    fn set_blurred(&mut self, blurred: HashMap<(SurfaceId, u8), Arc<RenderImage>>) {
+        for painted in self.surfaces.values_mut() {
+            if let Some(glass) = &mut painted.glass
+                && let Some(image) = glass.source().and_then(|key| blurred.get(&key))
+            {
+                glass.with_image(image.clone());
+            }
+        }
+        self.blurred = blurred;
     }
 
     fn default_look() -> Self {
@@ -154,6 +203,7 @@ impl Look {
                 .surfaces
                 .values()
                 .any(|s| matches!(&s.fill, Some(Fill::Gradient(g)) if !g.is_simple()))
+            || !glass::sources(&self.spec).is_empty()
     }
 }
 
@@ -203,6 +253,9 @@ pub fn tally_images(tally: &mut crate::perf::ImageTally, cx: &App) {
     }
     if let Some(hero) = &look.hero {
         tally.add(&hero.image);
+    }
+    for image in look.blurred.values() {
+        tally.add(image);
     }
 }
 
@@ -336,6 +389,13 @@ fn finish(look: &mut Look, prepared: Prepared, fonts: HashMap<String, SharedStri
             look.fonts.insert(part, family.clone());
         }
     }
+    look.set_blurred(
+        prepared
+            .blurred
+            .into_iter()
+            .map(|(key, image)| (key, crate::images::render_image(image)))
+            .collect(),
+    );
 }
 
 /// Shows a changed description of the skin on screen: its images are prepared again
@@ -361,6 +421,7 @@ pub fn update(entry: SkinEntry, store: SkinStore, cx: &mut App) {
             spec.fonts.clone(),
             spec.hero.readability,
             spec.hero.scrim,
+            glass::sources(spec),
         )
     };
     if current.id != entry.id || images(&current.spec) != images(&entry.spec) {
@@ -378,6 +439,7 @@ pub fn update(entry: SkinEntry, store: SkinStore, cx: &mut App) {
     look.backdrops = current.backdrops.clone();
     look.hero = current.hero.clone();
     look.fonts = current.fonts.clone();
+    look.set_blurred(current.blurred.clone());
     cx.default_global::<SkinState>().look = Arc::new(look);
     cx.refresh_windows();
 }
@@ -391,6 +453,8 @@ struct Prepared {
     hero: Option<(RgbaImage, Scrim, Backdrop)>,
     /// The pack's font files: name, family, bytes.
     fonts: Vec<(String, String, Vec<u8>)>,
+    /// Layers' pictures blurred for the materials, by layer and blur.
+    blurred: Vec<((SurfaceId, u8), RgbaImage)>,
 }
 
 /// How `image` looks behind text: every fourth pixel each way is plenty.
@@ -529,10 +593,26 @@ fn prepare(id: &str, spec: &SkinSpec, store: &SkinStore) -> Prepared {
             _ => {}
         }
     }
+    // the layers' pictures as they are drawn, blurred for the materials that show
+    // them
+    let blurred = glass::sources(spec)
+        .into_iter()
+        .filter_map(|(layer, blur)| {
+            let picture = match images.iter().find(|(s, _, _)| *s == layer) {
+                Some((_, image, _)) => image.clone(),
+                None => match spec.surface(layer)?.fill? {
+                    Fill::Gradient(gradient) => rasterize(&gradient),
+                    _ => return None,
+                },
+            };
+            Some(((layer, blur), glass::blur_source(&picture, blur, layer)))
+        })
+        .collect();
     Prepared {
         images,
         hero,
         fonts: store.fonts(id, spec),
+        blurred,
     }
 }
 
@@ -595,6 +675,7 @@ thread_local! {
 /// theme's text colours and the fonts. Each window's root view calls it first.
 pub fn set_frame(look: &Arc<Look>) {
     FRAME.with(|frame| *frame.borrow_mut() = Some(look.clone()));
+    glass::start_frame();
     let inks = SidebarInks::of(sidebar_palette(look));
     SIDEBAR_INKS.with(|cell| cell.set(inks));
     crate::theme::ink::set(&look.spec.tokens);
@@ -646,7 +727,7 @@ impl<T: gpui::Styled + gpui::ParentElement + Sized> Skinned for T {}
 
 /// `element` painted as `painted` says.
 pub fn paint<T: gpui::Styled + gpui::ParentElement>(mut element: T, painted: &Painted) -> T {
-    use gpui::{IntoElement, ObjectFit, Styled as _, StyledImage, img};
+    use gpui::{IntoElement, ObjectFit, ParentElement as _, Styled as _, StyledImage, img};
     if let Some(radius) = painted.radius {
         element = element.rounded(crate::theme::px(radius));
     }
@@ -662,20 +743,52 @@ pub fn paint<T: gpui::Styled + gpui::ParentElement>(mut element: T, painted: &Pa
     if let Some(text) = painted.text {
         element = element.text_color(text);
     }
-    match &painted.paint {
-        Some(Paint::Solid(color)) => element.bg(*color),
-        Some(Paint::Gradient(gradient)) => element.bg(*gradient),
-        Some(Paint::Image(image)) => {
-            let mut layer = img(image.clone())
+    let corners = element.style().corner_radii.clone();
+    if let Some(layer) = painted.records {
+        element = element.child(glass::recorder(layer));
+    }
+    // a see-through surface drops the launcher's own background, so what is behind
+    // shows (or its blurred copy, drawn first)
+    if painted.material {
+        element.style().background = None;
+    }
+    if let Some(glass) = &painted.glass {
+        element = element.child(glass::layer(glass.clone(), corners.clone()));
+    }
+    // over the glass, the fill is a layer of its own: the element's background
+    // would be drawn under it
+    let layered = painted.glass.is_some();
+    let image_layer = |image: &Arc<RenderImage>| {
+        let mut layer = img(image.clone())
+            .absolute()
+            .inset_0()
+            .size_full()
+            .object_fit(ObjectFit::Cover);
+        // `overflow_hidden` clips to a rectangle, not to rounded corners, so the
+        // image takes the element's corners (set before this is called).
+        layer.style().corner_radii = corners.clone();
+        match painted.see_through {
+            Some(alpha) => gpui::div()
                 .absolute()
                 .inset_0()
                 .size_full()
-                .object_fit(ObjectFit::Cover);
-            // `overflow_hidden` clips to a rectangle, not to rounded corners, so the
-            // image takes the element's corners (set before this is called).
-            layer.style().corner_radii = element.style().corner_radii.clone();
-            element.overflow_hidden().child(layer.into_any_element())
+                .opacity(alpha)
+                .child(layer)
+                .into_any_element(),
+            None => layer.into_any_element(),
         }
+    };
+    let color_layer = |background: gpui::Background| {
+        let mut layer = gpui::div().absolute().inset_0().size_full().bg(background);
+        layer.style().corner_radii = corners.clone();
+        layer.into_any_element()
+    };
+    match &painted.paint {
+        Some(Paint::Solid(color)) if layered => element.child(color_layer((*color).into())),
+        Some(Paint::Gradient(gradient)) if layered => element.child(color_layer(*gradient)),
+        Some(Paint::Solid(color)) => element.bg(*color),
+        Some(Paint::Gradient(gradient)) => element.bg(*gradient),
+        Some(Paint::Image(image)) => element.overflow_hidden().child(image_layer(image)),
         None => element,
     }
 }
