@@ -1,6 +1,6 @@
 ---
 name: lodestone-launcher
-description: Control a running Lodestone Launcher (the Minecraft launcher) with the `lodestone-launcher-cli` command line tool. Use it to list, create and configure Minecraft instances, install and update mods, resource packs, shaders and modpacks from Modrinth, launch and stop the game and read its log, back up and restore worlds, manage accounts and game settings, import instances from other launchers, and join, start, stop or host servers on Lodestone cores.
+description: Control a running Lodestone Launcher (the Minecraft launcher) with the `lodestone-launcher-cli` command line tool. Use it to list, create and configure Minecraft instances, install and update mods, resource packs, shaders and modpacks from Modrinth, launch and stop the game and read its log, back up and restore worlds, take and restore instance snapshots and share them as .lodesnap files, manage accounts and game settings, import instances from other launchers, and join, start, stop or host servers on Lodestone cores.
 ---
 
 # Lodestone Launcher CLI
@@ -71,7 +71,7 @@ The socket is Unix-only (macOS, Linux). On Windows every command fails with exit
   fail with exit 5 and change nothing; the message says what would happen. These are:
   `instances delete`, `worlds delete`, `worlds delete-backup`, `worlds restore --replace`,
   `content remove`, `accounts remove`, `cores remove`, `cores trust`, `shared clear`,
-  `play clear-logs`, `storage clean`, applying `modpacks update`, a `content switch-loader` that leaves mods
+  `play clear-logs`, `storage clean`, `snapshots revert`, `snapshots delete`, applying `modpacks update`, a `content switch-loader` that leaves mods
   behind, and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
 - **Trust in a core is the user's decision.** Mods from a Lodestone core run as programs
@@ -79,6 +79,10 @@ The socket is Unix-only (macOS, Linux). On Windows every command fails with exit
   mods fails with `untrusted_core` and `data.advisory` (the mods, uploaded jars, scripts).
   Show the advisory to the user. Only if they agree, rerun with `--accept-advisory`
   (this once) or run `cores trust <core> --yes` (from now on).
+- **Snapshot files from other people.** `snapshots import` of a `.lodesnap` with mods
+  fails with `confirmation_required` and lists the mods: programs that run when the game
+  starts. Run `snapshots import <file> --preview` and show the user what it holds; only if
+  they trust who sent it, rerun with `--yes`.
 - **Certificates:** a core whose HTTPS certificate isn't trusted fails with
   `untrusted_certificate` and `data.fingerprint`. Ask the user to compare it with the
   fingerprint the core shows (dashboard: Settings, Core Settings; or the core's log).
@@ -194,6 +198,23 @@ lodestone-launcher-cli worlds restore Survival "New World"                  # a 
 lodestone-launcher-cli worlds restore Survival "New World" --backup 2026-11-08_14-30-00.zip --replace --yes
 lodestone-launcher-cli worlds delete Survival "Old World" --yes
 printf '%s\n' "$PASSWORD" | lodestone-launcher-cli worlds download Survival --server Smp --username alice --password-stdin
+```
+
+Snapshots (a whole instance, or the parts you choose; files shared between snapshots are
+stored once). Parts: mods, resource_packs, shader_packs, configs, worlds, screenshots,
+settings, other. Logs and caches are never included.
+
+```sh
+lodestone-launcher-cli snapshots list Survival
+lodestone-launcher-cli snapshots create Survival --name "Before 1.21"          # long; all but screenshots/other
+lodestone-launcher-cli snapshots create Survival --include worlds --world "New World"
+lodestone-launcher-cli snapshots revert Survival "Before 1.21" --yes            # long; snapshots what it replaces first
+lodestone-launcher-cli snapshots revert Survival latest --include mods --include configs --yes
+lodestone-launcher-cli snapshots export Survival latest ~/Desktop               # writes a .lodesnap to share
+lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --preview # what it holds, its mods
+lodestone-launcher-cli snapshots import ~/Downloads/Survival.lodesnap --yes     # a new instance (needs --yes with mods)
+lodestone-launcher-cli snapshots delete Survival "Before 1.21" --yes
+lodestone-launcher-cli storage clean snapshots --yes   # automatic ones, deleted instances' ones, share files
 ```
 
 Settings:

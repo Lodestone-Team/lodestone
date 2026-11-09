@@ -28,6 +28,7 @@ mod jobs;
 mod servers;
 mod settings;
 mod skins;
+mod snapshots;
 mod storage;
 mod trace;
 mod worlds;
@@ -466,6 +467,37 @@ pub const METHODS: &[Method] = &[
         "modpacks.update",
         "Updates an instance's modpack (shows the plan first).",
         content::modpack_update,
+    ),
+    // snapshots
+    method(
+        "snapshots.list",
+        "An instance's snapshots, newest first: name, date, sizes (total and new), parts.",
+        snapshots::list,
+    ),
+    method(
+        "snapshots.create",
+        "Takes a snapshot of an instance (include: part ids; default all but screenshots and other; worlds: folder names).",
+        snapshots::create,
+    ),
+    destructive(
+        "snapshots.revert",
+        "Puts back the chosen parts of a snapshot (default: all it has), after an automatic snapshot of them.",
+        snapshots::revert,
+    ),
+    method(
+        "snapshots.export",
+        "Writes a snapshot to a .lodesnap file (absolute path; a folder names it).",
+        snapshots::export,
+    ),
+    method(
+        "snapshots.import",
+        "Makes a new instance from a .lodesnap file (absolute path); preview: true only reads it. With mods, needs confirm.",
+        snapshots::import,
+    ),
+    destructive(
+        "snapshots.delete",
+        "Deletes a snapshot and the files no other snapshot uses.",
+        snapshots::delete,
     ),
     // worlds
     method("worlds.list", "An instance's worlds.", worlds::list),
@@ -1146,6 +1178,8 @@ mod tests {
             "accounts.remove",
             "cores.remove",
             "shared.clear",
+            "snapshots.revert",
+            "snapshots.delete",
         ] {
             assert!(destructive.contains(&name), "{name} must need confirm");
         }

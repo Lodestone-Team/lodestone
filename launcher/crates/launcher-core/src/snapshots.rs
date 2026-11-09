@@ -892,6 +892,8 @@ impl Store {
             done += size;
             progress(done, total);
         }
+        // What this store gained, not what the sender's had.
+        snapshot.new_bytes = missing;
         snapshot.instance_id = instance_id.to_string();
         snapshot.instance.id = instance_id.to_string();
         // A new id here, so importing the same file twice keeps both.
@@ -1685,6 +1687,10 @@ mod tests {
         let file = temp.path().join("one.lodesnap");
         store.export(&snapshot, &file, &none).unwrap();
         let other = Store::at(temp.path().join("other"));
-        other.import(&file, "b", &none).unwrap();
+        let first = other.import(&file, "b", &none).unwrap();
+        assert_eq!(first.new_bytes, first.total_bytes);
+        // The second time, the files are there: nothing new.
+        let again = other.import(&file, "c", &none).unwrap();
+        assert_eq!(again.new_bytes, 0);
     }
 }
