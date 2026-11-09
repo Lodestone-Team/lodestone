@@ -590,6 +590,20 @@ pub fn set_frame(look: &Arc<Look>) {
     }
 }
 
+/// The launcher's own look, for windows that draw themselves without the skin
+/// (the skin editor).
+pub fn launcher_look() -> Arc<Look> {
+    thread_local! {
+        static PLAIN: Arc<Look> = Arc::new(Look::default_look());
+    }
+    PLAIN.with(Arc::clone)
+}
+
+/// The sidebar's colours for `look`.
+pub fn sidebar_inks_for(look: &Look) -> SidebarInks {
+    SidebarInks::of(sidebar_palette(look))
+}
+
 /// How the skin paints `surface` in this frame, if it does.
 pub fn painted(surface: SurfaceId) -> Option<Painted> {
     FRAME.with(|frame| {

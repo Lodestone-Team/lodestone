@@ -158,11 +158,26 @@ pub fn open_window<V: Render>(
         .expect("could not open the launcher window");
     cx.activate(true);
 
+    // the skin editor's scenes picture the editor's window instead
     #[cfg(feature = "screenshot")]
-    if let Some(path) = screenshot::requested_path() {
+    if let Some(path) = screenshot::requested_path()
+        && !preview::requested_scene().is_some_and(|scene| scene.starts_with("skin-editor"))
+    {
         screenshot::capture(window.into(), path, cx);
     }
     window
+}
+
+/// Where `--screenshot` asks for the picture.
+#[cfg(feature = "screenshot")]
+pub(crate) fn screenshot_path() -> Option<std::path::PathBuf> {
+    screenshot::requested_path()
+}
+
+/// Renders `window` to `path` once it has settled, and quits.
+#[cfg(feature = "screenshot")]
+pub(crate) fn capture_window(window: gpui::AnyWindowHandle, path: std::path::PathBuf, cx: &mut App) {
+    screenshot::capture(window, path, cx);
 }
 
 #[cfg(feature = "screenshot")]
