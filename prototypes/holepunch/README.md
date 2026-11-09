@@ -4,6 +4,11 @@ Can two computers behind home routers connect **directly**, so a Minecraft serve
 be shared with a link and no relay carries the game? This program tries it: UDP hole
 punching, then an encrypted QUIC tunnel carrying Minecraft's TCP connection.
 
+Version 2 tries several ways in, as Tailscale does: local network and IPv6 addresses,
+the public address STUN servers see, and a port the router forwards on request (UPnP or
+NAT-PMP, removed again on exit). Both sides probe every address of the other, and use
+the first one that answers.
+
 It's an experiment: the tickets are swapped by hand. If it works on real networks, the
 next step is a tiny introduction service and doing this inside Lodestone.
 
@@ -23,14 +28,14 @@ On the computer with the Minecraft server (the host):
 holepunch host --target 127.0.0.1:25565
 ```
 
-It prints a ticket starting `lhp1|host|`. Send it to your friend, who runs:
+It prints a ticket starting `lhp2|host|`. Send it to your friend, who runs:
 
 ```sh
-holepunch join "lhp1|host|..."        # keep the quotes
+holepunch join "lhp2|host|..."        # keep the quotes
 ```
 
-That prints a ticket starting `lhp1|join|`: send it back, and paste it into the host's
-prompt. Both sides then punch for up to 90 seconds. When the friend's side says
+That prints a ticket starting `lhp2|join|`: send it back, and paste it into the host's
+prompt. Both sides then probe for up to two minutes. When the friend's side says
 **Connected directly**, the friend adds the server `127.0.0.1:25566` in Minecraft and
 joins.
 
@@ -43,7 +48,14 @@ internet, because many routers don't route a packet back in to themselves.
 - `... sees us as <ip>:<port>`: your public address, from two STUN servers.
 - **"the STUN servers see different ports"**: this network's router is "symmetric".
   Punching usually fails through it; the connection would need a relay.
-- **"couldn't get through"**: punching failed for this pair of networks.
+- **"heard a probe from …" / "… answered our probe"**: packets get through that way.
+- **"their probes arrived, but ours never reached them"**: only one direction works.
+- **"nothing arrived from the other side"**: no path between these two networks; they'd
+  need a relay.
+- **"router forwarding: not available"**: UPnP and NAT-PMP are off on the router (common).
+  Turning UPnP on in the router's settings often makes this work.
+
+Both sides must run the same version: version 2 tickets start with `lhp2`.
 
 Please note both sides' STUN lines and whether it connected: that's the data this
 prototype is for.

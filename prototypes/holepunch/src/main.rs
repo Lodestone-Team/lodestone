@@ -1,29 +1,32 @@
 //! Prototype: a direct tunnel for a Minecraft server between two computers behind NAT,
-//! with no relay carrying the game.
+//! with no relay carrying the game. Version 2 tries several ways in, as Tailscale does:
 //!
-//! 1. Each side binds one UDP socket and asks public STUN servers what address the
-//!    internet sees for it ([`stun`]). Two servers are asked: if they see different
-//!    ports, the NAT is "symmetric" and punching will most likely fail.
-//! 2. The two sides swap short tickets by hand (chat, paste). The host's ticket carries
-//!    its public address, the SHA-256 of its self-signed certificate (so the friend
-//!    knows it's talking to the right host) and a random token (so the host knows it's
-//!    talking to the right friend). The friend's ticket carries its public address.
-//! 3. Both send small UDP packets to each other's public address for a minute. Each
-//!    side's router sees outgoing packets to the other and lets the other's packets in.
-//! 4. Over the same socket, the friend opens a QUIC connection (encrypted, reliable)
-//!    to the host. Each TCP connection Minecraft makes to the friend's local port
-//!    becomes a QUIC stream, which the host connects to its Minecraft server.
+//! 1. One UDP socket for IPv4 and IPv6. Each side collects its candidate addresses:
+//!    its address on the local network, its IPv6 address, the public address public
+//!    STUN servers see ([`stun`]), and a port its router forwards on request (UPnP or
+//!    NAT-PMP, [`portmap`]).
+//! 2. The two sides swap tickets by hand. The host's ticket carries its candidates, the
+//!    SHA-256 of its certificate and a random token; the friend's carries its candidates.
+//! 3. Probing ([`probe`]): both send small tagged probes to every candidate of the other
+//!    and answer the probes they get. A probe from an address that wasn't a candidate
+//!    (a router that picks a new port per destination) becomes a candidate too. The
+//!    first address the other side answers from is the path.
+//! 4. Over the same socket, the friend opens a QUIC connection (encrypted, reliable) to
+//!    the host on that path. Each TCP connection Minecraft makes to the friend's local
+//!    port becomes a QUIC stream, which the host connects to its Minecraft server.
 //!
 //! Usage:
-//!   holepunch host [--target 127.0.0.1:25565] [--local]
-//!   holepunch join <host ticket> [--listen 127.0.0.1:25566] [--local]
-//!
-//! `--local` skips STUN and uses 127.0.0.1, to try the tunnel on one computer.
+//!   holepunch host [--target 127.0.0.1:25565] [--no-portmap] [--local]
+//!   holepunch join <host ticket> [--listen 127.0.0.1:25566] [--no-portmap] [--local]
+
+mod portmap;
+mod probe;
+mod stun;
 
 use std::{
     io::{self, BufRead as _, Write as _},
-    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
-    sync::Arc,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6, UdpSocket},
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -31,29 +34,47 @@ use quinn::{Endpoint, EndpointConfig, TransportConfig};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use sha2::{Digest as _, Sha256};
 
-/// How long each side keeps punching and the friend keeps trying to connect.
-const PUNCH_FOR: Duration = Duration::from_secs(90);
-const PUNCH_EVERY: Duration = Duration::from_millis(250);
-const ALPN: &[u8] = b"lodestone-holepunch-1";
+/// How long each side probes, and the friend tries to connect.
+const WINDOW: Duration = Duration::from_secs(120);
+const ALPN: &[u8] = b"lodestone-holepunch-2";
 const SERVER_NAME: &str = "lodestone-holepunch";
-const STUN_SERVERS: [&str; 2] = ["stun.l.google.com:19302", "stun.cloudflare.com:3478"];
+const STUN_V4: [&str; 2] = ["stun.l.google.com:19302", "stun.cloudflare.com:3478"];
+const STUN_V6: &str = "stun.l.google.com:19302";
 const TOKEN_LEN: usize = 16;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
+/// The router mapping to remove when the program ends, however it ends.
+static MAPPING: Mutex<Option<portmap::Mapping>> = Mutex::new(None);
+
+fn remove_mapping() {
+    if let Some(mapping) = MAPPING.lock().unwrap().take() {
+        mapping.remove();
+        println!("Removed the router's port forwarding.");
+    }
+}
+
 #[tokio::main]
 async fn main() {
+    tokio::spawn(async {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            remove_mapping();
+            std::process::exit(130);
+        }
+    });
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
         Some("host") => host(&args[1..]).await,
         Some("join") => join(&args[1..]).await,
         _ => {
             eprintln!(
-                "usage:\n  holepunch host [--target 127.0.0.1:25565] [--local]\n  holepunch join <host ticket> [--listen 127.0.0.1:25566] [--local]"
+                "usage:\n  holepunch host [--target 127.0.0.1:25565] [--no-portmap] [--local]\n  \
+                 holepunch join <host ticket> [--listen 127.0.0.1:25566] [--no-portmap] [--local]"
             );
             std::process::exit(2);
         }
     };
+    remove_mapping();
     if let Err(err) = result {
         eprintln!("error: {err}");
         std::process::exit(1);
@@ -79,22 +100,83 @@ fn read_line(prompt: &str) -> io::Result<String> {
 }
 
 // ---------------------------------------------------------------------------
-// The public address
+// Addresses
 
-/// Binds the UDP socket both STUN and QUIC use, and finds its public address.
-fn bind_and_discover(local: bool) -> Result<(UdpSocket, SocketAddr), Error> {
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+/// IPv4 addresses as themselves, not as `::ffff:a.b.c.d` (how a dual-stack socket
+/// reports them).
+pub fn canonical(addr: SocketAddr) -> SocketAddr {
+    SocketAddr::new(addr.ip().to_canonical(), addr.port())
+}
+
+/// The form a dual-stack socket sends to: IPv4 as `::ffff:a.b.c.d`.
+pub fn to_socket(addr: SocketAddr) -> SocketAddr {
+    match addr {
+        SocketAddr::V4(v4) => {
+            SocketAddr::V6(SocketAddrV6::new(v4.ip().to_ipv6_mapped(), v4.port(), 0, 0))
+        }
+        v6 => v6,
+    }
+}
+
+fn dual_stack_socket() -> io::Result<UdpSocket> {
+    let socket = socket2::Socket::new(
+        socket2::Domain::IPV6,
+        socket2::Type::DGRAM,
+        Some(socket2::Protocol::UDP),
+    )?;
+    socket.set_only_v6(false)?;
+    socket.bind(&SocketAddr::from((Ipv6Addr::UNSPECIFIED, 0)).into())?;
+    Ok(socket.into())
+}
+
+/// The address this computer uses to reach `probe` (no packet is sent).
+fn route_to(bind: SocketAddr, probe: SocketAddr) -> Option<IpAddr> {
+    let socket = UdpSocket::bind(bind).ok()?;
+    socket.connect(probe).ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    (!ip.is_unspecified()).then_some(ip)
+}
+
+/// This side's socket and the addresses the other side can try.
+struct Side {
+    socket: UdpSocket,
+    candidates: Vec<SocketAddr>,
+}
+
+fn gather(local: bool, portmap: bool) -> Result<Side, Error> {
+    let socket = dual_stack_socket()?;
     let port = socket.local_addr()?.port();
     if local {
-        return Ok((
+        return Ok(Side {
             socket,
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port),
-        ));
+            candidates: vec![SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port)],
+        });
     }
+    let mut candidates = Vec::new();
+    let mut add = |addr: SocketAddr, what: &str| {
+        if !candidates.contains(&addr) {
+            println!("  {what}: {addr}");
+            candidates.push(addr);
+        }
+    };
+
+    let lan_v4 = route_to("0.0.0.0:0".parse().unwrap(), "8.8.8.8:53".parse().unwrap());
+    if let Some(ip) = lan_v4 {
+        add(SocketAddr::new(ip, port), "local network");
+    }
+    let v6 = route_to(
+        "[::]:0".parse().unwrap(),
+        "[2001:4860:4860::8888]:53".parse().unwrap(),
+    )
+    .filter(|ip| matches!(ip, IpAddr::V6(v6) if !v6.is_unicast_link_local() && !v6.is_loopback()));
+    if let Some(ip) = v6 {
+        add(SocketAddr::new(ip, port), "IPv6");
+    }
+
     socket.set_read_timeout(Some(Duration::from_secs(2)))?;
     let mut seen = Vec::new();
-    for server in STUN_SERVERS {
-        match stun::mapped_address(&socket, server) {
+    for server in STUN_V4 {
+        match stun::mapped_address(&socket, server, false) {
             Ok(addr) => {
                 println!("  {server} sees us as {addr}");
                 seen.push(addr);
@@ -102,141 +184,56 @@ fn bind_and_discover(local: bool) -> Result<(UdpSocket, SocketAddr), Error> {
             Err(err) => println!("  {server}: {err}"),
         }
     }
+    if v6.is_some()
+        && let Ok(addr) = stun::mapped_address(&socket, STUN_V6, true)
+    {
+        add(addr, "IPv6 as the internet sees it");
+    }
     socket.set_read_timeout(None)?;
-    let Some(first) = seen.first().copied() else {
-        return Err("no STUN server answered: is UDP blocked on this network?".into());
-    };
-    if seen.iter().any(|addr| addr.port() != first.port()) {
-        println!(
-            "  warning: the STUN servers see different ports, so this network's NAT is \"symmetric\".\n  \
-             Punching through it usually fails unless the other side's NAT is friendly."
-        );
-    } else if first.port() == port {
-        println!(
-            "  the public port matches the local one: this NAT keeps ports (good for punching)"
-        );
-    }
-    Ok((socket, first))
-}
-
-mod stun {
-    //! The smallest STUN client (RFC 8489): one Binding request, and the
-    //! XOR-MAPPED-ADDRESS from the answer.
-
-    use super::Error;
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
-
-    const COOKIE: u32 = 0x2112_A442;
-
-    pub fn mapped_address(socket: &UdpSocket, server: &str) -> Result<SocketAddr, Error> {
-        let server = server
-            .to_socket_addrs()?
-            .find(SocketAddr::is_ipv4)
-            .ok_or("no IPv4 address")?;
-        let mut txid = [0u8; 12];
-        ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut txid)
-            .map_err(|_| "no randomness")?;
-        let mut request = Vec::with_capacity(20);
-        request.extend_from_slice(&0x0001u16.to_be_bytes()); // Binding request
-        request.extend_from_slice(&0u16.to_be_bytes()); // no attributes
-        request.extend_from_slice(&COOKIE.to_be_bytes());
-        request.extend_from_slice(&txid);
-        let mut buf = [0u8; 512];
-        for _ in 0..3 {
-            socket.send_to(&request, server)?;
-            let Ok((len, from)) = socket.recv_from(&mut buf) else {
-                continue;
-            };
-            if from != server || len < 20 || buf[8..20] != txid {
-                continue;
-            }
-            if let Some(addr) = parse(&buf[..len], &txid) {
-                return Ok(addr);
-            }
-        }
-        Err("no answer".into())
-    }
-
-    fn parse(msg: &[u8], txid: &[u8; 12]) -> Option<SocketAddr> {
-        if u16::from_be_bytes([msg[0], msg[1]]) != 0x0101 {
-            return None; // not a Binding success response
-        }
-        let mut at = 20;
-        while at + 4 <= msg.len() {
-            let kind = u16::from_be_bytes([msg[at], msg[at + 1]]);
-            let len = u16::from_be_bytes([msg[at + 2], msg[at + 3]]) as usize;
-            let value = msg.get(at + 4..at + 4 + len)?;
-            if (kind == 0x0020 || kind == 0x0001) && value.len() >= 8 {
-                let xor = kind == 0x0020;
-                let port = u16::from_be_bytes([value[2], value[3]])
-                    ^ if xor { (COOKIE >> 16) as u16 } else { 0 };
-                let ip = match value[1] {
-                    0x01 => {
-                        let raw = u32::from_be_bytes([value[4], value[5], value[6], value[7]]);
-                        IpAddr::V4(Ipv4Addr::from(if xor { raw ^ COOKIE } else { raw }))
-                    }
-                    0x02 if value.len() >= 20 => {
-                        let mut raw = [0u8; 16];
-                        raw.copy_from_slice(&value[4..20]);
-                        if xor {
-                            let mut key = [0u8; 16];
-                            key[..4].copy_from_slice(&COOKIE.to_be_bytes());
-                            key[4..].copy_from_slice(txid);
-                            for (byte, k) in raw.iter_mut().zip(key) {
-                                *byte ^= k;
-                            }
-                        }
-                        IpAddr::V6(Ipv6Addr::from(raw))
-                    }
-                    _ => return None,
-                };
-                return Some(SocketAddr::new(ip, port));
-            }
-            at += 4 + len.div_ceil(4) * 4;
-        }
-        None
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn reads_an_xor_mapped_ipv4_address() {
-            let txid = [7u8; 12];
-            // 203.0.113.5:54321
-            let port = 54321u16 ^ (COOKIE >> 16) as u16;
-            let ip = u32::from(Ipv4Addr::new(203, 0, 113, 5)) ^ COOKIE;
-            let mut msg = vec![0x01, 0x01, 0, 12];
-            msg.extend_from_slice(&COOKIE.to_be_bytes());
-            msg.extend_from_slice(&txid);
-            msg.extend_from_slice(&[0x00, 0x20, 0, 8, 0, 0x01]);
-            msg.extend_from_slice(&port.to_be_bytes());
-            msg.extend_from_slice(&ip.to_be_bytes());
-            assert_eq!(
-                parse(&msg, &txid),
-                Some("203.0.113.5:54321".parse().unwrap())
+    if let Some(first) = seen.first().copied() {
+        add(first, "public (STUN)");
+        if seen.iter().any(|addr| addr.port() != first.port()) {
+            println!(
+                "  note: the STUN servers see different ports: this router picks a new port per\n  \
+                 destination (\"symmetric NAT\"). The other side learns the real one from our probes."
             );
         }
     }
-}
 
-/// Sends small packets to `peer` for [`PUNCH_FOR`], from a clone of the QUIC socket,
-/// so this side's router lets the peer's packets in. QUIC ignores them on arrival.
-fn punch(socket: &UdpSocket, peer: SocketAddr) -> io::Result<()> {
-    let socket = socket.try_clone()?;
-    std::thread::spawn(move || {
-        let until = Instant::now() + PUNCH_FOR;
-        while Instant::now() < until {
-            let _ = socket.send_to(b"lodestone-punch", peer);
-            std::thread::sleep(PUNCH_EVERY);
+    if portmap && let Some(IpAddr::V4(local_ip)) = lan_v4 {
+        match portmap::map(port, local_ip) {
+            Ok(mapping)
+                if portmap::is_private(match mapping.external.ip() {
+                    IpAddr::V4(ip) => ip,
+                    IpAddr::V6(_) => Ipv4Addr::UNSPECIFIED,
+                }) =>
+            {
+                println!(
+                    "  router forwarding ({}): the router's own address {} is private, so it's behind\n  \
+                     another router or the ISP's NAT (CGNAT); forwarding there doesn't help",
+                    mapping.how,
+                    mapping.external.ip()
+                );
+                mapping.remove();
+            }
+            Ok(mapping) => {
+                add(
+                    mapping.external,
+                    &format!("router forwarding ({})", mapping.how),
+                );
+                *MAPPING.lock().unwrap() = Some(mapping);
+            }
+            Err(err) => println!("  router forwarding: not available ({err})"),
         }
-    });
-    Ok(())
+    }
+    if candidates.is_empty() {
+        return Err("found no address to offer: is this computer online?".into());
+    }
+    Ok(Side { socket, candidates })
 }
 
 // ---------------------------------------------------------------------------
-// Tickets
+// Tickets: lhp2|host|<addr,addr>|<fingerprint>|<token>  and  lhp2|join|<addr,addr>
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -249,8 +246,20 @@ fn unhex(text: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
+fn addrs(list: &[SocketAddr]) -> String {
+    list.iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn parse_addrs(text: &str) -> Option<Vec<SocketAddr>> {
+    let list: Option<Vec<SocketAddr>> = text.split(',').map(|a| a.parse().ok()).collect();
+    list.filter(|list| !list.is_empty())
+}
+
 struct HostTicket {
-    addr: SocketAddr,
+    candidates: Vec<SocketAddr>,
     fingerprint: [u8; 32],
     token: [u8; TOKEN_LEN],
 }
@@ -258,8 +267,8 @@ struct HostTicket {
 impl HostTicket {
     fn encode(&self) -> String {
         format!(
-            "lhp1|host|{}|{}|{}",
-            self.addr,
+            "lhp2|host|{}|{}|{}",
+            addrs(&self.candidates),
             hex(&self.fingerprint),
             hex(&self.token)
         )
@@ -267,23 +276,23 @@ impl HostTicket {
 
     fn decode(text: &str) -> Option<Self> {
         let mut parts = text.trim().split('|');
-        if (parts.next()?, parts.next()?) != ("lhp1", "host") {
+        if (parts.next()?, parts.next()?) != ("lhp2", "host") {
             return None;
         }
         Some(Self {
-            addr: parts.next()?.parse().ok()?,
+            candidates: parse_addrs(parts.next()?)?,
             fingerprint: unhex(parts.next()?)?.try_into().ok()?,
             token: unhex(parts.next()?)?.try_into().ok()?,
         })
     }
 }
 
-fn join_ticket(addr: SocketAddr) -> String {
-    format!("lhp1|join|{addr}")
+fn join_ticket(candidates: &[SocketAddr]) -> String {
+    format!("lhp2|join|{}", addrs(candidates))
 }
 
-fn parse_join_ticket(text: &str) -> Option<SocketAddr> {
-    text.trim().strip_prefix("lhp1|join|")?.parse().ok()
+fn parse_join_ticket(text: &str) -> Option<Vec<SocketAddr>> {
+    parse_addrs(text.trim().strip_prefix("lhp2|join|")?)
 }
 
 fn transport() -> Arc<TransportConfig> {
@@ -298,6 +307,20 @@ fn provider() -> Arc<rustls::crypto::CryptoProvider> {
     Arc::new(rustls::crypto::ring::default_provider())
 }
 
+/// Keeps sending probes along the chosen path while QUIC takes over the socket, so the
+/// routers keep it open and a peer still probing gets its answer.
+fn keep_open(socket: &UdpSocket, peer: SocketAddr, tag: [u8; 8]) -> io::Result<()> {
+    let socket = socket.try_clone()?;
+    std::thread::spawn(move || {
+        let until = Instant::now() + Duration::from_secs(30);
+        while Instant::now() < until {
+            let _ = socket.send_to(&probe::message(tag, probe::ACK), to_socket(peer));
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    });
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Host: the computer with the Minecraft server
 
@@ -305,10 +328,8 @@ async fn host(args: &[String]) -> Result<(), Error> {
     let target: SocketAddr = flag(args, "--target")
         .unwrap_or_else(|| "127.0.0.1:25565".into())
         .parse()?;
-    let local = has(args, "--local");
-
-    println!("Finding this computer's public address...");
-    let (socket, public) = bind_and_discover(local)?;
+    println!("Finding the ways in to this computer...");
+    let side = gather(has(args, "--local"), !has(args, "--no-portmap"))?;
 
     let certified = rcgen::generate_simple_self_signed(vec![SERVER_NAME.to_string()])?;
     let cert = CertificateDer::from(certified.cert.der().to_vec());
@@ -319,6 +340,7 @@ async fn host(args: &[String]) -> Result<(), Error> {
     let mut token = [0u8; TOKEN_LEN];
     ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut token)
         .map_err(|_| "no randomness")?;
+    let tag: [u8; 8] = token[..8].try_into().expect("16 bytes");
 
     let mut crypto = rustls::ServerConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])?
@@ -331,32 +353,34 @@ async fn host(args: &[String]) -> Result<(), Error> {
     server.transport_config(transport());
 
     let ticket = HostTicket {
-        addr: public,
+        candidates: side.candidates.clone(),
         fingerprint,
         token,
     }
     .encode();
     println!("\nSend this ticket to your friend:\n\n  {ticket}\n");
-    let peer = loop {
+    let peers = loop {
         let line = read_line("Paste your friend's ticket: ")?;
         match parse_join_ticket(&line) {
-            Some(addr) => break addr,
-            None => println!("  that isn't a join ticket (it starts with lhp1|join|)"),
+            Some(peers) => break peers,
+            None => println!("  that isn't a join ticket (it starts with lhp2|join|)"),
         }
     };
 
-    socket.set_nonblocking(true)?;
-    punch(&socket, peer)?;
+    println!("Probing your friend's addresses: {}", addrs(&peers));
+    let path = probe::run(&side.socket, &peers, tag, WINDOW)
+        .ok_or("no probe got through in either direction. This pair of networks needs a relay")?;
+    println!("Path found: {path}. Waiting for your friend's connection...");
+    keep_open(&side.socket, path, tag)?;
+    side.socket.set_nonblocking(true)?;
     let endpoint = Endpoint::new(
         EndpointConfig::default(),
         Some(server),
-        socket,
+        side.socket,
         Arc::new(quinn::TokioRuntime),
     )?;
-    println!("Punching towards {peer}; waiting for your friend to connect...");
 
     while let Some(incoming) = endpoint.accept().await {
-        let token = token;
         tokio::spawn(async move {
             let connection = match incoming.await {
                 Ok(connection) => connection,
@@ -364,7 +388,7 @@ async fn host(args: &[String]) -> Result<(), Error> {
             };
             println!(
                 "Connected directly to {} (round trip {} ms). Game traffic goes straight between you.",
-                connection.remote_address(),
+                canonical(connection.remote_address()),
                 connection.rtt().as_millis()
             );
             loop {
@@ -401,17 +425,17 @@ async fn join(args: &[String]) -> Result<(), Error> {
     let ticket = args
         .first()
         .and_then(|text| HostTicket::decode(text))
-        .ok_or("pass the host's ticket (it starts with lhp1|host|), in quotes")?;
+        .ok_or("pass the host's ticket (it starts with lhp2|host|), in quotes")?;
     let listen: SocketAddr = flag(args, "--listen")
         .unwrap_or_else(|| "127.0.0.1:25566".into())
         .parse()?;
-    let local = has(args, "--local");
+    let tag: [u8; 8] = ticket.token[..8].try_into().expect("16 bytes");
 
-    println!("Finding this computer's public address...");
-    let (socket, public) = bind_and_discover(local)?;
+    println!("Finding the ways in to this computer...");
+    let side = gather(has(args, "--local"), !has(args, "--no-portmap"))?;
     println!(
         "\nSend this ticket back to the host:\n\n  {}\n",
-        join_ticket(public)
+        join_ticket(&side.candidates)
     );
 
     let mut crypto = rustls::ClientConfig::builder_with_provider(provider())
@@ -428,27 +452,29 @@ async fn join(args: &[String]) -> Result<(), Error> {
     ));
     client.transport_config(transport());
 
-    socket.set_nonblocking(true)?;
-    punch(&socket, ticket.addr)?;
+    println!(
+        "Probing the host's addresses (up to {} s): {}",
+        WINDOW.as_secs(),
+        addrs(&ticket.candidates)
+    );
+    let path = probe::run(&side.socket, &ticket.candidates, tag, WINDOW)
+        .ok_or("no probe got through in either direction. This pair of networks needs a relay")?;
+    println!("Path found: {path}. Connecting...");
+    keep_open(&side.socket, path, tag)?;
+    side.socket.set_nonblocking(true)?;
     let mut endpoint = Endpoint::new(
         EndpointConfig::default(),
         None,
-        socket,
+        side.socket,
         Arc::new(quinn::TokioRuntime),
     )?;
     endpoint.set_default_client_config(client);
 
-    println!(
-        "Punching towards {} and connecting (up to {} s)...",
-        ticket.addr,
-        PUNCH_FOR.as_secs()
-    );
-    let until = Instant::now() + PUNCH_FOR;
+    let until = Instant::now() + Duration::from_secs(30);
     let connection = loop {
-        let attempt = endpoint.connect(ticket.addr, SERVER_NAME)?;
+        let attempt = endpoint.connect(path, SERVER_NAME)?;
         match tokio::time::timeout(Duration::from_secs(5), attempt).await {
             Ok(Ok(connection)) => break connection,
-            // The certificate isn't the one in the ticket: retrying can't help.
             Ok(Err(err)) if err.to_string().contains("not the host from the ticket") => {
                 return Err("the host's certificate doesn't match the ticket. Ask for a fresh ticket; if it still fails, someone may be in the way".into());
             }
@@ -456,7 +482,7 @@ async fn join(args: &[String]) -> Result<(), Error> {
             Err(_) => println!("  not yet: no answer"),
         }
         if Instant::now() >= until {
-            return Err("couldn't get through. One side's NAT is probably symmetric; this pair needs a relay".into());
+            return Err("probes got through but the encrypted connection didn't".into());
         }
     };
     println!(
@@ -549,25 +575,27 @@ mod tests {
     #[test]
     fn tickets_round_trip() {
         let host = HostTicket {
-            addr: "203.0.113.5:54321".parse().unwrap(),
+            candidates: vec![
+                "203.0.113.5:54321".parse().unwrap(),
+                "[2001:db8::1]:9".parse().unwrap(),
+            ],
             fingerprint: [0xab; 32],
             token: [0x01; TOKEN_LEN],
         };
         let back = HostTicket::decode(&host.encode()).unwrap();
         assert_eq!(
-            (back.addr, back.fingerprint, back.token),
-            (host.addr, host.fingerprint, host.token)
+            (back.candidates, back.fingerprint, back.token),
+            (host.candidates.clone(), host.fingerprint, host.token)
         );
-        assert_eq!(
-            parse_join_ticket(&join_ticket("[2001:db8::1]:9".parse().unwrap())),
-            Some("[2001:db8::1]:9".parse().unwrap())
-        );
-        assert!(HostTicket::decode("lhp1|join|1.2.3.4:5").is_none());
+        let join = join_ticket(&host.candidates);
+        assert_eq!(parse_join_ticket(&join), Some(host.candidates));
+        assert!(HostTicket::decode(&join).is_none());
     }
 
     #[test]
-    fn hex_round_trips() {
-        assert_eq!(unhex(&hex(&[0, 15, 255])), Some(vec![0, 15, 255]));
-        assert_eq!(unhex("zz"), None);
+    fn addresses_map_to_and_from_the_dual_stack_form() {
+        let v4: SocketAddr = "203.0.113.5:7".parse().unwrap();
+        assert!(to_socket(v4).is_ipv6());
+        assert_eq!(canonical(to_socket(v4)), v4);
     }
 }

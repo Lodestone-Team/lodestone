@@ -21,4 +21,5 @@ rcgen = { version = "=0.14.10", default-features = false, features = ["ring"] }
 ring = "=0.17.14"
 sha2 = "=0.10.9"
 subtle = "=2.6.1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "time"] }
+socket2 = { version = "=0.6.5", features = ["all"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "time", "signal"] }

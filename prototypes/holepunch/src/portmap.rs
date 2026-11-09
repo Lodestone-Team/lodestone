@@ -1,0 +1,395 @@
+//! Asking the router to forward a port: UPnP IGD first, then NAT-PMP. With a mapping, the
+//! router lets the peer's packets in even before this side has sent anything to the peer,
+//! which gets through routers whose filtering defeats plain punching.
+//!
+//! Both are a few plain UDP and HTTP requests; no crate. The mapping lasts an hour at
+//! most and is removed when the program exits ([`Mapping::remove`]).
+
+use std::{
+    io::{Read as _, Write as _},
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket},
+    time::Duration,
+};
+
+const LEASE_SECS: u32 = 3600;
+const DESCRIPTION: &str = "Lodestone holepunch prototype";
+
+pub struct Mapping {
+    pub external: SocketAddr,
+    pub how: &'static str,
+    kind: Kind,
+    port: u16,
+}
+
+enum Kind {
+    Upnp {
+        control_url: String,
+        service: String,
+    },
+    NatPmp {
+        gateway: Ipv4Addr,
+    },
+}
+
+impl Mapping {
+    /// Removes the forwarding from the router. Best effort.
+    pub fn remove(&self) {
+        match &self.kind {
+            Kind::Upnp {
+                control_url,
+                service,
+            } => {
+                let _ = soap(
+                    control_url,
+                    service,
+                    "DeletePortMapping",
+                    &[
+                        ("NewRemoteHost", String::new()),
+                        ("NewExternalPort", self.external.port().to_string()),
+                        ("NewProtocol", "UDP".into()),
+                    ],
+                );
+            }
+            Kind::NatPmp { gateway } => {
+                let _ = natpmp_map(*gateway, self.port, 0);
+            }
+        }
+    }
+}
+
+/// Maps UDP `port` on this computer (`local_ip`) to the same port on the router.
+pub fn map(port: u16, local_ip: Ipv4Addr) -> Result<Mapping, String> {
+    let upnp = upnp_map(port, local_ip);
+    if let Ok(mapping) = upnp {
+        return Ok(mapping);
+    }
+    let gateway = guess_gateway(local_ip);
+    match natpmp_map(gateway, port, LEASE_SECS) {
+        Ok(external_port) => {
+            let ip = natpmp_external_ip(gateway)?;
+            Ok(Mapping {
+                external: SocketAddr::new(IpAddr::V4(ip), external_port),
+                how: "NAT-PMP",
+                kind: Kind::NatPmp { gateway },
+                port,
+            })
+        }
+        Err(natpmp) => Err(format!(
+            "UPnP: {}; NAT-PMP: {natpmp}",
+            upnp.err().unwrap_or_default()
+        )),
+    }
+}
+
+/// Whether `ip` is only reachable inside a network (the router itself is behind
+/// another NAT when its "external" address is one of these).
+pub fn is_private(ip: Ipv4Addr) -> bool {
+    let [a, b, ..] = ip.octets();
+    ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || (a == 100 && (64..128).contains(&b))
+}
+
+/// Most home routers are the first address of the network.
+fn guess_gateway(local: Ipv4Addr) -> Ipv4Addr {
+    let [a, b, c, _] = local.octets();
+    Ipv4Addr::new(a, b, c, 1)
+}
+
+// ---------------------------------------------------------------------------
+// UPnP IGD
+
+fn upnp_map(port: u16, local_ip: Ipv4Addr) -> Result<Mapping, String> {
+    let locations = ssdp_search()?;
+    let mut last = "no router answered the UPnP search".to_string();
+    for location in locations {
+        let (control_url, service) = match find_service(&location) {
+            Ok(found) => found,
+            Err(err) => {
+                last = err;
+                continue;
+            }
+        };
+        let added = soap(
+            &control_url,
+            &service,
+            "AddPortMapping",
+            &[
+                ("NewRemoteHost", String::new()),
+                ("NewExternalPort", port.to_string()),
+                ("NewProtocol", "UDP".into()),
+                ("NewInternalPort", port.to_string()),
+                ("NewInternalClient", local_ip.to_string()),
+                ("NewEnabled", "1".into()),
+                ("NewPortMappingDescription", DESCRIPTION.into()),
+                ("NewLeaseDuration", LEASE_SECS.to_string()),
+            ],
+        );
+        if let Err(err) = added {
+            last = format!("the router refused the mapping ({err})");
+            continue;
+        }
+        let ip = soap(&control_url, &service, "GetExternalIPAddress", &[])
+            .ok()
+            .and_then(|body| tag(&body, "NewExternalIPAddress"))
+            .and_then(|ip| ip.trim().parse::<Ipv4Addr>().ok());
+        let Some(ip) = ip else {
+            last = "the router didn't say its external address".into();
+            continue;
+        };
+        return Ok(Mapping {
+            external: SocketAddr::new(IpAddr::V4(ip), port),
+            how: "UPnP",
+            kind: Kind::Upnp {
+                control_url,
+                service,
+            },
+            port,
+        });
+    }
+    Err(last)
+}
+
+fn ssdp_search() -> Result<Vec<String>, String> {
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).map_err(|e| e.to_string())?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(1500)))
+        .map_err(|e| e.to_string())?;
+    for st in [
+        "urn:schemas-upnp-org:device:InternetGatewayDevice:1",
+        "urn:schemas-upnp-org:device:InternetGatewayDevice:2",
+    ] {
+        let search = format!(
+            "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 1\r\nST: {st}\r\n\r\n"
+        );
+        let _ = socket.send_to(search.as_bytes(), "239.255.255.250:1900");
+    }
+    let mut locations = Vec::new();
+    let mut buf = [0u8; 2048];
+    while let Ok((len, _)) = socket.recv_from(&mut buf) {
+        let text = String::from_utf8_lossy(&buf[..len]);
+        for line in text.lines() {
+            if let Some((name, value)) = line.split_once(':')
+                && name.trim().eq_ignore_ascii_case("location")
+            {
+                let value = value.trim().to_string();
+                if !locations.contains(&value) {
+                    locations.push(value);
+                }
+            }
+        }
+    }
+    if locations.is_empty() {
+        Err("no router answered the UPnP search (UPnP may be off)".into())
+    } else {
+        Ok(locations)
+    }
+}
+
+/// The WAN connection service's control URL and type, from the device description.
+fn find_service(location: &str) -> Result<(String, String), String> {
+    let body = http(location, "GET", &[], "")?;
+    let (base_host, _) = split_url(location)?;
+    let base = tag(&body, "URLBase")
+        .map(|url| url.trim().trim_end_matches('/').to_string())
+        .unwrap_or_else(|| format!("http://{base_host}"));
+    for service in [
+        "urn:schemas-upnp-org:service:WANIPConnection:2",
+        "urn:schemas-upnp-org:service:WANIPConnection:1",
+        "urn:schemas-upnp-org:service:WANPPPConnection:1",
+    ] {
+        let Some(at) = body.find(&format!("<serviceType>{service}</serviceType>")) else {
+            continue;
+        };
+        let rest = &body[at..];
+        let end = rest.find("</service>").unwrap_or(rest.len());
+        let Some(control) = tag(&rest[..end], "controlURL") else {
+            continue;
+        };
+        let control = control.trim();
+        let url = if control.starts_with("http") {
+            control.to_string()
+        } else {
+            format!("{base}/{}", control.trim_start_matches('/'))
+        };
+        return Ok((url, service.to_string()));
+    }
+    Err("the router has no WAN connection service".into())
+}
+
+fn soap(
+    control_url: &str,
+    service: &str,
+    action: &str,
+    args: &[(&str, String)],
+) -> Result<String, String> {
+    let args: String = args
+        .iter()
+        .map(|(name, value)| format!("<{name}>{value}</{name}>"))
+        .collect();
+    let body = format!(
+        "<?xml version=\"1.0\"?>\r\n<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" \
+         s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body>\
+         <u:{action} xmlns:u=\"{service}\">{args}</u:{action}></s:Body></s:Envelope>"
+    );
+    let soap_action = format!("\"{service}#{action}\"");
+    http(
+        control_url,
+        "POST",
+        &[
+            ("Content-Type", "text/xml; charset=\"utf-8\""),
+            ("SOAPAction", &soap_action),
+        ],
+        &body,
+    )
+}
+
+fn split_url(url: &str) -> Result<(String, String), String> {
+    let rest = url
+        .strip_prefix("http://")
+        .ok_or_else(|| format!("not an http URL: {url}"))?;
+    let (host, path) = match rest.find('/') {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, "/"),
+    };
+    Ok((host.to_string(), path.to_string()))
+}
+
+/// A minimal HTTP/1.1 request; returns the body of a 200 answer.
+fn http(url: &str, method: &str, headers: &[(&str, &str)], body: &str) -> Result<String, String> {
+    let (host, path) = split_url(url)?;
+    let addr: SocketAddr = if host.contains(':') {
+        host.parse()
+            .map_err(|_| format!("bad router address {host}"))?
+    } else {
+        format!("{host}:80")
+            .parse()
+            .map_err(|_| format!("bad router address {host}"))?
+    };
+    let mut stream =
+        TcpStream::connect_timeout(&addr, Duration::from_secs(2)).map_err(|e| e.to_string())?;
+    stream.set_read_timeout(Some(Duration::from_secs(3))).ok();
+    let mut request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    for (name, value) in headers {
+        request.push_str(&format!("{name}: {value}\r\n"));
+    }
+    request.push_str("\r\n");
+    request.push_str(body);
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let mut response = Vec::new();
+    let _ = stream.take(256 * 1024).read_to_end(&mut response);
+    let text = String::from_utf8_lossy(&response).to_string();
+    let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+    let status = head.lines().next().unwrap_or_default();
+    if !status.contains(" 200") {
+        return Err(status.to_string());
+    }
+    let chunked = head.lines().any(|line| {
+        line.to_ascii_lowercase()
+            .starts_with("transfer-encoding: chunked")
+    });
+    Ok(if chunked {
+        dechunk(body)
+    } else {
+        body.to_string()
+    })
+}
+
+fn dechunk(mut body: &str) -> String {
+    let mut out = String::new();
+    while let Some((size, rest)) = body.split_once("\r\n") {
+        let Ok(size) = usize::from_str_radix(size.trim(), 16) else {
+            break;
+        };
+        if size == 0 || rest.len() < size {
+            break;
+        }
+        out.push_str(&rest[..size]);
+        body = rest[size..].trim_start_matches("\r\n");
+    }
+    out
+}
+
+/// The text inside the first `<name>…</name>` (with or without a namespace prefix).
+fn tag(xml: &str, name: &str) -> Option<String> {
+    let open = xml.find(&format!("{name}>"))?;
+    let start = open + name.len() + 1;
+    let end = xml[start..].find("</")? + start;
+    Some(xml[start..end].to_string())
+}
+
+// ---------------------------------------------------------------------------
+// NAT-PMP (RFC 6886)
+
+fn natpmp_socket(gateway: Ipv4Addr) -> Result<UdpSocket, String> {
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).map_err(|e| e.to_string())?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(800)))
+        .map_err(|e| e.to_string())?;
+    socket.connect((gateway, 5351)).map_err(|e| e.to_string())?;
+    Ok(socket)
+}
+
+/// Maps UDP `port`; returns the external port. A lifetime of 0 removes the mapping.
+fn natpmp_map(gateway: Ipv4Addr, port: u16, lifetime: u32) -> Result<u16, String> {
+    let socket = natpmp_socket(gateway)?;
+    let mut request = vec![0u8, 1, 0, 0];
+    request.extend_from_slice(&port.to_be_bytes());
+    request.extend_from_slice(&(if lifetime == 0 { 0 } else { port }).to_be_bytes());
+    request.extend_from_slice(&lifetime.to_be_bytes());
+    let mut buf = [0u8; 16];
+    for _ in 0..2 {
+        let _ = socket.send(&request);
+        if let Ok(16) = socket.recv(&mut buf) {
+            if buf[1] != 129 {
+                return Err("unexpected answer".into());
+            }
+            let result = u16::from_be_bytes([buf[2], buf[3]]);
+            if result != 0 {
+                return Err(format!("the router refused (code {result})"));
+            }
+            return Ok(u16::from_be_bytes([buf[10], buf[11]]));
+        }
+    }
+    Err(format!("no answer from {gateway}"))
+}
+
+fn natpmp_external_ip(gateway: Ipv4Addr) -> Result<Ipv4Addr, String> {
+    let socket = natpmp_socket(gateway)?;
+    let mut buf = [0u8; 12];
+    let _ = socket.send(&[0, 0]);
+    match socket.recv(&mut buf) {
+        Ok(12) if buf[1] == 128 && buf[2..4] == [0, 0] => {
+            Ok(Ipv4Addr::new(buf[8], buf[9], buf[10], buf[11]))
+        }
+        _ => Err("the router didn't say its external address".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_tags_and_chunks() {
+        assert_eq!(
+            tag(
+                "<s:Body><NewExternalIPAddress>1.2.3.4</NewExternalIPAddress>",
+                "NewExternalIPAddress"
+            ),
+            Some("1.2.3.4".into())
+        );
+        assert_eq!(
+            dechunk("5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"),
+            "hello world"
+        );
+        assert!(is_private("100.72.1.1".parse().unwrap()));
+        assert!(!is_private("99.228.45.79".parse().unwrap()));
+    }
+}
