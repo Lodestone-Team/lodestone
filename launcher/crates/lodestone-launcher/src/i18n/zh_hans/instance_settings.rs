@@ -21,6 +21,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::MemoryRange => "{min} – {max}",
         M::MemoryUnit => "MB",
+        M::MemoryChosenAutomatically => {
+            "根据这台电脑和实例的模组选择。在你更改之前，它会随模组调整。"
+        }
         M::WindowDefaultSize => "游戏默认大小",
         M::WindowFullscreen => "{size}，全屏",
         M::WindowSizeInvalid => "窗口大小需要以像素为单位的宽度和高度。",

@@ -362,9 +362,18 @@ pub fn plan(
             },
             Settings::General(c) => match c {
                 GeneralSettings::Get => call("settings.general.get", vec![]),
-                GeneralSettings::Set { auto_groups } => call(
+                GeneralSettings::Set {
+                    auto_groups,
+                    auto_configure,
+                } => call(
                     "settings.general.set",
-                    vec![("auto_groups", json!(auto_groups))],
+                    [
+                        ("auto_groups", *auto_groups),
+                        ("auto_configure", *auto_configure),
+                    ]
+                    .into_iter()
+                    .filter_map(|(key, value)| Some((key, json!(value?))))
+                    .collect(),
                 ),
             },
             Settings::Developer(c) => match c {

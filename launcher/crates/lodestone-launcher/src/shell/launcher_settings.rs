@@ -294,11 +294,26 @@ impl Render for LauncherSettings {
         );
         let window_error = self.fields.window(cx).err();
         let env_error = self.fields.env(cx).err();
+        let auto_configure = self.instances.read(cx).auto_configure();
         div()
             .flex()
             .flex_col()
+            .gap_6()
             .w_full()
             .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
+            // Applies at once, unlike the fields below, which wait for Save.
+            .child(card([SettingRow::new(t(M::AutoConfigure))
+                .hint(t(M::AutoConfigureHint))
+                .child(
+                    Toggle::new("auto-configure", auto_configure)
+                        .label(t(M::AutoConfigure))
+                        .on_change(cx.listener(|this, value: &bool, _, cx| {
+                            let on = *value;
+                            this.instances
+                                .update(cx, |instances, cx| instances.set_auto_configure(on, cx));
+                        })),
+                )
+                .into_any_element()]))
             .child(card([
                 SettingRow::new(t(M::Memory))
                     .hint(memory_hint)

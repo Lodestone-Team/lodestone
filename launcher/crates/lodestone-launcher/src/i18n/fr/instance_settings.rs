@@ -12,6 +12,9 @@ pub fn text(message: M) -> &'static str {
         M::TotalMemory => "{computer} a {size} de mémoire.",
         M::MemoryRange => "{min} – {max}",
         M::MemoryUnit => "Mo",
+        M::MemoryChosenAutomatically => {
+            "Choisie pour cet ordinateur et les mods de l’instance. Elle suit les mods tant que vous ne la modifiez pas."
+        }
         M::WindowDefaultSize => "Taille par défaut du jeu",
         M::WindowFullscreen => "{size}, plein écran",
         M::WindowSizeInvalid => {

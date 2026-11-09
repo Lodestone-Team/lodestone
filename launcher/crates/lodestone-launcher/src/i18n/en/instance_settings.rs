@@ -15,6 +15,8 @@ crate::i18n::messages! {
         MemoryRange = "{min} – {max}",
         /// The unit beside the memory fields.
         MemoryUnit = "MB",
+        /// Under the memory while automatic setup chose it.
+        MemoryChosenAutomatically = "Chosen for this computer and the instance's mods. It follows the mods until you change it.",
         WindowDefaultSize = "The game's default size",
         /// {size} is "854 × 480" or "The game's default size".
         WindowFullscreen = "{size}, fullscreen",

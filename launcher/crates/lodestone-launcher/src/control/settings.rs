@@ -377,7 +377,11 @@ pub fn defaults_reset(call: Call, cx: &mut App) -> Reply {
 }
 
 fn general_json(control: &Control, cx: &App) -> Value {
-    json!({ "auto_groups": control.instances.read(cx).auto_groups() })
+    let instances = control.instances.read(cx);
+    json!({
+        "auto_groups": instances.auto_groups(),
+        "auto_configure": instances.auto_configure(),
+    })
 }
 
 pub fn general_get(call: Call, cx: &mut App) -> Reply {
@@ -389,21 +393,34 @@ pub fn general_get(call: Call, cx: &mut App) -> Reply {
 struct GeneralParams {
     #[serde(default)]
     auto_groups: Option<bool>,
+    #[serde(default)]
+    auto_configure: Option<bool>,
 }
 
 pub fn general_set(call: Call, cx: &mut App) -> Reply {
     let params: GeneralParams = params!(call);
-    let Some(on) = params.auto_groups else {
+    if params.auto_groups.is_none() && params.auto_configure.is_none() {
         return ready(Err(api_error(
             codes::INVALID_PARAMS,
-            "Give a setting to change: auto_groups.",
+            "Give a setting to change: auto_groups or auto_configure.",
         )));
-    };
-    call.control
-        .instances
-        .update(cx, |instances, cx| instances.set_auto_groups(on, cx));
+    }
+    call.control.instances.update(cx, |instances, cx| {
+        if let Some(on) = params.auto_groups {
+            instances.set_auto_groups(on, cx);
+        }
+        if let Some(on) = params.auto_configure {
+            instances.set_auto_configure(on, cx);
+        }
+    });
     let general = general_json(&call.control, cx);
-    if general["auto_groups"] != json!(on) {
+    let saved = params
+        .auto_groups
+        .is_none_or(|on| general["auto_groups"] == json!(on))
+        && params
+            .auto_configure
+            .is_none_or(|on| general["auto_configure"] == json!(on));
+    if !saved {
         let notice = call
             .control
             .instances

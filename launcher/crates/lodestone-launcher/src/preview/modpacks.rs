@@ -244,6 +244,7 @@ fn prompt(instances: &Instances, id: &str) -> UpdatePrompt {
         summary: None,
         game_version: "1.20.1".into(),
         loader: Some((LoaderKind::Fabric, "0.16.14".into())),
+        recommended_memory: None,
         downloads: vec![
             download("mods/sodium-fabric-0.5.14+mc1.20.1.jar", "AANobbMI"),
             download("mods/lithium-fabric-mc1.20.1-0.11.3.jar", "gvQqBUqZ"),

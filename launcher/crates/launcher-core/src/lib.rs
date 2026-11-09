@@ -11,6 +11,7 @@
 
 pub mod accounts;
 pub mod auth;
+pub mod configurator;
 pub mod content;
 pub mod cores;
 pub mod disk;

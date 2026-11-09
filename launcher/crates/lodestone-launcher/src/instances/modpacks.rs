@@ -817,6 +817,7 @@ impl Instances {
                                 Loader::from_kind(plan.loader.as_ref().map(|l| l.kind));
                             instance.loader_version =
                                 plan.loader.as_ref().map(|l| l.version.clone());
+                            instance.recommended_memory = plan.recommended_memory;
                             instance
                         });
                         let message = match saved

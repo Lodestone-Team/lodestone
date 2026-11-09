@@ -198,6 +198,32 @@ pub struct Instance {
     /// versions. Off, a file only updates to one at least as stable as it is.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub prerelease_updates: bool,
+    /// The memory the instance's modpack recommends, MiB (a CurseForge manifest's
+    /// `recommendedRam`), which automatic setup gives it at least, as far as the
+    /// computer can spare. Updated with the pack.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_memory: Option<u32>,
+    /// What automatic setup ([`crate::configurator`]) chose for the instance; `None`
+    /// until it has set it up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_config: Option<AutoConfig>,
+}
+
+/// What automatic setup chose for an instance. While a setting still has the value it
+/// chose, it keeps choosing it (memory follows the mods that are added); once the user
+/// changes it, it is theirs.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutoConfig {
+    /// The memory it gave the instance last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<Memory>,
+    /// The JVM arguments it gave the instance last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jvm_args: Option<String>,
+    /// The game's options were set up, or the instance already had its own: they are
+    /// never touched again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub options: bool,
 }
 
 impl Default for Instance {
@@ -225,6 +251,8 @@ impl Default for Instance {
             window: None,
             env: None,
             prerelease_updates: false,
+            recommended_memory: None,
+            auto_config: None,
         }
     }
 }
