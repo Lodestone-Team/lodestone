@@ -20,8 +20,12 @@ use gpui::{
 };
 use launcher_core::ui_skin::{
     BUILT_IN_IMAGES, Fill, Fit, FontPart, Gradient, GradientKind, ImageFill, ImageRole, MAX_LABEL,
-    Rgb, Shape, SkinBanner, SkinEntry, SkinSpec, SkinStore, Stop, SurfaceId, readable,
-    surface::{BUNDLED_FONTS, MAX_BANNERS, MAX_BORDER, MAX_FILL_BLUR, MAX_RADIUS, MAX_STOPS},
+    Material, MaterialKind, Rgb, Shape, SkinBanner, SkinEntry, SkinSpec, SkinStore, Stop,
+    SurfaceId, readable,
+    surface::{
+        BUNDLED_FONTS, MAX_BANNERS, MAX_BORDER, MAX_FILL_BLUR, MAX_MATERIAL_BLUR, MAX_RADIUS,
+        MAX_STOPS,
+    },
 };
 
 use super::{
@@ -889,22 +893,26 @@ impl SkinEditor {
                     None,
                     cx,
                 ));
-                fill_rows.push(slider_row(
-                    &entity,
-                    t(M::SkinOpacity),
-                    "skin-opacity",
-                    f64::from(opacity),
-                    (0., 100., 5.),
-                    "%",
-                    false,
-                    move |this, value, cx| {
-                        this.edit_surface(surface, "opacity", cx, move |own| {
-                            if let Some(Fill::Solid { opacity, .. }) = &mut own.fill {
-                                *opacity = value.round() as u8;
-                            }
-                        })
-                    },
-                ));
+                // with a material, its own "Fill shows" sets how much of the colour
+                // shows
+                if own.material.is_none() {
+                    fill_rows.push(slider_row(
+                        &entity,
+                        t(M::SkinOpacity),
+                        "skin-opacity",
+                        f64::from(opacity),
+                        (0., 100., 5.),
+                        "%",
+                        false,
+                        move |this, value, cx| {
+                            this.edit_surface(surface, "opacity", cx, move |own| {
+                                if let Some(Fill::Solid { opacity, .. }) = &mut own.fill {
+                                    *opacity = value.round() as u8;
+                                }
+                            })
+                        },
+                    ));
+                }
             }
             Some(Fill::Gradient(gradient)) => {
                 let stop = self.stop.min(gradient.stops.len() - 1);
@@ -1288,6 +1296,11 @@ impl SkinEditor {
                 },
             ));
         }
+        let material_rows = if surface.takes_material() {
+            self.material_rows(surface, &own, cx)
+        } else {
+            Vec::new()
+        };
         let text_rows: Vec<AnyElement> = if readable::own_text(surface) {
             let mut rows = vec![self.color_row(
                 t(M::SkinTextColour),
@@ -1348,9 +1361,118 @@ impl SkinEditor {
             )
             .child(sample(surface, look))
             .child(card(fill_rows))
+            .when(!material_rows.is_empty(), |this| {
+                this.child(card(material_rows))
+            })
             .child(card(shape_rows))
             .child(card(text_rows))
             .into_any_element()
+    }
+
+    /// The surface's material: none, translucent, blurred or frosted, and its
+    /// numbers.
+    fn material_rows(
+        &mut self,
+        surface: SurfaceId,
+        own: &launcher_core::ui_skin::SurfaceSpec,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let entity = cx.entity();
+        let material = own.material;
+        let current = material.map(|m| m.kind);
+        let mut rows = vec![
+            SettingRow::new(t(M::SkinMaterial))
+                .hint(t(M::SkinMaterialHint))
+                .child(segmented(
+                    "skin-material",
+                    vec![
+                        (None, t(M::SkinNone).into()),
+                        (
+                            Some(MaterialKind::Translucent),
+                            t(M::SkinMaterialTranslucent).into(),
+                        ),
+                        (Some(MaterialKind::Blur), t(M::SkinMaterialBlur).into()),
+                        (Some(MaterialKind::Frost), t(M::SkinMaterialFrost).into()),
+                    ],
+                    Some(&current),
+                    false,
+                    {
+                        let entity = entity.clone();
+                        move |kind: Option<MaterialKind>, _, cx| {
+                            entity.update(cx, |this, cx| {
+                                this.edit_surface(surface, "material", cx, move |own| {
+                                    // the numbers carry over to the new kind; only a
+                                    // blurring kind keeps its blur
+                                    own.material = kind.map(|kind| {
+                                        let mut material = own.material.unwrap_or_default();
+                                        material.kind = kind;
+                                        if !material.samples_behind() {
+                                            material.blur = None;
+                                        }
+                                        material
+                                    });
+                                })
+                            })
+                        }
+                    },
+                ))
+                .into_any_element(),
+        ];
+        let Some(material) = material else {
+            return rows;
+        };
+        let set = |control: &'static str, change: fn(&mut Material, u8)| {
+            move |this: &mut SkinEditor, value: f64, cx: &mut Context<SkinEditor>| {
+                this.edit_surface(surface, control, cx, move |own| {
+                    if let Some(material) = &mut own.material {
+                        change(material, value.round() as u8);
+                    }
+                })
+            }
+        };
+        rows.push(slider_row(
+            &entity,
+            t(M::SkinMaterialOpacity),
+            "skin-material-opacity",
+            f64::from(material.opacity(own.fill.as_ref())),
+            (0., 100., 5.),
+            "%",
+            false,
+            set("material-opacity", |m, v| m.opacity = Some(v)),
+        ));
+        if material.samples_behind() {
+            rows.push(slider_row(
+                &entity,
+                t(M::SkinMaterialBlurAmount),
+                "skin-material-blur",
+                f64::from(material.blur()),
+                (0., f64::from(MAX_MATERIAL_BLUR), 1.),
+                " px",
+                false,
+                set("material-blur", |m, v| m.blur = Some(v)),
+            ));
+            rows.push(slider_row(
+                &entity,
+                t(M::SkinMaterialFrostVeil),
+                "skin-material-frost",
+                f64::from(material.frost()),
+                (0., 60., 2.),
+                "%",
+                false,
+                set("material-frost", |m, v| m.frost = Some(v)),
+            ));
+            rows.push(slider_row(
+                &entity,
+                t(M::SkinMaterialGrain),
+                "skin-material-grain",
+                f64::from(material.grain()),
+                (0., 100., 5.),
+                "%",
+                false,
+                set("material-grain", |m, v| m.grain = Some(v)),
+            ));
+        }
+        rows
     }
 
     fn tokens_pane(&mut self, look: &crate::skin::Look, cx: &mut Context<Self>) -> AnyElement {

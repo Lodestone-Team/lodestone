@@ -619,14 +619,14 @@ impl Instances {
 
     /// Settings > General > Transparency (`None` follows the skin) and Opacity
     /// (`None`: the skin's, else the default).
-    pub fn transparency(&self) -> (Option<launcher_core::ui_skin::Material>, Option<u8>) {
+    pub fn transparency(&self) -> (Option<launcher_core::ui_skin::Transparency>, Option<u8>) {
         (self.settings.transparency, self.settings.opacity)
     }
 
     /// Changes what shows through the window, saves it, and shows it.
     pub fn set_transparency(
         &mut self,
-        material: Option<launcher_core::ui_skin::Material>,
+        material: Option<launcher_core::ui_skin::Transparency>,
         cx: &mut Context<Self>,
     ) {
         if let Err(err) = self.update_settings(|settings| settings.transparency = material, cx) {

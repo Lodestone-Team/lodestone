@@ -394,13 +394,13 @@ fn general_json(control: &Control, cx: &App) -> Value {
 }
 
 /// `off`, `clear`, `frosted` or `glass`.
-fn material_key(material: launcher_core::ui_skin::Material) -> &'static str {
-    use launcher_core::ui_skin::Material;
+fn material_key(material: launcher_core::ui_skin::Transparency) -> &'static str {
+    use launcher_core::ui_skin::Transparency;
     match material {
-        Material::Opaque => "off",
-        Material::Clear => "clear",
-        Material::Frosted => "frosted",
-        Material::Glass => "glass",
+        Transparency::Opaque => "off",
+        Transparency::Clear => "clear",
+        Transparency::Frosted => "frosted",
+        Transparency::Glass => "glass",
     }
 }
 
@@ -420,7 +420,7 @@ struct GeneralParams {
 }
 
 pub fn general_set(call: Call, cx: &mut App) -> Reply {
-    use launcher_core::ui_skin::{MIN_OPACITY, Material};
+    use launcher_core::ui_skin::{MIN_OPACITY, Transparency};
     let params: GeneralParams = params!(call);
     if params.auto_groups.is_none() && params.transparency.is_none() && params.opacity.is_none() {
         return ready(Err(api_error(
@@ -431,10 +431,10 @@ pub fn general_set(call: Call, cx: &mut App) -> Reply {
     let transparency = match params.transparency.as_deref() {
         None => None,
         Some("skin") => Some(None),
-        Some("off") => Some(Some(Material::Opaque)),
-        Some("clear") => Some(Some(Material::Clear)),
-        Some("frosted") => Some(Some(Material::Frosted)),
-        Some("glass") => Some(Some(Material::Glass)),
+        Some("off") => Some(Some(Transparency::Opaque)),
+        Some("clear") => Some(Some(Transparency::Clear)),
+        Some("frosted") => Some(Some(Transparency::Frosted)),
+        Some("glass") => Some(Some(Transparency::Glass)),
         Some(other) => {
             return ready(Err(api_error(
                 codes::INVALID_PARAMS,

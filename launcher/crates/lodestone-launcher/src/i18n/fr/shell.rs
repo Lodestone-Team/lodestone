@@ -595,6 +595,17 @@ pub fn text(message: M) -> &'static str {
         M::SkinTint => "Teinte",
         M::SkinTintStrength => "Intensité de la teinte",
         M::SkinBlur => "Flou",
+        M::SkinMaterial => "Matière",
+        M::SkinMaterialHint => {
+            "Laisse voir ce qui se trouve derrière le panneau : le fond de la fenêtre, la page ou une boîte de dialogue. Flou et Givré le montrent flouté."
+        }
+        M::SkinMaterialTranslucent => "Translucide",
+        M::SkinMaterialBlur => "Flou",
+        M::SkinMaterialFrost => "Givré",
+        M::SkinMaterialOpacity => "Remplissage visible",
+        M::SkinMaterialBlurAmount => "Flou de l’arrière-plan",
+        M::SkinMaterialFrostVeil => "Voile givré",
+        M::SkinMaterialGrain => "Grain",
         M::SkinBanner => "Bannière d’instance",
         M::SkinBannerInSidebar => "Afficher derrière les lignes de la barre latérale",
         M::SkinHero => "Bannière Jouer",

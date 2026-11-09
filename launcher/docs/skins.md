@@ -94,9 +94,47 @@ Each surface takes:
 | `radius` | Corner radius, 0–32 pixels. |
 | `text` | The surface's own text colour, on `sidebar`, `toast` and the controls (buttons, `tab`, `pill`, `play_button`). Elsewhere text follows `tokens`. A control's label without one is white or near-black, whichever reads better on its fill. |
 | `muted` | The sidebar's quieter text: headers, subtitles, counts, the footer and icons. |
+| `material` | How what is behind the surface shows through: `"translucent"`, `"blur"` or `"frost"`, or `{"kind", "blur": 0–40, "opacity": 0–100, "frost": 0–100, "grain": 0–100}`. For the panels only (below). |
 
 A see-through `main` (a solid fill with `opacity` under 100) shows the `window`'s
 fill through it.
+
+### Materials
+
+A panel's `material` lets what is behind it show through, like glass:
+
+- `translucent`: what is behind shows as it is. The panel's whole fill (a colour, a
+  gradient or an image) is drawn over it at `opacity` (60 by default).
+- `blur`: what is behind shows blurred by `blur` pixels (16 by default), under the
+  fill at `opacity` (55).
+- `frost`: blurred (20), under a pale veil (`frost`, 14) with fine grain (`grain`,
+  30), under the fill at `opacity` (40).
+
+`opacity` is how much of the panel's fill shows. Without it, a see-through solid
+fill's own opacity is used, else the kind's default. A panel with a material and no
+fill shows its usual colour at that opacity. `frost` and `grain` also work on `blur`.
+
+```json
+"surfaces": {
+  "window": { "fill": { "image": "mountains.jpg" } },
+  "sidebar": { "fill": "#0A0E1C", "material": { "kind": "blur", "blur": 28, "opacity": 50 } },
+  "card": { "fill": "#141C30", "material": "frost", "radius": 14 },
+  "row": { "fill": "#0C1222", "material": "translucent" }
+}
+```
+
+The panels are `top_bar`, `sidebar`, `main`, `play_bar`, `card`, `setting_card`,
+`row`, `dialog`, `settings_nav`, `popover`, `input` and `toast`. What is behind each:
+
+- the bars, `main`, `dialog`, `popover` and `toast`: the `window`;
+- `card`, `row` and `input`: `main`, and the `window` where `main` is see-through;
+- `setting_card` and `settings_nav`: the `dialog` (the Settings window), and the
+  window behind it, dimmed as it is behind every dialog.
+
+Blurring works on what the skin paints, not on the launcher's own content: a frosted
+menu blurs the window's background, not the text under it. The picture behind is
+blurred once when the skin loads, and each panel shows its part of it, lined up with
+the window, so scrolling and resizing cost nothing extra.
 
 ### Fonts and banners
 

@@ -168,6 +168,33 @@ impl SurfaceId {
         )
     }
 
+    /// What is behind it, which a [`Material`] shows through. Only the panels have
+    /// a material: not the window (nothing is behind it), the hero (a picture) or
+    /// the controls.
+    pub fn behind(self) -> Option<SurfaceId> {
+        match self {
+            // the window's bars and the page; dialogs, menus and notices float over
+            // the window, which is the part of what is behind them a skin paints
+            SurfaceId::TopBar
+            | SurfaceId::Sidebar
+            | SurfaceId::Main
+            | SurfaceId::PlayBar
+            | SurfaceId::Dialog
+            | SurfaceId::Popover
+            | SurfaceId::Toast => Some(SurfaceId::Window),
+            // inside the Settings window
+            SurfaceId::SettingCard | SurfaceId::SettingsNav => Some(SurfaceId::Dialog),
+            // on the page
+            SurfaceId::Card | SurfaceId::Row | SurfaceId::Input => Some(SurfaceId::Main),
+            _ => None,
+        }
+    }
+
+    /// Whether it takes a [`Material`]: the panels.
+    pub fn takes_material(self) -> bool {
+        self.behind().is_some()
+    }
+
     /// Whether an image fill makes sense on it: the large surfaces.
     pub fn takes_image(self) -> bool {
         matches!(
@@ -524,6 +551,225 @@ impl Serialize for Fill {
     }
 }
 
+/// The most a material blurs what is behind it, in pixels.
+pub const MAX_MATERIAL_BLUR: u8 = 40;
+
+/// What a see-through surface does to what is behind it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MaterialKind {
+    /// What is behind shows through as it is.
+    #[default]
+    Translucent,
+    /// What is behind shows through blurred.
+    Blur,
+    /// Blurred, with a pale veil and fine grain, like frosted glass.
+    Frost,
+}
+
+impl MaterialKind {
+    pub const ALL: [MaterialKind; 3] = [
+        MaterialKind::Translucent,
+        MaterialKind::Blur,
+        MaterialKind::Frost,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            MaterialKind::Translucent => "translucent",
+            MaterialKind::Blur => "blur",
+            MaterialKind::Frost => "frost",
+        }
+    }
+
+    fn from_key(key: &str) -> Option<Self> {
+        MaterialKind::ALL.into_iter().find(|k| k.key() == key)
+    }
+
+    /// How far it blurs, in pixels, unless the material says.
+    pub fn default_blur(self) -> u8 {
+        match self {
+            MaterialKind::Translucent => 0,
+            MaterialKind::Blur => 16,
+            MaterialKind::Frost => 20,
+        }
+    }
+
+    /// How much of the surface's fill shows over what is behind, unless the material
+    /// or a see-through solid fill says.
+    pub fn default_opacity(self) -> u8 {
+        match self {
+            MaterialKind::Translucent => 60,
+            MaterialKind::Blur => 55,
+            MaterialKind::Frost => 40,
+        }
+    }
+
+    pub fn default_frost(self) -> u8 {
+        match self {
+            MaterialKind::Frost => 14,
+            _ => 0,
+        }
+    }
+
+    pub fn default_grain(self) -> u8 {
+        match self {
+            MaterialKind::Frost => 30,
+            _ => 0,
+        }
+    }
+}
+
+/// How a surface lets what is behind it (the window's background, the page, a
+/// dialog) show through: as it is, blurred, or frosted. The surface's own fill is
+/// drawn over it at `opacity`.
+///
+/// In `skin.json` it is a kind (`"frost"`), or an object with the kind and any of
+/// the numbers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Material {
+    pub kind: MaterialKind,
+    /// 0 to [`MAX_MATERIAL_BLUR`] pixels; only for `blur` and `frost`.
+    pub blur: Option<u8>,
+    /// 0 to 100: how much of the surface's own fill shows.
+    pub opacity: Option<u8>,
+    /// 0 to 100: a pale veil over what is behind.
+    pub frost: Option<u8>,
+    /// 0 to 100: fine grain over it.
+    pub grain: Option<u8>,
+}
+
+impl Material {
+    pub fn of(kind: MaterialKind) -> Self {
+        Self {
+            kind,
+            ..Self::default()
+        }
+    }
+
+    /// The blur in pixels: none for `translucent`.
+    pub fn blur(&self) -> u8 {
+        match self.kind {
+            MaterialKind::Translucent => 0,
+            kind => self.blur.unwrap_or(kind.default_blur()),
+        }
+    }
+
+    /// How much of `fill` shows over what is behind, 0 to 100: the material's
+    /// `opacity`, else a see-through solid fill's own, else the kind's.
+    pub fn opacity(&self, fill: Option<&Fill>) -> u8 {
+        self.opacity.unwrap_or(match fill {
+            Some(Fill::Solid { opacity, .. }) if *opacity < 100 => *opacity,
+            _ => self.kind.default_opacity(),
+        })
+    }
+
+    pub fn frost(&self) -> u8 {
+        self.frost.unwrap_or(self.kind.default_frost())
+    }
+
+    pub fn grain(&self) -> u8 {
+        self.grain.unwrap_or(self.kind.default_grain())
+    }
+
+    /// Whether it draws what is behind itself (blurred), rather than letting the
+    /// window show through.
+    pub fn samples_behind(&self) -> bool {
+        self.kind != MaterialKind::Translucent
+    }
+
+    fn validate(&self, at: &str) -> Result<(), SkinError> {
+        let invalid = |reason: String| Err(SkinError::Invalid(format!("{at}: {reason}")));
+        if self.blur.is_some_and(|b| b > MAX_MATERIAL_BLUR) {
+            return invalid(format!("blur must be 0 to {MAX_MATERIAL_BLUR}"));
+        }
+        if self.blur.is_some() && self.kind == MaterialKind::Translucent {
+            return invalid(
+                "a translucent material doesn't blur; use \"blur\" or \"frost\"".into(),
+            );
+        }
+        for (name, value) in [
+            ("opacity", self.opacity),
+            ("frost", self.frost),
+            ("grain", self.grain),
+        ] {
+            if value.is_some_and(|v| v > 100) {
+                return invalid(format!("{name} must be 0 to 100"));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'de> Deserialize<'de> for Material {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let kind = |key: &str| {
+            MaterialKind::from_key(key).ok_or_else(|| {
+                D::Error::custom(format!(
+                    "{key:?} isn't a material (translucent, blur or frost)"
+                ))
+            })
+        };
+        match Value::deserialize(deserializer)? {
+            Value::String(key) => Ok(Material::of(kind(&key)?)),
+            Value::Object(map) => {
+                let known = ["kind", "blur", "opacity", "frost", "grain"];
+                if let Some(key) = map.keys().find(|k| !known.contains(&k.as_str())) {
+                    return Err(D::Error::custom(format!("material has no {key:?}")));
+                }
+                let number = |name: &str| -> Result<Option<u8>, D::Error> {
+                    match map.get(name) {
+                        None => Ok(None),
+                        Some(v) => v
+                            .as_u64()
+                            .and_then(|n| u8::try_from(n).ok())
+                            .map(Some)
+                            .ok_or_else(|| {
+                                D::Error::custom(format!("material.{name} must be a whole number"))
+                            }),
+                    }
+                };
+                Ok(Material {
+                    kind: kind(
+                        map.get("kind")
+                            .and_then(Value::as_str)
+                            .ok_or_else(|| D::Error::custom("material needs a kind"))?,
+                    )?,
+                    blur: number("blur")?,
+                    opacity: number("opacity")?,
+                    frost: number("frost")?,
+                    grain: number("grain")?,
+                })
+            }
+            _ => Err(D::Error::custom(
+                "material is \"translucent\", \"blur\" or \"frost\", or {\"kind\", …}",
+            )),
+        }
+    }
+}
+
+impl Serialize for Material {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if *self == Material::of(self.kind) {
+            return self.kind.key().serialize(serializer);
+        }
+        let mut body = Map::new();
+        body.insert("kind".into(), self.kind.key().into());
+        for (name, value) in [
+            ("blur", self.blur),
+            ("opacity", self.opacity),
+            ("frost", self.frost),
+            ("grain", self.grain),
+        ] {
+            if let Some(value) = value {
+                body.insert(name.into(), value.into());
+            }
+        }
+        Value::Object(body).serialize(serializer)
+    }
+}
+
 /// How one surface looks. Every part is optional: what is left out stays the
 /// launcher's.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -545,10 +791,9 @@ pub struct SurfaceSpec {
     /// Its quieter text: subtitles, headers, hints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub muted: Option<Rgb>,
-    /// How opaque it is while the window is see-through, 0 to 100 percent, instead
-    /// of the launcher's choice for the surface.
+    /// How what is behind it shows through: as it is, blurred or frosted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub opacity: Option<u8>,
+    pub material: Option<Material>,
 }
 
 impl SurfaceSpec {
@@ -577,9 +822,6 @@ impl SurfaceSpec {
                 "{at}.muted is only for the sidebar; use tokens.muted"
             )));
         }
-        if self.opacity.is_some_and(|o| o > 100) {
-            return Err(SkinError::Invalid(format!("{at}.opacity must be 0 to 100")));
-        }
         if self.border_width.is_some_and(|w| w > MAX_BORDER) {
             return Err(SkinError::Invalid(format!(
                 "{at}.border_width must be 0 to {MAX_BORDER}"
@@ -589,6 +831,15 @@ impl SurfaceSpec {
             return Err(SkinError::Invalid(format!(
                 "{at}.radius must be 0 to {MAX_RADIUS}"
             )));
+        }
+        if let Some(material) = &self.material {
+            if !id.takes_material() {
+                return Err(SkinError::Invalid(format!(
+                    "{at}.material is for the panels (bars, the page, cards, rows, dialogs, \
+                     menus, inputs and notices), not the window, the hero or controls"
+                )));
+            }
+            material.validate(&format!("{at}.material"))?;
         }
         Ok(())
     }
@@ -817,6 +1068,77 @@ mod tests {
 
     fn fill(json: &str) -> Result<Fill, String> {
         serde_json::from_str(json).map_err(|e| e.to_string())
+    }
+
+    fn material(json: &str) -> Result<Material, String> {
+        serde_json::from_str(json).map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn materials_read_short_and_long_and_write_back_short() {
+        assert_eq!(
+            material(r#""frost""#).unwrap(),
+            Material::of(MaterialKind::Frost)
+        );
+        let long = material(r#"{"kind": "blur", "blur": 24, "opacity": 30}"#).unwrap();
+        assert_eq!(long.blur(), 24);
+        assert_eq!(long.opacity(None), 30);
+        assert_eq!(long.frost(), 0);
+        for m in [Material::of(MaterialKind::Translucent), long] {
+            let json = serde_json::to_string(&m).unwrap();
+            assert_eq!(material(&json).unwrap(), m, "{json}");
+        }
+        assert_eq!(
+            serde_json::to_string(&Material::of(MaterialKind::Blur)).unwrap(),
+            r#""blur""#
+        );
+        assert!(material(r#""glass""#).is_err());
+        assert!(material(r#"{"kind": "frost", "shine": 3}"#).is_err());
+        assert!(material(r#"{"blur": 3}"#).is_err());
+    }
+
+    #[test]
+    fn a_see_through_solid_sets_the_opacity_unless_the_material_does() {
+        let solid = Fill::Solid {
+            color: Rgb(0x112233),
+            opacity: 35,
+        };
+        let frost = Material::of(MaterialKind::Frost);
+        assert_eq!(frost.opacity(Some(&solid)), 35);
+        assert_eq!(frost.opacity(Some(&Fill::solid(Rgb(0x112233)))), 40);
+        let own = Material {
+            opacity: Some(70),
+            ..frost
+        };
+        assert_eq!(own.opacity(Some(&solid)), 70);
+        // translucent never blurs
+        assert_eq!(Material::of(MaterialKind::Translucent).blur(), 0);
+    }
+
+    #[test]
+    fn materials_are_checked() {
+        let with = |material: Material| SurfaceSpec {
+            material: Some(material),
+            ..SurfaceSpec::default()
+        };
+        let frost = Material::of(MaterialKind::Frost);
+        assert!(with(frost).validate(SurfaceId::Card).is_ok());
+        assert!(with(frost).validate(SurfaceId::Window).is_err());
+        assert!(with(frost).validate(SurfaceId::Hero).is_err());
+        assert!(with(frost).validate(SurfaceId::ButtonPrimary).is_err());
+        let too = |m: Material| with(m).validate(SurfaceId::TopBar).is_err();
+        assert!(too(Material {
+            blur: Some(MAX_MATERIAL_BLUR + 1),
+            ..frost
+        }));
+        assert!(too(Material {
+            grain: Some(101),
+            ..frost
+        }));
+        assert!(too(Material {
+            blur: Some(4),
+            ..Material::of(MaterialKind::Translucent)
+        }));
     }
 
     #[test]

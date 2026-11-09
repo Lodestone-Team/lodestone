@@ -495,6 +495,17 @@ pub fn text(message: M) -> &'static str {
         M::SkinTint => "色調",
         M::SkinTintStrength => "色調強度",
         M::SkinBlur => "模糊",
+        M::SkinMaterial => "材質",
+        M::SkinMaterialHint => {
+            "讓面板後方的內容透出來：視窗背景、頁面或對話框。模糊和霧面會將其模糊顯示。"
+        }
+        M::SkinMaterialTranslucent => "半透明",
+        M::SkinMaterialBlur => "模糊",
+        M::SkinMaterialFrost => "霧面",
+        M::SkinMaterialOpacity => "填色顯示",
+        M::SkinMaterialBlurAmount => "背景模糊",
+        M::SkinMaterialFrostVeil => "霧面層",
+        M::SkinMaterialGrain => "顆粒",
         M::SkinBanner => "實例橫幅",
         M::SkinBannerInSidebar => "顯示在側邊欄項目後方",
         M::SkinHero => "「開始遊戲」橫幅",

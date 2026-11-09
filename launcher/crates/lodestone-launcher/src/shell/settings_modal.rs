@@ -608,23 +608,23 @@ impl LauncherShell {
     /// Settings > General > Transparency, and Opacity while the window is
     /// see-through.
     fn render_transparency(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        use launcher_core::ui_skin::{DEFAULT_OPACITY, MIN_OPACITY, Material};
+        use launcher_core::ui_skin::{DEFAULT_OPACITY, MIN_OPACITY, Transparency};
         let (chosen, opacity) = self.instances.read(cx).transparency();
         let look = crate::skin::look(cx);
-        let skin = look.spec.material;
+        let skin = look.spec.transparency;
         // "Skin" only while the skin has a material of its own
-        let mut choices: Vec<(Option<Material>, SharedString)> = Vec::new();
+        let mut choices: Vec<(Option<Transparency>, SharedString)> = Vec::new();
         if skin.is_some() {
             choices.push((None, t(ShellMsg::TransparencySkin).into()));
         }
         choices.extend(
-            Material::ALL
+            Transparency::ALL
                 .into_iter()
                 .map(|m| (Some(m), super::material_name(m).into())),
         );
         let selected = match (chosen, skin) {
             (None, Some(_)) => None,
-            (None, None) => Some(Material::Opaque),
+            (None, None) => Some(Transparency::Opaque),
             (Some(m), _) => Some(m),
         };
         let instances = self.instances.clone();
@@ -644,7 +644,7 @@ impl LauncherShell {
         ];
         if crate::glass::resolve(&look.spec).is_see_through() {
             let percent = opacity
-                .or(look.spec.opacity)
+                .or(look.spec.window_opacity)
                 .unwrap_or(DEFAULT_OPACITY)
                 .clamp(MIN_OPACITY, 100);
             let instances = self.instances.clone();

@@ -38,6 +38,9 @@ use crate::theme::{Color, colors};
 
 use crate::instances::appearance::{Background, Scrim, scrim_for};
 
+pub mod glass;
+pub use glass::Glass;
+
 /// How a surface is filled, ready to draw.
 #[derive(Clone)]
 pub enum Paint {
@@ -58,8 +61,16 @@ pub struct Painted {
     pub radius: Option<f32>,
     pub text: Option<Color>,
     pub muted: Option<Color>,
-    /// The skin's `opacity` for it while the window is see-through, in percent.
-    pub opacity: Option<u8>,
+    /// What is behind it, blurred or frosted, drawn under its fill (a material).
+    pub glass: Option<Glass>,
+    /// How much of an image fill shows, 0 to 1, when a material makes it
+    /// see-through; `None` for all of it.
+    pub see_through: Option<f32>,
+    /// Whether it is a see-through material at all: the element's own background
+    /// is cleared, so what is behind shows.
+    pub material: bool,
+    /// The layer it is, when blurred surfaces may show it ([`glass::recorder`]).
+    pub records: Option<SurfaceId>,
 }
 
 /// The skin the window shows.
@@ -74,10 +85,11 @@ pub struct Look {
     pub hero: Option<Background>,
     /// The font families the skin uses, by part, once loaded.
     pub fonts: HashMap<FontPart, SharedString>,
-    /// A small, blurred copy of the window's image fill, for frosted panels over it
-    /// ([`crate::glass::backdrop`]).
-    pub blurred: Option<Arc<RenderImage>>,
-    /// The window's image fill, ready for Liquid Glass to bend
+    /// Layers' pictures, blurred for the materials that show them, by layer and
+    /// blur; and the window's, for a see-through window's panels
+    /// ([`crate::glass::WINDOW_BLUR`]).
+    pub blurred: HashMap<(SurfaceId, u8), Arc<RenderImage>>,
+    /// The window's picture, ready for Liquid Glass to bend
     /// ([`crate::liquid::lens`]).
     pub lens: Option<Arc<crate::liquid::LensSource>>,
 }
@@ -90,22 +102,41 @@ impl Look {
             .into_iter()
             .filter_map(|surface| {
                 let own = spec.surface(surface)?;
+                // a material shows the fill over what is behind at its opacity
+                let material = own.material.filter(|_| surface.takes_material());
+                let alpha = material.map_or(100, |m| u32::from(m.opacity(own.fill.as_ref())));
                 let paint = match &own.fill {
-                    Some(Fill::Solid { color, opacity }) => Some(Paint::Solid(
-                        Color::rgb(color.0).opacity(u32::from(*opacity)),
-                    )),
+                    Some(Fill::Solid { color, opacity }) => {
+                        Some(Paint::Solid(Color::rgb(color.0).opacity(match material {
+                            Some(_) => alpha,
+                            None => u32::from(*opacity),
+                        })))
+                    }
                     Some(Fill::Gradient(gradient)) if gradient.is_simple() => {
+                        let stop = |i: usize| Color::rgb(gradient.stops[i].color.0).opacity(alpha);
                         Some(Paint::Gradient(gpui::linear_gradient(
                             f32::from(gradient.angle),
-                            gpui::linear_color_stop(Color::rgb(gradient.stops[0].color.0), 0.),
-                            gpui::linear_color_stop(Color::rgb(gradient.stops[1].color.0), 1.),
+                            gpui::linear_color_stop(stop(0), 0.),
+                            gpui::linear_color_stop(stop(1), 1.),
                         )))
+                    }
+                    // a see-through surface without a fill: its own colour, faintly
+                    None if material.is_some() => {
+                        Some(Paint::Solid(Color::rgb(surface.base().0).opacity(alpha)))
                     }
                     _ => None,
                 };
                 Some((
                     surface,
                     Painted {
+                        glass: material.and_then(|_| Glass::of(&spec, surface)),
+                        see_through: material.map(|_| alpha as f32 / 100.0),
+                        material: material.is_some(),
+                        records: matches!(
+                            surface,
+                            SurfaceId::Window | SurfaceId::Main | SurfaceId::Dialog
+                        )
+                        .then_some(surface),
                         paint,
                         border: own
                             .border
@@ -127,7 +158,6 @@ impl Look {
                             })
                             .map(|c| Color::rgb(c.0)),
                         muted: own.muted.map(|c| Color::rgb(c.0)),
-                        opacity: own.opacity,
                     },
                 ))
             })
@@ -147,9 +177,22 @@ impl Look {
             backdrops: HashMap::new(),
             hero: None,
             fonts,
-            blurred: None,
+            blurred: HashMap::new(),
             lens: None,
         }
+    }
+
+    /// Takes the blurred layer pictures, and gives each blurred surface the one it
+    /// shows.
+    fn set_blurred(&mut self, blurred: HashMap<(SurfaceId, u8), Arc<RenderImage>>) {
+        for painted in self.surfaces.values_mut() {
+            if let Some(glass) = &mut painted.glass
+                && let Some(image) = glass.source().and_then(|key| blurred.get(&key))
+            {
+                glass.with_image(image.clone());
+            }
+        }
+        self.blurred = blurred;
     }
 
     fn default_look() -> Self {
@@ -165,6 +208,7 @@ impl Look {
                 .surfaces
                 .values()
                 .any(|s| matches!(&s.fill, Some(Fill::Gradient(g)) if !g.is_simple()))
+            || !glass::sources(&self.spec).is_empty()
     }
 }
 
@@ -215,8 +259,8 @@ pub fn tally_images(tally: &mut crate::perf::ImageTally, cx: &App) {
     if let Some(hero) = &look.hero {
         tally.add(&hero.image);
     }
-    if let Some(blurred) = &look.blurred {
-        tally.add(blurred);
+    for image in look.blurred.values() {
+        tally.add(image);
     }
 }
 
@@ -338,8 +382,6 @@ fn finish(look: &mut Look, prepared: Prepared, fonts: HashMap<String, SharedStri
         let painted = look.surfaces.entry(surface).or_default();
         painted.paint = Some(Paint::Image(crate::images::render_image(image)));
     }
-    look.blurred = prepared.blurred.map(crate::images::render_image);
-    look.lens = prepared.lens.map(Arc::new);
     if let Some((image, scrim, backdrop)) = prepared.hero {
         look.backdrops.insert(SurfaceId::Hero, backdrop);
         look.hero = Some(Background {
@@ -352,6 +394,14 @@ fn finish(look: &mut Look, prepared: Prepared, fonts: HashMap<String, SharedStri
             look.fonts.insert(part, family.clone());
         }
     }
+    look.lens = prepared.lens.map(Arc::new);
+    look.set_blurred(
+        prepared
+            .blurred
+            .into_iter()
+            .map(|(key, image)| (key, crate::images::render_image(image)))
+            .collect(),
+    );
 }
 
 /// Shows a changed description of the skin on screen: its images are prepared again
@@ -377,6 +427,7 @@ pub fn update(entry: SkinEntry, store: SkinStore, cx: &mut App) {
             spec.fonts.clone(),
             spec.hero.readability,
             spec.hero.scrim,
+            glass::sources(spec),
         )
     };
     if current.id != entry.id || images(&current.spec) != images(&entry.spec) {
@@ -394,7 +445,7 @@ pub fn update(entry: SkinEntry, store: SkinStore, cx: &mut App) {
     look.backdrops = current.backdrops.clone();
     look.hero = current.hero.clone();
     look.fonts = current.fonts.clone();
-    look.blurred = current.blurred.clone();
+    look.set_blurred(current.blurred.clone());
     look.lens = current.lens.clone();
     cx.default_global::<SkinState>().look = Arc::new(look);
     cx.refresh_windows();
@@ -409,9 +460,9 @@ struct Prepared {
     hero: Option<(RgbaImage, Scrim, Backdrop)>,
     /// The pack's font files: name, family, bytes.
     fonts: Vec<(String, String, Vec<u8>)>,
-    /// A blurred copy of the window's image fill.
-    blurred: Option<RgbaImage>,
-    /// The window's image fill, ready for Liquid Glass to bend.
+    /// Layers' pictures blurred for the materials, by layer and blur.
+    blurred: Vec<((SurfaceId, u8), RgbaImage)>,
+    /// The window's picture, ready for Liquid Glass to bend.
     lens: Option<crate::liquid::LensSource>,
 }
 
@@ -551,11 +602,34 @@ fn prepare(id: &str, spec: &SkinSpec, store: &SkinStore) -> Prepared {
             _ => {}
         }
     }
+    // the layers' pictures as they are drawn, blurred for the materials that show
+    // them
+    let mut blurred: Vec<_> = glass::sources(spec)
+        .into_iter()
+        .filter_map(|(layer, blur)| {
+            let picture = match images.iter().find(|(s, _, _)| *s == layer) {
+                Some((_, image, _)) => image.clone(),
+                None => match spec.surface(layer)?.fill? {
+                    Fill::Gradient(gradient) => rasterize(&gradient),
+                    _ => return None,
+                },
+            };
+            Some(((layer, blur), glass::blur_source(&picture, blur, layer)))
+        })
+        .collect();
+    // The window's picture, for when the window is see-through (Settings > General >
+    // Transparency, whatever the skin's materials): blurred under the panels, and
+    // for Liquid Glass to bend.
     let window = images
         .iter()
         .find(|(surface, _, _)| *surface == SurfaceId::Window)
         .map(|(_, image, _)| image);
-    let blurred = window.map(crate::glass::blurred_copy);
+    let key = (SurfaceId::Window, crate::glass::WINDOW_BLUR);
+    if let Some(window) = window
+        && !blurred.iter().any(|(k, _)| *k == key)
+    {
+        blurred.push((key, glass::blur_source(window, key.1, key.0)));
+    }
     let lens = window.map(crate::liquid::lens_source);
     Prepared {
         images,
@@ -625,6 +699,7 @@ thread_local! {
 /// theme's text colours and the fonts. Each window's root view calls it first.
 pub fn set_frame(look: &Arc<Look>) {
     FRAME.with(|frame| *frame.borrow_mut() = Some(look.clone()));
+    glass::start_frame();
     let inks = SidebarInks::of(sidebar_palette(look));
     SIDEBAR_INKS.with(|cell| cell.set(inks));
     crate::theme::ink::set(&look.spec.tokens);
@@ -664,32 +739,41 @@ pub fn painted(surface: SurfaceId) -> Option<Painted> {
 pub trait Skinned: gpui::Styled + gpui::ParentElement + Sized {
     /// Paints the element as `surface`, when the skin paints it: its fill, border,
     /// corners and text colour. Otherwise leaves it as it is. While the window is
-    /// see-through ([`crate::glass`]) its fill fades, whoever set it.
+    /// see-through ([`crate::glass`]) its fill fades, whoever set it; a surface with
+    /// its own material already shows what is behind it and keeps it.
     fn surface(self, surface: SurfaceId) -> Self {
         let painted = painted(surface);
-        let glass = crate::glass::frame();
+        let frame = crate::glass::frame();
         let image = matches!(
             painted.as_ref().and_then(|p| p.paint.as_ref()),
             Some(Paint::Image(_))
         );
-        let blurred = if crate::glass::takes_backdrop(glass, surface) && !image {
-            frame_blurred()
+        let material = painted.as_ref().is_some_and(|p| p.material);
+        let behind = if crate::glass::takes_backdrop(frame, surface) && !image && !material {
+            window_glass()
         } else {
             None
         };
-        let alpha = crate::glass::alpha(
-            glass,
-            surface,
-            painted.as_ref().and_then(|p| p.opacity),
-            image,
-            blurred.is_some(),
-        );
+        let alpha = crate::glass::alpha(frame, surface, None, image, behind.is_some());
         let element = match &painted {
-            Some(painted) => paint_with(self, painted, alpha.filter(|_| image)),
+            // an image fill fades with the window
+            Some(painted) if image && !material && alpha.is_some() => {
+                let mut faded = painted.clone();
+                faded.see_through = Some(faded.see_through.unwrap_or(1.0) * alpha.unwrap_or(1.0));
+                paint(self, &faded)
+            }
+            Some(painted) => paint(self, painted),
             None => self,
         };
         match alpha {
-            Some(alpha) => see_through(element, surface, glass, alpha, image, blurred),
+            Some(_) if material => {
+                if crate::liquid::is_glass(surface) {
+                    liquid_light(element, surface, None)
+                } else {
+                    element
+                }
+            }
+            Some(alpha) => see_through(element, surface, frame, alpha, image, behind),
             None => element,
         }
     }
@@ -697,37 +781,41 @@ pub trait Skinned: gpui::Styled + gpui::ParentElement + Sized {
 
 impl<T: gpui::Styled + gpui::ParentElement + Sized> Skinned for T {}
 
-/// The blurred copy of the window's image in this frame's skin, if it has one.
-fn frame_blurred() -> Option<Arc<RenderImage>> {
+/// The window's picture in this frame's skin, blurred, as a see-through window's
+/// panels show it.
+fn window_glass() -> Option<Glass> {
     FRAME.with(|frame| {
-        frame
-            .borrow()
-            .as_ref()
-            .and_then(|look| look.blurred.clone())
+        let frame = frame.borrow();
+        let look = frame.as_ref()?;
+        let image = look
+            .blurred
+            .get(&(SurfaceId::Window, crate::glass::WINDOW_BLUR))?;
+        Some(Glass::window(&look.spec, image.clone()))
     })
 }
 
-/// The window's image in this frame's skin, ready for Liquid Glass to bend.
+/// The window's picture in this frame's skin, ready for Liquid Glass to bend.
 fn frame_lens() -> Option<Arc<crate::liquid::LensSource>> {
     FRAME.with(|frame| frame.borrow().as_ref().and_then(|look| look.lens.clone()))
 }
 
 /// `element` as `surface` while the window is see-through: its fill faded to `alpha`
-/// (left out under an image fill, which fades itself), over `blurred` where given.
-/// In the Glass mode the floating layer is Liquid Glass ([`liquid_glass`]).
+/// (left out under an image fill, which fades itself), over the window's picture
+/// blurred (`behind`) where given. In the Glass mode the floating layer is Liquid
+/// Glass ([`liquid_glass`]).
 fn see_through<T: gpui::Styled + gpui::ParentElement>(
     mut element: T,
     surface: SurfaceId,
-    glass: crate::glass::Glass,
+    frame: crate::glass::Glass,
     alpha: f32,
     image: bool,
-    blurred: Option<Arc<RenderImage>>,
+    behind: Option<Glass>,
 ) -> T {
     use gpui::{IntoElement, Styled as _, div};
     if crate::liquid::is_glass(surface) {
-        return liquid_glass(element, surface, glass, alpha, image, blurred);
+        return liquid_glass(element, surface, frame, alpha, image, behind);
     }
-    // Under Glass the content's pane dims over a bright image (as Apple dims under
+    // Under Glass the content's pane dims over a bright picture (as Apple dims under
     // clear glass), so the text on it stays readable.
     if crate::liquid::on()
         && surface == SurfaceId::Main
@@ -743,12 +831,10 @@ fn see_through<T: gpui::Styled + gpui::ParentElement>(
         .filter(|_| !image)
         .map(|gpui::Fill::Color(fill)| fill.opacity(alpha));
     let radii = element.style().corner_radii.clone();
-    match blurred {
-        Some(blurred) => {
-            // the blurred image, then the fill over it
-            element = element.child(
-                crate::glass::backdrop(blurred, glass.opacity, radii.clone()).into_any_element(),
-            );
+    match behind {
+        Some(behind) => {
+            // the blurred picture, then the fill over it
+            element = element.child(crate::glass::backdrop(behind, frame.opacity, radii.clone()));
             if let Some(fill) = fill {
                 let mut tint = div().absolute().inset_0().bg(fill);
                 tint.style().corner_radii = radii;
@@ -760,17 +846,16 @@ fn see_through<T: gpui::Styled + gpui::ParentElement>(
     element
 }
 
-/// `element` as Liquid Glass ([`crate::liquid`]): the skin's window image bent at
-/// its rim and frosted inside (or the blurred copy, or the desktop's own blur), a
-/// tint as dark as the image behind needs, a shadow under floating pieces, the lit
-/// rim, and a flash of light as dialogs and popovers appear.
+/// `element` as Liquid Glass ([`crate::liquid`]): the window's picture bent at its
+/// rim and frosted inside (or just blurred, or the desktop's own blur), a tint as
+/// dark as the picture behind needs, then the light ([`liquid_light`]).
 fn liquid_glass<T: gpui::Styled + gpui::ParentElement>(
     mut element: T,
     surface: SurfaceId,
-    glass: crate::glass::Glass,
+    frame: crate::glass::Glass,
     alpha: f32,
     image: bool,
-    blurred: Option<Arc<RenderImage>>,
+    behind: Option<Glass>,
 ) -> T {
     use crate::liquid;
     use gpui::{IntoElement, Styled as _, div};
@@ -784,42 +869,59 @@ fn liquid_glass<T: gpui::Styled + gpui::ParentElement>(
         .filter(|_| !image)
         .map(|gpui::Fill::Color(fill)| fill.opacity(alpha));
     let radii = element.style().corner_radii.clone();
-    let behind = match lens {
-        Some(lens) => Some(
-            liquid::lens(surface, lens, blurred, glass.opacity, radii.clone()).into_any_element(),
-        ),
-        None => blurred
-            .filter(|_| !plain)
-            .map(|blurred| {
-                crate::glass::backdrop(blurred, glass.opacity, radii.clone()).into_any_element()
-            }),
-    };
-    match behind {
-        Some(behind) => {
-            element = element.child(behind);
-            if let Some(fill) = fill {
-                let mut tint = div().absolute().inset_0().bg(fill);
-                tint.style().corner_radii = radii.clone();
-                element = element.child(tint.into_any_element());
-            }
-        }
-        None => element.style().background = fill.map(gpui::Fill::Color),
+    let behind = behind.filter(|_| !plain);
+    let layered = behind.is_some() || lens.is_some();
+    if let Some(behind) = behind {
+        element = element.child(crate::glass::backdrop(behind, frame.opacity, radii.clone()));
     }
+    if let Some(lens) = lens {
+        // over the blurred picture: drawn once it is built
+        element = element.child(
+            liquid::lens(surface, lens, frame.opacity, radii.clone()).into_any_element(),
+        );
+    }
+    if layered {
+        if let Some(fill) = fill {
+            let mut tint = div().absolute().inset_0().bg(fill);
+            tint.style().corner_radii = radii.clone();
+            element = element.child(tint.into_any_element());
+        }
+    } else {
+        element.style().background = fill.map(gpui::Fill::Color);
+    }
+    liquid_light(element, surface, Some(tone))
+}
+
+/// The light on Liquid Glass: a shadow under floating pieces (stronger over a darker
+/// picture), the lit rim, a contrasting border with Increase Contrast, and a flash
+/// of light as dialogs and popovers appear.
+fn liquid_light<T: gpui::Styled + gpui::ParentElement>(
+    mut element: T,
+    surface: SurfaceId,
+    tone: Option<crate::liquid::Tone>,
+) -> T {
+    use crate::liquid;
+    use gpui::IntoElement;
+    let env = liquid::env();
+    let tone = tone.unwrap_or_else(|| liquid::tone(surface, frame_lens().as_deref()));
+    let radii = element.style().corner_radii.clone();
     if liquid::lifts(surface) {
         let mut shadows = element.style().box_shadow.take().unwrap_or_default();
         shadows.extend(liquid::depth(surface, tone));
         element.style().box_shadow = Some(shadows);
     }
-    if env.prefs.increase_contrast {
+    let bordered = {
         let edges = &element.style().border_widths;
-        let bordered = [edges.top, edges.right, edges.bottom, edges.left]
+        [edges.top, edges.right, edges.bottom, edges.left]
             .iter()
-            .any(Option::is_some);
+            .any(Option::is_some)
+    };
+    if env.prefs.increase_contrast {
         if !bordered {
             element = element.border_1();
         }
         element = element.border_color(gpui::hsla(0., 0., 1., 0.55));
-    } else {
+    } else if bordered {
         // the rim's own light does the edge's work
         element = element.border_color(gpui::hsla(0., 0., 1., 0.10));
     }
@@ -842,17 +944,8 @@ fn liquid_glass<T: gpui::Styled + gpui::ParentElement>(
 }
 
 /// `element` painted as `painted` says.
-pub fn paint<T: gpui::Styled + gpui::ParentElement>(element: T, painted: &Painted) -> T {
-    paint_with(element, painted, None)
-}
-
-/// `element` painted as `painted` says, with an image fill at `image_opacity`.
-fn paint_with<T: gpui::Styled + gpui::ParentElement>(
-    mut element: T,
-    painted: &Painted,
-    image_opacity: Option<f32>,
-) -> T {
-    use gpui::{IntoElement, ObjectFit, Styled as _, StyledImage, img};
+pub fn paint<T: gpui::Styled + gpui::ParentElement>(mut element: T, painted: &Painted) -> T {
+    use gpui::{IntoElement, ObjectFit, ParentElement as _, Styled as _, StyledImage, img};
     if let Some(radius) = painted.radius {
         element = element.rounded(crate::theme::px(radius));
     }
@@ -868,23 +961,52 @@ fn paint_with<T: gpui::Styled + gpui::ParentElement>(
     if let Some(text) = painted.text {
         element = element.text_color(text);
     }
-    match &painted.paint {
-        Some(Paint::Solid(color)) => element.bg(*color),
-        Some(Paint::Gradient(gradient)) => element.bg(*gradient),
-        Some(Paint::Image(image)) => {
-            let mut layer = img(image.clone())
+    let corners = element.style().corner_radii.clone();
+    if let Some(layer) = painted.records {
+        element = element.child(glass::recorder(layer));
+    }
+    // a see-through surface drops the launcher's own background, so what is behind
+    // shows (or its blurred copy, drawn first)
+    if painted.material {
+        element.style().background = None;
+    }
+    if let Some(glass) = &painted.glass {
+        element = element.child(glass::layer(glass.clone(), corners.clone()));
+    }
+    // over the glass, the fill is a layer of its own: the element's background
+    // would be drawn under it
+    let layered = painted.glass.is_some();
+    let image_layer = |image: &Arc<RenderImage>| {
+        let mut layer = img(image.clone())
+            .absolute()
+            .inset_0()
+            .size_full()
+            .object_fit(ObjectFit::Cover);
+        // `overflow_hidden` clips to a rectangle, not to rounded corners, so the
+        // image takes the element's corners (set before this is called).
+        layer.style().corner_radii = corners.clone();
+        match painted.see_through {
+            Some(alpha) => gpui::div()
                 .absolute()
                 .inset_0()
                 .size_full()
-                .object_fit(ObjectFit::Cover);
-            // `overflow_hidden` clips to a rectangle, not to rounded corners, so the
-            // image takes the element's corners (set before this is called).
-            layer.style().corner_radii = element.style().corner_radii.clone();
-            if let Some(opacity) = image_opacity {
-                layer = layer.opacity(opacity);
-            }
-            element.overflow_hidden().child(layer.into_any_element())
+                .opacity(alpha)
+                .child(layer)
+                .into_any_element(),
+            None => layer.into_any_element(),
         }
+    };
+    let color_layer = |background: gpui::Background| {
+        let mut layer = gpui::div().absolute().inset_0().size_full().bg(background);
+        layer.style().corner_radii = corners.clone();
+        layer.into_any_element()
+    };
+    match &painted.paint {
+        Some(Paint::Solid(color)) if layered => element.child(color_layer((*color).into())),
+        Some(Paint::Gradient(gradient)) if layered => element.child(color_layer(*gradient)),
+        Some(Paint::Solid(color)) => element.bg(*color),
+        Some(Paint::Gradient(gradient)) => element.bg(*gradient),
+        Some(Paint::Image(image)) => element.overflow_hidden().child(image_layer(image)),
         None => element,
     }
 }

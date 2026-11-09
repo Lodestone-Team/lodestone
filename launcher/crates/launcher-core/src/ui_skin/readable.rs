@@ -334,7 +334,7 @@ impl Fix {
                 surface.key(),
                 tint.hex()
             ),
-            Fix::Opacity(n) => format!("opacity = {n}"),
+            Fix::Opacity(n) => format!("window_opacity = {n}"),
         }
     }
 }
@@ -471,6 +471,47 @@ fn below(surface: SurfaceId) -> Option<SurfaceId> {
     }
 }
 
+/// The dimmer drawn over the window behind a dialog, and how strong it is.
+pub const DIALOG_SCRIM: (Rgb, f32) = (Rgb(0x1D1E21), 0.6);
+
+/// What a surface with `material` shows behind its text: what is behind it (dimmed
+/// under a dialog), blurred and frosted as the material says, under its own fill at
+/// the material's opacity.
+fn material_backdrop(
+    spec: &SkinSpec,
+    surface: SurfaceId,
+    material: super::Material,
+    behind: SurfaceId,
+    measured: &dyn Fn(SurfaceId) -> Option<Backdrop>,
+) -> Backdrop {
+    let mut under = surface_backdrop(spec, behind, measured);
+    if surface == SurfaceId::Dialog {
+        under = under.under(DIALOG_SCRIM.0, DIALOG_SCRIM.1);
+    }
+    let blur = f32::from(material.blur());
+    if blur > 0.0 {
+        // a blur pulls the light and dark ends towards the average
+        let soften = blur / (blur + 8.0);
+        under = Backdrop {
+            mean: under.mean,
+            light: under.light.mix(under.mean, soften),
+            dark: under.dark.mix(under.mean, soften),
+        };
+    }
+    under = under.under(Rgb::WHITE, f32::from(material.frost()) / 100.0);
+    let fill = spec.surface(surface).and_then(|s| s.fill);
+    let alpha = f32::from(material.opacity(fill.as_ref())) / 100.0;
+    let own = match &fill {
+        Some(Fill::Solid { color, .. }) => Backdrop::solid(*color),
+        fill => backdrop_of(fill.as_ref(), surface.base(), measured(surface)),
+    };
+    Backdrop {
+        mean: under.mean.mix(own.mean, alpha),
+        light: under.light.mix(own.light, alpha),
+        dark: under.dark.mix(own.dark, alpha),
+    }
+}
+
 /// What `surface` shows behind its text: its fill over what is below it. `measured`
 /// gives an image fill's backdrop (before its tint), when known.
 pub fn surface_backdrop(
@@ -483,7 +524,11 @@ pub fn surface_backdrop(
             .map(|b| surface_backdrop(spec, b, measured))
             .unwrap_or(Backdrop::solid(surface.base()))
     };
-    match spec.surface(surface).and_then(|s| s.fill) {
+    let own = spec.surface(surface);
+    if let Some((material, behind)) = own.as_ref().and_then(|s| s.material).zip(surface.behind()) {
+        return material_backdrop(spec, surface, material, behind, measured);
+    }
+    match own.and_then(|s| s.fill) {
         // the page paints nothing of its own: the window shows
         None if surface == SurfaceId::Main => under(),
         None => Backdrop::solid(surface.base()),
@@ -504,7 +549,9 @@ pub fn surface_backdrop(
 fn checked(spec: &SkinSpec) -> Vec<SurfaceId> {
     // a see-through window puts the desktop behind the theme's text everywhere
     let tokens = spec.tokens != Tokens::default()
-        || spec.material.is_some_and(super::Material::is_see_through);
+        || spec
+            .transparency
+            .is_some_and(super::Transparency::is_see_through);
     let painted = |id: SurfaceId| spec.surface(id).is_some();
     SurfaceId::ALL
         .into_iter()
@@ -669,7 +716,7 @@ pub fn checks(spec: &SkinSpec, measured: &dyn Fn(SurfaceId) -> Option<Backdrop>)
             let fix = if ratio + 0.005 >= target {
                 None
             } else if opaque + 0.005 >= target {
-                let from = spec.opacity.unwrap_or(super::DEFAULT_OPACITY);
+                let from = spec.window_opacity.unwrap_or(super::DEFAULT_OPACITY);
                 (from..=100)
                     .step_by(5)
                     .chain([100])
@@ -702,15 +749,22 @@ fn see_through(
     backdrop: Backdrop,
     opacity: Option<u8>,
 ) -> Backdrop {
-    if !spec.material.is_some_and(super::Material::is_see_through) {
+    if !spec
+        .transparency
+        .is_some_and(super::Transparency::is_see_through)
+    {
         return backdrop;
     }
     let percent = opacity
-        .or(spec.opacity)
+        .or(spec.window_opacity)
         .unwrap_or(super::DEFAULT_OPACITY)
         .clamp(super::MIN_OPACITY, 100);
-    let own = spec.surface(surface).and_then(|s| s.opacity);
-    let Some(cover) = super::material::coverage(f32::from(percent) / 100.0, surface, own) else {
+    // a surface with a material keeps as much of its fill as the material says
+    let own = spec
+        .surface(surface)
+        .and_then(|s| s.material.map(|m| m.opacity(s.fill.as_ref())));
+    let Some(cover) = super::transparency::coverage(f32::from(percent) / 100.0, surface, own)
+    else {
         return backdrop;
     };
     Backdrop {
@@ -743,7 +797,7 @@ pub fn apply(spec: &mut SkinSpec, fix: &Fix) {
             *slot = Some(*color);
         }
         Fix::HeroScrim(n) => spec.hero.scrim = Some(*n),
-        Fix::Opacity(n) => spec.opacity = Some(*n),
+        Fix::Opacity(n) => spec.window_opacity = Some(*n),
         Fix::SurfaceFill { surface, color } => {
             let current = spec.surface(*surface).and_then(|s| s.fill);
             let opacity = match current {
@@ -990,8 +1044,8 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert!(short(&spec).is_empty(), "the launcher's own look reads");
-        spec.material = Some(super::super::Material::Clear);
-        spec.opacity = Some(super::super::MIN_OPACITY);
+        spec.transparency = Some(super::super::Transparency::Clear);
+        spec.window_opacity = Some(super::super::MIN_OPACITY);
         let found = short(&spec);
         assert!(
             !found.is_empty(),
@@ -1006,7 +1060,7 @@ mod tests {
             .expect("raising the opacity is suggested");
         assert!(fix > super::super::MIN_OPACITY);
         fix_all(&mut spec, &|_| None);
-        assert!(spec.opacity.unwrap() >= fix);
+        assert!(spec.window_opacity.unwrap() >= fix);
         assert!(short(&spec).is_empty());
     }
 

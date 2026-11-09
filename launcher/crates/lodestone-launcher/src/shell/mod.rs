@@ -109,13 +109,13 @@ impl InstanceTab {
 
 /// A loader's name, or "Vanilla" in the current language for none.
 /// The name Settings > General > Transparency gives `material`.
-pub(crate) fn material_name(material: launcher_core::ui_skin::Material) -> &'static str {
-    use launcher_core::ui_skin::Material;
+pub(crate) fn material_name(material: launcher_core::ui_skin::Transparency) -> &'static str {
+    use launcher_core::ui_skin::Transparency;
     match material {
-        Material::Opaque => t(CommonMsg::Off),
-        Material::Clear => t(M::MaterialClear),
-        Material::Frosted => t(M::MaterialFrosted),
-        Material::Glass => t(M::MaterialGlass),
+        Transparency::Opaque => t(CommonMsg::Off),
+        Transparency::Clear => t(M::MaterialClear),
+        Transparency::Frosted => t(M::MaterialFrosted),
+        Transparency::Glass => t(M::MaterialGlass),
     }
 }
 

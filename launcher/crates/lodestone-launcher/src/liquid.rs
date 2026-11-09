@@ -45,7 +45,7 @@ use gpui::{
     IntoElement, ParentElement, Pixels, RenderImage, Styled, Window, canvas, div, point, px,
 };
 use image::RgbaImage;
-use launcher_core::ui_skin::{Material, SurfaceId};
+use launcher_core::ui_skin::{Transparency, SurfaceId};
 
 use crate::a11y::Prefs;
 
@@ -122,7 +122,7 @@ pub fn lens_source(image: &RgbaImage) -> LensSource {
         );
         image::imageops::fast_blur(&small, 1.5)
     };
-    let soft = crate::glass::blurred_copy(image);
+    let soft = crate::skin::glass::blur_source(image, crate::glass::WINDOW_BLUR, SurfaceId::Window);
     let tone = Tone::of(&soft);
     LensSource { sharp, soft, tone }
 }
@@ -200,7 +200,7 @@ pub fn env() -> Env {
 
 /// Whether the window being drawn is in the Glass mode.
 pub fn on() -> bool {
-    crate::glass::frame().material == Material::Glass
+    crate::glass::frame().material == Transparency::Glass
 }
 
 /// Whether `surface` is Liquid Glass in this frame: the floating layer of navigation
@@ -492,14 +492,13 @@ pub fn cache_bytes() -> (usize, usize) {
     })
 }
 
-/// The skin's window image as glass `surface` shows it: bent at the rim and frosted
-/// inside ([`build`]), or, until that is ready, `fallback` (the plain blurred copy).
-/// `opacity` is how much of it covers the desktop behind; `radii` are the pane's
-/// corners. Laid as the pane's first child.
+/// The skin's window picture as glass `surface` shows it: bent at the rim and
+/// frosted inside ([`build`]). Nothing until it is built, so it goes over the plain
+/// blurred picture. `opacity` is how much of it covers the desktop behind; `radii`
+/// are the pane's corners.
 pub fn lens(
     surface: SurfaceId,
     source: Arc<LensSource>,
-    fallback: Option<Arc<RenderImage>>,
     opacity: f32,
     radii: CornersRefinement<AbsoluteLength>,
 ) -> impl IntoElement {
@@ -559,19 +558,7 @@ pub fn lens(
                     .paint_image(bounds, bounds, corners, image, 0, false)
                     .ok();
             }
-            None => {
-                if let Some(fallback) = &fallback {
-                    let size = fallback.size(0);
-                    let laid = crate::glass::cover(
-                        content,
-                        gpui::size(px(size.width.0 as f32), px(size.height.0 as f32)),
-                    );
-                    window
-                        .paint_image(bounds, laid, corners, fallback.clone(), 0, false)
-                        .ok();
-                }
-                request(key, &source, bounds, content, corners, scale, window, cx);
-            }
+            None => request(key, &source, bounds, content, corners, scale, window, cx),
         }
     };
     div()

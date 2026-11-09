@@ -124,36 +124,39 @@ Each surface takes:
 - `radius`: corners, 0–32 px.
 - `text`: the surface's own text colour. It is only used on `sidebar`, `toast` and the controls (the buttons, `tab`, `pill`, `play_button`); setting it anywhere else is refused. On the other surfaces, text uses `tokens`. A control without `text` gets white or near-black, whichever reads better on its fill.
 - `muted`: only on `sidebar`. It covers the sidebar's quieter text: headers, subtitles, counts, the footer and its icons.
-- `opacity`: how much of the surface's fill is kept while the window is see-through (see below), 0–100. Leave it out to use the launcher's choice for the surface.
+- `material`: glass. What is behind the panel shows through it: `"translucent"` (as it is), `"blur"` or `"frost"` (blurred, with a pale veil and grain), or `{"kind": "frost", "blur": 24, "opacity": 35, "frost": 10, "grain": 20}`.
+  - `blur` is 0–40 px (16 for `blur`, 20 for `frost`; `translucent` doesn't blur). `opacity` (0–100) is how much of the panel's own fill shows over it; without it, a see-through solid's own opacity, else 60 / 55 / 40. `frost` and `grain` are 0–100.
+  - Only on the panels: `top_bar`, `sidebar`, `main`, `play_bar`, `card`, `setting_card`, `row`, `dialog`, `settings_nav`, `popover`, `input`, `toast`. Refused on `window`, `hero` and the controls.
+  - It shows what the skin paints behind it: the `window` for the bars, `main`, dialogs, menus and notices; `main` (or the `window` through a see-through `main`) for cards, rows and inputs; the dialog, and the dimmed window behind it, for `setting_card` and `settings_nav`. Give the `window` an image for glass to have something to blur.
+  - Readability checks count the material: what is behind, softened by the blur, under the veil and the fill at its opacity.
 
-### See-through windows: material and opacity
+### See-through windows: transparency and window_opacity
 
-A skin can make the whole window see-through, so the desktop shows behind it:
+A skin can make the whole window see-through, so the desktop shows behind it. This is separate from a surface's `material`, which is how what is *inside* the window shows through a panel.
 
 ```json
 {
-  "material": "glass",
-  "opacity": 70,
-  "surfaces": { "card": { "opacity": 40 } }
+  "transparency": "glass",
+  "window_opacity": 70
 }
 ```
 
-- `material` is one of:
+- `transparency` is one of:
   - `opaque` (the default);
   - `clear`: the desktop shows through, sharp;
   - `frosted`: the desktop shows through, blurred by the system;
-  - `glass`: frosted, with a lit top edge and a light border on panels, cards and dialogs.
-- `opacity` (30–100, default 75) is how opaque the window is.
+  - `glass`: frosted, and the floating layer (sidebar, top bar, Play bar, dialogs, popovers, notices) becomes Liquid Glass: a lit rim, a shadow beneath, the window's picture bent at the edges, a flash of light as dialogs and popovers appear.
+- `window_opacity` (30–100, default 75) is how opaque the window is.
 - Each surface then fades by its role:
-  - the window takes `opacity`;
+  - the window takes `window_opacity`;
   - panels on it (`sidebar`, `top_bar`, `play_bar`, `settings_nav`, `main`) add a little more shade;
   - `card`, `setting_card`, `row`, `input` and `hero` add a little more;
   - `dialog`, `popover` and `toast` stay mostly solid, because they sit over the launcher's own content, which isn't blurred.
   - Buttons, toggles and the Play button keep their fill.
-- `surfaces.<id>.opacity` overrides the fade for one surface.
-- When `window` has an image fill, frosted and glass lay a blurred copy of it under the panels and dialogs, so they look frosted over your image. It is made once, small, when the skin loads.
-- The user's Settings › General › Transparency wins over the skin's `material` and `opacity`. Their "Skin" choice follows yours.
-- What shows through changes with the desktop, so the readability checks assume the worst: white behind light text, black behind dark text. When text only falls short because the window is see-through, the suggestion is a higher `opacity`.
+  - A surface with its own `material` keeps it, and keeps as much of its fill as the material says.
+- When `window` has an image fill, the panels without a `material` of their own show it blurred under them, so they look frosted over your image.
+- The user's Settings › General › Transparency wins over the skin's `transparency` and `window_opacity`. Their "Skin" choice follows yours.
+- What shows through changes with the desktop, so the readability checks assume the worst: white behind light text, black behind dark text. When text only falls short because the window is see-through, the suggestion is a higher `window_opacity`.
 
 ### Tokens, accent and progress
 
@@ -316,6 +319,7 @@ cargo build -p lodestone-launcher --features screenshot
 B=target/debug/lodestone-launcher
 timeout 60 $B --scene skin-grassblock --screenshot grassblock.png   # a built-in skin
 timeout 60 $B --scene skin-showcase --screenshot showcase.png       # gradients and fonts
+timeout 60 $B --scene skin-materials --screenshot materials.png     # frosted, blurred and translucent panels
 timeout 60 $B --scene settings-skin --screenshot settings.png       # the Settings window
 timeout 60 $B --scene skin-editor-readability --screenshot ed.png   # the editor's suggestions
 ```
@@ -405,6 +409,7 @@ Anyone can import the `.zip` in Settings → Skin → Import….
 | stored image | sidebar 1024 × 2048; hero and banners 2560 × 1600; other surfaces 2048 × 2048 |
 | gradient | 2–8 stops; angle −360 to 360 |
 | border, radius, blur | 0–4 px, 0–32 px, 0–20 px |
+| material | blur 0–40 px; opacity, frost, grain 0–100 |
 | fonts | .ttf/.otf, 2 MB each, 4 per pack |
 | banners | 16; ids 1–32 of `a-z 0-9 -` |
 | Play label | 16 characters |

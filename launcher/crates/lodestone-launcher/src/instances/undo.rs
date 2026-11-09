@@ -5,7 +5,7 @@ use gpui::{App, Context, Entity};
 use launcher_core::{
     instances::{BACKGROUND_FILE, ICON_FILE, Instance},
     settings::{CliAccess, CliSettings, InstanceDefaults, Settings},
-    ui_skin::Material,
+    ui_skin::Transparency,
 };
 
 use super::{Instances, fields};
@@ -32,7 +32,7 @@ pub(crate) struct LauncherValues {
     auto_groups: bool,
     auto_update: bool,
     skin: Option<String>,
-    transparency: Option<Material>,
+    transparency: Option<Transparency>,
     opacity: Option<u8>,
     instance_defaults: InstanceDefaults,
     cli: CliSettings,

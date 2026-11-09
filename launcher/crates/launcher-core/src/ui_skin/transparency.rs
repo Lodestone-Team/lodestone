@@ -1,5 +1,5 @@
-//! See-through windows: what shows through the window (a skin's `material`, or
-//! the launcher's Transparency setting) and how much of each surface's fill is
+//! See-through windows: what shows through the window (a skin's `transparency`,
+//! or the launcher's Transparency setting) and how much of each surface's fill is
 //! kept over it.
 
 use serde::{Deserialize, Serialize};
@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use super::SurfaceId;
 
 /// How much of what is behind the window shows through it: Settings > General >
-/// Transparency, or a skin's `material`.
+/// Transparency, or a skin's `transparency`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Material {
+pub enum Transparency {
     /// Nothing shows through.
     #[default]
     Opaque,
@@ -22,23 +22,23 @@ pub enum Material {
     Glass,
 }
 
-impl Material {
+impl Transparency {
     /// The choices, in the order Settings lists them.
-    pub const ALL: [Material; 4] = [
-        Material::Opaque,
-        Material::Clear,
-        Material::Frosted,
-        Material::Glass,
+    pub const ALL: [Transparency; 4] = [
+        Transparency::Opaque,
+        Transparency::Clear,
+        Transparency::Frosted,
+        Transparency::Glass,
     ];
 
     /// Whether anything shows through.
     pub fn is_see_through(self) -> bool {
-        self != Material::Opaque
+        self != Transparency::Opaque
     }
 
     /// Whether what shows through is blurred.
     pub fn is_blurred(self) -> bool {
-        matches!(self, Material::Frosted | Material::Glass)
+        matches!(self, Transparency::Frosted | Transparency::Glass)
     }
 }
 
