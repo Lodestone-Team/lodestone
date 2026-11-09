@@ -76,6 +76,8 @@ pub const SCENES: &[&str] = &[
     "settings-general",
     "settings-accounts",
     "settings-developer",
+    "settings-storage",
+    "settings-storage-confirm",
     "play-background",
     "play-background-dark",
     "icon-picker",
@@ -663,6 +665,12 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             };
             shell.open_settings(Some(page), None, cx);
         }
+        "settings-storage" | "settings-storage-confirm" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Storage), None, cx);
+            let confirm = (scene == "settings-storage-confirm")
+                .then_some(launcher_core::disk::Clean::UnusedGameFiles);
+            shell.preview_storage(storage_report(), confirm, cx);
+        }
         "instance-linked" => servers::apply_linked_instance(shell, cx),
         "account-menu" | "needs-sign-in" | "account-menu-launcher" => shell.open_account_menu(cx),
         "launcher-identity" => shell.preview_enable_launcher_identity(cx),
@@ -700,5 +708,63 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.preview_unsaved_prompt(cx);
         }
         _ => {}
+    }
+}
+
+/// A made-up Settings > Storage count, like a data folder after some months of play.
+fn storage_report() -> launcher_core::disk::Report {
+    use launcher_core::disk::{GameFiles, InstanceUsage, Logs, Report, RuntimeUsage, Unused};
+    const MB: u64 = 1_000_000;
+    let instance = |id: &str, name: &str, worlds: u64, content: u64, other: u64| InstanceUsage {
+        id: id.into(),
+        name: name.into(),
+        worlds: worlds * MB,
+        content: content * MB,
+        logs: 3 * MB,
+        screenshots: 12 * MB,
+        other: other * MB,
+    };
+    let runtime = |component: &str, java: Option<u32>, mb: u64, used_by: &[&str]| RuntimeUsage {
+        component: component.into(),
+        java,
+        bytes: mb * MB,
+        used_by: used_by.iter().map(|v| v.to_string()).collect(),
+    };
+    Report {
+        instances: vec![
+            instance("all-the-mods", "All the mods", 412, 520, 96),
+            instance("survival-1-20-1", "Survival 1.20.1", 238, 84, 31),
+            instance("old-school", "Old school", 46, 0, 8),
+            instance("latest-release", "Latest release", 12, 0, 4),
+        ],
+        runtimes: vec![
+            runtime("java-runtime-delta", Some(21), 104, &["26.3"]),
+            runtime("java-runtime-gamma", Some(17), 92, &["1.20.1"]),
+            runtime("jre-legacy", Some(8), 164, &["1.8.9"]),
+            runtime("java-runtime-beta", None, 92, &[]),
+        ],
+        game_files: GameFiles {
+            versions: 153 * MB,
+            libraries: 252 * MB,
+            assets: 1_100 * MB,
+            unused: Unused {
+                versions: vec!["1.18.2".into(), "26.1.1".into()],
+                versions_bytes: 48 * MB,
+                libraries: 31 * MB,
+                assets: 210 * MB,
+            },
+        },
+        cache: 6 * MB + 300_000,
+        leftovers: launcher_core::disk::Leftovers {
+            bytes: 228 * MB,
+            items: vec![".lodestone-pack-cb8aa247.mrpack".into()],
+        },
+        logs: Logs {
+            bytes: 12 * MB,
+            files: 84,
+            old_bytes: 9 * MB,
+            old_files: 61,
+        },
+        other: 400_000,
     }
 }

@@ -9,6 +9,7 @@ mod play;
 mod settings_modal;
 mod shared_settings;
 mod sidebar;
+mod storage_settings;
 mod top_bar;
 mod unsaved;
 
@@ -17,6 +18,7 @@ pub use launcher_settings::LauncherSettings;
 use settings_modal::SettingsModal;
 pub use settings_modal::SettingsPage;
 pub use shared_settings::SharedSettings;
+pub use storage_settings::{StorageEvent, StorageSettings};
 pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
@@ -184,6 +186,12 @@ enum Modal {
         focus: FocusHandle,
         target: unsaved::UnsavedTarget,
     },
+    /// Removing files from Settings > Storage.
+    StorageClean {
+        what: launcher_core::disk::Clean,
+        bytes: u64,
+        focus: FocusHandle,
+    },
 }
 
 /// The root view of the launcher window.
@@ -202,6 +210,8 @@ pub struct LauncherShell {
     servers_overlay: Entity<ServersOverlay>,
     /// Settings > Shared game settings.
     shared_settings: Entity<SharedSettings>,
+    /// Settings > Storage.
+    storage: Entity<StorageSettings>,
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
@@ -320,6 +330,25 @@ impl LauncherShell {
         // The Settings dialog draws their "Saved" notices.
         observe.push(cx.observe(&launcher_settings, |_, _, cx| cx.notify()));
         observe.push(cx.observe(&shared_settings, |_, _, cx| cx.notify()));
+        let storage = {
+            let instances = instances.clone();
+            cx.new(|_| StorageSettings::new(instances))
+        };
+        observe.push(cx.observe(&storage, |_, _, cx| cx.notify()));
+        observe.push(cx.subscribe(&storage, |this, _, event, cx| match event {
+            StorageEvent::DeleteInstance(id) => this.confirm_delete_instance(id, cx),
+            StorageEvent::Confirm { what, bytes } => {
+                let focus = cx.focus_handle();
+                this.modal.open(
+                    Modal::StorageClean {
+                        what: *what,
+                        bytes: *bytes,
+                        focus,
+                    },
+                    cx,
+                );
+            }
+        }));
         let updater = {
             let instances = instances.clone();
             cx.new(|cx| Updater::new(instances, cx))
@@ -335,6 +364,7 @@ impl LauncherShell {
             servers,
             servers_overlay,
             shared_settings,
+            storage,
             updater,
             settings: None,
             page: Page::default(),
@@ -1313,6 +1343,11 @@ impl LauncherShell {
                                 Ok(()) => {
                                     this.tab = InstanceTab::Play;
                                     this.close_modal(cx);
+                                    if this.settings_open()
+                                        && this.settings_page == SettingsPage::Storage
+                                    {
+                                        this.storage.update(cx, |storage, cx| storage.rescan(cx));
+                                    }
                                 }
                                 Err(err) => {
                                     if let Some(Modal::DeleteInstance { error, .. }) =
@@ -1334,6 +1369,9 @@ impl LauncherShell {
             }
             Modal::LoaderChange { prompt, focus } => {
                 self.render_loader_change(prompt, focus.clone(), cx)
+            }
+            Modal::StorageClean { what, bytes, focus } => {
+                self.render_storage_clean(*what, *bytes, focus.clone(), cx)
             }
             Modal::DeleteWorld { .. } | Modal::ReplaceWorld { .. } => {
                 self.render_world_dialog(modal, cx)?

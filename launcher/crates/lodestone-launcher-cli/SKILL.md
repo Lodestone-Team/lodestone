@@ -71,7 +71,7 @@ The socket is Unix-only (macOS, Linux). On Windows every command fails with exit
   fail with exit 5 and change nothing; the message says what would happen. These are:
   `instances delete`, `worlds delete`, `worlds delete-backup`, `worlds restore --replace`,
   `content remove`, `accounts remove`, `cores remove`, `cores trust`, `shared clear`,
-  `play clear-logs`, applying `modpacks update`, a `content switch-loader` that leaves mods
+  `play clear-logs`, `storage clean`, applying `modpacks update`, a `content switch-loader` that leaves mods
   behind, and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
 - **Trust in a core is the user's decision.** Mods from a Lodestone core run as programs
@@ -248,6 +248,21 @@ printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core 
 lodestone-launcher-cli prompts list                          # questions the window is asking
 lodestone-launcher-cli prompts answer update play
 ```
+
+Disk space (Settings > Storage). Sizes are bytes; `totals` sums them:
+
+```sh
+lodestone-launcher-cli storage show              # instances, game files, runtimes, cache, logs
+lodestone-launcher-cli storage clean game-files --yes   # versions/libraries/assets no instance uses
+lodestone-launcher-cli storage clean runtimes --yes     # Java runtimes no version in use needs
+lodestone-launcher-cli storage clean cache --yes
+lodestone-launcher-cli storage clean leftovers --yes    # unfinished modpack downloads/imports
+lodestone-launcher-cli storage clean old-logs --yes     # older than 30 days; `logs` for all
+```
+
+Game files and runtimes download again when needed; logs are deleted for good. Removing
+game files, runtimes or the cache is refused (`busy`) while a game runs. To free an
+instance's space, `instances delete` moves it to the Trash.
 
 Jobs and events:
 
