@@ -117,8 +117,8 @@ impl RenderOnce for Tabs {
                     .map(|this| {
                         if selected {
                             this.border_b_2()
-                                .border_color(colors::BLUE_200)
-                                .text_color(colors::BLUE_200)
+                                .border_color(crate::theme::accent::light())
+                                .text_color(crate::theme::accent::light())
                         } else {
                             // mb-0.5 keeps unselected labels level with the selected one.
                             this.mb(px(2.))

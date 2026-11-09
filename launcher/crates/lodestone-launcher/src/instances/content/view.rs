@@ -439,7 +439,7 @@ impl ContentView {
                                     div()
                                         .h_full()
                                         .rounded(radius::XS)
-                                        .bg(colors::BLUE_200)
+                                        .bg(crate::theme::accent::light())
                                         .w(gpui::relative(fraction)),
                                 ),
                         ),
@@ -1317,7 +1317,9 @@ impl ContentView {
                             .bg(colors::GRAY_800)
                             .border_t_1()
                             .border_color(colors::GRAY_FADED.opacity(15))
-                            .when(selected, |this| this.bg(colors::BLUE.opacity(15)))
+                            .when(selected, |this| {
+                                this.bg(crate::theme::accent::base().opacity(15))
+                            })
                             .when(!busy, |this| {
                                 this.keyboard_focus()
                                     .cursor_pointer()
@@ -1652,79 +1654,76 @@ impl ContentView {
             .as_deref()
             .and_then(|url| self.remote_icon(url, cx));
         let page = modrinth_page(&project.project_type, &project.slug);
-        let mut column = div()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .child(div().flex().child(back))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_start()
-                    .gap_4()
-                    .child(icon_box(icon, 72.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .font_family(fonts::TITLE)
-                                    .text_size(theme::text_size(text::H2))
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
-                                    .child(project.title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_color(colors::GRAY_400)
-                                    .whitespace_normal()
-                                    .child(project.description.clone()),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .flex_wrap()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        small(format!(
-                                            "{} · {}",
-                                            counted(
-                                                project.downloads,
-                                                P::Downloads,
-                                                M::DownloadsCompact
-                                            ),
-                                            counted(
-                                                project.followers,
-                                                P::Followers,
-                                                M::FollowersCompact
-                                            )
-                                        ))
-                                        .text_color(colors::GRAY_500),
-                                    )
-                                    .children(
-                                        project
-                                            .categories
-                                            .iter()
-                                            .take(6)
-                                            .map(|c| badge(c.clone(), colors::BLUE_200)),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        Button::new(("open-modrinth", kind as usize), t(M::ViewOnModrinth))
-                            .variant(ButtonVariant::Secondary)
-                            .icon(Icon::ArrowUpRightFromSquare)
-                            .size(ButtonSize::Slim)
-                            .on_click(move |_, _, cx| cx.open_url(&page)),
-                    ),
-            );
+        let mut column =
+            div()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .child(div().flex().child(back))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_start()
+                        .gap_4()
+                        .child(icon_box(icon, 72.))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w_0()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .font_family(fonts::TITLE)
+                                        .text_size(theme::text_size(text::H2))
+                                        .font_weight(weights::BOLD.into())
+                                        .text_color(colors::GRAY_300)
+                                        .child(project.title.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(colors::GRAY_400)
+                                        .whitespace_normal()
+                                        .child(project.description.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .flex_wrap()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(
+                                            small(format!(
+                                                "{} · {}",
+                                                counted(
+                                                    project.downloads,
+                                                    P::Downloads,
+                                                    M::DownloadsCompact
+                                                ),
+                                                counted(
+                                                    project.followers,
+                                                    P::Followers,
+                                                    M::FollowersCompact
+                                                )
+                                            ))
+                                            .text_color(colors::GRAY_500),
+                                        )
+                                        .children(project.categories.iter().take(6).map(|c| {
+                                            badge(c.clone(), crate::theme::accent::light())
+                                        })),
+                                ),
+                        )
+                        .child(
+                            Button::new(("open-modrinth", kind as usize), t(M::ViewOnModrinth))
+                                .variant(ButtonVariant::Secondary)
+                                .icon(Icon::ArrowUpRightFromSquare)
+                                .size(ButtonSize::Slim)
+                                .on_click(move |_, _, cx| cx.open_url(&page)),
+                        ),
+                );
         if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
             column = column.child(self.render_shader_mod(cx));
         }
@@ -2009,12 +2008,17 @@ fn radio(selected: bool) -> impl IntoElement {
         .rounded(px(8.))
         .border_2()
         .border_color(if selected {
-            colors::BLUE_200
+            crate::theme::accent::light()
         } else {
             colors::GRAY_600
         })
         .when(selected, |this| {
-            this.child(div().size(px(6.)).rounded(px(3.)).bg(colors::BLUE_200))
+            this.child(
+                div()
+                    .size(px(6.))
+                    .rounded(px(3.))
+                    .bg(crate::theme::accent::light()),
+            )
         })
 }
 
@@ -2068,8 +2072,8 @@ impl Render for ContentView {
                     .when(accepts_drop, |this| {
                         this.drag_over::<ExternalPaths>(|style, _, _, _| {
                             style
-                                .border_color(colors::BLUE_200.opacity(60))
-                                .bg(colors::BLUE.opacity(8))
+                                .border_color(crate::theme::accent::light().opacity(60))
+                                .bg(crate::theme::accent::base().opacity(8))
                         })
                         .on_drop(cx.listener(
                             move |this, paths: &ExternalPaths, _, cx| {

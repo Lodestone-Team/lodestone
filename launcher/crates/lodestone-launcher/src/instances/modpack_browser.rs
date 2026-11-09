@@ -398,7 +398,7 @@ impl ModpackBrowser {
                     .cursor_pointer()
                     .map(|this| {
                         if selected {
-                            this.bg(colors::BLUE.opacity(35))
+                            this.bg(crate::theme::accent::base().opacity(35))
                         } else {
                             this.hover(|style| style.bg(colors::GRAY_800))
                         }
@@ -549,7 +549,7 @@ impl ModpackBrowser {
                                 .cursor_pointer()
                                 .map(|this| {
                                     if selected {
-                                        this.bg(colors::BLUE.opacity(35))
+                                        this.bg(crate::theme::accent::base().opacity(35))
                                     } else {
                                         this.hover(|style| style.bg(colors::GRAY_800))
                                     }

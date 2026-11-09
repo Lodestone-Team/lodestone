@@ -52,6 +52,10 @@ pub struct Settings {
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
     pub zoom: f32,
+    /// Settings > Launcher > Skin: the id of the launcher's skin
+    /// ([`crate::ui_skin`]). Left out of the file for the default look.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skin: Option<String>,
     #[serde(flatten)]
     pub other: Map<String, Value>,
 }
@@ -66,6 +70,7 @@ impl Default for Settings {
             language: Language::System,
             auto_update: true,
             zoom: 1.0,
+            skin: None,
             other: Map::new(),
         }
     }

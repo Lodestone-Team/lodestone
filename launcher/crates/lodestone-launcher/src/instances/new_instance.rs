@@ -408,7 +408,8 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
         .cursor_pointer()
         .map(|this| {
             if selected {
-                this.bg(colors::BLUE.opacity(35)).text_color(colors::WHITE)
+                this.bg(crate::theme::accent::base().opacity(35))
+                    .text_color(colors::WHITE)
             } else {
                 this.text_color(colors::GRAY_300)
                     .hover(|style| style.bg(colors::GRAY_700))
@@ -479,8 +480,8 @@ fn filter_chip(id: &'static str, caption: &'static str, on: bool) -> gpui::State
         .font_weight(weights::BOLD.into())
         .map(|this| {
             if on {
-                this.bg(colors::BLUE.opacity(25))
-                    .border_color(colors::BLUE_200.opacity(60))
+                this.bg(crate::theme::accent::base().opacity(25))
+                    .border_color(crate::theme::accent::light().opacity(60))
                     .text_color(colors::WHITE)
             } else {
                 this.border_color(colors::FADE_700)
@@ -556,8 +557,8 @@ fn loader_card(
         .cursor_pointer()
         .map(|this| {
             if selected {
-                this.bg(colors::BLUE.opacity(15))
-                    .border_color(colors::BLUE_200.opacity(70))
+                this.bg(crate::theme::accent::base().opacity(15))
+                    .border_color(crate::theme::accent::light().opacity(70))
             } else {
                 this.bg(colors::GRAY_800)
                     .border_color(colors::FADE_700)

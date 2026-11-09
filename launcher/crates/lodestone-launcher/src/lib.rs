@@ -18,6 +18,7 @@ pub mod markdown;
 pub mod preview;
 pub mod servers;
 pub mod shell;
+pub mod skin;
 pub mod theme;
 mod trace_hooks;
 pub mod undo;

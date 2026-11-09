@@ -502,6 +502,7 @@ pub fn display_version(version: &str, build: u64) -> String {
 }
 
 /// Whether the installer's `InstallLocation` is the folder `exe` is in.
+#[cfg_attr(not(windows), allow(dead_code))] // used by the Windows updater and tests
 fn is_install_location(install_location: &str, exe: &Path) -> bool {
     let Some(dir) = exe.parent() else {
         return false;
@@ -786,6 +787,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)] // the paths are Windows paths, which `Path` only splits on Windows
     fn the_install_location_is_the_executables_folder() {
         let exe = Path::new(
             r"C:\Users\me\AppData\Local\Programs\Lodestone Launcher\lodestone-launcher.exe",

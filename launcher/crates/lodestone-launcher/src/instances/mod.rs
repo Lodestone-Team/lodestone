@@ -275,6 +275,10 @@ pub struct Instances {
     /// Decoded Play backgrounds, and those being decoded.
     backgrounds: HashMap<String, appearance::BackgroundEntry>,
     background_tasks: HashMap<String, appearance::BackgroundTask>,
+    /// Small copies of the instances' Play backgrounds, for a skin that shows them
+    /// behind the sidebar's rows: by id, with the file's modification time.
+    sidebar_banners: HashMap<String, (Option<std::time::SystemTime>, Arc<RenderImage>)>,
+    sidebar_banner_tasks: HashMap<String, Task<()>>,
     /// Goes up when an instance's slideshow changes, so the Play tab lists it again.
     slideshow_revision: u64,
     /// The instance whose background is decoded for the Play tab, and the one before,
@@ -355,6 +359,11 @@ impl Instances {
         };
         crate::i18n::apply(settings.language);
         crate::theme::zoom::set(settings.zoom);
+        crate::skin::apply(
+            settings.skin.as_deref(),
+            &launcher_core::ui_skin::SkinStore::new(&data_dir),
+            cx,
+        );
         crate::set_menus(cx);
         let mut this = Self {
             store,
@@ -373,6 +382,8 @@ impl Instances {
             icons: HashMap::new(),
             backgrounds: HashMap::new(),
             background_tasks: HashMap::new(),
+            sidebar_banners: HashMap::new(),
+            sidebar_banner_tasks: HashMap::new(),
             slideshow_revision: 0,
             background_shown: None,
             background_previous: None,
@@ -539,6 +550,106 @@ impl Instances {
             self.notice = Some(err.into());
         }
         cx.refresh_windows();
+    }
+
+    /// The launcher's skins folder.
+    pub fn skins(&self) -> launcher_core::ui_skin::SkinStore {
+        launcher_core::ui_skin::SkinStore::new(&self.data_dir)
+    }
+
+    /// The chosen skin's id; `None` for the default look.
+    pub fn skin(&self) -> Option<&str> {
+        self.settings.skin.as_deref()
+    }
+
+    /// Uses skin `id` (the default look for `None`), saves the choice and shows it.
+    pub fn set_skin(&mut self, id: Option<String>, cx: &mut Context<Self>) {
+        let id = id.filter(|id| id != "default");
+        if let Err(err) = self.update_settings(|settings| settings.skin = id.clone(), cx) {
+            self.notice = Some(err.into());
+        }
+        crate::skin::apply(self.settings.skin.as_deref(), &self.skins(), cx);
+    }
+
+    /// The small copy of an instance's Play background for its sidebar row.
+    pub fn sidebar_banner(&self, id: &str) -> Option<Arc<RenderImage>> {
+        self.sidebar_banners.get(id).map(|(_, image)| image.clone())
+    }
+
+    /// Makes the sidebar rows' copies of the Play backgrounds that are missing or
+    /// changed, in the background; forgets those that are gone. Only while the skin
+    /// shows them.
+    pub fn load_sidebar_banners(&mut self, cx: &mut Context<Self>) {
+        let wanted: Vec<(String, PathBuf, Option<std::time::SystemTime>)> = self
+            .list
+            .iter()
+            .filter_map(|instance| {
+                let path = self.store.background_path(instance)?;
+                let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+                Some((instance.id.clone(), path, modified))
+            })
+            .collect();
+        self.sidebar_banners
+            .retain(|id, (time, _)| wanted.iter().any(|(w, _, m)| w == id && m == time));
+        for (id, path, modified) in wanted {
+            if self.sidebar_banners.contains_key(&id) || self.sidebar_banner_tasks.contains_key(&id)
+            {
+                continue;
+            }
+            let decode = cx.background_spawn(async move {
+                let image = image::open(&path).ok()?;
+                // the row's size at 2×, cropped to fill it
+                Some(
+                    image
+                        .resize_to_fill(440, 96, image::imageops::FilterType::Triangle)
+                        .to_rgba8(),
+                )
+            });
+            let task_id = id.clone();
+            let task = cx.spawn(async move |this, cx| {
+                let decoded = decode.await;
+                this.update(cx, |this, cx| {
+                    this.sidebar_banner_tasks.remove(&task_id);
+                    if let Some(image) = decoded {
+                        this.sidebar_banners
+                            .insert(task_id, (modified, crate::images::render_image(image)));
+                        cx.notify();
+                    }
+                })
+                .ok();
+            });
+            self.sidebar_banner_tasks.insert(id, task);
+        }
+    }
+
+    /// Forgets the sidebar rows' copies, when the skin stops showing them.
+    pub fn forget_sidebar_banners(&mut self) {
+        self.sidebar_banners.clear();
+        self.sidebar_banner_tasks.clear();
+    }
+
+    /// Shows the chosen skin again, after its pack changed.
+    pub fn reload_skin(&mut self, cx: &mut Context<Self>) {
+        crate::skin::apply(self.settings.skin.as_deref(), &self.skins(), cx);
+    }
+
+    /// Sets an instance's own Play button colour and accent (`None`: the skin's), and
+    /// records the change for Undo.
+    pub fn set_instance_colors(
+        &mut self,
+        id: &str,
+        play_color: Option<launcher_core::ui_skin::Rgb>,
+        accent: Option<launcher_core::ui_skin::Rgb>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.undoable(id, cx, |this, cx| {
+            let mut instance = this.store.get(id).map_err(|err| err.to_string())?;
+            instance.play_color = play_color;
+            instance.accent = accent;
+            this.store.save(&instance).map_err(|err| err.to_string())?;
+            this.reload(cx);
+            Ok(())
+        })
     }
 
     /// The instances by sidebar group, as the sidebar lists them.

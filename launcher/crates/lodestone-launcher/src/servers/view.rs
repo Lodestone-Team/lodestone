@@ -361,8 +361,8 @@ impl Servers {
                                         .flex_none()
                                         .px_1p5()
                                         .rounded(radius::DEFAULT)
-                                        .bg(colors::BLUE_FADED.opacity(15))
-                                        .text_color(colors::BLUE_200)
+                                        .bg(crate::theme::accent::faded().opacity(15))
+                                        .text_color(crate::theme::accent::light())
                                         .text_size(theme::text_size(text::CAPTION))
                                         .font_weight(weights::BOLD.into())
                                         .child(t(M::InstanceReady)),
@@ -489,7 +489,10 @@ impl Servers {
                                         this.child(badge(t(M::BadgeTrusted), colors::GREEN_300))
                                     })
                                     .when(core.saved.certificate.is_some(), |this| {
-                                        this.child(badge(t(M::BadgePinned), colors::BLUE_200))
+                                        this.child(badge(
+                                            t(M::BadgePinned),
+                                            crate::theme::accent::light(),
+                                        ))
                                     }),
                             )
                             .child(
@@ -601,7 +604,7 @@ impl Render for Servers {
                 let (color, icon) = match notice.kind {
                     NoticeKind::Warning => (colors::YELLOW, Some(Icon::TriangleExclamation)),
                     NoticeKind::Success => (colors::GREEN_300, Some(Icon::Check)),
-                    NoticeKind::Info => (colors::BLUE_200, None),
+                    NoticeKind::Info => (crate::theme::accent::light(), None),
                 };
                 div()
                     .flex()
