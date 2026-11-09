@@ -11,6 +11,11 @@ on:
         required: true
         default: true
         type: boolean
+      ref:
+        description: "Commit, branch or tag to check out (empty for the run's own)"
+        required: false
+        type: string
+        default: ""
     # Only needed (and only passed by release.yml) when a version is given.
     secrets:
       TAURI_PRIVATE_KEY:
@@ -54,6 +59,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
 
       # No npm cache in this job: it holds the updater signing key, so it must not
       # restore a cache that another (e.g. pull request) run could have written.
