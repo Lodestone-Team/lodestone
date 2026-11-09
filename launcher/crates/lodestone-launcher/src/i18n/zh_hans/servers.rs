@@ -469,6 +469,11 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendsReadFailed => "无法读取好友的服务器",
         M::FriendsSaveFailed => "无法保存好友的服务器",
+        M::FriendAddress => "地址：{address}（连接时可用）",
+        M::FriendPortTaken => "端口 {port} 已被占用",
+        M::FriendPortTakenBody => {
+            "这台电脑上的其他程序正在使用它，所以这次的地址是 {address}。下次 Lodestone Launcher 会再次尝试端口 {port}。"
+        }
         M::EulaNotAccepted => "此服务器尚未接受 Minecraft EULA",
         M::EulaNotAcceptedBody => {
             "在有人接受 Mojang 的 Minecraft EULA（{url}）之前，服务器无法启动。请先阅读，只有在你同意时才接受。"

@@ -32,6 +32,7 @@ pub mod live;
 pub mod local_claim;
 pub mod models;
 pub mod resource_pack;
+pub mod server_list;
 pub mod store;
 pub mod sync;
 pub mod tls;

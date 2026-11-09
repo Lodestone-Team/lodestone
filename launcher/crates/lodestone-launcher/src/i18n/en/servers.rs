@@ -434,6 +434,13 @@ crate::i18n::messages! {
         FriendRemoved = "This instance was made for a friend's server ({link}) that isn't in Lodestone Launcher any more. Open its invite link again to join it.",
         FriendsReadFailed = "Couldn't read your friends' servers",
         FriendsSaveFailed = "Couldn't save your friends' servers",
+        /// On a friend's server's row. {address} is 127.0.0.1:<port>, the same every
+        /// time; it works while the launcher is connected to the server.
+        FriendAddress = "Address: {address} (while connected)",
+        /// {port} is the server's usual local port.
+        FriendPortTaken = "Port {port} was in use",
+        /// {address} is this session's 127.0.0.1:<port>; {port} the usual one.
+        FriendPortTakenBody = "Something else on this computer is using it, so this time the address is {address}. Next time, Lodestone Launcher tries port {port} again.",
 
         // ===== The Minecraft EULA of a server =====
         EulaNotAccepted = "The Minecraft EULA isn't accepted for this server",
