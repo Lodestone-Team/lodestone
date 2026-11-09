@@ -9,7 +9,7 @@ mod support {
 use std::{net::SocketAddr, time::Duration};
 
 use lodestone_connect::{
-    host::{Forward, Host, HostConfig, HostIdentity, HostState},
+    host::{Forward, Host, HostConfig, HostIdentity, HostState, MAX_PEERS, MAX_SPRAYS},
     join::{join, JoinOptions},
     ConnectionKind, Error, GatherOptions, Invite, Service, SharedServer, StreamKind,
 };
@@ -231,4 +231,55 @@ async fn a_friend_joins_plays_and_keeps_the_link() {
     let ended = join(&invite, options()).await.err().unwrap();
     assert!(ended.is_not_found(), "{ended}");
     assert!(service.joins(&code) == 0);
+}
+
+/// Anyone with the code can join and make the host probe the addresses they give. The
+/// host probes only a few addresses for a few joins at once, however many there are.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn strangers_cannot_make_the_host_probe_many_addresses() {
+    let service = FakeService::start().await;
+    let handler = Forward {
+        game: echo_server().await,
+        info: None,
+    };
+    let config = HostConfig {
+        service: Service::parse(&service.url()).unwrap(),
+        gather: LOOPBACK,
+        keep: false,
+    };
+    let host = Host::start(HostIdentity::generate().unwrap(), config, handler)
+        .await
+        .unwrap();
+    let invite = host.invite();
+
+    // 12 joins of 10 addresses each, none of them a friend.
+    let mut targets = Vec::new();
+    for _ in 0..12 {
+        let sockets: Vec<std::net::UdpSocket> = (0..10)
+            .map(|_| std::net::UdpSocket::bind("127.0.0.1:0").unwrap())
+            .collect();
+        let addrs: Vec<SocketAddr> = sockets.iter().map(|s| s.local_addr().unwrap()).collect();
+        invite.service.join(&invite.code, &addrs).await.unwrap();
+        targets.extend(sockets);
+    }
+    wait_for(&host, |s| s.joins == 12).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // Which addresses get probes now?
+    let mut buf = [0u8; 64];
+    for socket in &targets {
+        socket.set_nonblocking(true).unwrap();
+        while socket.recv_from(&mut buf).is_ok() {}
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let probed = targets
+        .iter()
+        .filter(|socket| socket.recv_from(&mut buf).is_ok())
+        .count();
+    assert!(probed > 0, "the host should probe the latest joins");
+    assert!(
+        probed <= MAX_SPRAYS * MAX_PEERS,
+        "the host probes {probed} addresses"
+    );
+    host.stop(true).await;
 }

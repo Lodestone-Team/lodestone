@@ -213,7 +213,7 @@ impl MockCore {
 
 fn zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    let options = zip::write::FileOptions::default();
+    let options = zip::write::SimpleFileOptions::default();
     for (name, content) in entries {
         if name.ends_with('/') {
             writer.add_directory(*name, options).unwrap();

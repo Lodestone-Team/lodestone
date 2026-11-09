@@ -549,5 +549,109 @@ class Platforms(unittest.TestCase):
             pr.key_for_target("wasm32-unknown-unknown")
 
 
+def staged_host(folder, build, keys, commit="abc", extras=()):
+    """A Host build staged as `stage` leaves it: each platform's Host and its core."""
+    record = staged(folder, build, keys, commit, extras)
+    for key in keys:
+        core = folder / pr.core_name(build, key)
+        core.write_bytes(f"core {key} {build}".encode())
+        record["assets"][key]["core"] = {"name": core.name, "size": core.stat().st_size,
+                                         "sha256": pr.sha256(core)}
+        record["files"][core.name] = pr.sha256(core)
+    (folder / pr.STAGE_RECORD).write_text(pr.json.dumps(record))
+    return record
+
+
+class Host(unittest.TestCase):
+    """--product host: Lodestone Host, with Lodestone Core beside it."""
+
+    def setUp(self):
+        pr.use_product("host")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        pr.use_product("launcher")
+        self.tmp.cleanup()
+
+    def test_names_tags_and_files_are_the_hosts(self):
+        self.assertEqual(pr.normalize_tag("0.6.0"), "host-v0.6.0")
+        self.assertEqual(pr.normalize_tag("host-v0.6.0-beta.1"), "host-v0.6.0-beta.1")
+        pr.check_tag("host-v0.6.0")
+        with self.assertRaisesRegex(pr.Failure, "isn't a Lodestone Host version"):
+            pr.check_tag("launcher-v0.6.0")
+        self.assertEqual(pr.asset_name(7, "windows-x86_64"),
+                         "lodestone-host-7-windows-x86_64-standalone.exe")
+        self.assertEqual(pr.core_name(7, "windows-x86_64"), "lodestone-host-7-windows-x86_64-core.exe")
+        self.assertEqual(pr.core_name(7, "macos-aarch64"), "lodestone-host-7-macos-aarch64-core")
+        self.assertEqual(pr.dmg_name(7, ["macos-aarch64", "macos-x86_64"]),
+                         "lodestone-host-7-macos-universal.dmg")
+        self.assertEqual(pr.alias_for(pr.installer_name(7, "windows-x86_64")), "LodestoneHostSetup.exe")
+        self.assertEqual(pr.alias_for(pr.dmg_name(7, ["macos-aarch64"])), "LodestoneHost.dmg")
+        self.assertIsNone(pr.alias_for(pr.core_name(7, "windows-x86_64")))
+        self.assertEqual(pr.release_title("host-v0.6.0"), "Lodestone Host 0.6.0")
+        self.assertIn("LodestoneHost.dmg", pr.release_notes("host-v0.6.0", "abc"))
+        self.assertEqual(pr.LAUNCHER_PATHS, ["launcher", "core", "crates"])
+
+    def test_the_core_has_no_build_of_its_own_but_is_cleaned_up_with_its_host(self):
+        self.assertEqual(pr.file_build(pr.asset_name(9, "macos-aarch64"), "macos-aarch64"), 9)
+        self.assertIsNone(pr.file_build(pr.core_name(9, "macos-aarch64"), "macos-aarch64"))
+        self.assertIsNone(pr.file_build(pr.asset_name(9, "macos-aarch64").replace("host", "launcher"),
+                                        "macos-aarch64"))
+        names = [n for b in (3, 5, 9) for n in (pr.asset_name(b, "macos-aarch64"),
+                                                pr.core_name(b, "macos-aarch64"))]
+        self.assertEqual(pr.stale_names(names, "macos-aarch64", set()),
+                         ["lodestone-host-3-macos-aarch64-standalone",
+                          "lodestone-host-3-macos-aarch64-core"])
+        self.assertEqual(pr.release_platforms({"assets": [{"name": n} for n in names]}),
+                         ["macos-aarch64"])
+
+    def test_the_app_replaces_the_tauri_host(self):
+        plist = pr.info_plist(10, "0.6.0")
+        self.assertEqual(plist["CFBundleIdentifier"], "com.lodestone.cc")
+        self.assertEqual(plist["CFBundleExecutable"], "lodestone-host")
+        self.assertEqual(plist["CFBundleName"], "Lodestone Host")
+        self.assertNotIn("CFBundleURLTypes", plist)
+        self.assertEqual(pr.core_identifier(), "com.lodestone.cc.core")
+
+    def test_a_staged_core_is_checked_too(self):
+        staged_host(self.dir / "s", 7, ["macos-aarch64"])
+        record = pr.read_stage(self.dir / "s")
+        self.assertEqual(record["assets"]["macos-aarch64"]["core"]["name"],
+                         "lodestone-host-7-macos-aarch64-core")
+        (self.dir / "s" / pr.core_name(7, "macos-aarch64")).write_bytes(b"rebuilt")
+        with self.assertRaisesRegex(pr.Failure, "changed since it was staged"):
+            pr.read_stage(self.dir / "s")
+
+    def test_the_manifest_lists_the_core_and_promotion_copies_it(self):
+        win = self.dir / "win"
+        staged_host(win, 10, ["windows-x86_64"], extras=[pr.installer_name(10, "windows-x86_64")])
+        beta = FakeRelease(self.dir / "beta", "host-v0.6.0-beta.1", tag_commit="abc", draft=False)
+        manifest = pr.publish(beta, [(win, pr.read_stage(win))], tag=beta.tag)
+        core = manifest["assets"]["windows-x86_64"]["core"]
+        self.assertEqual(core["name"], "lodestone-host-10-windows-x86_64-core.exe")
+        self.assertIn(core["name"], beta.names())
+        self.assertIn("LodestoneHostSetup.exe", beta.names())
+        stable = FakeRelease(self.dir / "stable", "host-v0.6.0")
+        copied = pr.copy_release(beta, stable, None, False, tag=stable.tag)
+        self.assertEqual(copied["assets"], manifest["assets"])
+        self.assertEqual((stable.folder.path / core["name"]).read_bytes(),
+                         (beta.folder.path / core["name"]).read_bytes())
+        # a core that isn't what the manifest says isn't copied
+        (beta.folder.path / core["name"]).write_bytes(b"tampered")
+        with self.assertRaisesRegex(pr.Failure, "core.exe doesn't match its manifest"):
+            pr.copy_release(beta, FakeRelease(self.dir / "other", "host-v0.6.1"), None, False)
+
+    def test_the_host_has_no_old_channel_to_bridge(self):
+        with self.assertRaisesRegex(pr.Failure, "no old update channel"):
+            pr.main(["--product", "host", "--bridge", "0.6.0"])
+
+    def test_the_checklist_is_the_hosts(self):
+        lines = pr.checklist(12, "0123456789", "macos-aarch64")
+        self.assertIn('Settings › Updates shows this build and commit ("Build 12 · 0123456").', lines)
+        self.assertTrue(any("EULA" in line for line in lines))
+        self.assertFalse(any(line.startswith("Windows:") for line in lines))
+
+
 if __name__ == "__main__":
     unittest.main()

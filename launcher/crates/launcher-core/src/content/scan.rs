@@ -2,8 +2,7 @@
 //! metadata file and icon, a resource pack's `pack.mcmeta` and `pack.png`, and whether a
 //! shader pack has its `shaders/` folder where Iris and OptiFine look for it.
 //!
-//! Archives are opened with zip 0.6.6 and only small, named entries are read; nothing is
-//! extracted.
+//! Only small, named entries of an archive are read; nothing is extracted.
 
 use std::{
     fs::{self, File},
@@ -310,7 +309,10 @@ const MOD_METADATA: [(&str, ModFormat); 5] = [
 ];
 
 fn mod_meta<R: Read + Seek>(archive: &mut zip::ZipArchive<R>) -> FileMeta {
-    let names: Vec<String> = archive.file_names().map(str::to_string).collect();
+    let names: Vec<String> = archive
+        .file_names()
+        .filter_map(|name| name.ok().map(|name| name.into_owned()))
+        .collect();
     let mut meta = FileMeta {
         optifine: names
             .iter()
@@ -382,7 +384,11 @@ fn pack_meta_from(text: Option<String>, icon: Option<Vec<u8>>) -> FileMeta {
 
 fn zip_pack_meta<R: Read + Seek>(archive: &mut zip::ZipArchive<R>) -> FileMeta {
     let text = read_text(archive, "pack.mcmeta");
-    if text.is_none() && archive.file_names().any(|n| n.ends_with("/pack.mcmeta")) {
+    if text.is_none()
+        && archive
+            .file_names()
+            .any(|n| n.is_ok_and(|n| n.ends_with("/pack.mcmeta")))
+    {
         return FileMeta {
             problem: Some(
                 "Its pack.mcmeta is inside a folder in the zip, so the game won't list it.".into(),
@@ -424,7 +430,11 @@ fn no_shaders() -> FileMeta {
 }
 
 fn zip_shader_meta<R: Read + Seek>(archive: &mut zip::ZipArchive<R>) -> FileMeta {
-    if has_shaders_folder(archive.file_names().map(str::to_string)) {
+    if has_shaders_folder(
+        archive
+            .file_names()
+            .filter_map(|name| name.ok().map(|name| name.into_owned())),
+    ) {
         FileMeta::default()
     } else {
         no_shaders()
@@ -462,7 +472,7 @@ pub(crate) mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
         for (name, bytes) in entries {
-            zip.start_file(*name, zip::write::FileOptions::default())
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
                 .unwrap();
             zip.write_all(bytes).unwrap();
         }

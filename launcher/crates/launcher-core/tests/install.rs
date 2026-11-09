@@ -75,11 +75,14 @@ fn natives_jar() -> Vec<u8> {
     {
         let mut writer = zip::ZipWriter::new(&mut bytes);
         writer
-            .start_file("META-INF/MANIFEST.MF", zip::write::FileOptions::default())
+            .start_file(
+                "META-INF/MANIFEST.MF",
+                zip::write::SimpleFileOptions::default(),
+            )
             .unwrap();
         writer.write_all(b"Manifest-Version: 1.0").unwrap();
         writer
-            .start_file("liblwjgl.dylib", zip::write::FileOptions::default())
+            .start_file("liblwjgl.dylib", zip::write::SimpleFileOptions::default())
             .unwrap();
         writer.write_all(b"native code").unwrap();
         writer.finish().unwrap();

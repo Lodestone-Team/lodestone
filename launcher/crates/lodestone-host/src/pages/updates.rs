@@ -1,22 +1,27 @@
 //! Settings › Updates: Lodestone Host's own version and updates, after the launcher's
 //! Settings › General › Updates ([`crate::updater`]). The dashboard has no such page;
 //! the Tauri Host asked in a system dialog (§8.7).
+//!
+//! Restarting to update stops the core, and so its servers. With servers running, the
+//! page asks first.
 
 use gpui::{
-    AnyElement, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
-    div,
+    AnyElement, Context, Entity, FocusHandle, IntoElement, ParentElement, Render, Styled,
+    Subscription, Window, div,
 };
+use launcher_core::cores::admin::InstanceState;
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Toggle,
+        Button, ButtonVariant, Dialog, DialogSlot, Toggle,
         settings::{self, SettingRow},
+        window_layer,
     },
-    theme::{colors, ink, text},
+    theme::{colors, ink, leading, text},
 };
 
 use super::parts;
 use crate::{
-    i18n::{CoreMsg, t, tr},
+    i18n::{CoreMsg, CorePlural, t, tr, trn},
     prefs::Prefs,
     state::HostState,
     updater::{UpdateState, Updater},
@@ -25,7 +30,25 @@ use crate::{
 pub struct UpdatesPage {
     pub state: Entity<HostState>,
     updater: Option<Entity<Updater>>,
+    /// "Restart to update?", while servers run.
+    confirm: DialogSlot<Self, FocusHandle>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// How many of the core's servers are running (or starting or stopping): a restart
+/// stops them.
+pub fn running_servers(state: &HostState) -> usize {
+    state
+        .instances
+        .iter()
+        .flatten()
+        .filter(|instance| {
+            matches!(
+                instance.state,
+                InstanceState::Running | InstanceState::Starting | InstanceState::Stopping
+            )
+        })
+        .count()
 }
 
 impl UpdatesPage {
@@ -38,11 +61,66 @@ impl UpdatesPage {
         Self {
             state,
             updater,
+            confirm: DialogSlot::new(|this: &mut Self| &mut this.confirm),
             _subscriptions: subscriptions,
         }
     }
 
-    fn status(&self, cx: &Context<Self>) -> (String, Option<AnyElement>) {
+    /// "Restart": asks first when servers run, which the restart stops.
+    fn ask_restart(&mut self, cx: &mut Context<Self>) {
+        if running_servers(self.state.read(cx)) == 0 {
+            self.restart(cx);
+        } else {
+            let focus = cx.focus_handle();
+            self.confirm.open(focus, cx);
+        }
+    }
+
+    /// Quits into the downloaded build: the core stops (its servers first), the build
+    /// is installed and started.
+    fn restart(&mut self, cx: &mut Context<Self>) {
+        self.confirm.close(cx);
+        let Some(updater) = &self.updater else {
+            return;
+        };
+        if updater.update(cx, |u, cx| u.restart(cx)) {
+            cx.dispatch_action(&crate::Quit);
+        }
+    }
+
+    fn confirm_dialog(&self, focus: &FocusHandle, cx: &mut Context<Self>) -> AnyElement {
+        let running = running_servers(self.state.read(cx));
+        Dialog::new(
+            "restart-update-dialog",
+            t(CoreMsg::RestartUpdateTitle),
+            focus.clone(),
+        )
+        .on_close({
+            let close = cx.listener(|this, _: &(), _, cx| {
+                this.confirm.close(cx);
+            });
+            move |window, cx| close(&(), window, cx)
+        })
+        .child(
+            div()
+                .text_size(text::MEDIUM)
+                .line_height(lodestone_ui::theme::line_height(
+                    text::MEDIUM,
+                    leading::NORMAL,
+                ))
+                .text_color(ink::secondary())
+                .child(trn!(CorePlural::ServersRunning, running))
+                .child(t(CoreMsg::RestartUpdateBody)),
+        )
+        .footer(
+            Button::new("restart-update-confirm", t(CoreMsg::RestartUpdateConfirm))
+                .variant(ButtonVariant::Primary)
+                .on_click(cx.listener(|this, _, _, cx| this.restart(cx))),
+        )
+        .into_any_element()
+    }
+
+    fn status(&self, cx: &mut Context<Self>) -> (String, Option<AnyElement>) {
         let Some(updater) = &self.updater else {
             return (t(CoreMsg::UpdatesUnavailable).to_string(), None);
         };
@@ -94,11 +172,7 @@ impl UpdatesPage {
                 tr!(CoreMsg::UpdateReady, build = build),
                 Some(
                     button("restart-update", CoreMsg::RestartToUpdate, true)
-                        .on_click(move |_, _, cx| {
-                            if this.update(cx, |u, cx| u.restart(cx)) {
-                                cx.dispatch_action(&crate::Quit);
-                            }
-                        })
+                        .on_click(cx.listener(|this, _, _, cx| this.ask_restart(cx)))
                         .into_any_element(),
                 ),
             ),
@@ -115,16 +189,25 @@ impl UpdatesPage {
 }
 
 impl Render for UpdatesPage {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let prefs = Prefs::get(cx).clone();
-        let build = self.updater.as_ref().and_then(|u| u.read(cx).build);
+        let (build, commit) = self
+            .updater
+            .as_ref()
+            .map(|u| (u.read(cx).build, u.read(cx).commit))
+            .unwrap_or_default();
         let version = format!(
             "{} {} · {}",
             crate::APP_NAME,
             env!("CARGO_PKG_VERSION"),
-            match build {
-                Some(build) => tr!(CoreMsg::BuildNumber, build = build),
-                None => t(CoreMsg::DevelopmentBuild).to_string(),
+            match (build, commit) {
+                (Some(build), Some(commit)) => tr!(
+                    CoreMsg::BuildNumberCommit,
+                    build = build,
+                    commit = launcher_core::update::short_commit(commit)
+                ),
+                (Some(build), None) => tr!(CoreMsg::BuildNumber, build = build),
+                (None, _) => t(CoreMsg::DevelopmentBuild).to_string(),
             }
         );
         let available = self
@@ -142,7 +225,7 @@ impl Render for UpdatesPage {
         };
         let auto_changed = changed(&self.updater);
         let beta_changed = changed(&self.updater);
-        parts::page([settings::section(
+        let page = parts::page([settings::section(
             t(CoreMsg::UpdatesTitle),
             Some(t(CoreMsg::UpdatesLead).into()),
         )
@@ -185,7 +268,15 @@ impl Render for UpdatesPage {
                 .into_any_element(),
         ]))
         .into_any_element()])
-        .text_color(colors::GRAY_300)
+        .text_color(colors::GRAY_300);
+        let dialogs = self
+            .confirm
+            .render(window, |focus| Some(self.confirm_dialog(focus, cx)));
+        div()
+            .relative()
+            .size_full()
+            .child(page)
+            .children(window_layer(window, dialogs))
     }
 }
 

@@ -1,0 +1,131 @@
+name: Host - macOS app
+
+# Builds Lodestone Host (the GPUI app in launcher/crates/lodestone-host) for macOS:
+# the standalone Host and Lodestone Core binaries for Apple silicon and Intel Macs
+# (the files the updater downloads), and "Lodestone Host.app", which holds both
+# architectures of both, in a disk image. The core is built from the repository's
+# root workspace without the `deno` feature (`--no-default-features`); the Host never
+# ships Deno. The files are kept as the run's `host-macos` artifact, in the folder
+# layout `publish_release.py --product host --from` uploads.
+#
+# Run it by hand (Actions › Host - macOS app › Run workflow) to get a build to try.
+# The release workflow (host-release.yml) runs it on a version's commit and uploads
+# the result to that version's draft release.
+#
+# Signing: the same secrets as launcher-macos-app.yml. With them, the Host, its core
+# and the app are signed with a Developer ID and the disk image is notarized; without
+# them everything is signed ad hoc.
+#   MACOS_CERTIFICATE, MACOS_CERTIFICATE_PASSWORD, MACOS_SIGNING_IDENTITY,
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch or tag to build (empty for the branch it runs on)
+        required: false
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit, branch or tag to build (empty for the calling run's)
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos-app:
+    # Apple silicon; it builds the Intel binaries too.
+    runs-on: macos-latest
+    timeout-minutes: 150
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        ref: ${{ inputs.ref }}
+        # A build's number is the count of commits in its history.
+        fetch-depth: 0
+
+    # Installs the toolchain pinned in the repository's rust-toolchain.toml, and the
+    # standard library for both Mac architectures.
+    - name: Install Rust toolchain
+      run: |
+        rustup toolchain install --profile minimal --no-self-update
+        rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+    - name: Cache Dependencies
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        prefix-key: rust-cache
+        shared-key: host-macos-release
+        workspaces: |
+          launcher
+          .
+
+    # Built before the signing certificate and the Apple account are in reach, so
+    # no build script ever runs beside them. The staging step below builds again
+    # with the same settings, which does nothing.
+    - name: Build
+      run: |
+        export LODESTONE_HOST_BUILD="$(git rev-list --count HEAD)"
+        export LODESTONE_HOST_COMMIT="$(git rev-parse HEAD)"
+        for target in aarch64-apple-darwin x86_64-apple-darwin; do
+          (cd launcher && cargo build --release --locked -p lodestone-host --target "$target")
+          # Never with Deno.
+          cargo build --release --locked -p lodestone_core --no-default-features --target "$target"
+        done
+
+    - name: Import the signing certificate
+      env:
+        MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+        MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+      run: |
+        if [ -z "$MACOS_CERTIFICATE" ] || [ -z "$MACOS_SIGNING_IDENTITY" ]; then
+          echo "No signing certificate: the app is signed ad hoc."
+          exit 0
+        fi
+        keychain="$RUNNER_TEMP/signing.keychain-db"
+        keychain_password="$(openssl rand -hex 24)"
+        echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+        security create-keychain -p "$keychain_password" "$keychain"
+        security set-keychain-settings -lut 7200 "$keychain"
+        security unlock-keychain -p "$keychain_password" "$keychain"
+        security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -f pkcs12 \
+          -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+        security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+        security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+        rm "$RUNNER_TEMP/certificate.p12"
+        echo "LODESTONE_MACOS_SIGN_IDENTITY=$MACOS_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+
+    - name: Sign, bundle and stage
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      run: >-
+        python3 launcher/scripts/publish_release.py --product host
+        --stage "$RUNNER_TEMP/host-macos"
+        --target aarch64-apple-darwin --target x86_64-apple-darwin
+
+    - name: Remove the signing keychain
+      if: always()
+      run: |
+        if [ -f "$RUNNER_TEMP/signing.keychain-db" ]; then
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db"
+        fi
+
+    - name: Keep the build
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: host-macos
+        path: ${{ runner.temp }}/host-macos
+        if-no-files-found: error
+        retention-days: 14

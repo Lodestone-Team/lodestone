@@ -63,7 +63,7 @@ fn tree(dir: &Path) -> Vec<String> {
 fn zip_names(path: &Path) -> Vec<String> {
     let mut archive = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     let mut names: Vec<String> = (0..archive.len())
-        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .map(|i| archive.by_index(i).unwrap().name().unwrap().into_owned())
         .collect();
     names.sort();
     names
@@ -73,9 +73,11 @@ fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
     let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
     for (name, bytes) in entries {
         if name.ends_with('/') {
-            zip.add_directory(*name, Default::default()).unwrap();
+            zip.add_directory(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
         } else {
-            zip.start_file(*name, Default::default()).unwrap();
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
             zip.write_all(bytes).unwrap();
         }
     }
@@ -152,15 +154,6 @@ fn world_zips_with_colliding_names_are_rejected() {
         ],
         "more than once",
     );
-    check(
-        "twice.zip",
-        &[
-            ("level.dat", LEVEL_DAT),
-            ("region/r.0.0.mca", b"AAAA"),
-            ("region/r.0.0.mca", b"BBBB"),
-        ],
-        "region/r.0.0.mca more than once",
-    );
 
     // Folders may repeat, and names that differ by more than case are fine.
     let fine = temp.path().join("Fine.zip");
@@ -172,7 +165,6 @@ fn world_zips_with_colliding_names_are_rejected() {
             ("Fine/region/", b""),
             ("Fine/region/r.0.0.mca", b"AAAA"),
             ("Fine/region/r.0.1.mca", b"BBBB"),
-            ("Fine/region/", b""),
             ("Fine/DIM-1/region/r.0.0.mca", b"CCCC"),
         ],
     );
@@ -537,4 +529,87 @@ fn world_zips_export_import_and_checks() {
             .unwrap_or(0)
             == 0
     );
+}
+
+/// Replaces `from` with `to` (the same length) in the file at `path`: the first match
+/// only, or every match with `all`. Makes zips that zip's writer refuses to write.
+fn patch_zip(path: &Path, from: &str, to: &str, all: bool) {
+    assert_eq!(from.len(), to.len());
+    let mut bytes = fs::read(path).unwrap();
+    let mut found = 0;
+    let mut at = 0;
+    while let Some(i) = bytes[at..]
+        .windows(from.len())
+        .position(|w| w == from.as_bytes())
+    {
+        let start = at + i;
+        bytes[start..start + to.len()].copy_from_slice(to.as_bytes());
+        found += 1;
+        at = start + to.len();
+        if !all {
+            break;
+        }
+    }
+    assert!(found > 0, "{from} isn't in the zip");
+    fs::write(path, bytes).unwrap();
+}
+
+#[test]
+fn crafted_world_zips_never_write_outside_the_world() {
+    let (temp, dirs) = instance();
+    let (progress, cancel) = progress();
+    let saves = worlds::saves_dir(&dirs);
+
+    // A symbolic link entry is left out.
+    let path = temp.path().join("Link.zip");
+    let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("Link/level.dat", options).unwrap();
+    zip.write_all(LEVEL_DAT).unwrap();
+    zip.add_symlink("Link/region", "../../../..", options)
+        .unwrap();
+    zip.finish().unwrap();
+    let folder = worlds::import_zip(&dirs, &path, &progress, &cancel).unwrap();
+    assert!(fs::symlink_metadata(saves.join(&folder).join("region")).is_err());
+
+    // The local header names a file outside the world, the central directory one
+    // inside ("zip cloaking"). Only the central directory's name is used.
+    let path = temp.path().join("Cloak.zip");
+    write_zip(
+        &path,
+        &[
+            ("Cloak/level.dat", LEVEL_DAT),
+            ("Cloak/data/aaaaaaaaaaaaaaaa.dat", b"data"),
+        ],
+    );
+    patch_zip(
+        &path,
+        "Cloak/data/aaaaaaaaaaaaaaaa.dat",
+        "../../../../../../escape123.dat",
+        false,
+    );
+    let folder = worlds::import_zip(&dirs, &path, &progress, &cancel).unwrap();
+    assert_eq!(
+        fs::read(saves.join(folder).join("data/aaaaaaaaaaaaaaaa.dat")).unwrap(),
+        b"data"
+    );
+    assert!(!temp.path().join("escape123.dat").exists());
+    assert!(!dirs.game.join("escape123.dat").exists());
+
+    // A name listed twice: zip reads it as one entry, so one file is imported.
+    let path = temp.path().join("Twice.zip");
+    write_zip(
+        &path,
+        &[
+            ("Twice/level.dat", LEVEL_DAT),
+            ("Twice/region/r.0.0.mca", b"AAAA"),
+            ("Twice/region/r.0.0.mcb", b"BBBB"),
+        ],
+    );
+    patch_zip(&path, "r.0.0.mcb", "r.0.0.mca", true);
+    let folder = worlds::import_zip(&dirs, &path, &progress, &cancel).unwrap();
+    let region = saves.join(folder).join("region");
+    assert_eq!(fs::read_dir(&region).unwrap().count(), 1);
+    let bytes = fs::read(region.join("r.0.0.mca")).unwrap();
+    assert!(bytes == b"AAAA" || bytes == b"BBBB");
 }

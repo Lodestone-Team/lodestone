@@ -8,9 +8,9 @@
     "test": "node --test --test-concurrency=1 test/*.test.js"
   },
   "devDependencies": {
-    "wrangler": "4.152.0"
+    "wrangler": "4.153.0"
   },
   "allowScripts": {
-    "workerd@1.20261019.1": true
+    "workerd@1.20261023.1": true
   }
 }
