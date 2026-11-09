@@ -256,6 +256,41 @@ pub async fn login(
         .into_response()
 }
 
+/// The body of `POST /user/login_api_key`.
+#[derive(Deserialize)]
+pub struct ApiKeyLogin {
+    pub key: String,
+}
+
+/// Signs in with an API key: checks it and returns the user it acts as, with its scope
+/// (a custom key's user is never the owner or an admin). The key itself is then the
+/// session's token, so revoking it ends the session at once. Failures count towards the
+/// same limit as `POST /user/login`, per key.
+pub async fn login_api_key(
+    State(state): State<AppState>,
+    Json(body): Json<ApiKeyLogin>,
+) -> Response {
+    let limit_key = match crate::auth::api_key::parse_key(body.key.trim()) {
+        Some(parsed) => format!("api key {}", parsed.id),
+        None => "api key (malformed)".to_string(),
+    };
+    if let Err(limited) = state.login_limiter.begin_attempt(&limit_key) {
+        return limited.into_response();
+    }
+    let user = state.users_manager.read().await.try_auth(body.key.trim());
+    match user {
+        Some(user) => {
+            state.login_limiter.record_success(&limit_key);
+            Json(json!({ "user": PublicUser::from(user) })).into_response()
+        }
+        None => Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("That API key isn't valid: it may have been revoked or have expired"),
+        }
+        .into_response(),
+    }
+}
+
 async fn check_login(
     state: &AppState,
     username: &str,
@@ -305,6 +340,7 @@ pub fn get_user_routes(state: AppState) -> Router {
         .route("/user/{uid}/rename", put(rename_user))
         .route("/user/{uid}/password", put(change_password))
         .route("/user/login", post(login))
+        .route("/user/login_api_key", post(login_api_key))
         .route("/user/logout/{uid}", post(logout))
         .with_state(state)
 }

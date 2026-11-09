@@ -268,6 +268,13 @@ export const zhHant: Messages = {
   'shell.login.changeCore': '更換核心',
   'shell.login.signIn': '登入',
 
+  'shell.login.withApiKey': '使用 API 金鑰登入',
+  'shell.login.withPassword': '使用使用者名稱和密碼登入',
+  'shell.login.apiKey': 'API 金鑰',
+  'shell.login.apiKeyHint':
+    '貼上以 lsk_ 開頭的金鑰。你會取得該金鑰的權限，撤銷金鑰後會登出。',
+  'shell.login.apiKeyRequired': '需要 API 金鑰',
+  'shell.login.apiKeyFormat': 'API 金鑰以 lsk_ 開頭',
   'shell.coreConnect.pageTitle': '連線至核心',
   'shell.coreConnect.title': '新增核心',
   'shell.coreConnect.httpErrorTitle': 'HTTP 錯誤',
@@ -369,6 +376,9 @@ export const zhHant: Messages = {
   'settings.core.listPublicly.label': '公開列出伺服器',
   'settings.core.listPublicly.hint':
     '任何能連到此核心的人都能看到你在下方設為公開的伺服器。',
+  'settings.core.localClaim.label': '允許本機上的應用程式取得擁有者權限',
+  'settings.core.localClaim.hint':
+    'Lodestone Launcher 可以藉由證明自己能寫入此核心的資料夾來成為擁有者。能寫入該資料夾的程式本來就能修改所有使用者和設定，所以這只在共用電腦上有影響。',
   'settings.core.safeMode.label': '安全模式',
   'settings.core.safeMode.hint': '僅擁有者可取得此電腦的管理權限。',
   'settings.core.safeMode.offTitle': '要關閉安全模式嗎？',

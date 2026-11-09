@@ -110,6 +110,7 @@ pub mod global_settings;
 mod handlers;
 pub mod implementations;
 mod listen;
+pub mod local_claim;
 pub mod macro_executor;
 mod migration;
 mod minecraft_links;
@@ -121,6 +122,7 @@ mod persist;
 pub mod playitgg;
 mod port_manager;
 pub mod prelude;
+pub mod product;
 mod public_listing;
 pub mod tauri_export;
 mod tls;
@@ -236,6 +238,9 @@ pub(crate) mod test_util {
                 dir.join("docker_bridge.json"),
             )
             .await,
+            local_claims: Arc::new(crate::local_claim::LocalClaims::new(dir)),
+            product: crate::product::CoreProduct::Core,
+            launched_by: crate::product::LaunchedBy::Direct,
         }
     }
 
@@ -289,6 +294,12 @@ pub struct AppState {
     public_listing: Arc<public_listing::PublicListing>,
     /// Lodestone users' Minecraft accounts.
     minecraft_links: Arc<minecraft_links::MinecraftLinks>,
+    /// Owner access claimed through the data folder, see [`local_claim`].
+    local_claims: Arc<local_claim::LocalClaims>,
+    /// Lodestone Host or the standalone core, reported in `/info`. Fixed at startup.
+    product: product::CoreProduct,
+    /// What started the core, reported in `/info`. Fixed at startup.
+    launched_by: product::LaunchedBy,
 }
 
 impl AppState {
@@ -337,6 +348,7 @@ fn api_router(shared_state: AppState) -> Router {
         .merge(get_api_key_routes(shared_state.clone()))
         .merge(get_core_info_routes(shared_state.clone()))
         .merge(get_setup_route(shared_state.clone()))
+        .merge(local_claim::get_local_claim_routes(shared_state.clone()))
         .merge(get_monitor_routes(shared_state.clone()))
         .merge(get_instance_macro_routes(shared_state.clone()))
         .merge(get_instance_fs_routes(shared_state.clone()))
@@ -746,6 +758,9 @@ pub async fn run(
     // `ServerConfig::builder()` would panic (deno's fetch(), the TLS listener). Install
     // aws-lc-rs explicitly before anything touches TLS. Errors only if one is already set.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let product = product::CoreProduct::from_is_host(args.is_host);
+    let in_docker = product::in_docker();
+    let launched_by = product::LaunchedBy::from_flags(args.is_host, args.is_cli, in_docker);
     let _ = color_eyre::install().map_err(|e| {
         error!("Failed to install color_eyre: {}", e);
     });
@@ -792,7 +807,7 @@ pub async fn run(
     if args.is_host {
         info!("Lodestone Core running in Lodestone Host");
     }
-    if !args.is_cli && !args.is_host {
+    if !args.is_cli && !args.is_host && !in_docker {
         warn!("Lodestone Core is not meant to be run as a standalone program. Please use Lodestone CLI instead.");
         warn!("Download it here: https://github.com/Lodestone-Team/lodestone_cli")
     }
@@ -894,7 +909,13 @@ pub async fn run(
     for (_, instance) in snapshot_instances(&instances) {
         allocated_ports.insert(instance.port().await);
     }
+    // claims a previous run left are never finished
+    let local_claims = local_claim::LocalClaims::new(&lodestone_path);
+    local_claims.clean_up().await;
     let shared_state = AppState {
+        local_claims: Arc::new(local_claims),
+        product,
+        launched_by,
         instances: Arc::new(instances),
         users_manager: Arc::new(RwLock::new(users_manager)),
         events_buffer: Arc::new(Mutex::new(AllocRingBuffer::new(512))),

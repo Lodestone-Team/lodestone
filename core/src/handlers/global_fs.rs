@@ -217,9 +217,21 @@ fn touches_lodestone_secret(
         .any(|secret| path.starts_with(secret) || (include_parents && secret.starts_with(path)))
 }
 
+/// What the file API never reads, in the data folder `root` with its `stores` folder:
+/// `stores` (users.json with every user's password hash and token secret, the API
+/// keys), the playit.gg key, and `local_claim`, whose results hold owner API keys (see
+/// [`crate::local_claim`]).
+fn lodestone_secret_paths(root: &std::path::Path, stores: &std::path::Path) -> [PathBuf; 3] {
+    [
+        stores.to_path_buf(),
+        root.join("playit.toml"),
+        root.join(crate::local_claim::CLAIM_DIR),
+    ]
+}
+
 /// Canonicalizes `path` and rejects it if it is Lodestone's own data: the `stores` folder,
-/// which holds users.json with every user's password hash and token secret, and the
-/// playit.gg key. This applies to every user, including users with `ReadGlobalFile`.
+/// which holds users.json with every user's password hash and token secret and the API
+/// keys, the playit.gg key, and the `local_claim` folder. This applies to every user, including users with `ReadGlobalFile`.
 async fn canonicalize_global_read(
     path: &std::path::Path,
     include_parents: bool,
@@ -228,10 +240,7 @@ async fn canonicalize_global_read(
         .await
         .context(format!("Failed to find {}", path.display()))?;
     let mut secrets = Vec::new();
-    for secret in [
-        path_to_stores().clone(),
-        lodestone_path().join("playit.toml"),
-    ] {
+    for secret in lodestone_secret_paths(lodestone_path(), path_to_stores()) {
         // a secret that does not exist yet cannot be read
         if let Ok(secret) = tokio::fs::canonicalize(&secret).await {
             secrets.push(secret);
@@ -878,6 +887,30 @@ pub fn get_global_fs_routes(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stores_and_claims_are_never_read() {
+        let root = std::path::Path::new("/home/u/.lodestone");
+        let secrets = lodestone_secret_paths(root, &root.join("stores"));
+        for path in [
+            "/home/u/.lodestone/stores/users.json",
+            "/home/u/.lodestone/stores/api_keys.json",
+            "/home/u/.lodestone/local_claim/abc/result.json",
+            "/home/u/.lodestone/playit.toml",
+        ] {
+            assert!(
+                touches_lodestone_secret(std::path::Path::new(path), &secrets, false),
+                "{path}"
+            );
+        }
+        // zipping the data folder would include them
+        assert!(touches_lodestone_secret(root, &secrets, true));
+        assert!(!touches_lodestone_secret(
+            std::path::Path::new("/home/u/.lodestone/instances/a/world"),
+            &secrets,
+            true
+        ));
+    }
 
     #[test]
     fn test_touches_lodestone_secret() {

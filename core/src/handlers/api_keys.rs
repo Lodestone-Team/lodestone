@@ -337,6 +337,92 @@ mod tests {
         }
     }
 
+    async fn login_with_key(core: &Core, key: &str) -> (StatusCode, Value) {
+        let response = core
+            .client
+            .post(format!("{}/user/login_api_key", core.base))
+            .json(&json!({ "key": key }))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        (status, response.json().await.unwrap_or(Value::Null))
+    }
+
+    #[tokio::test]
+    async fn signing_in_with_a_key_keeps_its_scope() {
+        let core = core().await;
+        let (full, _) = core
+            .create_key(&core.owner_jwt, "dashboard", json!({ "type": "full" }))
+            .await;
+        let (status, body) = login_with_key(&core, &format!("  {full}\n")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["user"]["username"], "owner");
+        assert_eq!(body["user"]["is_owner"], true);
+        // the key is then the session's token
+        let (status, me) = core.call(Method::GET, "/user/info", &full, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(me["is_owner"], true);
+
+        // a custom key signs in as the owner without owner powers, with only its permissions
+        let (narrow, info) = core
+            .create_key(&core.owner_jwt, "viewer", custom(view_only()))
+            .await;
+        let (status, body) = login_with_key(&core, &narrow).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["user"]["is_owner"], false);
+        assert_eq!(body["user"]["is_admin"], false);
+        assert_eq!(
+            body["user"]["permissions"]["can_view_instance"],
+            json!([INSTANCE])
+        );
+        assert_eq!(body["user"]["permissions"]["can_create_instance"], false);
+
+        // revoking ends it at once
+        let id = info["id"].as_str().unwrap().to_string();
+        let (status, _) = core
+            .call(
+                Method::DELETE,
+                &format!("/user/api_keys/{id}"),
+                &core.owner_jwt,
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            login_with_key(&core, &narrow).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            core.call(Method::GET, "/user/info", &narrow, None).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_key_sign_ins_are_limited() {
+        let core = core().await;
+        let (key, _) = core
+            .create_key(&core.owner_jwt, "dashboard", json!({ "type": "full" }))
+            .await;
+        // the right id with wrong secrets
+        let wrong = format!("{}{}", &key[..key.len() - 4], "AAAA");
+        for _ in 0..crate::auth::login_limiter::MAX_FAILURES {
+            assert_eq!(
+                login_with_key(&core, &wrong).await.0,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        assert_eq!(
+            login_with_key(&core, &wrong).await.0,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(
+            login_with_key(&core, "not a key").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
     #[tokio::test]
     async fn create_list_and_revoke_with_a_session() {
         let core = core().await;
@@ -379,6 +465,7 @@ mod tests {
         let text = serde_json::to_string(&list).unwrap();
         assert!(!text.contains(&key[16..]), "the secret is never listed");
         assert!(!text.contains("secret_sha256"));
+        assert!(!text.contains("\"secret\""));
 
         // revoking works at once
         let (status, _) = core

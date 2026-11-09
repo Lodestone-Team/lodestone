@@ -1066,7 +1066,8 @@ impl UsersManager {
             expires_at,
             last_used_at: None,
             scope,
-            secret_sha256: api_key::hash_secret(&new.secret),
+            secret: Some(new.secret.clone()),
+            secret_sha256: None,
         };
         let info = record.info();
         self.api_keys.insert(record).await?;
