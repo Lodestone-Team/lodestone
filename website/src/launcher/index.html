@@ -73,8 +73,10 @@
       </p>
 
       <div class="download">
-        <!-- main.js points this at the visitor's platform. Without JavaScript it
-             downloads the Windows installer, the build most people need. -->
+        <!-- main.js points this at the visitor's platform, in the newest
+             launcher-v* release. Without JavaScript it downloads the Windows
+             installer from launcher-latest, the release launchers updated from
+             before versioned releases: an older build, which updates itself. -->
         <a
           class="button"
           data-download
@@ -92,7 +94,7 @@
           <span data-download-note>Windows 10 and 11</span>
           <span aria-hidden="true">·</span>
           <a
-            href="https://github.com/Lodestone-Team/lodestone/releases/tag/launcher-latest"
+            href="https://github.com/Lodestone-Team/lodestone/releases?q=launcher-v&amp;expanded=true"
             target="_blank"
             rel="noopener"
             >All downloads</a

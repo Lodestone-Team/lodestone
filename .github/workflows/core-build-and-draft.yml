@@ -13,6 +13,11 @@ on:
         description: "Version to tag the release with, leave empty to not make a release"
         required: false
         type: string
+      ref:
+        description: "Commit, branch or tag to check out (empty for the run's own)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -54,6 +59,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
 
       # Installs the toolchain pinned in rust-toolchain.toml. Core is never cross-compiled
       # (its build script snapshots deno for the host), so the target is the host target.
@@ -127,6 +133,8 @@ jobs:
         if: inputs.version
         with:
           files: ./${{env.FILENAME}}
-          tag_name: ${{env.VERSION}}
+          # The release's tag (release.yml drafted it), which may be newer than
+          # Cargo.toml's version.
+          tag_name: ${{ inputs.version }}
           draft: true
           prerelease: true
