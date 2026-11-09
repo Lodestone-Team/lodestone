@@ -6,7 +6,7 @@
 //! ([`SurfaceId`]) lose some of their fill so it shows through them too: the window
 //! as much as Opacity says, the panels on it (sidebar, top bar, Play bar) a little
 //! more, and dialogs and popovers, which sit over the launcher's own content, little.
-//! Glass also lights the top edge of panels and cards.
+//! Glass makes the floating layer Liquid Glass ([`crate::liquid`]).
 //!
 //! GPUI can't blur what the window itself draws under a panel, so nothing blurs
 //! the launcher's content. Where the skin fills the window with an image, a blurred
@@ -19,7 +19,7 @@
 use std::{cell::Cell, cell::RefCell, collections::HashMap, sync::Arc};
 
 use gpui::{
-    AbsoluteLength, Corners, CornersRefinement, Hsla, IntoElement, ParentElement, RenderImage,
+    AbsoluteLength, Corners, CornersRefinement, IntoElement, ParentElement, RenderImage,
     Styled, Window, WindowBackgroundAppearance, WindowId, canvas, div,
 };
 use launcher_core::ui_skin::{DEFAULT_OPACITY, MIN_OPACITY, Material, SkinSpec, SurfaceId};
@@ -139,20 +139,6 @@ pub fn alpha(
     launcher_core::ui_skin::material::alpha(glass.opacity, surface, own, image, backdrop)
 }
 
-/// Whether Glass lights `surface`'s top edge.
-pub fn lit(glass: Glass, surface: SurfaceId) -> bool {
-    glass.material == Material::Glass
-        && match role(surface) {
-            Some(Role::Pane) => surface != SurfaceId::Main,
-            Some(Role::Content) => matches!(
-                surface,
-                SurfaceId::Card | SurfaceId::SettingCard | SurfaceId::Input | SurfaceId::Hero
-            ),
-            Some(Role::Floating) => true,
-            _ => false,
-        }
-}
-
 /// Whether a blurred copy of the skin's window image goes under `surface`.
 pub fn takes_backdrop(glass: Glass, surface: SurfaceId) -> bool {
     glass.material.is_blurred()
@@ -163,25 +149,6 @@ pub fn takes_backdrop(glass: Glass, surface: SurfaceId) -> bool {
         }
 }
 
-/// The light along a glass surface's top edge, with a faint sheen fading down from
-/// it. Rounded as `radii` (the surface's corners), since children are clipped to a
-/// rectangle.
-pub fn highlight(radii: CornersRefinement<AbsoluteLength>) -> impl IntoElement {
-    let white: Hsla = colors::WHITE.into();
-    let mut layer = div()
-        .absolute()
-        .inset_0()
-        .border_t_1()
-        .border_color(white.opacity(0.16))
-        .bg(gpui::linear_gradient(
-            180.,
-            gpui::linear_color_stop(white.opacity(0.06), 0.),
-            gpui::linear_color_stop(white.opacity(0.0), 0.6),
-        ));
-    layer.style().corner_radii = radii;
-    layer
-}
-
 /// A selected or hovered row's fill: `color`, or while see-through a light veil
 /// (white at `percent`) that lets the panel under it show.
 pub fn row_fill(color: crate::theme::Color, percent: u32) -> crate::theme::Color {
@@ -190,11 +157,6 @@ pub fn row_fill(color: crate::theme::Color, percent: u32) -> crate::theme::Color
     } else {
         color
     }
-}
-
-/// The edge Glass gives a surface's own border.
-pub fn edge() -> Hsla {
-    Hsla::from(colors::WHITE).opacity(0.12)
 }
 
 /// A blurred copy of the skin's window image, laid where the window shows it, seen

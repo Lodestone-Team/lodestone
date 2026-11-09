@@ -40,8 +40,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
             width
         }))
         .h_full()
-        .bg(colors::GRAY_850)
         .border_r_1()
+        .bg(colors::GRAY_850)
         .border_color(crate::theme::ink::border())
         .overflow_hidden()
         .surface(SurfaceId::Sidebar)

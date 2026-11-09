@@ -327,58 +327,10 @@ fn close_button(on_close: CloseHandler) -> impl IntoElement {
         )
 }
 
-/// Whether macOS asks apps to reduce motion (Accessibility > Display > Reduce
-/// motion), from `NSWorkspace.accessibilityDisplayShouldReduceMotion`. The dialog
-/// then fades in without the slide.
-///
-/// GPUI does not read this setting, and the launcher has no Objective-C crate, so it
-/// is read through the Objective-C runtime that AppKit already loads.
-#[cfg(target_os = "macos")]
+/// Whether the system asks apps to reduce motion (macOS: Accessibility > Display >
+/// Reduce motion). The dialog then fades in without the slide.
 pub(crate) fn prefers_reduced_motion() -> bool {
-    use std::ffi::{c_char, c_void};
-
-    type Id = *mut c_void;
-    type Sel = *mut c_void;
-
-    #[link(name = "objc")]
-    unsafe extern "C" {
-        fn objc_getClass(name: *const c_char) -> Id;
-        fn sel_registerName(name: *const c_char) -> Sel;
-        fn objc_msgSend();
-    }
-
-    // SAFETY: `objc_msgSend` is called through function types that match the two
-    // methods: `+[NSWorkspace sharedWorkspace]` returns an object and takes no
-    // arguments, and `-accessibilityDisplayShouldReduceMotion` returns a `BOOL`
-    // (read as a byte) and takes none. Both exist since macOS 10.12, and a missing class is
-    // checked before any message is sent.
-    unsafe {
-        let class = objc_getClass(c"NSWorkspace".as_ptr());
-        if class.is_null() {
-            return false;
-        }
-        let send_id = std::mem::transmute::<
-            unsafe extern "C" fn(),
-            unsafe extern "C" fn(Id, Sel) -> Id,
-        >(objc_msgSend);
-        // `BOOL` is a `signed char` on Intel Macs and a `bool` on Apple silicon; read it
-        // as a byte and compare, so no value is ever reinterpreted as a Rust `bool`.
-        let send_bool = std::mem::transmute::<
-            unsafe extern "C" fn(),
-            unsafe extern "C" fn(Id, Sel) -> i8,
-        >(objc_msgSend);
-        let workspace = send_id(class, sel_registerName(c"sharedWorkspace".as_ptr()));
-        !workspace.is_null()
-            && send_bool(
-                workspace,
-                sel_registerName(c"accessibilityDisplayShouldReduceMotion".as_ptr()),
-            ) != 0
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn prefers_reduced_motion() -> bool {
-    false
+    crate::a11y::prefs().reduce_motion
 }
 
 #[cfg(all(test, feature = "screenshot"))]

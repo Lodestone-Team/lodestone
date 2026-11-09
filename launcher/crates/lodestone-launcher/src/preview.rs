@@ -142,6 +142,12 @@ pub const SCENES: &[&str] = &[
     "glass-skin",
     "glass-dialog",
     "glass-settings",
+    "liquid",
+    "liquid-skin",
+    "liquid-press",
+    "liquid-popover",
+    "liquid-dialog",
+    "liquid-contrast",
 ];
 
 /// Keys pressed once a scene has settled, before the screenshot, to show where
@@ -320,6 +326,8 @@ fn glass_scene(scene: &str) -> Option<(launcher_core::ui_skin::Material, Option<
         "glass-frosted" => (Material::Frosted, None),
         "glass" | "glass-dialog" | "glass-settings" => (Material::Glass, None),
         "glass-skin" => (Material::Glass, Some("glass")),
+        "liquid" | "liquid-popover" | "liquid-contrast" => (Material::Glass, None),
+        "liquid-skin" | "liquid-press" | "liquid-dialog" => (Material::Glass, Some("lagoon")),
         _ => return None,
     })
 }
@@ -1166,6 +1174,43 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         scene if glass_scene(scene).is_some() => {
             let (material, skin) = glass_scene(scene).expect("checked");
             let instances = shell.instances().clone();
+            if scene.starts_with("liquid") {
+                // lit from the upper left, the window in front, and the machine's
+                // accessibility settings left out
+                crate::liquid::force_env(Some(crate::liquid::Env {
+                    light: -0.45,
+                    active: true,
+                    prefs: crate::a11y::Prefs {
+                        increase_contrast: scene == "liquid-contrast",
+                        ..Default::default()
+                    },
+                }));
+                // the moment a popover or dialog materializes
+                if matches!(scene, "liquid-popover" | "liquid-dialog") {
+                    crate::liquid::freeze_materialize(Some(0.25));
+                }
+            }
+            if skin == Some("lagoon") {
+                // a skin with a detailed image behind the window, for the glass to bend
+                let store = instances.read(cx).skins();
+                let mut spec = launcher_core::ui_skin::SkinSpec::named("Lagoon");
+                spec.surfaces.insert(
+                    launcher_core::ui_skin::SurfaceId::Window,
+                    launcher_core::ui_skin::SurfaceSpec {
+                        fill: Some(launcher_core::ui_skin::Fill::Image(
+                            launcher_core::ui_skin::ImageFill {
+                                image: "builtin:sunset".into(),
+                                fit: launcher_core::ui_skin::Fit::Cover,
+                                tint: None,
+                                tint_opacity: 0,
+                                blur: 0,
+                            },
+                        )),
+                        ..Default::default()
+                    },
+                );
+                store.save("lagoon", &spec).ok();
+            }
             instances.update(cx, |instances, cx| {
                 instances.set_transparency(Some(material), cx);
                 if skin.is_some() {
@@ -1173,7 +1218,10 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 }
             });
             match scene {
-                "glass-dialog" => shell.open_new_instance_with(Some(("Survival", "")), None, cx),
+                "glass-dialog" | "liquid-dialog" => {
+                    shell.open_new_instance_with(Some(("Survival", "")), None, cx)
+                }
+                "liquid-popover" => shell.open_account_menu(cx),
                 "glass-settings" => {
                     shell.open_settings(Some(crate::shell::SettingsPage::General), None, cx)
                 }

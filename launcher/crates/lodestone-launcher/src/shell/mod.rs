@@ -1855,6 +1855,7 @@ impl Render for LauncherShell {
         let glass = crate::glass::resolve(&look.spec);
         crate::glass::set_frame(glass);
         crate::glass::apply_to_window(window, glass);
+        crate::liquid::set_env(window, cx);
         if look.spec.banner.in_sidebar {
             self.instances
                 .update(cx, |instances, cx| instances.load_sidebar_banners(cx));

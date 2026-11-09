@@ -218,6 +218,7 @@ impl Render for PerfMonitor {
         let glass = crate::glass::resolve(&crate::skin::look(cx).spec);
         crate::glass::set_frame(glass);
         crate::glass::apply_to_window(window, glass);
+        crate::liquid::set_env(window, cx);
         window.set_rem_size(theme::zoom::rem_size());
         let Some(now) = self.history.back().cloned() else {
             return div().into_any_element();
