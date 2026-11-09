@@ -94,7 +94,10 @@ pub fn inspect(path: &Path, download: &WorldDownload) -> Result<ServerWorldZip, 
             .by_index_raw(i)
             .map_err(|err| invalid(format!("The zip can't be read: {err}")))?;
         total = total.saturating_add(entry.size());
-        names.push(entry.name().to_string());
+        let name = entry
+            .name()
+            .map_err(|err| invalid(format!("The zip has a file name that can't be read: {err}")))?;
+        names.push(name.into_owned());
     }
     if total > MAX_ZIP_BYTES {
         return Err(invalid("The zip's files are larger than 64 GB unpacked."));

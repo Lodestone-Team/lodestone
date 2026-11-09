@@ -301,7 +301,7 @@ fn make_pack(files: Value, overrides: &[(&str, &[u8])]) -> Vec<u8> {
     let mut out = Cursor::new(Vec::new());
     {
         let mut zip = zip::ZipWriter::new(&mut out);
-        let options = zip::write::FileOptions::default();
+        let options = zip::write::SimpleFileOptions::default();
         zip.start_file("modrinth.index.json", options).unwrap();
         let index = json!({
             "formatVersion": 1, "game": "minecraft", "name": "SMP client mods",

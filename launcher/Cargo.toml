@@ -63,7 +63,7 @@ anyhow = "1.0.86"
 # terminal_size 0.4.3, strsim 0.11.1 or anstream 0.6.21 (checked 2026-11-08).
 clap = { version = "4.4", features = ["derive", "wrap_help"] }
 base64 = "0.22"
-# Share codes are deflated (flate2 is already in the lockfile through zip).
+# Share codes are deflated with flate2 (zip uses it too).
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 # Local dates for worlds, backups and screenshots; already in Zed's tree through GPUI.
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
@@ -107,12 +107,17 @@ windows-sys = "0.61"
 # Compiles the Windows resources (the app icon) into lodestone-launcher.exe. Zed's
 # requirement; already in GPUI's tree.
 embed-resource = "3.0"
-# Extracting natives from library jars. Zed locks zip 0.6.6 (through webrtc-sys-build);
-# only the deflate method is enabled, which is what Mojang's native jars use.
-zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
+# Reading and writing zip files: jars, modpacks, worlds, snapshots and skins. Zed locks
+# zip 0.6.6, but zip before 9.0.5 has advisories for archives from strangers
+# (GHSA-m665-v7pm-7grj, GHSA-8hxf-qr8p-62x4 and others). So the launcher uses 9.0.5, the
+# version Lodestone Core locks. No OSV, RustSec or GitHub advisory for zip 9.0.5 or
+# typed-path 0.12.4 (checked 2026-11-09). Only the deflate method is on, through
+# flate2's Rust backend: jars, modpacks and Minecraft's own files use it.
+zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2"] }
 
 # The Minecraft and Modrinth logic shared with Lodestone Core. Its `zip` feature (reading
-# and writing .mrpack files and jars) is off: it needs zip 9, and Zed only locks zip 0.6.
+# and writing .mrpack files and jars) is off: it turns on zip's bzip2, zstd and deflate64
+# codecs, which the launcher does not need.
 lodestone_minecraft = { path = "../crates/lodestone-minecraft", default-features = false }
 # Debug traces (local only), shared with the core.
 lodestone_trace = { path = "../crates/lodestone-trace" }

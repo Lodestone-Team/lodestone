@@ -43,6 +43,9 @@ pub const MOJANG_LIBRARIES: &str = "https://libraries.minecraft.net/";
 
 /// The largest JSON file read from an installer.
 const MAX_JSON_BYTES: u64 = 16 * 1024 * 1024;
+/// The largest library the launcher copies out of an installer. Forge's own jars are a
+/// few MB; the limit stops a broken or hostile installer from filling the memory.
+const MAX_MAVEN_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 /// The Maven coordinate of the installer jar.
 pub fn installer_coordinate(kind: LoaderKind, version: &str) -> String {
@@ -262,7 +265,7 @@ pub enum InstallerProfile {
     },
 }
 
-/// An installer jar, opened with zip 0.6.6.
+/// An installer jar.
 pub struct InstallerJar {
     path: PathBuf,
     archive: zip::ZipArchive<std::io::BufReader<File>>,
@@ -321,6 +324,9 @@ impl InstallerJar {
     pub fn maven_files(&self) -> Result<Vec<(String, PathBuf)>, LoaderError> {
         let mut files = Vec::new();
         for name in self.archive.file_names() {
+            let name = name.map_err(|err| {
+                LoaderError::Invalid(format!("the installer has an unreadable file name: {err}"))
+            })?;
             let Some(relative) = name.strip_prefix("maven/") else {
                 continue;
             };
@@ -330,7 +336,7 @@ impl InstallerJar {
             let path = safe_relative_path(relative).map_err(|_| {
                 LoaderError::Invalid(format!("the installer has an unsafe path {name:?}"))
             })?;
-            files.push((name.to_string(), path));
+            files.push((name.into_owned(), path));
         }
         files.sort();
         Ok(files)
@@ -378,15 +384,14 @@ impl InstallerJar {
         })
     }
 
-    /// Writes entry `name` to `dest`, atomically.
+    /// Writes entry `name` to `dest`, atomically. Fails if the entry is larger than
+    /// [`MAX_MAVEN_FILE_BYTES`].
     pub fn extract(&mut self, name: &str, dest: &Path) -> Result<(), LoaderError> {
-        let name = name.trim_start_matches('/');
-        let mut entry = self.archive.by_name(name).map_err(|err| {
-            LoaderError::Invalid(format!("couldn't read {name} from the installer: {err}"))
-        })?;
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut bytes).map_err(|err| {
-            LoaderError::Invalid(format!("couldn't read {name} from the installer: {err}"))
+        let bytes = self.read(name, MAX_MAVEN_FILE_BYTES)?.ok_or_else(|| {
+            LoaderError::Invalid(format!(
+                "couldn't read {} from the installer: it isn't there",
+                name.trim_start_matches('/')
+            ))
         })?;
         crate::storage::write_atomic(dest, &bytes).map_err(|err| {
             LoaderError::Invalid(format!("couldn't write {}: {err}", dest.display()))

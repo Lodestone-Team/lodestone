@@ -28,7 +28,7 @@ pub fn fabric_jar(id: &str, version: &str) -> Vec<u8> {
     let mut bytes = std::io::Cursor::new(Vec::new());
     {
         let mut zip = zip::ZipWriter::new(&mut bytes);
-        zip.start_file("fabric.mod.json", zip::write::FileOptions::default())
+        zip.start_file("fabric.mod.json", zip::write::SimpleFileOptions::default())
             .unwrap();
         zip.write_all(
             json!({ "schemaVersion": 1, "id": id, "version": version, "name": id })

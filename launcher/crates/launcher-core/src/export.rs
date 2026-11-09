@@ -287,8 +287,8 @@ pub fn write(plan: &ExportPlan, out: &Path) -> Result<(), ExportError> {
     let result = (|| {
         let file = File::create(&tmp).map_err(io_error(&tmp))?;
         let mut zip = zip::ZipWriter::new(io::BufWriter::with_capacity(1 << 20, file));
-        let deflated =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let deflated = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         zip.start_file(mrpack::INDEX_FILE, deflated)?;
         let index = serde_json::to_vec_pretty(&plan.index).map_err(|err| ExportError::Io {
             path: out.to_owned(),
@@ -298,7 +298,7 @@ pub fn write(plan: &ExportPlan, out: &Path) -> Result<(), ExportError> {
         for (name, path) in &plan.overrides {
             // Jars are compressed already.
             let options = if name.ends_with(".jar") || name.ends_with(".zip") {
-                zip::write::FileOptions::default()
+                zip::write::SimpleFileOptions::default()
                     .compression_method(zip::CompressionMethod::Stored)
                     .large_file(true)
             } else {

@@ -686,7 +686,7 @@ fn curseforge_pack(dir: &Path, loader: &str, files: &[(u64, u64, bool)]) -> std:
     use std::io::Write as _;
     let path = dir.join(format!("pack-{loader}.zip"));
     let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
-    let options = zip::write::FileOptions::default();
+    let options = zip::write::SimpleFileOptions::default();
     let manifest = serde_json::json!({
         "minecraft": { "version": "1.20.1.", "modLoaders": [{ "id": loader, "primary": true }] },
         "manifestType": "minecraftModpack",
