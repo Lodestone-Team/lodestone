@@ -20,6 +20,7 @@ pub fn text(message: M) -> &'static str {
         M::StageAssets => "Ressources du jeu",
         M::StageNatives => "Bibliothèques natives",
         M::StageStarting => "Démarrage de Java",
+        M::StageLaunching => "Lancement de Minecraft",
         M::ProgressDetail => "{files_done}/{files_total} · {done}\u{a0}Mo/{total}\u{a0}Mo",
 
         M::PreparingNote => "Préparation de Minecraft {version} ({loader})",

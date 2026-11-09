@@ -340,7 +340,9 @@ fn rail_instance(
         RowPlace::List => format!("instance-{id}"),
         RowPlace::LastPlayed => format!("last-played-{id}"),
     };
+    let launching = instances.is_launching(&id);
     let description: Option<SharedString> = match (running, active) {
+        (true, _) if launching => Some(t(M::Launching).into()),
         (true, _) => Some(t(M::Playing).into()),
         _ => played_summary(instance).map(Into::into),
     };
@@ -530,7 +532,9 @@ fn instance_row(
         .then(|| instances.sidebar_banner(&id))
         .flatten();
     let banner_readability = crate::skin::look(cx).spec.banner.readability;
-    let description: SharedString = if running {
+    let description: SharedString = if instances.is_launching(&id) {
+        format!("{detail} · {}", t(M::Launching)).into()
+    } else if running {
         format!("{detail} · {}", t(M::Playing)).into()
     } else {
         detail.clone().into()

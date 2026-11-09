@@ -70,6 +70,7 @@ pub const SCENES: &[&str] = &[
     "new-instance-versions-failed",
     "play-progress",
     "playing",
+    "launching",
     "logs",
     "instance-settings",
     "crash",
@@ -441,7 +442,13 @@ fn is_worlds_scene(scene: &str) -> bool {
 fn has_instances(scene: &str) -> bool {
     matches!(
         scene,
-        "play-progress" | "playing" | "logs" | "instance-settings" | "crash" | "rosetta"
+        "play-progress"
+            | "playing"
+            | "launching"
+            | "logs"
+            | "instance-settings"
+            | "crash"
+            | "rosetta"
     ) || scene.starts_with("content-")
         || scene.starts_with("modpack-")
         || scene == "new-instance-modpack"
@@ -730,6 +737,11 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
             }
             "logs" | "crash" => instances.preview_log(&first.id, sample_log()),
             "playing" => instances.preview_play_state(crate::instances::PlayState::Playing),
+            "launching" => instances.preview_play_state(crate::instances::PlayState::Preparing {
+                label: crate::i18n::t(crate::i18n::InstancesMsg::StageLaunching).into(),
+                detail: None,
+                fraction: None,
+            }),
             "modpack-importing" => modpacks::importing(&mut instances, cx),
             _ => {}
         }

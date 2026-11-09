@@ -21,6 +21,7 @@ pub fn text(message: M) -> &'static str {
 
         M::Play => "開始遊戲",
         M::Playing => "遊戲中",
+        M::Launching => "啟動中",
         M::TabContent => "內容",
         M::TabWorlds => "世界",
         M::Settings => "設定",
