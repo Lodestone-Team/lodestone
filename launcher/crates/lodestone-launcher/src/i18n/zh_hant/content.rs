@@ -76,10 +76,10 @@ pub fn text(message: M) -> &'static str {
             "此實例是原版 Minecraft。光影需要透過 {loader} 等模組載入器執行；切換會保留你的世界和設定，{loader} 會在你下次按下「開始遊戲」時安裝。"
         }
         M::VanillaNoLoaderMods => {
-            "此實例是原版 Minecraft {version}。模組需要模組載入器，但 Lodestone Launcher 支援的載入器都無法在此版本上執行：Fabric 從 1.14 開始支援，Forge 也沒有適用於此版本的建置。使用較新版本的新實例即可使用模組。"
+            "此實例是原版 Minecraft {version}。模組需要模組載入器，但 Lodestone Launcher 支援的載入器都無法在此版本上執行：Fabric 從 1.14 開始支援，Forge 也沒有適用於此版本的組建。新增一個較新版本的實例即可使用模組。"
         }
         M::VanillaNoLoaderShaders => {
-            "此實例是原版 Minecraft {version}。光影需要模組載入器，但 Lodestone Launcher 支援的載入器都無法在此版本上執行：Fabric 從 1.14 開始支援，Forge 也沒有適用於此版本的建置。使用較新版本的新實例即可使用光影。"
+            "此實例是原版 Minecraft {version}。光影需要模組載入器，但 Lodestone Launcher 支援的載入器都無法在此版本上執行：Fabric 從 1.14 開始支援，Forge 也沒有適用於此版本的組建。新增一個較新版本的實例即可使用光影。"
         }
         M::VanillaCheckFailedMods => {
             "此實例是原版 Minecraft。模組需要模組載入器，但無法檢查哪個載入器適用：{error}"
@@ -107,7 +107,7 @@ pub fn text(message: M) -> &'static str {
             "OptiFine 也能使用，但它不在 Modrinth 上，且其授權條款不允許 Lodestone 下載。如果你偏好使用它，請從 optifine.net 下載，然後在「{mods}」中用「{add_file}」加入 jar 檔（Fabric 還需要 OptiFabric）。"
         }
         M::LookingForShaderMod => "正在 Modrinth 上尋找適用於此版本的光影模組",
-        M::CouldntAskModrinth => "無法連線至 Modrinth：{error}",
+        M::CouldntAskModrinth => "無法向 Modrinth 查詢：{error}",
         M::InstallShaderMod => "安裝 {shader_mod} {version}",
         M::ShaderModRunsOn => {
             "Minecraft 本身無法載入光影包，需要借助光影模組。{shader_mod} 可在此實例的 {loader} 上執行。"
@@ -118,7 +118,7 @@ pub fn text(message: M) -> &'static str {
         }
 
         M::BrowsingNeedsNetwork => "瀏覽 Modrinth 需要網路連線。",
-        M::SortRelevance => "關聯性",
+        M::SortRelevance => "相關性",
         M::SortDownloads => "下載次數",
         M::SortFollows => "追蹤數",
         M::SortNewest => "最新",
@@ -136,7 +136,7 @@ pub fn text(message: M) -> &'static str {
         M::LoadingProject => "正在載入專案",
         M::ViewOnModrinth => "在 Modrinth 上檢視",
         M::Versions => "版本",
-        M::Description => "介紹",
+        M::Description => "簡介",
         M::LoadingVersions => "正在載入版本",
         M::ShowAllVersions => "顯示適用於其他載入器和 Minecraft 版本的版本",
         M::AlsoInstallDependencies => "一併安裝必要的相依項目",
