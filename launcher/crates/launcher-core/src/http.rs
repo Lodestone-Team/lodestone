@@ -22,8 +22,11 @@ pub const MAX_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 /// The client the app uses: Zed's reqwest client with rustls and the platform
 /// certificate verifier, sending [`USER_AGENT`].
 pub fn default_client() -> anyhow::Result<Arc<dyn HttpClient>> {
-    Ok(Arc::new(
-        reqwest_client::ReqwestClient::proxy_and_user_agent(None, USER_AGENT)?,
+    Ok(crate::trace::TracedClient::wrap(
+        Arc::new(reqwest_client::ReqwestClient::proxy_and_user_agent(
+            None, USER_AGENT,
+        )?),
+        "http",
     ))
 }
 
@@ -32,12 +35,15 @@ pub fn default_client() -> anyhow::Result<Arc<dyn HttpClient>> {
 /// that waits longer than [`DOWNLOAD_IDLE_TIMEOUT`] fails, and the download engine
 /// retries it.
 pub fn download_client() -> anyhow::Result<Arc<dyn HttpClient>> {
-    Ok(Arc::new(
-        reqwest_client::ReqwestClient::proxy_user_agent_and_read_timeout(
-            None,
-            USER_AGENT,
-            Some(DOWNLOAD_IDLE_TIMEOUT),
-        )?,
+    Ok(crate::trace::TracedClient::wrap(
+        Arc::new(
+            reqwest_client::ReqwestClient::proxy_user_agent_and_read_timeout(
+                None,
+                USER_AGENT,
+                Some(DOWNLOAD_IDLE_TIMEOUT),
+            )?,
+        ),
+        "download",
     ))
 }
 

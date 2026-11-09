@@ -1,70 +1,63 @@
 import { Radio, RadioGroup } from '@headlessui/react';
 import clsx from 'clsx';
+import { MessageKey, useT } from 'i18n';
 import { ThemePreference, useThemePreference } from 'utils/theme';
+import { SettingsRow } from './SettingsBlocks';
 
-const options: { value: ThemePreference; label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-];
+const options = [
+  { value: 'system', labelKey: 'settings.theme.system' },
+  { value: 'light', labelKey: 'settings.theme.light' },
+  { value: 'dark', labelKey: 'settings.theme.dark' },
+] as const satisfies readonly {
+  value: ThemePreference;
+  labelKey: MessageKey;
+}[];
 
-const descriptions: Record<ThemePreference, string> = {
-  system: "Follows your device's light or dark setting",
-  light: 'Always light',
-  dark: 'Always dark',
-};
+const descriptions = {
+  system: 'settings.theme.systemHint',
+  light: 'settings.theme.lightHint',
+  dark: 'settings.theme.darkHint',
+} as const satisfies Record<ThemePreference, MessageKey>;
 
 /**
  * The light / dark theme choice. It is saved in this browser (localStorage),
- * not on the core, so each browser and the desktop app keep their own.
+ * not on the core, so each browser and Lodestone Host keep their own.
  */
 export default function AppearanceSetting() {
+  const t = useT();
   const [preference, setPreference] = useThemePreference();
 
   return (
-    <div className="flex flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-medium">
-      <div className="flex min-w-0 grow flex-col">
-        <label
-          id="theme-label"
-          className="text-medium font-medium text-gray-300"
-        >
-          Theme
-        </label>
-        <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
-          {descriptions[preference]}
-        </div>
-      </div>
+    <SettingsRow
+      label={t('settings.theme.label')}
+      labelId="theme-label"
+      hint={t(descriptions[preference])}
+    >
+      {/* a segmented control */}
       <RadioGroup
         value={preference}
         onChange={setPreference}
         aria-labelledby="theme-label"
-        className="flex w-5/12 shrink-0 flex-row child:grow"
+        className="flex flex-row rounded-lg border border-gray-700 bg-gray-900 p-0.5 light:border-line-input"
       >
-        {options.map(({ value, label }) => (
+        {options.map(({ value, labelKey }) => (
           <Radio
             key={value}
             value={value}
             className={clsx(
-              'input-background input-outlines input-text-style input-border-normal',
-              'cursor-pointer overflow-clip rounded-none p-0 first:rounded-l-md last:rounded-r-md',
-              'focus-visible:ring-blue-faded/50'
+              'cursor-pointer rounded-md px-2.5 py-1 whitespace-nowrap select-none',
+              'text-[0.8125rem] font-mediumbold',
+              'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden',
+              'text-gray-400 hover:text-gray-300',
+              'data-checked:bg-gray-700 data-checked:text-gray-300',
+              // light: the chosen one is a raised white segment
+              'light:data-checked:bg-gray-800 light:data-checked:shadow-sm'
             )}
           >
-            {({ checked }) => (
-              <span
-                className={clsx(
-                  'block size-full px-3 py-1.5 text-center select-none',
-                  checked
-                    ? 'bg-blue-faded/30 text-gray-300'
-                    : 'text-white/75 hover:bg-gray-700'
-                )}
-              >
-                {label}
-              </span>
-            )}
+            {t(labelKey)}
           </Radio>
         ))}
       </RadioGroup>
-    </div>
+    </SettingsRow>
   );
 }

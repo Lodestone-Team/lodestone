@@ -6,6 +6,7 @@ import { ModInstallResult } from 'bindings/ModInstallResult';
 import { ModrinthSearchHit } from 'bindings/ModrinthSearchHit';
 import { ModrinthVersionType } from 'bindings/ModrinthVersionType';
 import Label, { LabelColor } from 'components/Atoms/Label';
+import { t as translate, useI18n, useT } from 'i18n';
 import Tooltip from 'rc-tooltip';
 import { ReactNode, useState } from 'react';
 import { safeImageUrl } from 'utils/markdown';
@@ -87,15 +88,18 @@ export const WithTooltip = ({
  * client doesn't support it, and nothing otherwise.
  */
 export const ClientSideLabel = ({ clientSide }: { clientSide: string }) => {
+  const t = useT();
   if (clientSide === 'required')
     return (
-      <Label size="small" color="blue" className="shrink-0">
-        Players need this too
+      <Label size="small" color="blue" className="shrink-0 whitespace-nowrap">
+        {t('mods.clientSide.playersNeedToo')}
       </Label>
     );
   if (clientSide === 'unsupported')
     return (
-      <span className="shrink-0 text-small text-white/30">Server only</span>
+      <span className="shrink-0 text-small whitespace-nowrap text-white/30">
+        {t('mods.clientSide.serverOnly')}
+      </span>
     );
   return null;
 };
@@ -105,15 +109,20 @@ export const ClientSideLabel = ({ clientSide }: { clientSide: string }) => {
  * Optional mods show nothing; unknown ones a quiet note.
  */
 export const ClientRequirementLabel = ({ mod }: { mod: InstalledMod }) => {
+  const { t, formatList } = useI18n();
   switch (mod.client_requirement) {
     case 'required': {
       const label = (
-        <Label size="small" color="blue" className="shrink-0">
-          Players need this
+        <Label size="small" color="blue" className="shrink-0 whitespace-nowrap">
+          {t('mods.clientRequirement.required')}
         </Label>
       );
       return mod.required_by.length > 0 ? (
-        <WithTooltip message={`Needed by ${mod.required_by.join(', ')}`}>
+        <WithTooltip
+          message={t('mods.clientRequirement.neededBy', {
+            mods: formatList(mod.required_by),
+          })}
+        >
           {label}
         </WithTooltip>
       ) : (
@@ -122,19 +131,21 @@ export const ClientRequirementLabel = ({ mod }: { mod: InstalledMod }) => {
     }
     case 'unsupported':
       return (
-        <span className="shrink-0 text-small text-white/30">Server only</span>
+        <span className="shrink-0 text-small whitespace-nowrap text-white/30">
+          {t('mods.clientSide.serverOnly')}
+        </span>
       );
     case 'unknown':
       return (
         <WithTooltip
           message={
             mod.modrinth
-              ? "Modrinth doesn't say whether players need it; check the mod's page"
-              : "Not on Modrinth; check the mod's page"
+              ? t('mods.clientRequirement.unknownModrinth')
+              : t('mods.clientRequirement.unknownNotOnModrinth')
           }
         >
-          <span className="shrink-0 cursor-default text-small text-white/30">
-            Unknown
+          <span className="shrink-0 cursor-default text-small whitespace-nowrap text-white/30">
+            {t('common.unknown')}
           </span>
         </WithTooltip>
       );
@@ -149,20 +160,36 @@ const playersNeed = (mod: InstalledMod) =>
   (mod.client_requirement !== 'unsupported' &&
     mod.modrinth?.client_side === 'required');
 
-export const NO_WRITE_PERMISSION =
-  "You don't have permission to change this instance's files";
-
 const versionTypeColor: Record<ModrinthVersionType, LabelColor> = {
   release: 'green',
   beta: 'yellow',
   alpha: 'red',
 };
 
-export const VersionTypeLabel = ({ type }: { type: ModrinthVersionType }) => (
-  <Label size="small" color={versionTypeColor[type] ?? 'gray'}>
-    {type}
-  </Label>
-);
+const versionTypeLabel: Record<
+  ModrinthVersionType,
+  `mods.versionType.${ModrinthVersionType}`
+> = {
+  release: 'mods.versionType.release',
+  beta: 'mods.versionType.beta',
+  alpha: 'mods.versionType.alpha',
+};
+
+export const VersionTypeLabel = ({ type }: { type: ModrinthVersionType }) => {
+  const t = useT();
+  // a type Modrinth adds later is shown as it is
+  const labelKey = versionTypeLabel[type] as
+    `mods.versionType.${ModrinthVersionType}` | undefined;
+  return (
+    <Label
+      size="small"
+      color={versionTypeColor[type] ?? 'gray'}
+      className="whitespace-nowrap"
+    >
+      {labelKey ? t(labelKey) : type}
+    </Label>
+  );
+};
 
 /** Opens a file picker and resolves with the chosen files (none if closed). */
 export const pickFiles = (accept: string, multiple: boolean) =>
@@ -183,7 +210,10 @@ const modLabel = (mod: InstalledMod) => {
     : installedModName(mod);
 };
 
-/** The body of the toast after an install: installed, removed, skipped. */
+/**
+ * The body of the toast after an install: installed, removed, skipped.
+ * Shown in a toast, so it reads the current language when it renders.
+ */
 export const InstallResultMessage = ({
   title,
   result,
@@ -194,24 +224,37 @@ export const InstallResultMessage = ({
   <div className="flex flex-col gap-1">
     <div className="font-bold">{title}</div>
     {result.installed.length > 0 && (
-      <div>Installed: {result.installed.map(modLabel).join(', ')}</div>
+      <div>
+        {translate('mods.installResult.installed', {
+          mods: result.installed.map(modLabel).join(', '),
+        })}
+      </div>
     )}
     {result.removed.length > 0 && (
-      <div>Removed: {result.removed.join(', ')}</div>
+      <div>
+        {translate('mods.installResult.removed', {
+          files: result.removed.join(', '),
+        })}
+      </div>
     )}
     {result.skipped.length > 0 && (
       <div>
-        Skipped:{' '}
-        {result.skipped
-          .map((skip) => `${skip.project_id} (${skip.reason})`)
-          .join(', ')}
+        {/* the reasons come from the core */}
+        {translate('mods.installResult.skipped', {
+          projects: result.skipped
+            .map((skip) => `${skip.project_id} (${skip.reason})`)
+            .join(', '),
+        })}
       </div>
     )}
     {result.installed.some(playersNeed) && (
       <div>
-        Players will need{' '}
-        {result.installed.filter(playersNeed).map(installedModName).join(', ')}{' '}
-        too
+        {translate('mods.installResult.playersNeed', {
+          mods: result.installed
+            .filter(playersNeed)
+            .map(installedModName)
+            .join(', '),
+        })}
       </div>
     )}
   </div>
@@ -229,39 +272,49 @@ export const ModrinthHitCard = ({
   /** for mods: show whether players need the project too */
   showClientSide?: boolean;
   onClick: () => void;
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={cn(
-      'flex w-full flex-row items-start gap-3 rounded-lg border border-gray-faded/30 bg-gray-800 p-3 text-left',
-      'hover:border-gray-faded/50 hover:bg-gray-700',
-      'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden'
-    )}
-  >
-    <ModIcon url={hit.icon_url} className="size-12" />
-    <div className="flex min-w-0 grow flex-col gap-0.5">
-      <div className="flex min-w-0 flex-row items-center gap-2">
-        <span className="truncate text-h3 font-bold text-gray-300">
-          {hit.title}
-        </span>
-        <span className="shrink-0 truncate text-small text-white/50">
-          by {hit.author}
-        </span>
-        {installed && (
-          <Label size="small" color="green" className="shrink-0">
-            Installed
-          </Label>
-        )}
-        {showClientSide && <ClientSideLabel clientSide={hit.client_side} />}
+}) => {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex w-full flex-row items-start gap-3 rounded-lg border border-gray-faded/30 bg-gray-800 p-3 text-left',
+        'hover:border-gray-faded/50 hover:bg-gray-700',
+        'focus-visible:ring-4 focus-visible:ring-blue-faded/50 focus-visible:outline-hidden'
+      )}
+    >
+      <ModIcon url={hit.icon_url} className="size-12" />
+      <div className="flex min-w-0 grow flex-col gap-0.5">
+        <div className="flex min-w-0 flex-row items-center gap-2">
+          <span className="truncate text-h3 font-bold text-gray-300">
+            {hit.title}
+          </span>
+          <span className="shrink-0 truncate text-small text-white/50">
+            {t('mods.byAuthor', { author: hit.author })}
+          </span>
+          {installed && (
+            <Label
+              size="small"
+              color="green"
+              className="shrink-0 whitespace-nowrap"
+            >
+              {t('mods.installedLabel')}
+            </Label>
+          )}
+          {showClientSide && <ClientSideLabel clientSide={hit.client_side} />}
+        </div>
+        <div className="line-clamp-2 text-medium text-white/50">
+          {hit.description}
+        </div>
       </div>
-      <div className="line-clamp-2 text-medium text-white/50">
-        {hit.description}
+      <div
+        className="flex shrink-0 flex-row items-center gap-1 text-small text-white/50"
+        title={t('mods.downloads', { count: hit.downloads })}
+      >
+        <FontAwesomeIcon icon={faDownload} />
+        {formatCount(hit.downloads)}
       </div>
-    </div>
-    <div className="flex shrink-0 flex-row items-center gap-1 text-small text-white/50">
-      <FontAwesomeIcon icon={faDownload} />
-      {formatCount(hit.downloads)}
-    </div>
-  </button>
-);
+    </button>
+  );
+};

@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use ts_rs::TS;
 
-use super::util::AuthedUser;
+use super::util::{AuthedUser, ClientIp};
 
 #[derive(Deserialize, Serialize)]
 pub struct NewUser {
@@ -93,8 +93,11 @@ pub async fn delete_user(
         .users_manager
         .write()
         .await
-        .delete_user(uid, requester.caused_by())
+        .delete_user(uid.clone(), requester.caused_by())
         .await?;
+    if let Err(e) = state.minecraft_links.remove_user(&uid).await {
+        tracing::error!("Failed to remove a deleted user's Minecraft links: {e}");
+    }
     Ok(Json(json!("ok")))
 }
 
@@ -253,6 +256,49 @@ pub async fn login(
         .into_response()
 }
 
+/// The body of `POST /user/login_api_key`.
+#[derive(Deserialize)]
+pub struct ApiKeyLogin {
+    pub key: String,
+}
+
+/// Signs in with an API key: checks it and returns the user it acts as, with its scope
+/// (a custom key's user is never the owner or an admin). The key itself is then the
+/// session's token, so revoking it ends the session at once. Only API keys (`lsk_…`) are
+/// accepted, never session tokens. Failures count towards the same limit as
+/// `POST /user/login`, per client address and key, so one address can't lock others out.
+pub async fn login_api_key(
+    State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
+    Json(body): Json<ApiKeyLogin>,
+) -> Response {
+    let key = body.key.trim();
+    let client = ip.map_or_else(|| "unknown".to_string(), |ip| ip.to_string());
+    let parsed = crate::auth::api_key::parse_key(key);
+    let limit_key = match &parsed {
+        Some(parsed) => format!("api key {} from {client}", parsed.id),
+        None => format!("api key (malformed) from {client}"),
+    };
+    if let Err(limited) = state.login_limiter.begin_attempt(&limit_key) {
+        return limited.into_response();
+    }
+    let user = match parsed {
+        Some(_) => state.users_manager.read().await.try_auth(key),
+        None => None,
+    };
+    match user {
+        Some(user) => {
+            state.login_limiter.record_success(&limit_key);
+            Json(json!({ "user": PublicUser::from(user) })).into_response()
+        }
+        None => Error {
+            kind: ErrorKind::Unauthorized,
+            source: eyre!("That API key isn't valid: it may have been revoked or have expired"),
+        }
+        .into_response(),
+    }
+}
+
 async fn check_login(
     state: &AppState,
     username: &str,
@@ -302,6 +348,7 @@ pub fn get_user_routes(state: AppState) -> Router {
         .route("/user/{uid}/rename", put(rename_user))
         .route("/user/{uid}/password", put(change_password))
         .route("/user/login", post(login))
+        .route("/user/login_api_key", post(login_api_key))
         .route("/user/logout/{uid}", post(logout))
         .with_state(state)
 }

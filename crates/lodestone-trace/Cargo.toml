@@ -1,0 +1,17 @@
+[package]
+name = "lodestone_trace"
+description = "Local debug traces for Lodestone Core and Lodestone Launcher: a topic bus with a backlog, subscribers and secret redaction"
+publish = false
+rust-version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Local debugging only: events stay in the process and go to subscribers the program
+# itself lets in (the launcher's same-user socket, the core's owner-only endpoint).
+# Nothing here sends anything anywhere. No dependencies beyond serde_json, so both
+# workspaces use it without new packages.
+[dependencies]
+serde_json = "1"

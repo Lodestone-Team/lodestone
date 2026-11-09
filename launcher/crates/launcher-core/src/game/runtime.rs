@@ -25,6 +25,7 @@ use super::{
     libraries::safe_relative_path,
     mojang::{MojangUrls, UrlError},
     platform::{Arch, Os, Platform},
+    process::NoConsoleWindow as _,
 };
 
 /// `all.json`: platform key → component → builds (normally one).
@@ -347,6 +348,7 @@ pub fn check_java(java: &Path, timeout: Duration) -> Result<JavaInfo, JavaCheckE
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .no_console_window()
         .spawn()
         .map_err(|source| JavaCheckError::Run {
             path: java.to_owned(),

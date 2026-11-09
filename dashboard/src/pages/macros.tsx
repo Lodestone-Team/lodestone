@@ -21,6 +21,7 @@ import {
   useEffect,
   useState,
   useMemo,
+  useCallback,
   Dispatch,
   SetStateAction,
 } from 'react';
@@ -29,6 +30,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import SettingField from 'components/SettingField';
+import { SettingsCard } from 'components/Settings/SettingsBlocks';
 import { adaptSettingManifest } from 'components/Instance/InstanceSettingsCreate/SettingObject';
 import { GetConfigResponse } from 'bindings/GetConfigResponse';
 import { InstanceInfo } from 'bindings/InstanceInfo';
@@ -39,7 +41,8 @@ import {
   isCodeExecutionDisabledError,
   useCodeExecution,
 } from 'data/CodeExecution';
-import { NO_SCRIPTING_MESSAGE, useCoreCapabilities } from 'data/SystemInfo';
+import { noScriptingMessage, useCoreCapabilities } from 'data/SystemInfo';
+import { MessageKey, t as translate, useI18n, useT } from 'i18n';
 
 const MacroModalContents = ({
   initialMacroData,
@@ -55,9 +58,10 @@ const MacroModalContents = ({
   // mirror state so settings ui is in sync with what gets sent to backend
   const [macroData, setMacroData] =
     useState<GetConfigResponse>(initialMacroData);
+  const t = useT();
   return (
     <div className={clsx('mb-2', 'flex flex-col gap-4 @4xl:flex-row')}>
-      <span className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
+      <SettingsCard className="bg-gray-800">
         {Object.entries(macroData.config).map(([_, manifest], index) => {
           return (
             <SettingField
@@ -84,31 +88,15 @@ const MacroModalContents = ({
             />
           );
         })}
-      </span>
+      </SettingsCard>
       {macroData && macroData.error && (
         <TextCaption
-          text={'This macro requires additional config.'}
-          className="whitespace-pre-wrap text-small text-red-300"
+          text={t('console.macros.configRequired')}
+          className="text-small whitespace-pre-wrap text-red-300"
         />
       )}
     </div>
   );
-};
-
-const unixToFormattedTime = (unix: string | undefined) => {
-  if (!unix) return 'N/A';
-  const date = new Date(parseInt(unix) * 1000);
-  return `${date
-    .toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    })
-    .replace(/,/, '')} at ${date.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })}`;
 };
 
 // Query keys for the macro lists of an instance. The event stream should
@@ -129,9 +117,27 @@ const historyListKey = (uuid: string | undefined) => [
   'historyList',
 ];
 
-export type MacrosPage = 'All Macros' | 'Running Tasks' | 'History';
+export type MacrosPage = 'macros' | 'tasks' | 'history';
+const pages: MacrosPage[] = ['macros', 'tasks', 'history'];
+const pageLabels = {
+  macros: 'console.macros.tab.macros',
+  tasks: 'console.macros.tab.tasks',
+  history: 'console.macros.tab.history',
+} as const satisfies Record<MacrosPage, MessageKey>;
+
 const Macros = () => {
-  useDocumentTitle('Instance Macros - Lodestone');
+  const { t, formatDateTime } = useI18n();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('console.macros.pageTitle') })
+  );
+  // a time from the core, in seconds since the epoch
+  const formatUnixTime = useCallback(
+    (unix: bigint | number | undefined | null) =>
+      unix === undefined || unix === null
+        ? t('console.macros.noTime')
+        : formatDateTime(Number(unix) * 1000),
+    [t, formatDateTime]
+  );
   const { selectedInstance } = useContext(InstanceContext);
   const uuid = selectedInstance?.uuid;
   const queryClient = useQueryClient();
@@ -175,7 +181,11 @@ const Macros = () => {
     macrosQuery.error ?? tasksQuery.error ?? historyQuery.error;
   useEffect(() => {
     if (fetchError)
-      toast.error(`Failed to load macros: ${errorToString(fetchError)}`);
+      toast.error(
+        translate('console.macros.loadFailed', {
+          error: errorToString(fetchError),
+        })
+      );
   }, [fetchError]);
 
   const macros = useMemo(
@@ -185,11 +195,11 @@ const Macros = () => {
           ({
             id: i + 1,
             name: macro.name,
-            last_run: unixToFormattedTime(macro.last_run?.toString()),
+            last_run: formatUnixTime(macro.last_run),
             path: macro.path,
           }) as TableRow
       ),
-    [macrosQuery.data]
+    [macrosQuery.data, formatUnixTime]
   );
 
   const tasks = useMemo(
@@ -199,11 +209,11 @@ const Macros = () => {
           ({
             id: i + 1,
             name: task.name,
-            creation_time: unixToFormattedTime(task.creation_time.toString()),
+            creation_time: formatUnixTime(task.creation_time),
             pid: task.pid,
           }) as TableRow
       ),
-    [tasksQuery.data]
+    [tasksQuery.data, formatUnixTime]
   );
 
   const history = useMemo(
@@ -213,20 +223,22 @@ const Macros = () => {
           ({
             id: i + 1,
             name: entry.task.name,
-            creation_time: unixToFormattedTime(
-              entry.task.creation_time.toString()
-            ),
-            finished: unixToFormattedTime(entry.exit_status.time.toString()),
+            creation_time: formatUnixTime(entry.task.creation_time),
+            finished: formatUnixTime(entry.exit_status.time),
             process_id: entry.task.pid,
           }) as TableRow
       ),
-    [historyQuery.data]
+    [historyQuery.data, formatUnixTime]
   );
 
   const openMacroModal = async (row: TableRow) => {
     if (!canRun) return;
     if (!uuid) {
-      toast.error('Error opening macro config: No instance selected');
+      toast.error(
+        t('console.macros.openConfigFailed', {
+          error: t('console.macros.noServer'),
+        })
+      );
       return;
     }
     try {
@@ -236,7 +248,9 @@ const Macros = () => {
       setMacroData(initialData);
       setMacroRow(row);
     } catch (error) {
-      toast.error(`Error opening macro config: ${errorToString(error)}`);
+      toast.error(
+        t('console.macros.openConfigFailed', { error: errorToString(error) })
+      );
     }
   };
 
@@ -246,13 +260,13 @@ const Macros = () => {
     setInitialMacroData(undefined);
   };
 
-  const [selectedPage, setSelectedPage] = useState<MacrosPage>('All Macros');
+  const [selectedPage, setSelectedPage] = useState<MacrosPage>('macros');
 
   // only the first load of a list; refetches keep showing the rows
   const pageLoading: Record<MacrosPage, boolean> = {
-    'All Macros': macrosQuery.isPending,
-    'Running Tasks': tasksQuery.isPending,
-    History: historyQuery.isPending,
+    macros: macrosQuery.isPending,
+    tasks: tasksQuery.isPending,
+    history: historyQuery.isPending,
   };
 
   const MacrosPageMap: Record<
@@ -260,24 +274,31 @@ const Macros = () => {
     { rows: TableRow[]; columns: TableColumn[]; menuOptions?: ButtonMenuConfig }
   > = useMemo(() => {
     return {
-      'All Macros': {
+      macros: {
         rows: macros,
         columns: [
-          { field: 'name', headerName: 'MACRO NAME' },
-          { field: 'last_run', headerName: 'LAST RUN' },
+          { field: 'name', headerName: t('console.macros.column.name') },
+          {
+            field: 'last_run',
+            headerName: t('console.macros.column.lastRun'),
+          },
         ],
         menuOptions: {
           tableRows: macros,
           menuItems: [
             {
-              label: 'Run Macro',
+              label: t('console.macros.run'),
               icon: faPlayCircle,
               variant: 'text',
               intention: 'info',
               disabled: !canRun,
               onClick: async (row: TableRow) => {
                 if (!uuid) {
-                  toast.error('Error running macro: No instance selected');
+                  toast.error(
+                    t('console.macros.runFailed', {
+                      error: t('console.macros.noServer'),
+                    })
+                  );
                   return;
                 }
                 const result = await createTask(
@@ -304,7 +325,7 @@ const Macros = () => {
               },
             },
             {
-              label: 'Edit Config',
+              label: t('console.macros.editConfig'),
               icon: faGear,
               variant: 'text',
               intention: 'info',
@@ -314,34 +335,38 @@ const Macros = () => {
           ],
         },
       },
-      'Running Tasks': {
+      tasks: {
         rows: tasks,
         columns: [
           {
             field: 'name',
-            headerName: 'MACRO NAME',
+            headerName: t('console.macros.column.name'),
           },
           {
             field: 'creation_time',
-            headerName: 'CREATED',
+            headerName: t('console.macros.column.created'),
           },
           {
             field: 'pid',
-            headerName: 'PROCESS ID',
+            headerName: t('console.macros.column.pid'),
           },
         ],
         menuOptions: {
           tableRows: tasks,
           menuItems: [
             {
-              label: 'Kill Task',
+              label: t('console.macros.killTask'),
               icon: faSkull,
               variant: 'text',
               intention: 'danger',
               disabled: false,
               onClick: async (row: TableRow) => {
                 if (!uuid) {
-                  toast.error('Error killing task: No instance selected');
+                  toast.error(
+                    t('console.macros.killFailed', {
+                      error: t('console.macros.noServer'),
+                    })
+                  );
                   return;
                 }
                 // killTask returns an error string instead of throwing
@@ -351,7 +376,7 @@ const Macros = () => {
                   row.pid as string
                 );
                 if (error) {
-                  toast.error(`Failed to kill task: ${error}`);
+                  toast.error(t('console.macros.killFailed', { error }));
                   return;
                 }
                 queryClient.invalidateQueries({ queryKey: taskListKey(uuid) });
@@ -363,36 +388,34 @@ const Macros = () => {
           ],
         },
       },
-      History: {
+      history: {
         rows: history,
         columns: [
           {
             field: 'name',
-            headerName: 'MACRO NAME',
+            headerName: t('console.macros.column.name'),
           },
           {
             field: 'creation_time',
-            headerName: 'CREATED',
+            headerName: t('console.macros.column.created'),
           },
           {
             field: 'finished',
-            headerName: 'FINISHED',
+            headerName: t('console.macros.column.finished'),
           },
           {
             field: 'process_id',
-            headerName: 'PROCESS ID',
+            headerName: t('console.macros.column.pid'),
           },
         ],
       },
     };
-  }, [macros, tasks, history, uuid, queryClient, canRun]);
-
-  const pages: MacrosPage[] = ['All Macros', 'Running Tasks', 'History'];
+  }, [macros, tasks, history, uuid, queryClient, canRun, t]);
 
   if (!macrosAvailable) {
     return (
       <div className="relative">
-        <div className="mb-4 text-white/50">{NO_SCRIPTING_MESSAGE}</div>
+        <div className="mb-4 text-white/50">{noScriptingMessage()}</div>
       </div>
     );
   }
@@ -401,7 +424,7 @@ const Macros = () => {
     return (
       <div className="relative">
         <div className="mb-4 text-white/50">
-          Macros are only available to the owner of this core.
+          {t('console.macros.ownerOnly')}
         </div>
       </div>
     );
@@ -412,8 +435,7 @@ const Macros = () => {
       {!canRun && (
         <div className="mb-4">
           <WarningAlert>
-            Code execution is disabled on this core. Macros can&apos;t be run or
-            configured until it is turned back on in Core Settings.
+            {t('console.macros.codeExecutionDisabledBanner')}
           </WarningAlert>
         </div>
       )}
@@ -428,20 +450,20 @@ const Macros = () => {
       </div> */}
       {macroRow && selectedInstance && initialMacroData && (
         <ConfirmDialog
-          title="Macro Config"
+          title={t('console.macros.configTitle')}
           type="info"
           isOpen={true}
           onClose={closeMacroModal}
-          confirmButtonText="Save"
-          closeButtonText="Close"
+          confirmButtonText={t('common.save')}
+          closeButtonText={t('common.close')}
           onConfirm={async () => {
             if (!canRun) {
-              toast.error('Code execution is disabled on this core');
+              toast.error(t('console.macros.codeExecutionDisabled'));
               return;
             }
             if (!uuid || !macroData) {
               // theoretically, this should never occur
-              toast.error('Error: Invalid state');
+              toast.error(t('console.macros.invalidState'));
               return;
             }
             try {
@@ -453,7 +475,9 @@ const Macros = () => {
             } catch (error) {
               // keep the dialog open so the changes aren't lost
               toast.error(
-                `Failed to save macro config: ${errorToString(error)}`
+                t('console.macros.saveConfigFailed', {
+                  error: errorToString(error),
+                })
               );
               return;
             }
@@ -468,8 +492,8 @@ const Macros = () => {
           />
         </ConfirmDialog>
       )}
-      <div className="mt-[0rem] mb-4">All macros for your instance</div>
-      <div className="flex flex-row justify-start border-b border-gray-400">
+      <div className="mt-[0rem] mb-4">{t('console.macros.intro')}</div>
+      <div className="flex flex-row flex-wrap justify-start border-b border-gray-400">
         {pages.map((page) => (
           <button
             key={page}
@@ -481,7 +505,7 @@ const Macros = () => {
             )}
             onClick={() => setSelectedPage(page)}
           >
-            {page}
+            {t(pageLabels[page])}
           </button>
         ))}
       </div>

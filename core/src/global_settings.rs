@@ -46,6 +46,16 @@ pub struct GlobalSettingsData {
     // everyone, so it defaults to on for them; it is saved once resolved, see `load_from_file`.
     #[serde(default = "default_true")]
     pub allow_lan_http: bool,
+    // Whether instances the owner marks as listed are shown to anyone, without signing in,
+    // at `GET /public/instances` (for Lodestone Launcher). Off unless the owner turns it on.
+    #[serde(default)]
+    pub list_instances_publicly: bool,
+    // Whether a program on this computer (Lodestone Launcher) may claim owner access by
+    // proving it can write to the core's data folder, see `crate::local_claim`. Anything
+    // that can write there already controls the core, so it is on by default, also for
+    // files written before it existed.
+    #[serde(default = "default_true")]
+    pub allow_local_claim: bool,
 }
 
 /// A lock-free view of the code execution kill switch, shared by everything that runs
@@ -148,6 +158,8 @@ impl Default for GlobalSettingsData {
             code_execution_enabled: true,
             code_execution_locked: false,
             allow_lan_http: false,
+            list_instances_publicly: false,
+            allow_local_claim: true,
         }
     }
 }
@@ -371,6 +383,39 @@ impl GlobalSettings {
         self.global_settings_data.playit_enabled
     }
 
+    /// Shows or hides the listed instances at `GET /public/instances`.
+    pub async fn set_list_instances_publicly(&mut self, enabled: bool) -> Result<(), Error> {
+        let old = self.global_settings_data.list_instances_publicly;
+        self.global_settings_data.list_instances_publicly = enabled;
+        match self.write_to_file().await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.global_settings_data.list_instances_publicly = old;
+                Err(e)
+            }
+        }
+    }
+
+    pub fn list_instances_publicly(&self) -> bool {
+        self.global_settings_data.list_instances_publicly
+    }
+
+    pub async fn set_allow_local_claim(&mut self, enabled: bool) -> Result<(), Error> {
+        let old = self.global_settings_data.allow_local_claim;
+        self.global_settings_data.allow_local_claim = enabled;
+        match self.write_to_file().await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                self.global_settings_data.allow_local_claim = old;
+                Err(e)
+            }
+        }
+    }
+
+    pub fn allow_local_claim(&self) -> bool {
+        self.global_settings_data.allow_local_claim
+    }
+
     /// Turns code execution on or off and saves the setting. Turning it on fails with 403
     /// while the switch is locked. After turning it off, the caller must stop the code that
     /// is still running.
@@ -489,6 +534,34 @@ mod tests {
         // check that the core name was set correctly
 
         assert_eq!(global_settings.core_name(), "test_core_name");
+    }
+
+    #[tokio::test]
+    async fn listing_instances_publicly_is_off_unless_turned_on() {
+        use super::*;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("global_settings.json");
+        // a file from before the setting existed
+        std::fs::write(
+            &path,
+            r#"{"core_name":"c","safe_mode":true,"domain":null,"allow_lan_http":false}"#,
+        )
+        .unwrap();
+        let (event_broadcaster, _) = EventBroadcaster::new(10);
+        let mut settings = GlobalSettings::new(
+            path.clone(),
+            event_broadcaster,
+            GlobalSettingsData::default(),
+        );
+        settings.load_from_file().await.unwrap();
+        assert!(!settings.list_instances_publicly());
+        assert!(!GlobalSettingsData::default().list_instances_publicly);
+        settings.set_list_instances_publicly(true).await.unwrap();
+        let (event_broadcaster, _) = EventBroadcaster::new(10);
+        let mut again = GlobalSettings::new(path, event_broadcaster, GlobalSettingsData::default());
+        again.load_from_file().await.unwrap();
+        assert!(again.list_instances_publicly());
+        assert!(again.client_view().list_instances_publicly);
     }
 
     mod allow_lan_http {

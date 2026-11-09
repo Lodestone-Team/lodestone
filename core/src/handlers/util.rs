@@ -165,7 +165,7 @@ pub fn require_code_write(state: &AppState, user: &User) -> Result<(), Error> {
 // only `POST /instance/create_generic` uses it, which needs the `deno` feature
 #[cfg_attr(not(feature = "deno"), allow(dead_code))]
 pub fn check_create_atom(user: &User, code_execution: &CodeExecutionSwitch) -> Result<(), Error> {
-    user.owner_only("create atom instances")?;
+    user.owner_only("create atom servers")?;
     code_execution.check()
 }
 
@@ -192,7 +192,7 @@ pub fn is_atom(instance: &GameInstance) -> bool {
 /// Atom (generic) instances run code, so changing or running one is owner only.
 pub fn require_owner_for_atom(user: &User, instance: &GameInstance) -> Result<(), Error> {
     if is_atom(instance) {
-        user.owner_only("manage atom instances")?;
+        user.owner_only("manage atom servers")?;
     }
     Ok(())
 }
@@ -207,6 +207,24 @@ pub fn require_owner_if_atom(
     match state.instances.get(uuid) {
         Some(instance) => require_owner_for_atom(user, instance.value()),
         None => Ok(()),
+    }
+}
+
+/// The address the request came from, when the server records it (it always does
+/// outside tests). An IPv4 address that arrived over IPv6 (`::ffff:a.b.c.d`) is given as
+/// IPv4.
+pub struct ClientIp(pub Option<std::net::IpAddr>);
+
+impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(ClientIp(
+            parts
+                .extensions
+                .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                .map(|info| info.0.ip().to_canonical()),
+        ))
     }
 }
 
@@ -274,7 +292,7 @@ pub fn get_instance(state: &AppState, uuid: &InstanceUuid) -> Result<GameInstanc
         .map(|instance| instance.value().clone())
         .ok_or_else(|| Error {
             kind: ErrorKind::NotFound,
-            source: eyre!("Instance not found"),
+            source: eyre!("Server not found"),
         })
 }
 
@@ -410,7 +428,7 @@ mod tests {
             assert!(matches!(err.kind, ErrorKind::PermissionDenied));
             assert_eq!(
                 err.source.to_string(),
-                "Only the owner can create atom instances"
+                "Only the owner can create atom servers"
             );
         }
     }

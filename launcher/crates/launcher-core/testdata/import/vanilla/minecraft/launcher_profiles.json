@@ -1,0 +1,29 @@
+{
+  "profiles": {
+    "a1": {
+      "type": "latest-release",
+      "lastVersionId": "latest-release",
+      "icon": "Grass",
+      "lastUsed": "2026-01-03T00:00:00.000Z",
+      "name": ""
+    },
+    "b2": {
+      "type": "custom",
+      "name": "Fabric 1.20.1",
+      "lastVersionId": "fabric-loader-0.16.14-1.20.1",
+      "gameDir": "profiles/fabric",
+      "javaArgs": "-Xmx4G -XX:+UseG1GC -Xms1G",
+      "icon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR4nGM4IScHRwzEcQCxYxBBO0tjggAAAABJRU5ErkJggg==",
+      "lastUsed": "2026-01-02T00:00:00.000Z"
+    },
+    "c3": {
+      "type": "custom",
+      "name": "Old Forge",
+      "lastVersionId": "1.7.10-Forge10.13.4.1614-1.7.10",
+      "javaDir": "/Library/Java/bin/java",
+      "lastUsed": "2026-01-01T00:00:00.000Z"
+    }
+  },
+  "settings": {},
+  "version": 3
+}

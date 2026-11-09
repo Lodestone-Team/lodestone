@@ -35,6 +35,14 @@ impl Os {
             Os::MacOs
         }
     }
+
+    /// The separator between the entries of a Java classpath (`-cp`) on this OS.
+    pub fn classpath_separator(self) -> &'static str {
+        match self {
+            Os::Windows => ";",
+            Os::MacOs | Os::Linux => ":",
+        }
+    }
 }
 
 /// A CPU architecture.
@@ -85,7 +93,8 @@ impl fmt::Display for Arch {
 pub struct Platform {
     pub os: Os,
     pub arch: Arch,
-    /// What Java reports as `os.version`, such as `14.6.1` on macOS.
+    /// The OS version, such as `14.6.1` on macOS or `10.0.22631` on Windows 11. Mojang's
+    /// `os.version` patterns and `versionRange`s are matched against it.
     pub os_version: String,
 }
 
@@ -137,9 +146,38 @@ pub fn os_version() -> Option<String> {
     sysctl_string(c"kern.osproductversion")
 }
 
-#[cfg(not(target_os = "macos"))]
+/// The Windows version as `major.minor.build` (`10.0.22631`), the form the official
+/// launcher matches Mojang's rules against: `^10\.` patterns and `versionRange`s such
+/// as `min 10.0.17134`. Windows 11 still reports 10.0.
+///
+/// This uses `RtlGetVersion`, because `GetVersionEx` reports Windows 8 (6.2) to
+/// programs without a compatibility manifest.
+#[cfg(windows)]
+pub fn os_version() -> Option<String> {
+    use windows_sys::{
+        Wdk::System::SystemServices::RtlGetVersion,
+        Win32::System::SystemInformation::OSVERSIONINFOW,
+    };
+    let mut info = OSVERSIONINFOW {
+        dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `info` is a writable OSVERSIONINFOW whose size field is set, as
+    // RtlGetVersion requires.
+    let status = unsafe { RtlGetVersion(&mut info) };
+    (status == 0)
+        .then(|| windows_version(info.dwMajorVersion, info.dwMinorVersion, info.dwBuildNumber))
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn os_version() -> Option<String> {
     None
+}
+
+/// A Windows version as the official launcher reports it.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn windows_version(major: u32, minor: u32, build: u32) -> String {
+    format!("{major}.{minor}.{build}")
 }
 
 /// The total physical memory in bytes.
@@ -161,7 +199,81 @@ pub fn total_memory() -> Option<u64> {
     (result == 0 && size == std::mem::size_of::<u64>()).then_some(value)
 }
 
-#[cfg(not(target_os = "macos"))]
+/// The total physical memory in bytes: the installed RAM, as Windows Settings shows
+/// it. What Windows can use is a little less (hardware reserves some), and would read
+/// as "15 GB" on a 16 GB PC; that is the fallback when the firmware doesn't say.
+#[cfg(windows)]
+pub fn total_memory() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::{
+        GetPhysicallyInstalledSystemMemory, GlobalMemoryStatusEx, MEMORYSTATUSEX,
+    };
+    let mut kilobytes: u64 = 0;
+    // SAFETY: `kilobytes` is a writable u64, which is all the call writes.
+    if unsafe { GetPhysicallyInstalledSystemMemory(&mut kilobytes) } != 0 && kilobytes > 0 {
+        return Some(kilobytes.saturating_mul(1024));
+    }
+    let mut status = MEMORYSTATUSEX {
+        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `status` is a writable MEMORYSTATUSEX whose length field is set, as
+    // GlobalMemoryStatusEx requires.
+    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
+    (ok != 0 && status.ullTotalPhys > 0).then_some(status.ullTotalPhys)
+}
+
+/// The total memory in bytes that Linux can use, as `free` and `/proc/meminfo`'s
+/// `MemTotal` show it: the installed RAM less what the firmware, an integrated GPU and
+/// the kernel reserve, so a 16 GB PC can read as 15 GB. The installed size is only in
+/// the DMI tables, which only root can read.
+///
+/// This uses the `sysinfo` system call rather than reading `/proc/meminfo`, because it
+/// works where `/proc` isn't mounted (as in some sandboxes) and needs no parsing.
+#[cfg(target_os = "linux")]
+pub fn total_memory() -> Option<u64> {
+    // SAFETY: `sysinfo` is a C struct of integers, for which all zeroes is valid.
+    let mut info: libc::sysinfo = unsafe { std::mem::zeroed() };
+    // SAFETY: `info` is a writable `sysinfo`, which is all the call writes.
+    if unsafe { libc::sysinfo(&mut info) } != 0 {
+        return None;
+    }
+    // `totalram` counts units of `mem_unit` bytes: 1 on 64-bit systems, the page size
+    // on 32-bit ones with more memory than a `long` counts in bytes. (It is a `c_ulong`,
+    // already a u64 on 64-bit systems.)
+    #[allow(clippy::useless_conversion)]
+    let units = u64::from(info.totalram);
+    let bytes = units.checked_mul(u64::from(info.mem_unit.max(1)))?;
+    (bytes > 0).then_some(bytes)
+}
+
+/// The total physical memory in bytes, from `hw.physmem`.
+#[cfg(target_os = "freebsd")]
+pub fn total_memory() -> Option<u64> {
+    let mut value: libc::c_ulong = 0;
+    let mut size = std::mem::size_of::<libc::c_ulong>();
+    // SAFETY: `hw.physmem` is an unsigned long; `value` and `size` describe a buffer of
+    // exactly that size, and the name is a NUL-terminated C string.
+    let result = unsafe {
+        libc::sysctlbyname(
+            c"hw.physmem".as_ptr(),
+            (&mut value as *mut libc::c_ulong).cast(),
+            &mut size,
+            std::ptr::null(),
+            0,
+        )
+    };
+    // A u64 already on 64-bit systems.
+    #[allow(clippy::useless_conversion)]
+    let value = u64::from(value);
+    (result == 0 && size == std::mem::size_of::<libc::c_ulong>() && value > 0).then_some(value)
+}
+
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd",
+    windows
+)))]
 pub fn total_memory() -> Option<u64> {
     None
 }
@@ -237,6 +349,55 @@ mod tests {
         assert_eq!(Arch::X86.rule_name(), "x86");
         assert_eq!(Arch::Arm64.bits(), "64");
         assert_eq!(Arch::X86.bits(), "32");
+    }
+
+    #[test]
+    fn windows_versions_match_mojang_rules() {
+        use crate::game::rules::{Features, Rule, allows};
+        let version = windows_version(10, 0, 22631);
+        assert_eq!(version, "10.0.22631");
+        let windows = Platform::new(Os::Windows, Arch::X86_64, version);
+        let rules = |value| serde_json::from_value::<Vec<Rule>>(value).unwrap();
+        let f = Features::default();
+        // 1.13 to 1.21's `-Dos.name=Windows 10 -Dos.version=10.0` arguments.
+        let windows_10 = rules(serde_json::json!([
+            {"action": "allow", "os": {"name": "windows", "version": "^10\\."}}
+        ]));
+        assert!(allows(&windows_10, &windows, &f));
+        // 26.3's ZGC arguments, for Windows 10 1803 and later.
+        let zgc = rules(serde_json::json!([
+            {"action": "allow", "os": {"name": "windows", "versionRange": {"min": "10.0.17134"}}}
+        ]));
+        assert!(allows(&zgc, &windows, &f));
+        assert!(!allows(
+            &zgc,
+            &Platform::new(Os::Windows, Arch::X86_64, windows_version(10, 0, 16299)),
+            &f
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reads_the_windows_version_and_memory() {
+        let version = os_version().unwrap();
+        let parts: Vec<u32> = version.split('.').map(|p| p.parse().unwrap()).collect();
+        assert_eq!(parts.len(), 3, "{version}");
+        // Not the 6.2 that GetVersionEx reports without a manifest.
+        assert!(parts[0] >= 10, "{version}");
+        assert!(total_memory().unwrap() >= 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn classpath_separators() {
+        assert_eq!(Os::Windows.classpath_separator(), ";");
+        assert_eq!(Os::MacOs.classpath_separator(), ":");
+        assert_eq!(Os::Linux.classpath_separator(), ":");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn reads_the_linux_memory() {
+        assert!(total_memory().unwrap() >= 512 * 1024 * 1024);
     }
 
     #[cfg(target_os = "macos")]

@@ -56,7 +56,7 @@ fn file(path: &str, url: &str, bytes: &[u8], client: &str, server: &str) -> Valu
 
 fn write_pack(path: &Path, index: Value, entries: &[(&str, &[u8])]) {
     let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
-    let options = zip::write::FileOptions::default();
+    let options = zip::write::SimpleFileOptions::default();
     zip.start_file("modrinth.index.json", options).unwrap();
     zip.write_all(index.to_string().as_bytes()).unwrap();
     for (name, bytes) in entries {
@@ -415,6 +415,37 @@ fn refuses_unsafe_and_unsupported_packs() {
 }
 
 #[test]
+fn symbolic_links_in_overrides_are_skipped() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("links.mrpack");
+    let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("modrinth.index.json", options).unwrap();
+    zip.write_all(index("p", "1", vec![]).to_string().as_bytes())
+        .unwrap();
+    zip.add_symlink("overrides/config", "../../..", options)
+        .unwrap();
+    zip.add_symlink("overrides/options.txt", "/etc/passwd", options)
+        .unwrap();
+    zip.start_file("overrides/config.toml", options).unwrap();
+    zip.write_all(b"ok").unwrap();
+    zip.finish().unwrap();
+
+    let pack = modpack::read_pack(&path).unwrap();
+    let written: Vec<&str> = pack.overrides.iter().map(|o| o.path.as_str()).collect();
+    assert_eq!(written, ["config.toml"]);
+    for link in ["config", "options.txt"] {
+        assert!(
+            pack.skipped
+                .iter()
+                .any(|s| s.path == link && s.reason.contains("symbolic link")),
+            "{link}: {:?}",
+            pack.skipped
+        );
+    }
+}
+
+#[test]
 fn a_failed_or_cancelled_import_leaves_nothing() {
     let fixture = fixture();
     // The CDN sends other bytes than the hashes say.
@@ -700,6 +731,77 @@ fn an_update_keeps_the_users_files() {
 }
 
 #[test]
+fn an_update_that_stops_part_way_is_undone() {
+    let fixture = fixture();
+    let versions = versions(&fixture);
+    let record = |version: &str| ModpackRecord {
+        project_id: "PACK".into(),
+        version_id: version.into(),
+        title: "Updatable".into(),
+        version_number: version.into(),
+        ..ModpackRecord::default()
+    };
+    let instance = import_pack(&fixture, &versions.v1, record("v1"), &CancelToken::new()).unwrap();
+    let dirs = InstanceDirs::new(fixture.store.dir(&instance.id));
+    let game = &dirs.game;
+    let current = ModpackRecord::load(&dirs.instance).unwrap();
+    let pack: PackInfo = modpack::read_pack(&versions.v2).unwrap();
+    let plan = update::plan(&dirs, &current, &pack, record("v2"), None);
+    assert_eq!(
+        plan.overrides_written,
+        [
+            "config/mine.toml",
+            "config/x.toml",
+            "config/y.toml",
+            "config/z.toml"
+        ]
+    );
+    let provenance_before = fs::read(dirs.instance.join("content.json")).unwrap();
+
+    // The last file can't be moved in: a folder is in its place since the plan was made
+    // (as when another program holds a file). Mods were removed and replaced by then.
+    fs::create_dir_all(game.join("config/z.toml/inside")).unwrap();
+    let api = fixture.mock.client();
+    let err = block_on(update::apply(
+        Some(&api),
+        &downloader(),
+        &dirs,
+        &plan,
+        &versions.v2,
+        false,
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap_err();
+    assert!(err.to_string().contains("were put back"), "{err}");
+
+    let read = |p: &str| fs::read_to_string(game.join(p)).unwrap();
+    assert_eq!(read("mods/a-1.jar"), "a one");
+    assert_eq!(read("mods/b-1.jar"), "b one");
+    assert_eq!(read("mods/c.jar"), "c one");
+    assert_eq!(read("mods/bundled.jar"), "bundled v1");
+    assert_eq!(read("config/x.toml"), "x v1");
+    assert_eq!(read("config/y.toml"), "y v1");
+    for added in [
+        "mods/a-2.jar",
+        "mods/b-2.jar",
+        "mods/d.jar",
+        "config/mine.toml",
+    ] {
+        assert!(!game.join(added).exists(), "{added} is left");
+    }
+    assert!(game.join("config/z.toml/inside").is_dir());
+    assert_eq!(
+        ModpackRecord::load(&dirs.instance).unwrap().version_id,
+        "v1"
+    );
+    assert_eq!(
+        fs::read(dirs.instance.join("content.json")).unwrap(),
+        provenance_before
+    );
+}
+
+#[test]
 fn downloads_a_versions_pack_from_the_cdn_only() {
     let fixture = fixture();
     let source = sample_pack(&fixture);
@@ -744,4 +846,298 @@ fn downloads_a_versions_pack_from_the_cdn_only() {
             .contains("cdn.modrinth.com")
     );
     assert_eq!(tree(&fixture.packs.join("downloads")), Vec::<String>::new());
+}
+
+/// Makes an instance from version `pv1` of the modpack `PACK1`, the way a share code's
+/// recipient does: the pack checked and downloaded from Modrinth, then imported.
+fn import_shared_pack(
+    fixture: &Fixture,
+    pack: &launcher_core::content::share::SharedPack,
+    name: &str,
+) -> InstanceDirs {
+    let api = fixture.mock.client();
+    let (project, version) =
+        block_on(launcher_core::content::share::pack_version(&api, pack)).unwrap();
+    let path = block_on(import::download_pack(
+        &api,
+        &downloader(),
+        &version,
+        &fixture.packs.join("downloads"),
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    let info = modpack::read_pack(&path).unwrap();
+    let loader = info.loader.as_ref().map(|(kind, version)| {
+        modpack::loader_choice(*kind, version, &info.game_version, None).unwrap()
+    });
+    let instance = block_on(import::import(
+        &fixture.store,
+        Some(&api),
+        &downloader(),
+        &path,
+        &info,
+        ImportOptions {
+            name: name.into(),
+            loader,
+            record: ModpackRecord::from_modrinth(&project, &version),
+            icon: None,
+        },
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    fs::remove_file(&path).unwrap();
+    InstanceDirs::new(fixture.store.dir(&instance.id))
+}
+
+#[test]
+fn a_share_code_based_on_the_pack_recreates_the_instance() {
+    use launcher_core::content::{
+        Target, files,
+        install::{self as content_install, InstallRequest},
+        options::PackOptions,
+        packs::Compatibility,
+        share::{self, LeftOutReason, ShareCode, SharedPack},
+    };
+    let fixture = fixture();
+    // A pack with Sodium from Modrinth, and bundled mods and resource packs (a folder
+    // and a zip, the zip turned on by the pack's options.txt).
+    let sodium = FakeVersion::new(
+        "sod0513",
+        SODIUM,
+        "0.5.13",
+        &["fabric"],
+        &["1.20.1"],
+        "2024-10-01T00:00:00Z",
+    )
+    .file("sodium.jar", SODIUM_JAR);
+    let sodium_url = sodium.cdn_url();
+    let pack_path = fixture.packs.join("source.mrpack");
+    write_pack(
+        &pack_path,
+        index(
+            "Test Pack",
+            "1.0",
+            vec![file(
+                "mods/sodium.jar",
+                &sodium_url,
+                SODIUM_JAR,
+                "required",
+                "required",
+            )],
+        ),
+        &[
+            ("overrides/mods/bundled.jar", b"bundled mod"),
+            ("overrides/mods/tweaked.jar", b"bundled, to be changed"),
+            ("overrides/mods/gone.jar", b"bundled, to be removed"),
+            (
+                "overrides/resourcepacks/Folder Pack/pack.mcmeta",
+                b"{\"pack\":{\"pack_format\":15,\"description\":\"x\"}}",
+            ),
+            ("overrides/resourcepacks/Folder Pack/assets/a.txt", b"a"),
+            ("overrides/resourcepacks/Zipped.zip", b"zipped pack"),
+            (
+                "overrides/options.txt",
+                b"resourcePacks:[\"vanilla\",\"file/Zipped.zip\"]\n",
+            ),
+            ("overrides/config/x.toml", b"config"),
+        ],
+    );
+    let pack_bytes = fs::read(&pack_path).unwrap();
+    fixture
+        .mock
+        .project(SODIUM, "sodium", "mod")
+        .project("EXTRAMOD", "extra", "mod")
+        .project("FAITHFUL", "faithful", "resourcepack")
+        .project("PACK1", "testpack", "modpack")
+        .version(sodium)
+        .version(
+            FakeVersion::new(
+                "ext100",
+                "EXTRAMOD",
+                "1.0.0",
+                &["fabric"],
+                &["1.20.1"],
+                "2024-10-01T00:00:00Z",
+            )
+            .file("extra.jar", b"extra mod"),
+        )
+        .version(
+            FakeVersion::new(
+                "fai100",
+                "FAITHFUL",
+                "1.0",
+                &["minecraft"],
+                &["1.20.1"],
+                "2024-10-01T00:00:00Z",
+            )
+            .file("Faithful.zip", b"faithful pack"),
+        )
+        .version(
+            FakeVersion::new(
+                "pv1",
+                "PACK1",
+                "1.0",
+                &["fabric"],
+                &["1.20.1"],
+                "2025-01-01T00:00:00Z",
+            )
+            .file("Test.mrpack", &pack_bytes),
+        );
+    let api = fixture.mock.client();
+    let target = Target::new("1.20.1", Loader::Fabric);
+    let shared = SharedPack {
+        project: "PACK1".into(),
+        version: "pv1".into(),
+        title: String::new(),
+        version_number: String::new(),
+    };
+
+    // The instance to share: Sodium turned off, a bundled mod removed and another
+    // changed, a mod added by hand, a Modrinth mod and resource pack added, and the
+    // folder pack and the added pack turned on above the pack's zip.
+    let from = import_shared_pack(&fixture, &shared, "Mine");
+    let mods = from.content_dir(ContentKind::Mod);
+    files::set_mod_enabled(&from, "sodium.jar", false).unwrap();
+    fs::remove_file(mods.join("gone.jar")).unwrap();
+    fs::write(mods.join("tweaked.jar"), b"changed by the user").unwrap();
+    fs::write(mods.join("homemade.jar"), b"by hand").unwrap();
+    for (kind, id) in [
+        (ContentKind::Mod, "ext100"),
+        (ContentKind::ResourcePack, "fai100"),
+    ] {
+        block_on(async {
+            let version = api.version(id).await.unwrap();
+            let plan = content_install::plan(
+                &api,
+                &from,
+                &target,
+                InstallRequest {
+                    kind,
+                    version,
+                    project: None,
+                    install_dependencies: false,
+                    force: false,
+                },
+            )
+            .await
+            .unwrap();
+            content_install::execute(
+                &api,
+                &downloader(),
+                &from,
+                &target,
+                plan,
+                &InstallProgress::default(),
+                &CancelToken::new(),
+            )
+            .await
+            .unwrap();
+        });
+    }
+    for name in ["Folder Pack", "Faithful.zip"] {
+        files::set_pack_enabled(&from, &target, name, true, Compatibility::Compatible).unwrap();
+    }
+    let enabled = |dirs: &InstanceDirs| {
+        PackOptions::read(&dirs.game)
+            .unwrap()
+            .enabled_files(&target.game_version)
+    };
+    assert_eq!(
+        enabled(&from),
+        ["Faithful.zip", "Folder Pack", "Zipped.zip"]
+    );
+
+    let plan = block_on(share::collect(
+        Some(&api),
+        &from,
+        &target,
+        Some("Mine".into()),
+        Loader::Fabric,
+        Some("0.16.14".into()),
+    ))
+    .unwrap();
+    // Only what really won't arrive is listed: not the pack's unchanged files.
+    let mut left_out: Vec<(&str, LeftOutReason)> = plan
+        .left_out
+        .iter()
+        .map(|l| (l.file_name.as_str(), l.reason))
+        .collect();
+    left_out.sort_by_key(|(name, _)| *name);
+    assert_eq!(
+        left_out,
+        [
+            ("homemade.jar", LeftOutReason::AddedByHand),
+            ("tweaked.jar", LeftOutReason::ChangedSincePack),
+        ]
+    );
+    let code = &plan.code;
+    assert_eq!(code.pack.as_ref().unwrap().project, "PACK1");
+    assert_eq!(code.pack.as_ref().unwrap().version, "pv1");
+    assert_eq!(code.pack.as_ref().unwrap().title, "testpack title");
+    assert_eq!(code.items.len(), 2);
+    assert_eq!(code.changes.removed, ["mods/gone.jar"]);
+    assert_eq!(code.changes.turned_off, ["mods/sodium.jar"]);
+    let counts = plan.changes.clone().unwrap();
+    assert_eq!(
+        (counts.added, counts.removed, counts.changed, counts.toggled),
+        (2, 1, 0, 1)
+    );
+    // sodium, bundled, extra (tweaked arrives as the pack's); both zips and the folder
+    assert_eq!(plan.shared(ContentKind::Mod), 3);
+    assert_eq!(plan.shared(ContentKind::ResourcePack), 3);
+    let text = code.encode();
+    assert!(text.starts_with(share::PACK_PREFIX), "{text}");
+    assert!(text.len() < 400, "{} chars", text.len());
+    let decoded = ShareCode::decode(&text).unwrap();
+    assert_eq!(&decoded, code);
+
+    // The recipient: the pack, then the changes.
+    let to = import_shared_pack(&fixture, decoded.pack.as_ref().unwrap(), "Theirs");
+    let outcome = block_on(share::install(
+        &api,
+        &downloader(),
+        &to,
+        &target,
+        &decoded,
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
+    assert_eq!(outcome.installed.len(), 2);
+    let mut expected = tree(&from.game);
+    expected.retain(|p| {
+        (p.starts_with("mods") || p.starts_with("resourcepacks")) && !p.ends_with("homemade.jar")
+    });
+    let mut got = tree(&to.game);
+    got.retain(|p| p.starts_with("mods") || p.starts_with("resourcepacks"));
+    assert_eq!(got, expected);
+    assert!(
+        to.content_dir(ContentKind::Mod)
+            .join("sodium.jar.disabled")
+            .is_file()
+    );
+    assert_eq!(
+        fs::read(to.content_dir(ContentKind::Mod).join("tweaked.jar")).unwrap(),
+        b"bundled, to be changed"
+    );
+    assert_eq!(enabled(&to), enabled(&from));
+
+    // A code for another pack isn't applied to this instance.
+    let mut other = decoded.clone();
+    other.pack.as_mut().unwrap().version = "pv9".into();
+    assert!(
+        block_on(share::install(
+            &api,
+            &downloader(),
+            &to,
+            &target,
+            &other,
+            &InstallProgress::default(),
+            &CancelToken::new(),
+        ))
+        .is_err()
+    );
 }

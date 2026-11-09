@@ -172,13 +172,15 @@ pub fn write_atomic_with(
         .and_then(|()| file.sync_all())
         .and_then(|()| {
             drop(file);
-            fs::rename(&tmp_path, path)
+            crate::fsx::rename(&tmp_path, path)
         });
     if let Err(err) = result {
         let _ = fs::remove_file(&tmp_path);
         return Err(err);
     }
-    // Flush the rename itself. Not every platform can open a directory for this.
+    // Flush the rename itself. Windows can't open a directory this way (NTFS journals
+    // the rename itself), so don't try there.
+    #[cfg(unix)]
     if let Ok(dir) = File::open(dir) {
         let _ = dir.sync_all();
     }

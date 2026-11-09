@@ -51,7 +51,7 @@ fn write_zip(path: &Path, entries: &[(&str, Vec<u8>)]) {
     let mut zip = zip::ZipWriter::new(file);
     for (name, bytes) in entries {
         if zip
-            .start_file(*name, zip::write::FileOptions::default())
+            .start_file(*name, zip::write::SimpleFileOptions::default())
             .is_ok()
         {
             let _ = zip.write_all(bytes);
@@ -105,8 +105,19 @@ fn source(project: &str, slug: &str, title: &str, version: &str, icon: bool) -> 
         )),
         client_side: "required".into(),
         server_side: "optional".into(),
+        version_type: None,
     }
 }
+
+/// A made-up Modrinth result: id, slug, title, author, description, downloads.
+type Hit = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    u64,
+);
 
 pub(super) fn icon_url(project: &str) -> String {
     format!("https://cdn.modrinth.com/data/{project}/icon.png")
@@ -138,6 +149,7 @@ fn remember(
             sha512: lodestone_minecraft::hash::sha512_of(&path).unwrap_or_default(),
             modrinth: Some(source),
             looked_up: false,
+            ..Default::default()
         },
     );
 }
@@ -149,6 +161,23 @@ pub fn fill(instance_dir: &Path, scene: &str) {
     let packs = dirs.content_dir(ContentKind::ResourcePack);
     let shaders = dirs.content_dir(ContentKind::ShaderPack);
     let mut provenance = Provenance::default();
+
+    // `--mods N`: N more mods, for timing long lists (`--bench-scroll`).
+    let extra = std::env::args()
+        .skip_while(|arg| arg != "--mods")
+        .nth(1)
+        .and_then(|n| n.parse::<usize>().ok())
+        .unwrap_or(0);
+    for i in 0..extra {
+        let shade = (i * 37 % 200) as u8;
+        fabric_mod(
+            &mods.join(format!("extra-mod-{i:04}-1.0.{i}.jar")),
+            &format!("extra{i}"),
+            &format!("Extra mod {i}"),
+            &format!("1.0.{i}"),
+            Some([40 + shade / 2, 90 + shade / 3, 160 - shade / 2]),
+        );
+    }
 
     fabric_mod(
         &mods.join("sodium-fabric-0.5.13+mc1.20.1.jar"),
@@ -221,7 +250,11 @@ pub fn fill(instance_dir: &Path, scene: &str) {
     );
     if matches!(
         scene,
-        "content-mods" | "content-shaders" | "content-browse" | "content-project"
+        "content-mods"
+            | "content-shaders"
+            | "content-browse"
+            | "content-project"
+            | "content-formatted-shaders"
     ) {
         fabric_mod(
             &mods.join("iris-1.7.6+mc1.20.1.jar"),
@@ -337,6 +370,9 @@ pub fn fill(instance_dir: &Path, scene: &str) {
         dirs.game.join("config/iris.properties"),
         "#This file stores configuration options for Iris\nenableShaders=true\nshaderPack=ComplementaryReimagined_r5.3.zip\n",
     );
+    if scene.starts_with("content-formatted") {
+        formatted(&packs, &shaders, &dirs.game);
+    }
     let _ = provenance.save(&dirs.instance);
     if scene == "loader-change" {
         for world in ["New World", "Creative build"] {
@@ -345,6 +381,55 @@ pub fn fill(instance_dir: &Path, scene: &str) {
             let _ = fs::write(dir.join("level.dat"), b"not a real level");
         }
     }
+}
+
+/// Packs whose names and descriptions use Minecraft's formatting: `§` codes in file
+/// names, a JSON text component, and the dark colours the launcher lightens.
+fn formatted(packs: &Path, shaders: &Path, game: &Path) {
+    let description = json!([
+        {"text": "A ", "color": "gray"},
+        {"text": "golden", "color": "gold", "bold": true},
+        {"text": " look, ", "color": "gray"},
+        {"text": "secret", "obfuscated": true},
+        " and ",
+        {"text": "pink", "color": "#FF77AA", "italic": true},
+        {"text": " · ", "color": "dark_gray"},
+        {"text": "struck", "strikethrough": true},
+        " ",
+        {"text": "underlined", "underlined": true, "color": "aqua"}
+    ]);
+    write_zip(
+        &packs.join("§6§lGold§fCraft §7[§a1.20§7].zip"),
+        &[
+            (
+                "pack.mcmeta",
+                json!({"pack": {"pack_format": 15, "description": description}})
+                    .to_string()
+                    .into_bytes(),
+            ),
+            ("pack.png", png([200, 160, 40])),
+        ],
+    );
+    resource_pack(
+        &packs.join("§0Dark §1Blue §8Grey.zip"),
+        "§0black §1dark blue §8dark grey §4dark red§r, lightened to read",
+        json!({"pack_format": 15}),
+        [40, 40, 90],
+    );
+    // Enabled, so they are at the top of the list.
+    let _ = fs::write(
+        game.join("options.txt"),
+        "version:3465\nresourcePacks:[\"vanilla\",\"file/FreshAnimations_v1.9.zip\",\"file/§0Dark §1Blue §8Grey.zip\",\"file/§6§lGold§fCraft §7[§a1.20§7].zip\"]\nlang:en_us\n",
+    );
+    let astra = "§r§lAstra§4§lLex§r§l_By_LexBoosT_§4§lV93.0§r§l.zip";
+    write_zip(
+        &shaders.join(astra),
+        &[("shaders/final.fsh", b"x".to_vec())],
+    );
+    let _ = fs::write(
+        game.join("config/iris.properties"),
+        format!("enableShaders=true\nshaderPack={astra}\n"),
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -398,6 +483,13 @@ fn icons() -> HashMap<String, std::sync::Arc<gpui::RenderImage>> {
         ("Q1vvjJYV", [60, 120, 200]),
         ("NNAgCjsB", [200, 90, 90]),
         ("Bh37bMuy", [80, 170, 170]),
+        ("rpFrMove", [210, 110, 50]),
+        ("rpFrExt0", [220, 160, 50]),
+        ("rpFrFood", [120, 160, 60]),
+        ("rpFrWatr", [50, 130, 210]),
+        ("rpSkyDra", [70, 90, 200]),
+        ("rpSkyBox", [120, 70, 170]),
+        ("rpClouds", [150, 170, 210]),
     ]
     .into_iter()
     .map(|(id, rgb)| (icon_url(id), crate::images::render_image(icon(rgb))))
@@ -425,10 +517,14 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
             icons(),
             cx,
         ),
-        "content-resourcepacks" => {
+        "content-resourcepacks" | "content-formatted" => {
             view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx)
         }
-        "content-shaders" => {
+        "content-menu" => {
+            view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
+            view.menu_open = true;
+        }
+        "content-shaders" | "content-formatted-shaders" => {
             view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
         }
         "content-shaders-missing" => view.preview_state(
@@ -452,6 +548,91 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
         ),
         "content-shaders-vanilla" => {
             view.preview_state(ContentKind::ShaderPack, None, HashMap::new(), icons(), cx)
+        }
+        "content-search" | "content-search-modrinth-only" => {
+            view.preview_state(ContentKind::ResourcePack, None, HashMap::new(), icons(), cx);
+            let (text, hits, total): (&str, &[Hit], u64) = if scene == "content-search" {
+                (
+                    "fresh",
+                    &[
+                        (
+                            "rpFrMove",
+                            "fresh-moves",
+                            "Fresh Moves",
+                            "FreshTeam",
+                            "New animations for the player",
+                            3_200_000,
+                        ),
+                        (
+                            "rpFrExt0",
+                            "fresh-animations-extensions",
+                            "Fresh Animations: Extensions",
+                            "FreshTeam",
+                            "More mobs, same style",
+                            1_100_000,
+                        ),
+                        (
+                            "rpFrFood",
+                            "fresh-food",
+                            "Fresh Food",
+                            "Cookie",
+                            "Food that looks good enough to eat",
+                            640_000,
+                        ),
+                        (
+                            "rpFrWatr",
+                            "fresher-water",
+                            "Fresher Water",
+                            "Wave",
+                            "Clearer, livelier water",
+                            410_000,
+                        ),
+                    ],
+                    214,
+                )
+            } else {
+                (
+                    "sky",
+                    &[
+                        (
+                            "rpSkyDra",
+                            "dramatic-skys",
+                            "Dramatic Skys",
+                            "Ezzenix",
+                            "Hand-painted skies for every time of day",
+                            4_800_000,
+                        ),
+                        (
+                            "rpSkyBox",
+                            "sky-boxes-plus",
+                            "Sky Boxes Plus",
+                            "Nimbus",
+                            "Sunsets and night skies",
+                            820_000,
+                        ),
+                        (
+                            "rpClouds",
+                            "better-clouds-pack",
+                            "Better Clouds Pack",
+                            "Cirrus",
+                            "Softer, fuller clouds",
+                            350_000,
+                        ),
+                    ],
+                    87,
+                )
+            };
+            let response: ModrinthSearchResponse = serde_json::from_value(json!({
+                "hits": hits.iter().map(|(id, slug, title, author, description, downloads)| json!({
+                    "project_id": id, "slug": slug, "project_type": "resourcepack", "title": title,
+                    "description": description, "author": author, "icon_url": icon_url(id),
+                    "downloads": downloads, "follows": downloads / 1400, "categories": [], "versions": [],
+                    "date_modified": "", "client_side": "required", "server_side": "unsupported",
+                })).collect::<Vec<_>>(),
+                "offset": 0, "limit": 20, "total_hits": total,
+            }))
+            .expect("a valid response");
+            view.preview_results(ContentKind::ResourcePack, text, response.normalize(), cx);
         }
         "content-browse" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
@@ -516,7 +697,7 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                 "offset": 0, "limit": 20, "total_hits": 2481,
             }))
             .expect("a valid response");
-            view.preview_results(ContentKind::Mod, "", response.normalize(), cx);
+            view.preview_results(ContentKind::Mod, "so", response.normalize(), cx);
         }
         "content-project" | "content-description" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);

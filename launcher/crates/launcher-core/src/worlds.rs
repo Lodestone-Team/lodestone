@@ -10,12 +10,15 @@
 //! - **World zips** (export, import) have the same layout; an imported zip needs
 //!   `level.dat` at its root or one folder down. Every path is checked like a modpack's
 //!   ([`check_pack_path`]), links are skipped and sizes are checked against the header.
+//!   Names come from the zip's central directory, the same list the checks read; a
+//!   local header that names another path is never used.
 //!
 //! Nothing here checks whether the game is running; the app refuses changes then.
 
 use std::{
+    collections::HashMap,
     fs::{self, File},
-    io::{self, Read, Write},
+    io::{self, Read},
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -53,7 +56,7 @@ pub enum WorldError {
     NotFound(String),
     #[error("{0}")]
     Conflict(String),
-    #[error("couldn't move {path} to the Trash: {reason}")]
+    #[error("couldn't move {path} to {trash}: {reason}", trash = crate::wording::TRASH)]
     Trash { path: PathBuf, reason: String },
     #[error("cancelled")]
     Cancelled,
@@ -257,17 +260,8 @@ pub fn folder_name(name: &str) -> String {
 }
 
 /// `base`, or `base (2)`, `base (3)`… whichever isn't taken in `dir`.
-fn unused(dir: &Path, base: &str) -> String {
-    (1..)
-        .map(|n| {
-            if n == 1 {
-                base.to_string()
-            } else {
-                format!("{base} ({n})")
-            }
-        })
-        .find(|name| fs::symlink_metadata(dir.join(name)).is_err())
-        .expect("an unused name")
+pub(crate) fn unused(dir: &Path, base: &str) -> String {
+    unused_in(&[dir], base)
 }
 
 fn random_suffix() -> String {
@@ -277,36 +271,100 @@ fn random_suffix() -> String {
 /// Renames a world: its folder (to [`folder_name`] of `name`) and, when `level.dat`
 /// reads and writes back unchanged, the name inside it. Its backups move along.
 /// Returns the new folder.
+///
+/// The new folder name is one that is free in both `saves/` and `backups/`, so the
+/// backups always have somewhere to go. If moving the backups or writing `level.dat`
+/// fails, the world is moved back and the error returned.
 pub fn rename(dirs: &InstanceDirs, folder: &str, name: &str) -> Result<String, WorldError> {
+    rename_with(dirs, folder, name, |from, to| crate::fsx::rename(from, to))
+}
+
+/// Like [`rename`], with `move_dir` moving the world's folder and its backups folder
+/// (tests make it fail).
+pub fn rename_with(
+    dirs: &InstanceDirs,
+    folder: &str,
+    name: &str,
+    mut move_dir: impl FnMut(&Path, &Path) -> io::Result<()>,
+) -> Result<String, WorldError> {
     let dir = world_dir(dirs, folder)?;
     let name = name.trim();
     if name.is_empty() {
         return Err(WorldError::Invalid("Give the world a name.".into()));
     }
     let saves = saves_dir(dirs);
+    let backups = backups_dir(dirs);
     let wanted = folder_name(name);
-    let new_folder = if wanted == folder {
-        wanted
-    } else {
-        unused(&saves, &wanted)
-    };
-    if new_folder != folder {
-        let target = saves.join(&new_folder);
-        fs::rename(&dir, &target).map_err(io_error(&dir))?;
-        let backups = backups_dir(dirs);
-        let old_backups = backups.join(folder);
-        let new_backups = backups.join(&new_folder);
-        if old_backups.is_dir() && fs::symlink_metadata(&new_backups).is_err() {
-            let _ = fs::rename(&old_backups, &new_backups);
+    let level_dat = |dir: &Path| dir.join("level.dat");
+    let renamed_level = fs::read(level_dat(&dir))
+        .ok()
+        .and_then(|bytes| level::rename(&bytes, name));
+    if wanted == folder {
+        if let Some(renamed) = renamed_level {
+            let path = level_dat(&dir);
+            storage::write_atomic(&path, &renamed).map_err(io_error(&path))?;
         }
+        return Ok(wanted);
     }
-    let level_dat = saves.join(&new_folder).join("level.dat");
-    if let Ok(bytes) = fs::read(&level_dat)
-        && let Some(renamed) = level::rename(&bytes, name)
-    {
-        storage::write_atomic(&level_dat, &renamed).map_err(io_error(&level_dat))?;
-    }
-    Ok(new_folder)
+    let new_folder = unused_in(&[&saves, &backups], &wanted);
+    let target = saves.join(&new_folder);
+    let old_backups = backups.join(folder);
+    let new_backups = backups.join(&new_folder);
+    let has_backups = old_backups.is_dir();
+
+    move_dir(&dir, &target).map_err(io_error(&dir))?;
+    let mut backups_moved = false;
+    let finished = (|| {
+        if has_backups {
+            move_dir(&old_backups, &new_backups).map_err(io_error(&old_backups))?;
+            backups_moved = true;
+        }
+        if let Some(renamed) = &renamed_level {
+            let path = level_dat(&target);
+            storage::write_atomic(&path, renamed).map_err(io_error(&path))?;
+        }
+        Ok::<_, WorldError>(())
+    })();
+    let Err(err) = finished else {
+        return Ok(new_folder);
+    };
+    // Put everything back as it was, so the backups stay with their world.
+    let backups_back = !backups_moved || move_dir(&new_backups, &old_backups).is_ok();
+    let world_back = move_dir(&target, &dir).is_ok();
+    Err(if backups_back && world_back {
+        WorldError::Invalid(format!(
+            "Couldn't rename the world, so it was left as it was: {err}"
+        ))
+    } else {
+        WorldError::Invalid(format!(
+            "Couldn't rename the world ({err}), and couldn't put it back as it was. \
+             The world is in {}, and its backups are in {}.",
+            if world_back { &dir } else { &target }.display(),
+            if backups_back {
+                &old_backups
+            } else {
+                &new_backups
+            }
+            .display()
+        ))
+    })
+}
+
+/// `base`, or `base (2)`, `base (3)`… whichever isn't taken in any of `dirs`.
+fn unused_in(dirs: &[&Path], base: &str) -> String {
+    (1..)
+        .map(|n| {
+            if n == 1 {
+                base.to_string()
+            } else {
+                format!("{base} ({n})")
+            }
+        })
+        .find(|name| {
+            dirs.iter()
+                .all(|dir| fs::symlink_metadata(dir.join(name)).is_err())
+        })
+        .expect("an unused name")
 }
 
 /// Moves a world to the Trash.
@@ -411,9 +469,10 @@ pub fn write_zip(
     ));
     let result = (|| {
         let file = File::create(&tmp).map_err(io_error(&tmp))?;
-        let mut zip = zip::ZipWriter::new(file);
-        let base =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        // Buffered: the zip writer's own writes (headers, stored entries) are small.
+        let mut zip = zip::ZipWriter::new(io::BufWriter::with_capacity(1 << 20, file));
+        let base = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         let zip_err = |err: zip::result::ZipError| {
             WorldError::Invalid(format!("couldn't write the zip: {err}"))
         };
@@ -437,17 +496,21 @@ pub fn write_zip(
             }
             zip.start_file(format!("{prefix}/{relative}"), options)
                 .map_err(zip_err)?;
-            let mut source = File::open(path).map_err(io_error(path))?;
+            let mut source =
+                io::BufReader::with_capacity(256 * 1024, File::open(path).map_err(io_error(path))?);
             let copied = io::copy(&mut source, &mut zip).map_err(io_error(path))?;
             done.files_done += 1;
             done.bytes_done += copied;
             progress.set(done);
         }
-        let mut file = zip.finish().map_err(zip_err)?;
-        file.flush().map_err(io_error(&tmp))?;
+        let file = zip
+            .finish()
+            .map_err(zip_err)?
+            .into_inner()
+            .map_err(|err| io_error(&tmp)(err.into_error()))?;
         file.sync_all().map_err(io_error(&tmp))?;
         drop(file);
-        fs::rename(&tmp, out).map_err(io_error(out))?;
+        crate::fsx::rename(&tmp, out).map_err(io_error(out))?;
         Ok(fs::metadata(out).map_or(0, |m| m.len()))
     })();
     if result.is_err() {
@@ -583,7 +646,7 @@ pub struct WorldZip {
     pub folder_hint: String,
 }
 
-fn is_mac_metadata(name: &str) -> bool {
+pub(crate) fn is_mac_metadata(name: &str) -> bool {
     name.starts_with("__MACOSX/") || name.split('/').any(|c| c == ".DS_Store")
 }
 
@@ -591,7 +654,8 @@ fn is_mac_metadata(name: &str) -> bool {
 /// down (one world only).
 pub fn inspect_zip(path: &Path) -> Result<WorldZip, WorldError> {
     let file = File::open(path).map_err(io_error(path))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(zip_error(path))?;
+    let mut archive =
+        zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(zip_error(path))?;
     if archive.len() > MAX_ZIP_ENTRIES {
         return Err(WorldError::Invalid(format!(
             "The zip has more than {MAX_ZIP_ENTRIES} files."
@@ -602,7 +666,7 @@ pub fn inspect_zip(path: &Path) -> Result<WorldZip, WorldError> {
     for i in 0..archive.len() {
         let entry = archive.by_index_raw(i).map_err(zip_error(path))?;
         total = total.saturating_add(entry.size());
-        let name = entry.name().to_string();
+        let name = entry.name().map_err(zip_error(path))?.into_owned();
         if is_mac_metadata(&name) {
             continue;
         }
@@ -676,61 +740,76 @@ pub fn extract(
     progress: &Progress,
     cancel: &CancelToken,
 ) -> Result<PathBuf, WorldError> {
+    extract_mapped(
+        path,
+        &[(world.prefix.clone(), String::new())],
+        saves,
+        folder,
+        progress,
+        cancel,
+    )
+}
+
+/// Like [`extract`], for zips whose world is in several folders: each entry under one
+/// of the `(zip prefix, folder in the world)` pairs goes to that folder (the first pair
+/// that matches wins); other entries are left out. The world must end up with a
+/// `level.dat`.
+///
+/// Every entry is checked before anything is written, including that no two of them
+/// land on the same file or folder where names ignore case ([`check_collisions`]).
+pub fn extract_mapped(
+    path: &Path,
+    mappings: &[(String, String)],
+    saves: &Path,
+    folder: &str,
+    progress: &Progress,
+    cancel: &CancelToken,
+) -> Result<PathBuf, WorldError> {
     let target = saves.join(folder);
     if fs::symlink_metadata(&target).is_ok() {
         return Err(WorldError::Conflict(format!("{folder} already exists.")));
     }
+    let file = File::open(path).map_err(io_error(path))?;
+    let mut archive =
+        zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(zip_error(path))?;
+    let entries = plan_extract(path, &mut archive, mappings)?;
+    check_collisions(&entries)?;
     fs::create_dir_all(saves).map_err(io_error(saves))?;
     let staging = saves.join(format!(".lodestone-extract-{}", random_suffix()));
     let result = (|| {
         fs::create_dir(&staging).map_err(io_error(&staging))?;
-        let file = File::open(path).map_err(io_error(path))?;
-        let mut archive = zip::ZipArchive::new(file).map_err(zip_error(path))?;
         let mut budget = MAX_ZIP_BYTES;
         let mut done = ProgressSnapshot {
-            files_total: archive.len() as u64,
+            files_total: entries.len() as u64,
             ..ProgressSnapshot::default()
         };
-        for i in 0..archive.len() {
+        for planned in &entries {
             if cancel.is_cancelled() {
                 return Err(WorldError::Cancelled);
             }
-            let mut entry = archive.by_index(i).map_err(zip_error(path))?;
-            let name = entry.name().to_string();
             done.files_done += 1;
             progress.set(done);
-            let Some(relative) = name.strip_prefix(world.prefix.as_str()) else {
-                continue;
-            };
-            if relative.is_empty() || is_mac_metadata(&name) {
-                continue;
-            }
-            let is_dir = entry.is_dir();
-            let relative = match check_pack_path(relative, is_dir, &WriteAll) {
-                Ok(PathCheck::Write(relative)) => relative,
-                Ok(PathCheck::Skip(_)) => continue,
-                Err(err) => {
-                    return Err(WorldError::Invalid(
-                        err.to_string()
-                            .replace("The modpack is unsafe", "The zip is unsafe"),
-                    ));
-                }
-            };
-            let is_link = entry
-                .unix_mode()
-                .is_some_and(|mode| mode & 0o170000 == 0o120000);
-            if is_link {
-                continue;
-            }
-            let dest = staging.join(&relative);
-            if is_dir {
+            let dest = staging.join(&planned.relative);
+            if planned.is_dir {
                 fs::create_dir_all(&dest).map_err(io_error(&dest))?;
                 continue;
             }
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent).map_err(io_error(parent))?;
             }
-            let mut out = File::create(&dest).map_err(io_error(&dest))?;
+            // Never replace a file: two entries for one file would lose one of them.
+            let mut out = match File::options().write(true).create_new(true).open(&dest) {
+                Ok(out) => out,
+                Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+                    return Err(WorldError::Conflict(format!(
+                        "Two files in the zip would both be saved as {}, so one would be \
+                         lost. Nothing was imported.",
+                        planned.relative.display()
+                    )));
+                }
+                Err(err) => return Err(io_error(&dest)(err)),
+            };
+            let mut entry = archive.by_index(planned.index).map_err(zip_error(path))?;
             // Never trust the size in the zip header.
             let limit = budget.min(entry.size()).saturating_add(1);
             let copied =
@@ -738,7 +817,7 @@ pub fn extract(
             if copied > entry.size() || copied > budget {
                 return Err(WorldError::Invalid(format!(
                     "{} is larger than the zip says.",
-                    relative.display()
+                    planned.relative.display()
                 )));
             }
             budget -= copied;
@@ -749,7 +828,7 @@ pub fn extract(
                 "The zip's level.dat is missing.".into(),
             ));
         }
-        fs::rename(&staging, &target).map_err(io_error(&target))?;
+        crate::fsx::rename(&staging, &target).map_err(io_error(&target))?;
         Ok(target.clone())
     })();
     if result.is_err() {
@@ -758,8 +837,107 @@ pub fn extract(
     result
 }
 
+/// An entry of a world zip that [`extract_mapped`] writes.
+struct PlannedEntry {
+    index: usize,
+    /// The entry's name in the zip, for messages.
+    name: String,
+    /// Where it goes in the world, checked by [`check_pack_path`].
+    relative: PathBuf,
+    is_dir: bool,
+}
+
+/// The entries of `archive` that go into the world, and where. Fails on an unsafe path.
+fn plan_extract(
+    path: &Path,
+    archive: &mut zip::ZipArchive<std::io::BufReader<File>>,
+    mappings: &[(String, String)],
+) -> Result<Vec<PlannedEntry>, WorldError> {
+    let mut entries = Vec::new();
+    for index in 0..archive.len() {
+        let entry = archive.by_index_raw(index).map_err(zip_error(path))?;
+        let name = entry.name().map_err(zip_error(path))?.into_owned();
+        let Some(relative) = mappings.iter().find_map(|(prefix, dest)| {
+            name.strip_prefix(prefix.as_str())
+                .filter(|rest| !rest.is_empty())
+                .map(|rest| format!("{dest}{rest}"))
+        }) else {
+            continue;
+        };
+        if is_mac_metadata(&name) {
+            continue;
+        }
+        let is_dir = entry.is_dir();
+        let relative = match check_pack_path(&relative, is_dir, &WriteAll) {
+            Ok(PathCheck::Write(relative)) => relative,
+            Ok(PathCheck::Skip(_)) => continue,
+            Err(err) => {
+                return Err(WorldError::Invalid(
+                    err.to_string()
+                        .replace("The modpack is unsafe", "The zip is unsafe"),
+                ));
+            }
+        };
+        let is_link = entry
+            .unix_mode()
+            .is_some_and(|mode| mode & 0o170000 == 0o120000);
+        if is_link {
+            continue;
+        }
+        entries.push(PlannedEntry {
+            index,
+            name,
+            relative,
+            is_dir,
+        });
+    }
+    Ok(entries)
+}
+
+/// Fails when two entries would land on the same path on a filesystem that ignores case
+/// (as Windows and macOS do by default): `region/r.0.0.mca` and `REGION/r.0.0.mca`, a
+/// or a file that is also a folder. Extracting such a zip there would silently keep only
+/// one of them. Folders spelled the same way may repeat. (A name listed twice in the zip
+/// is one entry: zip reads only one of them.)
+fn check_collisions(entries: &[PlannedEntry]) -> Result<(), WorldError> {
+    // the path with its case folded -> (as spelled, is a folder, the entry's name)
+    let mut seen: HashMap<String, (String, bool, &str)> = HashMap::new();
+    for entry in entries {
+        let components: Vec<String> = entry
+            .relative
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        for depth in 1..=components.len() {
+            let spelled = components[..depth].join("/");
+            let is_dir = depth < components.len() || entry.is_dir;
+            let folded = spelled.to_lowercase();
+            let Some((other, other_is_dir, other_name)) = seen.get(&folded) else {
+                seen.insert(folded, (spelled, is_dir, &entry.name));
+                continue;
+            };
+            if *other != spelled {
+                return Err(WorldError::Conflict(format!(
+                    "The zip has both {other_name} and {}, whose names differ only in case. \
+                     On Windows and macOS one would overwrite the other, so nothing was \
+                     imported.",
+                    entry.name
+                )));
+            }
+            if !(is_dir && *other_is_dir) {
+                return Err(WorldError::Conflict(format!(
+                    "The zip has {spelled} more than once ({other_name} and {}), so one \
+                     would overwrite the other. Nothing was imported.",
+                    entry.name
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Sets the name inside an extracted world's `level.dat`, when it round-trips.
-fn set_level_name(dir: &Path, name: &str) {
+pub(crate) fn set_level_name(dir: &Path, name: &str) {
     let level_dat = dir.join("level.dat");
     if let Ok(bytes) = fs::read(&level_dat)
         && let Some(renamed) = level::rename(&bytes, name)
@@ -878,19 +1056,19 @@ pub fn restore_with(
             let staged = format!(".lodestone-restore-{}", random_suffix());
             let staged_dir = extract(backup_path, &world, &saves, &staged, progress, cancel)?;
             if !current.is_dir() {
-                fs::rename(&staged_dir, &current).map_err(io_error(&current))?;
+                crate::fsx::rename(&staged_dir, &current).map_err(io_error(&current))?;
                 return Ok(Restored {
                     folder: folder.to_string(),
                     safety_backup,
                 });
             }
             let replaced = saves.join(format!(".lodestone-replaced-{}", random_suffix()));
-            if let Err(err) = fs::rename(&current, &replaced) {
+            if let Err(err) = crate::fsx::rename(&current, &replaced) {
                 let _ = fs::remove_dir_all(&staged_dir);
                 return Err(io_error(&current)(err));
             }
-            if let Err(err) = fs::rename(&staged_dir, &current) {
-                let _ = fs::rename(&replaced, &current);
+            if let Err(err) = crate::fsx::rename(&staged_dir, &current) {
+                let _ = crate::fsx::rename(&replaced, &current);
                 let _ = fs::remove_dir_all(&staged_dir);
                 return Err(io_error(&current)(err));
             }
@@ -899,7 +1077,7 @@ pub fn restore_with(
                     &saves,
                     &folder_name(&format!("{folder} (replaced {today})")),
                 );
-                let _ = fs::rename(&replaced, saves.join(keep));
+                let _ = crate::fsx::rename(&replaced, saves.join(keep));
             }
             Ok(Restored {
                 folder: folder.to_string(),

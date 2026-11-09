@@ -8,6 +8,7 @@ import { createInstanceFile } from 'utils/apis';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import * as yup from 'yup';
 import { useFileViewer } from './FileViewerContext';
+import { useT } from 'i18n';
 
 export default function CreateFileForm({
   onSuccess,
@@ -18,17 +19,18 @@ export default function CreateFileForm({
   onCancel: () => void;
   path: string;
 }) {
+  const t = useT();
   const { selectedInstance: instance } = useContext(InstanceContext);
   const queryClient = useQueryClient();
   const { directorySeparator } = useFileViewer();
 
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
 
   return (
     <Formik
       initialValues={{ name: '' }}
       validationSchema={yup.object({
-        name: yup.string().required('Required'),
+        name: yup.string().required(t('common.required')),
       })}
       onSubmit={async (
         values: { name: string },
@@ -64,12 +66,16 @@ export default function CreateFileForm({
         >
           <InputField
             name="name"
-            label="Name your file"
-            placeholder="Untitled"
+            label={t('files.createFile.label')}
+            placeholder={t('files.createFile.placeholder')}
           />
           <div className="flex flex-row justify-between">
-            <Button onClick={onCancel} label="Cancel" />
-            <Button type="submit" label="Create file" loading={isSubmitting} />
+            <Button onClick={onCancel} label={t('common.cancel')} />
+            <Button
+              type="submit"
+              label={t('files.createFile.submit')}
+              loading={isSubmitting}
+            />
           </div>
         </Form>
       )}

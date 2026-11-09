@@ -27,7 +27,7 @@ pub async fn get_instance_configurable_manifest(
     requester.try_action(&UserAction::AccessSetting(uuid.clone()), state.safe_mode())?;
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     Ok(Json(instance.configurable_manifest().await))
 }
@@ -44,7 +44,7 @@ pub async fn get_instance_settings(
     }
     let instance = state.instances.get(&uuid).ok_or_else(|| Error {
         kind: ErrorKind::NotFound,
-        source: eyre!("Instance not found"),
+        source: eyre!("Server not found"),
     })?;
     Ok(Json(instance.configurable_manifest().await))
 }

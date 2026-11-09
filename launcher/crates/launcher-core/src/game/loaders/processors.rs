@@ -27,6 +27,8 @@ use super::{
 use crate::game::{
     download::{CancelToken, file_matches},
     libraries::{maven_path, safe_relative_path},
+    platform::Os,
+    process::NoConsoleWindow as _,
 };
 
 /// The `{...}` values a processor's arguments use.
@@ -214,7 +216,7 @@ fn plan_one(
 pub fn main_class(jar: &Path) -> Result<String, LoaderError> {
     let file = std::fs::File::open(jar)
         .map_err(|err| invalid(format!("couldn't open {}: {err}", jar.display())))?;
-    let mut archive = zip::ZipArchive::new(file)
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
         .map_err(|err| invalid(format!("{} is not a jar: {err}", jar.display())))?;
     let mut manifest = String::new();
     archive
@@ -250,6 +252,16 @@ pub fn parse_main_class(manifest: &str) -> Option<String> {
         .filter(|class| !class.is_empty())
 }
 
+/// `paths` as the `-cp` of a Java on `os`. On Windows the separator is `;`, since
+/// every absolute path has a `:` after its drive letter.
+fn classpath(paths: &[PathBuf], os: Os) -> Result<String, LoaderError> {
+    Ok(paths
+        .iter()
+        .map(|path| path_string(path))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(os.classpath_separator()))
+}
+
 /// Runs one processor with `java` in `cwd`, passing each line it prints to `on_line`.
 /// Checks its outputs afterwards.
 pub fn run(
@@ -260,12 +272,7 @@ pub fn run(
     on_line: &(dyn Fn(String) + Sync),
 ) -> Result<(), LoaderError> {
     let main = main_class(&processor.jar)?;
-    let classpath = processor
-        .classpath
-        .iter()
-        .map(|path| path_string(path))
-        .collect::<Result<Vec<_>, _>>()?
-        .join(":");
+    let classpath = classpath(&processor.classpath, Os::current())?;
     let mut child = Command::new(java)
         .arg("-cp")
         .arg(classpath)
@@ -275,6 +282,7 @@ pub fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .no_console_window()
         .spawn()
         .map_err(|err| LoaderError::Invalid(format!("couldn't start {}: {err}", java.display())))?;
     let status = std::thread::scope(|scope| {
@@ -293,8 +301,21 @@ pub fn run(
         .collect();
         for pipe in pipes {
             scope.spawn(move || {
-                for line in BufReader::new(pipe).lines().map_while(Result::ok) {
-                    on_line(line);
+                // Read to the end whatever the bytes are: on Windows Java writes in the
+                // ANSI code page, and stopping at a line that isn't UTF-8 (a user name
+                // with an accent in a path) would leave the pipe full and the
+                // processor stuck writing to it.
+                let mut reader = BufReader::new(pipe);
+                let mut buffer = Vec::new();
+                loop {
+                    buffer.clear();
+                    match reader.read_until(b'\n', &mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            let line = String::from_utf8_lossy(&buffer);
+                            on_line(line.trim_end_matches(['\n', '\r']).to_string());
+                        }
+                    }
                 }
             });
         }
@@ -457,6 +478,21 @@ mod tests {
         assert_eq!(values.substitute("'{PATH}'", libraries).unwrap(), "{PATH}");
         assert!(values.substitute("{NOPE}", libraries).is_err());
         assert!(values.substitute("[../../x:y:1]", libraries).is_err());
+    }
+
+    #[test]
+    fn classpaths() {
+        let windows = [
+            PathBuf::from(r"C:\Users\a\libraries\installertools.jar"),
+            PathBuf::from(r"C:\Users\a\libraries\jopt-simple.jar"),
+        ];
+        assert_eq!(
+            classpath(&windows, Os::Windows).unwrap(),
+            r"C:\Users\a\libraries\installertools.jar;C:\Users\a\libraries\jopt-simple.jar"
+        );
+        let unix = [PathBuf::from("/l/a.jar"), PathBuf::from("/l/b.jar")];
+        assert_eq!(classpath(&unix, Os::MacOs).unwrap(), "/l/a.jar:/l/b.jar");
+        assert_eq!(classpath(&unix, Os::Linux).unwrap(), "/l/a.jar:/l/b.jar");
     }
 
     #[test]

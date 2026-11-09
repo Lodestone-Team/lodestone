@@ -51,7 +51,7 @@ impl TryFrom<HandlerGameType> for FlavourKind {
             HandlerGameType::MinecraftBedrock => {
                 return Err(Error {
                     kind: ErrorKind::BadRequest,
-                    source: eyre!("Minecraft Bedrock instances are not supported"),
+                    source: eyre!("Minecraft Bedrock servers are not supported"),
                 })
             }
         })

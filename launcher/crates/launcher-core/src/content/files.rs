@@ -139,7 +139,7 @@ fn copy_folder(source: &Path, dir: &Path, name: &str) -> Result<(), ContentError
         let mut bytes = 0;
         copy_tree(source, &temp, "", &mut files, &mut bytes)?;
         let dest = dir.join(name);
-        fs::rename(&temp, &dest).map_err(io_error(&dest))
+        crate::fsx::rename(&temp, &dest).map_err(io_error(&dest))
     })();
     if result.is_err() {
         let _ = fs::remove_dir_all(&temp);
@@ -211,7 +211,6 @@ pub fn set_mod_enabled(
     file_name: &str,
     enabled: bool,
 ) -> Result<String, ContentError> {
-    let path = existing(dirs, ContentKind::Mod, file_name)?;
     let new_name = if enabled {
         enabled_name(file_name)
     } else {
@@ -220,13 +219,22 @@ pub fn set_mod_enabled(
     if new_name == file_name {
         return Ok(new_name);
     }
+    let path = match existing(dirs, ContentKind::Mod, file_name) {
+        Ok(path) => path,
+        // Already renamed, by an earlier click on a list not yet read again: it is in
+        // the state asked for, which is what was wanted.
+        Err(ContentError::NotFound(_)) if existing(dirs, ContentKind::Mod, &new_name).is_ok() => {
+            return Ok(new_name);
+        }
+        Err(err) => return Err(err),
+    };
     let new_path = dirs.content_dir(ContentKind::Mod).join(&new_name);
     if fs::symlink_metadata(&new_path).is_ok() {
         return Err(ContentError::Conflict(format!(
             "{new_name} already exists, so {file_name} can't be renamed to it."
         )));
     }
-    fs::rename(&path, &new_path).map_err(io_error(&path))?;
+    crate::fsx::rename(&path, &new_path).map_err(io_error(&path))?;
     Ok(new_name)
 }
 
@@ -382,6 +390,38 @@ mod tests {
         for bad in ["../sodium.jar", "missing.jar", "sodium.zip", ""] {
             assert!(set_mod_enabled(&dirs, bad, false).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn lists_toggles_and_deletes_names_with_spaces() {
+        let (_dir, dirs, target) = setup(Loader::Fabric);
+        let mods = dirs.content_dir(ContentKind::Mod);
+        write_zip(&mods.join(" leather.jar"), &[("fabric.mod.json", b"{}")]);
+        let names = |dirs: &InstanceDirs| -> Vec<String> {
+            crate::content::scan::scan(dirs, ContentKind::Mod)
+                .unwrap()
+                .into_iter()
+                .map(|file| file.file_name)
+                .collect()
+        };
+        assert_eq!(names(&dirs), [" leather.jar"]);
+        assert_eq!(
+            set_mod_enabled(&dirs, " leather.jar", false).unwrap(),
+            " leather.jar.disabled"
+        );
+        assert!(mods.join(" leather.jar.disabled").is_file());
+        assert_eq!(names(&dirs), [" leather.jar.disabled"]);
+        assert_eq!(
+            set_mod_enabled(&dirs, " leather.jar.disabled", true).unwrap(),
+            " leather.jar"
+        );
+        // The trimmed name is a different file.
+        assert!(set_mod_enabled(&dirs, "leather.jar", false).is_err());
+        delete_with(&dirs, &target, ContentKind::Mod, " leather.jar", |path| {
+            fs::remove_file(path).map_err(|e| e.to_string())
+        })
+        .unwrap();
+        assert!(names(&dirs).is_empty());
     }
 
     #[test]

@@ -187,6 +187,65 @@ pub async fn change_core_playit_enabled(
     Ok(())
 }
 
+/// Lets programs on this computer claim owner access through the core's data folder
+/// (`crate::local_claim`), or stops them. Owner only.
+pub async fn change_allow_local_claim(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    requester: AuthedUser,
+    Json(enabled): Json<bool>,
+) -> Result<(), Error> {
+    requester.owner_only("let programs on this computer claim owner access")?;
+    state
+        .global_settings
+        .lock()
+        .await
+        .set_allow_local_claim(enabled)
+        .await?;
+    let details = format!(
+        "Claiming owner access from this computer turned {}",
+        if enabled { "on" } else { "off" }
+    );
+    info!("{details}");
+    state.event_broadcaster.send(Event {
+        event_inner: EventInner::GlobalSettingsChanged,
+        details,
+        snowflake: Snowflake::default(),
+        caused_by: requester.caused_by(),
+    });
+    Ok(())
+}
+
+/// Shows or hides the listed instances at `GET /public/instances`, for Lodestone
+/// Launcher. Owner only.
+pub async fn change_list_instances_publicly(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    requester: AuthedUser,
+    Json(enabled): Json<bool>,
+) -> Result<(), Error> {
+    requester.owner_only("list servers publicly")?;
+    state
+        .global_settings
+        .lock()
+        .await
+        .set_list_instances_publicly(enabled)
+        .await?;
+    state.public_listing.invalidate().await;
+    info!(
+        "Listing servers publicly turned {}",
+        if enabled { "on" } else { "off" }
+    );
+    state.event_broadcaster.send(Event {
+        event_inner: EventInner::GlobalSettingsChanged,
+        details: format!(
+            "Listing servers publicly turned {}",
+            if enabled { "on" } else { "off" }
+        ),
+        snowflake: Snowflake::default(),
+        caused_by: requester.caused_by(),
+    });
+    Ok(())
+}
+
 pub fn get_global_settings_routes(state: AppState) -> Router {
     Router::new()
         .route("/global_settings", get(get_core_settings))
@@ -204,6 +263,14 @@ pub fn get_global_settings_routes(state: AppState) -> Router {
         .route(
             "/global_settings/playit_enabled",
             put(change_core_playit_enabled),
+        )
+        .route(
+            "/global_settings/allow_local_claim",
+            put(change_allow_local_claim),
+        )
+        .route(
+            "/global_settings/list_instances_publicly",
+            put(change_list_instances_publicly),
         )
         .with_state(state)
 }

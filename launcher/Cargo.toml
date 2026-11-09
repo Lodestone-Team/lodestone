@@ -1,7 +1,14 @@
 # Lodestone Launcher has its own workspace and lockfile, so the core's CI does not
 # build GPUI and GPUI's dependencies stay out of the root Cargo.lock.
 [workspace]
-members = ["crates/launcher-core", "crates/lodestone-launcher"]
+members = [
+    "crates/launcher-control",
+    "crates/launcher-core",
+    "crates/lodestone-launcher",
+    "crates/lodestone-host",
+    "crates/lodestone-launcher-cli",
+    "crates/lodestone-ui",
+]
 resolver = "2"
 
 [workspace.package]
@@ -20,13 +27,44 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "c84af5b9
 # the platform verifier), from the same rev as GPUI.
 http_client = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35" }
 reqwest_client = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35" }
+# The same TLS settings (rustls with the platform verifier) for a core's WebSocket
+# streams, which don't go through the HTTP client.
+http_client_tls = { git = "https://github.com/zed-industries/zed", rev = "c84af5b99cbc366d675064e52b23664a015b6e35" }
 
 launcher-core = { path = "crates/launcher-core" }
+# What Lodestone Launcher and Lodestone Host share on screen.
+lodestone-ui = { path = "crates/lodestone-ui" }
+# The control protocol and socket shared by the app and lodestone-launcher-cli.
+launcher-control = { path = "crates/launcher-control" }
+
+# Certificate pinning for HTTPS cores with a self-signed certificate (`launcher-core`'s
+# `cores::tls`): a reqwest client with our own rustls verifier, wrapped in Zed's
+# `ReqwestClient`. Both are in GPUI's tree already; Zed's requirement and features.
+rustls = "0.23.26"
+reqwest = { git = "https://github.com/zed-industries/reqwest.git", rev = "33bc764aa15ff7b200bf7c93bd96e24878d53e14", default-features = false, features = [
+    "http2",
+    "macos-system-configuration",
+    "rustls-tls-native-roots",
+    "socks",
+    "stream",
+], package = "zed-reqwest", version = "0.12.15-zed" }
+
 
 # Third-party crates. Each resolves to the version in Zed v1.27.0's Cargo.lock, and
 # uses the requirement and features Zed declares where Zed declares it.
+# The accessibility tree GPUI reports to the system (`components::a11y`): the launcher
+# names `ActionData`, which GPUI doesn't re-export, to set values from assistive
+# technology. Zed's requirement and features; 0.24.1 in its lockfile, as here.
+accesskit = { version = "0.24.0", features = ["enumn"] }
 anyhow = "1.0.86"
+# lodestone-launcher-cli's command line. Zed's requirement and features; 4.5.49 in its
+# lockfile, as here (GPUI's build tools already lock it). `wrap_help` adds terminal_size
+# 0.4.3, also Zed's. No RustSec/OSV advisory for clap 4.5.49, clap_lex 0.7.6,
+# terminal_size 0.4.3, strsim 0.11.1 or anstream 0.6.21 (checked 2026-11-08).
+clap = { version = "4.4", features = ["derive", "wrap_help"] }
 base64 = "0.22"
+# Share codes are deflated with flate2 (zip uses it too).
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 # Local dates for worlds, backups and screenshots; already in Zed's tree through GPUI.
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
 dirs = "6.0"
@@ -41,24 +79,56 @@ pulldown-cmark = { version = "0.13.0", default-features = false }
 # Zed's requirement and features.
 regex = { version = "1.5", default-features = false, features = ["std", "perf"] }
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "os_rng"] }
+# The launcher's window handle on Windows, for its system menu. Already in GPUI's tree.
+raw-window-handle = "0.6"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
 sha1 = "0.10.6"
 sha2 = "0.10"
+# The control socket on Windows (`launcher-control`'s `transport`): AF_UNIX sockets,
+# which std exposes only on Unix. 0.6.5 is in the lockfile already, through GPUI's tree.
+socket2 = "0.6"
 tempfile = "3.20.0"
 thiserror = "2.0.12"
 tiny_http = "0.12"
 # Moving deleted instances to the Trash: Zed's fork, at the rev Zed's `fs` crate uses.
+# A Lodestone core's live event and console streams, over a blocking socket. Zed locks
+# 0.28 (through async-tungstenite); no TLS feature, the launcher wraps rustls itself.
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 trash = { git = "https://github.com/zed-industries/trash-rs", rev = "41c6c800d884a89351f3b8856d12894cccee261d" }
+# Word boundaries in text fields: a word delete keeps a letter and its combining marks
+# together. Zed's requirement; 1.13.3 in its lockfile, already in GPUI's tree.
+unicode-segmentation = "1.10"
 url = "2.2"
 uuid = { version = "1.1", features = ["serde"] }
-# Extracting natives from library jars. Zed locks zip 0.6.6 (through webrtc-sys-build);
-# only the deflate method is enabled, which is what Mojang's native jars use.
-zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
+# Windows-only system calls libc lacks there (host name, memory, OS version, the window's
+# system menu). Zed locks 0.61; each crate enables only the API features it calls.
+windows-sys = "0.61"
+# Compiles the Windows resources (the app icon) into lodestone-launcher.exe. Zed's
+# requirement; already in GPUI's tree.
+embed-resource = "3.0"
+# Reading and writing zip files: jars, modpacks, worlds, snapshots and skins. Zed locks
+# zip 0.6.6, but zip before 9.0.5 has advisories for archives from strangers
+# (GHSA-m665-v7pm-7grj, GHSA-8hxf-qr8p-62x4 and others). So the launcher uses 9.0.5, the
+# version Lodestone Core locks. No OSV, RustSec or GitHub advisory for zip 9.0.5 or
+# typed-path 0.12.4 (checked 2026-11-09). Only the deflate method is on, through
+# flate2's Rust backend: jars, modpacks and Minecraft's own files use it.
+zip = { version = "=9.0.5", default-features = false, features = ["deflate-flate2"] }
 
 # The Minecraft and Modrinth logic shared with Lodestone Core. Its `zip` feature (reading
-# and writing .mrpack files and jars) is off: it needs zip 9, and Zed only locks zip 0.6.
+# and writing .mrpack files and jars) is off: it turns on zip's bzip2, zstd and deflate64
+# codecs, which the launcher does not need.
 lodestone_minecraft = { path = "../crates/lodestone-minecraft", default-features = false }
+# Debug traces (local only), shared with the core.
+lodestone_trace = { path = "../crates/lodestone-trace" }
+# Lodestone Connect: joining a server a friend shares with an invite link. Only the
+# `join` feature: its crates are all in Zed's lockfile already.
+lodestone_connect = { path = "../crates/lodestone-connect", default-features = false, features = ["join"] }
+# The runtime a Lodestone Connect tunnel runs on (a current-thread one, on its own
+# thread). Already in the lockfile through lodestone_connect, at the version Zed locks.
+tokio = { version = "1.52.1", default-features = false, features = ["rt", "net", "time"] }
+# Already in GPUI's tree: the launcher forwards log records to its debug traces.
+log = "0.4.29"
 
 # The same patches Zed applies at v1.27.0, limited to crates in GPUI's tree.
 [patch.crates-io]
@@ -67,6 +137,17 @@ calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee
 async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
 khronos-egl = { git = "https://github.com/zed-industries/khronos-egl", rev = "42214b36347b108fd9630ca6254b96dde59e04fe" }
 windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }
+
+# Release builds take the repository's profile (`.cargo/config.toml`: optimised for
+# size, thin LTO). Size optimisation turns off loop vectorisation, which the SVG
+# rasterizer depends on: at opt-level "s" the Play tab's artwork takes about 300 ms to
+# rasterize, most of the time before the window opens. These few crates are
+# optimised for speed instead, for a small cost in size.
+[profile.release.package]
+resvg = { opt-level = 3 }
+usvg = { opt-level = 3 }
+tiny-skia = { opt-level = 3 }
+tiny-skia-path = { opt-level = 3 }
 
 # Optimise the dependencies that do heavy work at runtime even in debug builds. The
 # list follows Zed's own `[profile.dev.package]` (resvg, taffy, serde_json and the
@@ -79,6 +160,10 @@ quote = { opt-level = 3 }
 syn = { opt-level = 3 }
 proc-macro2 = { opt-level = 3 }
 taffy = { opt-level = 3 }
+# GPUI builds, lays out and paints every frame: unoptimised, scrolling a long list
+# drops far below the display's frame rate.
+gpui = { opt-level = 3 }
+sum_tree = { opt-level = 3 }
 resvg = { opt-level = 3 }
 usvg = { opt-level = 3 }
 tiny-skia = { opt-level = 3 }

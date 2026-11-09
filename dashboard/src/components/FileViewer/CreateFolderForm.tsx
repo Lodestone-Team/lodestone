@@ -8,6 +8,7 @@ import { createInstanceDirectory } from 'utils/apis';
 import { DISABLE_AUTOFILL } from 'utils/util';
 import * as yup from 'yup';
 import { useFileViewer } from './FileViewerContext';
+import { useT } from 'i18n';
 
 export default function CreateFolderForm({
   onSuccess,
@@ -18,17 +19,18 @@ export default function CreateFolderForm({
   onCancel: () => void;
   path: string;
 }) {
+  const t = useT();
   const { selectedInstance: instance } = useContext(InstanceContext);
   const queryClient = useQueryClient();
   const { directorySeparator } = useFileViewer();
 
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
 
   return (
     <Formik
       initialValues={{ name: '' }}
       validationSchema={yup.object({
-        name: yup.string().required('Required'),
+        name: yup.string().required(t('common.required')),
       })}
       onSubmit={async (
         values: { name: string },
@@ -64,14 +66,14 @@ export default function CreateFolderForm({
         >
           <InputField
             name="name"
-            label="Name your folder"
-            placeholder="Untitled folder"
+            label={t('files.createFolder.label')}
+            placeholder={t('files.createFolder.placeholder')}
           />
           <div className="flex flex-row justify-between">
-            <Button onClick={onCancel} label="Cancel" />
+            <Button onClick={onCancel} label={t('common.cancel')} />
             <Button
               type="submit"
-              label="Create folder"
+              label={t('files.createFolder.submit')}
               loading={isSubmitting}
             />
           </div>

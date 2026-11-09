@@ -10,28 +10,49 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
+flate2.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 futures.workspace = true
 http_client.workspace = true
+http_client_tls.workspace = true
 image.workspace = true
 libc.workspace = true
+lodestone_connect.workspace = true
 lodestone_minecraft.workspace = true
+lodestone_trace.workspace = true
 md-5.workspace = true
 pulldown-cmark.workspace = true
 rand.workspace = true
 regex.workspace = true
+reqwest.workspace = true
 reqwest_client.workspace = true
+rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha1.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 tiny_http.workspace = true
 trash.workspace = true
+tungstenite.workspace = true
 url.workspace = true
 uuid.workspace = true
 zip.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Wdk_System_SystemServices",
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 tempfile.workspace = true

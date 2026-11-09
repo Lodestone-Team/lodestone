@@ -17,6 +17,7 @@ import { Player } from 'bindings/Player';
 import { QueryClient, useQueryClient } from '@tanstack/react-query';
 import { openReconnectingWebSocket } from 'utils/websocket';
 import { apiKeyKeys } from 'data/ApiKeys';
+import { t } from 'i18n';
 
 /**
  * The query for both the event buffer and the event stream.
@@ -114,26 +115,16 @@ export const useEventStream = () => {
           StateTransition: ({ to }) => {
             if (fresh) updateInstanceState(queryClient, uuid, to);
             dispatch({
-              title: `Instance ${name} ${
-                {
-                  Starting: `is starting`,
-                  Running: `started`,
-                  Stopping: `is stopping`,
-                  Stopped: `stopped`,
-                  Error: `encountered an error`,
-                }[to]
-              }!`,
+              title: t(`shell.event.state.${to}`, { name }),
               event,
               type: 'add',
               fresh,
             });
           },
           InstanceWarning: () => {
-            toast.error(
-              "Warning: An instance has encountered a warning. This shouldn't happen, please report this to the developers."
-            );
+            toast.error(t('shell.event.warningToast'));
             dispatch({
-              title: `Instance ${name} encountered a warning`,
+              title: t('shell.event.warning', { name }),
               event,
               type: 'add',
               fresh,
@@ -142,7 +133,7 @@ export const useEventStream = () => {
           InstanceError: () => {
             if (fresh) updateInstanceState(queryClient, uuid, 'Error');
             dispatch({
-              title: `Instance ${name} encountered an error`,
+              title: t('shell.event.error', { name }),
               event,
               type: 'add',
               fresh,
@@ -156,19 +147,17 @@ export const useEventStream = () => {
             if (fresh) updateInstancePlayerList(queryClient, uuid, player_list);
 
             // we don't need match statement on the type of player yet because there's only MinecraftPlayyer for now
-            const players_joined_names = players_joined.map((p) => p.name);
-            const players_left_names = players_left.map((p) => p.name);
+            const joined = players_joined.map((p) => p.name).join(', ');
+            const left = players_left.map((p) => p.name).join(', ');
 
             const title =
-              (players_joined.length > 0
-                ? `${players_joined_names.join(', ')} Joined ${name}`
-                : '') +
-              (players_left.length > 0 && players_joined.length > 0
-                ? ' and '
-                : '') +
-              (players_left.length > 0
-                ? `${players_left_names.join(', ')} Left ${name}`
-                : '');
+              joined && left
+                ? t('shell.event.playersJoinedAndLeft', { joined, left, name })
+                : joined
+                  ? t('shell.event.playersJoined', { players: joined, name })
+                  : left
+                    ? t('shell.event.playersLeft', { players: left, name })
+                    : '';
             if (title.length > 0)
               dispatch({
                 title,
@@ -179,7 +168,11 @@ export const useEventStream = () => {
           },
           PlayerMessage: ({ player, player_message }) => {
             dispatch({
-              title: `${player} said ${player_message} on ${name}`,
+              title: t('shell.event.playerMessage', {
+                player,
+                message: player_message,
+                name,
+              }),
               event,
               type: 'add',
               fresh,
@@ -226,7 +219,7 @@ export const useEventStream = () => {
           ApiKeyCreated: ({ name: keyName }) => {
             refreshApiKeys(queryClient, uid, uid === selfUid);
             dispatch({
-              title: `API key "${keyName}" created`,
+              title: t('shell.event.apiKeyCreated', { name: keyName }),
               event,
               type: 'add',
               fresh,
@@ -235,7 +228,7 @@ export const useEventStream = () => {
           ApiKeyRevoked: ({ name: keyName }) => {
             refreshApiKeys(queryClient, uid, uid === selfUid);
             dispatch({
-              title: `API key "${keyName}" revoked`,
+              title: t('shell.event.apiKeyRevoked', { name: keyName }),
               event,
               type: 'add',
               fresh,
@@ -259,7 +252,10 @@ export const useEventStream = () => {
               });
             }
             dispatch({
-              title: `Macro ${macro_pid} started on ${uuid}`,
+              title: t('shell.event.macroStarted', {
+                pid: macro_pid,
+                server: uuid ?? t('shell.connection.coreFallback'),
+              }),
               event,
               type: 'add',
               fresh,
@@ -267,7 +263,10 @@ export const useEventStream = () => {
           },
           Detach: () => {
             dispatch({
-              title: `Macro ${macro_pid} detached on ${uuid}`,
+              title: t('shell.event.macroDetached', {
+                pid: macro_pid,
+                server: uuid ?? t('shell.connection.coreFallback'),
+              }),
               event,
               type: 'add',
               fresh,
@@ -283,7 +282,11 @@ export const useEventStream = () => {
               });
             }
             dispatch({
-              title: `Macro ${macro_pid} stopped on ${uuid} with status ${exit_status.type}`,
+              title: t('shell.event.macroStopped', {
+                pid: macro_pid,
+                server: uuid ?? t('shell.connection.coreFallback'),
+                status: exit_status.type,
+              }),
               event,
               type: 'add',
               fresh,
@@ -296,7 +299,7 @@ export const useEventStream = () => {
             if (fresh)
               queryClient.setQueryData(['playitgg', 'status'], 'Started');
             dispatch({
-              title: 'Playitgg runner started!',
+              title: t('shell.event.playitStarted'),
               event,
               type: 'add',
               fresh,
@@ -306,7 +309,7 @@ export const useEventStream = () => {
             if (fresh)
               queryClient.setQueryData(['playitgg', 'status'], 'Loading');
             dispatch({
-              title: 'Playitgg runner loading...',
+              title: t('shell.event.playitLoading'),
               event,
               type: 'add',
               fresh,
@@ -316,7 +319,7 @@ export const useEventStream = () => {
             if (fresh)
               queryClient.setQueryData(['playitgg', 'status'], 'Stopped');
             dispatch({
-              title: 'Playitgg runner stopped!',
+              title: t('shell.event.playitStopped'),
               event,
               type: 'add',
               fresh,
@@ -412,9 +415,12 @@ export const useEventStream = () => {
         // an expired token is handled by the 401 interceptor (pages/index.tsx)
         if (isAxiosError(error) && error.response?.status === 401) return;
         console.error('Failed to fetch the event buffer', error);
-        toast.error(`Failed to load notifications: ${errorToString(error)}`, {
-          toastId: 'eventBufferError',
-        });
+        toast.error(
+          t('shell.event.loadFailed', { error: errorToString(error) }),
+          {
+            toastId: 'eventBufferError',
+          }
+        );
       });
     return () => {
       cancelled = true;

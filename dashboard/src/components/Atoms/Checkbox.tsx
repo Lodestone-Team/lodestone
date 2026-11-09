@@ -15,7 +15,8 @@ export default function Checkbox({
   disabled = false,
   className,
 }: {
-  label?: string;
+  /** text, or elements such as a link */
+  label?: React.ReactNode;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;

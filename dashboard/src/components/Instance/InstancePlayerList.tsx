@@ -8,10 +8,15 @@ import {
   faUserCircle,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { useLinkedPlayers } from 'data/MinecraftLinks';
+import { linkedUserOf } from 'utils/linkedPlayers';
+import { useT } from 'i18n';
 
 export default function InstancePlayerList() {
+  const t = useT();
   const { selectedInstance: instance } = useContext(InstanceContext);
   const uuid = instance?.uuid;
+  const linked = useLinkedPlayers();
 
   // Ascending order is referring to alphabetical order
   // Note: Arrow will point DOWN when sorting in ascending order, as seen on the figma
@@ -36,13 +41,13 @@ export default function InstancePlayerList() {
   if (!instance || !uuid) {
     return (
       <div
-        className="relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10 @container"
+        className="@container relative flex h-full w-full flex-row justify-center overflow-y-auto px-4 pt-8 pb-10"
         key={uuid}
       >
         <div className="flex h-fit min-h-full w-full grow flex-col items-start gap-2">
           <div className="flex min-w-0 flex-row items-center gap-4">
             <h1 className="dashboard-instance-heading truncate whitespace-pre">
-              Instance not found
+              {t('server.notFound')}
             </h1>
           </div>
         </div>
@@ -56,15 +61,17 @@ export default function InstancePlayerList() {
 
   return (
     <div>
-      <h2 className="text-h2 font-extrabold tracking-medium">Player List</h2>
-      <h3 className="text-h3 font-medium italic tracking-medium text-white/50">
-        All players that are currently online
+      <h2 className="text-h2 font-extrabold tracking-medium">
+        {t('server.players.title')}
+      </h2>
+      <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
+        {t('server.players.lead')}
       </h3>
       <button
         className="mt-4 mb-2 ml-2 flex items-center justify-center text-small font-medium tracking-medium text-white/50"
         onClick={() => setSortAscending(!sortAscending)}
       >
-        NAME
+        {t('server.players.sortByName')}
         {sortAscending ? (
           <FontAwesomeIcon icon={faArrowDown} className="mx-1.5" />
         ) : (
@@ -77,16 +84,28 @@ export default function InstancePlayerList() {
             // Only Minecraft players have a uuid (GenericPlayer has an id)
             const playerUuid =
               player.type === 'MinecraftPlayer' ? player.uuid : undefined;
+            const linkedUser = linkedUserOf(linked, {
+              name: player.name,
+              uuid: playerUuid,
+            });
             return (
               <PlayerListItem key={playerUuid}>
                 <img
                   src={`${mcHeadURL}${playerUuid}/${avatarDimension}.png`}
-                  alt={`Avatar of ${player.name}`}
+                  alt={t('server.players.avatarAlt', { name: player.name })}
                   className="mx-1 h-4 w-4"
                   draggable="false"
                   style={{ imageRendering: 'pixelated', userSelect: 'none' }}
                 />
                 <div className="mx-1 text-medium">{player.name}</div>
+                {linkedUser && (
+                  <div
+                    className="mx-1 text-small font-medium text-white/50"
+                    title={t('server.players.linkedUser')}
+                  >
+                    {linkedUser}
+                  </div>
+                )}
               </PlayerListItem>
             );
           })}
@@ -98,8 +117,8 @@ export default function InstancePlayerList() {
               icon={faUserCircle}
               className="mx-1 h-4 w-4 text-white/50"
             />
-            <div className="mx-1 text-medium italic text-white/50">
-              No players online
+            <div className="mx-1 text-medium text-white/50 italic">
+              {t('server.players.none')}
             </div>
           </PlayerListItem>
         </PlayerListCard>

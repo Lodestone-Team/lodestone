@@ -18,6 +18,8 @@ import IconButton from './Atoms/IconButton';
 import { useLocation } from 'react-router';
 import { useUserState } from './useUserState';
 import { Skeleton } from 'components/Atoms/Skeleton';
+import { rememberSettingsReturn } from 'utils/settingsReturn';
+import { useI18n } from 'i18n';
 
 /**
  * The signed-in user with the account menu (sign out, change core), and the settings
@@ -25,6 +27,7 @@ import { Skeleton } from 'components/Atoms/Skeleton';
  * status, so the menu opens upward.
  */
 const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
+  const { t, rich } = useI18n();
   const { setToken, core } = useContext(LodestoneContext);
   const { setPathname, setSearchParam } = useContext(BrowserLocationContext);
   const location = useLocation();
@@ -33,14 +36,14 @@ const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
   const { address, port } = core;
   const socket = `${address}:${port}`;
   const loggedIn = userState === 'logged-in' && user;
-  const accountLabel = loggedIn ? user.username : 'Guest';
+  const accountLabel = loggedIn ? user.username : t('shell.userMenu.guest');
 
   return (
     <div className="flex w-full flex-row items-center gap-1">
       <Menu as="div" className="relative min-w-0 flex-1">
         <Menu.Button
           title={accountLabel}
-          aria-label={`Account: ${accountLabel}`}
+          aria-label={t('shell.userMenu.account', { name: accountLabel })}
           className={clsx(
             'flex w-full flex-row items-center gap-2 rounded-md px-2 py-1.5',
             'text-small font-medium',
@@ -77,21 +80,24 @@ const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
         >
           <Menu.Items className="absolute bottom-full left-0 z-10 mb-1.5 w-full min-w-48 origin-bottom-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
             <div className="truncate px-3 py-2 text-small font-medium text-white/50">
-              {loggedIn ? (
-                <>
-                  Signed in as{' '}
-                  <span className="text-gray-300">{user.username}</span>
-                </>
-              ) : (
-                'Not signed in'
-              )}
+              {loggedIn
+                ? rich('shell.userMenu.signedInAs', {
+                    name: (
+                      <span className="text-gray-300">{user.username}</span>
+                    ),
+                  })
+                : t('shell.userMenu.notSignedIn')}
             </div>
             <div className="px-1.5 py-2">
               <Menu.Item>
                 {({ disabled }) => (
                   <Button
                     className="w-full whitespace-nowrap"
-                    label={userState === 'logged-in' ? 'Sign out' : 'Sign in'}
+                    label={
+                      userState === 'logged-in'
+                        ? t('shell.userMenu.signOut')
+                        : t('shell.userMenu.signIn')
+                    }
                     loading={userState === 'loading'}
                     iconRight={faRightFromBracket}
                     onClick={() => {
@@ -112,7 +118,7 @@ const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
                 {({ disabled }) => (
                   <Button
                     className="w-full flex-nowrap whitespace-nowrap"
-                    label="Change core"
+                    label={t('shell.userMenu.changeCore')}
                     iconRight={faArrowRightArrowLeft}
                     align="between"
                     disabled={disabled}
@@ -132,10 +138,10 @@ const UserMenu = ({ showSettings = true }: { showSettings?: boolean }) => {
       {showSettings && (
         <IconButton
           icon={faCog}
-          aria-label="Settings"
-          title="Settings"
+          aria-label={t('shell.userMenu.settings')}
+          title={t('shell.userMenu.settings')}
           onClick={() => {
-            localStorage.setItem('lastVisitedRoute', location.pathname);
+            rememberSettingsReturn(location.pathname);
             setPathname('/settings/general');
           }}
         />

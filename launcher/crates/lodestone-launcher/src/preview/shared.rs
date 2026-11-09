@@ -9,7 +9,10 @@ const OPTIONS_1_21_11: &str = include_str!("../../../launcher-core/testdata/opti
 const OPTIONS_1_8_9: &str = include_str!("../../../launcher-core/testdata/options/1.8.9.txt");
 
 pub fn is_scene(scene: &str) -> bool {
-    matches!(scene, "shared-settings" | "instance-shared-settings")
+    matches!(
+        scene,
+        "shared-settings" | "instance-shared-settings" | "focus-popover" | "focus-escape"
+    )
 }
 
 /// Writes the files after the made-up instances exist.
@@ -59,10 +62,18 @@ pub fn fill(data: &DataDir, store: &InstanceStore) {
 }
 
 /// The window height the scene needs to show the whole section.
+/// The window width of scenes narrower than the usual 1200 px.
+pub fn window_width(scene: &str) -> Option<f32> {
+    scene.contains("-narrow").then_some(720.)
+}
+
 pub fn window_height(scene: &str) -> Option<f32> {
     match scene {
         "shared-settings" => Some(1700.),
         "instance-shared-settings" => Some(2100.),
+        "sidebar-groups" | "sidebar-groups-off" => Some(1000.),
+        // Tall enough for the Modrinth section's placeholder under six mods.
+        "content-mods" => Some(1100.),
         _ => None,
     }
 }

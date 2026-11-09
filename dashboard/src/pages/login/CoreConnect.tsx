@@ -30,12 +30,13 @@ import CoreConnectionHelp, {
   isRemoteNetworkError,
 } from 'components/CoreConnectionHelp';
 import Logo from 'components/Atoms/Logo';
+import { t as translate, useI18n } from 'i18n';
 
 const validationSchema = yup.object({
-  address: yup.string().required('Required'),
-  port: yup.number().required('Required'),
-  apiVersion: yup.string().required('Required'),
-  protocol: yup.string().required('Required'),
+  address: yup.string().required(() => translate('common.required')),
+  port: yup.number().required(() => translate('common.required')),
+  apiVersion: yup.string().required(() => translate('common.required')),
+  protocol: yup.string().required(() => translate('common.required')),
 });
 
 /** Query parameters a link can use to fill in this form. */
@@ -76,7 +77,10 @@ const ProtocolFollowsAddress = ({ enabled }: { enabled: boolean }) => {
 };
 
 const CoreConnect = () => {
-  useDocumentTitle('Connect to Core - Lodestone');
+  const { t, rich } = useI18n();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('shell.coreConnect.pageTitle') })
+  );
   const { navigateBack, setPathname, searchParams, setSearchParam } =
     useContext(BrowserLocationContext);
   const { setCore, addCore } = useContext(LodestoneContext);
@@ -124,7 +128,7 @@ const CoreConnect = () => {
       })
       .then((res) => {
         if (res.status !== 200)
-          throw new Error('Invalid response, setup may be invalid');
+          throw new Error(t('shell.login.invalidResponse'));
         setCore(values);
         addCore(values);
         if (res.data.is_setup === false) {
@@ -156,43 +160,48 @@ const CoreConnect = () => {
   };
 
   return (
-    <div className="flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14 @container">
+    <div className="@container flex w-[768px] max-w-full flex-col items-stretch justify-center gap-12 rounded-2xl px-12 py-14">
       {showMixedContentError && (
         <ConfirmDialog
           isOpen={showMixedContentError}
           onClose={() => setShowMixedContentError(false)}
-          title="HTTP Error"
+          title={t('shell.coreConnect.httpErrorTitle')}
           type="danger"
         >
-          Missing site permissions. Enable mixed content settings or disable any
-          HTTPS browser plugins, then refresh the page.{' '}
-          <a
-            href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
-            target="_blank"
-            rel="noreferrer"
-            className="text-blue-200 underline hover:text-blue-300"
-          >
-            Learn more.
-          </a>
-        </ConfirmDialog>
-      )}
-      <div className="flex flex-col items-start">
-        <Logo alt="logo" className="h-8" />
-        <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
-          Add a new core
-        </h1>
-        {pageIsHttps() && (
-          <WarningAlert>
-            <p>
-              You may need to adjust your network and browser settings.{' '}
+          {rich('shell.coreConnect.mixedContent', {
+            link: (
               <a
                 href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
                 target="_blank"
                 rel="noreferrer"
                 className="text-blue-200 underline hover:text-blue-300"
               >
-                Learn more.
+                {t('common.learnMore')}
               </a>
+            ),
+          })}
+        </ConfirmDialog>
+      )}
+      <div className="flex flex-col items-start">
+        <Logo alt="Lodestone" className="h-8" />
+        <h1 className="font-title text-h1 font-bold tracking-medium text-gray-300">
+          {t('shell.coreConnect.title')}
+        </h1>
+        {pageIsHttps() && (
+          <WarningAlert>
+            <p>
+              {rich('shell.coreConnect.httpsWarning', {
+                link: (
+                  <a
+                    href="https://github.com/Lodestone-Team/lodestone/wiki/Known-Issues#network-errors"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-200 underline hover:text-blue-300"
+                  >
+                    {t('common.learnMore')}
+                  </a>
+                ),
+              })}
             </p>
           </WarningAlert>
         )}
@@ -215,8 +224,9 @@ const CoreConnect = () => {
               <div className="flex flex-col gap-4">
                 <WarningAlert>
                   <p>
-                    <b>{status.error}</b>: Please ensure your fields are filled
-                    out correctly.
+                    {rich('shell.login.checkFields', {
+                      error: <b>{status.error}</b>,
+                    })}
                   </p>
                 </WarningAlert>
                 {status.helpCore && (
@@ -224,39 +234,43 @@ const CoreConnect = () => {
                 )}
               </div>
             )}
-            <div className="grid grid-cols-1 gap-y-14 gap-x-8 @lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-x-8 gap-y-14 @lg:grid-cols-2">
               <SelectField
                 name="apiVersion"
                 className="grow"
                 options={['v1']}
-                label="API Version"
+                label={t('shell.coreConnect.apiVersion')}
               />
               <SelectField
                 name="protocol"
                 className="grow"
                 options={['http', 'https']}
-                label="Protocol"
+                label={t('shell.coreConnect.protocol')}
               />
-              <InputField type="number" name="port" label="Port" />
+              <InputField
+                type="number"
+                name="port"
+                label={t('shell.coreConnect.port')}
+              />
               <InputField
                 type="text"
                 name="address"
-                label="IP Address/Domain"
-                placeholder='e.g. 123.123.123.123 or "myserver.com"'
+                label={t('shell.coreConnect.address')}
+                placeholder={t('shell.coreConnect.addressPlaceholder')}
               />
             </div>
-            <div className="flex w-full flex-row justify-between gap-4">
+            <div className="flex w-full flex-row flex-wrap justify-between gap-4">
               <Button
                 type="button"
                 icon={faArrowLeft}
-                label="Back"
+                label={t('common.back')}
                 onClick={navigateBack}
               />
-              <div className="flex flex-row gap-4">
+              <div className="flex flex-row flex-wrap gap-4">
                 <Button
                   type="button"
                   iconRight={faDownload}
-                  label="Download Lodestone Core"
+                  label={t('shell.login.downloadCore')}
                   onClick={() => {
                     window.open(
                       'https://github.com/Lodestone-Team/dashboard/releases/',
@@ -267,7 +281,7 @@ const CoreConnect = () => {
                 <Button
                   type="submit"
                   intention="primary"
-                  label="Add and Continue"
+                  label={t('shell.coreConnect.submit')}
                   iconRight={faArrowRight}
                   loading={isSubmitting} //TODO: fix button size changing when loading
                 />

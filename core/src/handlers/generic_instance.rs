@@ -42,14 +42,14 @@ pub async fn create_generic_instance(
 
     tokio::fs::create_dir_all(&setup_path)
         .await
-        .context("Failed to create instance directory")?;
+        .context("Failed to create server directory")?;
 
     let dot_lodestone_config = DotLodestoneConfig::new(instance_uuid.clone(), GameType::Generic);
     let event_broadcaster = state.event_broadcaster.clone();
     let created_uuid = instance_uuid.clone();
     tokio::task::spawn(async move {
         let (progression_start_event, event_id) = Event::new_progression_event_start(
-            format!("Setting up instance {}", setup_config.setup_value.name),
+            format!("Setting up server {}", setup_config.setup_value.name),
             Some(100.0),
             Some(ProgressionStartValue::InstanceCreation {
                 instance_uuid: instance_uuid.clone(),
@@ -73,7 +73,7 @@ pub async fn create_generic_instance(
                 event_broadcaster.send(Event::new_progression_event_end(
                     event_id,
                     true,
-                    Some("Instance created successfully"),
+                    Some("Server created successfully"),
                     Some(ProgressionEndValue::InstanceCreation(
                         v.get_instance_info().await,
                     )),
@@ -85,7 +85,7 @@ pub async fn create_generic_instance(
                 event_broadcaster.send(Event::new_progression_event_end(
                     event_id,
                     false,
-                    Some(&format!("Instance creation failed: {e}")),
+                    Some(&format!("Server creation failed: {e}")),
                     None,
                 ));
                 remove_failed_instance_dir(setup_path).await;

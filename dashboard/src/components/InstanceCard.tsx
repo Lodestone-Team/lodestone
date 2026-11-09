@@ -1,9 +1,4 @@
-import {
-  axiosWrapper,
-  capitalizeFirstLetter,
-  errorToString,
-  stateToLabelColor,
-} from 'utils/util';
+import { errorToString, stateToLabelColor } from 'utils/util';
 import Label from './Atoms/Label';
 import { Fragment, useContext, useState } from 'react';
 import axios from 'axios';
@@ -22,11 +17,7 @@ import {
 import IconButton from './Atoms/IconButton';
 import ClipboardTextfield from './ClipboardTextfield';
 import { useGlobalSettings } from 'data/GlobalSettings';
-import {
-  isAtomInstance,
-  OWNER_ONLY_ATOM_MESSAGE,
-  useCodeExecution,
-} from 'data/CodeExecution';
+import { isAtomInstance, useCodeExecution } from 'data/CodeExecution';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { useCoreCapabilities } from 'data/SystemInfo';
 import Tooltip from 'rc-tooltip';
@@ -34,7 +25,10 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Menu, Transition } from '@headlessui/react';
 import Avatar from 'boring-avatars';
 import Button from './Atoms/Button';
-import { PortStatus } from 'bindings/PortStatus';
+import { useI18n } from 'i18n';
+import ConfirmDialog from './Atoms/ConfirmDialog';
+import { MinecraftEulaLink } from './Instance/Create/EulaCheckbox';
+import { acceptInstanceEula, getInstanceEula } from 'data/MinecraftEula';
 
 // // for the css style of the double border when focused
 // const stateToBorderMap: { [key in InstanceState]: string[] } = {
@@ -45,15 +39,6 @@ import { PortStatus } from 'bindings/PortStatus';
 //   Error: ['ui-checked:outline-red', 'ui-checked:ring-red-faded/25'],
 //   // Loading: 'outline-gray-300 ring-gray-500',
 // };
-
-const stateToActionMessageMap: { [key in InstanceState]: string } = {
-  Starting: 'Kill',
-  Running: 'Stop',
-  Stopping: 'Kill',
-  Stopped: 'Start',
-  Error: 'Restart',
-  // loading: '...',
-};
 
 const stateToApiEndpointMap: { [key in InstanceState]: string } = {
   Running: '/stop',
@@ -81,7 +66,10 @@ export default function InstanceCard({
   focus = false,
   onClick: cardOnClick,
 }: InstanceCardProps) {
+  const { t, rich } = useI18n();
   const [loading, setLoading] = useState(false);
+  // open when a start failed because the Minecraft EULA isn't accepted
+  const [eulaDialogOpen, setEulaDialogOpen] = useState(false);
 
   const { core } = useContext(LodestoneContext);
   const { address } = core;
@@ -101,9 +89,9 @@ export default function InstanceCard({
   const atomBlockedReason = !isAtom
     ? null
     : !genericInstances
-      ? "This core was built without scripting support (Deno), so atom instances aren't available."
+      ? t('server.card.noScripting')
       : !canManage
-        ? OWNER_ONLY_ATOM_MESSAGE
+        ? t('console.ownerOnlyAtom')
         : null;
   const atomStartBlocked = isAtom && !codeExecutionEnabled;
   let disabled = !canViewInstance || atomBlockedReason !== null;
@@ -121,34 +109,81 @@ export default function InstanceCard({
 
   const stateToMenuInfo = () => {
     if (atomBlockedReason) return [];
+    const kill = {
+      action: 'kill',
+      label: t('server.action.kill'),
+      icon: faPlug,
+      onClick: powerButtonOnClick,
+    } as const;
+    const restart = {
+      action: 'restart',
+      label: t('server.action.restart'),
+      icon: faArrowRotateBackward,
+      onClick: restartButtonOnClick,
+    } as const;
     switch (state) {
       case 'Starting':
-        return [{ label: 'Kill', icon: faPlug, onClick: powerButtonOnClick }];
+        return [kill];
       case 'Stopping':
-        return [{ label: 'Kill', icon: faPlug, onClick: powerButtonOnClick }];
+        return [kill];
       case 'Stopped':
         return [
-          { label: 'Start', icon: faPowerOff, onClick: powerButtonOnClick },
+          {
+            action: 'start',
+            label: t('server.action.start'),
+            icon: faPowerOff,
+            onClick: powerButtonOnClick,
+          } as const,
         ];
       case 'Running':
         return [
-          { label: 'Stop', icon: faPowerOff, onClick: powerButtonOnClick },
           {
-            label: 'Restart',
-            icon: faArrowRotateBackward,
-            onClick: restartButtonOnClick,
-          },
+            action: 'stop',
+            label: t('server.action.stop'),
+            icon: faPowerOff,
+            onClick: powerButtonOnClick,
+          } as const,
+          restart,
         ];
       case 'Error':
-        return [
-          {
-            label: 'Restart',
-            icon: faArrowRotateBackward,
-            onClick: restartButtonOnClick,
-          },
-        ];
+        return [restart];
       default:
         return [];
+    }
+  };
+
+  // A start (or restart) failed. If it's a Minecraft server whose EULA isn't
+  // accepted, ask the user to agree to it; otherwise show the error.
+  const onStartFailed = async (error: unknown) => {
+    if (game_type.type === 'MinecraftJava') {
+      try {
+        const eula = await getInstanceEula(uuid);
+        if (!eula.accepted) {
+          setEulaDialogOpen(true);
+          return;
+        }
+      } catch {
+        // show the start error below
+      }
+    }
+    toast.error(errorToString(error));
+  };
+
+  const acceptEulaAndStart = async () => {
+    try {
+      await acceptInstanceEula(uuid);
+    } catch (error) {
+      toast.error(
+        t('server.eula.acceptFailed', { error: errorToString(error) })
+      );
+      return;
+    }
+    setEulaDialogOpen(false);
+    gaEventTracker('Started Instance');
+    try {
+      await axios.put(`/instance/${uuid}/start`);
+    } catch (error) {
+      toast.error(errorToString(error));
     }
   };
 
@@ -167,7 +202,7 @@ export default function InstanceCard({
       })
       .catch((error) => {
         console.log(error);
-        toast.error(errorToString(error));
+        return onStartFailed(error);
       })
       .finally(() => {
         setLoading(false);
@@ -186,13 +221,14 @@ export default function InstanceCard({
       gaEventTracker('Started Instance');
     }
 
-
     axios
       .put(`/instance/${uuid}${stateToApiEndpointMap[state]}`)
       .then((response) => {
         response.data;
       })
       .catch((error) => {
+        if (stateToApiEndpointMap[state] === '/start')
+          return onStartFailed(error);
         toast.error(errorToString(error));
       })
       .finally(() => {
@@ -204,12 +240,22 @@ export default function InstanceCard({
 
   return (
     <div className="my-2 border-b-2 border-gray-faded/30 pb-2">
+      <ConfirmDialog
+        title={t('server.eula.title')}
+        type="info"
+        isOpen={eulaDialogOpen}
+        onClose={() => setEulaDialogOpen(false)}
+        onConfirm={acceptEulaAndStart}
+        confirmButtonText={t('server.eula.accept')}
+      >
+        {rich('server.eula.body', { name, link: <MinecraftEulaLink /> })}
+      </ConfirmDialog>
       <div
         className={clsx(
           'flex flex-row items-center gap-x-1.5',
           'rounded-md',
-          'text-medium font-bold leading-5 tracking-medium text-gray-300',
-          'ui-checked:bg-gray-800 ui-checked:outline-solid ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800'
+          'text-medium leading-5 font-bold tracking-medium text-gray-300',
+          'ui-checked:bg-gray-800 ui-checked:outline-1 ui-checked:outline-fade-700 ui-checked:outline-solid ui-not-checked:hover:bg-gray-800'
         )}
       >
         <GameIcon
@@ -220,7 +266,7 @@ export default function InstanceCard({
         <p className="grow truncate">{name}</p>
         <Tooltip
           showArrow={false}
-          overlay={<span>{atomBlockedReason ?? 'Power'}</span>}
+          overlay={<span>{atomBlockedReason ?? t('server.card.power')}</span>}
           placement="top"
           trigger={['hover']}
           mouseEnterDelay={0.2}
@@ -241,14 +287,14 @@ export default function InstanceCard({
               leaveTo="opacity-0 -translate-y-1"
             >
               <Menu.Items className="absolute right-0 z-10 mt-1.5 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
-                <div className="py-2 px-1.5">
+                <div className="px-1.5 py-2">
                   {stateToMenuInfo().map((menuInfo, i) => (
                     <Menu.Item
                       key={i}
                       disabled={
                         atomStartBlocked &&
-                        (menuInfo.label === 'Start' ||
-                          menuInfo.label === 'Restart')
+                        (menuInfo.action === 'start' ||
+                          menuInfo.action === 'restart')
                       }
                     >
                       {({ disabled }) => (
@@ -266,7 +312,7 @@ export default function InstanceCard({
                   ))}
                   {atomStartBlocked && (
                     <p className="max-w-48 px-2 pt-1 text-small font-medium text-white/50 italic">
-                      Code execution is disabled on this core
+                      {t('server.card.codeExecutionDisabled')}
                     </p>
                   )}
                 </div>
@@ -279,20 +325,23 @@ export default function InstanceCard({
         className={clsx(
           'flex flex-row items-center gap-x-1.5',
           'mt-3 rounded-md',
-          'text-medium font-bold leading-5 tracking-medium text-gray-300'
+          'text-medium leading-5 font-bold tracking-medium text-gray-300'
         )}
       >
         <ClipboardTextfield
-          className="grow rounded-xs bg-gray-800 p-1 text-small font-medium leading-4 tracking-medium text-gray-300 outline-solid outline-1 outline-gray-faded/30 hover:bg-gray-700 hover:outline-white/50"
+          className="grow rounded-xs bg-gray-800 p-1 text-small leading-4 font-medium tracking-medium text-gray-300 outline-1 outline-gray-faded/30 outline-solid hover:bg-gray-700 hover:outline-white/50"
           textToCopy={`${domain}:${port}`}
-          text="Copy IP"
+          text={t('server.card.copyIp')}
         />
         <Label
           size="small"
-          className="flex grow justify-center"
+          className="flex grow justify-center whitespace-nowrap"
           color={stateColor}
         >
-          {player_count}/{max_player_count} Online
+          {t('server.card.online', {
+            players: player_count ?? '',
+            max: max_player_count ?? '',
+          })}
         </Label>
       </div>
     </div>

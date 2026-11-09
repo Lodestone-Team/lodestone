@@ -127,6 +127,17 @@ impl Modrinth {
         }
     }
 
+    /// The response cache: how many entries it holds and their bytes.
+    pub fn cache_stats(&self) -> (usize, u64) {
+        let cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
+        let bytes = cache
+            .entries
+            .values()
+            .map(|(_, _, body)| body.len() as u64)
+            .sum();
+        (cache.entries.len(), bytes)
+    }
+
     /// The number of requests sent, for tests of the cache and rate limit.
     pub fn requests_sent(&self) -> u64 {
         self.requests.load(std::sync::atomic::Ordering::Relaxed)
@@ -328,6 +339,23 @@ impl Modrinth {
         Ok(versions)
     }
 
+    /// Several versions by id, in one request per 100. Unknown ids are left out.
+    pub async fn versions_by_id(&self, ids: &[String]) -> Result<Vec<RawVersion>, ModrinthError> {
+        let mut versions = Vec::new();
+        for chunk in ids.chunks(100) {
+            for id in chunk {
+                check_api_segment(id, "version id")?;
+            }
+            let mut url = Url::parse(&self.url("versions"))
+                .map_err(|err| ModrinthError::Invalid(err.to_string()))?;
+            url.query_pairs_mut()
+                .append_pair("ids", &serde_json::to_string(chunk).unwrap_or_default());
+            let raw: Vec<RawVersion> = self.get_json(url.into(), "The versions").await?;
+            versions.extend(raw);
+        }
+        Ok(versions)
+    }
+
     pub async fn version(&self, id: &str) -> Result<RawVersion, ModrinthError> {
         let id = check_api_segment(id, "version id")?;
         self.get_json(self.url(&format!("version/{id}")), "That version")
@@ -386,18 +414,22 @@ impl Modrinth {
 
     /// The newest version for `loaders` and `game_versions` of the projects these files
     /// belong to, by hash.
+    /// The newest version of the files with `hashes` that fits `loaders` and
+    /// `game_versions`, by hash. `version_types` ("release", "beta", "alpha") limits
+    /// it to those kinds; `None` takes any.
     pub async fn latest_by_sha1(
         &self,
         hashes: &[String],
         loaders: &[String],
         game_versions: &[String],
+        version_types: Option<&[&str]>,
     ) -> Result<HashMap<String, RawVersion>, ModrinthError> {
-        self.hash_post(
-            "version_files/update",
-            hashes,
-            json!({ "loaders": loaders, "game_versions": game_versions }),
-        )
-        .await
+        let mut filters = json!({ "loaders": loaders, "game_versions": game_versions });
+        if let Some(types) = version_types {
+            filters["version_types"] = json!(types);
+        }
+        self.hash_post("version_files/update", hashes, filters)
+            .await
     }
 
     /// The project (and version) a pasted modrinth.com link points to.

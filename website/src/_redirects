@@ -1,0 +1,16 @@
+# The Host dashboard has moved three times: from the root, to /core (when
+# Lodestone Host was called Lodestone Core), to /host, and now /host/app, with
+# the Host page at /host. Send its old addresses to /host/app; Cloudflare keeps
+# the query string (dashboard links carry ?address=&port=...). Unknown
+# /host/app paths are handled by worker.js, not here: a catch-all rule for
+# /host/app in this file would also catch the dashboard's own files.
+/core               /host/app                   301
+/core/*             /host/app/:splat            301
+/first_setup        /host/app/first_setup       301
+/login/*            /host/app/login/:splat      301
+/dashboard/*        /host/app/dashboard/:splat  301
+/settings/*         /host/app/settings/:splat   301
+/host/first_setup   /host/app/first_setup       301
+/host/login/*       /host/app/login/:splat      301
+/host/dashboard/*   /host/app/dashboard/:splat  301
+/host/settings/*    /host/app/settings/:splat   301

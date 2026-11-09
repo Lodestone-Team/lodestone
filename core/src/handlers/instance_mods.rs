@@ -33,7 +33,7 @@ use crate::types::InstanceUuid;
 use crate::AppState;
 
 /// The instance and its mods folder. Fails for instances without mods or plugins.
-async fn mod_folder(
+pub(super) async fn mod_folder(
     state: &AppState,
     uuid: &InstanceUuid,
 ) -> Result<(GameInstance, ModFolder), Error> {
@@ -47,7 +47,7 @@ async fn mod_folder(
 }
 
 /// The Fabric loader version of a Fabric instance.
-async fn fabric_loader_version(instance: &GameInstance) -> Option<String> {
+pub(super) async fn fabric_loader_version(instance: &GameInstance) -> Option<String> {
     match instance {
         GameInstance::MinecraftInstance(i) => i.fabric_loader_version().await,
         #[cfg(feature = "deno")]

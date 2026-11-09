@@ -13,6 +13,8 @@
 //!   instance's are only recorded ([`InstanceSharing::changed`]), so the launcher can
 //!   offer to keep them as overrides before the next launch replaces them. With no
 //!   preferred instance nothing is read back.
+//! - Every change reads, changes and saves under a lock file ([`LOCK_FILE`]) next to the
+//!   documents, so two launchers on one data directory don't lose each other's changes.
 //!
 //! `resourcePacks`, `incompatibleResourcePacks` and `lastServer` ([`keys::EXCLUDED`]) are
 //! never shared, nor is any key not in [`keys::SPECS`] apart from mod key bindings the
@@ -141,9 +143,43 @@ pub fn client_jar(data: &DataDir, game_version: &str) -> PathBuf {
         .join(format!("{game_version}.jar"))
 }
 
+/// The lock file next to the global set and in each instance's folder.
+pub const LOCK_FILE: &str = "shared_options.lock";
+
+/// Held while documents are read, changed and saved, so another launcher on the same
+/// data directory (or another thread) waits instead of saving over a change made in
+/// between. An instance's lock is always taken before the global set's. Dropping it
+/// unlocks.
+struct Lock {
+    _file: std::fs::File,
+}
+
+/// Locks the documents in `dir` (the data directory or an instance's folder), waiting
+/// for whoever holds them.
+fn lock(dir: &Path) -> Result<Lock, SharedError> {
+    let path = dir.join(LOCK_FILE);
+    let file = std::fs::create_dir_all(dir)
+        .and_then(|()| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(&path)
+        })
+        .and_then(|file| file.lock().map(|()| file))
+        .map_err(|source| StorageError::Io { path, source })?;
+    Ok(Lock { _file: file })
+}
+
 /// Loads the global set. A preferred instance that no longer exists (deleted) is
 /// cleared, and the file saved.
 pub fn load_profile(data: &DataDir) -> Result<Profile, SharedError> {
+    let _lock = lock(data.root())?;
+    read_profile(data)
+}
+
+/// [`load_profile`] for a caller that holds the lock.
+fn read_profile(data: &DataDir) -> Result<Profile, SharedError> {
     let path = profile_path(data);
     let mut profile = storage::load::<Profile>(&path)?.document;
     let gone = profile.preferred.as_deref().is_some_and(|id| {
@@ -163,14 +199,26 @@ pub fn load_profile(data: &DataDir) -> Result<Profile, SharedError> {
     Ok(profile)
 }
 
-/// Changes the global set on disk.
+/// Changes the global set on disk. `change` runs under the lock, so it mustn't call back
+/// into this module.
 pub fn update_profile(
     data: &DataDir,
     change: impl FnOnce(&mut Profile),
 ) -> Result<Profile, SharedError> {
-    let mut profile = load_profile(data)?;
+    let _lock = lock(data.root())?;
+    change_profile(data, change)
+}
+
+/// [`update_profile`] for a caller that holds the lock.
+fn change_profile(
+    data: &DataDir,
+    change: impl FnOnce(&mut Profile),
+) -> Result<Profile, SharedError> {
+    let mut profile = read_profile(data)?;
+    let before = profile.clone();
     change(&mut profile);
     storage::save(&profile_path(data), &profile)?;
+    crate::trace::settings_changed("shared", &before, &profile, serde_json::Value::Null);
     Ok(profile)
 }
 
@@ -183,6 +231,7 @@ pub fn update_instance(
     instance_dir: &Path,
     change: impl FnOnce(&mut InstanceSharing),
 ) -> Result<InstanceSharing, SharedError> {
+    let _lock = lock(instance_dir)?;
     let mut sharing = load_instance(instance_dir)?;
     change(&mut sharing);
     storage::save(&instance_path(instance_dir), &sharing)?;
@@ -204,7 +253,7 @@ pub fn set_preferred(
 /// The data version of a client jar, from its `version.json` (18w47b and later).
 pub fn jar_data_version(jar: &Path) -> Option<u32> {
     let file = std::fs::File::open(jar).ok()?;
-    let mut archive = zip::ZipArchive::new(file).ok()?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).ok()?;
     let mut entry = archive.by_name("version.json").ok()?;
     if entry.size() > 64 * 1024 {
         return None;
@@ -416,10 +465,12 @@ pub fn before_launch(
     game_version: &str,
     jar: Option<&Path>,
 ) -> Result<LaunchOutcome, SharedError> {
+    let _instance = lock(instance_dir)?;
+    let _profile = lock(data.root())?;
     let mut outcome = LaunchOutcome::default();
     // A game whose exit the launcher didn't see (it quit or crashed) is read back first.
     if load_instance(instance_dir)?.session.is_some() {
-        outcome.recovered = Some(after_exit(data, instance_id, instance_dir, game_version)?);
+        outcome.recovered = Some(read_back(data, instance_id, instance_dir, game_version)?);
     }
     let mut sharing = load_instance(instance_dir)?;
     // Whatever the last game changed is about to be replaced.
@@ -429,7 +480,7 @@ pub fn before_launch(
         storage::save(&instance_path(instance_dir), &sharing)?;
         return Ok(outcome);
     }
-    let profile = load_profile(data)?;
+    let profile = read_profile(data)?;
     let path = instance_dir.join("minecraft").join(options::FILE);
     let exists = path.is_file();
     let mut file = OptionsFile::read(&path)?;
@@ -479,6 +530,18 @@ pub fn after_exit(
     instance_dir: &Path,
     game_version: &str,
 ) -> Result<ExitOutcome, SharedError> {
+    let _instance = lock(instance_dir)?;
+    let _profile = lock(data.root())?;
+    read_back(data, instance_id, instance_dir, game_version)
+}
+
+/// [`after_exit`] for a caller that holds the instance's lock and the global set's.
+fn read_back(
+    data: &DataDir,
+    instance_id: &str,
+    instance_dir: &Path,
+    game_version: &str,
+) -> Result<ExitOutcome, SharedError> {
     let mut sharing = load_instance(instance_dir)?;
     let Some(session) = sharing.session.take() else {
         return Ok(ExitOutcome::Nothing);
@@ -494,7 +557,7 @@ pub fn after_exit(
         save(&sharing)?;
         return Ok(ExitOutcome::Nothing);
     };
-    let profile = load_profile(data)?;
+    let profile = read_profile(data)?;
     let preferred = profile.preferred.as_deref() == Some(instance_id);
     let mut changed = BTreeMap::new();
     let mut new = BTreeMap::new();
@@ -514,10 +577,26 @@ pub fn after_exit(
             new.insert(key.clone(), now);
         }
     }
+    if preferred {
+        // Shared keys the file didn't have at launch: a new instance's first game writes
+        // the whole file, and the global set takes what it doesn't have yet.
+        for setting in settings(dv, std::iter::empty(), &file) {
+            if session.contains_key(&setting.key)
+                || profile.values.contains_key(&setting.key)
+                || !profile.shares(setting.category)
+                || sharing.overrides.contains(&setting.key)
+            {
+                continue;
+            }
+            if let Some(now) = setting.current(&file, dv) {
+                new.insert(setting.key, now);
+            }
+        }
+    }
     let outcome = if preferred {
         let mut keys: Vec<String> = changed.keys().cloned().collect();
         if !changed.is_empty() || !new.is_empty() {
-            update_profile(data, |profile| {
+            change_profile(data, |profile| {
                 profile.values.extend(new.clone());
                 profile.values.extend(changed.clone());
             })?;
@@ -627,6 +706,31 @@ pub fn set_value(data: &DataDir, key: &str, text: &str) -> Result<Profile, Share
     })
 }
 
+/// The keys "Keep the narrator off" shares: the narrator off, and the game's first-start
+/// accessibility screen (which the narrator reads aloud) skipped.
+pub const NARRATOR_OFF: [(&str, &str); 2] = [("narrator", "0"), ("onboardAccessibility", "false")];
+
+/// Whether the global set keeps the narrator off in every instance.
+pub fn narrator_off(profile: &Profile) -> bool {
+    NARRATOR_OFF
+        .iter()
+        .all(|(key, value)| profile.values.get(*key).map(String::as_str) == Some(*value))
+}
+
+/// Keeps the narrator off in every instance, new ones included, or stops sharing those
+/// values so each instance keeps its own.
+pub fn set_narrator_off(data: &DataDir, off: bool) -> Result<Profile, SharedError> {
+    update_profile(data, |profile| {
+        for (key, value) in NARRATOR_OFF {
+            if off {
+                profile.values.insert(key.to_string(), value.to_string());
+            } else {
+                profile.values.remove(key);
+            }
+        }
+    })
+}
+
 fn parse_value(key: &str, text: &str) -> Result<String, SharedError> {
     match find(key) {
         Some(spec) => format::parse_input(spec, text).map_err(SharedError::Invalid),
@@ -649,6 +753,7 @@ pub fn set_instance_value(
     text: &str,
 ) -> Result<(), SharedError> {
     let value = parse_value(key, text)?;
+    let _lock = lock(instance_dir)?;
     let path = instance_dir.join("minecraft").join(options::FILE);
     let mut file = OptionsFile::read(&path)?;
     let Some(target) = target(&file, game_version, jar) else {
@@ -698,6 +803,11 @@ impl Row {
             Some(spec) => format::display(spec, value),
             None => keycodes::label(value),
         }
+    }
+
+    /// How the launcher lets the user change the value. A mod's key binding is typed.
+    pub fn control(&self) -> format::Control {
+        find(&self.key).map_or(format::Control::Text, format::control)
     }
 }
 

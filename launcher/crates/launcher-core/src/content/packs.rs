@@ -39,7 +39,8 @@ pub struct FormatRange {
 /// What `pack.mcmeta` says.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PackMeta {
-    /// The description as plain text.
+    /// The description with its formatting as `§` codes (see `mc_text`); strip them
+    /// for plain text.
     pub description: String,
     pub formats: Option<FormatRange>,
 }
@@ -195,62 +196,16 @@ pub fn parse_pack_mcmeta(text: &str) -> Option<PackMeta> {
     Some(PackMeta {
         description: pack
             .get("description")
-            .map(plain_text)
+            .map(|value| match value {
+                // Already in `§` codes, if it has any.
+                Value::String(text) => text.clone(),
+                _ => crate::mc_text::to_legacy(&crate::mc_text::parse_component(value)),
+            })
             .unwrap_or_default()
             .trim()
             .to_string(),
         formats: formats(pack),
     })
-}
-
-/// A text component (a string, a list, or an object with `text`, `translate`
-/// (with its `fallback`) and `extra`) as plain text, with `§` formatting codes removed.
-pub fn plain_text(component: &Value) -> String {
-    fn walk(value: &Value, out: &mut String, depth: usize) {
-        if depth > 16 || out.len() > 4096 {
-            return;
-        }
-        match value {
-            Value::String(text) => out.push_str(text),
-            Value::Number(n) => out.push_str(&n.to_string()),
-            Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-            Value::Array(parts) => {
-                for part in parts {
-                    walk(part, out, depth + 1);
-                }
-            }
-            Value::Object(object) => {
-                if let Some(text) = object.get("text") {
-                    walk(text, out, depth + 1);
-                } else if let Some(fallback) = object.get("fallback") {
-                    walk(fallback, out, depth + 1);
-                } else if let Some(key) = object.get("translate").and_then(Value::as_str) {
-                    out.push_str(key);
-                }
-                if let Some(extra) = object.get("extra") {
-                    walk(extra, out, depth + 1);
-                }
-            }
-            Value::Null => {}
-        }
-    }
-    let mut out = String::new();
-    walk(component, &mut out, 0);
-    strip_formatting(&out)
-}
-
-/// Removes `§x` formatting codes.
-pub fn strip_formatting(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars();
-    while let Some(c) = chars.next() {
-        if c == '§' {
-            chars.next();
-        } else {
-            out.push(c);
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -283,7 +238,8 @@ mod tests {
         let meta =
             parse_pack_mcmeta(r#"{"pack": {"pack_format": 15, "description": "§6Gold §lpack"}}"#)
                 .unwrap();
-        assert_eq!(meta.description, "Gold pack");
+        assert_eq!(meta.description, "§6Gold §lpack");
+        assert_eq!(crate::mc_text::strip(&meta.description), "Gold pack");
         assert_eq!(
             meta.formats,
             Some(FormatRange {
@@ -296,7 +252,8 @@ mod tests {
                 "description": [{"text": "A "}, {"text": "pack", "color": "red", "extra": ["!"]}]}}"#,
         )
         .unwrap();
-        assert_eq!(meta.description, "A pack!");
+        assert_eq!(crate::mc_text::strip(&meta.description), "A pack!");
+        assert_eq!(meta.description, "A §r§cpack!");
         assert_eq!(meta.formats.unwrap().max.major, 34);
         let meta = parse_pack_mcmeta(
             r#"{"pack": {"pack_format": 18, "supported_formats": {"min_inclusive": 16, "max_inclusive": 22},

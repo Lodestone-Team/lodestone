@@ -49,6 +49,10 @@ indexmap = { version = "2.14.2", features = ["serde"] }
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["aws_lc_rs"] }
 local-ip-address = "0.6.13"
 lodestone_minecraft = { path = "../crates/lodestone-minecraft", features = ["ts-rs"] }
+# Lodestone Connect: sharing an instance with friends through an invite link.
+lodestone_connect = { path = "../crates/lodestone-connect", features = ["host"] }
+# Debug traces (local, owner only), shared with the launcher.
+lodestone_trace = { path = "../crates/lodestone-trace" }
 playit-agent-core = "=0.20.1"
 playit-api-client = "=0.1.2"
 rand = "0.10.3"
@@ -70,6 +74,7 @@ serde-aux = { version = "4.7.0", default-features = false }
 serde_json = { version = "1.0.154", features = ["preserve_order", "float_roundtrip"] }
 sha1 = "0.10.7"
 sha2 = "0.10.9"
+socket2 = "0.6.5"
 # constant-time comparison of API key hashes
 subtle = "2.6.1"
 # Pinned to a launchbadge/sqlx main commit: the latest release (0.9.0) caps libsqlite3-sys <0.38,
@@ -107,6 +112,11 @@ which = "8.0.6"
 whoami = "2.1.3"
 zip = { version = "9.0.5", default-features = false, features = ["deflate", "deflate64", "bzip2", "zstd", "time"] }
 rcgen = { version = "=0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
+
+# Already in the lockfile through other crates: O_NOFOLLOW and the effective uid for the
+# local claim's folder (src/local_claim.rs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 # WebSocket client for the API key tests; axum's `ws` feature already locks this version

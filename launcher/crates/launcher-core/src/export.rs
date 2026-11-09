@@ -7,6 +7,11 @@
 //! `content.json`) is listed in the index with its CDN URL instead, so the pack
 //! downloads it rather than carrying a copy.
 //!
+//! A file that came from CurseForge and isn't on Modrinth can't be listed (a `.mrpack`
+//! only downloads from Modrinth's and a few code hosts), and copying it into the pack
+//! would hand out the author's file, so [`plan_leaving_out`] leaves it out and names it
+//! in [`ExportPlan::curseforge_left_out`].
+//!
 //! See <https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack>.
 
 use std::{
@@ -46,6 +51,8 @@ pub struct ExportPlan {
     pub overrides: Vec<(String, PathBuf)>,
     /// Files left out, and why.
     pub skipped: Vec<(String, String)>,
+    /// The titles of the files left out because they are only on CurseForge.
+    pub curseforge_left_out: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -102,6 +109,17 @@ pub fn modrinth_files(instance_dir: &Path) -> HashMap<String, ModrinthFile> {
         .collect()
 }
 
+/// The files of an instance that came from CurseForge and aren't on Modrinth, by
+/// SHA-512, with their titles, from its `content.json`.
+pub fn curseforge_only_files(instance_dir: &Path) -> HashMap<String, String> {
+    Provenance::load(instance_dir)
+        .files
+        .into_values()
+        .filter(|entry| entry.modrinth.is_none() && !entry.sha512.is_empty())
+        .filter_map(|entry| Some((entry.sha512, entry.curseforge?.title)))
+        .collect()
+}
+
 /// Whether a file at `relative` can be an index entry: a mod jar, or a resource or
 /// shader pack zip, directly in its folder.
 fn index_candidate(relative: &str) -> Option<ContentKind> {
@@ -119,12 +137,25 @@ fn index_candidate(relative: &str) -> Option<ContentKind> {
 }
 
 /// Plans the pack of `instance`, whose game folder is `game_dir`. `on_modrinth` maps a
-/// file's SHA-512 to where it is on Modrinth.
+/// file's SHA-512 to where it is on Modrinth. Every other file is copied, which suits a
+/// pack for the user's own server; one to share uses [`plan_leaving_out`].
 pub fn plan(
     instance: &Instance,
     game_dir: &Path,
     on_modrinth: &HashMap<String, ModrinthFile>,
 ) -> Result<ExportPlan, ExportError> {
+    plan_leaving_out(instance, game_dir, on_modrinth, &HashMap::new())
+}
+
+/// [`plan`], leaving out the files in `curseforge_only` (SHA-512 → title, from
+/// [`curseforge_only_files`]) rather than copying them into the pack.
+pub fn plan_leaving_out(
+    instance: &Instance,
+    game_dir: &Path,
+    on_modrinth: &HashMap<String, ModrinthFile>,
+    curseforge_only: &HashMap<String, String>,
+) -> Result<ExportPlan, ExportError> {
+    let mut curseforge_left_out = Vec::new();
     let mut files = Vec::new();
     let mut overrides = Vec::new();
     let mut skipped = Vec::new();
@@ -173,6 +204,15 @@ pub fn plan(
                     });
                     continue;
                 }
+                if let Some(title) = curseforge_only.get(&sha512) {
+                    skipped.push((
+                        relative,
+                        "it is only on CurseForge, whose files can't go into a Modrinth pack"
+                            .into(),
+                    ));
+                    curseforge_left_out.push(title.clone());
+                    continue;
+                }
             }
             overrides.push((format!("overrides/{relative}"), path));
         }
@@ -202,6 +242,7 @@ pub fn plan(
         },
         overrides,
         skipped,
+        curseforge_left_out,
     })
 }
 
@@ -245,9 +286,9 @@ pub fn write(plan: &ExportPlan, out: &Path) -> Result<(), ExportError> {
     let tmp = out.with_extension("mrpack.part");
     let result = (|| {
         let file = File::create(&tmp).map_err(io_error(&tmp))?;
-        let mut zip = zip::ZipWriter::new(file);
-        let deflated =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let mut zip = zip::ZipWriter::new(io::BufWriter::with_capacity(1 << 20, file));
+        let deflated = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         zip.start_file(mrpack::INDEX_FILE, deflated)?;
         let index = serde_json::to_vec_pretty(&plan.index).map_err(|err| ExportError::Io {
             path: out.to_owned(),
@@ -257,7 +298,7 @@ pub fn write(plan: &ExportPlan, out: &Path) -> Result<(), ExportError> {
         for (name, path) in &plan.overrides {
             // Jars are compressed already.
             let options = if name.ends_with(".jar") || name.ends_with(".zip") {
-                zip::write::FileOptions::default()
+                zip::write::SimpleFileOptions::default()
                     .compression_method(zip::CompressionMethod::Stored)
                     .large_file(true)
             } else {
@@ -267,8 +308,12 @@ pub fn write(plan: &ExportPlan, out: &Path) -> Result<(), ExportError> {
             let mut source = File::open(path).map_err(io_error(path))?;
             io::copy(&mut source, &mut zip).map_err(io_error(path))?;
         }
-        zip.finish()?.sync_all().map_err(io_error(&tmp))?;
-        fs::rename(&tmp, out).map_err(io_error(out))
+        zip.finish()?
+            .into_inner()
+            .map_err(|err| io_error(&tmp)(err.into_error()))?
+            .sync_all()
+            .map_err(io_error(&tmp))?;
+        crate::fsx::rename(&tmp, out).map_err(io_error(out))
     })();
     if result.is_err() {
         let _ = fs::remove_file(&tmp);

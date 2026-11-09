@@ -122,14 +122,14 @@ impl TConfigurable for GenericInstance {
     async fn set_backup_period(&self, _backup_period: Option<u32>) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support setting backup period"),
+            source: eyre!("This server does not support setting backup period"),
         })
     }
 
     async fn change_version(&self, _version: String) -> Result<(), Error> {
         Err(Error {
             kind: ErrorKind::UnsupportedOperation,
-            source: eyre!("This instance does not support changing version"),
+            source: eyre!("This server does not support changing version"),
         })
     }
 

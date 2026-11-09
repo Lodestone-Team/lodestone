@@ -263,12 +263,11 @@ fn prepare_parent(root: &Path, target: &Path) -> Result<PathBuf, Error> {
         .parent()
         .ok_or_else(|| eyre!("{} has no parent folder", target.display()))?;
     std::fs::create_dir_all(parent).context("Failed to create a folder for the modpack")?;
-    let canonical_root =
-        std::fs::canonicalize(root).context("Failed to read the instance folder")?;
+    let canonical_root = std::fs::canonicalize(root).context("Failed to read the server folder")?;
     let canonical_parent =
         std::fs::canonicalize(parent).context("Failed to read a folder of the modpack")?;
     if !canonical_parent.starts_with(&canonical_root) {
-        return Err(unsafe_pack("a path leaves the instance folder"));
+        return Err(unsafe_pack("a path leaves the server folder"));
     }
     Ok(parent.to_path_buf())
 }
@@ -291,7 +290,7 @@ async fn download_one(
             .map_err(|e| eyre!("The modpack task failed: {e}"))??
     };
     if is_link(&target) {
-        return Err(unsafe_pack("a path leaves the instance folder"));
+        return Err(unsafe_pack("a path leaves the server folder"));
     }
     let mut last_error = None;
     for url in &download.urls {
@@ -345,7 +344,7 @@ fn write_override<R: Read>(
     let target = root.join(relative);
     let parent = prepare_parent(root, &target)?;
     if is_link(&target) {
-        return Err(unsafe_pack("a path leaves the instance folder"));
+        return Err(unsafe_pack("a path leaves the server folder"));
     }
     let mut temp = tempfile::Builder::new()
         .prefix(".lodestone-extract-")

@@ -46,6 +46,7 @@ import {
 } from 'usehooks-ts';
 import ResizePanel from 'components/Atoms/ResizePanel';
 import { Dialog, Menu, Transition } from '@headlessui/react';
+import { ModalBackdrop, ModalPanel } from 'components/Atoms/Modal';
 import { useUserAuthorized } from 'data/UserInfo';
 import { useQueryParam } from 'utils/hooks';
 import { toast } from 'react-toastify';
@@ -64,6 +65,7 @@ import { UnzipOption } from 'bindings/UnzipOption';
 import { FileViewerContext, FileViewerContextValue } from './FileViewerContext';
 import { getDirectorySeparator } from './paths';
 import { SkeletonCode, SkeletonGroup } from 'components/Atoms/Skeleton';
+import { useT } from 'i18n';
 
 // The instance whose files were shown last. FileViewer remounts per instance
 // (InstanceTabs keys it by uuid), so this tells a switch to another instance,
@@ -72,9 +74,10 @@ import { SkeletonCode, SkeletonGroup } from 'components/Atoms/Skeleton';
 let lastInstanceUuid: string | undefined;
 
 export default function FileViewer() {
-  useDocumentTitle('Instance File Viewer - Lodestone');
+  const t = useT();
+  useDocumentTitle(t('common.pageTitle', { page: t('files.pageTitle') }));
   const { selectedInstance: instance } = useContext(InstanceContext);
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
   const canRead = useUserAuthorized('can_read_instance_file', instance?.uuid);
   const canWrite = useUserAuthorized('can_write_instance_file', instance?.uuid);
   const queryClient = useQueryClient();
@@ -223,13 +226,18 @@ export default function FileViewer() {
       tickedFiles.map(async (file) => {
         const timeout = file.file_type == 'Directory' ? 60000 : 5000;
         if (file.file_type === 'Directory') {
-          toast.info('Zipping directory for download...');
+          toast.info(t('files.zippingForDownload'));
         }
         try {
           await downloadInstanceFile(instance.uuid, file, timeout);
           tickFile(file, false);
         } catch (e) {
-          toast.error(`Failed to download ${file.name}: ${errorToString(e)}`);
+          toast.error(
+            t('files.downloadFailed', {
+              name: file.name,
+              error: errorToString(e),
+            })
+          );
         }
       })
     );
@@ -244,7 +252,7 @@ export default function FileViewer() {
 
   const unzipFile = async (file: ClientFile, unzipOption: UnzipOption) => {
     if (file.file_type !== 'File') {
-      toast.error('Only files can be unzipped');
+      toast.error(t('files.onlyFilesUnzip'));
       return;
     }
 
@@ -271,7 +279,7 @@ export default function FileViewer() {
           ? (item as any).getAsEntry()
           : item.webkitGetAsEntry();
       if (entry.isDirectory) {
-        toast.error('Only files can be uploaded');
+        toast.error(t('files.onlyFilesUpload'));
         return;
       }
     }
@@ -397,14 +405,17 @@ export default function FileViewer() {
           setFilesToDelete([]);
           await deleteFiles(files);
         }}
-        title="Delete file(s)"
+        title={t('files.delete.title', { count: filesToDelete.length })}
         type="danger"
       >
-        Are you sure you want to delete the following?
+        {t('files.delete.message')}
         <ul className="list-inside list-disc">
           {filesToDelete.map((file) => (
             <li key={file.path}>
-              {file.name} {file.file_type != 'File' && `(${file.file_type})`}
+              {file.name}{' '}
+              {file.file_type === 'Directory'
+                ? t('files.delete.directory')
+                : file.file_type !== 'File' && t('files.delete.unknownType')}
             </li>
           ))}
         </ul>
@@ -421,25 +432,27 @@ export default function FileViewer() {
           }}
         >
           <div {...dropZoneHandlers(setDroppingDialog)}>
-            <div className="fixed inset-0 bg-scrim-strong" />
+            <ModalBackdrop strong />
             <div className="fixed inset-0 overflow-y-auto">
               <div className="pointer-events-none flex min-h-full items-center justify-center p-4 text-center text-white/50">
-                <Dialog.Panel className="pointer-events-none  flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800/50 pb-8 pt-12">
+                <ModalPanel className="pointer-events-none flex w-[200px] flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-gray-faded/30 bg-gray-800/50 pt-12 pb-8">
                   <FontAwesomeIcon
                     className="pointer-events-none m-0 p-0 text-h1 text-gray-faded/80"
                     icon={faDownload}
                   />
-                  <p className="pointer-events-none">Release to Upload File</p>
-                </Dialog.Panel>
+                  <p className="pointer-events-none">
+                    {t('files.dropToUpload')}
+                  </p>
+                </ModalPanel>
               </div>
             </div>
           </div>
         </Dialog>
         <div className="flex flex-row items-center justify-between gap-4">
-          <Menu as="div" className="relative inline-block text-left">
+          <Menu as="div" className="relative inline-block shrink-0 text-left">
             <Menu.Button
               as={Button}
-              label="Add/Remove"
+              label={t('files.toolbar.addRemove')}
               icon={faCaretDown}
               disabled={!fileList}
             ></Menu.Button>
@@ -453,16 +466,16 @@ export default function FileViewer() {
               leaveTo="opacity-0 -translate-y-1"
             >
               <Menu.Items className="absolute -left-0.5 z-10 mt-2 origin-top-left divide-y divide-gray-faded/30 rounded border border-gray-faded/30 bg-gray-800 drop-shadow-md focus:outline-hidden">
-                <div className="py-2 px-1.5">
+                <div className="px-1.5 py-2">
                   <Menu.Item disabled={!fileList}>
                     {({ active, disabled }) => (
                       <Button
                         label={
                           tickedFiles.length === fileList?.length
-                            ? 'Deselect all'
-                            : 'Select all'
+                            ? t('files.toolbar.deselectAll')
+                            : t('files.toolbar.selectAll')
                         }
-                        className="w-full whitespace-nowrap py-1.5"
+                        className="w-full py-1.5 whitespace-nowrap"
                         onClick={() => {
                           if (!fileList) return;
                           if (tickedFiles.length === fileList.length) {
@@ -481,17 +494,17 @@ export default function FileViewer() {
                   <Menu.Item disabled={tickedFiles.length === 0 || !canWrite}>
                     {({ active, disabled }) => (
                       <Button
-                        className="w-full whitespace-nowrap py-1.5"
-                        label="Cut selected"
+                        className="w-full py-1.5 whitespace-nowrap"
+                        label={t('files.toolbar.cutSelected')}
                         icon={faScissors}
                         onClick={() => {
                           setClipboard(tickedFiles);
                           setClipboardAction('cut');
                           setTickedFiles([]);
                           toast.info(
-                            `${tickedFiles.length} ${
-                              tickedFiles.length === 1 ? 'file' : 'files'
-                            } cut to clipboard`
+                            t('files.cutToClipboard', {
+                              count: tickedFiles.length,
+                            })
                           );
                         }}
                         variant="text"
@@ -503,8 +516,8 @@ export default function FileViewer() {
                   <Menu.Item disabled={tickedFiles.length === 0 || !canRead}>
                     {({ active, disabled }) => (
                       <Button
-                        className="w-full whitespace-nowrap py-1.5"
-                        label="Download selected"
+                        className="w-full py-1.5 whitespace-nowrap"
+                        label={t('files.toolbar.downloadSelected')}
                         icon={faDownload}
                         onClick={downloadTickedFiles}
                         variant="text"
@@ -516,8 +529,8 @@ export default function FileViewer() {
                   <Menu.Item disabled={tickedFiles.length !== 1 || !canWrite}>
                     {({ active, disabled }) => (
                       <Button
-                        className="w-full whitespace-nowrap py-1.5"
-                        label="Unarchive selected"
+                        className="w-full py-1.5 whitespace-nowrap"
+                        label={t('files.toolbar.unarchiveSelected')}
                         icon={faFileZipper}
                         onClick={unzipTickedFile}
                         variant="text"
@@ -527,12 +540,12 @@ export default function FileViewer() {
                     )}
                   </Menu.Item>
                 </div>
-                <div className="py-2 px-1.5">
+                <div className="px-1.5 py-2">
                   <Menu.Item disabled={!canWrite}>
                     {({ active, disabled }) => (
                       <Button
-                        label="New file"
-                        className="w-full whitespace-nowrap py-1.5"
+                        label={t('files.newFile')}
+                        className="w-full py-1.5 whitespace-nowrap"
                         onClick={() =>
                           fileViewerContext.openCreateFileModal(path)
                         }
@@ -546,8 +559,8 @@ export default function FileViewer() {
                   <Menu.Item disabled={!canWrite}>
                     {({ active, disabled }) => (
                       <Button
-                        label="New folder"
-                        className="w-full whitespace-nowrap py-1.5"
+                        label={t('files.newFolder')}
+                        className="w-full py-1.5 whitespace-nowrap"
                         onClick={() =>
                           fileViewerContext.openCreateFolderModal(path)
                         }
@@ -559,12 +572,12 @@ export default function FileViewer() {
                     )}
                   </Menu.Item>
                 </div>
-                <div className="py-2 px-1.5">
+                <div className="px-1.5 py-2">
                   <Menu.Item disabled={tickedFiles.length === 0 || !canWrite}>
                     {({ active, disabled }) => (
                       <Button
-                        label="Delete selected"
-                        className="w-full whitespace-nowrap py-1.5"
+                        label={t('files.toolbar.deleteSelected')}
+                        className="w-full py-1.5 whitespace-nowrap"
                         onClick={() => setFilesToDelete(tickedFiles)}
                         icon={faTrashCan}
                         variant="text"
@@ -588,10 +601,8 @@ export default function FileViewer() {
 
           {clipboard.length !== 0 && (
             <Button
-              className="h-fit whitespace-nowrap"
-              label={`Paste ${clipboard.length} ${
-                clipboard.length > 1 ? 'files' : 'file'
-              }`}
+              className="h-fit shrink-0 whitespace-nowrap"
+              label={t('files.toolbar.paste', { count: clipboard.length })}
               icon={faPaste}
               onClick={() => pasteFiles(path)}
             />
@@ -599,8 +610,8 @@ export default function FileViewer() {
           {showingMonaco && (
             <>
               <Button
-                className="h-fit"
-                label="Save"
+                className="h-fit shrink-0 whitespace-nowrap"
+                label={t('common.save')}
                 icon={faFloppyDisk}
                 onClick={() =>
                   saveInstanceFile(
@@ -618,8 +629,9 @@ export default function FileViewer() {
                 }
               />
               <Button
-                className="h-fit whitespace-nowrap"
-                label="Discard Changes"
+                // the longest label: the one that truncates on a narrow screen
+                className="h-fit min-w-0 whitespace-nowrap"
+                label={t('files.toolbar.discardChanges')}
                 icon={faArrowsRotate}
                 onClick={() => setFileContent(originalFileContent || '')}
                 disabled={
@@ -631,8 +643,8 @@ export default function FileViewer() {
             </>
           )}
           <Button
-            className="h-fit"
-            label="Upload"
+            className="h-fit shrink-0 whitespace-nowrap"
+            label={t('files.toolbar.upload')}
             icon={faUpload}
             onClick={chooseFilesToUpload}
             disabled={!canWrite}
@@ -695,7 +707,7 @@ export default function FileViewer() {
                   ) : isFileLoading && !fileError ? (
                     // the file's lines; a file that loads quickly shows nothing
                     <SkeletonGroup
-                      label="Loading file"
+                      label={t('files.loadingFile')}
                       className="size-full bg-gray-800 p-4"
                     >
                       <SkeletonCode lines={16} />
@@ -703,11 +715,11 @@ export default function FileViewer() {
                   ) : (
                     <ErrorGraphic
                       icon={faFilePen}
-                      message="File Editor"
+                      message={t('files.editor.title')}
                       message2={
                         fileError
-                          ? fileError?.message ?? 'Unknown Error'
-                          : 'Select a file to view its contents'
+                          ? (fileError?.message ?? t('common.unknownError'))
+                          : t('files.editor.selectFile')
                       }
                       iconClassName="text-gray-500"
                       messageClassName="text-gray-400"
@@ -720,20 +732,22 @@ export default function FileViewer() {
         ) : (
           <ErrorGraphic
             icon={faFolder}
-            message="You don't have permission to read this folder"
-            className="text-clip rounded-lg border border-gray-faded/30"
+            message={t('files.noReadPermission')}
+            className="rounded-lg border border-gray-faded/30 text-clip"
             iconClassName="text-gray-400"
             messageClassName="text-white/50"
           />
         )}
         <div className="absolute bottom-0 left-0 flex translate-y-full flex-row gap-4 px-4 py-2 text-medium font-medium text-white/50">
-          {tickedFiles.length === 1 && <div>1 item selected</div>}
-          {tickedFiles.length > 1 && (
-            <div>{tickedFiles.length} items selected</div>
+          {tickedFiles.length > 0 && (
+            <div>
+              {t('files.status.selected', { count: tickedFiles.length })}
+            </div>
           )}
-          {clipboard.length === 1 && <div>1 item in clipboard</div>}
-          {clipboard.length > 1 && (
-            <div>{clipboard.length} items in clipboard</div>
+          {clipboard.length > 0 && (
+            <div>
+              {t('files.status.inClipboard', { count: clipboard.length })}
+            </div>
           )}
         </div>
       </div>

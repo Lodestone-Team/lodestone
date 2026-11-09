@@ -1,13 +1,22 @@
 //! The main area: the selected instance's header and tabs, the tab's content, and
 //! the bottom bar with the large Play button.
 
-use gpui::{Context, IntoElement, ObjectFit, SharedString, div, img, prelude::*, px};
-use launcher_core::instances::Instance;
+use crate::skin::Skinned;
+use crate::theme::px;
+use gpui::{AnyElement, Context, IntoElement, ObjectFit, SharedString, div, img, prelude::*};
+use launcher_core::instances::{BackgroundMode, Instance};
+use launcher_core::ui_skin::SurfaceId;
 
-use super::{InstanceTab, LauncherShell};
+use super::{InstanceTab, LauncherShell, loader_label};
 use crate::{
-    components::{Align, Button, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs},
-    instances::{PlayState, play_time},
+    components::{
+        Align, Button, ButtonSize, ButtonVariant, Icon, PlayButton, PlayButtonState, Tabs,
+        a11y::{Accessible, Role},
+    },
+    i18n::{ShellMsg as M, t, tr},
+    instances::appearance::{Background, scrim_layers},
+    instances::{Ago, PlayState, play_time},
+    servers::InstanceLink,
     theme::{self, colors, fonts, leading, radius, text, weights},
 };
 
@@ -15,20 +24,30 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
     let tab = shell.tab;
     let selected = InstanceTab::ALL.iter().position(|t| *t == tab).unwrap_or(0);
     let instance = shell.instances.read(cx).selected().cloned();
+    let link = instance
+        .as_ref()
+        .and_then(|i| shell.servers.read(cx).instance_link(&i.id));
     let (title, subtitle): (SharedString, SharedString) = match &instance {
         Some(instance) => (
             instance.name.clone().into(),
-            format!(
-                "Minecraft {} · {} · {}",
-                instance.game_version,
-                instance.loader_label(),
-                play_time(instance.play_time)
-            )
+            {
+                let mut parts = vec![
+                    tr!(M::MinecraftVersion, version = instance.game_version),
+                    loader_label(instance),
+                ];
+                // A game that is running for the first time has been played, but has
+                // no play time yet.
+                if instance.play_time > 0 || instance.last_played.is_none() {
+                    parts.push(play_time(instance.play_time));
+                }
+                parts.extend(instance.last_played.map(|when| Ago::since(when).played()));
+                parts.join(" · ")
+            }
             .into(),
         ),
         None => (
-            "No instance selected".into(),
-            "Create an instance to choose a Minecraft version and loader.".into(),
+            t(M::NoInstanceSelected).into(),
+            t(M::NoInstanceSelectedHint).into(),
         ),
     };
     div()
@@ -50,19 +69,20 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                         .flex_col()
                         .child(
                             div()
-                                .font_family(fonts::TITLE)
+                                .font_family(fonts::display())
                                 .text_size(theme::text_size(text::H1))
                                 .line_height(theme::line_height(text::H1, leading::TIGHT))
                                 .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_300)
+                                .text_color(crate::theme::ink::text())
                                 .child(title),
                         )
                         .child(
                             div()
-                                .text_color(colors::GRAY_500)
+                                .text_color(crate::theme::ink::muted())
                                 .font_weight(weights::BOLD.into())
                                 .child(subtitle),
-                        ),
+                        )
+                        .children(link.as_ref().map(linked_to)),
                 )
                 .child(
                     Tabs::new("instance-tabs", InstanceTab::ALL.map(InstanceTab::label))
@@ -84,48 +104,73 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .px_8()
                 .py_5()
                 .child(match (tab, &instance) {
-                    (InstanceTab::Play, _) => hero(instance.as_ref(), cx).into_any_element(),
+                    (InstanceTab::Play, _) => {
+                        let backdrop = match instance.as_ref().map(Instance::background_mode) {
+                            Some(BackgroundMode::Slideshow(_)) => {
+                                Backdrop::Slideshow(shell.slideshow.clone().into_any_element())
+                            }
+                            _ => instance
+                                .as_ref()
+                                .and_then(|i| shell.instances.read(cx).background(&i.id).cloned())
+                                // the skin's hero for an instance without its own image
+                                .or_else(|| crate::skin::look(cx).hero.clone())
+                                .map_or(Backdrop::Artwork, Backdrop::Image),
+                        };
+                        hero(instance.as_ref(), backdrop, cx).into_any_element()
+                    }
                     (InstanceTab::Settings, Some(_)) => match shell.settings_view() {
                         Some(settings) => settings.clone().into_any_element(),
-                        None => placeholder("Settings appear here once you have an instance.")
-                            .into_any_element(),
+                        None => placeholder(t(M::SettingsPlaceholder)).into_any_element(),
                     },
                     (InstanceTab::Logs, Some(_)) => shell.console.clone().into_any_element(),
                     (InstanceTab::Content, Some(_)) => shell.content.clone().into_any_element(),
                     (InstanceTab::Worlds, Some(_)) => shell.worlds.clone().into_any_element(),
-                    (other, None) => placeholder(format!(
-                        "{} appear here once you have an instance.",
-                        other.label()
-                    ))
+                    (other, None) => placeholder(t(match other {
+                        InstanceTab::Content => M::ContentPlaceholder,
+                        InstanceTab::Worlds => M::WorldsPlaceholder,
+                        InstanceTab::Logs => M::LogsPlaceholder,
+                        InstanceTab::Play | InstanceTab::Settings => M::SettingsPlaceholder,
+                    }))
                     .into_any_element(),
                 }),
         )
         .child(play_bar(shell, instance.as_ref(), cx))
 }
 
+/// What the banner shows behind the name.
+enum Backdrop {
+    /// The launcher's artwork.
+    Artwork,
+    /// The instance's own image.
+    Image(Background),
+    /// The slideshow, which draws its own images and scrim.
+    Slideshow(AnyElement),
+}
+
 /// The banner: our own artwork in the dashboard's colours, with the instance's name,
 /// or an invitation to create one.
-fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+fn hero(
+    instance: Option<&Instance>,
+    backdrop: Backdrop,
+    cx: &mut Context<LauncherShell>,
+) -> impl IntoElement {
+    let lit = !matches!(backdrop, Backdrop::Artwork);
     let (title, body): (SharedString, SharedString) = match instance {
         Some(instance) => (
             instance.name.clone().into(),
-            match instance.last_played {
-                Some(_) => format!(
-                    "{}. Played for {}.",
-                    described(instance),
-                    play_time(instance.play_time).to_lowercase()
+            match instance.last_played.filter(|_| instance.play_time > 0) {
+                Some(_) => tr!(
+                    M::HeroPlayed,
+                    game = described(instance),
+                    time = play_time(instance.play_time).to_lowercase()
                 )
                 .into(),
-                None => format!(
-                    "{}. Press Play to download it and start the game.",
-                    described(instance)
-                )
-                .into(),
+                None => tr!(M::HeroNotPlayed, game = described(instance)).into(),
             },
         ),
         None => (
-            "Create your first instance".into(),
-            "An instance is a Minecraft version with its own mods, worlds and settings.".into(),
+            t(M::CreateFirstInstance).into(),
+            t(M::InstanceExplainer).into(),
         ),
     };
     div()
@@ -137,15 +182,34 @@ fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl In
         .rounded(radius::XL)
         .overflow_hidden()
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_900)
-        .child(
-            img(crate::images::hero(cx))
-                .absolute()
-                .inset_0()
-                .size_full()
-                .object_fit(ObjectFit::Cover),
-        )
+        .map(|this| match backdrop {
+            Backdrop::Slideshow(slideshow) => this.child(slideshow),
+            // The instance's own image, with a scrim as dark as it needs under the text.
+            Backdrop::Image(background) => this
+                .child(
+                    img(background.image.clone())
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .rounded(radius::XL)
+                        .object_fit(ObjectFit::Cover),
+                )
+                .children(scrim_layers(background.scrim, radius::XL)),
+            // the skin's colour or gradient, or the launcher's artwork
+            Backdrop::Artwork => match crate::skin::painted(SurfaceId::Hero) {
+                Some(painted) if painted.paint.is_some() => crate::skin::paint(this, &painted),
+                _ => this.child(
+                    img(crate::images::hero(cx))
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .rounded(radius::XL)
+                        .object_fit(ObjectFit::Cover),
+                ),
+            },
+        })
         .child(
             div()
                 .relative()
@@ -156,7 +220,11 @@ fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl In
                 .max_w(px(460.))
                 .child(
                     div()
-                        .font_family(fonts::TITLE)
+                        .id("hero-title")
+                        .accessible(Role::Heading, "hero-title", title.clone())
+                        .aria_level(1)
+                        .aria_description(body.clone())
+                        .font_family(fonts::title())
                         .text_size(theme::text_size(text::XLARGE_2))
                         .line_height(theme::line_height(text::XLARGE_2, leading::TIGHT))
                         .font_weight(weights::BOLD.into())
@@ -167,13 +235,17 @@ fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl In
                     div()
                         .text_size(theme::text_size(text::H3))
                         .line_height(theme::line_height(text::H3, leading::NORMAL))
-                        .text_color(colors::GRAY_400)
+                        .text_color(if lit {
+                            colors::GRAY_300
+                        } else {
+                            colors::GRAY_400
+                        })
                         .child(body),
                 )
                 .when(instance.is_none(), |this| {
                     this.child(
                         div().flex().mt_2().child(
-                            Button::new("hero-new-instance", "New instance...")
+                            Button::new("hero-new-instance", t(M::NewInstance))
                                 .variant(ButtonVariant::Primary)
                                 .icon(Icon::SquarePlus)
                                 .align(Align::Start)
@@ -186,14 +258,47 @@ fn hero(instance: Option<&Instance>, cx: &mut Context<LauncherShell>) -> impl In
         )
 }
 
+/// "Linked to Survival SMP on Peter's core", under the instance's name.
+fn linked_to(link: &InstanceLink) -> impl IntoElement + use<> {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .mt_1()
+        .child(
+            div()
+                .flex_none()
+                .size(px(6.))
+                .rounded_full()
+                .bg(crate::theme::accent::light()),
+        )
+        .child(
+            div()
+                .truncate()
+                .text_size(theme::text_size(text::SMALL))
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::accent::light())
+                .child(tr!(
+                    if link.core_known {
+                        M::LinkedTo
+                    } else {
+                        M::LinkedToRemoved
+                    },
+                    server = link.server_name,
+                    core = link.core_name
+                )),
+        )
+}
+
 /// "Minecraft 1.20.1", or "Minecraft 1.20.1 with Fabric 0.16.14".
 fn described(instance: &Instance) -> String {
     match instance.loader.kind() {
-        None => format!("Minecraft {}", instance.game_version),
-        Some(_) => format!(
-            "Minecraft {} with {}",
-            instance.game_version,
-            instance.loader_label()
+        None => tr!(M::MinecraftVersion, version = instance.game_version),
+        Some(_) => tr!(
+            M::MinecraftWith,
+            version = instance.game_version,
+            loader = instance.loader_label()
         ),
     }
 }
@@ -214,51 +319,7 @@ fn placeholder(message: impl Into<SharedString>) -> impl IntoElement {
         .child(message.into())
 }
 
-/// A picker in the bottom bar: a caption over a value.
-fn picker(
-    id: &'static str,
-    caption: &'static str,
-    value: impl Into<SharedString>,
-    enabled: bool,
-) -> impl IntoElement {
-    div()
-        .id(id)
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_3()
-        .w(px(200.))
-        .px_3()
-        .py_2()
-        .rounded(radius::LG)
-        .border_1()
-        .border_color(colors::FADE_700)
-        .bg(colors::GRAY_800)
-        .when(!enabled, |this| this.opacity(0.6))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .text_size(theme::text_size(text::CAPTION))
-                        .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_500)
-                        .child(caption),
-                )
-                .child(
-                    div()
-                        .truncate()
-                        .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_300)
-                        .child(value.into()),
-                ),
-        )
-}
-
-/// The bar under the tabs: the instance, Play, and the version.
+/// The bar under the tabs: Play.
 fn play_bar(
     shell: &LauncherShell,
     instance: Option<&Instance>,
@@ -280,6 +341,22 @@ fn play_bar(
     };
     let id = instance.map(|i| i.id.clone());
     let stop_id = id.clone();
+    // An instance made for a server plays on it: the same mod check as the Servers
+    // page, then the game joins. "Play without joining" is the plain Play.
+    let servers = shell.servers.read(cx);
+    let link = id.as_ref().and_then(|id| servers.instance_link(id));
+    let busy = id
+        .as_ref()
+        .and_then(|id| servers.instance_busy(id))
+        .map(|busy| busy.label());
+    let joins = link.is_some() && matches!(state, PlayButtonState::Ready);
+    let (state, caption) = match (&link, busy) {
+        (Some(_), Some(busy)) if joins => (PlayButtonState::Disabled, Some(busy)),
+        (Some(link), None) if joins => (state, Some(tr!(M::AndJoin, server = link.server_name))),
+        _ => (state, None),
+    };
+    let single_id = id.clone();
+    let resolved = crate::skin::resolve(&crate::skin::look(cx).spec, instance);
     div()
         .flex()
         .flex_row()
@@ -288,39 +365,57 @@ fn play_bar(
         .justify_center()
         .gap_6()
         .w_full()
+        .overflow_hidden()
         .px_8()
         .py_4()
         .border_t_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_850)
-        .child(picker(
-            "instance-picker",
-            "INSTANCE",
-            instance.map_or("No instances".to_string(), |i| i.name.clone()),
-            instance.is_some(),
-        ))
+        .surface(SurfaceId::PlayBar)
         .child(
-            PlayButton::new("play")
-                .state(state)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(id) = &id {
-                        this.instances
-                            .update(cx, |instances, cx| instances.play(id, cx));
-                    }
-                }))
-                .on_stop(cx.listener(move |this, _, _, cx| {
-                    if let Some(id) = &stop_id {
-                        this.instances
-                            .update(cx, |instances, cx| instances.stop(id, cx));
-                    }
-                })),
+            div()
+                .flex()
+                .flex_col()
+                .flex_none()
+                .items_center()
+                .gap_1()
+                .child(
+                    PlayButton::new("play")
+                        .state(state)
+                        .look(resolved.play, resolved.progress)
+                        .layer(resolved.play_layer)
+                        .when_some(caption, |button, caption| button.caption(caption))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let Some(id) = &id else {
+                                return;
+                            };
+                            if joins {
+                                this.servers
+                                    .update(cx, |servers, cx| servers.play_instance(id, cx));
+                            } else {
+                                this.instances
+                                    .update(cx, |instances, cx| instances.play(id, cx));
+                            }
+                        }))
+                        .on_stop(cx.listener(move |this, _, _, cx| {
+                            if let Some(id) = &stop_id {
+                                this.instances
+                                    .update(cx, |instances, cx| instances.stop(id, cx));
+                            }
+                        })),
+                )
+                .when(joins, |this| {
+                    this.child(
+                        Button::new("play-without-joining", t(M::PlayWithoutJoining))
+                            .size(ButtonSize::Slim)
+                            .variant(ButtonVariant::Ghost)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(id) = &single_id {
+                                    this.instances
+                                        .update(cx, |instances, cx| instances.play(id, cx));
+                                }
+                            })),
+                    )
+                }),
         )
-        .child(picker(
-            "version-picker",
-            "VERSION",
-            instance.map_or("—".to_string(), |i| {
-                format!("{} · {}", i.game_version, i.loader_label())
-            }),
-            instance.is_some(),
-        ))
 }

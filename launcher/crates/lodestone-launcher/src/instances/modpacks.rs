@@ -1,16 +1,23 @@
-//! Modpacks: importing a `.mrpack` (a file, or a version from Modrinth) as a new
-//! instance in the background, and updating an instance to another version of its pack.
+//! Modpacks: importing a `.mrpack` (a file, or a version from Modrinth) or a CurseForge
+//! pack (a `.zip` with `manifest.json`, or a file from CurseForge) as a new instance in
+//! the background, and updating an instance to another version of its pack.
 //! The work is `launcher_core::modpack`'s; this keeps the jobs and their progress.
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{AppContext as _, Context, SharedString, Task};
 use launcher_core::{
-    content::{Modrinth, install::InstallProgress},
+    content::{
+        InstanceDirs, Modrinth, Platforms, Target,
+        curseforge::{CfFile, CfMod},
+        curseforge_install::CfPlannedFile,
+        install::InstallProgress,
+        share::{self, ShareCode, ShareOutcome},
+    },
     game::{download::CancelToken, install::Installer, loaders::LoaderKind},
     instances::{Instance, Loader},
     modpack::{
-        self, ModpackError, ModpackRecord, PackInfo,
+        self, CurseForgePack, ModpackError, ModpackRecord, PackInfo,
         import::{self, ImportOptions},
         update::{self, UpdatePlan},
     },
@@ -21,6 +28,48 @@ use lodestone_minecraft::{
 };
 
 use super::{Instances, InstancesEvent};
+use crate::i18n::{InstancesMsg as M, InstancesPlural as P, t, tr, trn};
+
+/// A modpack import's or update's progress label, in the interface's language.
+/// `launcher-core` writes its labels in English ("Downloading 212 files", "Backing
+/// up {world}"); the ones it is known to write are translated, others are shown as
+/// they are.
+pub fn progress_label(label: &str) -> String {
+    let fixed = [
+        ("Copying the pack's configs", M::CopyingConfigs),
+        ("Recording the pack's files", M::RecordingFiles),
+        (
+            "Saving a snapshot of the instance's files",
+            M::SavingSnapshot,
+        ),
+        ("Reading the modpack", M::ReadingModpack),
+    ];
+    if let Some((_, message)) = fixed.iter().find(|(english, _)| *english == label) {
+        return t(*message).into();
+    }
+    if let Some(rest) = label.strip_prefix("Downloading ") {
+        if let Some(count) = rest
+            .strip_suffix(" files")
+            .and_then(|n| n.parse::<u64>().ok())
+        {
+            return trn!(P::DownloadingFiles, count);
+        }
+        return tr!(M::DownloadingName, name = rest);
+    }
+    let named = [
+        ("Installing ", M::InstallingName),
+        ("Backing up ", M::BackingUp),
+    ];
+    for (prefix, message) in named {
+        if let Some(name) = label.strip_prefix(prefix) {
+            return tr!(message, name = name);
+        }
+    }
+    if let Some(version) = label.strip_prefix("Updating to ") {
+        return tr!(M::UpdatingTo, version = version);
+    }
+    label.to_string()
+}
 
 /// A pack being made into an instance.
 pub struct ImportJob {
@@ -57,6 +106,32 @@ struct Source {
     downloaded: bool,
     record: ModpackRecord,
     name: Option<String>,
+    /// A CurseForge pack to download first, with its project (for the icon).
+    curseforge: Option<(CfMod, CfFile)>,
+    /// A share code based on a Modrinth modpack: its pack is downloaded, and its
+    /// changes applied to the new instance.
+    share: Option<ShareCode>,
+}
+
+/// The pack's "ready" message, and what of a share code couldn't be installed.
+fn share_message(ready: String, outcome: &ShareOutcome) -> String {
+    if outcome.failed.is_empty() {
+        return ready;
+    }
+    tr!(
+        M::TwoSentences,
+        first = ready,
+        second = tr!(
+            M::ShareCodeNotInstalled,
+            names = crate::i18n::format::list(
+                &outcome
+                    .failed
+                    .iter()
+                    .map(|(title, _)| title.clone())
+                    .collect::<Vec<_>>()
+            )
+        )
+    )
 }
 
 /// The loader the instance gets for a pack, with Forge's list for old Forge builds.
@@ -111,19 +186,28 @@ impl Instances {
         cx.notify();
     }
 
-    /// Imports `.mrpack` files (from "Import .mrpack…" or a drop). Others are refused.
+    /// Imports `.mrpack` files and CurseForge packs (`.zip` files with `manifest.json`),
+    /// from "Import…" or a drop, and offers `.lodesnap` snapshots. Others are refused.
     pub fn import_files(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         for path in paths {
-            let is_mrpack = path
+            let extension = path
                 .extension()
                 .and_then(|e| e.to_str())
-                .is_some_and(|e| e.eq_ignore_ascii_case("mrpack"));
-            if !is_mrpack {
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_default();
+            if extension == launcher_core::snapshots::EXTENSION {
+                cx.emit(InstancesEvent::ImportSnapshot(path));
+                continue;
+            }
+            let is_pack = extension == "mrpack"
+                || (extension == "zip" && modpack::curseforge::is_curseforge_pack(&path));
+            if !is_pack {
                 cx.emit(InstancesEvent::LaunchFailed {
-                    title: "Not a modpack".into(),
-                    message: format!(
-                        "{} isn't a .mrpack file. Modrinth modpacks end in .mrpack.",
-                        path.file_name()
+                    title: t(M::NotAModpack).into(),
+                    message: tr!(
+                        M::NotMrpack,
+                        name = path
+                            .file_name()
                             .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
                     )
                     .into(),
@@ -133,7 +217,7 @@ impl Instances {
             let name = path
                 .file_stem()
                 .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "Modpack".into());
+                .unwrap_or_else(|| t(M::Modpack).into());
             self.start_import(
                 name,
                 Source {
@@ -141,11 +225,51 @@ impl Instances {
                     downloaded: false,
                     record: ModpackRecord::default(),
                     name: None,
+                    curseforge: None,
+                    share: None,
                 },
                 None,
                 cx,
             );
         }
+    }
+
+    /// Downloads the CurseForge modpack `file` of `project` and imports it, named `name`
+    /// (or the project's name).
+    pub fn import_curseforge(
+        &mut self,
+        project: CfMod,
+        file: CfFile,
+        name: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let record = ModpackRecord {
+            title: project.name.clone(),
+            slug: project.slug.clone(),
+            version_number: file.display_name_or_file().to_string(),
+            date_published: file.file_date.clone(),
+            curseforge: Some(CurseForgePack {
+                project_id: project.id,
+                file_id: file.id,
+                file_date: file.file_date.clone(),
+                page_url: project.page_url(),
+            }),
+            ..ModpackRecord::default()
+        };
+        let title = name.clone().unwrap_or_else(|| project.name.clone());
+        self.start_import(
+            title,
+            Source {
+                pack_path: PathBuf::new(),
+                downloaded: true,
+                record,
+                name,
+                curseforge: Some((project, file)),
+                share: None,
+            },
+            None,
+            cx,
+        );
     }
 
     /// Downloads `version` of the modpack `project` and imports it, named `name` (or the
@@ -166,10 +290,149 @@ impl Instances {
                 downloaded: true,
                 record,
                 name,
+                curseforge: None,
+                share: None,
             },
             Some(version),
             cx,
         );
+    }
+
+    /// Creates an instance from a share code and installs its content in the
+    /// background, like a modpack import (with its progress in the sidebar). Returns
+    /// the new instance's id.
+    /// Makes the empty instance a share code describes: its Minecraft version and
+    /// loader, named `name`, else the code's name, else "1.21.1 Fabric".
+    pub fn create_from_share_code(
+        &mut self,
+        code: &launcher_core::content::share::ShareCode,
+        name: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Result<launcher_core::instances::Instance, String> {
+        use launcher_core::game::loaders::LoaderChoice;
+        let name = name
+            .or_else(|| code.name.clone())
+            .unwrap_or_else(|| match code.loader.kind() {
+                Some(kind) => format!("{} {}", code.game_version, kind.label()),
+                None => code.game_version.clone(),
+            });
+        let loader = code
+            .loader
+            .kind()
+            .zip(code.loader_version.clone())
+            .map(|(kind, version)| LoaderChoice { kind, version });
+        self.create(&name, &code.game_version, loader.as_ref(), cx)
+    }
+
+    /// Makes an instance from a share code. A code based on a modpack is imported like
+    /// the pack (in the background) and returns no id; otherwise the empty instance is
+    /// made at once and its id returned while its content installs.
+    pub fn import_share_code(
+        &mut self,
+        code: ShareCode,
+        name: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<String>, String> {
+        if let Some(pack) = &code.pack {
+            if self.modrinth.is_none() {
+                return Err(t(crate::i18n::InstanceSettingsMsg::ModrinthUnreachable).into());
+            }
+            let title = name
+                .or_else(|| code.name.clone())
+                .unwrap_or_else(|| super::share_dialog::pack_label(pack));
+            self.start_import(
+                title.clone(),
+                Source {
+                    pack_path: PathBuf::new(),
+                    downloaded: true,
+                    record: ModpackRecord::default(),
+                    name: Some(title),
+                    curseforge: None,
+                    share: Some(code),
+                },
+                None,
+                cx,
+            );
+            return Ok(None);
+        }
+        let instance = self.create_from_share_code(&code, name, cx)?;
+        let id = instance.id.clone();
+        let name = instance.name.clone();
+        if code.items.is_empty() {
+            return Ok(Some(id));
+        }
+        let Some(api) = self.modrinth.clone() else {
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::ShareCodeContentFailed).into(),
+                message: t(M::ShareCodeOffline).into(),
+            });
+            return Ok(Some(id));
+        };
+        let (Some(target), dirs) = (self.content_target(&id), self.content_dirs(&id)) else {
+            return Ok(Some(id));
+        };
+        self.next_import += 1;
+        let job_id = self.next_import;
+        let progress = Arc::new(InstallProgress::default());
+        let cancel = CancelToken::new();
+        let downloader = self.content_downloader.clone();
+        let work = {
+            let progress = progress.clone();
+            let cancel = cancel.clone();
+            cx.background_spawn(async move {
+                share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel).await
+            })
+        };
+        let instance_name = name.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.imports.retain(|job| job.id != job_id);
+                this.reload(cx);
+                match result {
+                    Ok(outcome) => {
+                        let installed = trn!(P::ShareCodeInstalled, outcome.installed.len());
+                        let message = match outcome.failed.len() {
+                            0 => installed,
+                            _ => tr!(
+                                M::TwoSentences,
+                                first = installed,
+                                second = tr!(
+                                    M::ShareCodeNotInstalled,
+                                    names = crate::i18n::format::list(
+                                        &outcome
+                                            .failed
+                                            .iter()
+                                            .map(|(title, _)| title.clone())
+                                            .collect::<Vec<_>>()
+                                    )
+                                )
+                            ),
+                        };
+                        cx.emit(InstancesEvent::Notice {
+                            title: tr!(M::ShareCodeReady, name = instance_name).into(),
+                            message: message.into(),
+                        });
+                    }
+                    Err(err) => cx.emit(InstancesEvent::LaunchFailed {
+                        title: t(M::ShareCodeContentFailed).into(),
+                        message: err.to_string().into(),
+                    }),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self.imports.push(ImportJob {
+            id: job_id,
+            name: name.into(),
+            progress,
+            cancel,
+            _task: task,
+        });
+        self.start_import_ticker(cx);
+        cx.notify();
+        Ok(Some(id))
     }
 
     fn start_import(
@@ -182,6 +445,7 @@ impl Instances {
         let Some(api) = self.modrinth.clone() else {
             return;
         };
+        let cf = self.curseforge.clone();
         self.next_import += 1;
         let id = self.next_import;
         let progress = Arc::new(InstallProgress::default());
@@ -194,6 +458,14 @@ impl Instances {
             let cancel = cancel.clone();
             cx.background_spawn(async move {
                 let mut source = source;
+                let mut version = version;
+                if let Some(pack) = source.share.as_ref().and_then(|c| c.pack.clone()) {
+                    let (project, found) = share::pack_version(&api, &pack)
+                        .await
+                        .map_err(|err| ModpackError::Invalid(err.to_string()))?;
+                    source.record = ModpackRecord::from_modrinth(&project, &found);
+                    version = Some(found);
+                }
                 if let Some(version) = &version {
                     source.pack_path = import::download_pack(
                         &api,
@@ -205,12 +477,41 @@ impl Instances {
                     )
                     .await?;
                 }
+                if let Some((_, file)) = &source.curseforge {
+                    let cf = cf
+                        .as_deref()
+                        .ok_or_else(|| ModpackError::Invalid(t(M::CurseForgeUnreachable).into()))?;
+                    if !file.downloadable() {
+                        return Err(ModpackError::Invalid(t(M::CurseForgePackOnWebsite).into()));
+                    }
+                    source.pack_path = modpack::curseforge::download(
+                        cf,
+                        &downloader,
+                        file,
+                        store.root(),
+                        &progress,
+                        &cancel,
+                    )
+                    .await?;
+                }
                 let result = async {
-                    progress.set_label("Reading the modpack");
-                    let pack = modpack::read_pack(&source.pack_path)?;
+                    progress.set_label(t(M::ReadingModpack));
+                    let from_curseforge =
+                        modpack::curseforge::is_curseforge_pack(&source.pack_path);
+                    let (pack, blocked): (PackInfo, Vec<CfPlannedFile>) = if from_curseforge {
+                        let cf = cf.as_deref().ok_or_else(|| {
+                            ModpackError::Invalid(t(M::CurseForgeUnreachable).into())
+                        })?;
+                        let read = modpack::curseforge::read_curseforge_pack(&source.pack_path)?;
+                        let resolved = modpack::curseforge::resolve(cf, Some(&api), &read).await?;
+                        (resolved.info, resolved.blocked)
+                    } else {
+                        (modpack::read_pack(&source.pack_path)?, Vec::new())
+                    };
                     let mut record = source.record.clone();
                     let mut icon_url = record.icon_url.clone();
-                    if !record.on_modrinth()
+                    if !from_curseforge
+                        && !record.on_modrinth()
                         && let Some((found, icon)) = identify(&api, &source.pack_path).await
                     {
                         record = found;
@@ -223,14 +524,18 @@ impl Instances {
                         record.version_number = pack.version_number.clone().unwrap_or_default();
                     }
                     let loader = resolve_loader(&installer, &pack).await?;
-                    let icon = match &icon_url {
-                        Some(url) => api.image(url).await.ok(),
-                        None => None,
+                    let icon = match (&icon_url, &source.curseforge, cf.as_deref()) {
+                        (Some(url), _, _) => api.image(url).await.ok(),
+                        (None, Some((project, _)), Some(cf)) => match project.icon_url() {
+                            Some(url) => cf.image(url).await.ok(),
+                            None => None,
+                        },
+                        _ => None,
                     };
                     let name = source.name.clone().unwrap_or_else(|| record.title.clone());
-                    import::import(
+                    import::import_with(
                         &store,
-                        Some(&api),
+                        Platforms::new(Some(&api), cf.as_deref()),
                         &downloader,
                         &source.pack_path,
                         &pack,
@@ -244,13 +549,35 @@ impl Instances {
                         &cancel,
                     )
                     .await
-                    .map(|instance| (instance, pack))
+                    .map(|instance| (instance, pack, blocked))
                 }
                 .await;
                 if source.downloaded {
                     let _ = std::fs::remove_file(&source.pack_path);
                 }
-                result
+                let (instance, pack, blocked) = result?;
+                // A share code's changes, on top of the pack it is based on.
+                let shared = match &source.share {
+                    Some(code) => {
+                        let dirs = InstanceDirs::new(store.dir(&instance.id));
+                        let target = Target::new(instance.game_version.clone(), instance.loader);
+                        Some(
+                            share::install(
+                                &api,
+                                &downloader,
+                                &dirs,
+                                &target,
+                                code,
+                                &progress,
+                                &cancel,
+                            )
+                            .await
+                            .map_err(|err| err.to_string()),
+                        )
+                    }
+                    None => None,
+                };
+                Ok((instance, pack, blocked, shared))
             })
         };
         let task = cx.spawn(async move |this, cx| {
@@ -258,26 +585,55 @@ impl Instances {
             this.update(cx, |this, cx| {
                 this.imports.retain(|job| job.id != id);
                 match result {
-                    Ok((instance, pack)) => {
+                    Ok((instance, pack, blocked, shared)) => {
                         this.selected = Some(instance.id.clone());
+                        let to_download = blocked.len();
+                        if !blocked.is_empty() {
+                            this.pending_downloads.insert(instance.id.clone(), blocked);
+                        }
                         this.reload(cx);
-                        let skipped = match pack.skipped.len() {
-                            0 => String::new(),
-                            n => format!(" {n} file(s) of the pack were left out, such as {}.", pack.skipped[0].path),
+                        let ready = tr!(
+                            M::ModpackReadyMessage,
+                            version = instance.game_version,
+                            loader = super::loader_label(&instance),
+                        );
+                        let mut message = match pack.skipped.first() {
+                            None => ready,
+                            Some(first) => tr!(
+                                M::TwoSentences,
+                                first = ready,
+                                second = trn!(
+                                    P::PackFilesLeftOut,
+                                    pack.skipped.len(),
+                                    path = first.path
+                                )
+                            ),
                         };
-                        cx.emit(InstancesEvent::Notice {
-                            title: format!("{} is ready", instance.name).into(),
-                            message: format!(
-                                "Minecraft {} with {}. Press Play to download the game and start it.{skipped}",
-                                instance.game_version,
-                                instance.loader_label(),
-                            )
-                            .into(),
-                        });
+                        if to_download > 0 {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(P::PackFilesToDownload, to_download)
+                            );
+                        }
+                        match shared {
+                            None => cx.emit(InstancesEvent::Notice {
+                                title: tr!(M::ModpackReady, name = instance.name).into(),
+                                message: message.into(),
+                            }),
+                            Some(Ok(outcome)) => cx.emit(InstancesEvent::Notice {
+                                title: tr!(M::ShareCodeReady, name = instance.name).into(),
+                                message: share_message(message, &outcome).into(),
+                            }),
+                            Some(Err(err)) => cx.emit(InstancesEvent::LaunchFailed {
+                                title: t(M::ShareCodeContentFailed).into(),
+                                message: err.into(),
+                            }),
+                        }
                     }
                     Err(ModpackError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
-                        title: "Couldn't import the modpack".into(),
+                        title: t(M::CouldntImportModpack).into(),
                         message: err.to_string().into(),
                     }),
                 }
@@ -418,8 +774,8 @@ impl Instances {
         if self.is_active(&id) || self.modpack_updates.contains_key(&id) {
             self.discard_update(&prompt);
             cx.emit(InstancesEvent::LaunchFailed {
-                title: "Couldn't update the modpack".into(),
-                message: "Stop the game first.".into(),
+                title: t(M::CouldntUpdateModpack).into(),
+                message: t(M::StopGameFirst).into(),
             });
             return;
         }
@@ -467,34 +823,34 @@ impl Instances {
                             .map_err(|e| e.to_string())
                             .and_then(|i| this.save(&i, cx))
                         {
-                            Ok(()) => format!(
-                                "{} now runs {} {}. The files it replaced are saved in {}.{}",
-                                prompt.instance_name,
-                                plan.record.title,
-                                plan.record.version_number,
-                                outcome.snapshot.display(),
-                                if outcome.world_backups.is_empty() {
-                                    String::new()
-                                } else {
-                                    format!(
-                                        " {} world(s) were backed up first.",
-                                        outcome.world_backups.len()
-                                    )
+                            Ok(()) => {
+                                let updated = tr!(
+                                    M::ModpackUpdatedMessage,
+                                    name = prompt.instance_name,
+                                    pack = plan.record.title,
+                                    version = plan.record.version_number,
+                                    path = outcome.snapshot.display(),
+                                );
+                                match outcome.world_backups.len() {
+                                    0 => updated,
+                                    n => tr!(
+                                        M::TwoSentences,
+                                        first = updated,
+                                        second = trn!(P::WorldsBackedUp, n)
+                                    ),
                                 }
-                            ),
-                            Err(err) => format!(
-                                "The files were updated, but the instance couldn't be saved: {err}"
-                            ),
+                            }
+                            Err(err) => tr!(M::UpdatedButNotSaved, error = err),
                         };
                         cx.emit(InstancesEvent::LoaderChanged(id.clone()));
                         cx.emit(InstancesEvent::Notice {
-                            title: "Modpack updated".into(),
+                            title: t(M::ModpackUpdated).into(),
                             message: message.into(),
                         });
                     }
                     Err(ModpackError::Cancelled) => {}
                     Err(err) => cx.emit(InstancesEvent::LaunchFailed {
-                        title: "Couldn't update the modpack".into(),
+                        title: t(M::CouldntUpdateModpack).into(),
                         message: err.to_string().into(),
                     }),
                 }
@@ -530,5 +886,33 @@ impl Instances {
             _task: Task::ready(()),
         });
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_labels_are_read_back() {
+        assert_eq!(
+            progress_label("Downloading 212 files"),
+            "Downloading 212 files"
+        );
+        assert_eq!(progress_label("Downloading 1 files"), "Downloading 1 file");
+        assert_eq!(
+            progress_label("Downloading sodium.jar"),
+            "Downloading sodium.jar"
+        );
+        assert_eq!(
+            progress_label("Backing up New World"),
+            "Backing up New World"
+        );
+        assert_eq!(progress_label("Updating to 6.1.0"), "Updating to 6.1.0");
+        assert_eq!(
+            progress_label("Copying the pack's configs"),
+            "Copying the pack's configs"
+        );
+        assert_eq!(progress_label("Something else"), "Something else");
     }
 }

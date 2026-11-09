@@ -41,6 +41,8 @@ import { toast } from 'react-toastify';
 import RequireSetup from 'utils/router/RequireSetup';
 import { AppShellSkeleton } from 'components/DashboardLayout/LayoutSkeletons';
 import { lazyWithPreload } from 'utils/lazyWithPreload';
+import { settingsReturnPath } from 'utils/settingsReturn';
+import { t } from 'i18n';
 
 // The dashboard (and everything it pulls in: charts, the file editor, forms)
 // is loaded on demand, so the login screens don't wait for it.
@@ -112,12 +114,12 @@ const InstanceTabList = [
 
 export const CoreSettingsTabList = [
   {
-    title: 'General',
+    titleKey: 'shell.settings.general' as const,
     path: 'general',
     content: <CoreSettings />,
   },
   {
-    title: 'Users',
+    titleKey: 'shell.settings.users' as const,
     path: 'users',
     content: <UserSettings />,
   },
@@ -125,11 +127,18 @@ export const CoreSettingsTabList = [
 
 export const AccountSettingsTabList = [
   {
-    title: 'Profile',
+    titleKey: 'shell.settings.profile' as const,
     path: 'profile',
     content: <ProfilePage />,
   },
 ];
+
+/** The settings pages' paths: these open the settings modal */
+const SETTINGS_PATHS = new Set(
+  [...CoreSettingsTabList, ...AccountSettingsTabList].map(
+    (tab) => `/settings/${tab.path}`
+  )
+);
 
 // setTimeout's longest delay (about 24.8 days); longer timers fire at once
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
@@ -140,12 +149,14 @@ const decodeToken = (token: string): { uid: string; exp: number } | Error => {
   try {
     payload = jwtDecode(token);
   } catch {
-    return new Error('Invalid token');
+    return new Error(t('shell.token.invalid'));
   }
   if (typeof payload !== 'object' || payload === null)
-    return new Error('Invalid token');
-  if (typeof payload.exp !== 'number') return new Error('Invalid exp in token');
-  if (typeof payload.uid !== 'string') return new Error('Invalid uid in token');
+    return new Error(t('shell.token.invalid'));
+  if (typeof payload.exp !== 'number')
+    return new Error(t('shell.token.invalidExp'));
+  if (typeof payload.uid !== 'string')
+    return new Error(t('shell.token.invalidUid'));
   return { uid: payload.uid, exp: payload.exp };
 };
 
@@ -159,6 +170,22 @@ export default function App() {
   const { location, searchParams, setLocation, setSearchParam } = useContext(
     BrowserLocationContext
   );
+
+  /* Start Settings */
+  // On a settings page, the dashboard renders the page settings was opened
+  // from (the home page for a settings link) behind the settings modal.
+  const settingsOpen = SETTINGS_PATHS.has(location.pathname);
+  const mainLocation = useMemo(
+    () =>
+      settingsOpen
+        ? { ...location, pathname: settingsReturnPath() ?? '/' }
+        : location,
+    [settingsOpen, location]
+  );
+  // the modal stays mounted until its closing animation has finished
+  const [settingsMounted, setSettingsMounted] = useState(settingsOpen);
+  if (settingsOpen && !settingsMounted) setSettingsMounted(true);
+  /* End Settings */
 
   /* Start Core */
   // The core is only read from localStorage. A link can't switch the core
@@ -304,12 +331,12 @@ export default function App() {
       try {
         if (claims instanceof Error) throw claims;
         const msUntilExpiry = claims.exp * 1000 - Date.now();
-        if (msUntilExpiry <= 0) throw new Error('Token expired');
+        if (msUntilExpiry <= 0) throw new Error(t('shell.token.expired'));
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         // log out when the token expires, instead of failing every request
         if (msUntilExpiry < MAX_TIMEOUT_MS)
           logoutTimer = setTimeout(() => {
-            toast.warn('Your session has expired, please sign in again', {
+            toast.warn(t('shell.session.expired'), {
               toastId: 'sessionExpired',
             });
             setToken('', socket);
@@ -353,7 +380,7 @@ export default function App() {
     const bearer = `Bearer ${token}`;
     let verifying: Promise<void> | null = null;
     const logout = () => {
-      toast.warn('Your session is no longer valid, please sign in again', {
+      toast.warn(t('shell.session.invalid'), {
         toastId: 'sessionExpired',
       });
       setToken('', socket);
@@ -417,7 +444,7 @@ export default function App() {
       <LodestoneContext.Provider value={lodestoneContextValue}>
         <NotificationContextProvider>
           <Suspense fallback={<AppShellSkeleton />}>
-            <Routes>
+            <Routes location={mainLocation}>
               <Route element={<LoginLayout />}>
                 <Route path="/first_setup" element={<FirstTime />} />
                 <Route
@@ -481,26 +508,19 @@ export default function App() {
                   ))}
                   <Route path="/" element={<Home />} />
                 </Route>
-                <Route element={<SettingsLayout />}>
-                  {CoreSettingsTabList.map((tab, i) => (
-                    <Route
-                      path={`/settings/${tab.path}`}
-                      element={tab.content}
-                      key={i}
-                    />
-                  ))}
-                  {AccountSettingsTabList.map((tab, i) => (
-                    <Route
-                      path={`/settings/${tab.path}`}
-                      element={tab.content}
-                      key={i}
-                    />
-                  ))}
-                </Route>
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
+          {/* the settings pages, in a modal over the dashboard */}
+          {settingsMounted && token && coreList.length > 0 && (
+            <Suspense fallback={null}>
+              <SettingsLayout
+                open={settingsOpen}
+                onClosed={() => setSettingsMounted(false)}
+              />
+            </Suspense>
+          )}
         </NotificationContextProvider>
       </LodestoneContext.Provider>
     </QueryClientProvider>

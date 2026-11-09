@@ -11,7 +11,9 @@ use launcher_core::{
     Secret,
     accounts::Account,
     game::{
-        launch::{self, GameSettings, LaunchAccount, LaunchError, LaunchPaths},
+        launch::{
+            self, GameSettings, JoinArguments, JoinServer, LaunchAccount, LaunchError, LaunchPaths,
+        },
         libraries,
         platform::{Arch, Os, Platform},
         rules::Features,
@@ -48,6 +50,17 @@ fn command(
     account: &LaunchAccount,
     settings: &GameSettings,
 ) -> (Vec<String>, String) {
+    command_joining(version, machine, account, settings, None)
+}
+
+/// [`command`], joining `join` at startup.
+fn command_joining(
+    version: &VersionJson,
+    machine: Arch,
+    account: &LaunchAccount,
+    settings: &GameSettings,
+    join: Option<&JoinServer>,
+) -> (Vec<String>, String) {
     let machine = Platform::new(Os::MacOs, machine, "14.6.1");
     let java = machine.with_arch(libraries::java_arch(version, &machine));
     let selection = libraries::select(version, &java, &Features::default()).unwrap();
@@ -79,7 +92,7 @@ fn command(
             .client_logging()
             .map(|logging| data.join("assets/log_configs").join(&logging.file.id)),
     };
-    let command = launch::build(version, &java, &paths, account, settings).unwrap();
+    let command = launch::build_joining(version, &java, &paths, account, settings, join).unwrap();
     assert_eq!(command.cwd, game_dir);
     let redacted = command.redacted();
     let text = std::iter::once(command.program.display().to_string())
@@ -230,4 +243,98 @@ fn log4j_versions_need_their_logging_config() {
     )
     .unwrap_err();
     assert_eq!(err, LaunchError::NoLoggingConfig("1.12.2".into()));
+}
+
+/// The position of `needle` (a run of arguments) in `args`.
+fn find_run(args: &[String], needle: &[&str]) -> Option<usize> {
+    args.windows(needle.len())
+        .position(|window| window.iter().zip(needle).all(|(a, b)| a == b))
+}
+
+#[test]
+fn joins_a_server_with_the_arguments_each_version_reads() {
+    let server = JoinServer {
+        host: "play.example.com".into(),
+        port: 25570,
+    };
+    let settings = GameSettings::default();
+    for (id, expected) in [
+        ("1.5.2", JoinArguments::Unsupported),
+        ("1.7.10", JoinArguments::ServerAndPort),
+        ("1.8.9", JoinArguments::ServerAndPort),
+        ("1.12.2", JoinArguments::ServerAndPort),
+        ("1.16.5", JoinArguments::ServerAndPort),
+        ("1.20.1", JoinArguments::QuickPlay),
+        ("1.21.1", JoinArguments::QuickPlay),
+        ("26.3", JoinArguments::QuickPlay),
+    ] {
+        let version = version(id);
+        assert_eq!(launch::join_arguments(&version), expected, "{id}");
+        let (plain, _) = command(&version, Arch::Arm64, &microsoft(), &settings);
+        let (args, _) = command_joining(
+            &version,
+            Arch::Arm64,
+            &microsoft(),
+            &settings,
+            Some(&server),
+        );
+        let quick_play = find_run(&args, &["--quickPlayMultiplayer", "play.example.com:25570"]);
+        let server_port = find_run(&args, &["--server", "play.example.com", "--port", "25570"]);
+        match expected {
+            JoinArguments::QuickPlay => {
+                assert!(quick_play.is_some(), "{id}: {args:?}");
+                assert!(server_port.is_none(), "{id}");
+                // only the multiplayer Quick Play argument, nothing else of the feature set
+                assert!(!args.iter().any(|a| a == "--quickPlaySingleplayer"), "{id}");
+                assert!(!args.iter().any(|a| a == "--quickPlayRealms"), "{id}");
+                assert_eq!(args.len(), plain.len() + 2, "{id}");
+            }
+            JoinArguments::ServerAndPort => {
+                assert!(server_port.is_some(), "{id}: {args:?}");
+                assert!(quick_play.is_none(), "{id}");
+                // after the game's own arguments, before the user's
+                assert_eq!(args[..plain.len()], plain[..], "{id}");
+                assert_eq!(args.len(), plain.len() + 4, "{id}");
+            }
+            JoinArguments::Unsupported => assert_eq!(args, plain, "{id}"),
+        }
+        // the token is still in exactly one argument
+        assert_eq!(args.iter().filter(|a| a.contains(TOKEN)).count(), 1, "{id}");
+    }
+
+    // the user's own game arguments still come last
+    let custom = GameSettings {
+        game_args: vec!["--demo".into()],
+        ..GameSettings::default()
+    };
+    let (args, _) = command_joining(
+        &version("1.16.5"),
+        Arch::Arm64,
+        &microsoft(),
+        &custom,
+        Some(&server),
+    );
+    assert_eq!(args.last().map(String::as_str), Some("--demo"));
+}
+
+#[test]
+fn join_addresses_bracket_ipv6() {
+    let v4 = JoinServer {
+        host: "192.168.1.20".into(),
+        port: 25565,
+    };
+    assert_eq!(v4.address(), "192.168.1.20:25565");
+    let v6 = JoinServer {
+        host: "fe80::1".into(),
+        port: 25565,
+    };
+    assert_eq!(v6.address(), "[fe80::1]:25565");
+    let (args, _) = command_joining(
+        &version("1.21.1"),
+        Arch::Arm64,
+        &microsoft(),
+        &GameSettings::default(),
+        Some(&v6),
+    );
+    assert!(find_run(&args, &["--quickPlayMultiplayer", "[fe80::1]:25565"]).is_some());
 }

@@ -136,6 +136,11 @@ fn legacy_language(code: &str) -> String {
 
 /// The value as the launcher shows it.
 pub fn display(spec: &Spec, value: &str) -> String {
+    if let Control::Choice(choices) = control(spec)
+        && let Some((_, label)) = choices.iter().find(|(v, _)| *v == value.trim())
+    {
+        return (*label).to_string();
+    }
     let number = value.trim().parse::<f64>().ok();
     let percent = |n: f64| format!("{}%", (n * 100.0).round() as i64);
     match spec.kind {
@@ -193,10 +198,22 @@ pub fn parse_input(spec: &Spec, text: &str) -> Result<String, String> {
             "false" | "off" | "no" => Ok("false".into()),
             _ => invalid("enter On or Off."),
         },
-        Kind::Number => match text.parse::<f64>() {
-            Ok(n) if n.is_finite() => Ok(text.to_string()),
-            _ => invalid("enter a number."),
-        },
+        Kind::Number => {
+            let n = text.parse::<f64>().ok().filter(|n| n.is_finite());
+            let Some(range) = number_range(spec.key) else {
+                return match n {
+                    Some(_) => Ok(text.to_string()),
+                    None => invalid("enter a number."),
+                };
+            };
+            match n {
+                Some(n) if range.whole && n.fract() == 0.0 && range.contains(n) => {
+                    Ok((n as i64).to_string())
+                }
+                Some(n) if !range.whole && range.contains(n) => Ok(text.to_string()),
+                _ => invalid(&range.hint()),
+            }
+        }
         Kind::Blurriness => match text.parse::<i64>() {
             Ok(n) if (0..=10).contains(&n) => Ok(n.to_string()),
             _ => invalid("enter a whole number from 0 to 10."),
@@ -218,25 +235,298 @@ pub fn parse_input(spec: &Spec, text: &str) -> Result<String, String> {
         }
         Kind::KeyBinding => {
             let lower = text.to_lowercase();
-            if lower.starts_with("key.keyboard.")
+            let name = if lower.starts_with("key.keyboard.")
                 || lower.starts_with("key.mouse.")
                 || lower.starts_with("scancode.")
             {
-                Ok(lower)
-            } else if !lower.is_empty() && !lower.contains(char::is_whitespace) {
-                // `w`, `left.shift`: a key name without the prefix.
-                Ok(format!("key.keyboard.{lower}"))
+                lower
             } else {
-                invalid("enter a key name such as key.keyboard.w or a single letter.")
+                // `w`, `left.shift`: a key name without the prefix.
+                format!("key.keyboard.{lower}")
+            };
+            if keycodes::is_known(&name) {
+                Ok(name)
+            } else {
+                invalid(
+                    "enter a key Minecraft knows, such as key.keyboard.w, key.keyboard.left.shift, key.mouse.4 or a single letter.",
+                )
             }
         }
     }
 }
 
+/// How the launcher lets the user change a setting.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Control {
+    /// An on/off switch; the values are `true` and `false`.
+    Toggle,
+    /// One of a few named states: (canonical value, label).
+    Choice(&'static [(&'static str, &'static str)]),
+    /// A number in steps, as in the game's own slider.
+    Slider { min: f64, max: f64, step: f64 },
+    /// Typed in: key bindings, the language, and numbers without a fixed range.
+    Text,
+}
+
+const GRAPHICS: &[(&str, &str)] = &[
+    ("fast", "Fast"),
+    ("fancy", "Fancy"),
+    ("fabulous", "Fabulous!"),
+];
+const PARTICLES: &[(&str, &str)] = &[("0", "All"), ("1", "Decreased"), ("2", "Minimal")];
+const NARRATOR: &[(&str, &str)] = &[
+    ("0", "Off"),
+    ("1", "All"),
+    ("2", "Chat only"),
+    ("3", "System only"),
+];
+const CHAT: &[(&str, &str)] = &[("0", "Shown"), ("1", "Commands only"), ("2", "Hidden")];
+const FILTERING: &[(&str, &str)] = &[("0", "None"), ("1", "RGSS"), ("2", "Anisotropic")];
+const ANISOTROPY: &[(&str, &str)] = &[("1", "2×"), ("2", "4×"), ("3", "8×")];
+
+/// The control for `spec`: a switch for on/off settings, a choice for settings with a
+/// few named states, a slider for numbers the game changes in steps.
+pub fn control(spec: &Spec) -> Control {
+    match spec.kind {
+        Kind::Bool | Kind::AmbientOcclusion => Control::Toggle,
+        Kind::Graphics => Control::Choice(GRAPHICS),
+        Kind::Blurriness => Control::Slider {
+            min: 0.0,
+            max: 10.0,
+            step: 1.0,
+        },
+        Kind::KeyBinding | Kind::Language => Control::Text,
+        Kind::Number => {
+            let choices = match spec.key {
+                "particles" => Some(PARTICLES),
+                "narrator" => Some(NARRATOR),
+                "chatVisibility" => Some(CHAT),
+                "textureFiltering" => Some(FILTERING),
+                "maxAnisotropyBit" => Some(ANISOTROPY),
+                _ => None,
+            };
+            if let Some(choices) = choices {
+                return Control::Choice(choices);
+            }
+            match number_range(spec.key) {
+                // GUI scale's top depends on the window; it stays typed.
+                Some(range) if range.max != f64::MAX => Control::Slider {
+                    min: range.min,
+                    max: range.max,
+                    step: slider_step(spec.key, range),
+                },
+                _ => Control::Text,
+            }
+        }
+    }
+}
+
+/// The step of a number's slider: what one notch changes in the game.
+fn slider_step(key: &str, range: Range) -> f64 {
+    match key {
+        // One degree: stored as (degrees − 70) / 40.
+        "fov" => 0.025,
+        // Shown doubled, so this is one percent.
+        "mouseSensitivity" => 0.005,
+        "maxFps" => 10.0,
+        "entityDistanceScaling" => 0.25,
+        "notificationDisplayTime" => 0.5,
+        "chunkSectionFadeInTime" | "chatDelay" => 0.1,
+        _ if range.whole => 1.0,
+        _ => 0.01,
+    }
+}
+
+/// The canonical text of a slider position: snapped to its step, inside its range.
+/// Whole steps are written as whole numbers; others keep the step's decimals.
+pub fn slider_text(min: f64, max: f64, step: f64, value: f64) -> String {
+    let steps = ((value - min) / step).round();
+    let n = (min + steps * step).clamp(min, max);
+    if step.fract() == 0.0 && min.fract() == 0.0 {
+        return format!("{}", n.round() as i64);
+    }
+    let decimals = format!("{step}")
+        .split_once('.')
+        .map_or(0, |(_, frac)| frac.len());
+    let text = format!("{n:.decimals$}");
+    let text = text.trim_end_matches('0');
+    if text.ends_with('.') {
+        format!("{text}0")
+    } else {
+        text.to_string()
+    }
+}
+
+/// The values the game accepts for a number setting (its `OptionInstance` range in
+/// the 26.3 client), as stored in `options.txt`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Range {
+    min: f64,
+    max: f64,
+    /// A whole number (a slider of steps, or a list such as particles).
+    whole: bool,
+}
+
+impl Range {
+    const UNIT: Range = Range::float(0.0, 1.0);
+
+    const fn float(min: f64, max: f64) -> Self {
+        Self {
+            min,
+            max,
+            whole: false,
+        }
+    }
+
+    const fn whole(min: f64, max: f64) -> Self {
+        Self {
+            min,
+            max,
+            whole: true,
+        }
+    }
+
+    fn contains(&self, n: f64) -> bool {
+        (self.min..=self.max).contains(&n)
+    }
+
+    fn hint(&self) -> String {
+        if !self.whole {
+            format!("enter a number from {} to {}.", self.min, self.max)
+        } else if self.max == f64::MAX {
+            format!("enter a whole number, {} or more.", self.min)
+        } else {
+            format!("enter a whole number from {} to {}.", self.min, self.max)
+        }
+    }
+}
+
+fn number_range(key: &str) -> Option<Range> {
+    if key.starts_with("soundCategory_") {
+        return Some(Range::UNIT);
+    }
+    Some(match key {
+        // Stored as (degrees − 70) / 40: 30° to 110°.
+        "fov" => Range::float(-1.0, 1.0),
+        "renderDistance" => Range::whole(2.0, 32.0),
+        "simulationDistance" => Range::whole(5.0, 32.0),
+        // 0 is Auto; the game caps the rest at what the window fits.
+        "guiScale" => Range::whole(0.0, f64::MAX),
+        // 260 is Unlimited.
+        "maxFps" => Range::whole(10.0, 260.0),
+        // All, Decreased, Minimal.
+        "particles" => Range::whole(0.0, 2.0),
+        "mipmapLevels" => Range::whole(0.0, 4.0),
+        "biomeBlendRadius" => Range::whole(0.0, 7.0),
+        "entityDistanceScaling" => Range::float(0.5, 5.0),
+        "cloudRange" => Range::whole(2.0, 128.0),
+        "weatherRadius" => Range::whole(3.0, 10.0),
+        "chunkSectionFadeInTime" => Range::float(0.0, 2.0),
+        // None, RGSS, Anisotropic.
+        "textureFiltering" => Range::whole(0.0, 2.0),
+        // 2×, 4×, 8×.
+        "maxAnisotropyBit" => Range::whole(1.0, 3.0),
+        "mouseWheelSensitivity" => Range::float(0.01, 10.0),
+        "sprintWindow" => Range::whole(0.0, 10.0),
+        // Off, All, Chat, System.
+        "narrator" => Range::whole(0.0, 3.0),
+        // Shown, Commands only, Hidden.
+        "chatVisibility" => Range::whole(0.0, 2.0),
+        "chatDelay" => Range::float(0.0, 6.0),
+        "notificationDisplayTime" => Range::float(0.5, 10.0),
+        "mouseSensitivity"
+        | "gamma"
+        | "textBackgroundOpacity"
+        | "chatOpacity"
+        | "chatScale"
+        | "chatWidth"
+        | "chatHeightFocused"
+        | "chatHeightUnfocused"
+        | "chatLineSpacing"
+        | "screenEffectScale"
+        | "fovEffectScale"
+        | "darknessEffectScale"
+        | "damageTiltStrength"
+        | "glintSpeed"
+        | "glintStrength"
+        | "panoramaScrollSpeed" => Range::UNIT,
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared_options::keys::find;
+    use crate::shared_options::keys::{SPECS, find};
+
+    #[test]
+    fn controls_follow_what_a_setting_holds() {
+        let control_of = |key| control(find(key).unwrap());
+        assert_eq!(control_of("enableVsync"), Control::Toggle);
+        assert_eq!(control_of("ao"), Control::Toggle);
+        assert_eq!(control_of("narrator"), Control::Choice(NARRATOR));
+        assert_eq!(control_of("graphicsPreset"), Control::Choice(GRAPHICS));
+        assert_eq!(
+            control_of("renderDistance"),
+            Control::Slider {
+                min: 2.0,
+                max: 32.0,
+                step: 1.0
+            }
+        );
+        assert_eq!(
+            control_of("soundCategory_master"),
+            Control::Slider {
+                min: 0.0,
+                max: 1.0,
+                step: 0.01
+            }
+        );
+        assert_eq!(control_of("key_key.forward"), Control::Text);
+        assert_eq!(control_of("lang"), Control::Text);
+        assert_eq!(control_of("guiScale"), Control::Text);
+    }
+
+    #[test]
+    fn every_choice_and_slider_value_is_accepted() {
+        for spec in SPECS {
+            match control(spec) {
+                Control::Choice(choices) => {
+                    for (value, label) in choices {
+                        assert_eq!(
+                            parse_input(spec, value).as_deref(),
+                            Ok(*value),
+                            "{}",
+                            spec.key
+                        );
+                        assert_eq!(display(spec, value), *label, "{}", spec.key);
+                    }
+                }
+                Control::Slider { min, max, step } => {
+                    for n in [min, max, (min + max) / 2.0, min + step] {
+                        let text = slider_text(min, max, step, n);
+                        assert!(parse_input(spec, &text).is_ok(), "{} {text}", spec.key);
+                    }
+                }
+                Control::Toggle => {
+                    assert_eq!(parse_input(spec, "true").as_deref(), Ok("true"));
+                    assert_eq!(parse_input(spec, "false").as_deref(), Ok("false"));
+                }
+                Control::Text => {}
+            }
+        }
+    }
+
+    #[test]
+    fn slider_text_snaps_to_the_step() {
+        assert_eq!(slider_text(2.0, 32.0, 1.0, 12.4), "12");
+        assert_eq!(slider_text(2.0, 32.0, 1.0, 99.0), "32");
+        assert_eq!(slider_text(0.0, 1.0, 0.01, 0.4567), "0.46");
+        assert_eq!(slider_text(0.0, 1.0, 0.01, 1.0), "1.0");
+        assert_eq!(slider_text(-1.0, 1.0, 0.025, 0.5), "0.5");
+        assert_eq!(slider_text(10.0, 260.0, 10.0, 133.0), "130");
+        assert_eq!(slider_text(0.5, 10.0, 0.5, 0.2), "0.5");
+    }
 
     #[test]
     fn graphics_across_versions() {
@@ -335,5 +625,79 @@ mod tests {
         let graphics = find("graphicsPreset").unwrap();
         assert_eq!(parse_input(graphics, "Fabulous!").unwrap(), "fabulous");
         assert!(parse_input(find("menuBackgroundBlurriness").unwrap(), "11").is_err());
+    }
+
+    #[test]
+    fn every_number_has_a_range() {
+        use crate::shared_options::keys::SPECS;
+        for spec in SPECS.iter().filter(|spec| spec.kind == Kind::Number) {
+            assert!(number_range(spec.key).is_some(), "{}", spec.key);
+        }
+    }
+
+    #[test]
+    fn numbers_out_of_range_are_rejected() {
+        let render = find("renderDistance").unwrap();
+        assert_eq!(parse_input(render, "12").unwrap(), "12");
+        assert_eq!(parse_input(render, "32.0").unwrap(), "32");
+        assert_eq!(
+            parse_input(render, "1699999").unwrap_err(),
+            "Render distance: enter a whole number from 2 to 32."
+        );
+        assert!(parse_input(render, "1").is_err());
+        assert!(parse_input(render, "12.5").is_err());
+        let simulation = find("simulationDistance").unwrap();
+        assert!(parse_input(simulation, "4").is_err());
+        assert_eq!(parse_input(simulation, "5").unwrap(), "5");
+        let fov = find("fov").unwrap();
+        assert_eq!(parse_input(fov, "-0.25").unwrap(), "-0.25");
+        assert_eq!(
+            parse_input(fov, "90").unwrap_err(),
+            "FOV: enter a number from -1 to 1."
+        );
+        let gamma = find("gamma").unwrap();
+        assert_eq!(parse_input(gamma, "0.5").unwrap(), "0.5");
+        assert!(parse_input(gamma, "15").is_err());
+        assert!(parse_input(gamma, "-0.1").is_err());
+        assert!(parse_input(find("soundCategory_music").unwrap(), "1.5").is_err());
+        let gui = find("guiScale").unwrap();
+        assert_eq!(parse_input(gui, "0").unwrap(), "0");
+        assert_eq!(parse_input(gui, "6").unwrap(), "6");
+        assert_eq!(
+            parse_input(gui, "-1").unwrap_err(),
+            "GUI scale: enter a whole number, 0 or more."
+        );
+        assert!(parse_input(find("maxFps").unwrap(), "5").is_err());
+        assert!(parse_input(find("particles").unwrap(), "3").is_err());
+        assert!(parse_input(render, "NaN").is_err());
+        assert!(parse_input(render, "inf").is_err());
+    }
+
+    #[test]
+    fn unknown_keys_are_rejected() {
+        let forward = find("key_key.forward").unwrap();
+        assert_eq!(
+            parse_input(forward, "Left.Shift").unwrap(),
+            "key.keyboard.left.shift"
+        );
+        assert_eq!(parse_input(forward, "scancode.42").unwrap(), "scancode.42");
+        assert_eq!(
+            parse_input(forward, "key.mouse.left").unwrap(),
+            "key.mouse.left"
+        );
+        for text in [
+            "key.keyboard.wboguskey.keyboard.w",
+            "wbogus",
+            "left shift",
+            "key.mouse.3",
+            "scancode.x",
+            "",
+        ] {
+            let err = parse_input(forward, text).unwrap_err();
+            assert!(
+                err.starts_with("Walk forwards: enter a key"),
+                "{text}: {err}"
+            );
+        }
     }
 }

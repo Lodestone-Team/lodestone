@@ -11,24 +11,33 @@ mod files;
 use std::{fs, io::Write as _, path::Path, time::Duration};
 
 use files::{Entry, FileServer};
-use futures::{StreamExt as _, executor::block_on};
+use futures::executor::block_on;
+// Starting the game runs a shell-script `java`, so those tests are Unix only.
+#[cfg(unix)]
+use futures::StreamExt as _;
+#[cfg(unix)]
 use launcher_core::{
     Secret,
     game::{
         crash::{self, Outcome},
-        download::{CancelToken, Downloader, Verify, recording_sleep, sha1_hex},
-        install::{InstallError, InstallProgress, Installer, JavaChoice, Stage},
         launch::{self, GameSettings, LaunchAccount},
         log4j::{Level, Redactor},
+        process::{GameEvent, GameProcess},
+    },
+};
+use launcher_core::{
+    game::{
+        download::{CancelToken, Downloader, Verify, recording_sleep, sha1_hex},
+        install::{InstallError, InstallProgress, Installer, JavaChoice, Stage},
         mojang::MojangUrls,
         platform::{Arch, Os, Platform},
-        process::{GameEvent, GameProcess},
     },
     http,
     paths::DataDir,
 };
 use serde_json::{Value, json};
 
+#[cfg(unix)]
 const TOKEN: &str = "eyJhbGciOiJIUzI1NiJ9.SECRET-TOKEN-FOR-TESTS.c2ln";
 
 /// What the made-up `java` does: prints two Log4j events (one echoing the access
@@ -66,11 +75,14 @@ fn natives_jar() -> Vec<u8> {
     {
         let mut writer = zip::ZipWriter::new(&mut bytes);
         writer
-            .start_file("META-INF/MANIFEST.MF", zip::write::FileOptions::default())
+            .start_file(
+                "META-INF/MANIFEST.MF",
+                zip::write::SimpleFileOptions::default(),
+            )
             .unwrap();
         writer.write_all(b"Manifest-Version: 1.0").unwrap();
         writer
-            .start_file("liblwjgl.dylib", zip::write::FileOptions::default())
+            .start_file("liblwjgl.dylib", zip::write::SimpleFileOptions::default())
             .unwrap();
         writer.write_all(b"native code").unwrap();
         writer.finish().unwrap();

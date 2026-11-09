@@ -87,6 +87,45 @@ pub struct WindowSettings {
 
 /// What `icon` is set to when the instance has its own `icon.png`.
 pub const CUSTOM_ICON: &str = "custom";
+/// The prefix of an icon from the launcher's library: `builtin:grass`.
+pub const BUILTIN_ICON: &str = "builtin:";
+/// The prefix of an emoji icon: `emoji:<tile colour as RRGGBB>:<emoji>`.
+pub const EMOJI_ICON: &str = "emoji:";
+/// What `background` is set to when the instance has its own `background.jpg`.
+pub const CUSTOM_BACKGROUND: &str = "custom";
+/// The prefix of `background` for a skin's banner: `skin:<skin id>/<banner id>`.
+pub const SKIN_BANNER: &str = "skin:";
+/// The instance's own Play background, in its folder.
+pub const BACKGROUND_FILE: &str = "background.jpg";
+/// Backgrounds are stored at most this size, keeping their aspect ratio.
+pub const BACKGROUND_MAX: (u32, u32) = (2560, 1600);
+/// The folder of the images the user added to the instance's slideshow.
+pub const SLIDESHOW_DIR: &str = "backgrounds";
+
+/// Where the Play tab's slideshow takes its images from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlideshowSource {
+    /// The instance's own screenshots.
+    Instance,
+    /// The screenshots of every instance.
+    AllInstances,
+    /// The images added to the instance's slideshow, in its `backgrounds` folder.
+    Custom,
+}
+
+/// What the Play tab shows behind the instance's name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackgroundMode {
+    /// The launcher's artwork.
+    Default,
+    /// The instance's own `background.jpg`.
+    Image,
+    /// A banner from a skin ([`Instance::skin_banner`]).
+    Banner,
+    /// Images in turn, crossfading.
+    Slideshow(SlideshowSource),
+}
 /// The instance's own icon, in its folder.
 pub const ICON_FILE: &str = "icon.png";
 /// The size custom icons are stored at.
@@ -100,12 +139,32 @@ pub const ICON_SIZE: u32 = 128;
 pub struct Instance {
     pub id: String,
     pub name: String,
-    /// [`CUSTOM_ICON`] for the instance's own `icon.png`; otherwise the default.
+    /// [`CUSTOM_ICON`] for the instance's own `icon.png`, an icon from the library
+    /// ([`BUILTIN_ICON`]) or an emoji ([`EMOJI_ICON`]); `None` for the default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    /// The sidebar group the instance is in.
+    /// [`CUSTOM_BACKGROUND`] for the instance's own Play background; `None` for the
+    /// launcher's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    /// Where the Play tab's slideshow takes its images from, when it shows one; it
+    /// wins over `background`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slideshow: Option<SlideshowSource>,
+    /// The Play button's colour for this instance, over the skin's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub play_color: Option<crate::ui_skin::Rgb>,
+    /// The accent colour while this instance is selected, over the skin's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<crate::ui_skin::Rgb>,
+    /// The sidebar group the instance is in. Without one the sidebar puts it in an
+    /// automatic group ([`AutoGroup`]) when that setting is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// The launcher the instance was imported from, by name ("Prism Launcher"), when
+    /// it was imported from another launcher.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_from: Option<String>,
     pub game_version: String,
     #[serde(default)]
     pub loader: Loader,
@@ -135,6 +194,10 @@ pub struct Instance {
     /// Environment variables for the game; they replace the global ones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<BTreeMap<String, String>>,
+    /// "Beta and alpha updates": Modrinth content may update to pre-release
+    /// versions. Off, a file only updates to one at least as stable as it is.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub prerelease_updates: bool,
 }
 
 impl Default for Instance {
@@ -143,7 +206,12 @@ impl Default for Instance {
             id: String::new(),
             name: String::new(),
             icon: None,
+            background: None,
+            slideshow: None,
+            play_color: None,
+            accent: None,
             group: None,
+            imported_from: None,
             game_version: String::new(),
             loader: Loader::None,
             loader_version: None,
@@ -156,6 +224,7 @@ impl Default for Instance {
             game_args: None,
             window: None,
             env: None,
+            prerelease_updates: false,
         }
     }
 }
@@ -167,17 +236,26 @@ impl Document for Instance {
     const MIGRATIONS: &'static [Migration] = &[Ok, migrate_v1];
 }
 
+/// The maximum memory M3 gave new instances: a quarter of the memory, from 2 to 4 GB.
+/// M3 read the memory size on macOS only and assumed 8 GB elsewhere, so this does too:
+/// the real size on Windows or Linux would turn M3's default into a custom setting.
+fn m3_default_max_ram_mb() -> u64 {
+    let total = if cfg!(target_os = "macos") {
+        crate::game::platform::total_memory()
+    } else {
+        None
+    };
+    let total_mb = total.map_or(8192, |bytes| bytes / (1024 * 1024));
+    (total_mb / 4).clamp(2048, 4096)
+}
+
 /// Version 1 stored every setting. Values that were the defaults M3 filled in become
 /// "use the global setting"; the others stay as the instance's own.
 fn migrate_v1(mut fields: Map<String, Value>) -> anyhow::Result<Map<String, Value>> {
     let min = fields.remove("min_ram").and_then(|v| v.as_u64());
     let max = fields.remove("max_ram").and_then(|v| v.as_u64());
     if let (Some(min), Some(max)) = (min, max) {
-        let old_default_max = {
-            let total_mb =
-                crate::game::platform::total_memory().map_or(8192, |bytes| bytes / (1024 * 1024));
-            (total_mb / 4).clamp(2048, 4096)
-        };
+        let old_default_max = m3_default_max_ram_mb();
         if min != u64::from(settings::DEFAULT_MIN_RAM_MB) || max != old_default_max {
             fields.insert("memory".into(), serde_json::json!({"min": min, "max": max}));
         }
@@ -208,6 +286,25 @@ fn migrate_v1(mut fields: Map<String, Value>) -> anyhow::Result<Map<String, Valu
 }
 
 impl Instance {
+    /// What the Play tab shows behind the name. The slideshow wins over the image.
+    pub fn background_mode(&self) -> BackgroundMode {
+        match (self.slideshow, self.background.as_deref()) {
+            (Some(source), _) => BackgroundMode::Slideshow(source),
+            (None, Some(CUSTOM_BACKGROUND)) => BackgroundMode::Image,
+            (None, Some(other)) if other.starts_with(SKIN_BANNER) => BackgroundMode::Banner,
+            (None, _) => BackgroundMode::Default,
+        }
+    }
+
+    /// The skin and banner the instance's Play background is, when it is a skin's
+    /// banner.
+    pub fn skin_banner(&self) -> Option<(&str, &str)> {
+        self.background
+            .as_deref()?
+            .strip_prefix(SKIN_BANNER)?
+            .split_once('/')
+    }
+
     /// The instance's loader and its version, if it has a loader.
     pub fn loader_choice(&self) -> Option<LoaderChoice> {
         Some(LoaderChoice {
@@ -310,30 +407,129 @@ pub fn format_env(env: &BTreeMap<String, String>) -> String {
         .join(" ")
 }
 
-/// The instances by sidebar group: those without a group first, then each group in
-/// name order (ignoring case), each keeping the list's order.
-pub fn grouped(instances: &[Instance]) -> Vec<(Option<String>, Vec<&Instance>)> {
+/// The groups the sidebar puts instances without a group of their own in, in the
+/// order they are listed (after the groups the user named).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AutoGroup {
+    Fabric,
+    Forge,
+    NeoForge,
+    Quilt,
+    Vanilla,
+    /// Imported from another launcher, whatever its loader.
+    Imported,
+}
+
+impl AutoGroup {
+    pub const ALL: [AutoGroup; 6] = [
+        AutoGroup::Fabric,
+        AutoGroup::Forge,
+        AutoGroup::NeoForge,
+        AutoGroup::Quilt,
+        AutoGroup::Vanilla,
+        AutoGroup::Imported,
+    ];
+
+    /// The instance's automatic group: Imported for one imported from another
+    /// launcher, else its loader's.
+    pub fn of(instance: &Instance) -> Self {
+        if instance.imported_from.is_some() {
+            return AutoGroup::Imported;
+        }
+        match instance.loader {
+            Loader::None => AutoGroup::Vanilla,
+            Loader::Fabric => AutoGroup::Fabric,
+            Loader::Forge => AutoGroup::Forge,
+            Loader::NeoForge => AutoGroup::NeoForge,
+            Loader::Quilt => AutoGroup::Quilt,
+        }
+    }
+
+    /// The group's name, which is also its heading.
+    pub fn name(self) -> &'static str {
+        match self {
+            AutoGroup::Fabric => "Fabric (modded)",
+            AutoGroup::Forge => "Forge (modded)",
+            AutoGroup::NeoForge => "NeoForge (modded)",
+            AutoGroup::Quilt => "Quilt (modded)",
+            AutoGroup::Vanilla => "Vanilla",
+            AutoGroup::Imported => "Imported",
+        }
+    }
+}
+
+/// The instances by sidebar group, each group keeping the list's order: those
+/// without a group first (none when `automatic`), then the groups the user named in
+/// name order (ignoring case), then, when `automatic`, the [`AutoGroup`]s in their
+/// order for the instances without a group of their own.
+///
+/// A group the user named like an automatic group ("vanilla") is that group: the
+/// instances it would get join it.
+pub fn grouped(instances: &[Instance], automatic: bool) -> Vec<(Option<String>, Vec<&Instance>)> {
     let mut groups: Vec<(Option<String>, Vec<&Instance>)> = Vec::new();
-    let ungrouped: Vec<&Instance> = instances
-        .iter()
-        .filter(|i| group_name(i).is_none())
-        .collect();
-    if !ungrouped.is_empty() {
-        groups.push((None, ungrouped));
+    if !automatic {
+        let ungrouped: Vec<&Instance> = instances
+            .iter()
+            .filter(|i| group_name(i).is_none())
+            .collect();
+        if !ungrouped.is_empty() {
+            groups.push((None, ungrouped));
+        }
     }
     let mut names: Vec<&str> = instances.iter().filter_map(group_name).collect();
     names.sort_by_key(|name| name.to_lowercase());
     names.dedup();
-    for name in names {
+    let named = |name: &str| names.iter().copied().find(|n| n.eq_ignore_ascii_case(name));
+    for name in &names {
         groups.push((
             Some(name.to_string()),
             instances
                 .iter()
-                .filter(|i| group_name(i) == Some(name))
+                .filter(|i| match group_name(i) {
+                    Some(group) => group == *name,
+                    None => automatic && named(AutoGroup::of(i).name()) == Some(*name),
+                })
                 .collect(),
         ));
     }
+    if automatic {
+        for auto in AutoGroup::ALL {
+            if named(auto.name()).is_some() {
+                continue;
+            }
+            let members: Vec<&Instance> = instances
+                .iter()
+                .filter(|i| group_name(i).is_none() && AutoGroup::of(i) == auto)
+                .collect();
+            if !members.is_empty() {
+                groups.push((Some(auto.name().to_string()), members));
+            }
+        }
+    }
     groups
+}
+
+/// The group the sidebar lists the instance in: its own, or its automatic one when
+/// `automatic`.
+pub fn group_of(instance: &Instance, automatic: bool) -> Option<String> {
+    match group_name(instance) {
+        Some(name) => Some(name.to_string()),
+        None => automatic.then(|| AutoGroup::of(instance).name().to_string()),
+    }
+}
+
+/// The instance played most recently, if any has been played.
+pub fn last_played(instances: &[Instance]) -> Option<&Instance> {
+    instances
+        .iter()
+        .filter(|i| i.last_played.is_some())
+        .reduce(|best, i| {
+            if i.last_played > best.last_played {
+                i
+            } else {
+                best
+            }
+        })
 }
 
 fn group_name(instance: &Instance) -> Option<&str> {
@@ -358,10 +554,14 @@ pub enum InstanceError {
         #[source]
         source: io::Error,
     },
-    #[error("couldn't move {path} to the Trash: {reason}")]
+    #[error("couldn't move {path} to {trash}: {reason}", trash = crate::wording::TRASH)]
     Trash { path: PathBuf, reason: String },
     #[error("couldn't use {path} as the icon: {reason}")]
     Icon { path: PathBuf, reason: String },
+    #[error("couldn't use {path} as the background: {reason}")]
+    Background { path: PathBuf, reason: String },
+    #[error("{0:?} isn't an icon the launcher knows")]
+    IconName(String),
 }
 
 fn io_error(path: &Path) -> impl FnOnce(io::Error) -> InstanceError + '_ {
@@ -386,6 +586,19 @@ pub struct InstanceStore {
 
 /// The longest name kept; longer names are cut.
 const MAX_NAME_CHARS: usize = 64;
+
+/// Puts instances in the order [`InstanceStore::list`] returns them: most recently
+/// played first, then newest first. For a list changed in place after one instance
+/// was saved.
+pub fn sort_listed(instances: &mut [Instance]) {
+    instances.sort_by(|a, b| {
+        b.last_played
+            .unwrap_or(0)
+            .cmp(&a.last_played.unwrap_or(0))
+            .then(b.created.cmp(&a.created))
+            .then(a.name.cmp(&b.name))
+    });
+}
 
 impl InstanceStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
@@ -440,13 +653,7 @@ impl InstanceStore {
                 Err(error) => broken.push(BrokenInstance { dir, error }),
             }
         }
-        instances.sort_by(|a, b| {
-            b.last_played
-                .unwrap_or(0)
-                .cmp(&a.last_played.unwrap_or(0))
-                .then(b.created.cmp(&a.created))
-                .then(a.name.cmp(&b.name))
-        });
+        sort_listed(&mut instances);
         (instances, broken)
     }
 
@@ -469,7 +676,7 @@ impl InstanceStore {
         game_version: &str,
         loader: Option<&LoaderChoice>,
     ) -> Result<Instance, InstanceError> {
-        let name = clean_name(name)?;
+        let name = self.unique_name(&clean_name(name)?);
         let id = self.unused_id(&name);
         let instance = Instance {
             id: id.clone(),
@@ -496,7 +703,7 @@ impl InstanceStore {
         if name.chars().count() > MAX_NAME_CHARS {
             name = name.chars().take(MAX_NAME_CHARS).collect();
         }
-        let name = clean_name(&name)?;
+        let name = self.unique_name(&clean_name(&name)?);
         let new_id = self.unused_id(&name);
         let staging = self.root.join(format!(".{new_id}.copying"));
         let _ = fs::remove_dir_all(&staging);
@@ -515,7 +722,7 @@ impl InstanceStore {
                 ..original.clone()
             };
             storage::save(&staging.join("instance.json"), &copy)?;
-            fs::rename(&staging, self.dir(&new_id)).map_err(io_error(&staging))?;
+            crate::fsx::rename(&staging, self.dir(&new_id)).map_err(io_error(&staging))?;
             Ok(copy)
         })();
         if result.is_err() {
@@ -543,11 +750,11 @@ impl InstanceStore {
         staging: &Path,
         mut instance: Instance,
     ) -> Result<Instance, InstanceError> {
-        instance.name = clean_name(&instance.name)?;
+        instance.name = self.unique_name(&clean_name(&instance.name)?);
         instance.id = self.unused_id(&instance.name);
         storage::save(&staging.join("instance.json"), &instance)?;
         let dir = self.dir(&instance.id);
-        fs::rename(staging, &dir).map_err(io_error(staging))?;
+        crate::fsx::rename(staging, &dir).map_err(io_error(staging))?;
         Ok(instance)
     }
 
@@ -560,7 +767,18 @@ impl InstanceStore {
     /// Makes the image at `source` (PNG or JPEG) the instance's icon: cropped to a
     /// square, scaled to [`ICON_SIZE`] and saved as the instance's `icon.png`.
     pub fn set_icon(&self, id: &str, source: &Path) -> Result<Instance, InstanceError> {
-        let mut instance = self.get(id)?;
+        self.write_icon(id, source)?;
+        self.use_custom_icon(id)
+    }
+
+    /// The slow half of [`InstanceStore::set_icon`]: reads, crops and scales the image
+    /// and writes the instance's `icon.png`, without changing its `instance.json`.
+    /// [`InstanceStore::use_custom_icon`] then makes it the icon.
+    pub fn write_icon(&self, id: &str, source: &Path) -> Result<(), InstanceError> {
+        check_id(id)?;
+        if !self.file(id).is_file() {
+            return Err(InstanceError::NotFound(id.to_string()));
+        }
         let icon_error = |reason: String| InstanceError::Icon {
             path: source.to_owned(),
             reason,
@@ -572,6 +790,12 @@ impl InstanceStore {
         let png = icon_png(&bytes).map_err(icon_error)?;
         let path = self.dir(id).join(ICON_FILE);
         storage::write_atomic(&path, &png).map_err(io_error(&path))?;
+        Ok(())
+    }
+
+    /// Makes the `icon.png` that [`InstanceStore::write_icon`] wrote the instance's icon.
+    pub fn use_custom_icon(&self, id: &str) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
         instance.icon = Some(CUSTOM_ICON.to_string());
         self.save(&instance)?;
         Ok(instance)
@@ -579,16 +803,164 @@ impl InstanceStore {
 
     /// Goes back to the default icon.
     pub fn clear_icon(&self, id: &str) -> Result<Instance, InstanceError> {
-        let mut instance = self.get(id)?;
-        let path = self.dir(id).join(ICON_FILE);
-        match fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-            Err(source) => return Err(InstanceError::Io { path, source }),
+        self.set_icon_name(id, None)
+    }
+
+    /// Uses an icon from the library or an emoji (see [`Instance::icon`]), or the
+    /// default for `None`, and removes the instance's own `icon.png`.
+    pub fn set_icon_name(&self, id: &str, icon: Option<&str>) -> Result<Instance, InstanceError> {
+        if let Some(icon) = icon
+            && !valid_icon_name(icon)
+        {
+            return Err(InstanceError::IconName(icon.to_string()));
         }
-        instance.icon = None;
+        let mut instance = self.get(id)?;
+        remove_if_present(&self.dir(id).join(ICON_FILE))?;
+        instance.icon = icon.map(str::to_string);
         self.save(&instance)?;
         Ok(instance)
+    }
+
+    /// The instance's own Play background, if it has one.
+    pub fn background_path(&self, instance: &Instance) -> Option<PathBuf> {
+        let path = self.dir(&instance.id).join(BACKGROUND_FILE);
+        (instance.background.as_deref() == Some(CUSTOM_BACKGROUND) && path.is_file())
+            .then_some(path)
+    }
+
+    /// Makes the image at `source` (PNG, JPEG, WebP or GIF) the instance's Play
+    /// background: scaled down to fit [`BACKGROUND_MAX`] and saved as its
+    /// `background.jpg`.
+    pub fn set_background(&self, id: &str, source: &Path) -> Result<Instance, InstanceError> {
+        self.write_background(id, source)?;
+        self.use_custom_background(id)
+    }
+
+    /// The slow half of [`InstanceStore::set_background`]: reads and scales the image
+    /// and writes the instance's `background.jpg`, without changing its
+    /// `instance.json`. [`InstanceStore::use_custom_background`] then shows it.
+    pub fn write_background(&self, id: &str, source: &Path) -> Result<(), InstanceError> {
+        check_id(id)?;
+        if !self.file(id).is_file() {
+            return Err(InstanceError::NotFound(id.to_string()));
+        }
+        let error = |reason: String| InstanceError::Background {
+            path: source.to_owned(),
+            reason,
+        };
+        let bytes = fs::read(source).map_err(|err| error(err.to_string()))?;
+        if bytes.len() > 64 * 1024 * 1024 {
+            return Err(error("the image is larger than 64 MB".into()));
+        }
+        let jpeg = background_jpeg(&bytes).map_err(error)?;
+        let path = self.dir(id).join(BACKGROUND_FILE);
+        storage::write_atomic(&path, &jpeg).map_err(io_error(&path))?;
+        Ok(())
+    }
+
+    /// Makes the `background.jpg` that [`InstanceStore::write_background`] wrote the
+    /// instance's Play background.
+    pub fn use_custom_background(&self, id: &str) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        instance.background = Some(CUSTOM_BACKGROUND.to_string());
+        self.save(&instance)?;
+        Ok(instance)
+    }
+
+    /// Makes banner `banner` of skin `skin` the instance's Play background. The
+    /// banner is kept by id, so it follows the skin's updates.
+    pub fn set_skin_banner(
+        &self,
+        id: &str,
+        skin: &str,
+        banner: &str,
+    ) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        remove_if_present(&self.dir(id).join(BACKGROUND_FILE))?;
+        instance.background = Some(format!("{SKIN_BANNER}{skin}/{banner}"));
+        instance.slideshow = None;
+        self.save(&instance)?;
+        Ok(instance)
+    }
+
+    /// Goes back to the launcher's Play background. The slideshow's own images stay,
+    /// for when it is chosen again.
+    pub fn clear_background(&self, id: &str) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        remove_if_present(&self.dir(id).join(BACKGROUND_FILE))?;
+        instance.background = None;
+        instance.slideshow = None;
+        self.save(&instance)?;
+        Ok(instance)
+    }
+
+    /// Shows a slideshow from `source` behind the name, or, for `None`, the
+    /// instance's own image again (or the launcher's, without one).
+    pub fn set_slideshow(
+        &self,
+        id: &str,
+        source: Option<SlideshowSource>,
+    ) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        instance.slideshow = source;
+        self.save(&instance)?;
+        Ok(instance)
+    }
+
+    /// The images added to the instance's slideshow, by name.
+    pub fn slideshow_images(&self, id: &str) -> Vec<PathBuf> {
+        let dir = self.dir(id).join(SLIDESHOW_DIR);
+        let mut images: Vec<PathBuf> = fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "jpg"))
+            .collect();
+        images.sort();
+        images
+    }
+
+    /// Adds the image at `source` (PNG, JPEG, WebP or GIF) to the instance's slideshow,
+    /// scaled down like a background. Returns where it was saved.
+    pub fn add_slideshow_image(&self, id: &str, source: &Path) -> Result<PathBuf, InstanceError> {
+        check_id(id)?;
+        let error = |reason: String| InstanceError::Background {
+            path: source.to_owned(),
+            reason,
+        };
+        let bytes = fs::read(source).map_err(|err| error(err.to_string()))?;
+        if bytes.len() > 64 * 1024 * 1024 {
+            return Err(error("the image is larger than 64 MB".into()));
+        }
+        let jpeg = background_jpeg(&bytes).map_err(error)?;
+        let dir = self.dir(id).join(SLIDESHOW_DIR);
+        fs::create_dir_all(&dir).map_err(io_error(&dir))?;
+        // Named by when it was added, so the set keeps that order.
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or_default();
+        let mut path = dir.join(format!("{stamp}.jpg"));
+        let mut n = 1;
+        while path.exists() {
+            path = dir.join(format!("{stamp}-{n}.jpg"));
+            n += 1;
+        }
+        storage::write_atomic(&path, &jpeg).map_err(io_error(&path))?;
+        Ok(path)
+    }
+
+    /// Removes one of the slideshow's own images; `name` is its file name.
+    pub fn remove_slideshow_image(&self, id: &str, name: &str) -> Result<(), InstanceError> {
+        check_id(id)?;
+        if name.contains(['/', '\\']) || name.starts_with('.') || !name.ends_with(".jpg") {
+            return Err(InstanceError::Background {
+                path: PathBuf::from(name),
+                reason: "not one of the slideshow's images".into(),
+            });
+        }
+        remove_if_present(&self.dir(id).join(SLIDESHOW_DIR).join(name))
     }
 
     /// Writes the instance's `instance.json`.
@@ -601,6 +973,15 @@ impl InstanceStore {
     pub fn rename(&self, id: &str, name: &str) -> Result<Instance, InstanceError> {
         let mut instance = self.get(id)?;
         instance.name = clean_name(name)?;
+        self.save(&instance)?;
+        Ok(instance)
+    }
+
+    /// Records that a game started at `started`, so it counts as played even if it
+    /// crashes or the launcher quits before it exits.
+    pub fn record_start(&self, id: &str, started: u64) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        instance.last_played = Some(started);
         self.save(&instance)?;
         Ok(instance)
     }
@@ -641,6 +1022,30 @@ impl InstanceStore {
         remove(&dir).map_err(|reason| InstanceError::Trash { path: dir, reason })
     }
 
+    /// `name`, or `name (2)`, `name (3)`, … when another instance already has that
+    /// name (ignoring case), so a new instance can always be told apart from the others
+    /// in the sidebar and in pickers. Renaming an instance yourself is not changed.
+    fn unique_name(&self, name: &str) -> String {
+        let taken: Vec<String> = self
+            .list()
+            .0
+            .into_iter()
+            .map(|instance| instance.name.to_lowercase())
+            .collect();
+        (1..)
+            .map(|n| {
+                if n == 1 {
+                    return name.to_string();
+                }
+                let suffix = format!(" ({n})");
+                let room = MAX_NAME_CHARS.saturating_sub(suffix.chars().count());
+                let base: String = name.chars().take(room).collect();
+                format!("{}{suffix}", base.trim_end())
+            })
+            .find(|candidate| !taken.contains(&candidate.to_lowercase()))
+            .expect("an unused name")
+    }
+
     /// A folder name from `name`: lowercase letters, digits and dashes, with a
     /// number added if it is taken.
     fn unused_id(&self, name: &str) -> String {
@@ -674,6 +1079,73 @@ impl InstanceStore {
 }
 
 /// `bytes` (a PNG or JPEG) as a square PNG of [`ICON_SIZE`] pixels.
+/// Whether `icon` is a library icon or an emoji in the form [`Instance::icon`] takes.
+/// The launcher decides which library names it draws; this keeps out what isn't one.
+pub fn valid_icon_name(icon: &str) -> bool {
+    if icon.len() > 64 || icon.chars().any(char::is_control) {
+        return false;
+    }
+    if let Some(name) = icon.strip_prefix(BUILTIN_ICON) {
+        return !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    }
+    if let Some(rest) = icon.strip_prefix(EMOJI_ICON) {
+        let Some((color, emoji)) = rest.split_once(':') else {
+            return false;
+        };
+        return color.len() == 6
+            && color.chars().all(|c| c.is_ascii_hexdigit())
+            && !emoji.is_empty()
+            && emoji.chars().count() <= 8;
+    }
+    false
+}
+
+fn remove_if_present(path: &Path) -> Result<(), InstanceError> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(InstanceError::Io {
+            path: path.to_owned(),
+            source,
+        }),
+    }
+}
+
+/// The image in `bytes` as a JPEG no larger than [`BACKGROUND_MAX`].
+pub fn background_jpeg(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let not_an_image =
+        |err: image::ImageError| format!("it is not a PNG, JPEG, WebP or GIF image ({err})");
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|err| err.to_string())?;
+    // Refuses images that would take too much memory to decode.
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(16_384);
+    limits.max_image_height = Some(16_384);
+    limits.max_alloc = Some(1024 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader.decode().map_err(not_an_image)?;
+    if image.width() == 0 || image.height() == 0 {
+        return Err("the image is empty".into());
+    }
+    let (max_w, max_h) = BACKGROUND_MAX;
+    let image = if image.width() > max_w || image.height() > max_h {
+        image.resize(max_w, max_h, image::imageops::FilterType::Triangle)
+    } else {
+        image
+    };
+    let rgb = image::DynamicImage::ImageRgb8(image.to_rgb8());
+    let mut jpeg = std::io::Cursor::new(Vec::new());
+    rgb.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
+        &mut jpeg, 88,
+    ))
+    .map_err(|err| err.to_string())?;
+    Ok(jpeg.into_inner())
+}
+
 pub fn icon_png(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let image = image::load_from_memory(bytes)
         .map_err(|err| format!("it is not a PNG or JPEG image ({err})"))?;
@@ -763,11 +1235,176 @@ pub fn now() -> u64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn icon_names_are_library_icons_or_emoji() {
+        assert!(valid_icon_name("builtin:grass"));
+        assert!(valid_icon_name("builtin:diamond-ore"));
+        assert!(valid_icon_name("emoji:3DAE5E:🌲"));
+        assert!(valid_icon_name("emoji:1d8eb2:🧑‍🚀"));
+        assert!(!valid_icon_name("builtin:"));
+        assert!(!valid_icon_name("builtin:../icon"));
+        assert!(!valid_icon_name("emoji:green:🌲"));
+        assert!(!valid_icon_name("emoji:3DAE5E:"));
+        assert!(!valid_icon_name("emoji:3DAE5E:a\nb"));
+        assert!(!valid_icon_name("custom"));
+        assert!(!valid_icon_name("https://example.com/icon.png"));
+    }
+
+    #[test]
+    fn named_icons_and_backgrounds_are_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().join("instances"));
+        let instance = store.create("Pixel", "1.20.1", None).unwrap();
+        let source = dir.path().join("photo.png");
+        image::RgbImage::from_pixel(3000, 1000, image::Rgb([200, 210, 220]))
+            .save(&source)
+            .unwrap();
+
+        store.set_icon(&instance.id, &source).unwrap();
+        let named = store
+            .set_icon_name(&instance.id, Some("builtin:grass"))
+            .unwrap();
+        assert_eq!(named.icon.as_deref(), Some("builtin:grass"));
+        assert!(!store.dir(&instance.id).join(ICON_FILE).exists());
+        assert!(
+            store
+                .set_icon_name(&instance.id, Some("builtin:../x"))
+                .is_err()
+        );
+
+        let with_background = store.set_background(&instance.id, &source).unwrap();
+        let path = store.background_path(&with_background).unwrap();
+        let saved = image::open(&path).unwrap();
+        assert_eq!((saved.width(), saved.height()), (2560, 853));
+        let cleared = store.clear_background(&instance.id).unwrap();
+        assert_eq!(cleared.background, None);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_skin_banner_is_kept_by_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().join("instances"));
+        let instance = store.create("Banner", "1.20.1", None).unwrap();
+        let with = store
+            .set_skin_banner(&instance.id, "grassblock", "sunset")
+            .unwrap();
+        assert_eq!(with.background_mode(), BackgroundMode::Banner);
+        assert_eq!(with.skin_banner(), Some(("grassblock", "sunset")));
+        assert!(store.background_path(&with).is_none());
+        let cleared = store.clear_background(&instance.id).unwrap();
+        assert_eq!(cleared.skin_banner(), None);
+        assert_eq!(cleared.background_mode(), BackgroundMode::Default);
+    }
+
+    #[test]
+    fn the_slideshow_keeps_its_own_images_and_wins_over_the_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().join("instances"));
+        let instance = store.create("Shows", "1.20.1", None).unwrap();
+        assert_eq!(instance.background_mode(), BackgroundMode::Default);
+        let source = dir.path().join("photo.png");
+        image::RgbImage::from_pixel(4000, 2000, image::Rgb([90, 120, 150]))
+            .save(&source)
+            .unwrap();
+
+        let image = store.set_background(&instance.id, &source).unwrap();
+        assert_eq!(image.background_mode(), BackgroundMode::Image);
+        let show = store
+            .set_slideshow(&instance.id, Some(SlideshowSource::Custom))
+            .unwrap();
+        assert_eq!(
+            show.background_mode(),
+            BackgroundMode::Slideshow(SlideshowSource::Custom)
+        );
+        // turning the slideshow off shows the image again
+        let back = store.set_slideshow(&instance.id, None).unwrap();
+        assert_eq!(back.background_mode(), BackgroundMode::Image);
+
+        let first = store.add_slideshow_image(&instance.id, &source).unwrap();
+        let second = store.add_slideshow_image(&instance.id, &source).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            store.slideshow_images(&instance.id),
+            vec![first.clone(), second.clone()]
+        );
+        let saved = image::open(&first).unwrap();
+        assert_eq!((saved.width(), saved.height()), (2560, 1280));
+
+        let name = second.file_name().unwrap().to_str().unwrap();
+        store.remove_slideshow_image(&instance.id, name).unwrap();
+        assert_eq!(store.slideshow_images(&instance.id), vec![first]);
+        assert!(
+            store
+                .remove_slideshow_image(&instance.id, "../instance.json")
+                .is_err()
+        );
+
+        // the default clears both, and keeps the set for later
+        let cleared = store.clear_background(&instance.id).unwrap();
+        assert_eq!(cleared.background_mode(), BackgroundMode::Default);
+        assert_eq!(store.slideshow_images(&instance.id).len(), 1);
+    }
+
+    #[test]
+    fn the_slideshow_source_is_stored_by_name_and_left_out_when_off() {
+        let mut instance = Instance {
+            id: "a".into(),
+            name: "A".into(),
+            ..Instance::default()
+        };
+        let json = serde_json::to_value(&instance).unwrap();
+        assert!(json.get("slideshow").is_none());
+        instance.slideshow = Some(SlideshowSource::AllInstances);
+        let json = serde_json::to_value(&instance).unwrap();
+        assert_eq!(json["slideshow"], "all_instances");
+        let back: Instance = serde_json::from_value(json).unwrap();
+        assert_eq!(back.slideshow, Some(SlideshowSource::AllInstances));
+    }
+
     use std::cell::RefCell;
 
     use serde_json::{Value, json};
 
     use super::*;
+
+    #[test]
+    fn new_instances_get_a_name_no_other_instance_has() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().join("instances"));
+        let first = store.create("Survival", "1.20.1", None).unwrap();
+        let second = store.create("Survival", "1.20.1", None).unwrap();
+        let third = store.create("survival", "1.20.1", None).unwrap();
+        assert_eq!(first.name, "Survival");
+        assert_eq!(second.name, "Survival (2)");
+        // names are compared without case
+        assert_eq!(third.name, "survival (3)");
+        // a copy of a copy stays unique too
+        let copy = store.duplicate(&first.id).unwrap();
+        let copy_again = store.duplicate(&first.id).unwrap();
+        assert_eq!(copy.name, "Survival (copy)");
+        assert_eq!(copy_again.name, "Survival (copy) (2)");
+        // a long name keeps within the limit
+        let long = "x".repeat(MAX_NAME_CHARS);
+        store.create(&long, "1.20.1", None).unwrap();
+        let long_again = store.create(&long, "1.20.1", None).unwrap();
+        assert!(long_again.name.ends_with(" (2)"));
+        assert_eq!(long_again.name.chars().count(), MAX_NAME_CHARS);
+        // and staged instances (imports, modpacks, matching instances) as well
+        let staging = store.new_staging().unwrap();
+        let staged = store
+            .commit_staged(
+                &staging,
+                Instance {
+                    name: "Survival".into(),
+                    game_version: "1.20.1".into(),
+                    ..Instance::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(staged.name, "Survival (4)");
+    }
 
     fn fabric() -> LoaderChoice {
         LoaderChoice {
@@ -839,11 +1476,11 @@ mod tests {
     fn migrates_version_1() {
         let dir = tempfile::tempdir().unwrap();
         let store = InstanceStore::new(dir.path());
-        let old_default_max = {
-            let total_mb =
-                crate::game::platform::total_memory().map_or(8192, |b| b / (1024 * 1024));
-            (total_mb / 4).clamp(2048, 4096)
-        };
+        let old_default_max = m3_default_max_ram_mb();
+        if !cfg!(target_os = "macos") {
+            // A quarter of the 8 GB M3 assumed, whatever this computer has.
+            assert_eq!(old_default_max, 2048);
+        }
         for (id, body) in [
             (
                 "plain",
@@ -1067,7 +1704,7 @@ mod tests {
             instance("d", Some("survival")),
             instance("e", Some("  ")),
         ];
-        let groups: Vec<(Option<String>, Vec<&str>)> = grouped(&list)
+        let groups: Vec<(Option<String>, Vec<&str>)> = grouped(&list, false)
             .into_iter()
             .map(|(name, items)| (name, items.iter().map(|i| i.id.as_str()).collect()))
             .collect();
@@ -1079,6 +1716,149 @@ mod tests {
                 (Some("survival".into()), vec!["a", "d"]),
             ]
         );
+    }
+
+    fn ids(groups: Vec<(Option<String>, Vec<&Instance>)>) -> Vec<(Option<String>, Vec<&str>)> {
+        groups
+            .into_iter()
+            .map(|(name, items)| (name, items.iter().map(|i| i.id.as_str()).collect()))
+            .collect()
+    }
+
+    fn auto_instance(id: &str, loader: Loader, group: Option<&str>, imported: bool) -> Instance {
+        Instance {
+            id: id.into(),
+            loader,
+            group: group.map(str::to_string),
+            imported_from: imported.then(|| "Prism Launcher".to_string()),
+            ..Instance::default()
+        }
+    }
+
+    #[test]
+    fn automatic_groups_follow_the_loader_or_the_import() {
+        let list = [
+            auto_instance("vanilla", Loader::None, None, false),
+            auto_instance("fabric", Loader::Fabric, None, false),
+            auto_instance("forge", Loader::Forge, None, false),
+            auto_instance("neo", Loader::NeoForge, None, false),
+            auto_instance("quilt", Loader::Quilt, None, false),
+            auto_instance("prism", Loader::Fabric, None, true),
+            auto_instance("named", Loader::Fabric, Some("Survival"), true),
+        ];
+        assert_eq!(AutoGroup::of(&list[0]), AutoGroup::Vanilla);
+        assert_eq!(AutoGroup::of(&list[5]), AutoGroup::Imported);
+        // A group of its own wins over the automatic one.
+        assert_eq!(group_of(&list[6], true).as_deref(), Some("Survival"));
+        assert_eq!(group_of(&list[1], true).as_deref(), Some("Fabric (modded)"));
+        assert_eq!(group_of(&list[1], false), None);
+        assert_eq!(
+            ids(grouped(&list, true)),
+            [
+                (Some("Survival".into()), vec!["named"]),
+                (Some("Fabric (modded)".into()), vec!["fabric"]),
+                (Some("Forge (modded)".into()), vec!["forge"]),
+                (Some("NeoForge (modded)".into()), vec!["neo"]),
+                (Some("Quilt (modded)".into()), vec!["quilt"]),
+                (Some("Vanilla".into()), vec!["vanilla"]),
+                (Some("Imported".into()), vec!["prism"]),
+            ]
+        );
+        // Off, the instances without a group are listed loose, as before.
+        assert_eq!(
+            ids(grouped(&list, false)),
+            [
+                (
+                    None,
+                    vec!["vanilla", "fabric", "forge", "neo", "quilt", "prism"]
+                ),
+                (Some("Survival".into()), vec!["named"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn automatic_groups_are_ordered_and_skip_empty_ones() {
+        let list = [
+            auto_instance("old-import", Loader::None, None, true),
+            auto_instance("v", Loader::None, None, false),
+            auto_instance("b", Loader::Forge, Some("beta"), false),
+            auto_instance("a", Loader::Forge, Some("Alpha"), false),
+            auto_instance("q", Loader::Quilt, None, false),
+        ];
+        assert_eq!(
+            ids(grouped(&list, true)),
+            [
+                (Some("Alpha".into()), vec!["a"]),
+                (Some("beta".into()), vec!["b"]),
+                (Some("Quilt (modded)".into()), vec!["q"]),
+                (Some("Vanilla".into()), vec!["v"]),
+                (Some("Imported".into()), vec!["old-import"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_named_group_called_like_an_automatic_one_takes_its_instances() {
+        let list = [
+            auto_instance("mine", Loader::Forge, Some("vanilla"), false),
+            auto_instance("plain", Loader::None, None, false),
+            auto_instance("fabric", Loader::Fabric, None, false),
+        ];
+        assert_eq!(
+            ids(grouped(&list, true)),
+            [
+                (Some("vanilla".into()), vec!["mine", "plain"]),
+                (Some("Fabric (modded)".into()), vec!["fabric"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_last_played_instance() {
+        let played = |id: &str, at: Option<u64>| Instance {
+            id: id.into(),
+            last_played: at,
+            ..Instance::default()
+        };
+        assert!(last_played(&[played("a", None)]).is_none());
+        let list = [
+            played("a", Some(5)),
+            played("b", None),
+            played("c", Some(9)),
+        ];
+        assert_eq!(last_played(&list).map(|i| i.id.as_str()), Some("c"));
+    }
+
+    #[test]
+    fn imported_from_is_kept_and_optional() {
+        let old: Instance = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "A", "game_version": "1.21.4", "created": 1
+        }))
+        .unwrap();
+        assert_eq!(old.imported_from, None);
+        let value = serde_json::to_value(&old).unwrap();
+        assert!(value.get("imported_from").is_none(), "left out when unset");
+        let imported = Instance {
+            imported_from: Some("Prism Launcher".into()),
+            ..old
+        };
+        let back: Instance =
+            serde_json::from_value(serde_json::to_value(&imported).unwrap()).unwrap();
+        assert_eq!(back.imported_from.as_deref(), Some("Prism Launcher"));
+    }
+
+    #[test]
+    fn records_the_start_before_the_play_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path());
+        let instance = store.create("Started", "1.21.4", None).unwrap();
+        let started = store.record_start(&instance.id, 1_700_000_000).unwrap();
+        assert_eq!(started.last_played, Some(1_700_000_000));
+        assert_eq!(started.play_time, 0);
+        let finished = store.record_play(&instance.id, 1_700_000_000, 60).unwrap();
+        assert_eq!(finished.last_played, Some(1_700_000_000));
+        assert_eq!(finished.play_time, 60);
     }
 
     #[test]

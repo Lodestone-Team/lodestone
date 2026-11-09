@@ -286,7 +286,7 @@ fn zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut writer = zip::ZipWriter::new(&mut bytes);
         for (name, body) in entries {
             writer
-                .start_file(*name, zip::write::FileOptions::default())
+                .start_file(*name, zip::write::SimpleFileOptions::default())
                 .unwrap();
             writer.write_all(body).unwrap();
         }

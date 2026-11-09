@@ -3,15 +3,12 @@ import { InstanceContext } from 'data/InstanceContext';
 import { useInstanceManifest } from 'data/InstanceManifest';
 import { useContext, useState, useEffect, useMemo } from 'react';
 import { Skeleton, SkeletonGroup } from 'components/Atoms/Skeleton';
-import { axiosWrapper, convertUnicode, errorToString } from 'utils/util';
+import { axiosWrapper, errorToString } from 'utils/util';
 import Button from 'components/Atoms/Button';
 import { Toggle } from 'components/Atoms/Toggle';
 import { InstanceInfo } from 'bindings/InstanceInfo';
 import { useUserAuthorized } from 'data/UserInfo';
-import {
-  OWNER_ONLY_ATOM_MESSAGE,
-  useCanControlInstance,
-} from 'data/CodeExecution';
+import { useCanControlInstance } from 'data/CodeExecution';
 import { useQueryClient } from '@tanstack/react-query';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { toast } from 'react-toastify';
@@ -21,26 +18,38 @@ import {
   SectionFieldObject,
 } from './InstanceSettingsCreate/SettingObject';
 import { SettingOverrides } from './InstanceSettingsCreate/SettingOverrides';
+import { PublicListingSetting } from './PublicListingSetting';
+import { ResourcePackSetting } from './ResourcePackSetting';
 import { useDocumentTitle } from 'usehooks-ts';
+import {
+  SettingsCard,
+  SettingsEmptyRow,
+  SettingsRow,
+  SettingsSection,
+} from 'components/Settings/SettingsBlocks';
+import { SettingsWithToc } from 'components/Settings/SettingsToc';
+import { notifySaved } from 'components/Settings/savedToast';
+import { type MessageKey, useI18n, useT } from 'i18n';
 
 type StartupSetting = 'auto_start' | 'restart_on_crash';
 
-const STARTUP_SETTINGS: Array<{
-  key: StartupSetting;
-  label: string;
-  description: string;
-}> = [
+// the labels are message keys, translated when rendered
+const STARTUP_SETTINGS = [
   {
     key: 'auto_start',
-    label: 'Auto Start',
-    description: 'Start this instance when Lodestone Core starts',
+    labelKey: 'server.settings.autoStart',
+    descriptionKey: 'server.settings.autoStartHint',
   },
   {
     key: 'restart_on_crash',
-    label: 'Restart on Crash',
-    description: 'Start this instance again if it crashes',
+    labelKey: 'server.settings.restartOnCrash',
+    descriptionKey: 'server.settings.restartOnCrashHint',
   },
-];
+] as const satisfies ReadonlyArray<{
+  key: StartupSetting;
+  labelKey: MessageKey;
+  descriptionKey: MessageKey;
+}>;
 
 /** Toggles for auto start and restart on crash. */
 function StartupSettings({
@@ -52,6 +61,7 @@ function StartupSettings({
   canEdit: boolean;
   disabledReason: string;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   // the value being saved, shown until the instance list has the new value
   const [pending, setPending] = useState<
@@ -73,6 +83,7 @@ function StartupSettings({
         headers: { 'Content-Type': 'application/json' },
       });
       await queryClient.invalidateQueries({ queryKey: ['instances', 'list'] });
+      notifySaved();
     } catch (err) {
       toast.error(errorToString(err));
     } finally {
@@ -81,57 +92,49 @@ function StartupSettings({
   };
 
   return (
-    <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
-      <div className="w-full shrink-0">
-        <h2 className="text-h2 font-extrabold tracking-medium">Automation</h2>
-        <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-          When Lodestone starts this instance by itself
-        </h3>
-      </div>
-      <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-        {STARTUP_SETTINGS.map(({ key, label, description }) => (
-          <div
+    <SettingsSection
+      id="server-settings-automation"
+      title={t('server.settings.automation')}
+      lead={t('server.settings.automationLead')}
+    >
+      <SettingsCard>
+        {STARTUP_SETTINGS.map(({ key, labelKey, descriptionKey }) => (
+          <SettingsRow
             key={key}
-            className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3"
+            className="group relative"
+            label={t(labelKey)}
+            labelId={`startup-setting-${key}`}
+            hint={canEdit ? t(descriptionKey) : disabledReason}
           >
-            <div className="flex min-w-0 grow flex-col">
-              <label className="text-medium font-medium text-gray-300">
-                {label}
-              </label>
-              <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
-                {canEdit ? description : disabledReason}
-              </div>
-            </div>
-            <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
-              <Toggle
-                value={pending[key] ?? instance[key]}
-                onChange={(value) => void change(key, value)}
-                disabled={!canEdit || saving}
-              />
-            </div>
-          </div>
+            <Toggle
+              value={pending[key] ?? instance[key]}
+              onChange={(value) => void change(key, value)}
+              disabled={!canEdit || saving}
+              aria-labelledby={`startup-setting-${key}`}
+            />
+          </SettingsRow>
         ))}
-      </div>
-    </div>
+      </SettingsCard>
+    </SettingsSection>
   );
 }
 
 /** The settings sections' shape, while the settings load. */
 function InstanceSettingsSkeleton() {
   return (
-    <SkeletonGroup className="flex flex-col">
+    <SkeletonGroup className="flex max-w-170 flex-col gap-6.5">
       {[4, 2].map((rows, i) => (
-        <div key={i} className="mb-16 flex flex-col gap-4 @4xl:flex-row">
-          <div className="flex w-full shrink-0 flex-col gap-2">
-            <Skeleton className="h-6 w-40" />
-            <Skeleton className="h-5 w-72 max-w-full" />
+        <div key={i} className="flex flex-col">
+          <div className="mb-2.5 flex flex-col gap-1.5">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3.5 w-64 max-w-full" />
           </div>
           {/* setting rows: name and description, and the control */}
-          <div className="flex w-full min-w-0 flex-col divide-y divide-gray-faded/30 overflow-hidden rounded-lg border border-gray-faded/30">
+          <div className="flex w-full min-w-0 flex-col divide-y divide-fade-700 rounded-xl border border-fade-700 bg-gray-850">
             {Array.from({ length: rows }, (_, row) => (
               <div
                 key={row}
-                className="flex h-17 flex-row items-center justify-between gap-4 bg-gray-800 px-4"
+                className="flex min-h-14 flex-row items-center justify-between gap-4 px-4 py-3"
               >
                 <div className="flex grow flex-col gap-2">
                   <Skeleton className="h-3.5 w-36 rounded-sm" />
@@ -148,10 +151,13 @@ function InstanceSettingsSkeleton() {
 }
 
 export default function InstanceSetting() {
-  useDocumentTitle('Instance Settings - Lodestone');
+  const { t, rich } = useI18n();
+  useDocumentTitle(
+    t('common.pageTitle', { page: t('server.settings.pageTitle') })
+  );
   const { selectedInstance: instance, selectInstance } =
     useContext(InstanceContext);
-  if (!instance) throw new Error('No instance selected');
+  if (!instance) throw new Error('No server selected');
   const {
     data: manifest,
     isPending: isLoading,
@@ -185,7 +191,7 @@ export default function InstanceSetting() {
   return (
     <>
       <ConfirmDialog
-        title={`Delete "${instance.name}"`}
+        title={t('server.settings.deleteTitle', { name: instance.name })}
         type={'danger'}
         onClose={() => setShowDeleteDialog(false)}
         onConfirm={() => {
@@ -207,106 +213,103 @@ export default function InstanceSetting() {
               setShowDeleteDialog(false);
             });
         }}
-        confirmButtonText="I understand, delete this instance"
+        confirmButtonText={t('server.settings.deleteConfirm')}
         isOpen={showDeleteDialog}
       >
-        <span className="font-bold">This action cannot be undone.</span> This
-        instance&#39;s settings, worlds and backups will be permanently deleted.
-        Please backup any important data before proceeding.
+        {rich('server.settings.deleteWarning', {
+          cannotUndo: (
+            <span className="font-bold">
+              {t('server.settings.deleteCannotUndo')}
+            </span>
+          ),
+        })}
       </ConfirmDialog>
 
-      {sections.map((section) => (
-        <div
-          key={section.section_id}
-          className="mb-16 flex flex-col gap-4 @4xl:flex-row"
-        >
-          <div className="w-full shrink-0">
-            <h2 className="text-h2 font-extrabold tracking-medium">
-              {section.name}
-            </h2>
-            <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-              {section.description}
-            </h3>
-          </div>
-          <div className="w-full min-w-0 rounded-lg border border-gray-faded/30 child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-            {Object.keys(section['settings']).length ? (
-              Object.keys(section['settings']).map((settingKey: string) => {
-                const setting: SettingFieldObject =
-                  section['settings'][settingKey];
-                return (
-                  <SettingField
-                    instance={instance}
-                    setting={setting}
-                    key={settingKey}
-                    sectionId={section.section_id}
-                    settingId={settingKey}
-                    error={error}
-                    descriptionFunc={
-                      SettingOverrides[settingKey]?.descriptionFunc ?? undefined
-                    }
-                  />
-                );
-              })
-            ) : (
-              <div className="flex h-full w-full flex-col items-center justify-center bg-gray-800 p-4">
-                <h2 className="text-h3 font-bold tracking-medium text-white/50">
-                  Not available at this moment
-                </h2>
-                <h2 className="text-medium font-medium tracking-medium text-white/50">
-                  Try to start this instance at least once
-                </h2>
-              </div>
-            )}
-          </div>
-        </div>
-      ))}
-      <StartupSettings
-        instance={instance}
-        canEdit={can_access_instance_setting}
-        disabledReason={
-          canControlInstance ? 'No permission' : OWNER_ONLY_ATOM_MESSAGE
-        }
-      />
-      <div className="mb-16 flex flex-col gap-4 @4xl:flex-row">
-        <div className="w-full shrink-0">
-          <h2 className="text-h2 font-extrabold tracking-medium">
-            Danger Zone
-          </h2>
-          <h3 className="text-h3 font-medium tracking-medium text-white/50 italic">
-            These settings can cause irreversible damage to your server!
-          </h3>
-        </div>
-        <div className="w-full min-w-0 rounded-lg border border-red-faded child:w-full child:border-b child:border-gray-faded/30 child:first:rounded-t-lg child:last:rounded-b-lg child:last:border-b-0">
-          <div className="group relative flex h-full flex-row items-center justify-between gap-4 bg-gray-800 px-4 py-3 text-h3">
-            <div className="flex min-w-0 grow flex-col">
-              <label className="text-medium font-medium text-gray-300">
-                Delete Instance
-              </label>
-              {can_delete_instance ? (
-                <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
-                  Permanently deletes this instance and its data
-                </div>
+      <SettingsWithToc>
+        {sections.map((section) => (
+          <SettingsSection
+            key={section.section_id}
+            id={`server-settings-${section.section_id}`}
+            title={section.name}
+            lead={section.description}
+          >
+            <SettingsCard>
+              {Object.keys(section['settings']).length ? (
+                Object.keys(section['settings']).map((settingKey: string) => {
+                  const setting: SettingFieldObject =
+                    section['settings'][settingKey];
+                  return (
+                    <SettingField
+                      instance={instance}
+                      setting={setting}
+                      key={settingKey}
+                      sectionId={section.section_id}
+                      settingId={settingKey}
+                      error={error}
+                      descriptionFunc={
+                        SettingOverrides[settingKey]?.descriptionFunc ??
+                        undefined
+                      }
+                    />
+                  );
+                })
               ) : (
-                <div className="overflow-hidden text-medium font-medium tracking-medium text-ellipsis text-white/50">
-                  {canControlInstance
-                    ? 'No permission'
-                    : OWNER_ONLY_ATOM_MESSAGE}
-                </div>
+                <SettingsEmptyRow>
+                  <span className="block font-mediumbold text-gray-400">
+                    {t('server.settings.notAvailable')}
+                  </span>
+                  {t('server.settings.notAvailableHint')}
+                </SettingsEmptyRow>
               )}
-            </div>
-            <div className="relative flex w-5/12 shrink-0 flex-row items-center justify-end gap-4">
+            </SettingsCard>
+          </SettingsSection>
+        ))}
+        <StartupSettings
+          instance={instance}
+          canEdit={can_access_instance_setting}
+          disabledReason={
+            canControlInstance
+              ? t('server.settings.noPermission')
+              : t('console.ownerOnlyAtom')
+          }
+        />
+        <PublicListingSetting instance={instance} />
+        <ResourcePackSetting
+          instance={instance}
+          canEdit={can_access_instance_setting}
+          disabledReason={t('server.settings.noPermission')}
+        />
+        <SettingsSection
+          id="server-settings-danger"
+          title={t('server.settings.dangerZone')}
+          lead={t('server.settings.dangerZoneLead')}
+          danger
+        >
+          <SettingsCard danger>
+            <SettingsRow
+              className="group relative"
+              label={t('server.settings.deleteServer')}
+              danger
+              hint={
+                can_delete_instance
+                  ? t('server.settings.deleteServerHint')
+                  : canControlInstance
+                    ? t('server.settings.noPermission')
+                    : t('console.ownerOnlyAtom')
+              }
+            >
               <Button
-                label="Delete"
+                label={t('common.delete')}
                 intention="danger"
                 disabled={!can_delete_instance}
                 onClick={() => {
                   setShowDeleteDialog(true);
                 }}
               />
-            </div>
-          </div>
-        </div>
-      </div>
+            </SettingsRow>
+          </SettingsCard>
+        </SettingsSection>
+      </SettingsWithToc>
     </>
   );
 }

@@ -105,10 +105,10 @@ fn not_a_jar() -> Error {
 
 /// Opens `path` as a zip archive. A file that is not a zip is [`Error::Invalid`].
 #[cfg(feature = "zip")]
-fn open_jar(path: &Path) -> Result<zip::ZipArchive<std::fs::File>, Error> {
+fn open_jar(path: &Path) -> Result<zip::ZipArchive<std::io::BufReader<std::fs::File>>, Error> {
     let file = std::fs::File::open(path)
         .map_err(Error::io(format!("Failed to open {}", path.display())))?;
-    zip::ZipArchive::new(file).map_err(|_| not_a_jar())
+    zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|_| not_a_jar())
 }
 
 /// Whether the jar at `path` contains one of the loader's metadata files. Fails if it is
@@ -386,6 +386,88 @@ pub fn parse_mods_toml(text: &str, manifest_version: Option<String>) -> Option<M
     })
 }
 
+/// The mod ids a `fabric.mod.json` gives its jar: `id`, and the ids in `provides`.
+pub fn fabric_ids(text: &str) -> Vec<String> {
+    #[derive(Deserialize)]
+    struct FabricIds {
+        #[serde(default)]
+        id: Option<String>,
+        #[serde(default)]
+        provides: Vec<String>,
+    }
+    parse_json_leniently::<FabricIds>(text)
+        .map(|parsed| clean_list(parsed.id.into_iter().chain(parsed.provides)))
+        .unwrap_or_default()
+}
+
+/// The mod ids a `quilt.mod.json` gives its jar: `quilt_loader.id`, and `provides` (each
+/// a string or an object with an `id`).
+pub fn quilt_ids(text: &str) -> Vec<String> {
+    #[derive(Deserialize, Default)]
+    struct QuiltLoader {
+        #[serde(default)]
+        id: Option<String>,
+        #[serde(default)]
+        provides: Vec<serde_json::Value>,
+    }
+    #[derive(Deserialize)]
+    struct QuiltIds {
+        #[serde(default)]
+        quilt_loader: QuiltLoader,
+    }
+    let Some(parsed) = parse_json_leniently::<QuiltIds>(text) else {
+        return Vec::new();
+    };
+    let provides = parsed
+        .quilt_loader
+        .provides
+        .into_iter()
+        .filter_map(|p| match p {
+            serde_json::Value::String(id) => Some(id),
+            serde_json::Value::Object(o) => o.get("id").and_then(|i| i.as_str()).map(String::from),
+            _ => None,
+        });
+    clean_list(parsed.quilt_loader.id.into_iter().chain(provides))
+}
+
+/// The `modId`s of a `mods.toml` (or `neoforge.mods.toml`), and the ids its mods can't
+/// load without: dependencies with `mandatory = true` (Forge) or `type = "required"`
+/// (NeoForge).
+pub fn mods_toml_ids_and_required(text: &str) -> (Vec<String>, Vec<String>) {
+    let Ok(table) = toml::from_str::<toml::Table>(text) else {
+        return (Vec::new(), Vec::new());
+    };
+    let ids = table
+        .get("mods")
+        .and_then(|m| m.as_array())
+        .map(|mods| {
+            clean_list(
+                mods.iter()
+                    .filter_map(|m| m.get("modId")?.as_str())
+                    .map(String::from),
+            )
+        })
+        .unwrap_or_default();
+    let mut required = Vec::new();
+    if let Some(dependencies) = table.get("dependencies").and_then(|d| d.as_table()) {
+        for list in dependencies.values().filter_map(|l| l.as_array()) {
+            for dependency in list {
+                let mandatory = dependency.get("mandatory").and_then(|m| m.as_bool());
+                let kind = dependency.get("type").and_then(|t| t.as_str());
+                let needed = match kind {
+                    Some(kind) => kind.eq_ignore_ascii_case("required"),
+                    None => mandatory.unwrap_or(false),
+                };
+                match dependency.get("modId").and_then(|i| i.as_str()) {
+                    Some(id) if needed => required.push(id.to_string()),
+                    _ => {}
+                }
+            }
+        }
+    }
+    (ids, clean_list(required))
+}
+
 pub fn parse_mcmod_info(text: &str) -> Option<ModFileMetadata> {
     #[derive(Deserialize)]
     struct McmodEntry {
@@ -584,6 +666,61 @@ mod tests {
     use std::io::Write;
 
     use super::*;
+
+    #[test]
+    fn reads_the_ids_a_mod_provides() {
+        assert_eq!(
+            fabric_ids(r#"{"id": "sodium", "provides": ["indium", " "]}"#),
+            ["sodium", "indium"]
+        );
+        assert!(fabric_ids("not json").is_empty());
+        assert_eq!(
+            quilt_ids(
+                r#"{"quilt_loader": {"id": "qsl", "provides": ["fabric-api", {"id": "x"}]}}"#
+            ),
+            ["qsl", "fabric-api", "x"]
+        );
+    }
+
+    #[test]
+    fn reads_required_dependencies_from_mods_toml() {
+        let forge = r#"
+[[mods]]
+modId = "create"
+[[mods]]
+modId = "flywheel"
+[[dependencies.create]]
+modId = "forge"
+mandatory = true
+[[dependencies.create]]
+modId = "jei"
+mandatory = false
+[[dependencies.flywheel]]
+modId = "minecraft"
+mandatory = true
+"#;
+        assert_eq!(
+            mods_toml_ids_and_required(forge),
+            (
+                vec!["create".to_string(), "flywheel".to_string()],
+                vec!["forge".to_string(), "minecraft".to_string()]
+            )
+        );
+        let neoforge = r#"
+[[mods]]
+modId = "thing"
+[[dependencies.thing]]
+modId = "library"
+type = "required"
+[[dependencies.thing]]
+modId = "jei"
+type = "optional"
+"#;
+        assert_eq!(
+            mods_toml_ids_and_required(neoforge).1,
+            vec!["library".to_string()]
+        );
+    }
 
     /// Writes a zip with the given entries.
     #[cfg(feature = "zip")]

@@ -3,12 +3,14 @@ import clsx from 'clsx';
 import { faCircle } from '@fortawesome/free-solid-svg-icons';
 import { stateToColor } from 'utils/util';
 import CircularProgress from './Atoms/CircularProgress';
+import { useI18n } from 'i18n';
 
 export default function InstanceLoadingPill({
   progress_percent = 0,
 }: {
   progress_percent?: number;
 }) {
+  const { t, formatNumber } = useI18n();
   const stateColor = stateToColor['Starting'];
   progress_percent = Math.min(0.99, Math.max(0, progress_percent));
 
@@ -16,10 +18,10 @@ export default function InstanceLoadingPill({
     <button
       className={clsx(
         'flex flex-row items-center gap-x-1.5',
-        'rounded-md py-1 px-2',
-        'text-medium font-bold leading-5 tracking-medium',
+        'rounded-md px-2 py-1',
+        'text-medium leading-5 font-bold tracking-medium',
         'text-white/50 ui-checked:text-gray-300',
-        'ui-checked:bg-gray-800 ui-checked:outline-solid ui-checked:outline-1 ui-checked:outline-fade-700 ui-not-checked:hover:bg-gray-800',
+        'ui-checked:bg-gray-800 ui-checked:outline-1 ui-checked:outline-fade-700 ui-checked:outline-solid ui-not-checked:hover:bg-gray-800',
         'focus-visible:outline-hidden enabled:focus-visible:ring-4 enabled:focus-visible:ring-blue-faded/50'
       )}
     >
@@ -30,7 +32,11 @@ export default function InstanceLoadingPill({
       </div>
 
       <p className="grow truncate text-left italic">
-        Setting up... ({Math.round(progress_percent * 100)}%)
+        {t('server.loading.settingUp', {
+          percent: formatNumber(Math.round(progress_percent * 100) / 100, {
+            style: 'percent',
+          }),
+        })}
       </p>
       <FontAwesomeIcon
         icon={faCircle}

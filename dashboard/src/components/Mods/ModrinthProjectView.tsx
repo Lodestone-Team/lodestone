@@ -26,6 +26,7 @@ import {
   useModrinthVersion,
   useModrinthVersions,
 } from 'data/Mods';
+import { t as translate, useT } from 'i18n';
 import { useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import { safeImageUrl, safeLinkUrl } from 'utils/markdown';
@@ -34,7 +35,6 @@ import {
   formatCount,
   formatDate,
   isVersionCompatible,
-  modNoun,
   modrinthProjectUrl,
 } from 'utils/mods';
 import { errorToString } from 'utils/util';
@@ -43,7 +43,6 @@ import {
   DisabledTooltip,
   InstallResultMessage,
   ModIcon,
-  NO_WRITE_PERMISSION,
   VersionTypeLabel,
 } from './common';
 import {
@@ -66,32 +65,38 @@ const VersionRowsSkeleton = () => (
 );
 
 // the project page: icon, title, summary and tags, versions, description
-const ProjectSkeleton = () => (
-  <SkeletonGroup label="Loading project" className="flex flex-col gap-6">
-    <div className="flex flex-row items-start gap-4">
-      <Skeleton className="size-20 shrink-0 rounded-lg" />
-      <div className="flex grow flex-col gap-3 pt-1">
-        <Skeleton className="h-7 w-64 max-w-full" />
-        <SkeletonText lines={2} className="max-w-xl" />
-        <div className="flex flex-row gap-2">
-          <Skeleton className="h-5 w-16 rounded-full" />
-          <Skeleton className="h-5 w-20 rounded-full" />
-          <Skeleton className="h-5 w-14 rounded-full" />
+const ProjectSkeleton = () => {
+  const t = useT();
+  return (
+    <SkeletonGroup
+      label={t('mods.project.loading')}
+      className="flex flex-col gap-6"
+    >
+      <div className="flex flex-row items-start gap-4">
+        <Skeleton className="size-20 shrink-0 rounded-lg" />
+        <div className="flex grow flex-col gap-3 pt-1">
+          <Skeleton className="h-7 w-64 max-w-full" />
+          <SkeletonText lines={2} className="max-w-xl" />
+          <div className="flex flex-row gap-2">
+            <Skeleton className="h-5 w-16 rounded-full" />
+            <Skeleton className="h-5 w-20 rounded-full" />
+            <Skeleton className="h-5 w-14 rounded-full" />
+          </div>
         </div>
       </div>
-    </div>
-    <div className="flex flex-col gap-2">
-      <Skeleton className="h-6 w-28" />
-      <VersionRowsSkeleton />
-    </div>
-    <div className="flex flex-col gap-2">
-      <Skeleton className="h-6 w-32" />
-      <div className="rounded-lg border border-gray-faded/30 bg-gray-800 p-4">
-        <SkeletonText lines={5} />
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-6 w-28" />
+        <VersionRowsSkeleton />
       </div>
-    </div>
-  </SkeletonGroup>
-);
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-6 w-32" />
+        <div className="rounded-lg border border-gray-faded/30 bg-gray-800 p-4">
+          <SkeletonText lines={5} />
+        </div>
+      </div>
+    </SkeletonGroup>
+  );
+};
 
 export type InstallTarget = {
   uuid: string;
@@ -104,24 +109,52 @@ export type InstallTarget = {
 
 const PAGE_SIZE = 20;
 
+// Modrinth's client_side / server_side values
+type Side = 'required' | 'optional' | 'unsupported' | 'unknown';
+const SIDE_LABELS: Partial<Record<string, `mods.project.side.${Side}`>> = {
+  required: 'mods.project.side.required',
+  optional: 'mods.project.side.optional',
+  unsupported: 'mods.project.side.unsupported',
+  unknown: 'mods.project.side.unknown',
+};
+
 const ProjectLinks = ({ project }: { project: ModrinthProject }) => {
-  const links: Array<[string, string | null]> = [
+  const t = useT();
+  // [React key, label, href]; Modrinth and Discord are names
+  const links: Array<[string, string, string | null]> = [
     [
+      'modrinth',
       'Modrinth',
       safeLinkUrl(modrinthProjectUrl(project.project_type, project.slug)),
     ],
-    ['Source', project.source_url ? safeLinkUrl(project.source_url) : null],
-    ['Issues', project.issues_url ? safeLinkUrl(project.issues_url) : null],
-    ['Wiki', project.wiki_url ? safeLinkUrl(project.wiki_url) : null],
-    ['Discord', project.discord_url ? safeLinkUrl(project.discord_url) : null],
+    [
+      'source',
+      t('mods.project.link.source'),
+      project.source_url ? safeLinkUrl(project.source_url) : null,
+    ],
+    [
+      'issues',
+      t('mods.project.link.issues'),
+      project.issues_url ? safeLinkUrl(project.issues_url) : null,
+    ],
+    [
+      'wiki',
+      t('mods.project.link.wiki'),
+      project.wiki_url ? safeLinkUrl(project.wiki_url) : null,
+    ],
+    [
+      'discord',
+      'Discord',
+      project.discord_url ? safeLinkUrl(project.discord_url) : null,
+    ],
   ];
   return (
     <div className="flex flex-row flex-wrap gap-3 text-medium">
       {links.map(
-        ([label, href]) =>
+        ([id, label, href]) =>
           href && (
             <a
-              key={label}
+              key={id}
               href={href}
               target="_blank"
               rel="noreferrer noopener"
@@ -173,12 +206,13 @@ const Gallery = ({ project }: { project: ModrinthProject }) => {
 };
 
 const GameVersions = ({ versions }: { versions: string[] }) => {
+  const t = useT();
   const shown = versions.slice(0, 3);
   const rest = versions.length - shown.length;
   return (
     <span title={versions.join(', ')}>
       {shown.join(', ')}
-      {rest > 0 && ` +${rest} more`}
+      {rest > 0 && ` ${t('mods.version.moreGameVersions', { count: rest })}`}
     </span>
   );
 };
@@ -196,6 +230,7 @@ const VersionRow = ({
   installing: boolean;
   onInstall: (version: ModrinthVersion) => void;
 }) => {
+  const t = useT();
   const compatible = isVersionCompatible(
     version,
     target.loader,
@@ -210,13 +245,24 @@ const VersionRow = ({
           </span>
           <VersionTypeLabel type={version.version_type} />
           {installedHere && (
-            <Label size="small" color="green">
-              Installed
+            <Label
+              size="small"
+              color="green"
+              className="shrink-0 whitespace-nowrap"
+            >
+              {t('mods.installedLabel')}
             </Label>
           )}
           {!compatible && (
-            <Label size="small" color="gray">
-              Not for {target.loader} {target.gameVersion}
+            <Label
+              size="small"
+              color="gray"
+              className="shrink-0 whitespace-nowrap"
+            >
+              {t('mods.version.notFor', {
+                loader: target.loader,
+                gameVersion: target.gameVersion,
+              })}
             </Label>
           )}
         </div>
@@ -227,9 +273,12 @@ const VersionRow = ({
       </div>
       {/* this exact version is installed already: nothing to install */}
       {!installedHere && (
-        <DisabledTooltip show={!target.canWrite} message={NO_WRITE_PERMISSION}>
+        <DisabledTooltip
+          show={!target.canWrite}
+          message={t('mods.noWritePermission')}
+        >
           <Button
-            label="Install"
+            label={t('mods.version.install')}
             icon={faDownload}
             intention={compatible ? 'primary' : 'info'}
             size="slim"
@@ -252,6 +301,7 @@ const ProjectVersions = ({
   linkedVersionId: string | null;
   target: InstallTarget;
 }) => {
+  const t = useT();
   const queryClient = useQueryClient();
   const [showAll, setShowAll] = useState(false);
   const [shown, setShown] = useState(PAGE_SIZE);
@@ -309,13 +359,19 @@ const ProjectVersions = ({
       });
       toast.success(
         <InstallResultMessage
-          title={`Installed ${project.title} ${version.version_number}`}
+          title={translate('mods.version.installed', {
+            title: project.title,
+            version: version.version_number,
+          })}
           result={result}
         />
       );
     } catch (error) {
       toast.error(
-        `Failed to install ${project.title}: ${errorToString(error)}`
+        translate('mods.version.installFailed', {
+          title: project.title,
+          error: errorToString(error),
+        })
       );
     } finally {
       await invalidateInstalledMods(queryClient, target.uuid);
@@ -332,37 +388,40 @@ const ProjectVersions = ({
   return (
     <div className="flex flex-col gap-3">
       <ConfirmDialog
-        title="Install an incompatible version?"
+        title={t('mods.version.incompatibleTitle')}
         type="danger"
         isOpen={confirmVersion !== null}
         onClose={() => setConfirmVersion(null)}
-        confirmButtonText="Install anyway"
+        confirmButtonText={t('mods.version.installAnyway')}
         onConfirm={async () => {
           const version = confirmVersion;
           setConfirmVersion(null);
           if (version) await install(version, true);
         }}
       >
-        {confirmVersion && (
-          <>
-            {project.title} {confirmVersion.version_number} is made for{' '}
-            {confirmVersion.loaders.join(', ')}{' '}
-            {confirmVersion.game_versions.join(', ')}, not {target.loader}{' '}
-            {target.gameVersion}. It may crash the server.
-          </>
-        )}
+        {confirmVersion &&
+          t('mods.version.incompatibleBody', {
+            title: project.title,
+            version: confirmVersion.version_number,
+            loaders: confirmVersion.loaders.join(', '),
+            gameVersions: confirmVersion.game_versions.join(', '),
+            loader: target.loader,
+            gameVersion: target.gameVersion,
+          })}
       </ConfirmDialog>
       <div className="flex flex-row flex-wrap items-center justify-between gap-2">
-        <h2 className="text-h2 font-bold text-gray-300">Versions</h2>
+        <h2 className="text-h2 font-bold text-gray-300">
+          {t('mods.versions.title')}
+        </h2>
         <div className="flex flex-row flex-wrap items-center gap-4">
           <Checkbox
-            label="Also install required dependencies"
+            label={t('mods.versions.withDependencies')}
             checked={withDependencies}
             onChange={setWithDependencies}
             disabled={!target.canWrite}
           />
           <Checkbox
-            label="Show all versions"
+            label={t('mods.versions.showAll')}
             checked={showAll}
             onChange={(checked) => {
               setShowAll(checked);
@@ -373,16 +432,25 @@ const ProjectVersions = ({
       </div>
       {versionsQuery.error ? (
         <div className="text-medium text-red-200">
-          Failed to load versions: {errorToString(versionsQuery.error)}
+          {t('mods.versions.loadFailed', {
+            error: errorToString(versionsQuery.error),
+          })}
         </div>
       ) : versionsQuery.isPending ? (
-        <SkeletonGroup label="Loading versions">
+        <SkeletonGroup label={t('mods.versions.loading')}>
           <VersionRowsSkeleton />
         </SkeletonGroup>
       ) : versions.length === 0 ? (
         <div className="text-medium text-white/50">
-          No versions for {target.loader} {target.gameVersion}.{' '}
-          {!showAll && 'Turn on "Show all versions" to see the others.'}
+          {showAll
+            ? t('mods.versions.none', {
+                loader: target.loader,
+                gameVersion: target.gameVersion,
+              })
+            : t('mods.versions.noneShowAll', {
+                loader: target.loader,
+                gameVersion: target.gameVersion,
+              })}
         </div>
       ) : (
         <div className="flex flex-col overflow-hidden rounded-lg border border-gray-faded/30 child:border-b child:border-gray-faded/30 child:last:border-b-0">
@@ -400,7 +468,9 @@ const ProjectVersions = ({
       )}
       {versions.length > shown && (
         <Button
-          label={`Show more (${versions.length - shown} left)`}
+          label={t('mods.versions.showMore', {
+            count: versions.length - shown,
+          })}
           className="self-center"
           onClick={() => setShown(shown + PAGE_SIZE)}
         />
@@ -431,11 +501,12 @@ export default function ModrinthProjectView({
   onCreateFromModpack:
     ((projectId: string, versionId: string | null) => void) | null;
 }) {
+  const t = useT();
   const { data: project, error, isPending } = useModrinthProject(projectId);
 
   const backButton = (
     <Button
-      label="Back"
+      label={t('common.back')}
       icon={faArrowLeft}
       variant="text"
       className="self-start"
@@ -448,7 +519,7 @@ export default function ModrinthProjectView({
       <div className="flex flex-col gap-4">
         {backButton}
         <div className="text-medium text-red-200">
-          Failed to load the project: {errorToString(error)}
+          {t('mods.project.loadFailed', { error: errorToString(error) })}
         </div>
       </div>
     );
@@ -464,6 +535,8 @@ export default function ModrinthProjectView({
   const installable =
     project.project_type === 'mod' || project.project_type === 'plugin';
   const noServerSupport = project.server_side === 'unsupported';
+  // a value Modrinth adds later is shown as it is
+  const serverSideKey = SIDE_LABELS[project.server_side];
 
   return (
     <div className="flex flex-col gap-6">
@@ -475,21 +548,30 @@ export default function ModrinthProjectView({
             {project.title}
           </h2>
           <div className="text-medium text-white/50">
-            {author ? `by ${author}` : project.slug} · {project.project_type}
+            {author ? t('mods.byAuthor', { author }) : project.slug} ·{' '}
+            {project.project_type}
           </div>
           <div className="text-medium text-gray-300">{project.description}</div>
           <div className="flex flex-row flex-wrap items-center gap-3 text-small text-white/50">
-            <span className="flex items-center gap-1">
+            <span
+              className="flex items-center gap-1"
+              title={t('mods.downloads', { count: project.downloads })}
+            >
               <FontAwesomeIcon icon={faDownload} />
               {formatCount(project.downloads)}
             </span>
-            <span className="flex items-center gap-1">
+            <span
+              className="flex items-center gap-1"
+              title={t('mods.followers', { count: project.followers })}
+            >
               <FontAwesomeIcon icon={faHeart} />
               {formatCount(project.followers)}
             </span>
             <span className="flex items-center gap-1">
               <FontAwesomeIcon icon={faServer} />
-              server: {project.server_side}
+              {t('mods.project.serverSide', {
+                value: serverSideKey ? t(serverSideKey) : project.server_side,
+              })}
             </span>
             {installable && target.kind === 'mod' && (
               <ClientSideLabel clientSide={project.client_side} />
@@ -509,7 +591,7 @@ export default function ModrinthProjectView({
       {isModpack ? (
         onCreateFromModpack ? (
           <Button
-            label="Create an instance from this modpack"
+            label={t('mods.project.createFromModpack')}
             intention="primary"
             size="large"
             className="self-start"
@@ -517,16 +599,13 @@ export default function ModrinthProjectView({
           />
         ) : (
           <div className="text-medium text-white/50">
-            This is a modpack. You don&apos;t have permission to create
-            instances.
+            {t('mods.project.modpackNoPermission')}
           </div>
         )
       ) : installable ? (
         <>
           {noServerSupport && (
-            <WarningAlert>
-              This project says it doesn&apos;t run on servers.
-            </WarningAlert>
+            <WarningAlert>{t('mods.project.noServerSupport')}</WarningAlert>
           )}
           <ProjectVersions
             project={project}
@@ -536,13 +615,16 @@ export default function ModrinthProjectView({
         </>
       ) : (
         <WarningAlert>
-          This is a {project.project_type}. Lodestone only installs{' '}
-          {modNoun(target.kind)}s here.
+          {target.kind === 'plugin'
+            ? t('mods.project.wrongType.plugin', { type: project.project_type })
+            : t('mods.project.wrongType.mod', { type: project.project_type })}
         </WarningAlert>
       )}
 
       <div className="flex flex-col gap-2">
-        <h2 className="text-h2 font-bold text-gray-300">Description</h2>
+        <h2 className="text-h2 font-bold text-gray-300">
+          {t('mods.project.description')}
+        </h2>
         <div className="rounded-lg border border-gray-faded/30 bg-gray-800 p-4">
           <SafeMarkdown source={project.body} />
         </div>

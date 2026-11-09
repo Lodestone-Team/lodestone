@@ -1,13 +1,12 @@
-//! Extracting old-style native jars into the natives directory, with zip 0.6.
+//! Extracting old-style native jars into the natives directory.
 //!
 //! The jars come from Mojang and are checked by SHA-1, but extraction still refuses
 //! anything that could write outside the natives directory: entries with absolute
 //! paths, `..` components, backslashes or drive prefixes, and symbolic links.
 //!
-//! zip 0.6.6 has advisories in `ZipArchive::extract` (symlinks, SUID bits and
-//! permissions applied through links) and in AES entries. This module never calls
-//! `extract`: it writes each regular file itself, with default permissions, and the
-//! `aes-crypto` feature is off.
+//! This module never calls zip's `ZipArchive::extract`: it writes each regular file
+//! itself, with default permissions, so no symlink, SUID bit or file mode from the jar
+//! reaches the disk. zip's `aes-crypto` feature is off.
 
 use std::{
     fs::{self, File},
@@ -41,7 +40,8 @@ pub fn extract(jar: &Path, dest: &Path, exclude: &[String]) -> Result<Vec<PathBu
         move |source| NativesError::Io { path, source }
     };
     let file = File::open(jar).map_err(|err| bad_jar(err.to_string()))?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|err| bad_jar(err.to_string()))?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
+        .map_err(|err| bad_jar(err.to_string()))?;
     fs::create_dir_all(dest).map_err(io_err(dest))?;
 
     // Check every entry before writing anything.
@@ -49,7 +49,10 @@ pub fn extract(jar: &Path, dest: &Path, exclude: &[String]) -> Result<Vec<PathBu
         let entry = archive
             .by_index_raw(index)
             .map_err(|err| bad_jar(err.to_string()))?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|err| bad_jar(err.to_string()))?
+            .into_owned();
         if excluded(&name, exclude) {
             continue;
         }
@@ -66,7 +69,10 @@ pub fn extract(jar: &Path, dest: &Path, exclude: &[String]) -> Result<Vec<PathBu
         let mut entry = archive
             .by_index(index)
             .map_err(|err| bad_jar(err.to_string()))?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|err| bad_jar(err.to_string()))?
+            .into_owned();
         if excluded(&name, exclude) || entry.is_dir() {
             continue;
         }
@@ -124,11 +130,13 @@ pub fn safe_entry_path(name: &str) -> Option<PathBuf> {
 
 /// Empties `dir` (or creates it), so a launch starts with only this version's natives.
 pub fn reset_dir(dir: &Path) -> io::Result<()> {
-    match fs::remove_dir_all(dir) {
-        Ok(()) => {}
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-        Err(err) => return Err(err),
-    }
+    // Retried: on Windows a DLL can't be deleted while anything has it open, and
+    // Defender scans the ones the last launch extracted; a game that just quit can
+    // also take a moment to let go of them.
+    crate::fsx::retry(|| match fs::remove_dir_all(dir) {
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    })?;
     fs::create_dir_all(dir)
 }
 
@@ -136,7 +144,7 @@ pub fn reset_dir(dir: &Path) -> io::Result<()> {
 mod tests {
     use std::io::Write as _;
 
-    use zip::write::FileOptions;
+    use zip::write::SimpleFileOptions as FileOptions;
 
     use super::*;
 

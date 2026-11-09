@@ -1,0 +1,19 @@
+// The same Worker as cloudflare.config.ts (which `cf deploy` reads), for `wrangler dev`:
+// local development and the tests. Loopback addresses are allowed here only, and the
+// join and host limits are higher.
+{
+  "name": "lodestone-connect",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "durable_objects": { "bindings": [{ "name": "INVITES", "class_name": "Invite" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Invite"] }],
+  "ratelimits": [
+    { "name": "CREATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+    // Higher than production (30 and 60) so the tests fit in a minute.
+    { "name": "JOIN_LIMIT", "namespace_id": "1002", "simple": { "limit": 1000, "period": 60 } },
+    { "name": "HOST_LIMIT", "namespace_id": "1003", "simple": { "limit": 1000, "period": 60 } }
+  ],
+  "vars": { "ALLOW_LOOPBACK": "1" },
+  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false }, "traces": { "enabled": false } }
+}

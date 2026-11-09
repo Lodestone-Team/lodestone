@@ -417,16 +417,29 @@ fn matches_unknown_files_by_sha1_in_one_batch() {
             .any(|i| i.file.file_name == "fabric-api.jar" && i.modrinth.is_some())
     );
 
-    // updates: Fabric API has a newer release for 1.20.1; Sodium is the newest
+    // updates: Fabric API's newest for 1.20.1 is a beta, offered only with
+    // pre-releases on; Sodium is the newest
     let updates = block_on(listing::check_updates(
         &api,
         &dirs,
         &target,
         ContentKind::Mod,
+        true,
     ))
     .unwrap();
     assert_eq!(updates.len(), 1);
     assert_eq!(updates["fabric-api.jar"].id, "fapi-beta");
+    // with them off, the installed release (0.90.0) updates to the newest release
+    let stable = block_on(listing::check_updates(
+        &api,
+        &dirs,
+        &target,
+        ContentKind::Mod,
+        false,
+    ))
+    .unwrap();
+    assert_eq!(stable.len(), 1);
+    assert_eq!(stable["fabric-api.jar"].id, "fapi-rel");
 }
 
 #[test]
@@ -813,4 +826,99 @@ fn searches_send_client_facets_and_are_cached() {
     );
     assert_eq!(searches[0].query["offset"], "20");
     assert_eq!(searches[0].query["query"], "sodium");
+}
+
+#[test]
+fn a_share_code_recreates_the_content_of_an_instance() {
+    use launcher_core::content::share::{self, LeftOutReason, ShareCode};
+    let mock = ModrinthMock::start();
+    fabric_mods(&mock);
+    let api = mock.client();
+    let target = Target::new("1.20.1", Loader::Fabric);
+
+    // The instance to share: Iris (with Sodium and Fabric API), Fabric API turned off,
+    // and a mod added by hand.
+    let from = tempfile::tempdir().unwrap();
+    let from_dirs = instance(from.path());
+    install_version(&mock, &from_dirs, &target, ContentKind::Mod, "iris176").unwrap();
+    let mods = from_dirs.content_dir(ContentKind::Mod);
+    let fapi = fs::read_dir(&mods)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .find(|n| n.starts_with("P7dR8mSH"))
+        .expect("Fabric API installed");
+    launcher_core::content::files::set_mod_enabled(&from_dirs, &fapi, false).unwrap();
+    fs::write(mods.join("homemade.jar"), b"not on modrinth").unwrap();
+
+    let plan = block_on(share::collect(
+        Some(&api),
+        &from_dirs,
+        &target,
+        Some("Survival".into()),
+        Loader::Fabric,
+        Some("0.16.14".into()),
+    ))
+    .unwrap();
+    assert_eq!(plan.code.count(ContentKind::Mod), 3);
+    assert_eq!(plan.left_out.len(), 1);
+    assert_eq!(plan.left_out[0].file_name, "homemade.jar");
+    assert_eq!(plan.left_out[0].reason, LeftOutReason::NotOnModrinth);
+    let text = plan.code.encode();
+    let code = ShareCode::decode(&text).unwrap();
+    assert_eq!(code, plan.code);
+
+    // A new instance from the code: the same versions, Fabric API still off, and
+    // nothing of the hand-added mod.
+    let to = tempfile::tempdir().unwrap();
+    let to_dirs = instance(to.path());
+    let outcome = block_on(share::install(
+        &api,
+        &downloader(),
+        &to_dirs,
+        &target,
+        &code,
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
+    assert_eq!(outcome.installed.len(), 3);
+    let mut names: Vec<String> = fs::read_dir(to_dirs.content_dir(ContentKind::Mod))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    names.sort();
+    let mut expected: Vec<String> = fs::read_dir(&mods)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n != "homemade.jar")
+        .collect();
+    expected.sort();
+    assert_eq!(names, expected);
+    assert!(
+        names
+            .iter()
+            .any(|n| n.starts_with("P7dR8mSH") && n.ends_with(".disabled"))
+    );
+
+    // A version Modrinth no longer has is reported, and the rest still installs.
+    let mut gone = code.clone();
+    gone.items[0].version = "missing1".into();
+    let again = tempfile::tempdir().unwrap();
+    let again_dirs = instance(again.path());
+    let outcome = block_on(share::install(
+        &api,
+        &downloader(),
+        &again_dirs,
+        &target,
+        &gone,
+        &InstallProgress::default(),
+        &CancelToken::new(),
+    ))
+    .unwrap();
+    assert_eq!(outcome.failed.len(), 1);
+    assert_eq!(outcome.installed.len(), 2);
 }
