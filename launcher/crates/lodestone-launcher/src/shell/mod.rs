@@ -355,7 +355,8 @@ impl LauncherShell {
         observe.push(cx.observe(&storage, |_, _, cx| cx.notify()));
         let skin = {
             let instances = instances.clone();
-            cx.new(|cx| SkinSettings::new(instances, cx))
+            let shell = cx.entity().downgrade();
+            cx.new(|cx| SkinSettings::new(instances, shell, cx))
         };
         observe.push(cx.observe(&skin, |_, _, cx| cx.notify()));
         observe.push(cx.subscribe(&storage, |this, _, event, cx| match event {

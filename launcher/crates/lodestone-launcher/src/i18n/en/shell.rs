@@ -574,6 +574,7 @@ crate::i18n::messages! {
         SkinPreviewNoticeText = "This is how notices look.",
         SkinSampleText = "Sample text",
         SkinSampleMuted = "Quieter text",
+        SkinScrim = "Shade under the title",
         StorageInstances = "Instances",
         StorageGameFiles = "Game files",
         StorageRuntimes = "Java runtimes",

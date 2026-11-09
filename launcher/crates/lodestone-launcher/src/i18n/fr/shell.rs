@@ -570,6 +570,8 @@ pub fn text(message: M) -> &'static str {
         M::SkinChecksNote => "La lisibilité dépend du thème\u{a0}: ce sont des suggestions.",
         M::SkinBanners => "Du thème",
         M::SkinBannerMissing => {
+            "Le thème de cette bannière n’existe plus\u{a0}; celle par défaut s’affiche."
+        }
         M::SkinEditorTitle => "Éditeur de thème",
         M::SkinPopOut => "Ouvrir l’éditeur",
         M::SkinEditorLead => "Modifiez chaque surface, police et bannière dans l’éditeur. Les changements s’affichent dans la fenêtre au fur et à mesure, et Annuler les reprend.",
@@ -623,8 +625,7 @@ pub fn text(message: M) -> &'static str {
         M::SkinPreviewNoticeText => "Voici l’apparence des notifications.",
         M::SkinSampleText => "Texte d’exemple",
         M::SkinSampleMuted => "Texte plus discret",
-            "Le thème de cette bannière n’existe plus\u{a0}; celle par défaut s’affiche."
-        }
+        M::SkinScrim => "Ombre sous le titre",
         M::StorageInstances => "Instances",
         M::StorageGameFiles => "Fichiers du jeu",
         M::StorageRuntimes => "Environnements Java",

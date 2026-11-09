@@ -40,6 +40,11 @@ pub const SCENES: &[&str] = &[
     "settings-skin-showcase",
     "skin-banner",
     "background-picker-banners",
+    "skin-editor",
+    "skin-editor-gradient",
+    "skin-editor-fonts",
+    "skin-editor-banners",
+    "skin-editor-readability",
     "sidebar-resized",
     "sidebar-rail",
     "sidebar-rail-skin",
@@ -902,6 +907,51 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             if scene == "settings-skin-showcase" {
                 shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
             }
+        }
+        "skin-editor"
+        | "skin-editor-gradient"
+        | "skin-editor-fonts"
+        | "skin-editor-banners"
+        | "skin-editor-readability" => {
+            use crate::shell::skin_editor::Pane;
+            use launcher_core::ui_skin::SurfaceId;
+            let instances = shell.instances().clone();
+            let store = instances.read(cx).skins();
+            let (skin, pane) = match scene {
+                "skin-editor-gradient" => ("showcase", Pane::Surface(SurfaceId::PlayButton)),
+                "skin-editor-fonts" => ("showcase", Pane::Fonts),
+                "skin-editor-banners" => ("grassblock", Pane::Banners),
+                "skin-editor-readability" => ("bright", Pane::Readability),
+                _ => ("grassblock", Pane::Surface(SurfaceId::Sidebar)),
+            };
+            match skin {
+                "showcase" => {
+                    let mut spec = showcase_skin();
+                    let font =
+                        std::path::Path::new("/System/Library/Fonts/Supplemental/Georgia.ttf");
+                    if font.is_file()
+                        && store.save("showcase", &spec).is_ok()
+                        && let Ok((file, _)) = store.add_font("showcase", font)
+                    {
+                        spec.fonts.heading = Some(file);
+                    }
+                    let _ = store.save("showcase", &spec);
+                }
+                "bright" => {
+                    let mut spec = launcher_core::ui_skin::SkinSpec::named("Bright");
+                    spec.sidebar.image = Some("builtin:sky".into());
+                    let _ = store.save("bright", &spec);
+                }
+                _ => {}
+            }
+            instances.update(cx, |instances, cx| instances.set_skin(Some(skin.into()), cx));
+            let shell_handle = cx.entity().downgrade();
+            cx.defer(move |cx| {
+                if let Some(editor) = crate::shell::skin_editor::open(instances, shell_handle, cx)
+                {
+                    editor.update(cx, |editor, _, cx| editor.show(pane, cx)).ok();
+                }
+            });
         }
         "skin-banner" | "background-picker-banners" => {
             let instances = shell.instances().clone();

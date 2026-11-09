@@ -527,6 +527,7 @@ pub fn text(message: M) -> &'static str {
         M::SkinPreviewNoticeText => "通知看起来是这样的。",
         M::SkinSampleText => "示例文字",
         M::SkinSampleMuted => "次要文字",
+        M::SkinScrim => "标题下的阴影",
         M::StorageInstances => "实例",
         M::StorageGameFiles => "游戏文件",
         M::StorageRuntimes => "Java 运行时",

@@ -145,19 +145,23 @@ struct EditorWindow(Option<WindowHandle<SkinEditor>>);
 impl Global for EditorWindow {}
 
 /// Opens the skin editor, or brings it to the front if it is open.
-pub fn open(instances: Entity<Instances>, shell: WeakEntity<LauncherShell>, cx: &mut App) {
+pub fn open(
+    instances: Entity<Instances>,
+    shell: WeakEntity<LauncherShell>,
+    cx: &mut App,
+) -> Option<WindowHandle<SkinEditor>> {
     if let Some(handle) = cx.try_global::<EditorWindow>().and_then(|w| w.0)
         && handle
             .update(cx, |_, window, _| window.activate_window())
             .is_ok()
     {
-        return;
+        return Some(handle);
     }
     let options = crate::window_options(t(M::SkinEditorTitle), 1120., 780., cx);
     let Ok(handle) = cx.open_window(options, |window, cx| {
         cx.new(|cx| SkinEditor::new(instances, shell, window, cx))
     }) else {
-        return;
+        return None;
     };
     cx.set_global(EditorWindow(Some(handle)));
     #[cfg(feature = "screenshot")]
@@ -166,6 +170,7 @@ pub fn open(instances: Entity<Instances>, shell: WeakEntity<LauncherShell>, cx: 
     {
         crate::capture_window(handle.into(), path, cx);
     }
+    Some(handle)
 }
 
 /// What the editor shows on its right.
@@ -246,6 +251,7 @@ impl SkinEditor {
             Field::Token(2),
             Field::Token(3),
             Field::Token(4),
+            Field::Token(5),
         ];
         let hex: HashMap<Field, Entity<TextInput>> = fields
             .into_iter()
@@ -376,7 +382,8 @@ impl SkinEditor {
                     1 => &mut tokens.secondary,
                     2 => &mut tokens.muted,
                     3 => &mut tokens.faint,
-                    _ => &mut tokens.border,
+                    4 => &mut tokens.border,
+                    _ => &mut spec.accent,
                 } = rgb;
             }),
             (Pane::Surface(surface), _) => {
@@ -1193,6 +1200,23 @@ impl SkinEditor {
             ),
         ];
 
+        let mut shape_rows = shape_rows;
+        if surface == SurfaceId::Hero {
+            shape_rows.push(slider_row(
+                &entity,
+                t(M::SkinScrim),
+                "skin-scrim",
+                f64::from(look.spec.hero.scrim.unwrap_or(0)),
+                (0., 90., 5.),
+                "%",
+                false,
+                |this, value, cx| {
+                    this.edit(Some(SurfaceId::Hero), "scrim", cx, move |spec| {
+                        spec.hero.scrim = Some(value.round() as u8)
+                    })
+                },
+            ));
+        }
         let text_rows: Vec<AnyElement> = if readable::own_text(surface) {
             let mut rows = vec![self.color_row(
                 t(M::SkinTextColour),
@@ -1280,6 +1304,15 @@ impl SkinEditor {
             )
         })
         .collect::<Vec<_>>();
+        let mut rows = rows;
+        rows.push(self.color_row(
+            t(M::SkinAccent),
+            Field::Token(5),
+            look.spec.accent,
+            &BRIGHT,
+            Some(t(M::SkinDefault)),
+            cx,
+        ));
         section(t(M::SkinTokens), None)
             .child(card(rows))
             .into_any_element()
@@ -1437,7 +1470,20 @@ impl SkinEditor {
                 )
         });
         let full = look.spec.banners.len() >= MAX_BANNERS;
+        let in_sidebar = look.spec.banner.in_sidebar;
         section(t(M::SkinBannerSet), Some(t(M::SkinBannersLead).into()))
+            .child(card([SettingRow::new(t(M::SkinBannerInSidebar))
+                .child(Toggle::new("skin-banner-rows", in_sidebar).on_change(cx.listener(
+                    |this, on: &bool, _, cx| {
+                        let on = *on;
+                        this.edit(None, "in-sidebar", cx, move |spec| spec.banner.in_sidebar = on);
+                        if !on {
+                            this.instances
+                                .update(cx, |instances, _| instances.forget_sidebar_banners());
+                        }
+                    },
+                )))
+                .into_any_element()]))
             .child(
                 div()
                     .flex()
@@ -1637,7 +1683,8 @@ impl Render for SkinEditor {
                 .text_color(colors::GRAY_500)
                 .child(label.to_uppercase())
         };
-        let previews = [
+        let shown = self.previews.clone();
+        let previews: Vec<AnyElement> = [
             (Preview::Settings, M::SkinPreviewSettings),
             (Preview::Menu, M::SkinPreviewMenu),
             (Preview::Notice, M::SkinPreviewNotice),
@@ -1654,12 +1701,13 @@ impl Render for SkinEditor {
                 .py_1()
                 .child(t(label))
                 .child(
-                    Toggle::new(("skin-preview", i), self.previews.contains(&preview))
-                        .on_change(cx.listener(move |this, _: &bool, _, cx| {
-                            this.toggle_preview(preview, cx)
-                        })),
+                    Toggle::new(("skin-preview", i), shown.contains(&preview)).on_change(
+                        cx.listener(move |this, _: &bool, _, cx| this.toggle_preview(preview, cx)),
+                    ),
                 )
-        });
+                .into_any_element()
+        })
+        .collect();
         let pane = match self.pane {
             Pane::Surface(surface) => self.surface_pane(surface, &look, cx),
             Pane::Tokens => self.tokens_pane(&look, cx),
