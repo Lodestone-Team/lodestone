@@ -637,6 +637,48 @@ pub fn text(message: M) -> &'static str {
             "Le build {build} est installé. Vous pourrez redémarrer une fois le jeu fermé."
         }
         M::UpdateFailed => "Impossible de mettre à jour\u{a0}: {error}",
+        M::DiscordSection => "Discord",
+        M::DiscordShowPlaying => "Afficher ce à quoi vous jouez",
+        M::DiscordShowPlayingHint => {
+            "Votre statut Discord affiche l’instance ou le modpack auquel vous jouez, sa version et depuis combien de temps. L’application Discord doit être ouverte sur cet ordinateur."
+        }
+        M::DiscordShowWorld => "Afficher le monde et la dimension",
+        M::DiscordShowWorldHint => {
+            "En solo\u{a0}: le nom du monde et la dimension où vous êtes. Ils se mettent à jour quand le jeu sauvegarde, comme lorsque vous faites pause."
+        }
+        M::DiscordShowCoordinates => "Afficher les coordonnées",
+        M::DiscordShowCoordinatesHint => {
+            "Toute personne qui voit votre statut Discord voit où vous êtes."
+        }
+        M::DiscordShowServer => "Afficher le nom du serveur",
+        M::DiscordShowServerHint => {
+            "En multijoueur\u{a0}: l’adresse du serveur. Les adresses IP et les serveurs locaux ne sont jamais affichés."
+        }
+        M::DiscordShowStats => "Afficher les statistiques",
+        M::DiscordShowStatsHint => "Le jour du monde, et vos morts et monstres tués dans ce monde.",
+        M::DiscordConnected => "Votre statut Discord affiche ce à quoi vous jouez.",
+        M::DiscordIdle => "Votre statut Discord s’affiche pendant qu’un jeu tourne.",
+        M::DiscordNotRunning => {
+            "Discord n’est pas ouvert. Votre statut s’affichera dès qu’il le sera."
+        }
+        M::DiscordUnavailable => {
+            "Cette version n’a pas d’application Discord, elle ne peut donc pas définir votre statut."
+        }
+        M::DiscordStarting => "Lancement du jeu",
+        M::DiscordInMenus => "Dans les menus",
+        M::DiscordSingleplayer => "Solo",
+        M::DiscordSingleplayerIn => "Solo\u{a0}: {world}",
+        M::DiscordHardcoreIn => "Hardcore\u{a0}: {world}",
+        M::DiscordLanIn => "Monde en LAN\u{a0}: {world}",
+        M::DiscordMultiplayer => "Multijoueur",
+        M::DiscordMultiplayerOn => "Multijoueur\u{a0}: {server}",
+        M::DiscordOverworld => "Surface",
+        M::DiscordNether => "Le Nether",
+        M::DiscordEnd => "L’End",
+        M::DiscordDay => "Jour {day}",
+        M::DiscordMinecraft => "Minecraft {version}",
+        M::DiscordPlayedTotal => "{time} de jeu",
+        M::DiscordViewModpack => "Voir le modpack",
         M::CheckForUpdates => "Vérifier",
         M::DownloadUpdate => "Télécharger",
         M::RestartToUpdate => "Redémarrer",
@@ -890,5 +932,9 @@ pub fn plural(message: P) -> [&'static str; 2] {
         ],
         P::Subscriptions => ["{count} abonnement", "{count} abonnements"],
         P::PerfEntries => ["{count} entrée", "{count} entrées"],
+        P::DiscordDeaths => ["{count} mort", "{count} morts"],
+        P::DiscordMobsKilled => ["{count} monstre tué", "{count} monstres tués"],
+        P::DiscordBlocksMined => ["{count} bloc miné", "{count} blocs minés"],
+        P::DiscordMods => ["{count} mod", "{count} mods"],
     }
 }

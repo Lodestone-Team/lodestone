@@ -270,6 +270,8 @@ pub struct LauncherShell {
     skin: Entity<SkinSettings>,
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
+    /// The Discord status, and what Settings > General > Discord says about it.
+    discord: Entity<crate::discord::DiscordPresence>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
     settings: Option<(Entity<InstanceSettings>, [Subscription; 6])>,
     page: Page,
@@ -382,6 +384,7 @@ impl LauncherShell {
                 }
                 InstancesEvent::GameWindowOpened(_) => this.game_window_opened(cx),
                 InstancesEvent::GameExited(_) => this.game_exited(cx),
+                InstancesEvent::ActivityChanged(_) => {}
             }),
         ];
         let console = cx.new(|cx| Console::new(instances.clone(), cx));
@@ -471,6 +474,11 @@ impl LauncherShell {
             cx.new(|cx| Updater::new(instances, cx))
         };
         observe.push(cx.observe(&updater, |_, _, cx| cx.notify()));
+        let discord = {
+            let instances = instances.clone();
+            cx.new(|cx| crate::discord::DiscordPresence::new(instances, cx))
+        };
+        observe.push(cx.observe(&discord, |_, _, cx| cx.notify()));
         let slideshow = {
             let instances = instances.clone();
             cx.new(|_| crate::instances::slideshow::Slideshow::new(instances))
@@ -489,6 +497,7 @@ impl LauncherShell {
             storage,
             skin,
             updater,
+            discord,
             settings: None,
             page: Page::default(),
             tab: InstanceTab::default(),
