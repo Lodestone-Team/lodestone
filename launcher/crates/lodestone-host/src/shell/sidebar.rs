@@ -446,8 +446,11 @@ fn selected_card(
                 .icon(Icon::Link)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let uuid = uuid.clone();
-                    this.state
-                        .update(cx, |state, _| state.share_requested = Some(uuid.clone()));
+                    // an Overview already open hears it through the state
+                    this.state.update(cx, |state, cx| {
+                        state.share_requested = Some(uuid.clone());
+                        cx.notify();
+                    });
                     this.navigate(
                         Route::Instance {
                             uuid,

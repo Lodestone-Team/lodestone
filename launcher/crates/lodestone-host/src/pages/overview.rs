@@ -98,7 +98,15 @@ impl OverviewPage {
             }
         });
         let subscriptions = vec![
-            cx.observe(&state, |_, _, cx| cx.notify()),
+            cx.observe(&state, |this, state, cx| {
+                // the sidebar's Share while this Overview is open
+                let requested = state.read(cx).share_requested.as_deref() == Some(&this.uuid);
+                if requested {
+                    state.update(cx, |state, _| state.share_requested = None);
+                    this.request_share(cx);
+                }
+                cx.notify()
+            }),
             cx.subscribe(&state, |this, _, event, cx| {
                 // a session made again: follow the monitor again
                 if matches!(event, HostEvent::InstancesReloaded) && this._monitor.is_none() {
@@ -244,6 +252,16 @@ impl OverviewPage {
         }));
     }
 
+    /// Starts sharing unless the server is shared already; before the first answer
+    /// about sharing, once it comes.
+    fn request_share(&mut self, cx: &mut Context<Self>) {
+        match &self.share {
+            Some(share) if share.sharing => {}
+            Some(_) => self.start_share(cx),
+            None => self.share_on_load = true,
+        }
+    }
+
     fn start_share(&mut self, cx: &mut Context<Self>) {
         if self.share_busy {
             return;
@@ -270,6 +288,11 @@ impl OverviewPage {
         });
         self._tasks.push(task);
         cx.notify();
+    }
+
+    /// What the Stop sharing dialog's confirm button does.
+    pub fn confirm_stop_share(&mut self, cx: &mut Context<Self>) {
+        self.stop_share(cx);
     }
 
     fn stop_share(&mut self, cx: &mut Context<Self>) {

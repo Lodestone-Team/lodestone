@@ -113,6 +113,14 @@ pub fn demo(view: &AnyView, cx: &mut App) {
     }
 }
 
+/// Stops sharing the server whose Overview `view` is, as its Stop sharing dialog's
+/// confirm button does (development screenshots' end-to-end run).
+pub fn stop_share_for_screenshot(view: &AnyView, cx: &mut App) {
+    if let Ok(page) = view.clone().downcast::<overview::OverviewPage>() {
+        page.update(cx, |page, cx| page.confirm_stop_share(cx));
+    }
+}
+
 /// What a page still to be built shows, naming its work package.
 pub fn not_built(package: &'static str) -> AnyElement {
     div()
