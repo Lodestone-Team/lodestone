@@ -108,6 +108,8 @@ impl Notices {
             InstancesEvent::Notice { title, message } => {
                 self.push("notice", title.as_ref(), message.as_ref(), None, Value::Null)
             }
+            // The dialog it opens records itself in traces.
+            InstancesEvent::ImportSnapshot(_) => {}
             InstancesEvent::LoaderChanged(id) => self.push(
                 "loader_changed",
                 "Loader changed",

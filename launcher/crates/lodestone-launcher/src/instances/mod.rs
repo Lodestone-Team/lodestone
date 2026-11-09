@@ -14,6 +14,7 @@ pub mod settings;
 pub(crate) mod shared_options_i18n;
 pub mod shared_settings;
 pub mod slideshow;
+pub mod snapshots;
 mod undo;
 pub mod worlds;
 pub use undo::InstanceSnapshot;
@@ -253,6 +254,8 @@ pub enum InstancesEvent {
     },
     /// The instance's loader was changed outside its Settings tab.
     LoaderChanged(String),
+    /// A `.lodesnap` file was dropped or picked: offer to make an instance from it.
+    ImportSnapshot(std::path::PathBuf),
 }
 
 pub struct Instances {
@@ -317,6 +320,9 @@ pub struct Instances {
     next_import: u64,
     /// Files of an imported CurseForge pack the user downloads from curseforge.com, by
     /// instance; the Content tab takes them when it shows that instance.
+    /// Each instance's snapshots, newest first, once read (see snapshots.rs).
+    snapshot_rows: HashMap<String, Vec<snapshots::SnapshotRow>>,
+    snapshot_tasks: HashMap<String, Task<()>>,
     pending_downloads:
         HashMap<String, Vec<launcher_core::content::curseforge_install::CfPlannedFile>>,
     /// Modpack updates in progress, by instance.
@@ -417,6 +423,8 @@ impl Instances {
             imports: Vec::new(),
             next_import: 0,
             pending_downloads: HashMap::new(),
+            snapshot_rows: HashMap::new(),
+            snapshot_tasks: HashMap::new(),
             modpack_updates: HashMap::new(),
             import_ticker: None,
         };

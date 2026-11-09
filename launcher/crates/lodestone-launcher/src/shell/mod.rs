@@ -122,6 +122,11 @@ enum Modal {
         dialog: Entity<NewInstanceDialog>,
         _events: Subscription,
     },
+    /// Taking, putting back, sharing, deleting or importing a snapshot.
+    Snapshot {
+        dialog: Entity<crate::instances::snapshots::SnapshotDialog>,
+        _events: Subscription,
+    },
     /// "Import from another launcher".
     Import {
         dialog: Entity<ImportDialog>,
@@ -225,7 +230,7 @@ pub struct LauncherShell {
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
-    settings: Option<(Entity<InstanceSettings>, [Subscription; 4])>,
+    settings: Option<(Entity<InstanceSettings>, [Subscription; 5])>,
     page: Page,
     tab: InstanceTab,
     /// The launcher's Settings, a large dialog under the other dialogs.
@@ -279,6 +284,12 @@ impl LauncherShell {
                             message: message.clone(),
                             focus,
                         },
+                        cx,
+                    );
+                }
+                InstancesEvent::ImportSnapshot(path) => {
+                    this.open_snapshot(
+                        crate::instances::snapshots::SnapshotRequest::Import(path.clone()),
                         cx,
                     );
                 }
@@ -893,6 +904,12 @@ impl LauncherShell {
                         this.servers
                             .update(cx, |servers, cx| servers.open_host(id, cx))
                     }),
+                    cx.subscribe(
+                        &settings,
+                        |this, _, crate::instances::snapshots::SnapshotRequested(request), cx| {
+                            this.open_snapshot(request.clone(), cx)
+                        },
+                    ),
                 ];
                 self.settings = Some((settings, subscriptions));
             }
@@ -1167,6 +1184,7 @@ impl LauncherShell {
         match self.modal.current() {
             Some(Modal::NewInstance { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Import { dialog: open, .. }) => open.entity_id() == dialog,
+            Some(Modal::Snapshot { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::SignIn { dialog: open, .. }) => open.entity_id() == dialog,
             Some(Modal::Offline { dialog: open, .. }) => open.entity_id() == dialog,
             _ => false,
@@ -1217,6 +1235,30 @@ impl LauncherShell {
         }
         self.modal.open(
             Modal::NewInstance {
+                dialog,
+                _events: subscription,
+            },
+            cx,
+        );
+    }
+
+    /// Opens the snapshot dialog for `request`.
+    pub fn open_snapshot(
+        &mut self,
+        request: crate::instances::snapshots::SnapshotRequest,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::instances::snapshots::{SnapshotDialog, SnapshotDismissed};
+        self.account_menu_open = false;
+        let instances = self.instances.clone();
+        let dialog = cx.new(|cx| SnapshotDialog::new(instances, request, cx));
+        let subscription = cx.subscribe(&dialog, |this, dialog, _: &SnapshotDismissed, cx| {
+            if this.is_open_dialog(dialog.entity_id()) {
+                this.close_modal(cx)
+            }
+        });
+        self.modal.open(
+            Modal::Snapshot {
                 dialog,
                 _events: subscription,
             },
@@ -1367,6 +1409,7 @@ impl LauncherShell {
         Some(match modal {
             Modal::NewInstance { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Import { dialog, .. } => dialog.clone().into_any_element(),
+            Modal::Snapshot { dialog, .. } => dialog.clone().into_any_element(),
             Modal::Crash {
                 crash,
                 focus,

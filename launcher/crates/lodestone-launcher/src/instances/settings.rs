@@ -218,6 +218,7 @@ pub struct InstanceSettings {
 
 impl EventEmitter<DeleteRequested> for InstanceSettings {}
 impl EventEmitter<HostRequested> for InstanceSettings {}
+impl EventEmitter<super::snapshots::SnapshotRequested> for InstanceSettings {}
 impl EventEmitter<LoaderChangePrompt> for InstanceSettings {}
 impl EventEmitter<UpdatePrompt> for InstanceSettings {}
 
@@ -2387,6 +2388,12 @@ impl Render for InstanceSettings {
             self.shared.clone().into_any_element(),
         ));
 
+        // Snapshots.
+        sections.push((
+            t(M::InstanceSnapshots).into(),
+            self.render_snapshots(cx).into_any_element(),
+        ));
+
         // Maintenance.
         let id = self.instance_id.clone();
         let maintenance = card([
@@ -2577,6 +2584,99 @@ fn note(text_: &'static str) -> AnyElement {
         .text_color(crate::theme::ink::muted())
         .child(text_)
         .into_any_element()
+}
+
+impl InstanceSettings {
+    /// The instance's snapshots, newest first, with a button to take one.
+    fn render_snapshots(&mut self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        use super::snapshots::{SnapshotRequest, SnapshotRequested, contents_line, when};
+        let id = self.instance_id.clone();
+        let rows = self.instances.update(cx, |instances, cx| {
+            instances.snapshot_rows(&id, cx).map(<[_]>::to_vec)
+        });
+        let take = Button::new("take-snapshot", t(M::TakeSnapshotEllipsis))
+            .variant(ButtonVariant::Secondary)
+            .size(ButtonSize::Slim)
+            .on_click(cx.listener(|this, _, _, cx| {
+                cx.emit(SnapshotRequested(SnapshotRequest::Take(
+                    this.instance_id.clone(),
+                )))
+            }));
+        let mut items = vec![
+            SettingRow::new(t(M::TakeSnapshotTitle))
+                .hint(t(M::SnapshotsHint))
+                .child(take)
+                .into_any_element(),
+        ];
+        match rows {
+            None => items.push(SettingRow::new(t(M::NoSnapshots)).into_any_element()),
+            Some(rows) if rows.is_empty() => {
+                items.push(SettingRow::new(t(M::NoSnapshots)).into_any_element())
+            }
+            Some(rows) => {
+                for (index, row) in rows.into_iter().enumerate() {
+                    let name = if row.automatic {
+                        format!("{} · {}", row.name, t(M::AutomaticSnapshot))
+                    } else {
+                        row.name.clone()
+                    };
+                    let hint = format!(
+                        "{} · {} · {}",
+                        when(row.created),
+                        tr!(
+                            M::SnapshotSizes,
+                            total = crate::i18n::format::bytes(row.total_bytes),
+                            new = crate::i18n::format::bytes(row.new_bytes)
+                        ),
+                        contents_line(&row.parts)
+                    );
+                    let request = |make: fn(String, String) -> SnapshotRequest| {
+                        let instance = id.clone();
+                        let snapshot = row.id.clone();
+                        cx.listener(move |_, _, _, cx| {
+                            cx.emit(SnapshotRequested(make(instance.clone(), snapshot.clone())))
+                        })
+                    };
+                    items.push(
+                        SettingRow::new(name)
+                            .hint(hint)
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_1()
+                                    .child(
+                                        Button::new(
+                                            ("snapshot-revert", index),
+                                            t(M::RevertEllipsis),
+                                        )
+                                        .variant(ButtonVariant::Secondary)
+                                        .size(ButtonSize::Slim)
+                                        .on_click(request(SnapshotRequest::Revert)),
+                                    )
+                                    .child(
+                                        Button::new(("snapshot-share", index), t(M::ShareEllipsis))
+                                            .variant(ButtonVariant::Secondary)
+                                            .size(ButtonSize::Slim)
+                                            .on_click(request(SnapshotRequest::Share)),
+                                    )
+                                    .child(
+                                        Button::new(
+                                            ("snapshot-delete", index),
+                                            t(CommonMsg::Delete),
+                                        )
+                                        .variant(ButtonVariant::Ghost)
+                                        .size(ButtonSize::Slim)
+                                        .on_click(request(SnapshotRequest::Delete)),
+                                    ),
+                            )
+                            .into_any_element(),
+                    );
+                }
+            }
+        }
+        section(t(M::InstanceSnapshots), None).child(card(items))
+    }
 }
 
 #[cfg(test)]

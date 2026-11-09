@@ -430,6 +430,7 @@ impl Store {
     }
 
     /// Takes a snapshot of `instance` (in `instance_dir`) with `selection`.
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         &self,
         instance: &Instance,
