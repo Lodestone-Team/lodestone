@@ -28,6 +28,12 @@ fix on a release branch made from one.
 
 Usage, from a checkout of the version's commit (`git checkout launcher-v0.2.0`):
 
+    python3 launcher/scripts/publish_release.py --find-draft
+                                        # the newest draft: version, commit, platforms
+    python3 launcher/scripts/publish_release.py --dry-run --tag draft --open
+                                        # stage this machine's build for it, and open it
+    python3 launcher/scripts/publish_release.py --tag draft
+                                        # upload the tested build to that draft
     python3 launcher/scripts/publish_release.py --dry-run --tag launcher-v0.2.0
                                         # stage this machine's build to test
     python3 launcher/scripts/publish_release.py --tag launcher-v0.2.0
@@ -311,6 +317,43 @@ def newest_published(releases: list[dict], key: str, prerelease: bool,
             if build is not None and (best is None or build > best[0]):
                 best = (build, tag)
     return best
+
+
+def launcher_releases(repo: str) -> list[dict]:
+    """Every launcher release, drafts too (seeing those needs write access), newest
+    first, as GitHub's API lists them."""
+    out = run(["gh", "api", "--paginate", f"repos/{repo}/releases?per_page=100", "--jq",
+               '.[] | select(.tag_name | startswith("launcher-v")) '
+               '| {tag_name, draft, prerelease, created_at, target_commitish, html_url, '
+               'assets: [.assets[] | {name}]}'])
+    return [json.loads(line) for line in out.splitlines() if line.strip()]
+
+
+def open_drafts(releases: list[dict]) -> list[dict]:
+    """The launcher drafts in `releases`, newest first."""
+    drafts = [r for r in releases if r.get("draft") and r.get("tag_name", "").startswith(TAG_PREFIX)]
+    return sorted(drafts, key=lambda r: r.get("created_at") or "", reverse=True)
+
+
+def release_platforms(release: dict) -> list[str]:
+    """The platforms a release has a standalone binary for."""
+    keys = set()
+    for asset in release.get("assets", []):
+        match = ASSET_NAME.match(asset.get("name", ""))
+        if match and match.group(3) == "-standalone":
+            keys.add(match.group(2))
+    return sorted(keys)
+
+
+def pick_draft(releases: list[dict]) -> tuple[dict, list[dict]]:
+    """The newest launcher draft, and the other drafts (newest first)."""
+    drafts = open_drafts(releases)
+    if not drafts:
+        raise Failure(
+            "there's no launcher draft release. A developer starts one by pushing a "
+            "launcher-vX.Y.Z tag or running Launcher - Release by hand"
+        )
+    return drafts[0], drafts[1:]
 
 
 def summary(manifest: dict, build: int) -> list[str]:
@@ -668,6 +711,93 @@ def save_test_copies(stage_dir: Path, test_dir: Path, record: dict) -> list[Path
     return copies
 
 
+# What to check in a test copy before uploading it. The person (or agent) testing
+# goes through every line; see .claude/skills/publish-launcher-release/SKILL.md.
+TEST_CHECKLIST = [
+    "The window opens; instances, accounts and Settings load.",
+    "Settings › General › Updates shows this build and commit (\"Build {build} · {commit}\").",
+    "An instance launches to the title screen and quits cleanly.",
+    "Whatever this release changes works.",
+    "Windows: the installer installs without an administrator prompt, the Start Menu "
+    "shortcut opens the launcher, and Settings › Apps lists it with this build.",
+    "macOS: the disk image shows the app, an arrow and Applications, and the app opens from it.",
+]
+
+
+def checklist(build: int, commit: str, key: str) -> list[str]:
+    lines = []
+    for line in TEST_CHECKLIST:
+        if (line.startswith("Windows:") and not key.startswith("windows-")) or \
+                (line.startswith("macOS:") and not key.startswith("macos-")):
+            continue
+        lines.append(line.format(build=build, commit=commit[:7]))
+    return lines
+
+
+def running_launchers() -> list[str]:
+    """Lodestone Launcher processes running now, as `pid name`, best effort.
+
+    A test copy started while one runs doesn't open: on Windows it brings the
+    running launcher's window forward and quits, and elsewhere the running one's
+    control socket stops it."""
+    found = []
+    try:
+        if os.name == "nt":
+            out = run(["tasklist", "/FO", "CSV", "/NH"])
+            for line in out.splitlines():
+                parts = [p.strip('"') for p in line.split('","')]
+                if len(parts) > 1 and parts[0].lower().startswith("lodestone-launcher"):
+                    found.append(f"{parts[1]} {parts[0]}")
+        else:
+            out = run(["ps", "-axo", "pid=,comm="])
+            for line in out.splitlines():
+                pid, _, command = line.strip().partition(" ")
+                # Linux cuts process names to 15 characters.
+                if Path(command.strip()).name.startswith("lodestone-launc"):
+                    found.append(f"{pid} {command.strip()}")
+    except Failure:
+        pass
+    return found
+
+
+def test_binary(test_dir: Path, record: dict, key: str) -> Path:
+    entry = record["assets"].get(key)
+    if not entry:
+        raise Failure(f"the dry run has no build for this machine ({key}) to open")
+    binary = test_dir / entry["name"]
+    if not binary.is_file():
+        raise Failure(f"{binary} is missing; dry-run again")
+    return binary
+
+
+def open_test_copy(binary: Path, wait: float = 4.0) -> int:
+    """Starts the test copy on its own, with the person's normal data, and returns
+    its process id once it has kept running for `wait` seconds."""
+    running = running_launchers()
+    if running:
+        raise Failure(
+            "a launcher is already running (" + "; ".join(running) + "), so the test copy "
+            "wouldn't open. Ask the developer to quit it (Lodestone Launcher's window, or its "
+            "icon in the tray), then open the test copy again with --open"
+        )
+    kwargs: dict = {"cwd": binary.parent, "stdin": subprocess.DEVNULL,
+                    "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if os.name == "nt":
+        kwargs["creationflags"] = (subprocess.DETACHED_PROCESS
+                                   | subprocess.CREATE_NEW_PROCESS_GROUP)
+    else:
+        kwargs["start_new_session"] = True
+    process = subprocess.Popen([str(binary)], **kwargs)
+    try:
+        code = process.wait(timeout=wait)
+    except subprocess.TimeoutExpired:
+        return process.pid
+    raise Failure(
+        f"the test copy quit straight away (exit code {code}). Another launcher may have been "
+        "starting, or it crashed: run it from a terminal to see its output"
+    )
+
+
 def check_candidate(stage_dir: Path, build: int, commit: str) -> dict:
     """Refuses to publish anything but the build a dry run made for testing."""
     if not (stage_dir / STAGE_RECORD).exists():
@@ -787,10 +917,7 @@ class VersionRelease(GitHubRelease):
         return info["isPrerelease"] if info else is_prerelease_tag(self.tag)
 
     def published_releases(self) -> list[dict]:
-        out = self.gh("api", "--paginate", f"repos/{self.repo}/releases?per_page=100", "--jq",
-                      '.[] | select(.tag_name | startswith("launcher-v")) '
-                      '| {tag_name, draft, prerelease, assets: [.assets[] | {name}]}')
-        return [json.loads(line) for line in out.splitlines() if line.strip()]
+        return launcher_releases(self.repo)
 
     def create(self, commit: str) -> None:
         """Tags `commit` (unless the tag exists) and drafts the release."""
@@ -1132,6 +1259,48 @@ def published_source(release: VersionRelease, beta: bool | None) -> None:
 # ---------------------------------------------------------------------------
 
 
+def show_draft(repo: str, draft: dict, others: list[dict]) -> None:
+    """What an agent needs to build for the newest draft: where it is and what's missing."""
+    tag = draft["tag_name"]
+    commit = GitHubRelease(repo, tag).tag_commit()
+    target = draft.get("target_commitish") or ""
+    if commit is None:
+        # A draft made on GitHub's page, whose tag is only made when it's published.
+        try:
+            commit = run(["gh", "api", f"repos/{repo}/commits/{target}", "--jq", ".sha"])
+        except Failure:
+            commit = ""
+        print(f"note: {tag} isn't tagged yet; the draft targets {target}. Uploading a build "
+              "tags the build's commit.")
+    platforms = release_platforms(draft)
+    here = key_for_target(host_target())
+    print(f"tag: {tag}")
+    print(f"commit: {commit}")
+    print(f"prerelease: {str(bool(draft.get('prerelease'))).lower()}")
+    print(f"url: {draft.get('html_url', '')}")
+    print(f"platforms: {', '.join(platforms) or 'none yet'}")
+    print(f"this machine: {here} ({'already in it' if here in platforms else 'missing'})")
+    if others:
+        print(f"other drafts: {', '.join(d['tag_name'] for d in others)}")
+    print("next, in a worktree of that commit (git fetch origin --tags && git worktree add "
+          f"../lodestone-release {commit or tag}):")
+    print("  publish_release.py --dry-run --tag draft --open    then test it")
+    print("  publish_release.py --tag draft                     once it works")
+
+
+def open_and_explain(test_dir: Path, record: dict, key: str) -> None:
+    binary = test_binary(test_dir, record, key)
+    pid = open_test_copy(binary)
+    step(f"Opened the test copy (process {pid}): {binary}")
+    print("    Check, and quit it when done:")
+    for line in checklist(record["build"], record["commit"], key):
+        print(f"    - {line}")
+    extras = [test_dir / name for name in record["files"]
+              if name.endswith(("-setup.exe", ".dmg"))]
+    for extra in extras:
+        print(f"    Installer to try: {extra}")
+
+
 def report(target, manifest: dict | None, build: int | None = None) -> None:
     step(f"Release: {target.url()}")
     if manifest:
@@ -1156,7 +1325,12 @@ def main(argv: list[str]) -> int:
     mode.add_argument("--bridge", metavar="TAG",
                       help=f"copy this published version to {LEGACY_TAG}, for launchers too old "
                            "to read versioned releases")
-    parser.add_argument("--tag", help="the version: launcher-vX.Y.Z, or launcher-vX.Y.Z-beta.N")
+    mode.add_argument("--find-draft", action="store_true",
+                      help="show the newest launcher draft release: its version, commit and platforms")
+    parser.add_argument("--tag", help="the version: launcher-vX.Y.Z, launcher-vX.Y.Z-beta.N, or "
+                                      "`draft` for the newest draft release")
+    parser.add_argument("--open", action="store_true",
+                        help="open the dry run's test copy for this machine (after --dry-run, or alone)")
     parser.add_argument("--target", action="append", metavar="TRIPLE",
                         help="a Rust target to build for (repeat for several); this machine's by default")
     parser.add_argument("--platform", action="append", metavar="KEY",
@@ -1175,8 +1349,29 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo", default=REPO, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
+    if args.find_draft:
+        GitHubRelease(args.repo, "").check()
+        draft, others = pick_draft(launcher_releases(args.repo))
+        show_draft(args.repo, draft, others)
+        return 0
+
+    if args.tag == "draft":
+        draft, others = pick_draft(launcher_releases(args.repo))
+        args.tag = draft["tag_name"]
+        step(f"The newest draft is {args.tag}"
+             + (f" (other drafts: {', '.join(d['tag_name'] for d in others)})" if others else ""))
     if args.tag:
         check_tag(args.tag)
+
+    if args.open and not args.dry_run:
+        if args.output or args.stage or args.sources or args.promote_from or args.bridge:
+            raise Failure("--open opens a dry run's test copy; use it with --dry-run, or alone")
+        stage_dir, test_dir = candidate_paths(cargo_target_dir())
+        if not (stage_dir / STAGE_RECORD).exists():
+            raise Failure("no dry run to open; run with --dry-run first")
+        record = json.loads((stage_dir / STAGE_RECORD).read_text(encoding="utf-8"))
+        open_and_explain(test_dir, record, key_for_target(host_target()))
+        return 0
 
     if args.bridge:
         check_tag(args.bridge)
@@ -1260,6 +1455,10 @@ def main(argv: list[str]) -> int:
             shutil.rmtree(stage_dir)
         record = stage(targets, build, commit, version, stage_dir, installer)
         if args.tag:
+            # Uploading checks it goes to the release it was tested for.
+            record["tag"] = args.tag
+            (stage_dir / STAGE_RECORD).write_text(json.dumps(record, indent=2) + "\n",
+                                                  encoding="utf-8")
             target = VersionRelease(args.repo, args.tag)
             target.check()
             step(f"Dry run: nothing uploaded. Checking it against {args.tag}")
@@ -1274,11 +1473,16 @@ def main(argv: list[str]) -> int:
             print(f"    {copy}")
         print("    Then upload it from this checkout without changes (--tag launcher-vX.Y.Z);")
         print("    the script uploads exactly these files.")
+        if args.open:
+            open_and_explain(test_dir, record, key_for_target(host_target()))
         return 0
 
     target = VersionRelease(args.repo, args.tag)
     target.check()
     record = check_candidate(stage_dir, build, commit)
+    if record.get("tag") and record["tag"] != args.tag:
+        raise Failure(f"the dry run was tested for {record['tag']}, not {args.tag}. Upload it "
+                      f"with --tag {record['tag']}, or dry-run and test again")
     if set(record["assets"]) != set(keys):
         raise Failure(
             f"the dry run staged {', '.join(sorted(record['assets']))}, not "

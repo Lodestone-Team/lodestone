@@ -1,5 +1,7 @@
 """Tests for publish_release.py's manifest logic: python3 launcher/scripts/test_publish_release.py"""
 
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -335,6 +337,70 @@ class Tags(unittest.TestCase):
         self.assertIsNone(pr.file_build(pr.installer_name(7, "windows-x86_64"), "windows-x86_64"))
         self.assertIsNone(pr.file_build(pr.asset_name(7, "macos-aarch64"), "windows-x86_64"))
         self.assertIsNone(pr.file_build(pr.dmg_name(7, ["macos-aarch64"]), "macos-aarch64"))
+
+
+class Drafts(unittest.TestCase):
+    def test_the_newest_launcher_draft_is_picked(self):
+        releases = [
+            dict(published("launcher-v0.3.0", {"windows-x86_64": 30}), created_at="2026-11-01T00:00:00Z"),
+            dict(published("launcher-v0.4.0-beta.1", {}, prerelease=True, draft=True),
+                 created_at="2026-11-03T00:00:00Z"),
+            dict(published("launcher-v0.3.1", {"macos-aarch64": 31}, draft=True),
+                 created_at="2026-11-02T00:00:00Z"),
+            dict(published("v0.6.0", {}, draft=True), created_at="2026-11-04T00:00:00Z"),
+        ]
+        draft, others = pr.pick_draft(releases)
+        self.assertEqual(draft["tag_name"], "launcher-v0.4.0-beta.1")
+        self.assertEqual([d["tag_name"] for d in others], ["launcher-v0.3.1"])
+
+    def test_no_draft_says_how_to_start_one(self):
+        with self.assertRaisesRegex(pr.Failure, "no launcher draft release"):
+            pr.pick_draft([published("launcher-v0.3.0", {"windows-x86_64": 30})])
+
+    def test_a_drafts_platforms_are_its_standalone_binaries(self):
+        release = published("launcher-v0.3.1", {"windows-x86_64": 31, "macos-aarch64": 31}, draft=True)
+        release["assets"] += [{"name": pr.installer_name(31, "windows-x86_64")},
+                              {"name": pr.dmg_name(31, ["macos-aarch64", "macos-x86_64"])},
+                              {"name": pr.STABLE_INSTALLER}]
+        self.assertEqual(pr.release_platforms(release), ["macos-aarch64", "windows-x86_64"])
+
+
+class Opening(unittest.TestCase):
+    def test_the_checklist_fits_the_platform(self):
+        windows = pr.checklist(12, "0123456789", "windows-x86_64")
+        self.assertIn('Settings › General › Updates shows this build and commit ("Build 12 · 0123456").',
+                      windows)
+        self.assertTrue(any(line.startswith("Windows:") for line in windows))
+        self.assertFalse(any(line.startswith("macOS:") for line in windows))
+        mac = pr.checklist(12, "0123456789", "macos-aarch64")
+        self.assertTrue(any(line.startswith("macOS:") for line in mac))
+        self.assertFalse(any(line.startswith("Windows:") for line in mac))
+
+    def test_a_running_launcher_is_left_alone(self):
+        original = pr.running_launchers
+        pr.running_launchers = lambda: ["4242 lodestone-launcher.exe"]
+        try:
+            with self.assertRaisesRegex(pr.Failure, "already running .*4242.*quit it"):
+                pr.open_test_copy(Path(sys.executable))
+        finally:
+            pr.running_launchers = original
+
+    def test_a_copy_that_quits_at_once_is_reported(self):
+        original = pr.running_launchers
+        pr.running_launchers = lambda: []
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                quits = Path(tmp) / ("quits.cmd" if os.name == "nt" else "quits.sh")
+                quits.write_text("@exit /b 3\n" if os.name == "nt" else "#!/bin/sh\nexit 3\n")
+                quits.chmod(0o755)
+                with self.assertRaisesRegex(pr.Failure, "quit straight away"):
+                    pr.open_test_copy(quits, wait=10)
+        finally:
+            pr.running_launchers = original
+
+    def test_the_binary_for_this_machine_must_be_in_the_dry_run(self):
+        with self.assertRaisesRegex(pr.Failure, "no build for this machine"):
+            pr.test_binary(Path("."), {"assets": {"macos-aarch64": {"name": "x"}}}, "windows-x86_64")
 
 
 class Restricting(unittest.TestCase):

@@ -1,6 +1,6 @@
 ---
 name: publish-launcher-release
-description: Release a Lodestone Launcher version that installed launchers update to - tag it (optionally on a pinned commit), build it into its draft GitHub release with the Launcher - Release workflow or launcher/scripts/publish_release.py, fix build breakage on a release branch, and publish. Use when a developer asks to release, publish, ship, cut, tag, promote or push out a launcher build, version or update, or to add a platform's build to a release. Only when they ask; never on your own initiative.
+description: Release a Lodestone Launcher version that installed launchers update to - find the open draft release and add this machine's tested build to it, or start a version (tag it, optionally on a pinned commit) with the Launcher - Release workflow or launcher/scripts/publish_release.py, fix build breakage on a release branch, test with computer use or hand the build to the developer, and publish. Use when a developer asks to build and release the latest version, or to release, publish, ship, cut, tag, promote or push out a launcher build, version or update, or to add a platform's build to a release. Only when they ask; never on your own initiative.
 ---
 
 # Releasing a Lodestone Launcher version
@@ -68,7 +68,63 @@ runs without installing, and is the file the updater downloads. Also:
 `latest.json` is uploaded last and merged with what's there, so platforms
 uploaded from different machines all end up in it.
 
-## Steps
+## "Build and release the latest version": add this machine's build to the draft
+
+The usual request. A developer (or a teammate) already started the version, so
+there's a draft release waiting for builds. Each developer's agent adds its own
+machine's platform to it. **This makes no new tag and publishes nothing.**
+
+What this machine needs:
+
+- A clone of the repository with the `origin` remote, and `gh` signed in with
+  write access (`gh auth status`): drafts are only visible to accounts that can
+  push.
+- The Rust toolchain (`cargo` on PATH); the repository's `rust-toolchain.toml`
+  picks the version.
+- On Windows, Inno Setup 6 for the installer (ask before installing it: `winget
+  install --id JRSoftware.InnoSetup -e --scope user`). On a Mac, Xcode's command
+  line tools; signing and notarizing need the variables under "What gets
+  uploaded", or the build is signed ad hoc (say so).
+- A way to test the build: computer-use tools in this session, or the developer
+  at the machine (see "Testing on this machine").
+
+Steps:
+
+1. **Find the draft:** `python3 launcher/scripts/publish_release.py --find-draft`
+   (on Windows, `python`). It prints the newest launcher draft's tag, commit,
+   whether it's a beta, which platforms it already has, and whether this machine's
+   is missing. Tell the developer which version you found.
+   - **No draft:** say so; starting one is "Starting a version" below, and needs the
+     developer to choose its number and commit.
+   - **Several drafts:** it takes the newest and lists the others. Ask which one
+     the developer means if it isn't obvious, and use its tag instead of `draft`
+     below.
+   - **This machine's platform is already in it:** stop and say so. Replace it
+     (`--force`) only if the developer asks.
+2. **Get onto its commit** in a separate worktree, never stashing the developer's
+   work: `git fetch origin --tags && git worktree add ../lodestone-release
+   <commit>` (the commit `--find-draft` printed), and work there.
+3. **Dry run and open it:** `python3 launcher/scripts/publish_release.py --dry-run
+   --tag draft --open`. A cold release build takes several minutes; run it in the
+   background. If it fails to build, see "Fixing a pinned commit": a fix means a
+   new commit, so a new version; tell the developer before going that way.
+   `--open` refuses while a launcher is running (a second one would only bring the
+   first forward): ask the developer to quit theirs, never close it yourself, then
+   run `publish_release.py --open` alone.
+4. **Test it** as "Testing on this machine" says: yourself with computer use if
+   this session has it, otherwise by handing the opened copy to the developer and
+   waiting for them.
+5. **Upload** once it passes: `python3 launcher/scripts/publish_release.py --tag
+   draft`, from the same checkout with nothing changed. It refuses if the newest
+   draft is no longer the one the dry run was for.
+6. **Report** the draft's URL, which platforms it has now, and how the build was
+   tested. Publishing is a separate decision: ask the developer whether to publish
+   it (step 8 of "Starting a version") rather than doing it because they said
+   "release".
+
+## Starting a version
+
+When there's no draft yet, or the developer asks for a new version:
 
 1. **Confirm with the developer before tagging anything:**
    - **The version.** Stable or beta, and its number. Look at what's out:
@@ -102,8 +158,9 @@ uploaded from different machines all end up in it.
    report the failure, fix it on the release branch, and release the fix as a new
    version (the tag can't move). Don't re-run with fewer platforms unless the
    developer agrees.
-6. **Add this machine's platform**, if asked, from the worktree at the tagged
-   commit (`git checkout launcher-vX.Y.Z`):
+6. **Add this machine's platform**, if asked (the draft flow above does the same
+   with `--tag draft`), from the worktree at the tagged commit (`git checkout
+   launcher-vX.Y.Z`):
    1. `gh auth status` must show write access, and `cargo` must be on PATH. On
       Windows, Inno Setup 6 too; ask before installing it (`winget install --id
       JRSoftware.InnoSetup -e --scope user`).
@@ -178,8 +235,36 @@ download link points at its installer, which updates itself after installing.)
 
 ## Testing on this machine
 
-Required before uploading a build from this machine: run the dry run's test copy,
-with the developer's normal data, and check:
+Required before uploading a build from this machine. `publish_release.py --open`
+(or `--dry-run ... --open`) starts the dry run's test copy for this machine with
+the developer's normal data, after checking no launcher is running, and prints
+the checklist below. Quit the test copy when done.
+
+**With computer use.** If this session has computer-use tools (named like
+`mcp__computer-use__*`; load them with ToolSearch if they're deferred), test it
+yourself:
+
+1. Ask for access to the test copy's window ("Lodestone Launcher") with
+   `request_access`, and to the installer or Finder for those checks.
+2. Go through every line of the checklist, with a screenshot before each step to
+   see where things are. Read the build and commit off Settings › General ›
+   Updates rather than assuming them.
+3. Launch an instance the developer already has, wait for the game's title
+   screen, and quit the game from its menu. Don't sign in to anything or type
+   credentials, and don't change the developer's settings, accounts or instances
+   beyond launching one.
+4. If screenshots of the launcher come back as a blank fill (as they do for debug
+   builds), drive it through UI Automation from PowerShell instead (on Windows: find
+   elements by AutomationId, such as `settings`), or fall back to the developer.
+5. Keep a screenshot of Settings › General › Updates and of the game's title
+   screen, and send them to the developer with the report (SendUserFile, if
+   available).
+
+**Without computer use**, or when it can't reach the app: leave the opened copy to
+the developer. Tell them where it is and paste the checklist, then **wait for
+them to say it works** before uploading. Don't upload on silence.
+
+The checklist:
 
 - The window opens; instances, accounts and Settings load.
 - **Settings › General › Updates** shows the dry run's build and commit
@@ -198,9 +283,14 @@ with the developer's normal data, and check:
 - **On a Mac, the disk image** too: open it, check the window (app, arrow,
   Applications), and open the app from it.
 
+The installer and disk image checks change what's installed: running the
+installer upgrades an installed launcher. Ask the developer before running them,
+with computer use or not.
+
 A copy run from a new folder can look offline when a per-app firewall blocks
-programs it hasn't seen; check that before blaming the build. If you can't see or
-drive the app, ask the developer to try it. Don't upload a build that fails, or
+programs it hasn't seen; check that before blaming the build. If the test copy
+quits straight away, `--open` says so: another launcher was starting, or it
+crashed (run it from a terminal to see why). Don't upload a build that fails, or
 one nobody could check. CI's builds aren't tested this way: say so when reporting
 the draft, and suggest the developer tries its files before publishing.
 

@@ -28,6 +28,13 @@ Tags are never moved: a different commit is a different version.
   confirming the version and commit with the developer, building and testing,
   fixing a pinned commit on a release branch, uploading a platform from this
   machine, promoting a beta, and what to do when the script refuses.
+- **"Build and release the latest version" means: add this machine's build to the
+  open draft.** `publish_release.py --find-draft` shows the newest launcher draft
+  (version, commit, platforms it has). Build its commit in a worktree with
+  `--dry-run --tag draft --open`, test the opened copy (with computer-use tools if
+  the session has them, otherwise hand it to the developer and wait for their
+  go-ahead), then upload with `--tag draft`. No new tag, and publishing is a
+  separate question for the developer.
 - **A pinned commit that no longer builds is fixed on a release branch** made from
   it (`release/launcher-vX.Y.Z`), with build and release fixes only. The version
   is tagged on the fixed commit, and the branch then goes to `main` in a PR,
