@@ -12,6 +12,7 @@ pub mod modpacks;
 pub mod new_instance;
 pub mod settings;
 pub(crate) mod shared_options_i18n;
+pub mod share_dialog;
 pub mod shared_settings;
 pub mod slideshow;
 mod undo;

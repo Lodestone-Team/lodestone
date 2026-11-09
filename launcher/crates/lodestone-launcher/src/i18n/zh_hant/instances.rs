@@ -3,6 +3,10 @@ use crate::i18n::{InstancesMsg as M, InstancesPlural as P};
 pub fn text(message: M) -> &'static str {
     match message {
         M::TwoSentences => "{first}{second}",
+        M::ShareCodeReady => "{name} 已就緒",
+        M::ShareCodeNotInstalled => "未安裝：{names}。",
+        M::ShareCodeContentFailed => "無法安裝分享碼中的內容",
+        M::ShareCodeOffline => "無法連線到 Modrinth，因此建立的實例不含其內容。",
         M::TitleAndMessage => "{title}：{message}",
         M::Vanilla => "原版",
 
@@ -162,6 +166,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ProblemAndMore => ["{problem}（另有 {count} 個問題）"; 2],
         P::InstancesToCopy => ["將複製 {count} 個實例，共 {size}。"; 2],
         P::ImportInstances => ["匯入 {count} 個實例"; 2],
+        P::ShareCodeInstalled => ["已從分享碼安裝 {count} 項內容。"; 2],
         P::PackFilesToDownload => {
             ["有 {count} 個檔案需要從 CurseForge 網站下載：實例的「內容」分頁會列出它們。"; 2]
         }
