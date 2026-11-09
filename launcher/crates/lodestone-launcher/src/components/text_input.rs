@@ -2,8 +2,9 @@
 //!
 //! The editing model, the IME support (`EntityInputHandler`) and the text element are
 //! adapted from GPUI's `examples/input.rs` (Apache-2.0), trimmed to what the launcher
-//! needs. Cursor movement steps over `char`s, not grapheme clusters. Deleting a word
-//! goes by grapheme clusters, so a letter and its combining marks go together.
+//! needs. Moving the cursor one step goes over a `char`, not a grapheme cluster.
+//! Moving, selecting and deleting by words goes by grapheme clusters, so a letter
+//! and its combining marks go together.
 
 use crate::theme::px;
 use std::{
@@ -34,11 +35,17 @@ actions!(
         DeleteWordForward,
         Left,
         Right,
+        WordLeft,
+        WordRight,
         SelectLeft,
         SelectRight,
+        SelectWordLeft,
+        SelectWordRight,
         SelectAll,
         Home,
         End,
+        SelectToStart,
+        SelectToEnd,
         Paste,
         Cut,
         Copy,
@@ -79,19 +86,36 @@ pub(super) fn init(cx: &mut App) {
         KeyBinding::new("shift-right", SelectRight, context),
         KeyBinding::new("home", Home, context),
         KeyBinding::new("end", End, context),
+        KeyBinding::new("shift-home", SelectToStart, context),
+        KeyBinding::new("shift-end", SelectToEnd, context),
         KeyBinding::new("cmd-left", Home, context),
         KeyBinding::new("cmd-right", End, context),
+        KeyBinding::new("cmd-shift-left", SelectToStart, context),
+        KeyBinding::new("cmd-shift-right", SelectToEnd, context),
     ]);
-    // Deleting a word: Option on macOS, Ctrl on Linux and Windows.
+    // Moving and deleting by words: Option on macOS, Ctrl on Linux and Windows.
     #[cfg(target_os = "macos")]
     cx.bind_keys([
+        KeyBinding::new("alt-left", WordLeft, context),
+        KeyBinding::new("alt-right", WordRight, context),
+        KeyBinding::new("alt-shift-left", SelectWordLeft, context),
+        KeyBinding::new("alt-shift-right", SelectWordRight, context),
         KeyBinding::new("alt-backspace", DeleteWordBackward, context),
         KeyBinding::new("alt-delete", DeleteWordForward, context),
     ]);
     #[cfg(not(target_os = "macos"))]
     cx.bind_keys([
+        KeyBinding::new("ctrl-left", WordLeft, context),
+        KeyBinding::new("ctrl-right", WordRight, context),
+        KeyBinding::new("ctrl-shift-left", SelectWordLeft, context),
+        KeyBinding::new("ctrl-shift-right", SelectWordRight, context),
         KeyBinding::new("ctrl-backspace", DeleteWordBackward, context),
         KeyBinding::new("ctrl-delete", DeleteWordForward, context),
+        // The old IBM CUA keys, which Windows and the Linux toolkits still honour.
+        // A Mac keyboard has no Insert key.
+        KeyBinding::new("shift-insert", Paste, context),
+        KeyBinding::new("ctrl-insert", Copy, context),
+        KeyBinding::new("shift-delete", Cut, context),
     ]);
     cx.bind_keys(secondary);
 }
@@ -110,8 +134,20 @@ pub struct TextInput {
     marked_range: Option<Range<usize>>,
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
-    is_selecting: bool,
+    /// While the left button is held after a press in the field: what dragging selects by.
+    dragging: Option<Drag>,
     history: TextHistory,
+}
+
+/// What a drag selects by, from how many clicks began it, as in GTK and browsers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Drag {
+    /// A single press: from where it was to the pointer.
+    Chars,
+    /// A double-click: from the word it selected to the word under the pointer.
+    Words(Range<usize>),
+    /// A triple-click selected everything, and dragging keeps it so.
+    All,
 }
 
 /// The field's own Undo and Redo: its text before each burst of typing or deleting.
@@ -161,7 +197,7 @@ impl TextInput {
             marked_range: None,
             last_layout: None,
             last_bounds: None,
-            is_selecting: false,
+            dragging: None,
             history: TextHistory::default(),
         }
     }
@@ -246,6 +282,45 @@ impl TextInput {
         }
     }
 
+    /// To the start of the word before the cursor, or with a selection to its start,
+    /// as Left does. GTK collapses a selection the same way; Chromium moves a word
+    /// on from it instead.
+    fn word_left(&mut self, _: &WordLeft, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected_range.is_empty() {
+            self.move_to(self.word_start_before(self.cursor_offset()), window, cx);
+        } else {
+            self.move_to(self.selected_range.start, window, cx)
+        }
+    }
+
+    /// To the end of the word after the cursor (where GTK stops, not the start of the
+    /// next word), or with a selection to its end.
+    fn word_right(&mut self, _: &WordRight, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected_range.is_empty() {
+            self.move_to(self.word_end_after(self.cursor_offset()), window, cx);
+        } else {
+            self.move_to(self.selected_range.end, window, cx)
+        }
+    }
+
+    fn select_word_left(
+        &mut self,
+        _: &SelectWordLeft,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_to(self.word_start_before(self.cursor_offset()), window, cx);
+    }
+
+    fn select_word_right(
+        &mut self,
+        _: &SelectWordRight,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_to(self.word_end_after(self.cursor_offset()), window, cx);
+    }
+
     fn select_left(&mut self, _: &SelectLeft, window: &mut Window, cx: &mut Context<Self>) {
         self.select_to(self.previous_boundary(self.cursor_offset()), window, cx);
     }
@@ -265,6 +340,14 @@ impl TextInput {
 
     fn end(&mut self, _: &End, window: &mut Window, cx: &mut Context<Self>) {
         self.move_to(self.content.len(), window, cx);
+    }
+
+    fn select_to_start(&mut self, _: &SelectToStart, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(0, window, cx);
+    }
+
+    fn select_to_end(&mut self, _: &SelectToEnd, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(self.content.len(), window, cx);
     }
 
     /// Undo while the field has the focus: its text before the last edit.
@@ -299,6 +382,7 @@ impl TextInput {
         self.history.last = None;
         window.notify_text_input_changed(&self.focus_handle);
         cx.notify();
+        self.offer_primary(cx);
     }
 
     fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
@@ -315,8 +399,35 @@ impl TextInput {
         self.replace_text_in_range(None, "", window, cx)
     }
 
+    /// Where the word before `offset` starts. A password field is one word: its words
+    /// would show where the spaces are.
+    fn word_start_before(&self, offset: usize) -> usize {
+        if self.masked {
+            0
+        } else {
+            previous_word_start(&self.content, offset)
+        }
+    }
+
+    /// Where the word after `offset` ends.
+    fn word_end_after(&self, offset: usize) -> usize {
+        if self.masked {
+            self.content.len()
+        } else {
+            next_word_end(&self.content, offset)
+        }
+    }
+
+    /// The word a double-click on the `char` at `offset` selects.
+    fn word_at(&self, offset: usize) -> Range<usize> {
+        if self.masked {
+            0..self.content.len()
+        } else {
+            word_range_at(&self.content, offset)
+        }
+    }
+
     /// Deletes the selection, or back to the start of the word before the cursor.
-    /// A password field is one word: its words would show where the spaces are.
     fn delete_word_backward(
         &mut self,
         _: &DeleteWordBackward,
@@ -324,12 +435,7 @@ impl TextInput {
         cx: &mut Context<Self>,
     ) {
         if self.selected_range.is_empty() {
-            let start = if self.masked {
-                0
-            } else {
-                previous_word_start(&self.content, self.cursor_offset())
-            };
-            self.select_to(start, window, cx)
+            self.select_to(self.word_start_before(self.cursor_offset()), window, cx)
         }
         self.replace_text_in_range(None, "", window, cx)
     }
@@ -342,12 +448,7 @@ impl TextInput {
         cx: &mut Context<Self>,
     ) {
         if self.selected_range.is_empty() {
-            let end = if self.masked {
-                self.content.len()
-            } else {
-                next_word_end(&self.content, self.cursor_offset())
-            };
-            self.select_to(end, window, cx)
+            self.select_to(self.word_end_after(self.cursor_offset()), window, cx)
         }
         self.replace_text_in_range(None, "", window, cx)
     }
@@ -373,23 +474,39 @@ impl TextInput {
         }
     }
 
+    /// A press puts the cursor there (with Shift, selects to there), a double-click
+    /// selects the word under the pointer and a triple-click everything, as in GTK
+    /// and browsers.
     fn on_mouse_down(
         &mut self,
         event: &MouseDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.is_selecting = true;
-        let index = self.index_for_mouse_position(event.position);
-        if event.modifiers.shift {
-            self.select_to(index, window, cx);
-        } else {
-            self.move_to(index, window, cx)
-        }
+        self.dragging = Some(match event.click_count {
+            0 | 1 => {
+                let index = self.index_for_mouse_position(event.position);
+                if event.modifiers.shift {
+                    self.select_to(index, window, cx);
+                } else {
+                    self.move_to(index, window, cx)
+                }
+                Drag::Chars
+            }
+            2 => {
+                let word = self.word_at(self.char_index_for_mouse_position(event.position));
+                self.select_range(word.clone(), false, window, cx);
+                Drag::Words(word)
+            }
+            _ => {
+                self.select_range(0..self.content.len(), false, window, cx);
+                Drag::All
+            }
+        });
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
-        self.is_selecting = false;
+        self.dragging = None;
     }
 
     fn on_mouse_move(
@@ -398,17 +515,87 @@ impl TextInput {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.is_selecting {
-            self.select_to(self.index_for_mouse_position(event.position), window, cx);
+        let (range, reversed) = match &self.dragging {
+            None | Some(Drag::All) => return,
+            Some(Drag::Chars) => {
+                let index = self.index_for_mouse_position(event.position);
+                let anchor = if self.selection_reversed {
+                    self.selected_range.end
+                } else {
+                    self.selected_range.start
+                };
+                (anchor.min(index)..anchor.max(index), index < anchor)
+            }
+            // Whole words, from the one double-clicked to the one under the pointer.
+            Some(Drag::Words(anchor)) => {
+                let word = self.word_at(self.char_index_for_mouse_position(event.position));
+                (
+                    anchor.start.min(word.start)..anchor.end.max(word.end),
+                    word.start < anchor.start,
+                )
+            }
+        };
+        // The pointer moves far more often than it crosses a character, and each new
+        // selection is offered as PRIMARY.
+        if range != self.selected_range || reversed != self.selection_reversed {
+            self.select_range(range, reversed, window, cx);
+        }
+    }
+
+    /// A middle-click pastes the PRIMARY selection where it lands, the X11 and
+    /// Wayland convention that GTK and Qt fields follow.
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn paste_primary(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let index = self.index_for_mouse_position(event.position);
+        self.move_to(index, window, cx);
+        if let Some(text) = cx.read_from_primary().and_then(|item| item.text()) {
+            self.replace_text_in_range(None, &text.replace('\n', " "), window, cx);
         }
     }
 
     fn move_to(&mut self, offset: usize, window: &Window, cx: &mut Context<Self>) {
-        self.selected_range = offset..offset;
-        self.selection_reversed = false;
-        window.notify_text_selection_changed(&self.focus_handle);
-        cx.notify()
+        self.select_range(offset..offset, false, window, cx)
     }
+
+    /// Selects `range`, with the cursor at its start if `reversed`.
+    fn select_range(
+        &mut self,
+        range: Range<usize>,
+        reversed: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.selected_range = range;
+        self.selection_reversed = reversed;
+        self.selection_changed(window, cx)
+    }
+
+    fn selection_changed(&self, window: &Window, cx: &mut Context<Self>) {
+        window.notify_text_selection_changed(&self.focus_handle);
+        cx.notify();
+        self.offer_primary(cx);
+    }
+
+    /// Offers the selected text as the PRIMARY selection, for a middle-click to paste
+    /// here or in another app, as every X11 and Wayland toolkit does. Never a
+    /// password: any app on the desktop can read PRIMARY.
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn offer_primary(&self, cx: &mut App) {
+        if !self.masked && !self.selected_range.is_empty() {
+            cx.write_to_primary(ClipboardItem::new_string(
+                self.content[self.selected_range.clone()].to_string(),
+            ));
+        }
+    }
+
+    /// PRIMARY is an X11 and Wayland convention.
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+    fn offer_primary(&self, _: &mut App) {}
 
     fn cursor_offset(&self) -> usize {
         if self.selection_reversed {
@@ -432,6 +619,23 @@ impl TextInput {
         line.closest_index_for_x(position.x - bounds.left())
     }
 
+    /// The `char` under the pointer, rather than the gap nearest to it: the one a
+    /// double-click selects the word of. Past the end, the end.
+    fn char_index_for_mouse_position(&self, position: Point<Pixels>) -> usize {
+        let (Some(bounds), Some(line)) = (self.last_bounds.as_ref(), self.last_layout.as_ref())
+        else {
+            return 0;
+        };
+        if self.content.is_empty() || position.y < bounds.top() {
+            return 0;
+        }
+        if position.y > bounds.bottom() {
+            return self.content.len();
+        }
+        line.index_for_x(position.x - bounds.left())
+            .unwrap_or(self.content.len())
+    }
+
     fn select_to(&mut self, offset: usize, window: &Window, cx: &mut Context<Self>) {
         if self.selection_reversed {
             self.selected_range.start = offset
@@ -442,8 +646,7 @@ impl TextInput {
             self.selection_reversed = !self.selection_reversed;
             self.selected_range = self.selected_range.end..self.selected_range.start;
         }
-        window.notify_text_selection_changed(&self.focus_handle);
-        cx.notify()
+        self.selection_changed(window, cx)
     }
 
     fn offset_from_utf16(&self, offset: usize) -> usize {
@@ -557,6 +760,22 @@ fn next_word_end(text: &str, offset: usize) -> usize {
         .map_or(text.len(), |&(index, _)| offset + index)
 }
 
+/// What a double-click on the `char` at `offset` selects: the run of grapheme clusters
+/// of its kind, so a word, a run of symbols, or the spaces between two words, as GTK
+/// does. At the end of the text, the run before it. "foo b|ar" → "foo [bar]",
+/// "foo | bar" → "foo[   ]bar".
+fn word_range_at(text: &str, offset: usize) -> Range<usize> {
+    let clusters = text.grapheme_indices(true).collect::<Vec<_>>();
+    let Some(at) = clusters.iter().rposition(|&(start, _)| start <= offset) else {
+        return offset..offset;
+    };
+    let kind = cluster_kind(clusters[at].1);
+    let same = |&&(_, cluster): &&(usize, &str)| cluster_kind(cluster) == kind;
+    let first = at - clusters[..at].iter().rev().take_while(same).count();
+    let last = at + clusters[at + 1..].iter().take_while(same).count();
+    clusters[first].0..clusters[last].0 + clusters[last].1.len()
+}
+
 /// Converts a UTF-16 offset (as the platform's input methods use) to a byte offset.
 fn utf16_to_utf8(text: &str, offset: usize) -> usize {
     let mut utf8_offset = 0;
@@ -607,10 +826,8 @@ impl EntityInputHandler for TextInput {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.selected_range = self.range_from_utf16(&range_utf16);
-        self.selection_reversed = false;
-        window.notify_text_selection_changed(&self.focus_handle);
-        cx.notify();
+        let range = self.range_from_utf16(&range_utf16);
+        self.select_range(range, false, window, cx);
     }
 
     fn text_length_utf16(
@@ -764,7 +981,8 @@ impl Render for TextInput {
                     this.bg(colors::GRAY_800)
                         .text_color(colors::WHITE.opacity(50))
                 } else {
-                    this.bg(colors::GRAY_900)
+                    let this = this
+                        .bg(colors::GRAY_900)
                         .text_color(colors::GRAY_300)
                         .cursor(CursorStyle::IBeam)
                         .on_action(cx.listener(Self::backspace))
@@ -773,11 +991,17 @@ impl Render for TextInput {
                         .on_action(cx.listener(Self::delete_word_forward))
                         .on_action(cx.listener(Self::left))
                         .on_action(cx.listener(Self::right))
+                        .on_action(cx.listener(Self::word_left))
+                        .on_action(cx.listener(Self::word_right))
                         .on_action(cx.listener(Self::select_left))
                         .on_action(cx.listener(Self::select_right))
+                        .on_action(cx.listener(Self::select_word_left))
+                        .on_action(cx.listener(Self::select_word_right))
                         .on_action(cx.listener(Self::select_all))
                         .on_action(cx.listener(Self::home))
                         .on_action(cx.listener(Self::end))
+                        .on_action(cx.listener(Self::select_to_start))
+                        .on_action(cx.listener(Self::select_to_end))
                         .on_action(cx.listener(Self::paste))
                         .on_action(cx.listener(Self::cut))
                         .on_action(cx.listener(Self::copy))
@@ -792,7 +1016,11 @@ impl Render for TextInput {
                         }))
                         .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
                         .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
-                        .on_mouse_move(cx.listener(Self::on_mouse_move))
+                        .on_mouse_move(cx.listener(Self::on_mouse_move));
+                    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+                    let this =
+                        this.on_mouse_down(MouseButton::Middle, cx.listener(Self::paste_primary));
+                    this
                 }
             })
             // `focus-visible:ring-4 ring-blue-faded/50`
@@ -1124,6 +1352,52 @@ mod tests {
         }
     }
 
+    /// What a double-click on the `char` after the `|` in `text` selects, in brackets.
+    fn double_click(text: &str) -> String {
+        let at = text.find('|').unwrap();
+        let text = text.replacen('|', "", 1);
+        let word = word_range_at(&text, at);
+        format!(
+            "{}[{}]{}",
+            &text[..word.start],
+            &text[word.clone()],
+            &text[word.end..]
+        )
+    }
+
+    #[test]
+    fn a_double_click_selects_a_word() {
+        for (click, selected) in [
+            ("foo b|ar", "foo [bar]"),
+            ("|foo bar", "[foo] bar"),
+            ("fo|o bar", "[foo] bar"),
+            // The end of the text is the end of its last word.
+            ("foo bar|", "foo [bar]"),
+            // Spaces select the spaces between two words, as in GTK.
+            ("foo| bar", "foo[ ]bar"),
+            ("foo  |  bar", "foo[    ]bar"),
+            // Symbols are words of their own, as Ctrl+Backspace sees them.
+            ("-Xmx4G -XX:+Use|G1GC", "-Xmx4G -XX:+[UseG1GC]"),
+            ("-Xmx4G -XX|:+UseG1GC", "-Xmx4G -XX[:+]UseG1GC"),
+            ("/home/me/.mine|craft", "/home/me/.[minecraft]"),
+            ("/home/me|/.minecraft", "/home/me[/.]minecraft"),
+            ("snake_|case", "[snake_case]"),
+            ("héllo w|örld", "héllo [wörld]"),
+            ("日本|語 テキスト", "[日本語] テキスト"),
+            ("x cafe\u{301}|", "x [cafe\u{301}]"),
+            ("a 👩\u{200d}💻|", "a [👩\u{200d}💻]"),
+            ("|", "[]"),
+        ] {
+            assert_eq!(double_click(click), selected, "at {click:?}");
+        }
+        // A click on a combining mark selects the word it belongs to.
+        let text = "x cafe\u{301}";
+        assert_eq!(
+            word_range_at(text, text.len() - "\u{301}".len()),
+            2..text.len()
+        );
+    }
+
     #[test]
     fn word_boundaries_fall_between_chars() {
         let text = "é🙂 漢字.x cafe\u{301} हिन्दी";
@@ -1154,16 +1428,19 @@ mod tests {
     }
 }
 
-/// Ctrl+Backspace and Ctrl+Delete (Option on macOS) typed into a field in a test
-/// window. GPUI's test platform comes with its `test-support` feature, which the
-/// `screenshot` feature turns on: `cargo test -p lodestone-launcher --features screenshot`.
+/// Shortcuts typed and clicks made into a field in a test window. GPUI's test platform
+/// comes with its `test-support` feature, which the `screenshot` feature turns on:
+/// `cargo test -p lodestone-launcher --features screenshot`.
 #[cfg(all(test, feature = "screenshot"))]
 mod keystroke_tests {
-    use gpui::{Entity, Focusable as _, TestAppContext, VisualTestContext};
+    use gpui::{
+        Entity, Focusable as _, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
+        MouseUpEvent, Pixels, Point, TestAppContext, VisualTestContext, point,
+    };
 
-    use super::TextInput;
+    use super::{TextInput, next_char_boundary};
 
-    /// The word-delete modifier of the platform the tests run on.
+    /// The word modifier of the platform the tests run on.
     const WORD: &str = if cfg!(target_os = "macos") {
         "alt"
     } else {
@@ -1175,12 +1452,24 @@ mod keystroke_tests {
         masked: bool,
         cx: &'a mut TestAppContext,
     ) -> (Entity<TextInput>, &'a mut VisualTestContext) {
+        field_with(
+            text,
+            cx,
+            move |input| {
+                if masked { input.with_masked() } else { input }
+            },
+        )
+    }
+
+    fn field_with<'a>(
+        text: &str,
+        cx: &'a mut TestAppContext,
+        build: impl FnOnce(TextInput) -> TextInput + 'static,
+    ) -> (Entity<TextInput>, &'a mut VisualTestContext) {
         cx.update(crate::components::init);
         let text = text.to_string();
-        let (input, cx) = cx.add_window_view(move |_, cx| {
-            let input = TextInput::new(cx).with_text(text);
-            if masked { input.with_masked() } else { input }
-        });
+        let (input, cx) =
+            cx.add_window_view(move |_, cx| build(TextInput::new(cx).with_text(text)));
         cx.update(|window, cx| {
             let handle = input.read(cx).focus_handle(cx);
             window.focus(&handle, cx);
@@ -1244,5 +1533,298 @@ mod keystroke_tests {
         assert_eq!(text(&input, cx), "foo ");
         input.update_in(cx, |input, window, cx| input.undo(&crate::Undo, window, cx));
         assert_eq!(text(&input, cx), "foo bar");
+    }
+
+    /// The field's text with the selection in brackets, or a `|` at the cursor.
+    fn shown(input: &Entity<TextInput>, cx: &mut VisualTestContext) -> String {
+        input.read_with(cx, |input, _| {
+            let range = input.selected_range.clone();
+            let text = &input.content;
+            if range.is_empty() {
+                format!("{}|{}", &text[..range.start], &text[range.end..])
+            } else {
+                format!(
+                    "{}[{}]{}",
+                    &text[..range.start],
+                    &text[range.clone()],
+                    &text[range.end..]
+                )
+            }
+        })
+    }
+
+    /// The gap before the `char` at `offset`, in the window, or with `inside` a little
+    /// into the `char` (still nearer that gap than the next).
+    fn at(
+        input: &Entity<TextInput>,
+        offset: usize,
+        inside: bool,
+        cx: &mut VisualTestContext,
+    ) -> Point<Pixels> {
+        input.read_with(cx, |input, _| {
+            let bounds = input.last_bounds.expect("the field was drawn");
+            let line = input.last_layout.as_ref().expect("the field was drawn");
+            let mut x = line.x_for_index(offset);
+            if inside {
+                let next = line.x_for_index(next_char_boundary(&input.content, offset));
+                x += (next - x) * 0.4;
+            }
+            point(bounds.left() + x, bounds.center().y)
+        })
+    }
+
+    fn press(
+        cx: &mut VisualTestContext,
+        position: Point<Pixels>,
+        button: MouseButton,
+        clicks: usize,
+    ) {
+        cx.simulate_event(MouseDownEvent {
+            button,
+            position,
+            modifiers: Modifiers::none(),
+            click_count: clicks,
+            first_mouse: false,
+        });
+    }
+
+    fn release(
+        cx: &mut VisualTestContext,
+        position: Point<Pixels>,
+        button: MouseButton,
+        clicks: usize,
+    ) {
+        cx.simulate_event(MouseUpEvent {
+            button,
+            position,
+            modifiers: Modifiers::none(),
+            click_count: clicks,
+        });
+    }
+
+    /// Clicks the left button `clicks` times at `position`, as the platform reports it.
+    fn click(cx: &mut VisualTestContext, position: Point<Pixels>, clicks: usize) {
+        for count in 1..=clicks {
+            press(cx, position, MouseButton::Left, count);
+            release(cx, position, MouseButton::Left, count);
+        }
+    }
+
+    #[test]
+    fn word_keys_move_by_words() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("-Xmx4G -XX:+UseG1GC", false, &mut cx);
+        cx.simulate_keystrokes(&format!("{WORD}-left"));
+        assert_eq!(shown(&input, cx), "-Xmx4G -XX:+|UseG1GC");
+        cx.simulate_keystrokes(&format!("{WORD}-left {WORD}-left"));
+        assert_eq!(shown(&input, cx), "-Xmx4G -|XX:+UseG1GC");
+        cx.simulate_keystrokes(&format!("{WORD}-left"));
+        assert_eq!(shown(&input, cx), "-Xmx4G |-XX:+UseG1GC");
+        // On to the end of the next word, over the spaces before it.
+        cx.simulate_keystrokes(&format!("home {WORD}-right"));
+        assert_eq!(shown(&input, cx), "-|Xmx4G -XX:+UseG1GC");
+        cx.simulate_keystrokes(&format!("{WORD}-right"));
+        assert_eq!(shown(&input, cx), "-Xmx4G| -XX:+UseG1GC");
+        cx.simulate_keystrokes(&format!("{WORD}-right"));
+        assert_eq!(shown(&input, cx), "-Xmx4G -|XX:+UseG1GC");
+        cx.simulate_keystrokes(&format!("end {WORD}-right"));
+        assert_eq!(shown(&input, cx), "-Xmx4G -XX:+UseG1GC|");
+        cx.simulate_keystrokes(&format!("home {WORD}-left"));
+        assert_eq!(shown(&input, cx), "|-Xmx4G -XX:+UseG1GC");
+    }
+
+    #[test]
+    fn shift_with_the_word_keys_selects_by_words() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("one two three", false, &mut cx);
+        cx.simulate_keystrokes(&format!("{WORD}-shift-left {WORD}-shift-left"));
+        assert_eq!(shown(&input, cx), "one [two three]");
+        // The cursor end moves; the other stays.
+        cx.simulate_keystrokes(&format!("{WORD}-shift-right"));
+        assert_eq!(shown(&input, cx), "one two[ three]");
+        cx.simulate_keystrokes(&format!("home {WORD}-shift-right {WORD}-shift-right"));
+        assert_eq!(shown(&input, cx), "[one two] three");
+        cx.simulate_keystrokes("shift-left");
+        assert_eq!(shown(&input, cx), "[one tw]o three");
+    }
+
+    #[test]
+    fn a_word_key_without_shift_ends_the_selection() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("one two three", false, &mut cx);
+        cx.simulate_keystrokes(&format!("{WORD}-left shift-left shift-left shift-left"));
+        assert_eq!(shown(&input, cx), "one t[wo ]three");
+        // At the selection's start or end, as Left and Right go and as GTK does.
+        cx.simulate_keystrokes(&format!("{WORD}-left"));
+        assert_eq!(shown(&input, cx), "one t|wo three");
+        cx.simulate_keystrokes(&format!("shift-right shift-right {WORD}-right"));
+        assert_eq!(shown(&input, cx), "one two| three");
+    }
+
+    #[test]
+    fn a_password_moves_as_one_word() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("correct horse", true, &mut cx);
+        cx.simulate_keystrokes(&format!("{WORD}-left"));
+        assert_eq!(shown(&input, cx), "|correct horse");
+        cx.simulate_keystrokes(&format!("{WORD}-right"));
+        assert_eq!(shown(&input, cx), "correct horse|");
+    }
+
+    #[test]
+    fn shift_home_and_end_select_to_the_ends() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("one two", false, &mut cx);
+        cx.simulate_keystrokes("left left left shift-home");
+        assert_eq!(shown(&input, cx), "[one ]two");
+        cx.simulate_keystrokes("shift-end");
+        assert_eq!(shown(&input, cx), "one [two]");
+        // Cmd+Shift+Left and Right are the same on a Mac.
+        cx.simulate_keystrokes("cmd-shift-left");
+        assert_eq!(shown(&input, cx), "[one ]two");
+        cx.simulate_keystrokes("cmd-shift-right");
+        assert_eq!(shown(&input, cx), "one [two]");
+        // Plain Home and End still move.
+        cx.simulate_keystrokes("home");
+        assert_eq!(shown(&input, cx), "|one two");
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn the_insert_keys_copy_cut_and_paste() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("one two", false, &mut cx);
+        cx.simulate_keystrokes(&format!("{WORD}-shift-left ctrl-insert"));
+        let clipboard =
+            |cx: &mut VisualTestContext| cx.read_from_clipboard().and_then(|item| item.text());
+        assert_eq!(clipboard(cx).as_deref(), Some("two"));
+        assert_eq!(text(&input, cx), "one two");
+        cx.simulate_keystrokes("shift-home shift-delete");
+        assert_eq!(clipboard(cx).as_deref(), Some("one two"));
+        assert_eq!(text(&input, cx), "");
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("a\nb".into()));
+        cx.simulate_keystrokes("shift-insert");
+        assert_eq!(shown(&input, cx), "a b|");
+    }
+
+    #[test]
+    fn a_double_click_selects_the_word_and_a_triple_click_all() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("-Xmx4G -XX:+UseG1GC", false, &mut cx);
+        let on_use = at(&input, 13, true, cx);
+        click(cx, on_use, 1);
+        assert_eq!(shown(&input, cx), "-Xmx4G -XX:+U|seG1GC");
+        click(cx, on_use, 2);
+        assert_eq!(shown(&input, cx), "-Xmx4G -XX:+[UseG1GC]");
+        click(cx, on_use, 3);
+        assert_eq!(shown(&input, cx), "[-Xmx4G -XX:+UseG1GC]");
+        // On a space, the spaces.
+        let on_space = at(&input, 6, true, cx);
+        click(cx, on_space, 2);
+        assert_eq!(shown(&input, cx), "-Xmx4G[ ]-XX:+UseG1GC");
+        // On a symbol, its run of symbols.
+        let on_colon = at(&input, 10, true, cx);
+        click(cx, on_colon, 2);
+        assert_eq!(shown(&input, cx), "-Xmx4G -XX[:+]UseG1GC");
+    }
+
+    #[test]
+    fn dragging_after_a_double_click_selects_whole_words() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("one two three four", false, &mut cx);
+        let on_two = at(&input, 5, true, cx);
+        click(cx, on_two, 1);
+        press(cx, on_two, MouseButton::Left, 2);
+        let drag_to = |offset: usize, cx: &mut VisualTestContext| {
+            let position = at(&input, offset, true, cx);
+            cx.simulate_event(MouseMoveEvent {
+                position,
+                pressed_button: Some(MouseButton::Left),
+                modifiers: Modifiers::none(),
+            });
+        };
+        drag_to(10, cx);
+        assert_eq!(shown(&input, cx), "one [two three] four");
+        drag_to(1, cx);
+        assert_eq!(shown(&input, cx), "[one two] three four");
+        // The cursor is at the start, where the pointer went.
+        cx.simulate_keystrokes("shift-right");
+        assert_eq!(shown(&input, cx), "o[ne two] three four");
+    }
+
+    #[test]
+    fn a_password_double_clicks_as_one_word() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = field("correct horse", true, &mut cx);
+        let position = at(&input, 2, true, cx);
+        click(cx, position, 2);
+        assert_eq!(shown(&input, cx), "[correct horse]");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    mod primary {
+        use super::*;
+        use gpui::ClipboardItem;
+
+        fn primary(cx: &mut VisualTestContext) -> Option<String> {
+            cx.update(|_, cx| cx.read_from_primary().and_then(|item| item.text()))
+        }
+
+        fn set_primary(text: &str, cx: &mut VisualTestContext) {
+            let item = ClipboardItem::new_string(text.into());
+            cx.update(|_, cx| cx.write_to_primary(item));
+        }
+
+        #[test]
+        fn a_selection_is_offered_as_primary() {
+            let mut cx = TestAppContext::single();
+            let (input, cx) = field("one two", false, &mut cx);
+            // Moving the cursor offers nothing.
+            cx.simulate_keystrokes("left");
+            assert_eq!(primary(cx), None);
+            cx.simulate_keystrokes("shift-home");
+            assert_eq!(primary(cx).as_deref(), Some("one tw"));
+            let on_one = at(&input, 1, true, cx);
+            click(cx, on_one, 2);
+            assert_eq!(primary(cx).as_deref(), Some("one"));
+            // Ending the selection leaves PRIMARY as it was, as in GTK.
+            cx.simulate_keystrokes("end");
+            assert_eq!(primary(cx).as_deref(), Some("one"));
+        }
+
+        #[test]
+        fn a_password_is_never_offered_as_primary() {
+            let mut cx = TestAppContext::single();
+            let (input, cx) = field("correct horse", true, &mut cx);
+            set_primary("elsewhere", cx);
+            cx.simulate_keystrokes("shift-home");
+            let position = at(&input, 2, true, cx);
+            click(cx, position, 2);
+            click(cx, position, 3);
+            cx.simulate_keystrokes("secondary-a");
+            assert_eq!(shown(&input, cx), "[correct horse]");
+            assert_eq!(primary(cx).as_deref(), Some("elsewhere"));
+        }
+
+        #[test]
+        fn a_middle_click_pastes_primary_where_it_lands() {
+            let mut cx = TestAppContext::single();
+            let (input, cx) = field("one three", false, &mut cx);
+            set_primary("two\nand a half ", cx);
+            let before_three = at(&input, 4, false, cx);
+            press(cx, before_three, MouseButton::Middle, 1);
+            release(cx, before_three, MouseButton::Middle, 1);
+            assert_eq!(shown(&input, cx), "one two and a half |three");
+        }
+
+        #[test]
+        fn a_disabled_field_takes_no_middle_click() {
+            let mut cx = TestAppContext::single();
+            let (input, cx) = field_with("one", &mut cx, |input| input.with_disabled(true));
+            set_primary("two", cx);
+            let position = at(&input, 1, false, cx);
+            press(cx, position, MouseButton::Middle, 1);
+            assert_eq!(text(&input, cx), "one");
+        }
     }
 }
