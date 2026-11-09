@@ -380,21 +380,32 @@ impl TextInput {
         self.selection_reversed = false;
         self.marked_range = None;
         self.history.last = None;
+        // Not offered as PRIMARY: the selection put back is the one the edit replaced,
+        // often just the text a Backspace deleted, not one the user has just made.
         window.notify_text_input_changed(&self.focus_handle);
         cx.notify();
-        self.offer_primary(cx);
     }
 
     fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected_range.is_empty() {
-            self.select_to(self.previous_boundary(self.cursor_offset()), window, cx)
-        }
-        self.replace_text_in_range(None, "", window, cx)
+        self.delete_to(self.previous_boundary(self.cursor_offset()), window, cx)
     }
 
     fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
+        self.delete_to(self.next_boundary(self.cursor_offset()), window, cx)
+    }
+
+    /// Deletes the selection, or from the cursor to `offset` when nothing is selected.
+    /// The range goes straight to the edit instead of through `select_to`: selecting
+    /// the text first would offer it as PRIMARY, so every Backspace would take PRIMARY
+    /// from the app that had it and leave the deleted text in it. GTK and Qt fields
+    /// leave PRIMARY alone when deleting.
+    fn delete_to(&mut self, offset: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.disabled {
+            return;
+        }
         if self.selected_range.is_empty() {
-            self.select_to(self.next_boundary(self.cursor_offset()), window, cx)
+            let cursor = self.cursor_offset();
+            self.selected_range = cursor.min(offset)..cursor.max(offset);
         }
         self.replace_text_in_range(None, "", window, cx)
     }
@@ -434,10 +445,7 @@ impl TextInput {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.selected_range.is_empty() {
-            self.select_to(self.word_start_before(self.cursor_offset()), window, cx)
-        }
-        self.replace_text_in_range(None, "", window, cx)
+        self.delete_to(self.word_start_before(self.cursor_offset()), window, cx)
     }
 
     /// Deletes the selection, or on to the end of the word after the cursor.
@@ -447,10 +455,7 @@ impl TextInput {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.selected_range.is_empty() {
-            self.select_to(self.word_end_after(self.cursor_offset()), window, cx)
-        }
-        self.replace_text_in_range(None, "", window, cx)
+        self.delete_to(self.word_end_after(self.cursor_offset()), window, cx)
     }
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
@@ -1824,7 +1829,24 @@ mod keystroke_tests {
             set_primary("two", cx);
             let position = at(&input, 1, false, cx);
             press(cx, position, MouseButton::Middle, 1);
-            assert_eq!(text(&input, cx), "one");
+            // The text alone would stay "one" even if the click got through, as a
+            // disabled field takes no edits; the cursor would still move.
+            assert_eq!(shown(&input, cx), "one|");
+        }
+
+        #[test]
+        fn deleting_leaves_primary_alone() {
+            let mut cx = TestAppContext::single();
+            let (input, cx) = field("one two three four", false, &mut cx);
+            set_primary("elsewhere", cx);
+            cx.simulate_keystrokes("backspace");
+            cx.simulate_keystrokes(&format!("{WORD}-backspace"));
+            cx.simulate_keystrokes("home delete");
+            cx.simulate_keystrokes(&format!("{WORD}-delete"));
+            assert_eq!(shown(&input, cx), "| two three ");
+            input.update_in(cx, |input, window, cx| input.undo(&crate::Undo, window, cx));
+            assert_eq!(text(&input, cx), "one two three four");
+            assert_eq!(primary(cx).as_deref(), Some("elsewhere"));
         }
     }
 }
