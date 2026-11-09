@@ -133,11 +133,12 @@ pub enum Language {
 /// A value this build does not know reads as [`UpdateChannel::Stable`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UpdateChannel {
-    /// The `launcher-beta` release, and the stable one whenever it is newer.
+    /// Pre-releases (`launcher-vX.Y.Z-beta.N`) and stable releases, whichever has
+    /// the newer build.
     #[serde(rename = "beta")]
     Beta,
-    /// The `launcher-latest` release: builds that were tested as betas first. Last,
-    /// as serde wants of the variant that reads unknown values.
+    /// Stable releases (`launcher-vX.Y.Z`) only. Last, as serde wants of the
+    /// variant that reads unknown values.
     #[default]
     #[serde(rename = "stable", other)]
     Stable,

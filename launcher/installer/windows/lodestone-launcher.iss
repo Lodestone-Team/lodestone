@@ -47,7 +47,7 @@ AppVerName={#AppName} {#DisplayVersion}
 AppPublisher=Lodestone Team
 AppPublisherURL=https://github.com/Lodestone-Team/lodestone
 AppSupportURL=https://github.com/Lodestone-Team/lodestone/issues
-AppUpdatesURL=https://github.com/Lodestone-Team/lodestone/releases/tag/launcher-latest
+AppUpdatesURL=https://github.com/Lodestone-Team/lodestone/releases?q=launcher-v&expanded=true
 VersionInfoVersion={#Version}.{#Build}
 VersionInfoProductName={#AppName}
 VersionInfoDescription={#AppName} Setup

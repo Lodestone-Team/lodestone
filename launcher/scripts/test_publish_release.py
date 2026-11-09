@@ -1,5 +1,7 @@
 """Tests for publish_release.py's manifest logic: python3 launcher/scripts/test_publish_release.py"""
 
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -117,86 +119,371 @@ class Stage(unittest.TestCase):
             pr.check_candidate(self.dir / "s", 7, "abc")
 
 
+class FakeRelease(pr.VersionRelease):
+    """A version's release with a folder for its files and no GitHub."""
+
+    def __init__(self, path, tag, tag_commit=None, draft=True, prerelease=None, others=()):
+        super().__init__("test/repo", tag)
+        self.folder = pr.Folder(path)
+        self._tag_commit = tag_commit
+        self.exists = tag_commit is not None
+        self.draft = draft
+        self._prerelease = pr.is_prerelease_tag(tag) if prerelease is None else prerelease
+        self.others = list(others)
+        self.created = None
+
+    def info(self, fresh=False):
+        if not self.exists:
+            return None
+        return {"tagName": self.tag, "isDraft": self.draft, "isPrerelease": self._prerelease,
+                "url": f"release {self.tag}",
+                "assets": [{"name": name} for name in self.folder.names()]}
+
+    def names(self):
+        return self.folder.names() if self.exists else []
+
+    def download(self, name, into):
+        return self.folder.download(name, into)
+
+    def manifest(self):
+        return self.folder.manifest() if self.exists else None
+
+    def upload(self, path):
+        self.folder.upload(path)
+
+    def delete(self, name):
+        self.folder.delete(name)
+
+    def tag_commit(self):
+        return self._tag_commit
+
+    def create(self, commit, force=False):
+        self.created = commit
+        self._tag_commit = commit
+        self.exists = True
+
+    def published_releases(self):
+        return self.others
+
+
+def published(tag, builds, prerelease=False, draft=False):
+    """A GitHub release object as the API lists it."""
+    return {"tag_name": tag, "draft": draft, "prerelease": prerelease,
+            "assets": [{"name": pr.asset_name(build, key)} for key, build in builds.items()]
+            + [{"name": "latest.json"}]}
+
+
 class Publish(unittest.TestCase):
-    """Publishing and promoting, with folders standing in for the releases."""
+    """Uploading builds to a version's release, with folders standing in for GitHub."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
-        self.beta = pr.Folder(self.dir / "beta")
-        self.stable = pr.Folder(self.dir / "stable")
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def stage_both(self, build, commit="abc"):
-        mac = self.dir / f"mac{build}"
-        win = self.dir / f"win{build}"
+    def stage_mac(self, build, commit="abc"):
+        mac = self.dir / f"mac{build}{commit}"
         staged(mac, build, ["macos-aarch64", "macos-x86_64"], commit,
                extras=[pr.dmg_name(build, ["macos-aarch64", "macos-x86_64"])])
+        return mac, pr.read_stage(mac)
+
+    def stage_win(self, build, commit="abc"):
+        win = self.dir / f"win{build}{commit}"
         staged(win, build, ["windows-x86_64"], commit,
                extras=[pr.installer_name(build, "windows-x86_64")])
-        return [(mac, pr.read_stage(mac)), (win, pr.read_stage(win))]
+        return win, pr.read_stage(win)
 
-    def test_platforms_staged_apart_publish_together(self):
-        manifest = pr.publish(self.beta, self.stage_both(10))
+    def release(self, tag="launcher-v0.2.0", **kw):
+        return FakeRelease(self.dir / tag, tag, **kw)
+
+    def test_the_first_upload_tags_the_commit_and_drafts_the_release(self):
+        release = self.release()
+        manifest = pr.publish(release, [self.stage_win(10)], tag=release.tag)
+        self.assertEqual(release.created, "abc")
+        self.assertEqual(manifest["tag"], "launcher-v0.2.0")
+        self.assertIn(pr.STABLE_INSTALLER, release.names())
+
+    def test_platforms_from_different_machines_end_up_in_one_manifest(self):
+        release = self.release(tag_commit="abc")
+        pr.publish(release, [self.stage_win(10)])
+        manifest = pr.publish(release, [self.stage_mac(10)])
         self.assertEqual(set(manifest["assets"]), {"macos-aarch64", "macos-x86_64", "windows-x86_64"})
-        names = self.beta.names()
-        self.assertIn(pr.STABLE_DMG, names)
-        self.assertIn(pr.STABLE_INSTALLER, names)
-        self.assertIn("lodestone-launcher-10-macos-universal.dmg", names)
-        self.assertEqual(self.beta.manifest(), manifest)
+        self.assertIn("lodestone-launcher-10-macos-universal.dmg", release.names())
+        self.assertIn(pr.STABLE_DMG, release.names())
 
-    def test_a_channel_refuses_a_build_it_already_has(self):
-        pr.publish(self.beta, self.stage_both(10))
+    def test_a_build_of_another_commit_is_refused(self):
+        release = self.release(tag_commit="abc")
+        with self.assertRaisesRegex(pr.Failure, "is on abc.*build of def"):
+            pr.publish(release, [self.stage_win(11, commit="def")])
+
+    def test_a_platform_the_release_has_is_refused_or_skipped(self):
+        release = self.release(tag_commit="abc")
+        pr.publish(release, [self.stage_win(10)])
+        with self.assertRaisesRegex(pr.Failure, "already has windows-x86_64"):
+            pr.publish(release, [self.stage_win(10)])
+        # CI's upload leaves what a developer uploaded first, and adds the rest.
+        before = (release.folder.path / pr.asset_name(10, "windows-x86_64")).read_bytes()
+        manifest = pr.publish(release, [self.stage_mac(10), self.stage_win(10)], skip_existing=True)
+        self.assertEqual(set(manifest["assets"]), {"macos-aarch64", "macos-x86_64", "windows-x86_64"})
+        self.assertEqual((release.folder.path / pr.asset_name(10, "windows-x86_64")).read_bytes(), before)
+        self.assertIsNone(pr.publish(release, [self.stage_win(10)], skip_existing=True))
+        # --force replaces it.
+        pr.publish(release, [self.stage_win(10)], force=True)
+
+    def test_a_build_launchers_wouldnt_update_to_is_refused(self):
+        stable = published("launcher-v0.3.0", {"windows-x86_64": 20})
+        beta = published("launcher-v0.4.0-beta.1", {"windows-x86_64": 30}, prerelease=True)
+        draft = published("launcher-v0.5.0", {"windows-x86_64": 90}, draft=True)
+        # A stable version competes with stable ones only.
+        release = self.release("launcher-v0.3.1", tag_commit="abc", others=[stable, beta, draft])
+        with self.assertRaisesRegex(pr.Failure, "launcher-v0.3.0 is published with windows-x86_64 build 20"):
+            pr.publish(release, [self.stage_win(20)])
+        pr.publish(release, [self.stage_win(21)])
+        # A beta competes with every published release.
+        release = self.release("launcher-v0.4.0-beta.2", tag_commit="abc", others=[stable, beta])
+        with self.assertRaisesRegex(pr.Failure, "beta launchers wouldn't update"):
+            pr.publish(release, [self.stage_win(25)])
+        pr.publish(release, [self.stage_win(31)])
+
+    def test_other_platforms_builds_dont_count(self):
+        mac = published("launcher-v0.3.0", {"macos-aarch64": 50})
+        release = self.release("launcher-v0.3.1", tag_commit="abc", others=[mac])
+        pr.publish(release, [self.stage_win(10)])
+
+    def test_promoting_copies_a_betas_files_byte_for_byte(self):
+        beta = self.release("launcher-v0.2.0-beta.1", tag_commit="abc", draft=False)
+        pr.publish(beta, [self.stage_mac(10), self.stage_win(10)])
+        stable = self.release("launcher-v0.2.0")
+        manifest = pr.copy_release(beta, stable, None, False, tag=stable.tag)
+        self.assertEqual(stable.created, "abc")
+        self.assertEqual(manifest["assets"], beta.manifest()["assets"])
+        self.assertEqual(manifest["tag"], "launcher-v0.2.0")
+        for name in stable.names():
+            if name != pr.MANIFEST:
+                self.assertEqual((stable.folder.path / name).read_bytes(),
+                                 (beta.folder.path / name).read_bytes(), name)
+
+    def test_a_tampered_file_isnt_copied(self):
+        beta = self.release("launcher-v0.2.0-beta.1", tag_commit="abc", draft=False)
+        pr.publish(beta, [self.stage_win(10)])
+        (beta.folder.path / pr.asset_name(10, "windows-x86_64")).write_bytes(b"not what was published")
+        stable = self.release("launcher-v0.2.0")
+        with self.assertRaisesRegex(pr.Failure, "doesn't match its manifest"):
+            pr.copy_release(beta, stable, None, False)
+        self.assertEqual(stable.names(), [])
+
+    def test_a_platform_the_source_doesnt_have_is_refused(self):
+        beta = self.release("launcher-v0.2.0-beta.1", tag_commit="abc", draft=False)
+        pr.publish(beta, [self.stage_win(10)])
+        with self.assertRaisesRegex(pr.Failure, "no build for linux-x86_64"):
+            pr.copy_release(beta, self.release(), ["linux-x86_64"], False)
+
+    def test_copying_from_a_draft_is_refused(self):
+        with self.assertRaisesRegex(pr.Failure, "still a draft"):
+            pr.published_source(self.release("launcher-v0.2.0-beta.1", tag_commit="abc"), None)
+        with self.assertRaisesRegex(pr.Failure, "bridge a stable version"):
+            pr.published_source(self.release("launcher-v0.2.0-beta.1", tag_commit="abc",
+                                             draft=False), False)
+
+
+class Folders(unittest.TestCase):
+    """Test folders, and the legacy release, hold a run of builds."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.folder = pr.Folder(self.dir / "out")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def stage(self, build):
+        win = self.dir / f"win{build}"
+        staged(win, build, ["windows-x86_64"], extras=[pr.installer_name(build, "windows-x86_64")])
+        return [(win, pr.read_stage(win))]
+
+    def test_a_build_it_already_has_is_refused(self):
+        pr.publish(self.folder, self.stage(10))
         with self.assertRaisesRegex(pr.Failure, "already at build 10"):
-            pr.publish(self.beta, self.stage_both(10))
+            pr.publish(self.folder, self.stage(10))
 
-    def test_old_builds_and_their_disk_images_are_cleaned_up(self):
+    def test_old_builds_are_cleaned_up(self):
         for build in (10, 11, 12):
-            pr.publish(self.beta, self.stage_both(build))
-        names = self.beta.names()
-        self.assertNotIn("lodestone-launcher-10-macos-universal.dmg", names)
+            pr.publish(self.folder, self.stage(build))
+        names = self.folder.names()
         self.assertNotIn(pr.asset_name(10, "windows-x86_64"), names)
-        self.assertIn("lodestone-launcher-11-macos-universal.dmg", names)
+        self.assertIn(pr.asset_name(11, "windows-x86_64"), names)
         self.assertIn(pr.installer_name(12, "windows-x86_64"), names)
 
-    def test_promoting_copies_betas_files_byte_for_byte(self):
-        pr.publish(self.beta, self.stage_both(10))
-        manifest = pr.promote(self.beta, self.stable, None, False)
-        self.assertEqual(manifest["assets"], self.beta.manifest()["assets"])
-        for name in self.stable.names():
-            if name != pr.MANIFEST:
-                self.assertEqual((self.stable.path / name).read_bytes(),
-                                 (self.beta.path / name).read_bytes(), name)
-        self.assertIn(pr.STABLE_DMG, self.stable.names())
 
-    def test_promoting_one_platform_leaves_the_others(self):
-        pr.publish(self.beta, self.stage_both(10))
-        pr.promote(self.beta, self.stable, ["windows-x86_64"], False)
-        pr.publish(self.beta, self.stage_both(11))
-        manifest = pr.promote(self.beta, self.stable, ["windows-x86_64"], False)
-        self.assertEqual(set(manifest["assets"]), {"windows-x86_64"})
-        self.assertEqual(manifest["assets"]["windows-x86_64"]["build"], 11)
-        self.assertNotIn(pr.STABLE_DMG, self.stable.names())
+class Tags(unittest.TestCase):
+    def test_versions_and_betas(self):
+        pr.check_tag("launcher-v0.2.0")
+        pr.check_tag("launcher-v1.10.3-beta.4")
+        for bad in ("v0.2.0", "launcher-0.2.0", "launcher-v0.2", "launcher-latest", "launcher-v0.2.0-"):
+            with self.assertRaises(pr.Failure, msg=bad):
+                pr.check_tag(bad)
+        self.assertFalse(pr.is_prerelease_tag("launcher-v0.2.0"))
+        self.assertTrue(pr.is_prerelease_tag("launcher-v0.2.0-rc.1"))
 
-    def test_a_tampered_beta_file_isnt_promoted(self):
-        pr.publish(self.beta, self.stage_both(10))
-        (self.beta.path / pr.asset_name(10, "windows-x86_64")).write_bytes(b"not what was published")
-        with self.assertRaisesRegex(pr.Failure, "doesn't match beta's manifest"):
-            pr.promote(self.beta, self.stable, None, False)
-        self.assertEqual(self.stable.names(), [])
+    def test_a_version_the_workspace_doesnt_have_gets_a_note(self):
+        self.assertIsNone(pr.tag_version_note("launcher-v0.2.0-beta.1", "0.2.0"))
+        self.assertIn("launcher/Cargo.toml says 0.1.0", pr.tag_version_note("launcher-v0.2.0", "0.1.0"))
 
-    def test_promoting_twice_is_refused(self):
-        pr.publish(self.beta, self.stage_both(10))
-        pr.promote(self.beta, self.stable, None, False)
-        with self.assertRaisesRegex(pr.Failure, "already at build 10"):
-            pr.promote(self.beta, self.stable, None, False)
+    def test_only_standalone_binaries_have_a_build_for_ordering(self):
+        self.assertEqual(pr.file_build(pr.asset_name(7, "windows-x86_64"), "windows-x86_64"), 7)
+        self.assertIsNone(pr.file_build(pr.installer_name(7, "windows-x86_64"), "windows-x86_64"))
+        self.assertIsNone(pr.file_build(pr.asset_name(7, "macos-aarch64"), "windows-x86_64"))
+        self.assertIsNone(pr.file_build(pr.dmg_name(7, ["macos-aarch64"]), "macos-aarch64"))
 
-    def test_a_platform_beta_doesnt_have_is_refused(self):
-        pr.publish(self.beta, self.stage_both(10))
-        with self.assertRaisesRegex(pr.Failure, "no build for linux-x86_64"):
-            pr.promote(self.beta, self.stable, ["linux-x86_64"], False)
+
+class Drafts(unittest.TestCase):
+    def test_the_newest_launcher_draft_is_picked(self):
+        releases = [
+            dict(published("launcher-v0.3.0", {"windows-x86_64": 30}), created_at="2026-11-01T00:00:00Z"),
+            dict(published("launcher-v0.4.0-beta.1", {}, prerelease=True, draft=True),
+                 created_at="2026-11-03T00:00:00Z"),
+            dict(published("launcher-v0.3.1", {"macos-aarch64": 31}, draft=True),
+                 created_at="2026-11-02T00:00:00Z"),
+            dict(published("v0.6.0", {}, draft=True), created_at="2026-11-04T00:00:00Z"),
+        ]
+        draft, others = pr.pick_draft(releases)
+        self.assertEqual(draft["tag_name"], "launcher-v0.4.0-beta.1")
+        self.assertEqual([d["tag_name"] for d in others], ["launcher-v0.3.1"])
+
+    def test_no_draft_says_how_to_start_one(self):
+        with self.assertRaisesRegex(pr.Failure, "no launcher draft release"):
+            pr.pick_draft([published("launcher-v0.3.0", {"windows-x86_64": 30})])
+
+    def test_a_drafts_platforms_are_its_standalone_binaries(self):
+        release = published("launcher-v0.3.1", {"windows-x86_64": 31, "macos-aarch64": 31}, draft=True)
+        release["assets"] += [{"name": pr.installer_name(31, "windows-x86_64")},
+                              {"name": pr.dmg_name(31, ["macos-aarch64", "macos-x86_64"])},
+                              {"name": pr.STABLE_INSTALLER}]
+        self.assertEqual(pr.release_platforms(release), ["macos-aarch64", "windows-x86_64"])
+
+
+class Versions(unittest.TestCase):
+    def test_bare_versions_name_launcher_tags(self):
+        self.assertEqual(pr.normalize_tag("1.0.0"), "launcher-v1.0.0")
+        self.assertEqual(pr.normalize_tag("v1.0.0-beta.2"), "launcher-v1.0.0-beta.2")
+        self.assertEqual(pr.normalize_tag("launcher-v1.0.0"), "launcher-v1.0.0")
+        self.assertEqual(pr.normalize_tag("draft"), "draft")
+
+    def test_versions_sort_with_betas_before_their_version(self):
+        tags = ["launcher-v0.10.0", "launcher-v0.2.0", "launcher-v0.10.0-beta.10",
+                "launcher-v0.10.0-beta.2", "launcher-v0.9.1"]
+        self.assertEqual(sorted(tags, key=pr.version_order),
+                         ["launcher-v0.2.0", "launcher-v0.9.1", "launcher-v0.10.0-beta.2",
+                          "launcher-v0.10.0-beta.10", "launcher-v0.10.0"])
+
+    def test_commits_are_classified(self):
+        self.assertEqual(pr.classify("Launcher: bring the window back after a crash"), "fix")
+        self.assertEqual(pr.classify("Performance monitor: correct readings on Windows"), "fix")
+        self.assertEqual(pr.classify("Launcher: find the mod that crashes an instance"), "feature")
+        self.assertEqual(pr.classify("feat: a new thing"), "feature")
+        self.assertEqual(pr.classify("fix(updater): retry"), "fix")
+        self.assertEqual(pr.classify("refactor!: settings moved"), "breaking")
+        self.assertEqual(pr.classify("chore: bump deps"), "none")
+        self.assertEqual(pr.classify("Settings: new layout", "BREAKING CHANGE: old files"), "breaking")
+
+    def test_bumps_follow_semver_and_its_rule_before_1_0(self):
+        self.assertEqual(pr.bump((0, 2, 3), "fix"), (0, 2, 4))
+        self.assertEqual(pr.bump((0, 2, 3), "feature"), (0, 3, 0))
+        self.assertEqual(pr.bump((0, 2, 3), "breaking"), (0, 3, 0))
+        self.assertEqual(pr.bump((1, 2, 3), "breaking"), (2, 0, 0))
+
+    def commits(self, *subjects):
+        return [(f"{i:040d}", subject, "") for i, subject in enumerate(subjects)]
+
+    def test_the_first_release_takes_the_workspace_version(self):
+        tag, why = pr.suggest_version([], self.commits("Launcher: a thing"), "0.1.0", False)
+        self.assertEqual(tag, "launcher-v0.1.0")
+        self.assertIn("first", why)
+        self.assertEqual(pr.suggest_version([], [], "0.1.0", True)[0], "launcher-v0.1.0-beta.1")
+
+    def test_features_bump_the_minor_version_and_fixes_the_patch(self):
+        tags = ["launcher-v0.2.0", "launcher-v0.1.0", "v9.0.0"]
+        features = self.commits("Launcher: fix a crash", "Launcher: a new setting")
+        self.assertEqual(pr.suggest_version(tags, features, "0.1.0", False)[0], "launcher-v0.3.0")
+        fixes = self.commits("Launcher: fix a crash")
+        self.assertEqual(pr.suggest_version(tags, fixes, "0.1.0", False)[0], "launcher-v0.2.1")
+        self.assertEqual(pr.suggest_version(tags, fixes, "0.1.0", True)[0], "launcher-v0.2.1-beta.1")
+
+    def test_a_beta_line_carries_on_or_finishes(self):
+        tags = ["launcher-v0.2.0", "launcher-v0.3.0-beta.1", "launcher-v0.3.0-beta.2"]
+        commits = self.commits("Launcher: a new setting")
+        self.assertEqual(pr.suggest_version(tags, commits, "0.1.0", True)[0], "launcher-v0.3.0-beta.3")
+        self.assertEqual(pr.suggest_version(tags, commits, "0.1.0", False)[0], "launcher-v0.3.0")
+
+    def test_a_named_version_must_be_newer(self):
+        tags = ["launcher-v0.2.0", "launcher-v0.3.0-beta.2"]
+        self.assertEqual(pr.version_problem("launcher-v0.3.0", tags), (None, None))
+        self.assertEqual(pr.version_problem("launcher-v0.3.0-beta.3", tags), (None, None))
+        self.assertEqual(pr.version_problem("launcher-v0.2.1", tags), (None, None))
+        self.assertIn("already exists", pr.version_problem("launcher-v0.2.0", tags)[1])
+        self.assertIn("too old", pr.version_problem("launcher-v0.1.5", tags)[0])
+        self.assertIn("beta.2 already exists", pr.version_problem("launcher-v0.3.0-beta.1", tags)[0])
+        self.assertIn("too old", pr.version_problem("launcher-v0.2.0-beta.5", tags)[0])
+
+    def test_skipping_versions_is_only_noted(self):
+        tags = ["launcher-v0.2.0"]
+        problem, note = pr.version_problem("launcher-v0.5.0", tags)
+        self.assertIsNone(problem)
+        self.assertIn("skips versions", note)
+        self.assertEqual(pr.version_problem("launcher-v1.0.0", tags), (None, None))
+        self.assertEqual(pr.version_problem("launcher-v1.0.0", []), (None, None))
+
+
+class Opening(unittest.TestCase):
+    def test_the_checklist_fits_the_platform(self):
+        windows = pr.checklist(12, "0123456789", "windows-x86_64")
+        self.assertIn('Settings › General › Updates shows this build and commit ("Build 12 · 0123456").',
+                      windows)
+        self.assertTrue(any(line.startswith("Windows:") for line in windows))
+        self.assertFalse(any(line.startswith("macOS:") for line in windows))
+        mac = pr.checklist(12, "0123456789", "macos-aarch64")
+        self.assertTrue(any(line.startswith("macOS:") for line in mac))
+        self.assertFalse(any(line.startswith("Windows:") for line in mac))
+
+    def test_a_running_launcher_is_left_alone(self):
+        original = pr.running_launchers
+        pr.running_launchers = lambda: ["4242 lodestone-launcher.exe"]
+        try:
+            with self.assertRaisesRegex(pr.Failure, "already running .*4242.*quit it"):
+                pr.open_test_copy(Path(sys.executable))
+        finally:
+            pr.running_launchers = original
+
+    def test_a_copy_that_quits_at_once_is_reported(self):
+        original = pr.running_launchers
+        pr.running_launchers = lambda: []
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                quits = Path(tmp) / ("quits.cmd" if os.name == "nt" else "quits.sh")
+                quits.write_text("@exit /b 3\n" if os.name == "nt" else "#!/bin/sh\nexit 3\n")
+                quits.chmod(0o755)
+                with self.assertRaisesRegex(pr.Failure, "quit straight away"):
+                    pr.open_test_copy(quits, wait=10)
+        finally:
+            pr.running_launchers = original
+
+    def test_the_binary_for_this_machine_must_be_in_the_dry_run(self):
+        with self.assertRaisesRegex(pr.Failure, "no build for this machine"):
+            pr.test_binary(Path("."), {"assets": {"macos-aarch64": {"name": "x"}}}, "windows-x86_64")
+
+
+class Restricting(unittest.TestCase):
+    def test_the_universal_disk_image_goes_with_the_last_mac(self):
+        record = {"assets": {"macos-aarch64": {}, "macos-x86_64": {}},
+                  "files": {pr.asset_name(1, "macos-aarch64"): "a", pr.asset_name(1, "macos-x86_64"): "b",
+                            pr.dmg_name(1, ["macos-aarch64", "macos-x86_64"]): "c"}}
+        some = pr.restricted(record, {"macos-aarch64"})
+        self.assertEqual(set(some["files"]), {pr.asset_name(1, "macos-x86_64"),
+                                              "lodestone-launcher-1-macos-universal.dmg"})
+        self.assertEqual(pr.restricted(record, {"macos-aarch64", "macos-x86_64"})["files"], {})
 
 
 class Installer(unittest.TestCase):

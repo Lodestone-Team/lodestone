@@ -1,31 +1,63 @@
 name: Release Workflow
 
-# Developers, to start making a release, tag a commit with vX.Y.Z and push it to main.
-# Then this workflow will run and create a draft release with the tag name as the version.
-# You can then edit the release to include a changelog and publish it.
+# Releases Lodestone Host and Core. A version is a vX.Y.Z tag (vX.Y.Z-beta.N for a
+# pre-release) on one commit. Either push the tag, or run this workflow by hand with
+# the tag and, to pin it, the commit (any commit on GitHub; empty: the tag's commit
+# if it exists, else main's tip).
+#
+# release-draft.yml makes the tag and an empty draft release first, so the builds
+# below (and anyone else's) all upload to that one draft. Edit its notes and
+# publish it by hand when it's ready. Lodestone Launcher's versions are tagged
+# launcher-vX.Y.Z and released by launcher-release.yml.
 
 on:
   push:
     tags: [ v* ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag: vX.Y.Z, or vX.Y.Z-beta.N for a pre-release"
+        required: true
+        type: string
+      commit:
+        description: "Commit to release (SHA or branch). Empty: the tag's commit if it exists, else main's tip"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
-  workspace-check:
-    uses: ./.github/workflows/workspace-check.yml
-
-  core-cargo-test:
-    uses: ./.github/workflows/core-cargo-test.yml
-
-  dashboard-build-and-draft:
-    uses: ./.github/workflows/dashboard-build-and-draft.yml
-    needs: [workspace-check, core-cargo-test]
-    # Creates the draft release and uploads the Tauri bundles to it.
+  draft:
+    uses: ./.github/workflows/release-draft.yml
     permissions:
       contents: write
     with:
-      version: ${{ github.ref_name }}
+      tag: ${{ inputs.tag || github.ref_name }}
+      commit: ${{ inputs.commit }}
+
+  workspace-check:
+    needs: draft
+    uses: ./.github/workflows/workspace-check.yml
+    with:
+      ref: ${{ needs.draft.outputs.commit }}
+
+  core-cargo-test:
+    needs: draft
+    uses: ./.github/workflows/core-cargo-test.yml
+    with:
+      ref: ${{ needs.draft.outputs.commit }}
+
+  dashboard-build-and-draft:
+    uses: ./.github/workflows/dashboard-build-and-draft.yml
+    needs: [draft, workspace-check, core-cargo-test]
+    # Uploads the Tauri bundles to the draft release.
+    permissions:
+      contents: write
+    with:
+      version: ${{ needs.draft.outputs.tag }}
+      ref: ${{ needs.draft.outputs.commit }}
       debug: false
     secrets:
       TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
@@ -33,9 +65,10 @@ jobs:
 
   core-build-and-draft:
     uses: ./.github/workflows/core-build-and-draft.yml
-    needs: [workspace-check, core-cargo-test]
+    needs: [draft, workspace-check, core-cargo-test]
     # Uploads the core binaries to the draft release.
     permissions:
       contents: write
     with:
-      version: ${{ github.ref_name }}
+      version: ${{ needs.draft.outputs.tag }}
+      ref: ${{ needs.draft.outputs.commit }}

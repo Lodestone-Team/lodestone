@@ -1,23 +1,27 @@
-//! Updating the launcher from its GitHub builds.
+//! Updating the launcher from its GitHub releases.
 //!
-//! A developer publishes a release with `launcher/scripts/publish_release.py`: it
-//! builds the launcher for their platform and uploads it to the `launcher-latest`
-//! GitHub release, then updates the release's `latest.json` [`Manifest`]: each
-//! platform's file with its build number, commit, size and SHA-256. Platforms are
-//! published separately (each from a machine of its own), so each has its own build.
+//! Each launcher version is a GitHub release of its own, tagged `launcher-vX.Y.Z`
+//! ([`TAG_PREFIX`]), or `launcher-vX.Y.Z-beta.N` for a beta, which GitHub marks as a
+//! pre-release. CI and developers upload each platform's build to it while it is a
+//! draft (`launcher/scripts/publish_release.py`), with a `latest.json` [`Manifest`]
+//! listing each platform's file with its build number, commit, size and SHA-256, and
+//! a developer publishes it when it's ready. Drafts can't be seen from outside.
 //!
-//! There are two channels, chosen in Settings > General > "Beta builds"
-//! ([`UpdateChannel`]). Stable launchers read the `launcher-latest` release
-//! ([`MANIFEST_URL`]); beta launchers read the `launcher-beta` release
-//! ([`BETA_MANIFEST_URL`]) and the stable one, and take whichever has the newer
-//! build for their platform ([`newest`]), so a beta launcher is never behind stable.
-//! Stable builds are beta builds promoted unchanged, so both share build numbers.
-//! Leaving the beta keeps the running build until a stable one is newer: updates
-//! never go back.
+//! A check lists the repository's releases ([`RELEASES_URL`], GitHub's API) and
+//! takes the published `launcher-v*` one whose file for this platform has the
+//! highest build ([`pick_release`]): stable releases only, or pre-releases too with
+//! Settings > General > "Beta builds" on ([`UpdateChannel`]), so a beta launcher is
+//! never behind stable. The build is in each file's name, so one listing is enough;
+//! then that release's `latest.json` gives the file's size and SHA-256. Leaving the
+//! beta keeps the running build until a stable one is newer: updates never go back.
 //!
-//! A build's number is the count of commits in its history (`git rev-list --count`),
-//! which grows along `main`. The script compiles it in as `LODESTONE_LAUNCHER_BUILD`;
-//! a plain `cargo build` has none, and never updates itself.
+//! A build's number is the count of commits in its history (`git rev-list --count`).
+//! The script compiles it in as `LODESTONE_LAUNCHER_BUILD`; a plain `cargo build`
+//! has none, and never updates itself.
+//!
+//! Launchers from before versioned releases read `launcher-latest/latest.json`;
+//! `publish_release.py --bridge` copies a version there so they update to one that
+//! reads releases.
 //!
 //! An update is downloaded next to the running executable, checked against the
 //! manifest, and swapped in for it ([`install`]): on Unix by renaming over it, on
@@ -44,15 +48,26 @@ use sha2::{Digest as _, Sha256};
 use crate::USER_AGENT;
 pub use crate::settings::UpdateChannel;
 
-/// Where releases are published.
-pub const MANIFEST_URL: &str =
-    "https://github.com/Lodestone-Team/lodestone/releases/download/launcher-latest/latest.json";
+/// The repository's newest releases, of every product: the launcher's are the ones
+/// tagged [`TAG_PREFIX`]. The newest 100 (GitHub's most per page) reach back past
+/// any run of betas to the newest stable release.
+pub const RELEASES_URL: &str =
+    "https://api.github.com/repos/Lodestone-Team/lodestone/releases?per_page=100";
 
-/// Where beta builds are published.
-pub const BETA_MANIFEST_URL: &str =
-    "https://github.com/Lodestone-Team/lodestone/releases/download/launcher-beta/latest.json";
+/// The start of a launcher version's tag. The release workflow checks a commit has
+/// this line before releasing it, so it never releases a launcher that updates the
+/// old way.
+pub const TAG_PREFIX: &str = "launcher-v";
 
-/// Overrides [`MANIFEST_URL`] and [`BETA_MANIFEST_URL`], to test updating against a local server.
+/// The release manifest's file name in each release.
+pub const MANIFEST_NAME: &str = "latest.json";
+
+/// Overrides [`RELEASES_URL`], to test against a local server that answers like
+/// GitHub's API.
+pub const RELEASES_URL_ENV: &str = "LODESTONE_LAUNCHER_RELEASES_URL";
+
+/// A manifest's address that replaces the release lookup altogether, to test
+/// updating against a folder `publish_release.py --output` made.
 pub const MANIFEST_URL_ENV: &str = "LODESTONE_LAUNCHER_UPDATE_URL";
 
 /// The argument a restarted launcher gets: the process id of the launcher that
@@ -61,6 +76,9 @@ pub const AFTER_UPDATE_ARG: &str = "--after-update";
 
 /// The manifest is a few hundred bytes; anything far larger is not one.
 const MAX_MANIFEST_BYTES: usize = 256 * 1024;
+
+/// GitHub's list of 100 releases, notes and files included, is around a MB.
+const MAX_RELEASES_BYTES: usize = 16 * 1024 * 1024;
 
 /// A launcher binary is tens of MB. A larger file is refused before it is read.
 const MAX_BINARY_BYTES: u64 = 512 * 1024 * 1024;
@@ -120,6 +138,10 @@ pub struct Manifest {
     /// When it was published, RFC 3339.
     #[serde(default)]
     pub published: Option<String>,
+    /// The release's tag, `launcher-v0.2.0`. Missing in manifests from before
+    /// versioned releases.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
     /// By [`platform`] key.
     pub assets: BTreeMap<String, Asset>,
 }
@@ -171,6 +193,8 @@ pub enum UpdateError {
     Network(String),
     #[error("GitHub answered HTTP {0}")]
     Status(u16),
+    #[error("GitHub is limiting how often this network checks for updates; trying again later")]
+    RateLimited,
     #[error("the update information isn't valid: {0}")]
     Manifest(String),
     #[error("the download doesn't match the published file: {0}")]
@@ -192,26 +216,8 @@ impl UpdateError {
     }
 }
 
-/// The manifest URL in use: [`MANIFEST_URL`], or the one in [`MANIFEST_URL_ENV`].
-pub fn manifest_url() -> String {
-    url_override().unwrap_or_else(|| MANIFEST_URL.to_string())
-}
-
-/// The manifests `channel` reads, most specific first: the beta's and then the
-/// stable one for [`UpdateChannel::Beta`]. [`MANIFEST_URL_ENV`], when set, replaces
-/// them all.
-pub fn manifest_urls(channel: UpdateChannel) -> Vec<String> {
-    if let Some(url) = url_override() {
-        return vec![url];
-    }
-    match channel {
-        UpdateChannel::Stable => vec![MANIFEST_URL.to_string()],
-        UpdateChannel::Beta => vec![BETA_MANIFEST_URL.to_string(), MANIFEST_URL.to_string()],
-    }
-}
-
-fn url_override() -> Option<String> {
-    std::env::var(MANIFEST_URL_ENV)
+fn env_url(name: &str) -> Option<String> {
+    std::env::var(name)
         .ok()
         .filter(|url| !url.trim().is_empty())
 }
@@ -222,6 +228,8 @@ fn url_override() -> Option<String> {
 pub struct Found {
     pub url: String,
     pub manifest: Manifest,
+    /// The release it is in, `launcher-v0.2.0`; `None` for [`MANIFEST_URL_ENV`].
+    pub tag: Option<String>,
 }
 
 impl Found {
@@ -231,34 +239,160 @@ impl Found {
     }
 }
 
-/// Of each URL's fetch, in [`manifest_urls`] order, the manifest with the newest
-/// build for this platform; the earlier URL wins a tie. A URL that failed is
-/// skipped while another answered (the beta release may not exist yet); if all
-/// failed, the first error.
-pub fn newest(
-    results: impl IntoIterator<Item = (String, Result<Manifest, UpdateError>)>,
-) -> Result<Found, UpdateError> {
-    let mut best: Option<Found> = None;
-    let mut first_error = None;
-    for (url, result) in results {
-        match result {
-            Ok(manifest) => {
-                let found = Found { url, manifest };
-                if best
-                    .as_ref()
-                    .is_none_or(|best| found.build() > best.build())
-                {
-                    best = Some(found);
-                }
-            }
-            Err(err) => {
-                first_error.get_or_insert(err);
-            }
+/// A release, as GitHub's API lists it: only what choosing one needs.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct Release {
+    pub tag_name: String,
+    #[serde(default)]
+    pub draft: bool,
+    #[serde(default)]
+    pub prerelease: bool,
+    #[serde(default)]
+    pub assets: Vec<ReleaseAsset>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct ReleaseAsset {
+    pub name: String,
+    pub browser_download_url: String,
+}
+
+/// The release a check settled on, before its manifest is read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Candidate {
+    pub tag: String,
+    /// The build of its file for this platform.
+    pub build: u64,
+    pub manifest_url: String,
+}
+
+/// The build of `name` if it is `platform`'s standalone binary:
+/// `lodestone-launcher-<build>-<platform>-standalone[.exe]`.
+pub fn asset_build(name: &str, platform: &str) -> Option<u64> {
+    let rest = name.strip_prefix("lodestone-launcher-")?;
+    let (build, rest) = rest.split_once('-')?;
+    let rest = rest.strip_prefix(platform)?;
+    if !matches!(rest, "-standalone" | "-standalone.exe") || build.is_empty() {
+        return None;
+    }
+    if !build.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    build.parse().ok()
+}
+
+/// Of `releases`, the published launcher release that `channel` reads with the
+/// highest build for `platform`, and that has a manifest. On a tie, the first
+/// (GitHub lists the newest first).
+pub fn pick_release(
+    releases: &[Release],
+    channel: UpdateChannel,
+    platform: &str,
+) -> Option<Candidate> {
+    let mut best: Option<Candidate> = None;
+    for release in releases {
+        if !release.tag_name.starts_with(TAG_PREFIX)
+            || release.draft
+            || (release.prerelease && channel != UpdateChannel::Beta)
+        {
+            continue;
+        }
+        let Some(manifest) = release.assets.iter().find(|a| a.name == MANIFEST_NAME) else {
+            continue;
+        };
+        let Some(build) = release
+            .assets
+            .iter()
+            .filter_map(|asset| asset_build(&asset.name, platform))
+            .max()
+        else {
+            continue;
+        };
+        if best.as_ref().is_none_or(|best| build > best.build) {
+            best = Some(Candidate {
+                tag: release.tag_name.clone(),
+                build,
+                manifest_url: manifest.browser_download_url.clone(),
+            });
         }
     }
-    best.ok_or_else(|| {
-        first_error.unwrap_or_else(|| UpdateError::Manifest("no address to check".into()))
-    })
+    best
+}
+
+/// Looks up the newest build `channel` offers: the release to take (or `None` if
+/// none has a build for this platform) and its manifest. Run it inside
+/// [`crate::http::in_http_runtime`].
+pub async fn find_update(
+    http: &dyn HttpClient,
+    channel: UpdateChannel,
+) -> Result<Option<Found>, UpdateError> {
+    if let Some(url) = env_url(MANIFEST_URL_ENV) {
+        let manifest = fetch_manifest(http, &url).await?;
+        let tag = manifest.tag.clone();
+        return Ok(Some(Found { url, manifest, tag }));
+    }
+    let list = env_url(RELEASES_URL_ENV).unwrap_or_else(|| RELEASES_URL.to_string());
+    let releases = fetch_releases(http, &list).await?;
+    let Some(candidate) = pick_release(&releases, channel, &platform()) else {
+        return Ok(None);
+    };
+    let manifest = fetch_manifest(http, &candidate.manifest_url).await?;
+    match manifest.for_platform() {
+        Some((build, _)) if build == candidate.build => {}
+        listed => {
+            return Err(UpdateError::Manifest(format!(
+                "{}'s {MANIFEST_NAME} lists build {}, but its file is build {}",
+                candidate.tag,
+                listed.map_or(0, |(build, _)| build),
+                candidate.build
+            )));
+        }
+    }
+    Ok(Some(Found {
+        url: candidate.manifest_url,
+        manifest,
+        tag: Some(candidate.tag),
+    }))
+}
+
+/// Lists releases from GitHub's API.
+async fn fetch_releases(http: &dyn HttpClient, url: &str) -> Result<Vec<Release>, UpdateError> {
+    check_url(url)?;
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri(url)
+        .header("User-Agent", USER_AGENT)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .follow_redirects(RedirectPolicy::FollowAll)
+        .body(AsyncBody::empty())
+        .map_err(|err| UpdateError::Network(err.to_string()))?;
+    let response = http
+        .send(request)
+        .await
+        .map_err(|err| UpdateError::Network(format!("{err:#}")))?;
+    let status = response.status().as_u16();
+    // Without signing in, GitHub's API allows 60 requests an hour per address.
+    if status == 403 || status == 429 {
+        return Err(UpdateError::RateLimited);
+    }
+    if !(200..300).contains(&status) {
+        return Err(UpdateError::Status(status));
+    }
+    let mut body = Vec::new();
+    response
+        .into_body()
+        .take(MAX_RELEASES_BYTES as u64 + 1)
+        .read_to_end(&mut body)
+        .await
+        .map_err(|err| UpdateError::Network(err.to_string()))?;
+    if body.len() > MAX_RELEASES_BYTES {
+        return Err(UpdateError::Manifest(
+            "the list of releases is too large".into(),
+        ));
+    }
+    serde_json::from_slice(&body)
+        .map_err(|err| UpdateError::Manifest(format!("the list of releases: {err}")))
 }
 
 /// Updates are fetched over HTTPS; plain HTTP only from this machine, for tests.
@@ -732,63 +866,184 @@ mod tests {
             commit: "0123456789abcdef".into(),
             version: "0.1.0".into(),
             published: None,
+            tag: None,
             assets,
         }
     }
 
-    #[test]
-    fn the_newest_channel_wins_and_failures_are_skipped() {
-        let beta = || ("beta".to_string(), Ok(manifest(12)));
-        let stable = |build| ("stable".to_string(), Ok(manifest(build)));
-        let missing = || ("beta".to_string(), Err(UpdateError::Status(404)));
+    const DOWNLOAD: &str = "https://github.com/Lodestone-Team/lodestone/releases/download";
 
-        // The beta is ahead.
-        let found = newest([beta(), stable(10)]).unwrap();
-        assert_eq!((found.url.as_str(), found.build()), ("beta", 12));
-        // Stable caught up and passed it.
-        let found = newest([beta(), stable(15)]).unwrap();
-        assert_eq!((found.url.as_str(), found.build()), ("stable", 15));
-        // A tie goes to the first.
-        let found = newest([beta(), stable(12)]).unwrap();
-        assert_eq!(found.url, "beta");
-        // No beta published yet.
-        let found = newest([missing(), stable(10)]).unwrap();
-        assert_eq!((found.url.as_str(), found.build()), ("stable", 10));
-        // Nothing answered: the first error.
-        let err = newest([
-            missing(),
-            (
-                "stable".to_string(),
-                Err(UpdateError::Network("offline".into())),
-            ),
-        ])
-        .unwrap_err();
-        assert!(matches!(err, UpdateError::Status(404)));
-        assert!(newest(Vec::new()).is_err());
-    }
-
-    #[test]
-    fn a_manifest_without_this_platform_counts_as_build_zero() {
-        let mut other = manifest(99);
-        other.assets.clear();
-        let found = newest([
-            ("beta".to_string(), Ok(other)),
-            ("stable".to_string(), Ok(manifest(3))),
-        ])
-        .unwrap();
-        assert_eq!((found.url.as_str(), found.build()), ("stable", 3));
-    }
-
-    #[test]
-    fn channels_read_their_releases() {
-        if std::env::var_os(MANIFEST_URL_ENV).is_some() {
-            return;
+    /// A release as GitHub's API lists it, with a build for each of `builds`.
+    fn release(tag: &str, prerelease: bool, builds: &[(&str, u64)]) -> Release {
+        let mut assets: Vec<ReleaseAsset> = builds
+            .iter()
+            .flat_map(|(platform, build)| {
+                let exe = if platform.starts_with("windows-") {
+                    ".exe"
+                } else {
+                    ""
+                };
+                [
+                    format!("lodestone-launcher-{build}-{platform}-standalone{exe}"),
+                    format!("lodestone-launcher-{build}-{platform}-setup.exe"),
+                ]
+            })
+            .chain([
+                MANIFEST_NAME.to_string(),
+                "LodestoneLauncherSetup.exe".into(),
+            ])
+            .map(|name| ReleaseAsset {
+                browser_download_url: format!("{DOWNLOAD}/{tag}/{name}"),
+                name,
+            })
+            .collect();
+        assets.reverse();
+        Release {
+            tag_name: tag.into(),
+            draft: false,
+            prerelease,
+            assets,
         }
-        assert_eq!(manifest_urls(UpdateChannel::Stable), vec![MANIFEST_URL]);
+    }
+
+    fn picked(releases: &[Release], channel: UpdateChannel) -> Option<(String, u64)> {
+        pick_release(releases, channel, "windows-x86_64").map(|c| (c.tag, c.build))
+    }
+
+    #[test]
+    fn stable_launchers_take_the_newest_stable_release() {
+        let releases = [
+            release("launcher-v0.3.0-beta.1", true, &[("windows-x86_64", 40)]),
+            release("launcher-v0.2.1", false, &[("windows-x86_64", 31)]),
+            release("launcher-v0.2.0", false, &[("windows-x86_64", 30)]),
+        ];
+        let found = pick_release(&releases, UpdateChannel::Stable, "windows-x86_64").unwrap();
+        assert_eq!((found.tag.as_str(), found.build), ("launcher-v0.2.1", 31));
         assert_eq!(
-            manifest_urls(UpdateChannel::Beta),
-            vec![BETA_MANIFEST_URL, MANIFEST_URL]
+            found.manifest_url,
+            format!("{DOWNLOAD}/launcher-v0.2.1/latest.json")
         );
+    }
+
+    #[test]
+    fn beta_launchers_take_whichever_is_newer() {
+        let beta = release("launcher-v0.3.0-beta.1", true, &[("windows-x86_64", 40)]);
+        let stable = release("launcher-v0.2.1", false, &[("windows-x86_64", 31)]);
+        assert_eq!(
+            picked(&[beta.clone(), stable.clone()], UpdateChannel::Beta),
+            Some(("launcher-v0.3.0-beta.1".into(), 40))
+        );
+        // A stable hotfix made after the beta, from a newer commit.
+        let hotfix = release("launcher-v0.2.2", false, &[("windows-x86_64", 45)]);
+        assert_eq!(
+            picked(&[hotfix, beta, stable], UpdateChannel::Beta),
+            Some(("launcher-v0.2.2".into(), 45))
+        );
+    }
+
+    #[test]
+    fn the_build_orders_releases_not_the_list() {
+        // A stable version cut from an older commit after a newer one was published.
+        let releases = [
+            release("launcher-v0.2.1", false, &[("windows-x86_64", 20)]),
+            release("launcher-v0.3.0", false, &[("windows-x86_64", 30)]),
+        ];
+        assert_eq!(
+            picked(&releases, UpdateChannel::Stable),
+            Some(("launcher-v0.3.0".into(), 30))
+        );
+    }
+
+    #[test]
+    fn drafts_other_products_and_other_platforms_are_ignored() {
+        let mut draft = release("launcher-v9.0.0", false, &[("windows-x86_64", 900)]);
+        draft.draft = true;
+        let host = release("v9.0.0", false, &[("windows-x86_64", 800)]);
+        let mac_only = release("launcher-v0.5.0", false, &[("macos-aarch64", 70)]);
+        let mut no_manifest = release("launcher-v0.4.0", false, &[("windows-x86_64", 60)]);
+        no_manifest.assets.retain(|a| a.name != MANIFEST_NAME);
+        let ok = release("launcher-v0.3.0", false, &[("windows-x86_64", 30)]);
+        assert_eq!(
+            picked(
+                &[draft, host, mac_only.clone(), no_manifest, ok],
+                UpdateChannel::Beta
+            ),
+            Some(("launcher-v0.3.0".into(), 30))
+        );
+        assert_eq!(picked(&[mac_only], UpdateChannel::Stable), None);
+        assert_eq!(picked(&[], UpdateChannel::Stable), None);
+    }
+
+    #[test]
+    fn reads_the_build_from_the_standalone_binarys_name() {
+        let windows = "windows-x86_64";
+        assert_eq!(
+            asset_build(
+                "lodestone-launcher-3480-windows-x86_64-standalone.exe",
+                windows
+            ),
+            Some(3480)
+        );
+        assert_eq!(
+            asset_build(
+                "lodestone-launcher-12-macos-aarch64-standalone",
+                "macos-aarch64"
+            ),
+            Some(12)
+        );
+        for other in [
+            "lodestone-launcher-3480-windows-x86_64-setup.exe",
+            "lodestone-launcher-3480-windows-aarch64-standalone.exe",
+            "lodestone-launcher-3480-windows-x86_64-standalone.exe.sig",
+            "lodestone-launcher-x-windows-x86_64-standalone.exe",
+            "lodestone-launcher--windows-x86_64-standalone.exe",
+            "LodestoneLauncherSetup.exe",
+            "latest.json",
+        ] {
+            assert_eq!(asset_build(other, windows), None, "{other}");
+        }
+    }
+
+    /// Looks up the real releases, as a launcher would. Run with
+    /// `cargo test -p launcher-core --lib update::tests::live -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_lookup_on_github() {
+        let http = crate::http::default_client().unwrap();
+        for channel in [UpdateChannel::Stable, UpdateChannel::Beta] {
+            let found = futures::executor::block_on(crate::http::in_http_runtime(find_update(
+                http.as_ref(),
+                channel,
+            )));
+            match found {
+                Ok(found) => println!(
+                    "{channel:?}: {:?}",
+                    found.map(|f| (f.build(), f.tag, f.url))
+                ),
+                Err(UpdateError::RateLimited) => println!("{channel:?}: rate limited"),
+                Err(err) => panic!("{channel:?}: {err}"),
+            }
+        }
+    }
+
+    #[test]
+    fn reads_githubs_release_list() {
+        let body = serde_json::json!([{
+            "tag_name": "launcher-v0.2.0",
+            "draft": false,
+            "prerelease": false,
+            "name": "Lodestone Launcher 0.2.0",
+            "body": "notes",
+            "assets": [{
+                "name": "latest.json",
+                "browser_download_url": format!("{DOWNLOAD}/launcher-v0.2.0/latest.json"),
+                "size": 460,
+                "uploader": {"login": "someone"}
+            }]
+        }]);
+        let releases: Vec<Release> = serde_json::from_value(body).unwrap();
+        assert_eq!(releases[0].tag_name, "launcher-v0.2.0");
+        assert_eq!(releases[0].assets[0].name, "latest.json");
     }
 
     #[test]
@@ -826,8 +1081,8 @@ mod tests {
     fn files_are_next_to_the_manifest() {
         let asset = &manifest(5).assets[&platform()];
         assert_eq!(
-            Manifest::asset_url(MANIFEST_URL, asset).unwrap(),
-            "https://github.com/Lodestone-Team/lodestone/releases/download/launcher-latest/lodestone-launcher-5"
+            Manifest::asset_url(&format!("{DOWNLOAD}/launcher-v0.2.0/latest.json"), asset).unwrap(),
+            format!("{DOWNLOAD}/launcher-v0.2.0/lodestone-launcher-5")
         );
         assert_eq!(
             Manifest::asset_url("http://127.0.0.1:8000/latest.json", asset).unwrap(),

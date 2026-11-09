@@ -3,8 +3,10 @@
 // button falls back to the Windows installer and the star count stays hidden.
 
 const REPO = 'Lodestone-Team/lodestone';
-const RELEASE_TAG = 'launcher-latest';
-const RELEASE_PAGE = `https://github.com/${REPO}/releases/tag/${RELEASE_TAG}`;
+// Each launcher version is a release of its own, tagged launcher-vX.Y.Z; betas
+// (launcher-vX.Y.Z-beta.N) are pre-releases and aren't offered here.
+const TAG_PREFIX = 'launcher-v';
+const RELEASE_PAGE = `https://github.com/${REPO}/releases?q=${TAG_PREFIX}&expanded=true`;
 const CACHE_MS = 60 * 60 * 1000; // the unauthenticated API allows 60 calls an hour
 
 const PLATFORMS = {
@@ -79,12 +81,25 @@ async function showStars() {
   }
 }
 
+// The newest published stable launcher release: the one with the highest build.
+// GitHub lists releases newest first, Host's (vX.Y.Z) among them.
+function newestRelease(releases) {
+  const build = (release) =>
+    Math.max(
+      0,
+      ...release.assets.map((a) => Number((a.name.match(/^lodestone-launcher-(\d+)-/) || [])[1] || 0)),
+    );
+  return releases
+    .filter((r) => r.tag_name.startsWith(TAG_PREFIX) && !r.draft && !r.prerelease)
+    .sort((a, b) => build(b) - build(a))[0];
+}
+
 // Release files are named lodestone-launcher-<build>-<os>-<arch>-standalone[.exe],
 // on Windows lodestone-launcher-<build>-windows-<arch>-setup.exe, and on macOS
 // lodestone-launcher-<build>-macos-universal.dmg (see
 // launcher/scripts/publish_release.py). LodestoneLauncherSetup.exe and
-// LodestoneLauncher.dmg are the newest installer and disk image under names that
-// never change.
+// LodestoneLauncher.dmg are the release's installer and disk image under names
+// that never change.
 function pickAsset(assets, platform, arch) {
   const byName = (re) =>
     assets
@@ -131,7 +146,8 @@ async function setUpDownload() {
 
   let release;
   try {
-    release = await githubJson(`repos/${REPO}/releases/tags/${RELEASE_TAG}`, 'lodestone:release');
+    const releases = await githubJson(`repos/${REPO}/releases?per_page=100`, 'lodestone:releases');
+    release = newestRelease(releases || []);
   } catch (e) {
     // Offline or rate limited. Windows keeps the default installer link;
     // other platforms go to the release page.
