@@ -781,6 +781,9 @@ fn logs_in(
 /// hard-linked file once (a loader's client jar is a hard link to the vanilla one).
 struct Sizer<'a> {
     cancel: &'a Cancel,
+    /// Hard-linked files already counted, by device and inode. Only Unix reports
+    /// those (`first_time`); elsewhere every file counts.
+    #[cfg(unix)]
     seen: HashSet<(u64, u64)>,
     checked: u32,
 }
@@ -789,6 +792,7 @@ impl<'a> Sizer<'a> {
     fn new(cancel: &'a Cancel) -> Self {
         Self {
             cancel,
+            #[cfg(unix)]
             seen: HashSet::new(),
             checked: 0,
         }
@@ -1171,9 +1175,16 @@ mod tests {
             staging.join("minecraft"),
             staging.clone(),
         ] {
-            fs::File::options()
-                .write(path.is_file())
-                .read(true)
+            let mut options = fs::File::options();
+            options.write(path.is_file()).read(true);
+            // Windows opens a folder only with FILE_FLAG_BACKUP_SEMANTICS, and changing
+            // its time needs write access.
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                options.custom_flags(0x0200_0000).write(true);
+            }
+            options
                 .open(&path)
                 .unwrap()
                 .set_modified(two_hours_ago)

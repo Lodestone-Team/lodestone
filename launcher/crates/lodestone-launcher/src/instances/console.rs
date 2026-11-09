@@ -189,7 +189,7 @@ fn row_element(index: usize, row: &LogRow) -> gpui::Stateful<gpui::Div> {
                     .max_w(px(160.))
                     .truncate()
                     .text_color(if row.stream == Stream::Launcher {
-                        colors::BLUE_200
+                        crate::theme::accent::light()
                     } else {
                         colors::GRAY_500
                     })
@@ -204,7 +204,7 @@ fn row_element(index: usize, row: &LogRow) -> gpui::Stateful<gpui::Div> {
                 .text_color(match row.level {
                     Level::Info | Level::Trace | Level::Debug => {
                         if row.stream == Stream::Launcher {
-                            colors::BLUE_200
+                            crate::theme::accent::light()
                         } else {
                             colors::GRAY_300
                         }

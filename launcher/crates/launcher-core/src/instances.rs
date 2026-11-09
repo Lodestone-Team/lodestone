@@ -147,6 +147,12 @@ pub struct Instance {
     /// wins over `background`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slideshow: Option<SlideshowSource>,
+    /// The Play button's colour for this instance, over the skin's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub play_color: Option<crate::ui_skin::Rgb>,
+    /// The accent colour while this instance is selected, over the skin's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<crate::ui_skin::Rgb>,
     /// The sidebar group the instance is in. Without one the sidebar puts it in an
     /// automatic group ([`AutoGroup`]) when that setting is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -198,6 +204,8 @@ impl Default for Instance {
             icon: None,
             background: None,
             slideshow: None,
+            play_color: None,
+            accent: None,
             group: None,
             imported_from: None,
             game_version: String::new(),
