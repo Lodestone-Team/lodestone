@@ -538,9 +538,9 @@ pub mod layout {
         (x.clamp(SIDEBAR_MIN, max).round(), false)
     }
 
-    /// The logo in the top bar (`w-28`). It doesn't zoom, like the bar it sits in.
+    /// The logo in the top bar. It doesn't zoom, like the bar it sits in.
     pub fn logo_width() -> Pixels {
-        gpui::px(112.0)
+        gpui::px(134.0)
     }
 
     /// Dialog panels (`w-[500px]`).

@@ -16,13 +16,14 @@ import * as toml from 'utils/monaco-languages/toml';
 import { useResolvedTheme } from 'utils/theme';
 import { SkeletonCode, SkeletonGroup } from 'components/Atoms/Skeleton';
 import { useT } from 'i18n';
+import { asset } from 'utils/basePath';
 
 type Monaco = typeof monaco;
 
 // Load monaco from our own origin instead of the jsdelivr CDN (the loader's
 // default). public/monaco/vs is copied from the installed monaco-editor
 // package by scripts/copy-monaco.mjs (run by `npm run dev` / `npm run build`).
-loader.config({ paths: { vs: '/monaco/vs' } });
+loader.config({ paths: { vs: asset('/monaco/vs') } });
 
 // monaco is a page-wide singleton, so the theme and the toml language only
 // need to be registered once, not on every editor mount

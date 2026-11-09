@@ -5,6 +5,9 @@
 //! is looked up. With "Update automatically" on (the default) a newer one is
 //! downloaded and installed in the background; the top bar then offers to restart.
 //! With it off, the top bar offers the download instead.
+//!
+//! Settings > General > "Beta builds" picks the channel: a check reads each of its
+//! releases and takes the newest build ([`update::newest`]).
 
 use std::{
     path::{Path, PathBuf},
@@ -16,10 +19,10 @@ use std::{
     time::Duration,
 };
 
-use futures::future::{Either, select};
+use futures::future::{Either, join_all, select};
 use gpui::{AppContext as _, Context, Entity, SharedString, Task};
 use http_client::HttpClient;
-use launcher_core::update::{self, Build, Manifest, UpdateError};
+use launcher_core::update::{self, Build, Found, UpdateChannel, UpdateError};
 
 use crate::instances::Instances;
 
@@ -42,8 +45,9 @@ pub enum UpdateState {
     Checking,
     /// The newest build is running.
     UpToDate,
-    /// A newer build, not downloaded because "Update automatically" is off.
-    Available(Manifest),
+    /// A newer build, not downloaded because "Update automatically" is off, with
+    /// the address of the manifest it is in.
+    Available(Found),
     Downloading {
         build: u64,
         done: Arc<AtomicU64>,
@@ -67,7 +71,6 @@ pub struct Updater {
     state: UpdateState,
     build: Option<Build>,
     exe: Option<PathBuf>,
-    manifest_url: String,
     http: Arc<dyn HttpClient>,
     download_http: Arc<dyn HttpClient>,
     instances: Entity<Instances>,
@@ -111,7 +114,6 @@ impl Updater {
             },
             build,
             exe,
-            manifest_url: update::manifest_url(),
             http: launcher_core::http::default_client().expect("could not start the HTTP client"),
             download_http: launcher_core::http::download_client()
                 .expect("could not start the HTTP client"),
@@ -135,6 +137,10 @@ impl Updater {
         self.instances.read(cx).auto_update()
     }
 
+    fn channel(&self, cx: &Context<Self>) -> UpdateChannel {
+        self.instances.read(cx).update_channel()
+    }
+
     /// Looks for a newer build now. Does nothing while a check or download runs.
     pub fn check(&mut self, cx: &mut Context<Self>) {
         if matches!(
@@ -146,9 +152,13 @@ impl Updater {
         self.state = UpdateState::Checking;
         cx.notify();
         let http = self.http.clone();
-        let url = self.manifest_url.clone();
+        let urls = update::manifest_urls(self.channel(cx));
         let fetch = cx.background_spawn(launcher_core::http::in_http_runtime(async move {
-            update::fetch_manifest(http.as_ref(), &url).await
+            let fetches = urls
+                .iter()
+                .map(|url| update::fetch_manifest(http.as_ref(), url));
+            let results = join_all(fetches).await;
+            update::newest(urls.into_iter().zip(results))
         }));
         self.work = Some(cx.spawn(async move |this, cx| {
             let result = fetch.await;
@@ -156,23 +166,24 @@ impl Updater {
         }));
     }
 
-    fn checked(&mut self, result: Result<Manifest, UpdateError>, cx: &mut Context<Self>) {
+    fn checked(&mut self, result: Result<Found, UpdateError>, cx: &mut Context<Self>) {
         self.work = None;
         match result {
             Err(err) => self.state = UpdateState::Failed(err.to_string().into()),
-            Ok(manifest) => {
+            Ok(found) => {
                 let running = self.build.map_or(0, |build| build.number);
                 let have = running.max(self.installed.unwrap_or(0));
-                if manifest.newer(have).is_none() {
+                // Never older than what runs: leaving the beta waits for stable.
+                if found.manifest.newer(have).is_none() {
                     self.state = match self.installed {
                         Some(build) => UpdateState::Ready { build },
                         None => UpdateState::UpToDate,
                     };
                 } else if self.automatic(cx) {
-                    self.download(manifest, cx);
+                    self.download(found, cx);
                     return;
                 } else {
-                    self.state = UpdateState::Available(manifest);
+                    self.state = UpdateState::Available(found);
                 }
             }
         }
@@ -182,33 +193,49 @@ impl Updater {
     /// "Update automatically" changed: with it on, an update waiting to be
     /// downloaded starts downloading.
     pub fn automatic_changed(&mut self, cx: &mut Context<Self>) {
-        if let UpdateState::Available(manifest) = &self.state
+        if let UpdateState::Available(found) = &self.state
             && self.automatic(cx)
         {
-            let manifest = manifest.clone();
-            self.download(manifest, cx);
+            let found = found.clone();
+            self.download(found, cx);
+        }
+    }
+
+    /// "Beta builds" changed: looks again in the channel's releases. A check under
+    /// way starts over; a download under way finishes first.
+    pub fn channel_changed(&mut self, cx: &mut Context<Self>) {
+        match self.state {
+            UpdateState::Unavailable | UpdateState::Downloading { .. } => {}
+            UpdateState::Checking => {
+                // Dropping the task cancels the check for the old channel.
+                self.work = None;
+                self.state = UpdateState::Idle;
+                self.check(cx);
+            }
+            _ => self.check(cx),
         }
     }
 
     /// Downloads and installs the available update.
     pub fn download_available(&mut self, cx: &mut Context<Self>) {
-        if let UpdateState::Available(manifest) = &self.state {
-            let manifest = manifest.clone();
-            self.download(manifest, cx);
+        if let UpdateState::Available(found) = &self.state {
+            let found = found.clone();
+            self.download(found, cx);
         }
     }
 
-    fn download(&mut self, manifest: Manifest, cx: &mut Context<Self>) {
+    fn download(&mut self, found: Found, cx: &mut Context<Self>) {
         let Some(exe) = self.exe.clone() else {
             return;
         };
-        let Some((build, asset)) = manifest
+        let Some((build, asset)) = found
+            .manifest
             .for_platform()
             .map(|(build, asset)| (build, asset.clone()))
         else {
             return;
         };
-        let url = match Manifest::asset_url(&self.manifest_url, &asset) {
+        let url = match update::Manifest::asset_url(&found.url, &asset) {
             Ok(url) => url,
             Err(err) => {
                 self.state = UpdateState::Failed(err.to_string().into());

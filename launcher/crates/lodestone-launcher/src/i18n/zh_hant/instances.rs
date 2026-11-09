@@ -18,6 +18,7 @@ pub fn text(message: M) -> &'static str {
         M::StageAssets => "正在下載遊戲資源",
         M::StageNatives => "正在解壓縮原生程式庫",
         M::StageStarting => "正在啟動 Java",
+        M::StageLaunching => "正在啟動 Minecraft",
         M::ProgressDetail => "{files_done}/{files_total} · {done} MB/{total} MB",
 
         M::PreparingNote => "正在準備 Minecraft {version}（{loader}）",

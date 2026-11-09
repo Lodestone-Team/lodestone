@@ -27,6 +27,8 @@ crate::i18n::messages! {
         /// Unpacking the game's native libraries.
         StageNatives = "Extracting natives",
         StageStarting = "Starting Java",
+        /// Java is running; the game's window hasn't opened yet.
+        StageLaunching = "Launching Minecraft",
         /// Under the Play button while downloading: files done of the total, then
         /// megabytes done of the total.
         ProgressDetail = "{files_done}/{files_total} · {done} MB/{total} MB",

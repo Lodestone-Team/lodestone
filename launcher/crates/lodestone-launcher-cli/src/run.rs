@@ -77,18 +77,7 @@ fn run(cli: &Cli, mode: Mode) -> Result<(), ErrorObject> {
         }
         return Ok(());
     }
-    #[cfg(unix)]
-    {
-        unix::run(plan, &cli.global, mode)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (plan, mode);
-        Err(ErrorObject::new(
-            codes::UNSUPPORTED_PLATFORM,
-            "Lodestone Launcher's control socket is Unix-only for now (macOS and Linux), so lodestone-launcher-cli can't reach the launcher on Windows yet.",
-        ))
-    }
+    connected::run(plan, &cli.global, mode)
 }
 
 /// Asks on the terminal; only when both stdin and stderr are one.
@@ -110,8 +99,7 @@ fn ask(question: &str) -> bool {
     matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
-#[cfg(unix)]
-mod unix {
+mod connected {
     use std::time::{Duration, Instant};
 
     use launcher_control::{

@@ -21,6 +21,7 @@ pub fn text(message: M) -> &'static str {
 
         M::Play => "开始游戏",
         M::Playing => "游戏中",
+        M::Launching => "启动中",
         M::TabContent => "内容",
         M::TabWorlds => "世界",
         M::Settings => "设置",
@@ -155,6 +156,15 @@ pub fn text(message: M) -> &'static str {
         M::ManageAccounts => "管理账户",
         M::GroupAutomatically => "自动分组实例",
         M::GroupAutomaticallyHint => "按加载器为未分组的实例分组。",
+        M::WhenAGameStarts => "游戏启动后",
+        M::AfterLaunchStay => "保持打开",
+        M::AfterLaunchMinimize => "最小化",
+        M::AfterLaunchQuit => "退出",
+        M::AfterLaunchStayHint => "启动器在游戏旁保持打开。",
+        M::AfterLaunchMinimizeHint => "游戏窗口打开后启动器最小化，游戏关闭时恢复。",
+        M::AfterLaunchQuitHint => {
+            "游戏窗口打开后启动器退出。游戏会继续运行，但不会记录其日志、崩溃报告和游戏时长。"
+        }
         M::OfflineAccount => "离线账户",
         M::MicrosoftAccount => "Microsoft 账户",
         M::SignInAgain => "重新登录",
@@ -295,7 +305,6 @@ pub fn text(message: M) -> &'static str {
         M::ClientSince => "连接于 {time}",
         M::ClientPid => "进程 {pid}",
         M::Disconnect => "断开连接",
-        M::CliUnavailable => "Windows 上暂不支持命令行控制。",
         M::DiagnosticsSection => "诊断",
         M::PerfMonitor => "性能监视器",
         M::PerfMonitorHint => "一个小窗口，每秒更新启动器及正在运行的游戏的内存、CPU 和帧时间。",
@@ -351,6 +360,11 @@ pub fn text(message: M) -> &'static str {
         M::CodeCopiedWaiting => "代码已复制。正在等待你输入…",
         M::WaitingForCode => "正在等待你输入代码…",
         M::CopyCodeAndOpen => "复制代码并打开 {host}",
+        M::CopySignInCode => "复制代码",
+        M::StopSigningInTitle => "停止登录？",
+        M::StopSigningInBody => "Microsoft 仍在等待你复制的代码。如果现在停止，输入它将无法登录。",
+        M::StopSigningIn => "停止登录",
+        M::KeepWaiting => "继续等待",
         M::LinkInstructions => {
             "请在打开的浏览器窗口中登录。随后 Microsoft 会显示一个页面，说明该页面通常不会显示。从浏览器地址栏复制完整地址，并且只粘贴到本启动器中。"
         }
@@ -448,6 +462,10 @@ pub fn text(message: M) -> &'static str {
         M::UpdatesSection => "更新",
         M::UpdateAutomatically => "自动更新",
         M::UpdateAutomaticallyHint => "在后台从 GitHub 下载新构建。",
+        M::BetaBuilds => "测试版构建",
+        M::BetaBuildsHint => {
+            "抢先体验新功能。测试版构建可能有错误。关闭后会保留当前构建，直到有更新的稳定版构建。"
+        }
         M::BuildNumber => "构建 {build}",
         M::BuildNumberCommit => "构建 {build} · {commit}",
         M::DevelopmentBuild => "开发构建",

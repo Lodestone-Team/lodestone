@@ -329,13 +329,10 @@ impl Sampler {
             frame_stats(&at, frames.since.unwrap_or(now), now)
         };
 
-        #[cfg(unix)]
         let (jobs, clients) = (
             crate::control::running_jobs(cx),
             crate::control::client_count(cx),
         );
-        #[cfg(not(unix))]
-        let (jobs, clients) = (0, None);
 
         self.last = Some(Last {
             at: now,

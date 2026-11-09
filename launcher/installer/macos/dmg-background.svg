@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
+  <!-- The disk image's window background (publish_release.py renders it to
+       dmg-background.png and @2x with rsvg-convert). The app's icon sits at
+       (170, 190) and Applications at (470, 190); Finder draws both. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F7F8FA"/>
+      <stop offset="1" stop-color="#ECEEF2"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="170" cy="190" r="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22C980" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#22C980" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="470" cy="190" r="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5B4FC0" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#5B4FC0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="arrow" x1="262" y1="0" x2="378" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22C980"/>
+      <stop offset="0.5" stop-color="#2F6FA8"/>
+      <stop offset="1" stop-color="#5B4FC0"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="400" fill="url(#bg)"/>
+  <rect width="640" height="400" fill="url(#glowA)"/>
+  <rect width="640" height="400" fill="url(#glowB)"/>
+  <g fill="none" stroke="url(#arrow)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M266 190 L366 190"/>
+    <path d="M350 174 L368 190 L350 206"/>
+  </g>
+  <text x="320" y="330" text-anchor="middle" font-family="SF Pro Text, Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="15" font-weight="500" fill="#3A3F4B">Drag Lodestone Launcher into Applications</text>
+  <text x="320" y="352" text-anchor="middle" font-family="SF Pro Text, Helvetica Neue, Helvetica, Arial, sans-serif"
+        font-size="12" fill="#7A808C">It keeps itself up to date from there.</text>
+</svg>

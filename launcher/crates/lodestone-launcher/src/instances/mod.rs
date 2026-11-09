@@ -34,6 +34,7 @@ use std::{
 
 use futures::StreamExt as _;
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, RenderImage, SharedString, Task};
+use launcher_core::settings::AfterLaunch;
 use launcher_core::{
     content::{CurseForge, InstanceDirs, Modrinth, Target},
     export,
@@ -208,6 +209,11 @@ struct Run {
     task: Option<Task<()>>,
     /// Redraws the progress while preparing.
     ticker: Option<Task<()>>,
+    /// The game's window has opened ([`InstancesEvent::GameWindowOpened`] was sent).
+    window_opened: bool,
+    /// Sends [`InstancesEvent::GameWindowOpened`] after a while if the log never
+    /// says the window opened.
+    window_wait: Option<Task<()>>,
 }
 
 impl Default for Run {
@@ -219,6 +225,8 @@ impl Default for Run {
             mods_refused: false,
             task: None,
             ticker: None,
+            window_opened: false,
+            window_wait: None,
         }
     }
 }
@@ -286,7 +294,16 @@ pub enum InstancesEvent {
     LoaderChanged(String),
     /// A `.lodesnap` file was dropped or picked: offer to make an instance from it.
     ImportSnapshot(std::path::PathBuf),
+    /// A game's window opened: the log said so, or it has run for
+    /// [`WINDOW_WAIT`] without saying. Sent once per run.
+    GameWindowOpened(String),
+    /// A game exited, after any [`InstancesEvent::Crashed`] for it.
+    GameExited(String),
 }
+
+/// How long a game runs before it counts as having opened its window when the log
+/// never says so (an unusual version or a mod that changes the log).
+const WINDOW_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub struct Instances {
     store: InstanceStore,
@@ -559,7 +576,6 @@ impl Instances {
                 self.record_settings(before, cx);
                 if cli_changed {
                     // opens or closes the control socket; later, as it reads this
-                    #[cfg(unix)]
                     cx.defer(crate::control::apply);
                 }
                 Ok(())
@@ -612,6 +628,46 @@ impl Instances {
 
     pub fn set_auto_update(&mut self, on: bool, cx: &mut Context<Self>) {
         if let Err(err) = self.update_settings(|settings| settings.auto_update = on, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// Settings > General > "Beta builds".
+    /// Settings > General > "When a game starts".
+    pub fn after_launch(&self) -> AfterLaunch {
+        self.settings.after_launch
+    }
+
+    pub fn set_after_launch(&mut self, after: AfterLaunch, cx: &mut Context<Self>) {
+        if let Err(err) = self.update_settings(|settings| settings.after_launch = after, cx) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// Whether any instance is installing or starting (not yet running).
+    pub fn any_preparing(&self) -> bool {
+        self.runs
+            .values()
+            .any(|run| matches!(run.state, RunState::Preparing { .. }))
+    }
+
+    /// Whether any game is running.
+    pub fn any_running(&self) -> bool {
+        self.runs
+            .values()
+            .any(|run| matches!(run.state, RunState::Running { .. }))
+    }
+
+    pub fn update_channel(&self) -> launcher_core::update::UpdateChannel {
+        self.settings.update_channel
+    }
+
+    pub fn set_update_channel(
+        &mut self,
+        channel: launcher_core::update::UpdateChannel,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(err) = self.update_settings(|settings| settings.update_channel = channel, cx) {
             self.notice = Some(err.into());
         }
     }
@@ -956,6 +1012,13 @@ impl Instances {
             .any(|run| !matches!(run.state, RunState::Idle))
     }
 
+    /// The game has started but its window hasn't opened yet.
+    pub fn is_launching(&self, id: &str) -> bool {
+        self.runs
+            .get(id)
+            .is_some_and(|run| matches!(run.state, RunState::Running { .. }) && !run.window_opened)
+    }
+
     pub fn is_running(&self, id: &str) -> bool {
         self.runs
             .get(id)
@@ -1291,6 +1354,14 @@ impl Instances {
         };
         match self.runs.get(&instance.id).map(|run| &run.state) {
             None | Some(RunState::Idle) => PlayState::Ready,
+            // Java has started, but until the game's window opens there's nothing to see.
+            Some(RunState::Running { .. }) if !self.runs[&instance.id].window_opened => {
+                PlayState::Preparing {
+                    label: t(M::StageLaunching).into(),
+                    detail: None,
+                    fraction: None,
+                }
+            }
             Some(RunState::Running { .. }) => PlayState::Playing,
             Some(RunState::Preparing { progress, .. }) => {
                 let (stage, snapshot) = progress.snapshot();
@@ -1667,6 +1738,24 @@ impl Instances {
             started,
         };
         run.ticker = None;
+        run.window_opened = false;
+        run.window_wait = Some(cx.spawn({
+            let id = id.to_string();
+            async move |this, cx| {
+                cx.background_executor().timer(WINDOW_WAIT).await;
+                this.update(cx, |this, cx| {
+                    if let Some(run) = this.runs.get_mut(&id)
+                        && matches!(run.state, RunState::Running { .. })
+                        && !run.window_opened
+                    {
+                        run.window_opened = true;
+                        cx.emit(InstancesEvent::GameWindowOpened(id.clone()));
+                        cx.notify();
+                    }
+                })
+                .ok();
+            }
+        }));
         let started_id = id.to_string();
         let id = id.to_string();
         run.task = Some(cx.spawn(async move |this, cx| {
@@ -1702,6 +1791,15 @@ impl Instances {
                                             "text": line.message,
                                         })
                                     });
+                                    if !run.window_opened && line.opens_game_window() {
+                                        run.window_opened = true;
+                                        run.window_wait = None;
+                                        launcher_core::trace::emit(
+                                            "game.window",
+                                            || serde_json::json!({ "instance": id }),
+                                        );
+                                        cx.emit(InstancesEvent::GameWindowOpened(id.clone()));
+                                    }
                                     run.log.push(line)
                                 }
                                 GameEvent::Exited { code, stopped } => {
@@ -1825,6 +1923,9 @@ impl Instances {
                 .detach();
             }
         }
+        if let Some(run) = self.runs.get_mut(id) {
+            run.window_wait = None;
+        }
         self.read_back_shared_settings(id);
         self.set_idle(id, cx);
         self.refresh(id, cx);
@@ -1835,6 +1936,7 @@ impl Instances {
                 stopped,
             });
         }
+        cx.emit(InstancesEvent::GameExited(id.to_string()));
     }
 
     /// Cancels the preparation, or kills the game.

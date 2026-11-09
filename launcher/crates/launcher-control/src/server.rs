@@ -9,10 +9,6 @@ use std::{
     collections::HashMap,
     fs,
     io::{self, BufRead, BufReader, Read, Write},
-    os::unix::{
-        fs::{FileTypeExt, MetadataExt, PermissionsExt},
-        net::{UnixListener, UnixStream},
-    },
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -25,8 +21,9 @@ use std::{
 use serde_json::Value;
 
 use crate::{
-    peer,
+    peer::{self, UserId},
     protocol::{ErrorObject, MAX_LINE_BYTES, Message, Request, codes},
+    transport::{self, Listener, Stream},
 };
 
 /// More connections than this at once are refused.
@@ -49,7 +46,7 @@ pub trait Backend: Send + Sync + 'static {
 }
 
 /// The open connections' streams, so the server can close them.
-type Streams = Arc<Mutex<HashMap<u64, UnixStream>>>;
+type Streams = Arc<Mutex<HashMap<u64, Stream>>>;
 
 /// Why the socket couldn't be created.
 #[derive(Debug)]
@@ -89,30 +86,35 @@ impl From<io::Error> for BindError {
 
 /// The bound socket, not yet serving.
 pub struct Server {
-    listener: UnixListener,
+    listener: Listener,
     path: PathBuf,
-    allowed_uid: u32,
+    allowed_uid: UserId,
 }
 
 impl Server {
-    /// Creates the socket at `path` with mode 0600. A socket file left by a launcher
-    /// that quit is replaced; one that a running launcher answers on is not.
+    /// Creates the socket at `path`, with mode 0600 on Unix (on Windows it inherits the
+    /// data folder's permissions, which are the user's). A socket file left by a
+    /// launcher that quit is replaced; one that a running launcher answers on is not.
     pub fn bind(path: &Path) -> Result<Server, BindError> {
         let dir = path
             .parent()
             .filter(|dir| !dir.as_os_str().is_empty())
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no folder"))?;
+        #[cfg(unix)]
         if dir.starts_with(crate::paths::fallback_dir()) {
             private_folder(dir)?;
         } else {
             fs::create_dir_all(dir)?;
         }
+        // the user's own folders (the data folder or %TEMP%), private already
+        #[cfg(windows)]
+        fs::create_dir_all(dir)?;
         match fs::symlink_metadata(path) {
-            Ok(meta) => {
-                if UnixStream::connect(path).is_ok() {
+            Ok(_) => {
+                if Stream::connect(path).is_ok() {
                     return Err(BindError::InUse(path.to_path_buf()));
                 }
-                if !meta.file_type().is_socket() {
+                if !transport::is_socket(path) {
                     return Err(BindError::Io(io::Error::new(
                         io::ErrorKind::AlreadyExists,
                         format!("{} exists and isn't a socket", path.display()),
@@ -123,17 +125,7 @@ impl Server {
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}
             Err(err) => return Err(err.into()),
         }
-        // Bind under a temporary name, make it private, then move it into place, so the
-        // socket is never reachable with looser permissions.
-        let temp = dir.join(format!(".c{:x}", std::process::id()));
-        let _ = fs::remove_file(&temp);
-        let listener = UnixListener::bind(&temp)?;
-        let placed = fs::set_permissions(&temp, fs::Permissions::from_mode(0o600))
-            .and_then(|()| fs::rename(&temp, path));
-        if let Err(err) = placed {
-            let _ = fs::remove_file(&temp);
-            return Err(err.into());
-        }
+        let listener = listen(dir, path)?;
         Ok(Server {
             listener,
             path: path.to_path_buf(),
@@ -146,7 +138,7 @@ impl Server {
     }
 
     /// Accepts only connections from `uid` (by default this process's user). For tests.
-    pub fn with_allowed_uid(mut self, uid: u32) -> Self {
+    pub fn with_allowed_uid(mut self, uid: UserId) -> Self {
         self.allowed_uid = uid;
         self
     }
@@ -175,7 +167,7 @@ const MAX_REFUSING: usize = 8;
 
 /// Reads and drops what a refused client still sends, until it hangs up or for at most
 /// two seconds and 64 KiB.
-fn drain(stream: &mut UnixStream) {
+fn drain(stream: &mut Stream) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(250)));
     let started = std::time::Instant::now();
     let mut buf = [0u8; 4096];
@@ -192,8 +184,34 @@ fn drain(stream: &mut UnixStream) {
     }
 }
 
+/// Binds under a temporary name, makes it private, then moves it into place, so the
+/// socket is never reachable with looser permissions.
+#[cfg(unix)]
+fn listen(dir: &Path, path: &Path) -> io::Result<Listener> {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = dir.join(format!(".c{:x}", std::process::id()));
+    let _ = fs::remove_file(&temp);
+    let listener = Listener::bind(&temp)?;
+    let placed = fs::set_permissions(&temp, fs::Permissions::from_mode(0o600))
+        .and_then(|()| fs::rename(&temp, path));
+    if let Err(err) = placed {
+        let _ = fs::remove_file(&temp);
+        return Err(err);
+    }
+    Ok(listener)
+}
+
+/// Binds in place: the socket file inherits the folder's permissions, and every
+/// connection's user is checked anyway.
+#[cfg(windows)]
+fn listen(_dir: &Path, path: &Path) -> io::Result<Listener> {
+    Listener::bind(path)
+}
+
 /// Creates `dir` with mode 0700, or checks that it is this user's and private.
+#[cfg(unix)]
 fn private_folder(dir: &Path) -> Result<(), BindError> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
     match fs::create_dir(dir) {
         Ok(()) => fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?,
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
@@ -226,7 +244,7 @@ impl ServerHandle {
         self.stopped = true;
         self.stop.store(true, Ordering::SeqCst);
         // wake the accept loop so it sees the flag
-        let _ = UnixStream::connect(&self.path);
+        let _ = Stream::connect(&self.path);
         let _ = fs::remove_file(&self.path);
         let streams = std::mem::take(&mut *lock(&self.streams));
         for stream in streams.values() {
@@ -252,7 +270,7 @@ impl ServerHandle {
     }
 }
 
-fn lock(streams: &Streams) -> std::sync::MutexGuard<'_, HashMap<u64, UnixStream>> {
+fn lock(streams: &Streams) -> std::sync::MutexGuard<'_, HashMap<u64, Stream>> {
     streams
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -275,7 +293,7 @@ fn accept_loop(server: Server, backend: Arc<dyn Backend>, stop: Arc<AtomicBool>,
         let Ok(stream) = stream else {
             continue;
         };
-        let refuse = |stream: &mut UnixStream, code: &str, message: &str| {
+        let refuse = |stream: &mut Stream, code: &str, message: &str| {
             let line = Message::result(Value::Null, Err(ErrorObject::new(code, message))).to_line();
             let _ = stream.write_all(line.as_bytes());
             // Closing at once can lose the refusal: the client's request then meets a
@@ -406,7 +424,7 @@ impl Outbox {
     }
 }
 
-fn serve_connection(id: u64, stream: UnixStream, backend: &dyn Backend) {
+fn serve_connection(id: u64, stream: Stream, backend: &dyn Backend) {
     let Ok(write_half) = stream.try_clone() else {
         return;
     };

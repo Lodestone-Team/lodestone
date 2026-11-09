@@ -1,13 +1,15 @@
 //! Where the control socket is.
 //!
 //! The socket is `<data dir>/control.sock`, in the launcher's data directory: on macOS
-//! `~/Library/Application Support/Lodestone Launcher/`, or `LODESTONE_LAUNCHER_DATA_DIR`
-//! when it is set (as the launcher reads it, see `launcher_core::paths::DataDir`).
+//! `~/Library/Application Support/Lodestone Launcher/`, on Windows
+//! `%APPDATA%\Lodestone Launcher\`, or `LODESTONE_LAUNCHER_DATA_DIR` when it is set (as
+//! the launcher reads it, see `launcher_core::paths::DataDir`).
 //!
-//! A Unix socket's path is limited to about 100 bytes. When the data directory is
-//! deeper than that, the socket goes to `/tmp/lodestone-launcher-<uid>/<hash>.sock`
-//! instead, in a folder only this user may use; the hash is of the data directory, so
-//! the launcher and the CLI find the same one.
+//! A Unix socket's path is limited to about 100 bytes, on Windows too. When the data
+//! directory is deeper than that, the socket goes to `<fallback>/<hash>.sock` instead,
+//! in a folder only this user may use: `/tmp/lodestone-launcher-<uid>` on Unix, the
+//! user's own temporary folder on Windows. The hash is of the data directory, so the
+//! launcher and the CLI find the same one.
 
 use std::{
     ffi::OsString,
@@ -27,7 +29,7 @@ pub const DATA_DIR_ENV: &str = "LODESTONE_LAUNCHER_DATA_DIR";
 pub const SOCKET_ENV: &str = "LODESTONE_LAUNCHER_SOCKET";
 
 /// The longest socket path used as is. `sun_path` holds 104 bytes on macOS and 108 on
-/// Linux, with the terminating zero.
+/// Linux and Windows, with the terminating zero.
 pub const MAX_SOCKET_PATH: usize = 100;
 
 /// The launcher's data directory for this user, as the launcher finds it.
@@ -52,12 +54,16 @@ pub fn socket_path(data_dir: &Path) -> PathBuf {
 }
 
 /// The folder for sockets whose data directory is too deep: `/tmp/lodestone-launcher-<uid>`.
+#[cfg(unix)]
 pub fn fallback_dir() -> PathBuf {
-    #[cfg(unix)]
-    let user = crate::current_uid().to_string();
-    #[cfg(not(unix))]
-    let user = "user".to_string();
-    PathBuf::from("/tmp").join(format!("lodestone-launcher-{user}"))
+    PathBuf::from("/tmp").join(format!("lodestone-launcher-{}", crate::current_uid()))
+}
+
+/// The folder for sockets whose data directory is too deep: `lodestone-launcher` in the
+/// user's temporary folder (`%LOCALAPPDATA%\Temp`), which only they may use.
+#[cfg(windows)]
+pub fn fallback_dir() -> PathBuf {
+    std::env::temp_dir().join("lodestone-launcher")
 }
 
 /// The socket the CLI uses: `LODESTONE_LAUNCHER_SOCKET`, or the default data directory's.

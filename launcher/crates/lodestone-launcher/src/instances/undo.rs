@@ -4,9 +4,10 @@
 use std::{path::PathBuf, sync::Arc};
 
 use gpui::{App, Context, Entity, Task};
+use launcher_core::settings::AfterLaunch;
 use launcher_core::{
     instances::{BACKGROUND_FILE, ICON_FILE, Instance},
-    settings::{CliAccess, CliSettings, InstanceDefaults, Settings},
+    settings::{CliAccess, CliSettings, InstanceDefaults, Settings, UpdateChannel},
 };
 
 use super::{Instances, fields};
@@ -32,6 +33,8 @@ pub(crate) struct LauncherValues {
     zoom: f32,
     auto_groups: bool,
     auto_update: bool,
+    update_channel: UpdateChannel,
+    after_launch: AfterLaunch,
     skin: Option<String>,
     instance_defaults: InstanceDefaults,
     cli: CliSettings,
@@ -44,6 +47,8 @@ impl LauncherValues {
             zoom: settings.zoom,
             auto_groups: settings.auto_groups,
             auto_update: settings.auto_update,
+            update_channel: settings.update_channel,
+            after_launch: settings.after_launch,
             skin: settings.skin.clone(),
             instance_defaults: settings.instance_defaults.clone(),
             cli: settings.cli,
@@ -55,6 +60,8 @@ impl LauncherValues {
         settings.zoom = self.zoom;
         settings.auto_groups = self.auto_groups;
         settings.auto_update = self.auto_update;
+        settings.update_channel = self.update_channel;
+        settings.after_launch = self.after_launch;
         settings.skin = self.skin.clone();
         settings.instance_defaults = self.instance_defaults.clone();
         settings.cli = self.cli;
@@ -77,6 +84,18 @@ impl LauncherValues {
             arrow(t(SM::GroupAutomatically), on_off(self.auto_groups))
         } else if self.auto_update != other.auto_update {
             arrow(t(SM::UpdateAutomatically), on_off(self.auto_update))
+        } else if self.update_channel != other.update_channel {
+            arrow(
+                t(SM::BetaBuilds),
+                on_off(self.update_channel == UpdateChannel::Beta),
+            )
+        } else if self.after_launch != other.after_launch {
+            let choice = match self.after_launch {
+                AfterLaunch::Stay => t(SM::AfterLaunchStay),
+                AfterLaunch::Minimize => t(SM::AfterLaunchMinimize),
+                AfterLaunch::Quit => t(SM::AfterLaunchQuit),
+            };
+            arrow(t(SM::WhenAGameStarts), choice)
         } else if self.skin != other.skin {
             let name = launcher_core::ui_skin::built_in(self.skin.as_deref().unwrap_or("default"))
                 .map(|spec| spec.name)

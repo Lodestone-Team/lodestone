@@ -59,5 +59,9 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[build-dependencies]
+# The app icon in the Windows executable (`build.rs`). Unused when building for other systems.
+embed-resource.workspace = true
+
 [[example]]
 name = "components"

@@ -35,6 +35,8 @@ crate::i18n::messages! {
         Play = "Play",
         /// Shown in capitals on the Play button while the game runs.
         Playing = "Playing",
+        /// A game that has started but whose window hasn't opened yet.
+        Launching = "Launching",
         TabContent = "Content",
         TabWorlds = "Worlds",
         /// The instance's Settings tab, the sidebar's Settings and the dialog.
@@ -185,6 +187,14 @@ crate::i18n::messages! {
         ManageAccounts = "Manage accounts",
         GroupAutomatically = "Group instances automatically",
         GroupAutomaticallyHint = "Sorts ungrouped instances by loader.",
+        /// Settings > General: what the launcher does once a game's window opens.
+        WhenAGameStarts = "When a game starts",
+        AfterLaunchStay = "Stay open",
+        AfterLaunchMinimize = "Minimize",
+        AfterLaunchQuit = "Quit",
+        AfterLaunchStayHint = "The launcher stays open beside the game.",
+        AfterLaunchMinimizeHint = "The launcher minimizes once the game's window opens, and comes back when the game closes.",
+        AfterLaunchQuitHint = "The launcher quits once the game's window opens. The game keeps running, but its log, crash report and play time aren't recorded.",
         OfflineAccount = "Offline account",
         MicrosoftAccount = "Microsoft account",
         SignInAgain = "Sign in again",
@@ -339,7 +349,6 @@ crate::i18n::messages! {
         /// {pid} is a process number.
         ClientPid = "Process {pid}",
         Disconnect = "Disconnect",
-        CliUnavailable = "Command-line control isn’t available on Windows yet.",
         /// Settings > Developer: the section of the performance monitor.
         DiagnosticsSection = "Diagnostics",
         /// The performance monitor window, and its row in Settings > Developer.
@@ -404,6 +413,13 @@ crate::i18n::messages! {
         CodeCopiedWaiting = "Code copied. Waiting for you to enter it…",
         WaitingForCode = "Waiting for you to enter the code…",
         CopyCodeAndOpen = "Copy code and open {host}",
+        /// The button beside the sign-in code.
+        CopySignInCode = "Copy code",
+        /// Asked on Back or closing once the sign-in code has been copied.
+        StopSigningInTitle = "Stop signing in?",
+        StopSigningInBody = "Microsoft is still waiting for the code you copied. If you stop now, entering it won't sign you in.",
+        StopSigningIn = "Stop signing in",
+        KeepWaiting = "Keep waiting",
         LinkInstructions = "Sign in in the browser window that opened. Microsoft then shows a page saying it is not normally shown. Copy the full address from the browser's address bar and paste it only into this launcher.",
         /// {url} is the start of the address to paste.
         LinkStartsWith = "It starts with {url}",
@@ -486,6 +502,9 @@ crate::i18n::messages! {
         UpdatesSection = "Updates",
         UpdateAutomatically = "Update automatically",
         UpdateAutomaticallyHint = "Downloads new builds from GitHub in the background.",
+        /// Settings > General > Updates: update to beta builds too.
+        BetaBuilds = "Beta builds",
+        BetaBuildsHint = "Get new features before everyone else. Beta builds can have bugs. Turning this off keeps your build until a stable one is newer.",
         /// The running build: the number of commits it was built from.
         BuildNumber = "Build {build}",
         /// {commit} is the first seven characters of the commit.

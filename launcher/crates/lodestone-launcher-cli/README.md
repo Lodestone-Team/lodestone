@@ -17,15 +17,18 @@ lodestone-launcher-cli schema                # every command and flag, as JSON
 
 ## How it connects
 
-The launcher serves a Unix socket while it runs, `control.sock` in its data directory
-(`~/Library/Application Support/Lodestone Launcher/` on macOS, or
-`LODESTONE_LAUNCHER_DATA_DIR`). A data directory too deep for a socket path uses
-`/tmp/lodestone-launcher-<uid>/<hash>.sock`. Pass `--socket` or set
+The launcher serves a Unix domain socket while it runs, `control.sock` in its data
+directory (`~/Library/Application Support/Lodestone Launcher/` on macOS,
+`%APPDATA%\Lodestone Launcher\` on Windows, or `LODESTONE_LAUNCHER_DATA_DIR`). A data
+directory too deep for a socket path uses `/tmp/lodestone-launcher-<uid>/<hash>.sock`
+(on Windows, `%TEMP%\lodestone-launcher\<hash>.sock`). Pass `--socket` or set
 `LODESTONE_LAUNCHER_SOCKET` to choose another.
 
-The socket is created with mode 0600 and the launcher refuses connections from other
-users (it checks the peer's uid). Nothing it sends holds a token, key or password. The
-socket is Unix-only for now; on Windows the CLI exits with code 3.
+The launcher refuses connections from other users, and the CLI talks only to a launcher
+run by its own user: on macOS and Linux the socket has mode 0600 and each side checks
+the other's uid; on Windows (10 version 1803 or later, which has Unix domain sockets)
+the socket inherits the data folder's permissions and each side checks the SID of the
+process on the other end. Nothing it sends holds a token, key or password.
 
 ## Output
 

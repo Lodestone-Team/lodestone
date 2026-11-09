@@ -81,6 +81,9 @@ serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0.144", features = ["preserve_order", "raw_value"] }
 sha1 = "0.10.6"
 sha2 = "0.10"
+# The control socket on Windows (`launcher-control`'s `transport`): AF_UNIX sockets,
+# which std exposes only on Unix. 0.6.5 is in the lockfile already, through GPUI's tree.
+socket2 = "0.6"
 tempfile = "3.20.0"
 thiserror = "2.0.12"
 tiny_http = "0.12"
@@ -97,6 +100,9 @@ uuid = { version = "1.1", features = ["serde"] }
 # Windows-only system calls libc lacks there (host name, memory, OS version, the window's
 # system menu). Zed locks 0.61; each crate enables only the API features it calls.
 windows-sys = "0.61"
+# Compiles the Windows resources (the app icon) into lodestone-launcher.exe. Zed's
+# requirement; already in GPUI's tree.
+embed-resource = "3.0"
 # Extracting natives from library jars. Zed locks zip 0.6.6 (through webrtc-sys-build);
 # only the deflate method is enabled, which is what Mojang's native jars use.
 zip = { version = "0.6.6", default-features = false, features = ["deflate"] }

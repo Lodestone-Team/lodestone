@@ -60,6 +60,7 @@ pub const SCENES: &[&str] = &[
     "sign-in",
     "sign-in-browser",
     "sign-in-code",
+    "sign-in-stop",
     "sign-in-not-approved",
     "launcher-identity",
     "sign-in-launcher",
@@ -69,8 +70,10 @@ pub const SCENES: &[&str] = &[
     "new-instance",
     "new-instance-fabric",
     "new-instance-versions",
+    "new-instance-versions-failed",
     "play-progress",
     "playing",
+    "launching",
     "logs",
     "instance-settings",
     "crash",
@@ -445,6 +448,7 @@ fn has_instances(scene: &str) -> bool {
         scene,
         "play-progress"
             | "playing"
+            | "launching"
             | "logs"
             | "instance-settings"
             | "crash"
@@ -738,6 +742,11 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
             }
             "logs" | "crash" | "crash-mods" => instances.preview_log(&first.id, sample_log()),
             "playing" => instances.preview_play_state(crate::instances::PlayState::Playing),
+            "launching" => instances.preview_play_state(crate::instances::PlayState::Preparing {
+                label: crate::i18n::t(crate::i18n::InstancesMsg::StageLaunching).into(),
+                detail: None,
+                fraction: None,
+            }),
             "modpack-importing" => modpacks::importing(&mut instances, cx),
             _ => {}
         }
@@ -859,6 +868,17 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                         dialog.open_versions(cx);
                     }
                 });
+            }
+        }
+        "new-instance-versions-failed" => {
+            shell.open_new_instance_with(Some(("Crash Test", "")), None, cx);
+            // as Windows words a refused connection: long, with a URL that can't wrap
+            let error = "could not connect to https://piston-meta.mojang.com/mc/game/version_manifest_v2.json: could not connect: error sending request for url (https://piston-meta.mojang.com/mc/game/version_manifest_v2.json): client error (Connect): tcp connect error: An attempt was made to access a socket in a way forbidden by its access permissions. (os error 10013)";
+            shell.instances().clone().update(cx, |instances, cx| {
+                instances.set_versions(Versions::Failed(error.into()), cx)
+            });
+            if let Some(dialog) = shell.new_instance_dialog().cloned() {
+                dialog.update(cx, |dialog, cx| dialog.open_versions(cx));
             }
         }
         "new-instance-code" => {
@@ -1250,6 +1270,18 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
         "sign-in-launcher" => shell.open_sign_in_at(Stage::Choose, None, cx),
         "sign-in" => shell.open_sign_in_at(Stage::Choose, None, cx),
         "sign-in-browser" => shell.open_sign_in_at(Stage::Browser, None, cx),
+        "sign-in-stop" => {
+            shell.open_sign_in_at(
+                Stage::DeviceCode {
+                    user_code: "F7K2-9QXM".into(),
+                    verification_uri: launcher_core::auth::DEVICE_LOGIN_URL.into(),
+                    opened: true,
+                },
+                None,
+                cx,
+            );
+            shell.preview_ask_to_stop_signing_in(cx);
+        }
         "sign-in-code" => shell.open_sign_in_at(
             Stage::DeviceCode {
                 user_code: "F7K2-9QXM".into(),
@@ -1502,13 +1534,16 @@ fn sample_pack_share_plan() -> launcher_core::content::share::SharePlan {
 }
 
 /// Settings > Developer's socket, with two programs connected.
-#[cfg(unix)]
 fn preview_control(cx: &mut App) {
     use std::time::{Duration, SystemTime};
     let now = SystemTime::now();
     crate::control::preview(
         crate::control::ControlStatus {
-            socket: "/Users/you/Library/Application Support/Lodestone Launcher/control.sock".into(),
+            socket: if cfg!(windows) {
+                r"C:\Users\you\AppData\Roaming\Lodestone Launcher\control.sock".into()
+            } else {
+                "/Users/you/Library/Application Support/Lodestone Launcher/control.sock".into()
+            },
             running: true,
             error: None,
             clients: vec![
@@ -1534,9 +1569,6 @@ fn preview_control(cx: &mut App) {
         cx,
     );
 }
-
-#[cfg(not(unix))]
-fn preview_control(_: &mut App) {}
 
 /// A made-up minute of readings for the performance monitor's screenshot: the
 /// launcher settling after a download, with a game running.

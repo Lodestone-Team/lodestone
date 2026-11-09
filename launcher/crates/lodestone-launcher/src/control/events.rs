@@ -118,6 +118,8 @@ impl Notices {
             }
             // The dialog it opens records itself in traces.
             InstancesEvent::ImportSnapshot(_) => {}
+            // Traced as game.window and game.exit.
+            InstancesEvent::GameWindowOpened(_) | InstancesEvent::GameExited(_) => {}
             InstancesEvent::LoaderChanged(id) => self.push(
                 "loader_changed",
                 "Loader changed",

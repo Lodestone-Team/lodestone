@@ -90,6 +90,16 @@ pub struct LogLine {
 }
 
 impl LogLine {
+    /// Whether the game logged that its window is opening: Minecraft logs the LWJGL
+    /// version as it creates the window ("Backend library: LWJGL version 3.3.3" from
+    /// 1.13 on, "LWJGL Version: 2.9.4" before). Mods don't change either line. A
+    /// plain line (a version without log4j's XML events) has its prefix in the
+    /// message, so the text is looked for anywhere in it.
+    pub fn opens_game_window(&self) -> bool {
+        self.message.contains("Backend library: LWJGL version")
+            || self.message.contains("LWJGL Version:")
+    }
+
     pub fn plain(stream: Stream, text: &str) -> Self {
         Self {
             level: guess_level(stream, text),
@@ -513,6 +523,25 @@ mod tests {
             line.to_text(),
             "[Render thread/ERROR] Crash\njava.lang.Error\n\tat x"
         );
+    }
+
+    #[test]
+    fn notices_the_game_window_opening() {
+        let event = |message: &str| LogLine {
+            message: message.into(),
+            ..LogLine::plain(Stream::Stdout, "")
+        };
+        assert!(event("Backend library: LWJGL version 3.3.3+5").opens_game_window());
+        assert!(event("LWJGL Version: 2.9.4").opens_game_window());
+        assert!(
+            LogLine::plain(
+                Stream::Stdout,
+                "[12:00:01] [Client thread/INFO]: LWJGL Version: 2.9.1"
+            )
+            .opens_game_window()
+        );
+        assert!(!event("Setting user: Lodestoner").opens_game_window());
+        assert!(!event("Loading Minecraft 1.21.4 with Fabric Loader 0.16.10").opens_game_window());
     }
 
     #[test]

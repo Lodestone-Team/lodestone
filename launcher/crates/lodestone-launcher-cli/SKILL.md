@@ -22,16 +22,18 @@ The launcher serves the socket while it runs; nothing to configure. The CLI find
 1. `--socket <path>`, or `LODESTONE_LAUNCHER_SOCKET`;
 2. else `<data dir>/control.sock`, where the data directory is
    `LODESTONE_LAUNCHER_DATA_DIR` (as for the launcher) or, on macOS,
-   `~/Library/Application Support/Lodestone Launcher/`;
+   `~/Library/Application Support/Lodestone Launcher/`, on Windows
+   `%APPDATA%\Lodestone Launcher\`;
 3. a data directory deeper than ~100 characters uses
-   `/tmp/lodestone-launcher-<uid>/<hash>.sock` instead (Unix socket paths are short).
+   `/tmp/lodestone-launcher-<uid>/<hash>.sock` instead (on Windows
+   `%TEMP%\lodestone-launcher\<hash>.sock`; Unix socket paths are short).
 
 Check it with `lodestone-launcher-cli ping`. Exit code 3 (`not_running`) means the
 launcher isn't open, or it uses another data directory: a development launcher started
 with `LODESTONE_LAUNCHER_DATA_DIR=...` needs the same variable for the CLI.
 
-The socket is Unix-only (macOS, Linux). On Windows every command fails with exit code 3,
-`unsupported_platform`.
+The socket works on macOS, Linux and Windows 10 version 1803 or later. An older Windows
+has no Unix domain sockets: every command fails with exit code 3, `unsupported_platform`.
 
 ### What the user allows
 

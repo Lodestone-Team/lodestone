@@ -2,14 +2,17 @@
 
 use std::{
     io::{self, BufRead, BufReader, Read, Write},
-    os::unix::net::UnixStream,
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use serde_json::Value;
 
-use crate::protocol::{ErrorObject, MAX_LINE_BYTES, Message, Request, codes};
+use crate::{
+    peer::{USER_ID_NAME, UserId},
+    protocol::{ErrorObject, MAX_LINE_BYTES, Message, Request, codes},
+    transport::Stream,
+};
 
 /// Why the client couldn't talk to the launcher.
 #[derive(Debug)]
@@ -22,7 +25,9 @@ pub enum ClientError {
     /// No message arrived before the deadline.
     Timeout,
     /// The socket belongs to another user: nothing is sent to it.
-    NotYours { path: PathBuf, uid: u32 },
+    NotYours { path: PathBuf, uid: UserId },
+    /// This system has no Unix domain sockets (Windows before 10 1803).
+    Unsupported(String),
 }
 
 impl ClientError {
@@ -44,11 +49,17 @@ impl ClientError {
             ClientError::NotYours { path, uid } => ErrorObject::new(
                 codes::PERMISSION_DENIED,
                 format!(
-                    "The socket at {} is served by another user (uid {uid}), not by your Lodestone Launcher. Nothing was sent to it.",
+                    "The socket at {} is served by another user ({USER_ID_NAME} {uid}), not by your Lodestone Launcher. Nothing was sent to it.",
                     path.display()
                 ),
             )
             .with_data(serde_json::json!({ "socket": path, "uid": uid })),
+            ClientError::Unsupported(reason) => ErrorObject::new(
+                codes::UNSUPPORTED_PLATFORM,
+                format!(
+                    "This version of Windows has no Unix domain sockets ({reason}), which Lodestone Launcher's command line needs: Windows 10 version 1803 or later has them."
+                ),
+            ),
             ClientError::Timeout => ErrorObject::new(
                 codes::TIMEOUT,
                 "Timed out waiting for Lodestone Launcher. Whatever it was doing goes on; check with `jobs list`.",
@@ -67,20 +78,26 @@ impl std::error::Error for ClientError {}
 
 /// A connection to a running launcher.
 pub struct Client {
-    reader: BufReader<UnixStream>,
-    writer: UnixStream,
+    reader: BufReader<Stream>,
+    writer: Stream,
     next_id: u64,
 }
 
 impl Client {
     pub fn connect(path: &Path) -> Result<Client, ClientError> {
-        let stream = UnixStream::connect(path).map_err(|err| ClientError::NotRunning {
-            path: path.to_path_buf(),
-            reason: err.to_string(),
+        let stream = Stream::connect(path).map_err(|err| {
+            // WSAEAFNOSUPPORT: Windows without AF_UNIX
+            if cfg!(windows) && err.raw_os_error() == Some(10047) {
+                return ClientError::Unsupported(err.to_string());
+            }
+            ClientError::NotRunning {
+                path: path.to_path_buf(),
+                reason: err.to_string(),
+            }
         })?;
-        // Only talk to a launcher run by this user. Under the shared /tmp fallback,
-        // another user could have put a socket there first, and requests may carry
-        // core passwords.
+        // Only talk to a launcher run by this user. Under the shared /tmp fallback (or
+        // a socket path someone passed), another user could have put a socket there
+        // first, and requests may carry core passwords.
         let uid = crate::peer_uid(&stream).map_err(|err| ClientError::Io(err.to_string()))?;
         if uid != crate::current_uid() {
             return Err(ClientError::NotYours {
