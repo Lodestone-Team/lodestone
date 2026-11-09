@@ -1,13 +1,15 @@
-//! Finding other launchers' instances: in each launcher's default folder on macOS or
-//! Windows, or in a folder the user picks (a launcher's data folder or one instance's
-//! folder). MultiMC on Windows and portable installs keep their data beside the app, so
-//! they're only found when picked. Only reads.
+//! Finding other launchers' instances: in each launcher's default folder on macOS,
+//! Windows or Linux (Flatpak installs included), or in a folder the user picks (a
+//! launcher's data folder or one instance's folder). MultiMC on Windows and portable
+//! installs keep their data beside the app, so they're only found when picked. Only
+//! reads.
 
 use std::path::{Path, PathBuf};
 
 use super::{
     Found, Source, atlauncher, curseforge, gdlauncher, modrinth_app, prism, subfolders, vanilla,
 };
+use crate::game::platform::Os;
 
 /// One launcher's instances.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,10 +36,18 @@ impl Launcher {
 /// Where to look.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Locations {
+    /// Which OS's default folders to look in. Linux's are not macOS's or Windows's
+    /// under other names: launchers keep their data in other places there.
+    pub os: Os,
     pub home: PathBuf,
     /// Where apps keep the user's data: `~/Library/Application Support` on macOS, the
-    /// roaming `AppData` folder (`%APPDATA%`) on Windows.
+    /// roaming `AppData` folder (`%APPDATA%`) on Windows, `$XDG_DATA_HOME`
+    /// (`~/.local/share`) on Linux.
     pub app_data: PathBuf,
+    /// Where apps keep their settings: `$XDG_CONFIG_HOME` (`~/.config`) on Linux, which
+    /// is also where Electron apps keep their data (Electron's `appData`). The same
+    /// folder as `app_data` on macOS and Windows.
+    pub config: PathBuf,
     /// The user's Documents folder, wherever it was moved (into OneDrive, say).
     pub documents: PathBuf,
     /// Folders of macOS app bundles.
@@ -54,8 +64,11 @@ impl Locations {
         } else {
             Vec::new()
         };
+        let app_data = dirs::data_dir()?;
         Some(Self {
-            app_data: dirs::data_dir()?,
+            os: Os::current(),
+            config: dirs::config_dir().unwrap_or_else(|| app_data.clone()),
+            app_data,
             documents: dirs::document_dir().unwrap_or_else(|| home.join("Documents")),
             applications,
             home,
@@ -64,6 +77,9 @@ impl Locations {
 
     /// Every default folder, by launcher, whether it exists or not.
     pub fn candidates(&self) -> Vec<(Source, PathBuf)> {
+        if self.os == Os::Linux {
+            return self.linux_candidates();
+        }
         let data = |name: &str| self.app_data.join(name);
         let curseforge = |base: &Path| base.join("curseforge").join("minecraft").join("Instances");
         let mut list = vec![
@@ -90,6 +106,67 @@ impl Locations {
             ));
         }
         list
+    }
+
+    /// Linux's default folders, from each launcher's packaging, and the same in each
+    /// Flatpak's own folder, `~/.var/app/<app id>`. A Flatpak without access to the home
+    /// folder (none of these has it) gets its own `$XDG_DATA_HOME` (`data/`) and
+    /// `$XDG_CONFIG_HOME` (`config/`) there, and `--persist=<path>` puts a home-relative
+    /// folder there too.
+    fn linux_candidates(&self) -> Vec<(Source, PathBuf)> {
+        let data = |name: &str| self.app_data.join(name);
+        let config = |name: &str| self.config.join(name);
+        let flatpak = |id: &str, path: &str| self.home.join(".var/app").join(id).join(path);
+        let curseforge = |base: &Path| base.join("curseforge").join("minecraft").join("Instances");
+        vec![
+            // The official launcher's `~/.minecraft`, and the Flathub package's
+            // `--persist=.minecraft`.
+            (Source::Vanilla, self.home.join(".minecraft")),
+            (
+                Source::Vanilla,
+                flatpak("com.mojang.Minecraft", ".minecraft"),
+            ),
+            // Prism's documented folders (prismlauncher.org, "Data location").
+            (Source::Prism, data("PrismLauncher")),
+            (
+                Source::Prism,
+                flatpak("org.prismlauncher.PrismLauncher", "data/PrismLauncher"),
+            ),
+            // PolyMC: `<organization>/<app>/..` of Qt's data location, or the older
+            // lowercase `polymc` if it exists (`launcher/Application.cpp`).
+            (Source::Prism, data("PolyMC")),
+            (Source::Prism, data("polymc")),
+            (Source::Prism, flatpak("org.polymc.PolyMC", "data/PolyMC")),
+            (Source::Prism, flatpak("org.polymc.PolyMC", "data/polymc")),
+            // MultiMC's .deb unpacks it into `$XDG_DATA_HOME/multimc`, its data beside
+            // it (`launcher/package/ubuntu/multimc/opt/multimc/run.sh`).
+            (Source::MultiMc, data("multimc")),
+            // `dirs::data_dir()` joined with the app's identifier.
+            (Source::ModrinthApp, data("ModrinthApp")),
+            (
+                Source::ModrinthApp,
+                flatpak("com.modrinth.ModrinthApp", "data/ModrinthApp"),
+            ),
+            (Source::ModrinthApp, data("com.modrinth.theseus")),
+            // ATLauncher's .deb, .rpm and AUR scripts run it in
+            // `$XDG_DATA_HOME/atlauncher`; the Flathub one's `atlauncher.sh` in the
+            // Flatpak's data folder itself.
+            (Source::AtLauncher, data("atlauncher")),
+            (
+                Source::AtLauncher,
+                flatpak("com.atlauncher.ATLauncher", "data"),
+            ),
+            (Source::CurseForge, curseforge(&self.documents)),
+            (Source::CurseForge, curseforge(&self.home)),
+            // The legacy app's data is in Electron's `appData`, the config folder.
+            (Source::GdLauncher, config("gdlauncher_next")),
+            (
+                Source::GdLauncher,
+                flatpak("io.gdevs.GDLauncher", "config/gdlauncher_next"),
+            ),
+            // Carbon's is in the data folder (gdlauncher.com, "Runtime path vs app data").
+            (Source::GdLauncherCarbon, data("gdlauncher_carbon")),
+        ]
     }
 }
 
