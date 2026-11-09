@@ -1,5 +1,6 @@
 use crate::theme::px;
 use gpui::{App, ElementId, IntoElement, RenderOnce, Window, div, prelude::*};
+use launcher_core::ui_skin::SurfaceId;
 
 use super::focus::KeyboardFocus;
 use crate::theme::colors;
@@ -48,11 +49,18 @@ impl Toggle {
 }
 
 impl RenderOnce for Toggle {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let track = match (self.disabled, self.value) {
-            (true, _) => colors::GRAY_FADED.opacity(30),
-            (false, true) => colors::GREEN_400,
-            (false, false) => colors::WHITE.opacity(50),
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // 0.0 off, 1.0 on, easing between them when the value changes.
+        let on = super::motion::switch((self.id.clone(), "switch"), self.value, window, cx);
+        let track = if self.disabled {
+            colors::GRAY_FADED.opacity(30)
+        } else {
+            // the skin's colour for a switch that is on
+            let on_color = match crate::skin::painted(SurfaceId::Toggle).and_then(|p| p.paint) {
+                Some(crate::skin::Paint::Solid(color)) => color,
+                _ => colors::GREEN_400,
+            };
+            colors::WHITE.opacity(50).mix(on_color, on)
         };
         let knob = if self.disabled {
             colors::GRAY_FADED.opacity(40)
@@ -75,7 +83,7 @@ impl RenderOnce for Toggle {
             .child(
                 div()
                     .size(px(16.))
-                    .ml(if value { px(24.) } else { px(4.) })
+                    .ml(px(4. + 20. * on))
                     .rounded_full()
                     .bg(knob),
             )

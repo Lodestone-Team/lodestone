@@ -76,7 +76,7 @@ pub fn inspect(path: &Path, download: &WorldDownload) -> Result<ServerWorldZip, 
         path: path.to_owned(),
         source,
     })?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|err| {
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|err| {
         invalid(format!(
             "The world download isn't a zip that can be read: {err}"
         ))

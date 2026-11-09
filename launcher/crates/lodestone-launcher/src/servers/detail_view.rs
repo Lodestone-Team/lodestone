@@ -1,6 +1,7 @@
 //! How a server's page looks: its state and controls, the console with the
 //! dashboard's colours, the chat box, the players, and the Minecraft account link.
 
+use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{
     AnyElement, Context, FontStyle, FontWeight, HighlightStyle, IntoElement, KeyDownEvent, Render,
@@ -8,6 +9,7 @@ use gpui::{
     Window, div, prelude::*, uniform_list,
 };
 use launcher_core::cores::{ServerLoader, ServerState};
+use launcher_core::ui_skin::SurfaceId;
 use lodestone_minecraft::console_format::{
     BADGE_PALETTE, BOLD, ConsoleColor, ConsoleLevel, ConsoleSegment, ConsoleTheme, DIM, INVERSE,
     ITALIC, ParsedConsoleLine, RGB_BASE, STRIKE, UNDERLINE, luminance, readable_color, xterm256,
@@ -154,7 +156,7 @@ fn console_row(index: usize, line: &ParsedConsoleLine) -> AnyElement {
         .items_center()
         .whitespace_nowrap()
         .overflow_hidden()
-        .font_family(fonts::MONO)
+        .font_family(fonts::mono())
         .text_size(theme::text_size(text::SMALL))
         .text_color(base)
         .hover(|style| style.bg(colors::GRAY_800))
@@ -172,7 +174,7 @@ fn small(value: impl Into<SharedString>) -> gpui::Div {
 fn card_title(title: &'static str) -> gpui::Div {
     div()
         .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_300)
+        .text_color(crate::theme::ink::text())
         .child(title)
 }
 
@@ -184,8 +186,9 @@ fn card() -> gpui::Div {
         .p_4()
         .rounded(radius::XL)
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_850)
+        .surface(SurfaceId::Card)
 }
 
 fn state_color(state: ServerState) -> Color {
@@ -213,7 +216,11 @@ fn status_line(status: &StreamStatus) -> gpui::Div {
         .gap_1p5()
         .min_w_0()
         .child(div().flex_none().size(px(6.)).rounded_full().bg(color))
-        .child(small(label).truncate().text_color(colors::GRAY_500))
+        .child(
+            small(label)
+                .truncate()
+                .text_color(crate::theme::ink::muted()),
+        )
 }
 
 impl ServerDetail {
@@ -258,10 +265,10 @@ impl ServerDetail {
                     .child(
                         div()
                             .truncate()
-                            .font_family(fonts::HEADING)
+                            .font_family(fonts::heading())
                             .text_size(theme::text_size(text::H1))
                             .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_300)
+                            .text_color(crate::theme::ink::text())
                             .child(server.name.clone()),
                     )
                     .child(
@@ -270,7 +277,7 @@ impl ServerDetail {
                             self.core_name, server.game_version
                         ))
                         .truncate()
-                        .text_color(colors::GRAY_500),
+                        .text_color(crate::theme::ink::muted()),
                     ),
             )
             .child(
@@ -286,7 +293,7 @@ impl ServerDetail {
                             .rounded_full()
                             .bg(state_color(server.state)),
                     )
-                    .child(small(status).text_color(colors::GRAY_400)),
+                    .child(small(status).text_color(crate::theme::ink::secondary())),
             )
             .when(access.start && stopped, |this| {
                 this.child(
@@ -350,7 +357,7 @@ impl ServerDetail {
                         ),
                     })
                     .text_center()
-                    .text_color(colors::GRAY_500),
+                    .text_color(crate::theme::ink::muted()),
                 )
                 .into_any_element()
         } else if count == 0 {
@@ -476,7 +483,7 @@ impl ServerDetail {
                     .min_h_0()
                     .rounded(radius::LG)
                     .border_1()
-                    .border_color(colors::FADE_700)
+                    .border_color(crate::theme::ink::border())
                     .bg(colors::GRAY_900)
                     .overflow_hidden()
                     .on_scroll(cx.listener(Self::on_scroll))
@@ -504,7 +511,7 @@ impl ServerDetail {
                 } else {
                     M::ServerNotRunning
                 }))
-                .text_color(colors::GRAY_500),
+                .text_color(crate::theme::ink::muted()),
             ),
             Some(players) => card.children(players.iter().map(|player| {
                 div()
@@ -516,7 +523,7 @@ impl ServerDetail {
                     .child(
                         div()
                             .truncate()
-                            .text_color(colors::GRAY_300)
+                            .text_color(crate::theme::ink::text())
                             .child(player.name.clone()),
                     )
             })),
@@ -531,7 +538,7 @@ impl ServerDetail {
             LinkState::Loading => return card.child(LoadingDots).into_any_element(),
             LinkState::Unsupported => {
                 return card
-                    .child(small(t(M::CoreTooOldToLink)).text_color(colors::GRAY_500))
+                    .child(small(t(M::CoreTooOldToLink)).text_color(crate::theme::ink::muted()))
                     .into_any_element();
             }
             LinkState::Failed(err) => {
@@ -551,7 +558,7 @@ impl ServerDetail {
                                 .flex_1()
                                 .min_w_0()
                                 .truncate()
-                                .text_color(colors::GRAY_300)
+                                .text_color(crate::theme::ink::text())
                                 .child(format!("{} → {user}", link.minecraft_name)),
                         )
                         .child(
@@ -583,9 +590,10 @@ impl ServerDetail {
                 .child(small(t(M::LinkCheckHint)).text_color(colors::GRAY_550)),
             Some(_) => card,
             None if self.selected_is_offline(cx) => {
-                card.child(small(t(M::OfflineCantLink)).text_color(colors::GRAY_500))
+                card.child(small(t(M::OfflineCantLink)).text_color(crate::theme::ink::muted()))
             }
-            None => card.child(small(t(M::SignInMicrosoftToLink)).text_color(colors::GRAY_500)),
+            None => card
+                .child(small(t(M::SignInMicrosoftToLink)).text_color(crate::theme::ink::muted())),
         };
         if let Some((error, message)) = &self.link_notice {
             card = card.child(small(message.clone()).text_color(if *error {

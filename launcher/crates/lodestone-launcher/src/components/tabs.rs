@@ -1,9 +1,9 @@
-use crate::theme::px;
 use std::rc::Rc;
 
 use gpui::{
     App, ElementId, FocusHandle, IntoElement, RenderOnce, SharedString, Window, div, prelude::*,
 };
+use launcher_core::ui_skin::{FontPart, SurfaceId};
 
 use super::focus::{self, SelectNext, SelectPrev};
 use crate::theme::{self, colors, leading, text, weights};
@@ -106,25 +106,49 @@ impl RenderOnce for Tabs {
             .text_size(theme::text_size(text::H3))
             .line_height(theme::line_height(text::H3, leading::NORMAL))
             .font_weight(weights::BOLD.into())
+            .when_some(crate::theme::fonts::own(FontPart::Tab), |this, font| {
+                this.font_family(font)
+            })
             .children(self.labels.into_iter().enumerate().map(|(index, label)| {
+                let skin = crate::skin::painted(SurfaceId::Tab);
+                let selected_text = skin
+                    .as_ref()
+                    .and_then(|s| s.text)
+                    .unwrap_or_else(crate::theme::accent::light);
                 let selected = index == self.selected;
                 let on_select = on_select.clone();
+                // The underline and the label's colour fade over to the chosen tab.
+                let t = super::motion::switch(("tab-underline", index), selected, window, cx);
                 div()
                     .id(("tab", index))
                     .track_focus(&handles[index])
                     .focus_visible(focus::inner_ring)
                     .cursor_pointer()
-                    .map(|this| {
-                        if selected {
-                            this.border_b_2()
-                                .border_color(colors::BLUE_200)
-                                .text_color(colors::BLUE_200)
-                        } else {
-                            // mb-0.5 keeps unselected labels level with the selected one.
-                            this.mb(px(2.))
-                                .text_color(colors::GRAY_500)
-                                .hover(|style| style.text_color(colors::GRAY_400))
-                        }
+                    .border_b_2()
+                    .border_color(
+                        crate::theme::accent::light()
+                            .opacity(0)
+                            .mix(crate::theme::accent::light(), t),
+                    )
+                    .text_color(crate::theme::ink::muted().mix(selected_text, t))
+                    // the skin's fill behind the chosen tab
+                    .when_some(
+                        skin.filter(|s| selected && s.paint.is_some()),
+                        |this, skin| {
+                            let tab = this
+                                .px_2()
+                                .rounded_t(crate::theme::px(skin.radius.unwrap_or(6.)));
+                            crate::skin::paint(
+                                tab,
+                                &crate::skin::Painted {
+                                    paint: skin.paint.clone(),
+                                    ..Default::default()
+                                },
+                            )
+                        },
+                    )
+                    .when(!selected, |this| {
+                        this.hover(|style| style.text_color(crate::theme::ink::secondary()))
                     })
                     .when_some(on_select, |this, on_select| {
                         this.on_click(move |_, window, cx| on_select(&index, window, cx))

@@ -21,7 +21,7 @@ use launcher_core::{
     },
 };
 
-use super::Instances;
+use super::{Instances, shared_options_i18n};
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Slider, TextInput, Toggle, segmented,
@@ -78,11 +78,19 @@ impl Instances {
             Some(&jar),
         );
         let note = match result {
-            Ok(outcome) => outcome.note().map(|note| (Level::Info, note)),
-            Err(err) => Some((
-                Level::Warn,
-                format!("Shared game settings weren't applied: {err}"),
-            )),
+            Ok(outcome) => match (&outcome.skipped, outcome.written) {
+                (Some(reason), _) => Some((Level::Warn, tr!(M::SharedNotApplied, error = reason))),
+                (None, 0) => None,
+                (None, written) => {
+                    let message = if outcome.created {
+                        P::SharedWrittenNewFile
+                    } else {
+                        P::SharedWritten
+                    };
+                    Some((Level::Info, trn!(message, written)))
+                }
+            },
+            Err(err) => Some((Level::Warn, tr!(M::SharedNotApplied, error = err))),
         };
         if let (Some((level, note)), Some(run)) = (note, self.runs.get_mut(id)) {
             run.log.note(level, note);
@@ -97,24 +105,13 @@ impl Instances {
         let result = shared_options::after_exit(&self.data_dir, id, &self.store.dir(id), &version);
         let note = match result {
             Ok(ExitOutcome::Nothing) => None,
-            Ok(ExitOutcome::Emitted(keys)) => Some((
-                Level::Info,
-                format!(
-                    "Shared game settings: {} value(s) from this instance now apply to every instance",
-                    keys.len()
-                ),
-            )),
-            Ok(ExitOutcome::Changed(keys)) => Some((
-                Level::Info,
-                format!(
-                    "Shared game settings: {} setting(s) changed in-game will be replaced by the shared ones next launch (see Settings)",
-                    keys.len()
-                ),
-            )),
-            Err(err) => Some((
-                Level::Warn,
-                format!("Shared game settings couldn't be read back: {err}"),
-            )),
+            Ok(ExitOutcome::Emitted(keys)) => {
+                Some((Level::Info, trn!(P::SharedEmitted, keys.len())))
+            }
+            Ok(ExitOutcome::Changed(keys)) => {
+                Some((Level::Info, trn!(P::SharedChangedNote, keys.len())))
+            }
+            Err(err) => Some((Level::Warn, tr!(M::SharedNotReadBack, error = err))),
         };
         if let (Some((level, note)), Some(run)) = (note, self.runs.get_mut(id)) {
             run.log.note(level, note);
@@ -356,7 +353,7 @@ impl InstanceSharedSettings {
             .child(
                 div()
                     .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_500)
+                    .text_color(crate::theme::ink::muted())
                     .child(summary),
             )
             .when(can_open && expanded, |row| {
@@ -409,16 +406,16 @@ impl InstanceSharedSettings {
             .as_ref()
             .filter(|(k, _)| *k == row.key)
             .map(|(_, input)| input.clone());
-        let shared_text = row
-            .shared
-            .as_deref()
-            .map_or_else(|| t(M::NotSharedYet).to_string(), |v| row.show(v));
-        let local_text = row
-            .local
-            .as_deref()
-            .map_or_else(|| t(M::NotInOptions).to_string(), |v| row.show(v));
+        let shared_text = row.shared.as_deref().map_or_else(
+            || t(M::NotSharedYet).to_string(),
+            |v| shared_options_i18n::show(row, v),
+        );
+        let local_text = row.local.as_deref().map_or_else(
+            || t(M::NotInOptions).to_string(),
+            |v| shared_options_i18n::show(row, v),
+        );
         let edit_row = row.clone();
-        let line = SettingRow::new(row.label.clone()).indent();
+        let line = SettingRow::new(shared_options_i18n::label(row)).indent();
         let line =
             match (row.overridden, editing) {
                 (true, Some(input)) => line
@@ -456,7 +453,7 @@ impl InstanceSharedSettings {
                         Some(control) => line.child(control),
                         None => line.child(value(local_text, false)),
                     })
-                    .child(tag(t(M::ThisInstance), colors::BLUE_200))
+                    .child(tag(t(M::ThisInstance), crate::theme::accent::light()))
                     .when(!busy, |line| {
                         line.when(typed, |line| {
                             line.child(link(("shared-edit", id), t(CommonMsg::Edit)).on_click(
@@ -515,7 +512,7 @@ fn labels(rows: &[Row], keys: &BTreeMap<String, String>) -> String {
         .map(|key| {
             rows.iter()
                 .find(|r| &r.key == key)
-                .map_or_else(|| key.clone(), |r| r.label.clone())
+                .map_or_else(|| key.clone(), shared_options_i18n::label)
         })
         .collect();
     let more = names.len().saturating_sub(3);
@@ -624,7 +621,7 @@ impl Render for InstanceSharedSettings {
                     .border_1()
                     .border_color(colors::YELLOW.opacity(30))
                     .bg(colors::YELLOW.opacity(5))
-                    .child(div().text_color(colors::GRAY_300).child(trn!(
+                    .child(div().text_color(crate::theme::ink::text()).child(trn!(
                         P::ChangedInGame,
                         count,
                         names = labels(&rows, &changed)
@@ -693,7 +690,12 @@ pub(crate) fn value_control(
                 format!("{name}-{index}"),
                 choices
                     .iter()
-                    .map(|(value, label)| (value.to_string(), SharedString::from(*label)))
+                    .map(|(value, _)| {
+                        (
+                            value.to_string(),
+                            SharedString::from(shared_options_i18n::show(row, value)),
+                        )
+                    })
                     .collect(),
                 selected.as_ref(),
                 false,
@@ -707,7 +709,9 @@ pub(crate) fn value_control(
                 .unwrap_or(min);
             let shown = row.clone();
             Slider::new((name, index), current, min, max, step)
-                .format(move |n| shown.show(&slider_text(min, max, step, n)).into())
+                .format(move |n| {
+                    shared_options_i18n::show(&shown, &slider_text(min, max, step, n)).into()
+                })
                 .on_change(move |n, window, cx| on_set(&slider_text(min, max, step, n), window, cx))
                 .into_any_element()
         }

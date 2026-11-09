@@ -27,6 +27,8 @@ mod instances;
 mod jobs;
 mod servers;
 mod settings;
+mod skins;
+mod storage;
 mod trace;
 mod worlds;
 
@@ -287,6 +289,46 @@ pub const METHODS: &[Method] = &[
         "settings.general.set",
         "Changes general settings.",
         settings::general_set,
+    ),
+    method(
+        "skins.list",
+        "The launcher's skins (built-in and imported packs), and the one in use.",
+        skins::list,
+    ),
+    method(
+        "skins.use",
+        "Uses a skin by id (\"default\" for the default look).",
+        skins::use_skin,
+    ),
+    method(
+        "skins.import",
+        "Imports a skin pack from a .zip file or a folder (absolute path); use: true to use it.",
+        skins::import,
+    ),
+    method(
+        "skins.export",
+        "Writes a skin (the one in use without id) to a .zip file (absolute path).",
+        skins::export,
+    ),
+    method(
+        "skins.check",
+        "Readability checks for a skin (the one in use without id), or a pack at path (absolute; checked as importing would, not kept): each surface's text, its contrast, the target and a suggested fix.",
+        skins::check,
+    ),
+    method(
+        "skins.fix",
+        "Applies the suggested readability fixes to an imported skin (the one in use without id), a round at a time; not to a built-in skin.",
+        skins::fix,
+    ),
+    method(
+        "storage.show",
+        "What the data folder takes: instances, game files, Java runtimes, cache, logs; and what is unused.",
+        storage::show,
+    ),
+    destructive(
+        "storage.clean",
+        "Removes unused game files or Java runtimes, the cache, old logs or all logs (what: game-files, runtimes, cache, leftovers, old-logs, logs).",
+        storage::clean,
     ),
     method(
         "settings.developer.get",

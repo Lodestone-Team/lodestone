@@ -1,12 +1,14 @@
 use crate::theme::px;
 use gpui::{
-    AnyElement, Context, ExternalPaths, IntoElement, SharedString, Transformation, div, prelude::*,
-    radians,
+    AnyElement, Context, ExternalPaths, IntoElement, ObjectFit, SharedString, Transformation, div,
+    img, prelude::*, radians,
 };
 use launcher_core::instances::{AutoGroup, Instance, last_played};
+use launcher_core::ui_skin::{FontPart, SurfaceId};
 
 use super::{LauncherShell, Page, account_box};
 use crate::components::KeyboardFocus;
+use crate::skin::Skinned;
 use crate::{
     components::{Align, Button, ButtonVariant, Icon},
     i18n::{ShellMsg as M, format, t, tr},
@@ -15,18 +17,81 @@ use crate::{
 };
 
 /// The left sidebar: the account box at the top, the instance list and "New
-/// instance" in the middle, and Settings pinned at the bottom.
+/// instance" in the middle, and Settings pinned at the bottom. Its right edge drags
+/// to resize it; dragged narrow enough it folds into a rail of icons.
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let (width, collapsed) = shell.sidebar_state(cx);
+    let dragging = shell.sidebar_dragging();
     div()
         .id("sidebar")
+        .relative()
         .flex()
         .flex_col()
         .flex_none()
-        .w(layout::sidebar_width())
+        .w(px(if collapsed {
+            layout::SIDEBAR_RAIL
+        } else {
+            width
+        }))
         .h_full()
         .bg(colors::GRAY_850)
         .border_r_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
+        .overflow_hidden()
+        .surface(SurfaceId::Sidebar)
+        .when_some(theme::fonts::own(FontPart::Sidebar), |this, font| {
+            this.font_family(font)
+        })
+        // a backing, when the skin's text colours alone can't stay readable
+        .when_some(crate::skin::sidebar_inks().backing, |this, backing| {
+            this.child(div().absolute().inset_0().bg(backing))
+        })
+        .map(|this| {
+            if collapsed {
+                this.child(rail(shell, cx))
+            } else {
+                this.child(full(shell, cx))
+            }
+        })
+        .child(resize_handle(dragging, cx))
+}
+
+/// The sidebar's right edge: drag it to resize, double-click it for the default.
+fn resize_handle(dragging: bool, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    div()
+        .id("sidebar-resize")
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .right_0()
+        .w(px(6.))
+        .flex()
+        .justify_end()
+        .cursor(gpui::CursorStyle::ResizeLeftRight)
+        .child(div().w(px(2.)).h_full().when(dragging, |this| {
+            this.bg(crate::theme::accent::light().opacity(60))
+        }))
+        .hover(|style| style.bg(crate::theme::accent::light().opacity(20)))
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            cx.listener(|this, _, _, cx| {
+                cx.stop_propagation();
+                this.start_sidebar_drag(cx);
+            }),
+        )
+        .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+            if event.click_count() >= 2 {
+                this.reset_sidebar(cx);
+            }
+        }))
+}
+
+/// The sidebar at full width: the account box, the list, and the footer.
+fn full(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .size_full()
         .child(
             div()
                 .flex_none()
@@ -49,8 +114,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 // A dropped .mrpack becomes a new instance.
                 .drag_over::<ExternalPaths>(|style, _, _, _| {
                     style
-                        .border_color(colors::BLUE_200.opacity(60))
-                        .bg(colors::BLUE.opacity(8))
+                        .border_color(crate::theme::accent::light().opacity(60))
+                        .bg(crate::theme::accent::base().opacity(8))
                 })
                 .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                     let paths = paths.paths().to_vec();
@@ -66,6 +131,246 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 ),
         )
         .child(footer(shell, cx))
+}
+
+/// The folded sidebar: the account's avatar, every instance as its icon (the last
+/// played first, under a line), New instance and Import, then Servers and Settings.
+/// The names show as tooltips.
+fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let list: Vec<Instance> = shell.instances.read(cx).list().to_vec();
+    let last = last_played(&list).cloned();
+    // Every instance, in the list's order; a folded group's too, since the rail
+    // has no headings to unfold it with.
+    let ordered: Vec<Instance> = shell
+        .instances
+        .read(cx)
+        .grouped()
+        .into_iter()
+        .flat_map(|(_, members)| members.into_iter().cloned())
+        .collect();
+    let importing: Vec<SharedString> = shell
+        .instances
+        .read(cx)
+        .imports()
+        .iter()
+        .map(|job| job.name.clone())
+        .collect();
+    let settings_open = shell.settings_open();
+    let servers_open = shell.page == Page::Servers;
+    div()
+        .flex()
+        .flex_col()
+        .items_center()
+        .size_full()
+        .child(
+            div()
+                .flex_none()
+                .pt_3()
+                .pb_3()
+                .child(account_box::render_compact(shell, cx)),
+        )
+        .child(
+            div()
+                .id("sidebar-scroll")
+                .flex()
+                .flex_col()
+                .items_center()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .overflow_y_scroll()
+                .border_2()
+                .border_color(colors::TRANSPARENT)
+                .drag_over::<ExternalPaths>(|style, _, _, _| {
+                    style
+                        .border_color(crate::theme::accent::light().opacity(60))
+                        .bg(crate::theme::accent::base().opacity(8))
+                })
+                .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                    let paths = paths.paths().to_vec();
+                    this.instances
+                        .update(cx, |instances, cx| instances.import_files(paths, cx));
+                }))
+                .child(
+                    crate::components::ArrowGroup::new("sidebar-list")
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap_1()
+                        .when_some(last, |this, instance| {
+                            this.child(rail_instance(shell, &instance, RowPlace::LastPlayed, cx))
+                                .child(div().w(px(28.)).h(px(1.)).my_1().bg(colors::FADE_700))
+                        })
+                        .children(
+                            ordered
+                                .iter()
+                                .map(|instance| rail_instance(shell, instance, RowPlace::List, cx)),
+                        )
+                        .children(importing.into_iter().enumerate().map(|(index, name)| {
+                            div()
+                                .id(("rail-import", index))
+                                .size(px(44.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(radius::MD)
+                                .tooltip(crate::components::text_tooltip(name))
+                                .child(crate::components::LoadingDots)
+                        }))
+                        .child(div().h_1())
+                        .child(rail_button(
+                            "new-instance",
+                            Icon::SquarePlus,
+                            t(M::NewInstance),
+                            false,
+                            cx.listener(|this, _, window, cx| this.open_new_instance(window, cx)),
+                        ))
+                        .child(rail_button(
+                            "import-instances",
+                            Icon::Download,
+                            t(M::ImportInstances),
+                            false,
+                            cx.listener(|this, _, window, cx| this.open_import(window, cx)),
+                        ))
+                        .child(div().h_4()),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .flex_none()
+                .gap_1()
+                .w_full()
+                .py_2()
+                .border_t_1()
+                .border_color(crate::theme::ink::border())
+                .child(rail_button(
+                    "servers",
+                    Icon::Cube,
+                    t(M::Servers),
+                    servers_open,
+                    cx.listener(move |this, _, _, cx| {
+                        this.show(
+                            if servers_open {
+                                Page::Instance
+                            } else {
+                                Page::Servers
+                            },
+                            cx,
+                        )
+                    }),
+                ))
+                .child(rail_button(
+                    "settings",
+                    Icon::Gear,
+                    t(M::Settings),
+                    settings_open,
+                    cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
+                )),
+        )
+}
+
+/// A square icon button of the rail, its label as a tooltip.
+fn rail_button(
+    id: &'static str,
+    icon: Icon,
+    label: &'static str,
+    open: bool,
+    on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .keyboard_focus()
+        .size(px(40.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(radius::MD)
+        .cursor_pointer()
+        .map(|this| {
+            if open {
+                this.bg(crate::skin::sidebar_inks().fill)
+            } else {
+                this.hover(|style| style.bg(crate::skin::sidebar_inks().fill))
+            }
+        })
+        .tooltip(crate::components::text_tooltip(label))
+        .child(icon.render(
+            px(16.),
+            if open {
+                crate::skin::sidebar_inks().primary
+            } else {
+                crate::skin::sidebar_inks().icon
+            },
+        ))
+        .on_click(on_click)
+}
+
+/// An instance in the rail: its icon, highlighted when it's the one shown, with a
+/// dot while it runs; its name (and when it was played) as a tooltip.
+fn rail_instance(
+    shell: &LauncherShell,
+    instance: &Instance,
+    place: RowPlace,
+    cx: &mut Context<LauncherShell>,
+) -> AnyElement {
+    let instances = shell.instances.read(cx);
+    let id = instance.id.clone();
+    let is_selected = shell.page == Page::Instance
+        && instances
+            .selected()
+            .is_some_and(|selected| selected.id == id);
+    let active = instances.is_active(&id);
+    let running = instances.is_running(&id);
+    let icon = crate::instances::appearance::instance_icon(instances, instance, px(28.));
+    let tooltip: SharedString = match played_summary(instance) {
+        Some(played) => format!("{}\n{played}", instance.name).into(),
+        None => instance.name.clone().into(),
+    };
+    let element_id = match place {
+        RowPlace::List => format!("instance-{id}"),
+        RowPlace::LastPlayed => format!("last-played-{id}"),
+    };
+    div()
+        .id(SharedString::from(element_id))
+        .keyboard_focus()
+        .relative()
+        .size(px(44.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(radius::MD)
+        .border_1()
+        .border_color(colors::TRANSPARENT)
+        .cursor_pointer()
+        .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
+        .when(is_selected, |this| {
+            this.bg(crate::skin::sidebar_inks().fill)
+                .border_color(crate::theme::ink::border())
+        })
+        .child(icon)
+        .when(active, |this| {
+            this.child(
+                div()
+                    .absolute()
+                    .top(px(4.))
+                    .right(px(4.))
+                    .size(px(8.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(colors::GRAY_850)
+                    .bg(if running {
+                        colors::GREEN_200
+                    } else {
+                        colors::YELLOW
+                    }),
+            )
+        })
+        .tooltip(crate::components::text_tooltip(tooltip))
+        .on_click(cx.listener(move |this, _, _, cx| this.select_instance(&id, cx)))
+        .into_any_element()
 }
 
 /// A modpack being made into an instance: its name, what it is doing, and Cancel.
@@ -93,8 +398,8 @@ fn import_row(
         .py_1p5()
         .rounded(radius::MD)
         .border_1()
-        .border_color(colors::BLUE_200.opacity(30))
-        .bg(colors::BLUE.opacity(8))
+        .border_color(crate::theme::accent::light().opacity(30))
+        .bg(crate::theme::accent::base().opacity(8))
         .child(
             div()
                 .flex()
@@ -108,7 +413,7 @@ fn import_row(
                         .min_w_0()
                         .truncate()
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_300)
+                        .text_color(crate::skin::sidebar_inks().primary)
                         .child(name),
                 )
                 .child(
@@ -123,7 +428,7 @@ fn import_row(
             div()
                 .truncate()
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::skin::sidebar_inks().muted)
                 .child(match fraction {
                     Some(f) => tr!(
                         M::ImportProgress,
@@ -144,7 +449,8 @@ fn import_row(
                         div()
                             .h_full()
                             .rounded_full()
-                            .bg(colors::BLUE_200)
+                            .bg(crate::theme::accent::light())
+                            .surface(launcher_core::ui_skin::SurfaceId::Progress)
                             .w(gpui::relative(fraction.clamp(0.0, 1.0))),
                     ),
             )
@@ -198,9 +504,20 @@ fn instance_row(
         RowPlace::List => format!("instance-{id}"),
         RowPlace::LastPlayed => format!("last-played-{id}"),
     };
+    // The skin can show the instance's Play background faintly behind its row, under
+    // a strong scrim so the name stays readable.
+    let banner = crate::skin::look(cx)
+        .spec
+        .banner
+        .in_sidebar
+        .then(|| instances.sidebar_banner(&id))
+        .flatten();
+    let banner_readability = crate::skin::look(cx).spec.banner.readability;
     div()
         .id(SharedString::from(element_id))
         .keyboard_focus()
+        .relative()
+        .overflow_hidden()
         .flex()
         .flex_row()
         .items_center()
@@ -212,9 +529,26 @@ fn instance_row(
         .border_1()
         .border_color(colors::TRANSPARENT)
         .cursor_pointer()
-        .hover(|style| style.bg(colors::GRAY_800))
+        .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .when(is_selected, |this| {
-            this.bg(colors::GRAY_800).border_color(colors::FADE_700)
+            this.bg(crate::skin::sidebar_inks().fill)
+                .border_color(crate::theme::ink::border())
+        })
+        .when_some(banner, |this, (banner, backdrop)| {
+            this.child(
+                img(banner)
+                    .absolute()
+                    .inset_0()
+                    .size_full()
+                    .object_fit(ObjectFit::Cover)
+                    .opacity(0.45),
+            )
+            // as dark (or light) as the row's text needs over this image
+            .child(div().absolute().inset_0().bg(crate::skin::row_backing(
+                backdrop,
+                &crate::skin::sidebar_inks(),
+                banner_readability,
+            )))
         })
         .child(icon)
         .child(
@@ -227,14 +561,14 @@ fn instance_row(
                     div()
                         .truncate()
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_300)
+                        .text_color(crate::skin::sidebar_inks().primary)
                         .child(instance.name.clone()),
                 )
                 .child(
                     div()
                         .truncate()
                         .text_size(theme::text_size(text::SMALL))
-                        .text_color(colors::GRAY_500)
+                        .text_color(crate::skin::sidebar_inks().muted)
                         .child(detail),
                 ),
         )
@@ -284,7 +618,7 @@ fn group_header(
     cx: &mut Context<LauncherShell>,
 ) -> AnyElement {
     let group = name.to_string();
-    let caret = Icon::CaretDown.render(px(10.), colors::GRAY_FADED.opacity(50));
+    let caret = Icon::CaretDown.render(px(10.), crate::skin::sidebar_inks().icon);
     let caret = if collapsed {
         caret.with_transformation(Transformation::rotate(radians(
             -std::f32::consts::FRAC_PI_2,
@@ -304,7 +638,7 @@ fn group_header(
         .py_0p5()
         .rounded(radius::MD)
         .cursor_pointer()
-        .hover(|style| style.bg(colors::GRAY_800))
+        .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .child(caret)
         .child(
             div()
@@ -313,14 +647,14 @@ fn group_header(
                 .truncate()
                 .text_size(theme::text_size(text::SMALL))
                 .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_400)
+                .text_color(crate::skin::sidebar_inks().secondary)
                 .child(group_label(name).to_uppercase()),
         )
         .child(
             div()
                 .text_size(theme::text_size(text::CAPTION))
                 .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_FADED.opacity(30))
+                .text_color(crate::skin::sidebar_inks().faint)
                 .child(count.to_string()),
         )
         .on_click(cx.listener(move |this, _, _, cx| {
@@ -402,13 +736,13 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
                     .border_2()
                     .border_dashed()
                     .border_color(colors::GRAY_FADED.opacity(10))
-                    .child(Icon::Expand.render(px(28.), colors::GRAY_FADED.opacity(30)))
+                    .child(Icon::Expand.render(px(28.), crate::skin::sidebar_inks().faint))
                     .child(
                         div()
                             .text_center()
                             .italic()
                             .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_FADED.opacity(30))
+                            .text_color(crate::skin::sidebar_inks().faint)
                             .child(t(M::NoInstancesYet)),
                     ),
             )
@@ -417,6 +751,10 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
             div().w_full().pt_1().child(
                 Button::new("new-instance", t(M::NewInstance))
                     .variant(ButtonVariant::Ghost)
+                    .ink(
+                        crate::skin::sidebar_inks().ghost,
+                        crate::skin::sidebar_inks().fill,
+                    )
                     .icon(Icon::SquarePlus)
                     .align(Align::Start)
                     .full_width()
@@ -429,6 +767,10 @@ fn instance_list(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl
             div().w_full().pb_8().child(
                 Button::new("import-instances", t(M::ImportInstances))
                     .variant(ButtonVariant::Ghost)
+                    .ink(
+                        crate::skin::sidebar_inks().ghost,
+                        crate::skin::sidebar_inks().fill,
+                    )
                     .icon(Icon::Download)
                     .align(Align::Start)
                     .full_width()
@@ -444,7 +786,7 @@ fn section_label(label: &'static str) -> impl IntoElement {
         .text_size(theme::text_size(text::SMALL))
         .line_height(theme::line_height(text::SMALL, leading::SNUG))
         .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_FADED.opacity(30))
+        .text_color(crate::skin::sidebar_inks().faint)
         .child(label.to_uppercase())
 }
 
@@ -471,13 +813,18 @@ fn page_link(
         .font_weight(weights::BOLD.into())
         .map(|this| {
             if open {
-                this.bg(colors::GRAY_800).text_color(colors::GRAY_300)
+                this.bg(crate::skin::sidebar_inks().fill)
+                    .text_color(crate::skin::sidebar_inks().primary)
             } else {
-                this.text_color(colors::GRAY_400)
-                    .hover(|style| style.bg(colors::GRAY_800).text_color(colors::GRAY_300))
+                this.text_color(crate::skin::sidebar_inks().secondary)
+                    .hover(|style| {
+                        style
+                            .bg(crate::skin::sidebar_inks().fill)
+                            .text_color(crate::skin::sidebar_inks().primary)
+                    })
             }
         })
-        .child(icon.render(px(14.), colors::GRAY_FADED.opacity(50)))
+        .child(icon.render(px(14.), crate::skin::sidebar_inks().icon))
         .child(div().min_w_0().truncate().child(label))
         .on_click(cx.listener(move |this, _, _, cx| {
             this.show(if open { Page::Instance } else { page }, cx)
@@ -497,7 +844,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .px_2()
         .py_2()
         .border_t_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .child(page_link(
             "servers",
             t(M::Servers),
@@ -521,13 +868,18 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 .font_weight(weights::BOLD.into())
                 .map(|this| {
                     if settings_open {
-                        this.bg(colors::GRAY_800).text_color(colors::GRAY_300)
+                        this.bg(crate::skin::sidebar_inks().fill)
+                            .text_color(crate::skin::sidebar_inks().primary)
                     } else {
-                        this.text_color(colors::GRAY_400)
-                            .hover(|style| style.bg(colors::GRAY_800).text_color(colors::GRAY_300))
+                        this.text_color(crate::skin::sidebar_inks().secondary)
+                            .hover(|style| {
+                                style
+                                    .bg(crate::skin::sidebar_inks().fill)
+                                    .text_color(crate::skin::sidebar_inks().primary)
+                            })
                     }
                 })
-                .child(Icon::Gear.render(px(14.), colors::GRAY_FADED.opacity(50)))
+                .child(Icon::Gear.render(px(14.), crate::skin::sidebar_inks().icon))
                 .child(div().min_w_0().truncate().child(t(M::Settings)))
                 .on_click(
                     cx.listener(|this, _, window, cx| this.open_settings(None, Some(window), cx)),
@@ -538,7 +890,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
                 .px_2()
                 .text_size(theme::text_size(text::CAPTION))
                 .font_weight(weights::MEDIUM.into())
-                .text_color(colors::GRAY_FADED.opacity(30))
+                .text_color(crate::skin::sidebar_inks().faint)
                 .truncate()
                 .child(tr!(M::AppVersion, version = env!("CARGO_PKG_VERSION"))),
         )

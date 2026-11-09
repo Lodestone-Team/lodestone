@@ -11,7 +11,9 @@ pub mod modpack_browser;
 pub mod modpacks;
 pub mod new_instance;
 pub mod settings;
+pub(crate) mod shared_options_i18n;
 pub mod shared_settings;
+pub mod slideshow;
 mod undo;
 pub mod worlds;
 pub use undo::InstanceSnapshot;
@@ -29,7 +31,7 @@ use std::{
 use futures::StreamExt as _;
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, RenderImage, SharedString, Task};
 use launcher_core::{
-    content::{InstanceDirs, Modrinth, Target},
+    content::{CurseForge, InstanceDirs, Modrinth, Target},
     export,
     game::{
         crash::{self, CrashSummary, Outcome},
@@ -274,6 +276,26 @@ pub struct Instances {
     /// Decoded Play backgrounds, and those being decoded.
     backgrounds: HashMap<String, appearance::BackgroundEntry>,
     background_tasks: HashMap<String, appearance::BackgroundTask>,
+    /// Small copies of the instances' Play backgrounds, for a skin that shows them
+    /// behind the sidebar's rows: by id, with the file's modification time.
+    sidebar_banners: HashMap<
+        String,
+        (
+            Option<std::time::SystemTime>,
+            appearance::BackgroundSource,
+            Arc<RenderImage>,
+            launcher_core::ui_skin::readable::Backdrop,
+        ),
+    >,
+    sidebar_banner_tasks: HashMap<String, Task<()>>,
+    /// Goes up when an instance's slideshow changes, so the Play tab lists it again.
+    slideshow_revision: u64,
+    /// The instance whose background is decoded for the Play tab, and the one before,
+    /// kept for a quick switch back. No other background stays decoded.
+    background_shown: Option<String>,
+    background_previous: Option<String>,
+    /// Display-size copies of the banner's images, in `<data>/cache/hero`.
+    hero_cache: launcher_core::hero_cache::HeroCache,
     loader_versions: HashMap<(LoaderKind, String), LoaderVersions>,
     loader_tasks: HashMap<(LoaderKind, String), Task<()>>,
     /// Exports in progress.
@@ -283,6 +305,9 @@ pub struct Instances {
     /// The Modrinth client the Content tab shares, with its cache. `None` keeps the
     /// offscreen screenshots offline.
     modrinth: Option<Arc<Modrinth>>,
+    /// The CurseForge client: `None` without Lodestone's API key (in builds made without
+    /// it) or offline.
+    curseforge: Option<Arc<CurseForge>>,
     /// The downloader for content files.
     content_downloader: Downloader,
     /// "Switch to Fabric" in progress.
@@ -290,6 +315,10 @@ pub struct Instances {
     /// Modpacks being made into instances.
     imports: Vec<modpacks::ImportJob>,
     next_import: u64,
+    /// Files of an imported CurseForge pack the user downloads from curseforge.com, by
+    /// instance; the Content tab takes them when it shows that instance.
+    pending_downloads:
+        HashMap<String, Vec<launcher_core::content::curseforge_install::CfPlannedFile>>,
     /// Modpack updates in progress, by instance.
     modpack_updates: HashMap<String, modpacks::UpdateJob>,
     /// Redraws while imports and updates run.
@@ -325,6 +354,7 @@ impl Instances {
         let download_http =
             launcher_core::http::download_client().expect("could not start the HTTP client");
         let modrinth = Arc::new(Modrinth::production(http.clone()));
+        let curseforge = CurseForge::production(http.clone()).map(Arc::new);
         let content_downloader = Downloader::new(download_http.clone(), gpui_sleep(cx));
         let installer = Installer::new(
             http,
@@ -333,6 +363,10 @@ impl Instances {
             data_dir.clone(),
         );
         let store = InstanceStore::new(data_dir.instances_dir());
+        // Copies of images that are gone, and the oldest past the limit.
+        let hero_cache = launcher_core::hero_cache::HeroCache::new(&data_dir);
+        let pruning = hero_cache.clone();
+        cx.background_spawn(async move { pruning.prune() }).detach();
         let (settings, settings_notice) = match launcher_settings::load(&data_dir.settings_file()) {
             Ok(settings) => (settings, None),
             Err(err) => (
@@ -342,6 +376,11 @@ impl Instances {
         };
         crate::i18n::apply(settings.language);
         crate::theme::zoom::set(settings.zoom);
+        crate::skin::apply(
+            settings.skin.as_deref(),
+            &launcher_core::ui_skin::SkinStore::new(&data_dir),
+            cx,
+        );
         crate::set_menus(cx);
         let mut this = Self {
             store,
@@ -360,16 +399,24 @@ impl Instances {
             icons: HashMap::new(),
             backgrounds: HashMap::new(),
             background_tasks: HashMap::new(),
+            sidebar_banners: HashMap::new(),
+            sidebar_banner_tasks: HashMap::new(),
+            slideshow_revision: 0,
+            background_shown: None,
+            background_previous: None,
+            hero_cache,
             loader_versions: HashMap::new(),
             loader_tasks: HashMap::new(),
             exports: Vec::new(),
             preview_state: None,
             shared_revision: 0,
             modrinth: Some(modrinth),
+            curseforge,
             content_downloader,
             loader_switch: None,
             imports: Vec::new(),
             next_import: 0,
+            pending_downloads: HashMap::new(),
             modpack_updates: HashMap::new(),
             import_ticker: None,
         };
@@ -378,6 +425,8 @@ impl Instances {
             this.notice = settings_notice;
         }
         this.selected = this.list.first().map(|i| i.id.clone());
+        // Only the selected instance's background is decoded: now there is one.
+        this.load_backgrounds(cx);
         this
     }
 
@@ -522,6 +571,163 @@ impl Instances {
         cx.refresh_windows();
     }
 
+    /// The sidebar's width (logical pixels at 100% zoom) and whether it is folded
+    /// into the rail of icons.
+    pub fn sidebar(&self) -> (f32, bool) {
+        (
+            self.settings
+                .sidebar_width
+                .unwrap_or(crate::theme::layout::SIDEBAR_DEFAULT),
+            self.settings.sidebar_collapsed,
+        )
+    }
+
+    /// Saves the sidebar's width and fold, once a drag ends.
+    pub fn set_sidebar(&mut self, width: f32, collapsed: bool, cx: &mut Context<Self>) {
+        if (width, collapsed) == self.sidebar() {
+            return;
+        }
+        let width = (width != crate::theme::layout::SIDEBAR_DEFAULT).then_some(width);
+        if let Err(err) = self.update_settings(
+            |settings| {
+                settings.sidebar_width = width;
+                settings.sidebar_collapsed = collapsed;
+            },
+            cx,
+        ) {
+            self.notice = Some(err.into());
+        }
+    }
+
+    /// The launcher's skins folder.
+    pub fn skins(&self) -> launcher_core::ui_skin::SkinStore {
+        launcher_core::ui_skin::SkinStore::new(&self.data_dir)
+    }
+
+    /// The chosen skin's id; `None` for the default look.
+    pub fn skin(&self) -> Option<&str> {
+        self.settings.skin.as_deref()
+    }
+
+    /// Uses skin `id` (the default look for `None`), saves the choice and shows it.
+    pub fn set_skin(&mut self, id: Option<String>, cx: &mut Context<Self>) {
+        let id = id.filter(|id| id != "default");
+        if let Err(err) = self.update_settings(|settings| settings.skin = id.clone(), cx) {
+            self.notice = Some(err.into());
+        }
+        crate::skin::apply(self.settings.skin.as_deref(), &self.skins(), cx);
+    }
+
+    /// The small copy of an instance's Play background for its sidebar row.
+    pub fn sidebar_banner(
+        &self,
+        id: &str,
+    ) -> Option<(Arc<RenderImage>, launcher_core::ui_skin::readable::Backdrop)> {
+        self.sidebar_banners
+            .get(id)
+            .map(|(_, _, image, backdrop)| (image.clone(), *backdrop))
+    }
+
+    /// Makes the sidebar rows' copies of the Play backgrounds that are missing or
+    /// changed, in the background; forgets those that are gone. Only while the skin
+    /// shows them.
+    pub fn load_sidebar_banners(&mut self, cx: &mut Context<Self>) {
+        let wanted: Vec<(
+            String,
+            appearance::BackgroundSource,
+            Option<std::time::SystemTime>,
+        )> = self
+            .list
+            .iter()
+            .filter_map(|instance| {
+                let (source, modified) = self.background_source(instance)?;
+                Some((instance.id.clone(), source, modified))
+            })
+            .collect();
+        self.sidebar_banners.retain(|id, (time, source, _, _)| {
+            wanted
+                .iter()
+                .any(|(w, s, m)| w == id && m == time && s == source)
+        });
+        for (id, source, modified) in wanted {
+            if self.sidebar_banners.contains_key(&id) || self.sidebar_banner_tasks.contains_key(&id)
+            {
+                continue;
+            }
+            let cache = self.hero_cache.clone();
+            let decode = cx.background_spawn({
+                let source = source.clone();
+                async move {
+                    let image = image::DynamicImage::ImageRgba8(source.decode(&cache)?);
+                    // the row's size at 2×, cropped to fill it, and how it looks behind
+                    // the row's text
+                    let thumb = image
+                        .resize_to_fill(440, 96, image::imageops::FilterType::Triangle)
+                        .to_rgba8();
+                    let backdrop = launcher_core::ui_skin::readable::Backdrop::measure(
+                        thumb.pixels().map(|p| {
+                            launcher_core::ui_skin::Rgb(
+                                ((p[0] as u32) << 16) | ((p[1] as u32) << 8) | p[2] as u32,
+                            )
+                        }),
+                    )?;
+                    Some((thumb, backdrop))
+                }
+            });
+            let task_id = id.clone();
+            let task = cx.spawn(async move |this, cx| {
+                let decoded = decode.await;
+                this.update(cx, |this, cx| {
+                    this.sidebar_banner_tasks.remove(&task_id);
+                    if let Some((image, backdrop)) = decoded {
+                        this.sidebar_banners.insert(
+                            task_id,
+                            (
+                                modified,
+                                source,
+                                crate::images::render_image(image),
+                                backdrop,
+                            ),
+                        );
+                        cx.notify();
+                    }
+                })
+                .ok();
+            });
+            self.sidebar_banner_tasks.insert(id, task);
+        }
+    }
+
+    /// Forgets the sidebar rows' copies, when the skin stops showing them.
+    pub fn forget_sidebar_banners(&mut self) {
+        self.sidebar_banners.clear();
+        self.sidebar_banner_tasks.clear();
+    }
+
+    /// Shows the chosen skin again, after its pack changed.
+    pub fn reload_skin(&mut self, cx: &mut Context<Self>) {
+        crate::skin::apply(self.settings.skin.as_deref(), &self.skins(), cx);
+    }
+
+    /// Sets an instance's own Play button colour and accent (`None`: the skin's), and
+    /// records the change for Undo.
+    pub fn set_instance_colors(
+        &mut self,
+        id: &str,
+        play_color: Option<launcher_core::ui_skin::Rgb>,
+        accent: Option<launcher_core::ui_skin::Rgb>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.undoable(id, cx, |this, cx| {
+            let mut instance = this.store.get(id).map_err(|err| err.to_string())?;
+            instance.play_color = play_color;
+            instance.accent = accent;
+            this.store.save(&instance).map_err(|err| err.to_string())?;
+            this.reload(cx);
+            Ok(())
+        })
+    }
+
     /// The instances by sidebar group, as the sidebar lists them.
     pub fn grouped(&self) -> Vec<(Option<String>, Vec<&Instance>)> {
         launcher_core::instances::grouped(&self.list, self.settings.auto_groups)
@@ -636,6 +842,7 @@ impl Instances {
 
     pub fn select(&mut self, id: &str, cx: &mut Context<Self>) {
         self.selected = Some(id.to_string());
+        self.load_backgrounds(cx);
         cx.notify();
     }
 
@@ -721,6 +928,7 @@ impl Instances {
             .store
             .create(name, version, loader)
             .map_err(|err| err.to_string())?;
+        self.pick_skin_banner(&instance.id);
         self.selected = Some(instance.id.clone());
         self.reload(cx);
         Ok(instance)
@@ -763,8 +971,11 @@ impl Instances {
         let instance_dir = self.store.dir(id);
         let write = cx.background_spawn(async move {
             // Files that came from Modrinth are listed by URL; the rest are copied.
+            // Files only on CurseForge are left out rather than handed out.
             let on_modrinth = export::modrinth_files(&instance_dir);
-            let plan = export::plan(&instance, &game_dir, &on_modrinth)?;
+            let curseforge_only = export::curseforge_only_files(&instance_dir);
+            let plan =
+                export::plan_leaving_out(&instance, &game_dir, &on_modrinth, &curseforge_only)?;
             export::write(&plan, &out)?;
             Ok::<_, export::ExportError>((plan, out))
         });
@@ -778,18 +989,33 @@ impl Instances {
                             plan.overrides.len() + plan.index.files.len(),
                             path = out.display()
                         );
+                        let others = plan.skipped.len() - plan.curseforge_left_out.len();
+                        let mut message = match plan
+                            .skipped
+                            .iter()
+                            .find(|(_, why)| !why.contains("CurseForge"))
+                        {
+                            Some((first, _)) if others > 0 => tr!(
+                                M::TwoSentences,
+                                first = saved,
+                                second = trn!(P::FilesLeftOut, others, name = first)
+                            ),
+                            _ => saved,
+                        };
+                        if !plan.curseforge_left_out.is_empty() {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(
+                                    P::CurseForgeLeftOut,
+                                    plan.curseforge_left_out.len(),
+                                    names = crate::i18n::format::list(&plan.curseforge_left_out)
+                                )
+                            );
+                        }
                         InstancesEvent::Notice {
                             title: t(M::ModpackExported).into(),
-                            message: match plan.skipped.first() {
-                                None => saved,
-                                Some((first, _)) => tr!(
-                                    M::TwoSentences,
-                                    first = saved,
-                                    second =
-                                        trn!(P::FilesLeftOut, plan.skipped.len(), name = first)
-                                ),
-                            }
-                            .into(),
+                            message: message.into(),
                         }
                     }
                     Err(err) => InstancesEvent::LaunchFailed {
@@ -856,6 +1082,23 @@ impl Instances {
         self.modrinth.clone()
     }
 
+    /// Whether an imported pack left files for the user to download into `id`.
+    pub fn has_pending_downloads(&self, id: &str) -> bool {
+        self.pending_downloads.contains_key(id)
+    }
+
+    pub fn take_pending_downloads(
+        &mut self,
+        id: &str,
+    ) -> Option<Vec<launcher_core::content::curseforge_install::CfPlannedFile>> {
+        self.pending_downloads.remove(id)
+    }
+
+    /// The CurseForge client, when this build has an API key and the app is online.
+    pub fn curseforge(&self) -> Option<Arc<CurseForge>> {
+        self.curseforge.clone()
+    }
+
     /// The installer, for resolving imported instances' versions and loaders.
     pub fn installer(&self) -> Installer {
         self.installer.clone()
@@ -869,6 +1112,7 @@ impl Instances {
     /// Keeps the Content tab off the network, for the offscreen screenshots.
     pub fn preview_offline(&mut self) {
         self.modrinth = None;
+        self.curseforge = None;
     }
 
     pub fn content_downloader(&self) -> Downloader {

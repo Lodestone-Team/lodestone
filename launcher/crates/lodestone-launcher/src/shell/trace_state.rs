@@ -35,6 +35,7 @@ impl Modal {
             Modal::EnableLauncherIdentity { .. } => "enable_launcher_identity",
             Modal::DisableLauncherIdentity { .. } => "disable_launcher_identity",
             Modal::Unsaved { .. } => "unsaved_changes",
+            Modal::StorageClean { .. } => "storage_clean",
         }
     }
 }
@@ -62,7 +63,9 @@ fn settings_page_name(page: SettingsPage) -> &'static str {
         SettingsPage::Shared => "shared_game_settings",
         SettingsPage::General => "general",
         SettingsPage::Accounts => "accounts",
+        SettingsPage::Storage => "storage",
         SettingsPage::Developer => "developer",
+        SettingsPage::Skin => "skin",
     }
 }
 

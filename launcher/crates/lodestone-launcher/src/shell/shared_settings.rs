@@ -19,7 +19,7 @@ use crate::{
         },
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, t, tr, trn},
-    instances::{Instances, shared_settings::value_control},
+    instances::{Instances, shared_options_i18n, shared_settings::value_control},
     theme::{self, colors, text, weights},
 };
 
@@ -307,9 +307,9 @@ impl SharedSettings {
         let shown = row
             .shared
             .as_deref()
-            .map(|v| row.show(v))
+            .map(|v| shared_options_i18n::show(row, v))
             .unwrap_or_default();
-        let line = SettingRow::new(row.label.clone()).indent();
+        let line = SettingRow::new(shared_options_i18n::label(row)).indent();
         if editing.is_none()
             && let Some(control) = value_control(
                 ("shared-value", index),
@@ -482,7 +482,7 @@ impl Render for SharedSettings {
                     .child(
                         div()
                             .text_size(theme::text_size(text::SMALL))
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(match count {
                                 0 => t(M::NoValuesYet).to_string(),
                                 n => trn!(P::Values, n),

@@ -45,6 +45,20 @@ pub fn text(message: M) -> &'static str {
         }
         M::ChooseFile => "Choisir un fichier…",
         M::UseDefault => "Utiliser celui par défaut",
+        M::BackgroundDefault => "Par défaut",
+        M::BackgroundImage => "Image",
+        M::BackgroundSlideshow => "Diaporama",
+        M::SlideshowThisInstance => "Cette instance",
+        M::SlideshowAllInstances => "Toutes les instances",
+        M::SlideshowOwnImages => "Mes images",
+        M::AddImages => "Ajouter des images…",
+        M::AddToSlideshow => "Ajouter au diaporama",
+        M::SlideshowNoScreenshots => {
+            "Pas encore de captures d’écran. L’illustration par défaut s’affiche en attendant."
+        }
+        M::SlideshowNoImages => {
+            "Pas encore d’images. Ajoutez-en, ou choisissez des captures ci-dessous."
+        }
         M::BlocksAndItems => "Blocs et objets",
         M::Emoji => "Emoji",
         M::UploadImage => "Importer une image…",
@@ -179,6 +193,12 @@ pub fn text(message: M) -> &'static str {
         M::Value => "Valeur",
         M::KeepForInstance => "Les garder pour cette instance",
         M::Dismiss => "Ignorer",
+        M::SharedNotApplied => {
+            "Les paramètres de jeu partagés n’ont pas été appliqués\u{a0}: {error}"
+        }
+        M::SharedNotReadBack => {
+            "Impossible de relire les paramètres de jeu partagés\u{a0}: {error}"
+        }
         M::CategoryControls => "Commandes",
         M::CategoryVideo => "Vidéo",
         M::CategorySound => "Son",
@@ -234,6 +254,22 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ChangedInGame => [
             "{count}\u{a0}paramètre changé en jeu ({names}) sera remplacé par la valeur partagée au prochain lancement.",
             "{count}\u{a0}paramètres changés en jeu ({names}) seront remplacés par les valeurs partagées au prochain lancement.",
+        ],
+        P::SharedWritten => [
+            "Paramètres de jeu partagés\u{a0}: {count}\u{a0}valeur écrite dans options.txt",
+            "Paramètres de jeu partagés\u{a0}: {count}\u{a0}valeurs écrites dans options.txt",
+        ],
+        P::SharedWrittenNewFile => [
+            "Paramètres de jeu partagés\u{a0}: {count}\u{a0}valeur écrite dans options.txt (nouveau fichier)",
+            "Paramètres de jeu partagés\u{a0}: {count}\u{a0}valeurs écrites dans options.txt (nouveau fichier)",
+        ],
+        P::SharedEmitted => [
+            "Paramètres de jeu partagés\u{a0}: {count}\u{a0}valeur de cette instance s’applique désormais à toutes les instances",
+            "Paramètres de jeu partagés\u{a0}: {count}\u{a0}valeurs de cette instance s’appliquent désormais à toutes les instances",
+        ],
+        P::SharedChangedNote => [
+            "Paramètres de jeu partagés\u{a0}: {count}\u{a0}paramètre changé en jeu sera remplacé par la valeur partagée au prochain lancement (voir Paramètres)",
+            "Paramètres de jeu partagés\u{a0}: {count}\u{a0}paramètres changés en jeu seront remplacés par les valeurs partagées au prochain lancement (voir Paramètres)",
         ],
     }
 }

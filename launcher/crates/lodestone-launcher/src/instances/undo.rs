@@ -30,6 +30,7 @@ pub(crate) struct LauncherValues {
     zoom: f32,
     auto_groups: bool,
     auto_update: bool,
+    skin: Option<String>,
     instance_defaults: InstanceDefaults,
 }
 
@@ -40,6 +41,7 @@ impl LauncherValues {
             zoom: settings.zoom,
             auto_groups: settings.auto_groups,
             auto_update: settings.auto_update,
+            skin: settings.skin.clone(),
             instance_defaults: settings.instance_defaults.clone(),
         }
     }
@@ -49,6 +51,7 @@ impl LauncherValues {
         settings.zoom = self.zoom;
         settings.auto_groups = self.auto_groups;
         settings.auto_update = self.auto_update;
+        settings.skin = self.skin.clone();
         settings.instance_defaults = self.instance_defaults.clone();
     }
 
@@ -69,6 +72,11 @@ impl LauncherValues {
             arrow(t(SM::GroupAutomatically), on_off(self.auto_groups))
         } else if self.auto_update != other.auto_update {
             arrow(t(SM::UpdateAutomatically), on_off(self.auto_update))
+        } else if self.skin != other.skin {
+            let name = launcher_core::ui_skin::built_in(self.skin.as_deref().unwrap_or("default"))
+                .map(|spec| spec.name)
+                .unwrap_or_else(|| self.skin.clone().unwrap_or_default());
+            arrow(t(SM::Skin), &name)
         } else {
             t(SM::InstanceDefaults).to_string()
         }
@@ -93,6 +101,7 @@ pub(crate) enum Field {
     Background,
     Loader,
     Prerelease,
+    Colors,
     Memory,
     Java,
     JvmArgs,
@@ -114,6 +123,7 @@ impl Field {
             Field::Background => t(IM::PlayBackground),
             Field::Loader => t(IM::ModLoader),
             Field::Prerelease => t(IM::PrereleaseUpdates),
+            Field::Colors => t(SM::Skin),
             Field::Memory => t(IM::Memory),
             Field::Java => "Java",
             Field::JvmArgs => t(IM::JvmArguments),
@@ -135,7 +145,11 @@ pub(crate) fn changed_fields(a: &Instance, b: &Instance) -> Vec<Field> {
     check(a.name == b.name, Field::Name);
     check(a.group == b.group, Field::Group);
     check(a.icon == b.icon, Field::Icon);
-    check(a.background == b.background, Field::Background);
+    // The slideshow is part of the Play background.
+    check(
+        a.background == b.background && a.slideshow == b.slideshow,
+        Field::Background,
+    );
     check(
         (a.loader, &a.loader_version) == (b.loader, &b.loader_version),
         Field::Loader,
@@ -143,6 +157,10 @@ pub(crate) fn changed_fields(a: &Instance, b: &Instance) -> Vec<Field> {
     check(
         a.prerelease_updates == b.prerelease_updates,
         Field::Prerelease,
+    );
+    check(
+        (a.play_color, a.accent) == (b.play_color, b.accent),
+        Field::Colors,
     );
     check(a.memory == b.memory, Field::Memory);
     check(a.java_override == b.java_override, Field::Java);
@@ -347,6 +365,7 @@ fn restore_settings(
             .map_err(UndoError::Refused)?;
         i18n::apply(this.settings.language);
         crate::theme::zoom::set(this.settings.zoom);
+        this.reload_skin(cx);
         crate::set_menus(cx);
         cx.refresh_windows();
         Ok(())
@@ -365,6 +384,9 @@ mod tests {
         };
         let mut b = a.clone();
         assert!(changed_fields(&a, &b).is_empty());
+        let mut shows = a.clone();
+        shows.slideshow = Some(launcher_core::instances::SlideshowSource::Custom);
+        assert_eq!(changed_fields(&a, &shows), vec![Field::Background]);
         b.name = "Creative".into();
         b.prerelease_updates = true;
         assert_eq!(changed_fields(&a, &b), vec![Field::Name, Field::Prerelease]);

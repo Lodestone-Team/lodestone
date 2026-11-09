@@ -3,7 +3,9 @@
 //! the list of sections beside the page, a select button with its popover, and the
 //! short notice that says a change was saved.
 
+use crate::skin::Skinned;
 use crate::theme::px;
+use launcher_core::ui_skin::SurfaceId;
 use std::{rc::Rc, time::Duration};
 
 use gpui::{
@@ -36,10 +38,10 @@ pub fn section(title: impl Into<SharedString>, lead: Option<SharedString>) -> Di
             .gap_0p5()
             .child(
                 div()
-                    .font_family(fonts::HEADING)
+                    .font_family(fonts::heading())
                     .text_size(theme::text_size(text::H3))
                     .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_300)
+                    .text_color(crate::theme::ink::text())
                     .child(title.into()),
             )
             .when_some(lead, |this, lead| {
@@ -47,7 +49,7 @@ pub fn section(title: impl Into<SharedString>, lead: Option<SharedString>) -> Di
                     div()
                         .text_size(theme::text_size(text::SMALL))
                         .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-                        .text_color(colors::GRAY_500)
+                        .text_color(crate::theme::ink::muted())
                         .child(lead),
                 )
             }),
@@ -63,13 +65,14 @@ pub fn card(rows: impl IntoIterator<Item = AnyElement>) -> Div {
         .overflow_hidden()
         .rounded(radius::XL)
         .border_1()
-        .border_color(colors::FADE_700)
-        .bg(colors::GRAY_850);
+        .border_color(crate::theme::ink::border())
+        .bg(colors::GRAY_850)
+        .surface(SurfaceId::SettingCard);
     for (index, row) in rows.into_iter().enumerate() {
         card = card.child(
             div()
                 .when(index > 0, |this| {
-                    this.border_t_1().border_color(colors::FADE_700)
+                    this.border_t_1().border_color(crate::theme::ink::border())
                 })
                 .child(row),
         );
@@ -198,7 +201,7 @@ impl RenderOnce for SettingRow {
                                             text::SMALL,
                                             leading::NORMAL,
                                         ))
-                                        .text_color(colors::GRAY_500)
+                                        .text_color(crate::theme::ink::muted())
                                         .child(hint),
                                 )
                             }),
@@ -259,7 +262,7 @@ pub fn tag(text_: impl Into<SharedString>, color: Color) -> Div {
 
 /// A blue text action, such as "Change".
 pub fn link(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
-    link_colored(id, label, colors::BLUE_200)
+    link_colored(id, label, crate::theme::accent::light())
 }
 
 /// A grey text action, such as "Reset".
@@ -286,7 +289,7 @@ fn link_colored(
         .font_weight(weights::BOLD.into())
         .text_size(theme::text_size(text::SMALL))
         .text_color(color)
-        .hover(|style| style.text_color(colors::GRAY_300))
+        .hover(|style| style.text_color(crate::theme::ink::text()))
         .child(label.into())
 }
 
@@ -350,6 +353,7 @@ pub fn popover_panel(id: impl Into<ElementId>) -> Stateful<Div> {
         .border_1()
         .border_color(colors::GRAY_FADED.opacity(30))
         .bg(colors::GRAY_800)
+        .surface(SurfaceId::Popover)
         .shadow(vec![gpui::BoxShadow {
             color: shadow::COLOR.into(),
             offset: gpui::point(px(0.), px(4.)),
@@ -419,10 +423,11 @@ pub fn section_list(
                 .font_weight(weights::BOLD.into())
                 .map(|this| {
                     if selected {
-                        this.bg(colors::GRAY_850).text_color(colors::GRAY_300)
+                        this.bg(colors::GRAY_850)
+                            .text_color(crate::theme::ink::text())
                     } else {
-                        this.text_color(colors::GRAY_500)
-                            .hover(|style| style.text_color(colors::GRAY_300))
+                        this.text_color(crate::theme::ink::muted())
+                            .hover(|style| style.text_color(crate::theme::ink::text()))
                     }
                 })
                 .child(title.clone())
@@ -527,8 +532,9 @@ impl Toast {
             .py_1p5()
             .rounded(radius::LG)
             .border_1()
-            .border_color(colors::FADE_700)
+            .border_color(crate::theme::ink::border())
             .bg(colors::GRAY_750)
+            .surface(SurfaceId::Toast)
             .shadow(vec![gpui::BoxShadow {
                 color: shadow::COLOR.into(),
                 offset: gpui::point(px(0.), px(4.)),
@@ -543,7 +549,15 @@ impl Toast {
             } else {
                 Icon::Check.render(px(12.), colors::GREEN_300)
             })
-            .child(div().text_color(colors::GRAY_300).child(message))
+            .child(
+                div()
+                    .text_color(
+                        crate::skin::painted(SurfaceId::Toast)
+                            .and_then(|p| p.text)
+                            .unwrap_or_else(crate::theme::ink::text),
+                    )
+                    .child(message),
+            )
             .when_some(action, |pill, (label, action)| {
                 pill.child(
                     link("toast-action", label)
@@ -593,7 +607,7 @@ pub fn section_menu_button(
         .rounded(radius::LG)
         .cursor_pointer()
         .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_300)
+        .text_color(crate::theme::ink::text())
         .hover(|style| style.bg(colors::GRAY_800))
         .child(Icon::Bars.render(px(13.), colors::GRAY_500))
         .child(title.into())
@@ -636,7 +650,8 @@ pub fn left_overlay(
                 .overflow_y_scroll()
                 .bg(colors::GRAY_875)
                 .border_r_1()
-                .border_color(colors::FADE_700)
+                .border_color(crate::theme::ink::border())
+                .surface(SurfaceId::SettingsNav)
                 .shadow(vec![gpui::BoxShadow {
                     color: shadow::COLOR.into(),
                     offset: gpui::point(px(4.), px(0.)),
@@ -683,7 +698,7 @@ pub fn unsaved_bar(
                 .py_2()
                 .rounded(radius::XL)
                 .border_1()
-                .border_color(colors::FADE_700)
+                .border_color(crate::theme::ink::border())
                 .bg(colors::GRAY_750)
                 // A soft shadow, just enough to lift it off the page.
                 .shadow(vec![gpui::BoxShadow {
@@ -698,7 +713,7 @@ pub fn unsaved_bar(
                         .flex_1()
                         .min_w_0()
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_300)
+                        .text_color(crate::theme::ink::text())
                         .child(message.into()),
                 )
                 .child(muted_link((id, 0usize), t(CommonMsg::Discard)).on_click(on_discard))

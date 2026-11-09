@@ -30,6 +30,25 @@ use crate::{
 pub const SCENES: &[&str] = &[
     "signed-out",
     "home",
+    "skin-grassblock",
+    "skin-glass",
+    "skin-neon",
+    "skin-overrides",
+    "skin-bright",
+    "settings-skin-bright",
+    "skin-showcase",
+    "settings-skin-showcase",
+    "skin-banner",
+    "background-picker-banners",
+    "skin-editor",
+    "skin-editor-gradient",
+    "skin-editor-fonts",
+    "skin-editor-banners",
+    "skin-editor-readability",
+    "sidebar-resized",
+    "sidebar-rail",
+    "sidebar-rail-skin",
+    "settings-skin",
     "account-menu",
     "needs-sign-in",
     "sign-in",
@@ -52,6 +71,9 @@ pub const SCENES: &[&str] = &[
     "rosetta",
     "content-mods",
     "content-browse",
+    "content-search",
+    "content-search-modrinth-only",
+    "content-menu",
     "content-project",
     "content-resourcepacks",
     "content-shaders",
@@ -77,11 +99,16 @@ pub const SCENES: &[&str] = &[
     "undo-toast",
     "settings-accounts",
     "settings-developer",
+    "settings-storage",
+    "settings-storage-confirm",
     "play-background",
     "play-background-dark",
     "icon-picker",
     "icon-picker-emoji",
     "background-picker",
+    "play-slideshow",
+    "play-slideshow-fade",
+    "background-picker-slideshow",
     "instance-settings-narrow",
     "instance-settings-narrow-open",
     "settings-narrow",
@@ -132,11 +159,144 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
     }
 }
 
+/// A skin that shows what skins can do: gradients (two-colour, many-colour and
+/// radial), rounded and bordered panels, its own fonts and theme colours.
+fn showcase_skin() -> launcher_core::ui_skin::SkinSpec {
+    use launcher_core::ui_skin::{
+        Fill, Gradient, GradientKind, Rgb, Shape, SkinSpec, Stop, SurfaceId, SurfaceSpec, Tokens,
+    };
+    let stops = |colors: &[u32]| {
+        let last = colors.len() - 1;
+        colors
+            .iter()
+            .enumerate()
+            .map(|(i, c)| Stop {
+                color: Rgb(*c),
+                at: (i * 100 / last) as u8,
+            })
+            .collect::<Vec<_>>()
+    };
+    let linear = |angle: i16, colors: &[u32]| {
+        Fill::Gradient(Gradient {
+            kind: GradientKind::Linear,
+            angle,
+            stops: stops(colors),
+        })
+    };
+    let panel = |fill: Fill, radius: u8| SurfaceSpec {
+        fill: Some(fill),
+        border: Some(Rgb(0x4A2380)),
+        radius: Some(radius),
+        ..SurfaceSpec::default()
+    };
+    let mut spec = SkinSpec::named("Showcase");
+    spec.author = Some("Lodestone".into());
+    spec.accent = Some(Rgb(0xF72585));
+    spec.play.shape = Shape::Pill;
+    spec.play.glow = true;
+    spec.surfaces = [
+        (
+            SurfaceId::Window,
+            SurfaceSpec {
+                fill: Some(Fill::Gradient(Gradient {
+                    kind: GradientKind::Radial,
+                    angle: 180,
+                    stops: stops(&[0x3A0F6B, 0x14062B, 0x09030F]),
+                })),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::TopBar,
+            panel(linear(90, &[0x2A0A4A, 0x5B1A8C, 0x8A1F6E]), 0),
+        ),
+        (
+            SurfaceId::Sidebar,
+            SurfaceSpec {
+                fill: Some(linear(180, &[0x1E0838, 0x100422])),
+                text: Some(Rgb(0xFBF2FF)),
+                muted: Some(Rgb(0xD9C3EC)),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::PlayBar,
+            panel(linear(0, &[0x12051F, 0x220A3C]), 0),
+        ),
+        (SurfaceId::Card, panel(Fill::solid(Rgb(0x1C0A33)), 16)),
+        (
+            SurfaceId::SettingCard,
+            panel(Fill::solid(Rgb(0x1C0A33)), 16),
+        ),
+        (SurfaceId::Dialog, panel(Fill::solid(Rgb(0x16082A)), 20)),
+        (
+            SurfaceId::SettingsNav,
+            panel(linear(180, &[0x1E0838, 0x100422]), 0),
+        ),
+        (SurfaceId::Popover, panel(Fill::solid(Rgb(0x22103E)), 12)),
+        (
+            SurfaceId::Input,
+            SurfaceSpec {
+                fill: Some(Fill::solid(Rgb(0x0E0519))),
+                border: Some(Rgb(0x7B2CBF)),
+                radius: Some(10),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::ButtonPrimary,
+            SurfaceSpec {
+                fill: Some(linear(90, &[0xC9184A, 0x7209B7])),
+                radius: Some(12),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (SurfaceId::Toggle, panel(Fill::solid(Rgb(0xF72585)), 0)),
+        (
+            SurfaceId::Pill,
+            SurfaceSpec {
+                fill: Some(Fill::solid(Rgb(0xB5179E))),
+                text: Some(Rgb::WHITE),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::PlayButton,
+            SurfaceSpec {
+                fill: Some(linear(90, &[0xF72585, 0xB5179E, 0x7209B7, 0x3A0CA3])),
+                text: Some(Rgb::WHITE),
+                radius: Some(30),
+                ..SurfaceSpec::default()
+            },
+        ),
+        (
+            SurfaceId::Progress,
+            panel(linear(90, &[0xF72585, 0x4CC9F0]), 0),
+        ),
+        (SurfaceId::Toast, panel(Fill::solid(Rgb(0x2A1150)), 12)),
+    ]
+    .into_iter()
+    .collect();
+    spec.tokens = Tokens {
+        text: Some(Rgb(0xF6EEFF)),
+        secondary: Some(Rgb(0xD9C8F0)),
+        muted: Some(Rgb(0xC0A9DE)),
+        faint: Some(Rgb(0xA98CCB)),
+        border: Some(Rgb(0x3D1D66)),
+    };
+    spec.fonts.play = Some("Lodestone Pixel".into());
+    spec.fonts.button = Some("Clash Grotesk".into());
+    spec.fonts.tab = Some("Clash Grotesk".into());
+    spec
+}
+
 /// Scenes that show instance icons and Play backgrounds.
 fn is_appearance_scene(scene: &str) -> bool {
     scene.starts_with("play-background")
         || scene.starts_with("icon-picker")
-        || scene == "background-picker"
+        || scene.starts_with("background-picker")
+        || scene == "skin-banner"
+        || scene.starts_with("play-slideshow")
 }
 
 /// A made-up landscape for the background scenes: a pale sky over a snowfield (bright
@@ -182,6 +342,11 @@ fn has_instances(scene: &str) -> bool {
         || servers::has_instances(scene)
         || scene == "instance-linked"
         || is_appearance_scene(scene)
+        || scene.starts_with("skin-")
+        || matches!(
+            scene,
+            "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin"
+        )
 }
 
 /// `--lang <tag>`: shows the scene in that language (`en`, `fr`, `zh-Hans`,
@@ -348,6 +513,21 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
                             if background_image(bright).save(&file).is_ok() {
                                 let _ = store.set_background(&instance.id, &file);
                             }
+                        }
+                        // A slideshow of its own two images: the bright one, then the dark.
+                        if scene.starts_with("play-slideshow")
+                            || scene == "background-picker-slideshow"
+                        {
+                            for bright in [true, false] {
+                                let file = data_dir.root().join(format!("slide-{bright}.png"));
+                                if background_image(bright).save(&file).is_ok() {
+                                    let _ = store.add_slideshow_image(&instance.id, &file);
+                                }
+                            }
+                            let _ = store.set_slideshow(
+                                &instance.id,
+                                Some(launcher_core::instances::SlideshowSource::Custom),
+                            );
                         }
                     }
                 }
@@ -623,11 +803,33 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
         }
         "import" | "import-progress" => import::apply(scene, shell, cx),
-        "icon-picker" | "icon-picker-emoji" | "background-picker" => {
+        "play-slideshow-fade" => {
+            // Once the first image is up, hold the next one halfway through its fade.
+            let slideshow = shell.slideshow().clone();
+            cx.spawn(async move |_, cx| {
+                for _ in 0..40 {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(25))
+                        .await;
+                    let ready = slideshow.read_with(cx, |s, _| s.is_ready());
+                    if ready {
+                        slideshow.update(cx, |s, cx| s.preview_fade(cx));
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
+        "icon-picker"
+        | "icon-picker-emoji"
+        | "background-picker"
+        | "background-picker-slideshow" => {
             shell.select_tab(InstanceTab::Settings, cx);
             if let Some(settings) = shell.settings_view().cloned() {
                 settings.update(cx, |settings, cx| match scene {
-                    "background-picker" => settings.preview_background_picker(cx),
+                    "background-picker" | "background-picker-slideshow" => {
+                        settings.preview_background_picker(cx)
+                    }
                     _ => settings.preview_icon_picker(scene == "icon-picker-emoji"),
                 });
             }
@@ -667,6 +869,150 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 _ => crate::shell::SettingsPage::Defaults,
             };
             shell.open_settings(Some(page), None, cx);
+        }
+        "skin-bright" | "settings-skin-bright" => {
+            // a pack with a bright sky behind the sidebar and no tint: the launcher
+            // leaves its text alone, and the editor suggests fixes
+            let instances = shell.instances().clone();
+            let store = instances.read(cx).skins();
+            let mut spec = launcher_core::ui_skin::SkinSpec::named("Bright");
+            spec.sidebar.image = Some("builtin:sky".into());
+            spec.banner.in_sidebar = true;
+            if store.save("bright", &spec).is_ok() {
+                instances.update(cx, |instances, cx| {
+                    instances.set_skin(Some("bright".into()), cx)
+                });
+            }
+            if scene == "settings-skin-bright" {
+                shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
+            }
+        }
+        "skin-showcase" | "settings-skin-showcase" => {
+            let instances = shell.instances().clone();
+            let store = instances.read(cx).skins();
+            let mut spec = showcase_skin();
+            // a font shipped in the pack: one of the system's, for the screenshot
+            let font = std::path::Path::new("/System/Library/Fonts/Supplemental/Georgia.ttf");
+            if font.is_file()
+                && store.save("showcase", &spec).is_ok()
+                && let Ok((file, _family)) = store.add_font("showcase", font)
+            {
+                spec.fonts.heading = Some(file);
+            }
+            if store.save("showcase", &spec).is_ok() {
+                instances.update(cx, |instances, cx| {
+                    instances.set_skin(Some("showcase".into()), cx)
+                });
+            }
+            if scene == "settings-skin-showcase" {
+                shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
+            }
+        }
+        "skin-editor"
+        | "skin-editor-gradient"
+        | "skin-editor-fonts"
+        | "skin-editor-banners"
+        | "skin-editor-readability" => {
+            use crate::shell::skin_editor::Pane;
+            use launcher_core::ui_skin::SurfaceId;
+            let instances = shell.instances().clone();
+            let store = instances.read(cx).skins();
+            let (skin, pane) = match scene {
+                "skin-editor-gradient" => ("showcase", Pane::Surface(SurfaceId::PlayButton)),
+                "skin-editor-fonts" => ("showcase", Pane::Fonts),
+                "skin-editor-banners" => ("grassblock", Pane::Banners),
+                "skin-editor-readability" => ("bright", Pane::Readability),
+                _ => ("grassblock", Pane::Surface(SurfaceId::Sidebar)),
+            };
+            match skin {
+                "showcase" => {
+                    let mut spec = showcase_skin();
+                    let font =
+                        std::path::Path::new("/System/Library/Fonts/Supplemental/Georgia.ttf");
+                    if font.is_file()
+                        && store.save("showcase", &spec).is_ok()
+                        && let Ok((file, _)) = store.add_font("showcase", font)
+                    {
+                        spec.fonts.heading = Some(file);
+                    }
+                    let _ = store.save("showcase", &spec);
+                }
+                "bright" => {
+                    let mut spec = launcher_core::ui_skin::SkinSpec::named("Bright");
+                    spec.sidebar.image = Some("builtin:sky".into());
+                    let _ = store.save("bright", &spec);
+                }
+                _ => {}
+            }
+            instances.update(cx, |instances, cx| {
+                instances.set_skin(Some(skin.into()), cx)
+            });
+            let shell_handle = cx.entity().downgrade();
+            cx.defer(move |cx| {
+                if let Some(editor) = crate::shell::skin_editor::open(instances, shell_handle, cx) {
+                    editor
+                        .update(cx, |editor, _, cx| editor.show(pane, cx))
+                        .ok();
+                }
+            });
+        }
+        "skin-banner" | "background-picker-banners" => {
+            let instances = shell.instances().clone();
+            instances.update(cx, |instances, cx| {
+                instances.set_skin(Some("grassblock".into()), cx);
+                if let Some(id) = instances.selected().map(|i| i.id.clone()) {
+                    let _ = instances.set_skin_banner(&id, "grassblock", "sunset", cx);
+                }
+            });
+            if scene == "background-picker-banners" {
+                shell.select_tab(InstanceTab::Settings, cx);
+                if let Some(settings) = shell.settings_view().cloned() {
+                    settings.update(cx, |settings, cx| settings.preview_background_picker(cx));
+                }
+            }
+        }
+        "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" => {
+            let instances = shell.instances().clone();
+            instances.update(cx, |instances, cx| {
+                if scene == "sidebar-resized" {
+                    instances.set_sidebar(320.0, false, cx);
+                } else {
+                    instances.set_sidebar(crate::theme::layout::SIDEBAR_DEFAULT, true, cx);
+                }
+                if scene == "sidebar-rail-skin" {
+                    instances.set_skin(Some("grassblock".into()), cx);
+                }
+            });
+        }
+        "skin-grassblock" | "skin-glass" | "skin-neon" | "skin-overrides" | "settings-skin" => {
+            let id = match scene {
+                "skin-glass" => "glass",
+                "skin-neon" | "skin-overrides" => "neon",
+                _ => "grassblock",
+            };
+            let instances = shell.instances().clone();
+            instances.update(cx, |instances, cx| instances.set_skin(Some(id.into()), cx));
+            if scene == "skin-overrides" {
+                instances.update(cx, |instances, cx| {
+                    if let Some(selected) = instances.selected().map(|i| i.id.clone()) {
+                        let _ = instances.set_instance_colors(
+                            &selected,
+                            Some(launcher_core::ui_skin::Rgb(0xEFB440)),
+                            Some(launcher_core::ui_skin::Rgb(0x6DD277)),
+                            cx,
+                        );
+                    }
+                });
+            }
+            if scene == "settings-skin" {
+                shell.open_settings(Some(crate::shell::SettingsPage::Skin), None, cx);
+            }
+        }
+        "settings-storage" | "settings-storage-confirm" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Storage), None, cx);
+            let confirm = (scene == "settings-storage-confirm")
+                .then_some(launcher_core::disk::Clean::UnusedGameFiles);
+            shell.preview_storage(storage_report(), confirm, cx);
         }
         "undo-toast" => {
             shell.open_settings(Some(crate::shell::SettingsPage::General), None, cx);
@@ -712,5 +1058,63 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.preview_unsaved_prompt(cx);
         }
         _ => {}
+    }
+}
+
+/// A made-up Settings > Storage count, like a data folder after some months of play.
+fn storage_report() -> launcher_core::disk::Report {
+    use launcher_core::disk::{GameFiles, InstanceUsage, Logs, Report, RuntimeUsage, Unused};
+    const MB: u64 = 1_000_000;
+    let instance = |id: &str, name: &str, worlds: u64, content: u64, other: u64| InstanceUsage {
+        id: id.into(),
+        name: name.into(),
+        worlds: worlds * MB,
+        content: content * MB,
+        logs: 3 * MB,
+        screenshots: 12 * MB,
+        other: other * MB,
+    };
+    let runtime = |component: &str, java: Option<u32>, mb: u64, used_by: &[&str]| RuntimeUsage {
+        component: component.into(),
+        java,
+        bytes: mb * MB,
+        used_by: used_by.iter().map(|v| v.to_string()).collect(),
+    };
+    Report {
+        instances: vec![
+            instance("all-the-mods", "All the mods", 412, 520, 96),
+            instance("survival-1-20-1", "Survival 1.20.1", 238, 84, 31),
+            instance("old-school", "Old school", 46, 0, 8),
+            instance("latest-release", "Latest release", 12, 0, 4),
+        ],
+        runtimes: vec![
+            runtime("java-runtime-delta", Some(21), 104, &["26.3"]),
+            runtime("java-runtime-gamma", Some(17), 92, &["1.20.1"]),
+            runtime("jre-legacy", Some(8), 164, &["1.8.9"]),
+            runtime("java-runtime-beta", None, 92, &[]),
+        ],
+        game_files: GameFiles {
+            versions: 153 * MB,
+            libraries: 252 * MB,
+            assets: 1_100 * MB,
+            unused: Unused {
+                versions: vec!["1.18.2".into(), "26.1.1".into()],
+                versions_bytes: 48 * MB,
+                libraries: 31 * MB,
+                assets: 210 * MB,
+            },
+        },
+        cache: 6 * MB + 300_000,
+        leftovers: launcher_core::disk::Leftovers {
+            bytes: 228 * MB,
+            items: vec![".lodestone-pack-cb8aa247.mrpack".into()],
+        },
+        logs: Logs {
+            bytes: 12 * MB,
+            files: 84,
+            old_bytes: 9 * MB,
+            old_files: 61,
+        },
+        other: 400_000,
     }
 }

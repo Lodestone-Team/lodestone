@@ -10,7 +10,7 @@ use crate::{
         settings::{SettingRow, card},
     },
     i18n::{CommonMsg, ShellMsg as M, ShellPlural as P, format, t, tr, trn},
-    theme::{self, colors, leading, text, weights},
+    theme::{self, leading, text, weights},
 };
 use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
 
@@ -41,7 +41,7 @@ fn paragraph(text: impl Into<SharedString>) -> impl IntoElement {
     div()
         .text_size(theme::text_size(text::MEDIUM))
         .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
-        .text_color(colors::GRAY_400)
+        .text_color(crate::theme::ink::secondary())
         .child(text.into())
 }
 
@@ -128,7 +128,7 @@ impl LauncherShell {
                             div()
                                 .text_size(theme::text_size(text::MEDIUM))
                                 .font_weight(weights::BOLD.into())
-                                .text_color(colors::GRAY_300)
+                                .text_color(crate::theme::ink::text())
                                 .child(heading),
                         )
                         .child(paragraph(body))

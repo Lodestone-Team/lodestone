@@ -306,7 +306,7 @@ fn muted(text: impl Into<SharedString>) -> impl IntoElement {
     div()
         .text_size(theme::text_size(text::MEDIUM))
         .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
-        .text_color(colors::GRAY_400)
+        .text_color(crate::theme::ink::secondary())
         .child(text.into())
 }
 
@@ -322,7 +322,7 @@ fn waiting(label: &'static str) -> impl IntoElement {
         .rounded(radius::LG)
         .bg(colors::GRAY_800)
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .child(
             Button::new("waiting-indicator", "")
                 .variant(ButtonVariant::Ghost)
@@ -459,12 +459,12 @@ impl Render for SignInDialog {
                                     .rounded(radius::LG)
                                     .bg(colors::GRAY_900)
                                     .border_1()
-                                    .border_color(colors::FADE_700)
-                                    .font_family(fonts::MONO)
+                                    .border_color(crate::theme::ink::border())
+                                    .font_family(fonts::mono())
                                     .text_size(theme::text_size(text::XLARGE_2))
                                     .line_height(theme::line_height(text::XLARGE_2, leading::TIGHT))
                                     .font_weight(weights::EXTRABOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(user_code.clone()),
                             )
                             .child(waiting(if *opened {
@@ -500,10 +500,9 @@ impl Render for SignInDialog {
                                         Some(err) => this
                                             .text_color(colors::RED_200)
                                             .child(auth_errors::message(err)),
-                                        None => this.text_color(colors::GRAY_500).child(tr!(
-                                            M::LinkStartsWith,
-                                            url = auth_errors::LINK_PAGE
-                                        )),
+                                        None => this.text_color(crate::theme::ink::muted()).child(
+                                            tr!(M::LinkStartsWith, url = auth_errors::LINK_PAGE),
+                                        ),
                                     }),
                             ),
                     )

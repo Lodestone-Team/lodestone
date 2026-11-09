@@ -71,7 +71,7 @@ The socket is Unix-only (macOS, Linux). On Windows every command fails with exit
   fail with exit 5 and change nothing; the message says what would happen. These are:
   `instances delete`, `worlds delete`, `worlds delete-backup`, `worlds restore --replace`,
   `content remove`, `accounts remove`, `cores remove`, `cores trust`, `shared clear`,
-  `play clear-logs`, applying `modpacks update`, a `content switch-loader` that leaves mods
+  `play clear-logs`, `storage clean`, applying `modpacks update`, a `content switch-loader` that leaves mods
   behind, and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
 - **Trust in a core is the user's decision.** Mods from a Lodestone core run as programs
@@ -112,6 +112,8 @@ lodestone-launcher-cli instances group Survival Friends    # or --none
 lodestone-launcher-cli instances prerelease-updates Survival on   # betas/alphas as updates
 lodestone-launcher-cli instances icon Survival --library grass   # --image FILE, --emoji ⛏ --tile 3A6EA5, --clear
 lodestone-launcher-cli instances background Survival --image ./castle.jpg
+lodestone-launcher-cli instances background Survival --slideshow all       # instance | all | custom | off
+lodestone-launcher-cli instances background Survival --slideshow custom --add ./a.png --add ./b.jpg
 lodestone-launcher-cli instances duplicate Survival
 lodestone-launcher-cli instances select Survival          # shows it in the window
 lodestone-launcher-cli instances export Survival ./survival.mrpack          # long
@@ -248,6 +250,46 @@ printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core 
 lodestone-launcher-cli prompts list                          # questions the window is asking
 lodestone-launcher-cli prompts answer update play
 ```
+
+Disk space (Settings > Storage). Sizes are bytes; `totals` sums them:
+
+```sh
+lodestone-launcher-cli storage show              # instances, game files, runtimes, cache, logs
+lodestone-launcher-cli storage clean game-files --yes   # versions/libraries/assets no instance uses
+lodestone-launcher-cli storage clean runtimes --yes     # Java runtimes no version in use needs
+lodestone-launcher-cli storage clean cache --yes
+lodestone-launcher-cli storage clean leftovers --yes    # unfinished modpack downloads/imports
+lodestone-launcher-cli storage clean old-logs --yes     # older than 30 days; `logs` for all
+```
+
+Game files and runtimes download again when needed; logs are deleted for good. Removing
+game files, runtimes or the cache is refused (`busy`) while a game runs. To free an
+instance's space, `instances delete` moves it to the Trash.
+
+Skins (Settings > Skin), the launcher's look. A skin is a pack: `skin.json`, its
+images and fonts (see `launcher/docs/skins.md`). Built-in: `default`, `grassblock`,
+`glass`, `neon`.
+
+```sh
+lodestone-launcher-cli skins list                     # ids, names, which is in use
+lodestone-launcher-cli skins use neon                 # `default` for the default look
+lodestone-launcher-cli skins import ./Cozy.zip --use  # a .zip or a folder; checked first
+lodestone-launcher-cli skins export ./mine.zip        # the one in use, or --id
+lodestone-launcher-cli skins check --path ./cozy      # validate a pack and check its text, not kept
+lodestone-launcher-cli skins check                    # the one in use, or an id
+lodestone-launcher-cli skins fix cozy                 # apply the suggested fixes (not built-ins)
+```
+
+To make a skin, see `launcher/skills/create-skin/SKILL.md`. Readability is the
+skin's job: the launcher doesn't adjust a skin's colours. `skins
+check` lists each surface's text with its contrast (`ratio`), the `target` (4.5 for
+text, 3 for labels and hints) and a suggested `fix` such as
+`surfaces.sidebar.muted = #D9CDBE`; `passes` is true when nothing falls short. An
+invalid pack gives `valid: false` and the reason.
+
+An instance's own Play button colour and accent are in `instances show` (`play_color`,
+`accent`). Start the launcher with `--no-skin` (or `LODESTONE_LAUNCHER_NO_SKIN=1`) if a
+skin makes the window unusable.
 
 Jobs and events:
 

@@ -2,6 +2,7 @@
 //! a coloured tile, or its own image) and its Play background, with the scrim that
 //! keeps the text over the background readable.
 
+use std::path::{Path, PathBuf};
 use std::{sync::Arc, time::SystemTime};
 
 use gpui::{
@@ -281,6 +282,22 @@ pub fn scrim_for(image: &image::RgbaImage) -> Scrim {
     }
 }
 
+/// Decoded backgrounds are kept at most this size: the Play tab's banner at 2× on a
+/// typical window, without the megabytes of a full-size image.
+pub const DECODED_MAX: (u32, u32) = (1920, 1080);
+
+/// `image` scaled down to fit [`DECODED_MAX`], as RGBA for drawing.
+pub fn fit_for_hero(image: image::DynamicImage) -> image::RgbaImage {
+    let (max_w, max_h) = DECODED_MAX;
+    if image.width() > max_w || image.height() > max_h {
+        image
+            .resize(max_w, max_h, image::imageops::FilterType::Triangle)
+            .to_rgba8()
+    } else {
+        image.to_rgba8()
+    }
+}
+
 /// A decoded Play background and its scrim.
 #[derive(Clone)]
 pub struct Background {
@@ -288,33 +305,114 @@ pub struct Background {
     pub scrim: Scrim,
 }
 
+/// Where an instance's own Play background comes from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackgroundSource {
+    /// Its own `background.jpg`, through the display-size copy in the hero cache.
+    Own(PathBuf),
+    /// A skin's banner image in the skin's pack.
+    Pack(PathBuf),
+    /// A skin's banner drawn by the launcher (`builtin:`).
+    Art(String),
+}
+
+impl BackgroundSource {
+    /// Reads and decodes it, at most the hero's size.
+    pub fn decode(&self, cache: &launcher_core::hero_cache::HeroCache) -> Option<image::RgbaImage> {
+        match self {
+            BackgroundSource::Own(path) => {
+                // Only the display-size copy is read, never the original.
+                let copy = cache.copy_of(path).ok()?;
+                Some(fit_for_hero(image::open(&copy).ok()?))
+            }
+            BackgroundSource::Pack(path) => Some(fit_for_hero(image::open(path).ok()?)),
+            BackgroundSource::Art(name) => launcher_core::ui_skin::art::draw(name)
+                .map(|image| fit_for_hero(image::DynamicImage::ImageRgba8(image))),
+        }
+    }
+}
+
 impl Instances {
     /// The instance's own Play background, once it is decoded.
     pub fn background(&self, id: &str) -> Option<&Background> {
-        self.backgrounds.get(id).map(|(_, background)| background)
+        self.backgrounds
+            .get(id)
+            .map(|(_, _, background)| background)
     }
 
-    /// Decodes, in the background, the backgrounds that are new or changed since the
-    /// last reload, and forgets those that are gone.
+    /// Where `instance`'s own Play background comes from, and when it last changed:
+    /// its image, or its skin banner while that skin and banner exist. `None` for the
+    /// default (the skin's hero, or the launcher's artwork).
+    pub fn background_source(
+        &self,
+        instance: &Instance,
+    ) -> Option<(BackgroundSource, Option<SystemTime>)> {
+        let modified = |path: &Path| std::fs::metadata(path).and_then(|m| m.modified()).ok();
+        match instance.background_mode() {
+            launcher_core::instances::BackgroundMode::Image => {
+                let path = self.store.background_path(instance)?;
+                let time = modified(&path);
+                Some((BackgroundSource::Own(path), time))
+            }
+            launcher_core::instances::BackgroundMode::Banner => {
+                let (skin, banner) = instance.skin_banner()?;
+                let store = self.skins();
+                let entry = store.get(skin).ok()?;
+                let image = entry.spec.banner(banner)?.image.clone();
+                match image.strip_prefix("builtin:") {
+                    Some(name) => Some((BackgroundSource::Art(name.to_string()), None)),
+                    None => {
+                        let path = store.image_path(skin, &image)?;
+                        let time = modified(&path);
+                        Some((BackgroundSource::Pack(path), time))
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Decodes, in the background, the Play background of the selected instance (and
+    /// keeps the one before, for a quick switch back), and forgets the others: each
+    /// decoded image is several megabytes.
     pub(super) fn load_backgrounds(&mut self, cx: &mut Context<Self>) {
+        if self.selected != self.background_shown {
+            self.background_previous = self.background_shown.take();
+            self.background_shown = self.selected.clone();
+        }
+        let keep = [
+            self.background_shown.clone(),
+            self.background_previous.clone(),
+        ];
         let mut wanted = Vec::new();
         for instance in &self.list {
-            let Some(path) = self.store.background_path(instance) else {
+            if !keep.contains(&Some(instance.id.clone())) {
+                continue;
+            }
+            let Some((source, modified)) = self.background_source(instance) else {
                 continue;
             };
-            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-            wanted.push((instance.id.clone(), path, modified));
+            wanted.push((instance.id.clone(), source, modified));
         }
-        self.backgrounds
-            .retain(|id, (time, _)| wanted.iter().any(|(w, _, m)| w == id && m == time));
-        for (id, path, modified) in wanted {
+        self.backgrounds.retain(|id, (time, source, _)| {
+            wanted
+                .iter()
+                .any(|(w, s, m)| w == id && m == time && s == source)
+        });
+        self.background_tasks
+            .retain(|id, _| wanted.iter().any(|(w, _, _)| w == id));
+        for (id, source, modified) in wanted {
             if self.backgrounds.contains_key(&id) || self.background_tasks.contains_key(&id) {
                 continue;
             }
-            let decode = cx.background_spawn(async move {
-                let image = image::open(&path).ok()?.to_rgba8();
-                let scrim = scrim_for(&image);
-                Some((crate::images::render_image(image), scrim))
+            let cache = self.hero_cache.clone();
+            let decode = cx.background_spawn({
+                let source = source.clone();
+                async move {
+                    let image = source.decode(&cache)?;
+                    let scrim = scrim_for(&image);
+                    Some((crate::images::render_image(image), scrim))
+                }
             });
             let task_id = id.clone();
             let task = cx.spawn(async move |this, cx| {
@@ -323,13 +421,50 @@ impl Instances {
                     this.background_tasks.remove(&task_id);
                     if let Some((image, scrim)) = decoded {
                         this.backgrounds
-                            .insert(task_id, (modified, Background { image, scrim }));
+                            .insert(task_id, (modified, source, Background { image, scrim }));
                     }
                     cx.notify();
                 })
                 .ok();
             });
             self.background_tasks.insert(id, task);
+        }
+    }
+
+    /// Makes banner `banner` of skin `skin` the instance's Play background.
+    pub fn set_skin_banner(
+        &mut self,
+        id: &str,
+        skin: &str,
+        banner: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.store
+            .set_skin_banner(id, skin, banner)
+            .map_err(|err| err.to_string())?;
+        self.backgrounds.remove(id);
+        self.reload(cx);
+        Ok(())
+    }
+
+    /// Gives a new instance one of the chosen skin's banners, at random. Nothing when
+    /// the skin has none.
+    pub(super) fn pick_skin_banner(&mut self, id: &str) {
+        let Some(skin) = self.settings.skin.clone() else {
+            return;
+        };
+        let Ok(entry) = self.skins().get(&skin) else {
+            return;
+        };
+        if entry.spec.banners.is_empty() {
+            return;
+        }
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos() as usize);
+        let banner = &entry.spec.banners[nanos % entry.spec.banners.len()];
+        if let Err(err) = self.store.set_skin_banner(id, &skin, &banner.id) {
+            log::warn!("couldn't give {id} a banner: {err}");
         }
     }
 
@@ -342,6 +477,10 @@ impl Instances {
         self.store
             .set_background(id, image)
             .map_err(|err| err.to_string())?;
+        // A picked image is shown on its own, not in the slideshow.
+        self.store
+            .set_slideshow(id, None)
+            .map_err(|err| err.to_string())?;
         self.backgrounds.remove(id);
         self.reload(cx);
         Ok(())
@@ -352,6 +491,76 @@ impl Instances {
             .clear_background(id)
             .map_err(|err| err.to_string())?;
         self.reload(cx);
+        Ok(())
+    }
+
+    /// The display-size copies of the banner's images.
+    pub fn hero_cache(&self) -> &launcher_core::hero_cache::HeroCache {
+        &self.hero_cache
+    }
+
+    /// How much space the banner's image copies take, in bytes. Blocking.
+    pub fn hero_cache_size(&self) -> u64 {
+        self.hero_cache.size()
+    }
+
+    /// Removes the banner's image copies; they are made again when shown.
+    pub fn clear_hero_cache(&mut self) -> std::io::Result<()> {
+        self.hero_cache.clear()
+    }
+
+    /// Goes up when an instance's slideshow or its own images change.
+    pub fn slideshow_revision(&self) -> u64 {
+        self.slideshow_revision
+    }
+
+    /// Shows a slideshow from `source` on the Play tab, or, for `None`, the
+    /// instance's image again.
+    pub fn set_slideshow(
+        &mut self,
+        id: &str,
+        source: Option<launcher_core::instances::SlideshowSource>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.store
+            .set_slideshow(id, source)
+            .map_err(|err| err.to_string())?;
+        self.slideshow_revision += 1;
+        self.reload(cx);
+        Ok(())
+    }
+
+    /// Adds images to the instance's own slideshow set. Returns the first error, after
+    /// adding the images it could.
+    pub fn add_slideshow_images(
+        &mut self,
+        id: &str,
+        images: &[std::path::PathBuf],
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let mut error = None;
+        for image in images {
+            if let Err(err) = self.store.add_slideshow_image(id, image) {
+                error.get_or_insert(err.to_string());
+            }
+        }
+        self.slideshow_revision += 1;
+        cx.notify();
+        error.map_or(Ok(()), Err)
+    }
+
+    /// Removes one of the instance's own slideshow images, by file name.
+    pub fn remove_slideshow_image(
+        &mut self,
+        id: &str,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.store
+            .remove_slideshow_image(id, name)
+            .map_err(|err| err.to_string())?;
+        self.slideshow_revision += 1;
+        cx.notify();
         Ok(())
     }
 
@@ -409,7 +618,7 @@ pub fn scrim_layers(scrim: Scrim) -> Vec<AnyElement> {
 }
 
 /// A decoded background with the modification time of the file it was read from.
-pub(super) type BackgroundEntry = (Option<SystemTime>, Background);
+pub(super) type BackgroundEntry = (Option<SystemTime>, BackgroundSource, Background);
 /// A background being decoded.
 pub(super) type BackgroundTask = Task<()>;
 

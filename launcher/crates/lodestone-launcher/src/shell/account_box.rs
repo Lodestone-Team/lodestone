@@ -1,12 +1,14 @@
 //! The account box at the top of the sidebar, and its menu: switch, add and
 //! remove accounts.
 
+use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{
     AnyElement, Context, IntoElement, Pixels, SharedString, anchored, deferred, div, img,
     prelude::*,
 };
 use launcher_core::accounts::{Account, AccountKind};
+use launcher_core::ui_skin::SurfaceId;
 
 use super::LauncherShell;
 use crate::{
@@ -80,6 +82,40 @@ fn short_status(accounts: &Accounts, account: &Account) -> SharedString {
     }
 }
 
+/// The account box of the folded sidebar: the avatar alone, opening the same menu.
+/// The name shows as a tooltip.
+pub fn render_compact(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let accounts = shell.accounts.read(cx);
+    let active = accounts.active().cloned();
+    let menu_open = shell.account_menu_open;
+    let name: SharedString = match &active {
+        Some(account) => account.username.clone().into(),
+        None => t(CommonMsg::SignIn).into(),
+    };
+    let button = div()
+        .id("account-box")
+        .keyboard_focus()
+        .p_1()
+        .rounded(radius::LG)
+        .border_1()
+        .cursor_pointer()
+        .map(|this| {
+            if menu_open {
+                this.bg(colors::GRAY_800)
+                    .border_color(colors::GRAY_FADED.opacity(30))
+            } else {
+                this.border_color(crate::theme::ink::border())
+                    .hover(|style| style.bg(colors::GRAY_800))
+            }
+        })
+        .tooltip(crate::components::text_tooltip(name))
+        .on_click(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
+        .child(avatar(accounts, active.as_ref(), px(32.)));
+    div()
+        .child(button)
+        .when(menu_open, |this| this.child(menu(shell, cx)))
+}
+
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let accounts = shell.accounts.read(cx);
     let active = accounts.active().cloned();
@@ -114,12 +150,12 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .cursor_pointer()
         .map(|this| {
             if menu_open {
-                this.bg(colors::GRAY_800)
+                this.bg(crate::skin::sidebar_inks().fill)
                     .border_color(colors::GRAY_FADED.opacity(30))
             } else {
                 this.bg(colors::GRAY_875.opacity(0))
-                    .border_color(colors::FADE_700)
-                    .hover(|style| style.bg(colors::GRAY_800))
+                    .border_color(crate::theme::ink::border())
+                    .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
             }
         })
         .on_click(cx.listener(move |this, _, _, cx| this.set_account_menu(!menu_open, cx)))
@@ -134,7 +170,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                     div()
                         .truncate()
                         .font_weight(weights::EXTRABOLD.into())
-                        .text_color(colors::GRAY_300)
+                        .text_color(crate::skin::sidebar_inks().primary)
                         .child(name),
                 )
                 .child(
@@ -146,12 +182,16 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                         .text_size(theme::text_size(text::SMALL))
                         .line_height(theme::line_height(text::SMALL, leading::SNUG))
                         .font_weight(weights::BOLD.into())
-                        .text_color(detail_color)
+                        .text_color(if detail_color == colors::GRAY_500 {
+                            crate::skin::sidebar_inks().muted
+                        } else {
+                            detail_color
+                        })
                         .child(div().truncate().child(detail))
                         .when(refreshing, |this| this.child(LoadingDots)),
                 ),
         )
-        .child(Icon::CaretDown.render(px(12.), colors::GRAY_FADED.opacity(50)));
+        .child(Icon::CaretDown.render(px(12.), crate::skin::sidebar_inks().icon));
 
     div()
         .w_full()
@@ -261,7 +301,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                             .max_w(px(96.))
                             .truncate()
                             .text_size(theme::text_size(text::CAPTION))
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(match account.kind {
                                 AccountKind::Offline => SharedString::from(t(M::Offline)),
                                 AccountKind::Microsoft => short_status(accounts, account),
@@ -270,7 +310,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 }
             })
             .child(div().flex_none().w(px(12.)).when(is_active, |this| {
-                this.child(Icon::Check.render(px(12.), colors::BLUE_200))
+                this.child(Icon::Check.render(px(12.), crate::theme::accent::light()))
             }))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.set_account_menu(false, cx);
@@ -298,6 +338,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
         .border_1()
         .border_color(colors::GRAY_FADED.opacity(30))
         .bg(colors::GRAY_800)
+        .surface(SurfaceId::Popover)
         .shadow(vec![gpui::BoxShadow {
             color: shadow::COLOR.into(),
             offset: gpui::point(px(0.), px(4.)),

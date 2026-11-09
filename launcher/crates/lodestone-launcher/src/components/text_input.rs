@@ -6,7 +6,9 @@
 //! Moving, selecting and deleting by words goes by grapheme clusters, so a letter
 //! and its combining marks go together.
 
+use crate::skin::Skinned;
 use crate::theme::px;
+use launcher_core::ui_skin::SurfaceId;
 use std::{
     ops::Range,
     time::{Duration, Instant},
@@ -149,6 +151,8 @@ pub struct TextInput {
     /// While the left button is held after a press in the field: what dragging selects by.
     dragging: Option<Drag>,
     history: TextHistory,
+    /// Shown before the text.
+    leading_icon: Option<crate::components::Icon>,
 }
 
 /// What a drag selects by, from how many clicks began it, as in GTK and browsers.
@@ -211,7 +215,14 @@ impl TextInput {
             last_bounds: None,
             dragging: None,
             history: TextHistory::default(),
+            leading_icon: None,
         }
+    }
+
+    /// An icon at the start of the field, such as a magnifying glass for a search.
+    pub fn with_leading_icon(mut self, icon: crate::components::Icon) -> Self {
+        self.leading_icon = Some(icon);
+        self
     }
 
     /// The text shown while the field is empty: a message (`InstancesMsg::SearchLog`),
@@ -1000,7 +1011,8 @@ impl Render for TextInput {
                 } else {
                     let this = this
                         .bg(colors::GRAY_900)
-                        .text_color(colors::GRAY_300)
+                        .text_color(crate::theme::ink::text())
+                        .surface(SurfaceId::Input)
                         .cursor(CursorStyle::IBeam)
                         .on_action(cx.listener(Self::backspace))
                         .on_action(cx.listener(Self::delete))
@@ -1043,12 +1055,15 @@ impl Render for TextInput {
             // `focus-visible:ring-4 ring-blue-faded/50`
             .when(focused && !self.disabled, |this| {
                 this.shadow(vec![BoxShadow {
-                    color: colors::BLUE_FADED.opacity(50).into(),
+                    color: crate::theme::accent::faded().opacity(50).into(),
                     offset: point(px(0.), px(0.)),
                     blur_radius: px(0.),
                     spread_radius: focus_ring_width(),
                     inset: false,
                 }])
+            })
+            .when_some(self.leading_icon, |this, icon| {
+                this.gap_2().child(icon.render(px(13.), colors::GRAY_500))
             })
             .child(TextElement { input: cx.entity() })
     }
@@ -1183,7 +1198,7 @@ impl Element for TextElement {
                         bounds.bottom(),
                     ),
                 ),
-                colors::BLUE_FADED.opacity(50),
+                crate::theme::accent::faded().opacity(50),
             );
             (Some(selection), None)
         };

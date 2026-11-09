@@ -26,6 +26,18 @@ impl Color {
         Self(hex)
     }
 
+    /// The colour `t` of the way from `self` to `other` (0.0 is `self`), channel by
+    /// channel, alpha included: for animating between two states.
+    pub fn mix(self, other: Color, t: f32) -> Self {
+        let t = t.clamp(0.0, 1.0);
+        let channel = |shift: u32| {
+            let a = ((self.0 >> shift) & 0xff) as f32;
+            let b = ((other.0 >> shift) & 0xff) as f32;
+            ((a + (b - a) * t).round() as u32) << shift
+        };
+        Self(channel(24) | channel(16) | channel(8) | channel(0))
+    }
+
     /// The colour with its alpha scaled to `percent`, like Tailwind's `bg-gray-800/30`.
     pub const fn opacity(self, percent: u32) -> Self {
         let alpha = self.0 & 0xff;
@@ -122,6 +134,11 @@ pub mod colors {
 
 /// `theme.fontFamily`. Each family is embedded from `launcher/assets/fonts`.
 pub mod fonts {
+    use std::sync::RwLock;
+
+    use gpui::SharedString;
+    use launcher_core::ui_skin::FontPart;
+
     /// `font-sans`, the body font.
     pub const SANS: &str = "Satoshi";
     /// `font-heading`.
@@ -130,6 +147,126 @@ pub mod fonts {
     pub const TITLE: &str = "Clash Grotesk";
     /// `font-mono`.
     pub const MONO: &str = "JetBrains Mono";
+
+    /// The skin's families for each part, where it sets one.
+    static CHOSEN: RwLock<[Option<SharedString>; 7]> =
+        RwLock::new([None, None, None, None, None, None, None]);
+
+    fn slot(part: FontPart) -> usize {
+        FontPart::ALL.iter().position(|p| *p == part).unwrap_or(0)
+    }
+
+    /// Uses `family` for `part` (`None`: the launcher's). Windows need a refresh.
+    pub fn set(part: FontPart, family: Option<SharedString>) {
+        if let Ok(mut chosen) = CHOSEN.write() {
+            chosen[slot(part)] = family;
+        }
+    }
+
+    fn chosen(part: FontPart) -> Option<SharedString> {
+        CHOSEN.read().ok().and_then(|c| c[slot(part)].clone())
+    }
+
+    /// The family for `part`: the skin's, else the launcher's.
+    pub fn of(part: FontPart) -> SharedString {
+        chosen(part).unwrap_or_else(|| match part {
+            FontPart::Heading => HEADING.into(),
+            FontPart::Play => TITLE.into(),
+            FontPart::Mono => MONO.into(),
+            FontPart::Sidebar | FontPart::Button | FontPart::Tab => of(FontPart::Body),
+            FontPart::Body => SANS.into(),
+        })
+    }
+
+    pub fn body() -> SharedString {
+        of(FontPart::Body)
+    }
+
+    pub fn heading() -> SharedString {
+        of(FontPart::Heading)
+    }
+
+    pub fn title() -> SharedString {
+        of(FontPart::Play)
+    }
+
+    /// Big page titles: the skin's heading font, else the launcher's title font.
+    pub fn display() -> SharedString {
+        chosen(FontPart::Heading).unwrap_or_else(|| TITLE.into())
+    }
+
+    pub fn mono() -> SharedString {
+        of(FontPart::Mono)
+    }
+
+    /// The family for `part` only when the skin sets one, so a part without one
+    /// keeps inheriting.
+    pub fn own(part: FontPart) -> Option<SharedString> {
+        chosen(part)
+    }
+}
+
+/// The theme's text and border colours, which a skin can change ([`Tokens`]).
+///
+/// [`Tokens`]: launcher_core::ui_skin::Tokens
+pub mod ink {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use launcher_core::ui_skin::Tokens;
+
+    use super::{Color, colors};
+
+    const NONE: u32 = 0;
+
+    static TEXT: AtomicU32 = AtomicU32::new(NONE);
+    static SECONDARY: AtomicU32 = AtomicU32::new(NONE);
+    static MUTED: AtomicU32 = AtomicU32::new(NONE);
+    static FAINT: AtomicU32 = AtomicU32::new(NONE);
+    static BORDER: AtomicU32 = AtomicU32::new(NONE);
+
+    /// Uses the skin's `tokens`. Windows need a refresh to show them.
+    pub fn set(tokens: &Tokens) {
+        let store = |slot: &AtomicU32, rgb: Option<launcher_core::ui_skin::Rgb>| {
+            slot.store(rgb.map_or(NONE, |c| Color::rgb(c.0).0), Ordering::Relaxed)
+        };
+        store(&TEXT, tokens.text);
+        store(&SECONDARY, tokens.secondary);
+        store(&MUTED, tokens.muted);
+        store(&FAINT, tokens.faint);
+        store(&BORDER, tokens.border);
+    }
+
+    fn get(slot: &AtomicU32, default: Color) -> Color {
+        match slot.load(Ordering::Relaxed) {
+            NONE => default,
+            value => Color(value),
+        }
+    }
+
+    /// Names, titles, values (`text-gray-300`).
+    pub fn text() -> Color {
+        get(&TEXT, colors::GRAY_300)
+    }
+
+    /// Labels (`text-gray-400`).
+    pub fn secondary() -> Color {
+        get(&SECONDARY, colors::GRAY_400)
+    }
+
+    /// Descriptions and subtitles (`text-gray-500`).
+    pub fn muted() -> Color {
+        get(&MUTED, colors::GRAY_500)
+    }
+
+    /// Hints and placeholders.
+    pub fn faint() -> Color {
+        get(&FAINT, colors::GRAY_FADED.opacity(50))
+    }
+
+    /// Lines around and between things (`border-fade-700`).
+    pub fn border() -> Color {
+        get(&BORDER, colors::FADE_700)
+    }
 }
 
 /// `theme.fontWeight`, with the dashboard's values.
@@ -221,6 +358,85 @@ pub mod shadow {
     pub const COLOR: Color = Color::rgb(0x111114);
 }
 
+/// The accent colour: links, focus rings, selected tabs and primary buttons. It is
+/// the dashboard's blue unless the skin or the selected instance sets another (see
+/// `crate::skin`), which is made readable first: links keep 4.5:1 against the dark
+/// panels, and white text keeps 3:1 on a primary button.
+pub mod accent {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use launcher_core::ui_skin::Rgb;
+
+    use super::{Color, colors};
+
+    /// The panels links sit on.
+    const PANEL: Rgb = Rgb(0x26282C);
+    /// No custom accent.
+    const NONE: u32 = u32::MAX;
+
+    /// The custom accent as `0xRRGGBB`, or [`NONE`].
+    static ACCENT: AtomicU32 = AtomicU32::new(NONE);
+
+    /// Uses `accent`, or the default blue for `None`. Windows need a refresh to show it.
+    pub fn set(accent: Option<Rgb>) {
+        ACCENT.store(
+            accent.map_or(NONE, |rgb| rgb.0 & 0xFF_FFFF),
+            Ordering::Relaxed,
+        );
+    }
+
+    /// The custom accent, if one is set.
+    pub fn custom() -> Option<Rgb> {
+        match ACCENT.load(Ordering::Relaxed) {
+            NONE => None,
+            rgb => Some(Rgb(rgb)),
+        }
+    }
+
+    /// The light accent, for text and lines on the dark panels: links, tab underlines.
+    pub fn light() -> Color {
+        custom().map_or(colors::BLUE_200, |rgb| {
+            Color::rgb(rgb.readable_against(PANEL, 4.5).0)
+        })
+    }
+
+    /// The fill of primary buttons and selected things, under white text.
+    pub fn base() -> Color {
+        custom().map_or(colors::BLUE, |rgb| Color::rgb(fill(rgb).0))
+    }
+
+    /// A primary button under the pointer.
+    pub fn hover() -> Color {
+        custom().map_or(colors::BLUE_400, |rgb| {
+            Color::rgb(fill(rgb).mix(Rgb::BLACK, 0.15).0)
+        })
+    }
+
+    /// A primary button being pressed.
+    pub fn pressed() -> Color {
+        custom().map_or(colors::BLUE_500, |rgb| {
+            Color::rgb(fill(rgb).mix(Rgb::BLACK, 0.3).0)
+        })
+    }
+
+    /// Focus rings and soft highlights.
+    pub fn faded() -> Color {
+        custom().map_or(colors::BLUE_FADED, |rgb| {
+            Color::rgb(fill(rgb).mix(Rgb(0x7F8AA0), 0.2).0)
+        })
+    }
+
+    /// `rgb`, darkened until white text on it keeps 3:1.
+    pub fn fill(rgb: Rgb) -> Rgb {
+        rgb.readable_against(Rgb::WHITE, 3.0)
+    }
+
+    /// Whether `rgb` had to change to be readable, for the Skin page's check.
+    pub fn adjusted(rgb: Rgb) -> bool {
+        rgb.readable_against(PANEL, 4.5) != rgb || fill(rgb) != rgb
+    }
+}
+
 /// The interface's zoom (Ctrl/⌘ + and −).
 ///
 /// Every size in the launcher goes through [`px`], which multiplies by the zoom, and
@@ -297,7 +513,28 @@ pub mod layout {
 
     /// The left sidebar's default width (`leftNavSize`).
     pub fn sidebar_width() -> Pixels {
-        px(220.0)
+        px(SIDEBAR_DEFAULT)
+    }
+
+    /// The sidebar's widths, in logical pixels at 100% zoom: the default, how
+    /// narrow and wide it can be dragged, the folded rail of icons, and the width
+    /// below which a drag folds it into the rail.
+    pub const SIDEBAR_DEFAULT: f32 = 220.0;
+    pub const SIDEBAR_MIN: f32 = 180.0;
+    pub const SIDEBAR_MAX: f32 = 360.0;
+    pub const SIDEBAR_RAIL: f32 = 64.0;
+    pub const SIDEBAR_FOLD_BELOW: f32 = 140.0;
+
+    /// The sidebar for its edge dragged to `x` (logical pixels at 100% zoom, from
+    /// the window's left edge), in a window `window_width` wide: its width, and
+    /// whether it is folded into the rail. It never takes more than 45% of the
+    /// window.
+    pub fn sidebar_drag(x: f32, window_width: f32) -> (f32, bool) {
+        if x < SIDEBAR_FOLD_BELOW {
+            return (SIDEBAR_DEFAULT, true);
+        }
+        let max = SIDEBAR_MAX.min(window_width * 0.45).max(SIDEBAR_MIN);
+        (x.clamp(SIDEBAR_MIN, max).round(), false)
     }
 
     /// The logo in the top bar (`w-28`). It doesn't zoom, like the bar it sits in.
@@ -329,6 +566,18 @@ pub fn line_height(size: Rems, leading: f32) -> Rems {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_sidebar_folds_below_its_threshold_and_stays_in_bounds() {
+        use layout::*;
+        assert_eq!(sidebar_drag(100.0, 1200.0), (SIDEBAR_DEFAULT, true));
+        assert_eq!(sidebar_drag(150.0, 1200.0), (SIDEBAR_MIN, false));
+        assert_eq!(sidebar_drag(260.4, 1200.0), (260.0, false));
+        assert_eq!(sidebar_drag(900.0, 1200.0), (SIDEBAR_MAX, false));
+        // never more than 45% of a narrow window, but never under the minimum
+        assert_eq!(sidebar_drag(350.0, 720.0), (324.0, false));
+        assert_eq!(sidebar_drag(350.0, 300.0), (SIDEBAR_MIN, false));
+    }
 
     #[test]
     fn zoom_steps_through_the_levels_and_stops_at_the_ends() {

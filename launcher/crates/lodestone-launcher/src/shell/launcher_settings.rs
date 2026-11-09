@@ -307,7 +307,7 @@ impl Render for LauncherSettings {
                     .child(sized(&self.fields.max_ram, 84.))
                     .child(
                         div()
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(t(M::MegabytesUnit)),
                     )
                     .note_opt(
@@ -324,7 +324,7 @@ impl Render for LauncherSettings {
                     .child(
                         div()
                             .ml_2()
-                            .text_color(colors::GRAY_400)
+                            .text_color(crate::theme::ink::secondary())
                             .child(t(M::Fullscreen)),
                     )
                     .child(

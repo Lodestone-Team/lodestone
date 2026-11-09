@@ -493,6 +493,145 @@ fn wait_for_exit(pid: u32, timeout: Duration) {
 #[cfg(not(any(unix, windows)))]
 fn wait_for_exit(_pid: u32, _timeout: Duration) {}
 
+/// The Windows installer's AppId (launcher/installer/windows/lodestone-launcher.iss).
+pub const WINDOWS_APP_ID: &str = "{19BD6256-FCCA-4D23-B640-06275F57BD67}";
+
+/// How Settings > Apps shows a build. The installer writes it the same way.
+pub fn display_version(version: &str, build: u64) -> String {
+    format!("{version} (build {build})")
+}
+
+/// Whether the installer's `InstallLocation` is the folder `exe` is in.
+#[cfg(windows)]
+fn is_install_location(install_location: &str, exe: &Path) -> bool {
+    let Some(dir) = exe.parent() else {
+        return false;
+    };
+    let normal = |path: &str| path.trim_end_matches(['\\', '/']).to_lowercase();
+    !install_location.trim().is_empty()
+        && normal(install_location) == normal(&dir.to_string_lossy())
+}
+
+/// Keeps the installer's entry in Settings > Apps showing the running build: after
+/// the launcher updates itself it would still show the version the installer put
+/// there. Only changes the entry if it points at the folder `exe` is in, so a
+/// launcher run from elsewhere leaves an installed one alone. Returns whether it
+/// changed anything.
+#[cfg(windows)]
+pub fn refresh_uninstall_entry(exe: &Path, display: &str) -> bool {
+    use windows_sys::Win32::{
+        Foundation::ERROR_SUCCESS,
+        System::Registry::{
+            HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_SZ, RegCloseKey,
+            RegOpenKeyExW, RegSetValueExW,
+        },
+    };
+
+    let subkey = wide(&format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{WINDOWS_APP_ID}_is1"
+    ));
+    let mut key: HKEY = std::ptr::null_mut();
+    // SAFETY: the strings are NUL-terminated UTF-16, and the key is closed below.
+    let opened = unsafe {
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            subkey.as_ptr(),
+            0,
+            KEY_QUERY_VALUE | KEY_SET_VALUE,
+            &mut key,
+        )
+    };
+    if opened != ERROR_SUCCESS {
+        return false; // not installed with the installer
+    }
+    let changed = (|| {
+        let location = read_registry_string(key, "InstallLocation")?;
+        if !is_install_location(&location, exe) {
+            return Some(false);
+        }
+        if read_registry_string(key, "DisplayVersion").as_deref() == Some(display) {
+            return Some(false);
+        }
+        let name = wide("DisplayVersion");
+        let value = wide(display);
+        // SAFETY: `value` is NUL-terminated UTF-16 and its size in bytes includes the NUL.
+        let set = unsafe {
+            RegSetValueExW(
+                key,
+                name.as_ptr(),
+                0,
+                REG_SZ,
+                value.as_ptr().cast(),
+                (value.len() * 2) as u32,
+            )
+        };
+        Some(set == ERROR_SUCCESS)
+    })();
+    // SAFETY: `key` was opened above.
+    unsafe { RegCloseKey(key) };
+    changed.unwrap_or(false)
+}
+
+#[cfg(not(windows))]
+pub fn refresh_uninstall_entry(_exe: &Path, _display: &str) -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(windows)]
+fn read_registry_string(
+    key: windows_sys::Win32::System::Registry::HKEY,
+    name: &str,
+) -> Option<String> {
+    use windows_sys::Win32::{
+        Foundation::ERROR_SUCCESS,
+        System::Registry::{RRF_RT_REG_SZ, RegGetValueW},
+    };
+
+    let name = wide(name);
+    let mut bytes = 0u32;
+    // SAFETY: a size query; nothing is written but `bytes`.
+    let sized = unsafe {
+        RegGetValueW(
+            key,
+            std::ptr::null(),
+            name.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut bytes,
+        )
+    };
+    if sized != ERROR_SUCCESS {
+        return None;
+    }
+    let mut buffer = vec![0u16; (bytes as usize).div_ceil(2)];
+    // SAFETY: `buffer` holds at least `bytes` bytes.
+    let read = unsafe {
+        RegGetValueW(
+            key,
+            std::ptr::null(),
+            name.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            buffer.as_mut_ptr().cast(),
+            &mut bytes,
+        )
+    };
+    if read != ERROR_SUCCESS {
+        return None;
+    }
+    Some(
+        String::from_utf16_lossy(&buffer)
+            .trim_end_matches('\0')
+            .to_string(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -640,6 +779,38 @@ mod tests {
         fs::write(&exe, b"old").unwrap();
         assert!(install(&staging_path(&exe), &exe).is_err());
         assert_eq!(fs::read(&exe).unwrap(), b"old");
+    }
+
+    #[test]
+    fn apps_entry_shows_the_build() {
+        assert_eq!(display_version("0.1.0", 531), "0.1.0 (build 531)");
+    }
+
+    // Windows paths: `Path` only splits them on Windows.
+    #[cfg(windows)]
+    #[test]
+    fn the_install_location_is_the_executables_folder() {
+        let exe = Path::new(
+            r"C:\Users\me\AppData\Local\Programs\Lodestone Launcher\lodestone-launcher.exe",
+        );
+        // Inno Setup writes the folder with a trailing backslash.
+        assert!(is_install_location(
+            r"C:\Users\me\AppData\Local\Programs\Lodestone Launcher\",
+            exe
+        ));
+        assert!(is_install_location(
+            r"c:\users\me\appdata\local\programs\lodestone launcher",
+            exe
+        ));
+        assert!(!is_install_location(r"D:\Games\Lodestone Launcher\", exe));
+        assert!(!is_install_location("", exe));
+    }
+
+    #[test]
+    fn a_launcher_that_wasnt_installed_leaves_the_apps_entry_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("lodestone-launcher.exe");
+        assert!(!refresh_uninstall_entry(&exe, "0.1.0 (build 1)"));
     }
 
     #[test]

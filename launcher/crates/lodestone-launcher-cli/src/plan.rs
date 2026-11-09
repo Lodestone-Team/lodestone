@@ -233,14 +233,33 @@ pub fn plan(
                 instance,
                 image,
                 clear,
-            } => call(
-                "instances.set_background",
-                vec![
+                slideshow,
+                add,
+            } => {
+                if image.is_none() && !clear && slideshow.is_none() && add.is_empty() {
+                    return Err(usage("Give --image, --clear, --slideshow or --add."));
+                }
+                let mut params = vec![
                     ("instance", json!(instance)),
                     ("image", path_value(image)?),
                     ("clear", json!(clear)),
-                ],
-            ),
+                ];
+                if let Some(slideshow) = slideshow {
+                    let slideshow = match slideshow.as_str() {
+                        "all" => "all_instances",
+                        other => other,
+                    };
+                    params.push(("slideshow", json!(slideshow)));
+                }
+                if !add.is_empty() {
+                    let paths = add
+                        .iter()
+                        .map(|p| path_value(&Some(p.clone())))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    params.push(("add", json!(paths)));
+                }
+                call("instances.set_background", params)
+            }
             Instances::Duplicate(i) => {
                 call("instances.duplicate", vec![("instance", json!(i.instance))])
             }
@@ -733,6 +752,30 @@ pub fn plan(
                 ],
             ),
         },
+        Command::Skins(c) => match c {
+            Skins::List => call("skins.list", vec![]),
+            Skins::Use { id } => call("skins.use", vec![("id", json!(id))]),
+            Skins::Import { path, use_it } => call(
+                "skins.import",
+                vec![("path", json!(absolute(path)?)), ("use", json!(use_it))],
+            ),
+            Skins::Check { id, path } => call(
+                "skins.check",
+                vec![
+                    ("id", json!(id)),
+                    ("path", json!(path.as_deref().map(absolute).transpose()?)),
+                ],
+            ),
+            Skins::Fix { id } => call("skins.fix", vec![("id", json!(id))]),
+            Skins::Export { path, id } => call(
+                "skins.export",
+                vec![("path", json!(absolute(path)?)), ("id", json!(id))],
+            ),
+        },
+        Command::Storage(c) => match c {
+            Storage::Show => call("storage.show", vec![]),
+            Storage::Clean { what } => call("storage.clean", vec![("what", json!(what))]),
+        },
         Command::Jobs(c) => match c {
             Jobs::List { running } => call("jobs.list", vec![("running", json!(running))]),
             Jobs::Get { job } => call("jobs.get", vec![("job", json!(job))]),
@@ -845,6 +888,18 @@ mod tests {
                 false
             )
         );
+        let (method, params, _) =
+            call_of(&["instances", "background", "Survival", "--slideshow", "all"]);
+        assert_eq!(method, "instances.set_background");
+        assert_eq!(params["slideshow"], json!("all_instances"));
+        assert!(params.get("add").is_none());
+        assert_eq!(
+            call_of(&["skins", "use", "neon"]),
+            ("skins.use", json!({ "id": "neon" }), false)
+        );
+        let (method, params, _) = call_of(&["skins", "import", "/tmp/Cozy.zip", "--use"]);
+        assert_eq!(method, "skins.import");
+        assert_eq!(params, json!({ "path": "/tmp/Cozy.zip", "use": true }));
         let (_, params, _) = call_of(&["play", "launch", "Smp", "--skip-update"]);
         assert_eq!(params["update_mods"], json!(false));
         let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);

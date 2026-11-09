@@ -34,7 +34,9 @@
 //! changes in the dialog's own code: an unmigrated `Option` still compiles and opens
 //! animated, and closes at once.
 
+use crate::skin::Skinned;
 use crate::theme::px;
+use launcher_core::ui_skin::SurfaceId;
 use std::{rc::Rc, time::Duration};
 
 use gpui::{
@@ -195,6 +197,7 @@ impl RenderOnce for Dialog {
             .border_1()
             .border_color(colors::GRAY_FADED.opacity(30))
             .bg(colors::GRAY_850)
+            .surface(SurfaceId::Dialog)
             // The dashboard's `drop-shadow-lg`.
             .shadow(vec![BoxShadow {
                 color: shadow::COLOR.into(),
@@ -230,7 +233,7 @@ impl RenderOnce for Dialog {
                                     .text_size(theme::text_size(text::H1))
                                     .line_height(theme::line_height(text::H1, leading::TIGHT))
                                     .font_weight(weights::EXTRABOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(self.title),
                             )
                             .children(self.header_end),
@@ -239,7 +242,7 @@ impl RenderOnce for Dialog {
                         div()
                             .text_size(theme::text_size(text::H3))
                             .line_height(theme::line_height(text::H3, leading::NORMAL))
-                            .text_color(colors::GRAY_300)
+                            .text_color(crate::theme::ink::text())
                             .children(self.body),
                     )
                     .when(!self.footer.is_empty(), |this| {
@@ -296,7 +299,7 @@ impl RenderOnce for Dialog {
 /// GPUI does not read this setting, and the launcher has no Objective-C crate, so it
 /// is read through the Objective-C runtime that AppKit already loads.
 #[cfg(target_os = "macos")]
-pub(super) fn prefers_reduced_motion() -> bool {
+pub(crate) fn prefers_reduced_motion() -> bool {
     use std::ffi::{c_char, c_void};
 
     type Id = *mut c_void;
@@ -339,6 +342,6 @@ pub(super) fn prefers_reduced_motion() -> bool {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(super) fn prefers_reduced_motion() -> bool {
+pub(crate) fn prefers_reduced_motion() -> bool {
     false
 }

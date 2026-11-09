@@ -2,6 +2,7 @@ use gpui::{App, SharedString, Window, div, prelude::*};
 
 use super::{ArrowGroup, KeyboardFocus};
 use crate::theme::{self, colors, radius, text, weights};
+use launcher_core::ui_skin::SurfaceId;
 
 /// A row of choices with the selected one raised, as in "Add server". `selected` is
 /// `None` when the value isn't one of the choices. The arrow keys move between them.
@@ -22,23 +23,25 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
         .rounded(radius::LG)
         .bg(colors::GRAY_900)
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .children(choices.into_iter().enumerate().map(|(i, (value, name))| {
             let is_selected = selected == Some(&value);
             let on_pick = on_pick.clone();
-            div()
+            let item = div()
                 .id(SharedString::from(format!("{id}-{i}")))
                 .px_3()
                 .py_1()
                 .rounded(radius::MD)
                 .text_size(theme::text_size(text::SMALL))
                 .font_weight(weights::BOLD.into())
-                .map(|this| match (is_selected, disabled) {
-                    (true, _) => this.bg(colors::GRAY_700).text_color(colors::GRAY_300),
-                    (false, true) => this.text_color(colors::GRAY_600),
-                    (false, false) => this
-                        .text_color(colors::GRAY_500)
-                        .hover(|s| s.text_color(colors::GRAY_300)),
+                .when(!is_selected, |this| {
+                    this.hover(move |s| {
+                        if disabled {
+                            s
+                        } else {
+                            s.text_color(crate::theme::ink::text())
+                        }
+                    })
                 })
                 .child(name.clone())
                 .when(!disabled, |this| {
@@ -54,6 +57,32 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
                             on_pick(value.clone(), window, cx)
                         }
                     })
-                })
+                });
+            // The raised background fades in under the chosen one, and out of the
+            // one left.
+            // the skin's pill, when it paints one in a colour
+            let skin = crate::skin::painted(SurfaceId::Pill);
+            let chosen = match skin.as_ref().and_then(|s| s.paint.clone()) {
+                Some(crate::skin::Paint::Solid(color)) => color,
+                _ => colors::GRAY_700,
+            };
+            let chosen_text = skin
+                .as_ref()
+                .and_then(|s| s.text)
+                .unwrap_or(colors::GRAY_300);
+            super::motion::Animated::new(
+                ("segmented-choice", i),
+                is_selected,
+                item,
+                move |this, t| {
+                    let rest = if disabled {
+                        colors::GRAY_600
+                    } else {
+                        crate::theme::ink::muted()
+                    };
+                    this.bg(chosen.opacity(0).mix(chosen, t))
+                        .text_color(rest.mix(chosen_text, t))
+                },
+            )
         }))
 }
