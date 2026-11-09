@@ -4,14 +4,16 @@
 //! §7.3 and §1.8). The appearance is saved on this computer ([`crate::prefs`]).
 
 use gpui::{
-    AnyElement, App, AppContext as _, Context, Entity, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window, div,
+    AnyElement, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
+    Window, div, prelude::FluentBuilder as _,
 };
 use launcher_core::settings::Language;
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, DialogSlot, Toggle, segmented,
-        settings::{self, SettingRow},
+        Button, ButtonSize, DialogSlot, ListRow, Toggle,
+        a11y::Accessible as _,
+        settings::{self, SettingRow, popover, popover_panel, select_button},
         window_layer,
     },
     i18n::Locale,
@@ -26,7 +28,7 @@ use super::{
 };
 use crate::{
     i18n::{CommonMsg, CoreMsg, t, tr},
-    prefs::{Prefs, Theme},
+    prefs::{Prefs, PrefsData, Theme},
     state::HostState,
 };
 
@@ -60,8 +62,16 @@ fn theme_name(theme: Theme) -> (&'static str, &'static str) {
     }
 }
 
+/// The Appearance dropdown that is open, if any.
+#[derive(Clone, Copy, PartialEq)]
+enum Menu {
+    Language,
+    Theme,
+}
+
 pub struct ProfilePage {
     pub state: Entity<HostState>,
+    menu: Option<Menu>,
     username: Entity<TextSetting>,
     api_keys: Entity<ApiKeysSection>,
     links: Entity<MinecraftLinksSection>,
@@ -101,6 +111,7 @@ impl ProfilePage {
         ];
         Self {
             state,
+            menu: None,
             username,
             api_keys,
             links,
@@ -152,27 +163,110 @@ impl ProfilePage {
         self.dialog.open(dialog, cx);
     }
 
+    /// A button showing the current choice, which opens the list of choices. Picking
+    /// one saves it at once.
+    #[allow(clippy::too_many_arguments)]
+    fn dropdown<T: Copy + PartialEq + 'static>(
+        &self,
+        menu: Menu,
+        id: &'static str,
+        label: &'static str,
+        options: Vec<(T, SharedString)>,
+        current: T,
+        apply: fn(&mut PrefsData, T),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let open = self.menu == Some(menu);
+        let shown = options
+            .iter()
+            .find(|(value, _)| *value == current)
+            .map(|(_, name)| name.clone())
+            .unwrap_or_default();
+        let page = cx.entity().downgrade();
+        let button = select_button(
+            SharedString::from(format!("{id}-select")),
+            div().truncate().child(shown.clone()),
+        )
+        .aria_label(label)
+        .aria_value(shown)
+        .min_w(px(200.))
+        .expandable(open, move |_, cx| {
+            page.update(cx, |this, cx| this.toggle_menu(menu, cx)).ok();
+        })
+        .on_press(cx.listener(move |this, _, _, cx| this.toggle_menu(menu, cx)));
+        div()
+            .flex()
+            .flex_col()
+            .items_end()
+            .child(button)
+            .when(open, |this| {
+                let mut panel = popover_panel(SharedString::from(format!("{id}-list")))
+                    .min_w(px(200.))
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                        this.menu = None;
+                        cx.notify();
+                    }));
+                for (index, (value, name)) in options.into_iter().enumerate() {
+                    panel = panel.child(
+                        ListRow::new(SharedString::from(format!("{id}-option-{index}")), name)
+                            .selected(value == current)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.menu = None;
+                                cx.notify();
+                                Prefs::update(cx, |p| apply(p, value));
+                            })),
+                    );
+                }
+                let page = cx.entity().downgrade();
+                this.child(popover(
+                    SharedString::from(format!("{id}-menu")),
+                    panel,
+                    move |_, cx| {
+                        page.update(cx, |this, cx| {
+                            this.menu = None;
+                            cx.notify();
+                        })
+                        .ok();
+                    },
+                ))
+            })
+            .into_any_element()
+    }
+
+    fn toggle_menu(&mut self, menu: Menu, cx: &mut Context<Self>) {
+        self.menu = if self.menu == Some(menu) {
+            None
+        } else {
+            Some(menu)
+        };
+        cx.notify();
+    }
+
     fn appearance(&self, cx: &mut Context<Self>) -> AnyElement {
         let prefs = Prefs::get(cx).clone();
-        let language = segmented(
+        let language = self.dropdown(
+            Menu::Language,
             "language",
+            t(CoreMsg::Language),
             LANGUAGES
                 .iter()
                 .map(|l| (*l, SharedString::from(language_name(*l))))
                 .collect(),
-            Some(&prefs.language),
-            false,
-            |language: Language, _, cx: &mut App| Prefs::update(cx, |p| p.language = language),
+            prefs.language,
+            |p, language| p.language = language,
+            cx,
         );
-        let theme = segmented(
+        let theme = self.dropdown(
+            Menu::Theme,
             "theme",
+            t(CoreMsg::Theme),
             Theme::ALL
                 .iter()
                 .map(|theme| (*theme, SharedString::from(theme_name(*theme).0)))
                 .collect(),
-            Some(&prefs.theme),
-            false,
-            |theme: Theme, _, cx: &mut App| Prefs::update(cx, |p| p.theme = theme),
+            prefs.theme,
+            |p, theme| p.theme = theme,
+            cx,
         );
         let modifier = if cfg!(target_os = "macos") {
             "⌘"
@@ -221,11 +315,11 @@ impl ProfilePage {
         )
         .child(settings::card([
             SettingRow::new(t(CoreMsg::Language))
-                .below(language)
+                .child(language)
                 .into_any_element(),
             SettingRow::new(t(CoreMsg::Theme))
                 .hint(theme_name(prefs.theme).1)
-                .below(theme)
+                .child(theme)
                 .into_any_element(),
             SettingRow::new(t(CoreMsg::Zoom))
                 .hint(tr!(CoreMsg::ZoomHint, modifier = modifier))
