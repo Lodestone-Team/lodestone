@@ -106,6 +106,8 @@ crate::i18n::messages! {
         FilesTooLarge = "This file is too large to open here (over {size}). Download it instead.",
         /// Next to the file's name when the user may not change files.
         FilesReadOnly = "Read only",
+        /// A checkbox under the editor: long lines wrap instead of scrolling sideways (⌥Z / Alt+Z).
+        FilesWrapLines = "Wrap lines",
         /// A row's checkbox, for screen readers.
         FilesSelect = "Select {name}",
         /// The file list's name for screen readers.

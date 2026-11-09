@@ -90,6 +90,7 @@ pub fn text(message: M) -> &'static str {
             "Ce fichier est trop volumineux pour être ouvert ici (plus de {size}). Téléchargez-le plutôt."
         }
         M::FilesReadOnly => "Lecture seule",
+        M::FilesWrapLines => "Retour à la ligne",
         M::FilesSelect => "Sélectionner {name}",
         M::FilesList => "Fichiers",
         M::FilesResize => "Redimensionner la liste des fichiers",
