@@ -81,3 +81,19 @@ The updater itself is in `launcher/crates/launcher-core/src/update.rs`
 `launcher/crates/lodestone-launcher/src/updater.rs` (checks, Settings and the top
 bar's notice). To test it against a local folder instead of GitHub, see
 "Testing without GitHub" in the skill.
+
+## Lodestone Host (GPUI)
+
+The GPUI rewrite of Lodestone Host is `launcher/crates/lodestone-host`; the Tauri app in
+`dashboard/src-tauri` stays until it is retired. `launcher/docs/host-parity.md` is the
+plan: how the Host works, the feature checklist and the work packages. In short:
+
+- It runs `lodestone_core` as a child process (`--is-host --port --stop-with-stdin`),
+  always built with `--no-default-features`: never with Deno.
+- It signs in as the owner through the core's local claim (`"session": true`).
+- It shares `launcher/crates/lodestone-ui` (components, theme, fonts, i18n plumbing)
+  with the launcher, and talks to the core through `launcher-core`'s `cores::admin`.
+- Tests and dev bundles must not use `~/.lodestone`: set `LODESTONE_PATH` (and
+  `LODESTONE_HOST_DATA_DIR`) to temp folders. `launcher/scripts/host_dev_bundle.py`
+  makes a runnable `Lodestone Host Dev.app` that does this.
+- Never start a Minecraft server while testing the Host.

@@ -3133,6 +3133,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "lodestone-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "futures",
+ "gpui",
+ "gpui_platform",
+ "http_client",
+ "launcher-core",
+ "lodestone-ui",
+ "objc2 0.6.3",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "url",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "lodestone-launcher"
 version = "0.1.0"
 dependencies = [

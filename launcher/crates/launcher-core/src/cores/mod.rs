@@ -15,8 +15,10 @@
 //! - [`hosting`]: "Host this modpack", a launcher instance as a new server;
 //! - [`resource_pack`]: a server's resource pack;
 //! - [`lan`]: worlds opened to LAN on this network;
-//! - [`local_claim`]: "Connect as owner" for a core on this computer.
+//! - [`local_claim`]: "Connect as owner" for a core on this computer;
+//! - [`admin`]: the core's full API, as the dashboard and Lodestone Host use it.
 
+pub mod admin;
 pub mod client;
 pub mod hosting;
 pub mod join;

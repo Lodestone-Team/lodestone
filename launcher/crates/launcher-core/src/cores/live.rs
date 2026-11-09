@@ -360,6 +360,10 @@ pub enum StreamKind {
     Events,
     /// One server's console output.
     Console,
+    /// Every event the key may see, from every server and the core itself, as raw
+    /// frames ([`LiveMessage::Frame`]): Lodestone Host's whole view of its core. The
+    /// `server` given to [`LiveStream::open`] is not used.
+    All,
 }
 
 /// What a stream reports.
@@ -372,6 +376,8 @@ pub enum LiveMessage {
     State(ServerState),
     Players(Vec<Player>),
     Output(ConsoleLine),
+    /// A frame of a [`StreamKind::All`] stream, as the core sent it (a `ClientEvent`).
+    Frame(String),
     /// The core refused the key (signed out, or no longer allowed). Not retried.
     Ended(CoreError),
 }
@@ -449,6 +455,10 @@ fn stream_path(key: &Secret, server: &str, kind: &StreamKind) -> String {
             "instance/{server}/console/stream?token={}",
             encode(&format!("Bearer {}", key.expose()))
         ),
+        StreamKind::All => {
+            let filter = json!({ "bearer_token": key.expose() });
+            format!("events/all/stream?filter={}", encode(&filter.to_string()))
+        }
     }
 }
 
@@ -555,6 +565,15 @@ fn follow(
             Ok(Message::Text(text)) => {
                 last_frame = Instant::now();
                 pinged = false;
+                if *kind == StreamKind::All {
+                    if tx
+                        .unbounded_send(LiveMessage::Frame(text.as_str().to_string()))
+                        .is_err()
+                    {
+                        return "Stopped".into();
+                    }
+                    continue;
+                }
                 let Some(message) = parse_frame(text.as_str(), server) else {
                     continue;
                 };

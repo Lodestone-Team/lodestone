@@ -593,7 +593,21 @@ impl CoreClient {
     /// `POST /local_claim/finish`: the core checks the files the launcher wrote and
     /// writes the key into the claim's folder. Nothing secret is in the reply.
     pub async fn local_claim_finish(&self, id: &str, key_name: &str) -> Result<(), CoreError> {
-        let body = serde_json::json!({ "id": id, "name": key_name });
+        self.local_claim_finish_with(id, key_name, false).await
+    }
+
+    /// [`Self::local_claim_finish`], asking for an owner sign-in token instead of a key
+    /// when `session` is set (see [`super::local_claim::claim_session`]).
+    pub async fn local_claim_finish_with(
+        &self,
+        id: &str,
+        key_name: &str,
+        session: bool,
+    ) -> Result<(), CoreError> {
+        let mut body = serde_json::json!({ "id": id, "name": key_name });
+        if session {
+            body["session"] = serde_json::json!(true);
+        }
         let response = self
             .send(
                 Method::POST,

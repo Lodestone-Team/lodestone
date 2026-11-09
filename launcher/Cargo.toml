@@ -5,6 +5,7 @@ members = [
     "crates/launcher-control",
     "crates/launcher-core",
     "crates/lodestone-launcher",
+    "crates/lodestone-host",
     "crates/lodestone-launcher-cli",
     "crates/lodestone-ui",
 ]
