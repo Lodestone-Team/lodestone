@@ -255,6 +255,9 @@ pub(super) enum Entry {
     /// No network: Modrinth can't be searched.
     ModrinthOffline,
     ModrinthNothing,
+    /// Not searching, with content installed: a placeholder that says the search box
+    /// finds more on Modrinth (and focuses it when clicked).
+    ModrinthPrompt,
     /// A Modrinth result, by its index in the results.
     Hit {
         index: usize,
@@ -1332,6 +1335,7 @@ impl ContentView {
             plan.push(Entry::Note(error.clone(), true));
         }
         if listing.items.is_empty() {
+            plan.push(Entry::Heading(Heading::Installed(0)));
             plan.push(Entry::Empty);
             // Something to start from: the most relevant projects.
             self.modrinth_plan(kind, cx, &mut plan);
@@ -1390,7 +1394,64 @@ impl ContentView {
                 }
             }
         }
+        // Below what's installed, always the Modrinth section: until something is
+        // typed, a placeholder pointing at the search box.
+        plan.push(Entry::ModrinthHeading);
+        plan.push(Entry::ModrinthPrompt);
         plan
+    }
+
+    /// Whether the Modrinth section shows its placeholder rather than results: nothing
+    /// is typed and something is installed (with nothing installed, it suggests the
+    /// most relevant projects instead).
+    fn modrinth_prompting(&self, kind: ContentKind, cx: &gpui::App) -> bool {
+        self.query(kind, cx).is_empty()
+            && matches!(&self.section(kind).listing, Load::Ready(listing) if !listing.items.is_empty())
+    }
+
+    /// The Modrinth section's placeholder: the search box finds more there.
+    fn render_modrinth_prompt(&self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let message = t(match kind {
+            ContentKind::Mod => M::ModrinthPromptMods,
+            ContentKind::ResourcePack => M::ModrinthPromptResourcePacks,
+            ContentKind::ShaderPack => M::ModrinthPromptShaderPacks,
+        });
+        let target = self.target_label(kind, cx);
+        div()
+            .id(("modrinth-prompt", kind as usize))
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_2()
+            .py_8()
+            .rounded(radius::XL)
+            .border_2()
+            .border_dashed()
+            .border_color(colors::GRAY_FADED.opacity(10))
+            .text_color(colors::GRAY_FADED.opacity(50))
+            .font_weight(weights::BOLD.into())
+            .cursor_pointer()
+            .hover(|style| style.border_color(colors::GRAY_FADED.opacity(25)))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                let search = this.section(kind).browse.search.clone();
+                window.focus(&gpui::Focusable::focus_handle(search.read(cx), cx), cx);
+            }))
+            .child(Icon::MagnifyingGlass.render(px(20.), colors::GRAY_FADED.opacity(50)))
+            .child(
+                div()
+                    .px_4()
+                    .text_center()
+                    .whitespace_normal()
+                    .child(message),
+            )
+            .when(!target.is_empty(), |this| {
+                this.child(
+                    small(tr!(M::ModrinthPromptTarget, target = target))
+                        .font_weight(weights::MEDIUM.into()),
+                )
+            })
+            .into_any_element()
     }
 
     /// The Modrinth part of the list: its heading, then the results not installed yet.
@@ -1565,6 +1626,7 @@ impl ContentView {
                 .into_any_element(),
             Entry::ModrinthOffline => muted(t(M::BrowsingNeedsNetwork)).into_any_element(),
             Entry::ModrinthNothing => muted(t(M::NothingMatches)).into_any_element(),
+            Entry::ModrinthPrompt => self.render_modrinth_prompt(kind, cx),
             Entry::Hit {
                 index, first, last, ..
             } => {
@@ -1745,7 +1807,9 @@ impl ContentView {
             .find(|(i, _)| *i == index)
             .map_or(M::SortRelevance, |(_, label)| *label);
         let target = self.target_label(kind, cx);
-        let title = match total {
+        // The placeholder's heading has no count: the results it would count are from
+        // an earlier search, or none.
+        let title = match total.filter(|_| !self.modrinth_prompting(kind, cx)) {
             Some(total) => tr!(M::OnModrinthCount, count = format::number(total as u64)),
             None => t(M::OnModrinth).to_string(),
         };
