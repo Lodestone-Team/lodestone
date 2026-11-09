@@ -238,6 +238,7 @@ pub(crate) async fn content_entries(
                 sha512: download.sha512.clone(),
                 looked_up: found.is_some() && modrinth.is_none(),
                 modrinth,
+                ..Default::default()
             };
             (kind, enabled_name(&name), entry)
         })
