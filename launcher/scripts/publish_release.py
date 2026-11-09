@@ -1,41 +1,51 @@
 #!/usr/bin/env python3
-"""Publishes Lodestone Launcher builds that installed launchers update to.
+"""Builds Lodestone Launcher versions and uploads them to their GitHub releases.
 
-There are two channels, each a GitHub release with a `latest.json` that the
-launcher's updater reads (launcher/crates/launcher-core/src/update.rs):
+Each version is a `launcher-vX.Y.Z` tag on one commit (`launcher-vX.Y.Z-beta.N`
+for a beta) and a GitHub release of its own. The release starts as a draft:
+CI (.github/workflows/launcher-release.yml) builds macOS and Windows into it,
+developers add other platforms from their own machines with this script, and a
+developer publishes it by hand. Its `latest.json` lists each platform's
+standalone binary with its build number, commit, size and SHA-256.
 
-- **beta** (`launcher-beta`): new builds go here first. Launchers with "Beta
-  builds" on read it, and the stable channel too.
-- **stable** (`launcher-latest`): what every other launcher reads. A stable build
-  is normally a beta build that beta users have run, promoted with `--promote`,
-  which copies its files byte for byte.
+Installed launchers (launcher/crates/launcher-core/src/update.rs) list the
+repository's releases, take the published `launcher-v*` one with the newest build
+for their platform (pre-releases too, with "Beta builds" on), and download the
+binary its `latest.json` lists. Drafts are invisible to them.
 
-Publishing has two halves. Staging builds the files into a folder: the standalone
-binary for each platform (the file the updater downloads), the Windows installer,
-and on macOS the app, in a disk image. Uploading puts a staged folder (or several)
-on a channel and updates its `latest.json`. They run together on a developer's
-machine, or apart in GitHub Actions (.github/workflows/launcher-release.yml):
-each platform stages on a runner of its own, and one job uploads them all.
+Staging builds the files into a folder: the standalone binary for each platform
+(the file the updater downloads), the Windows installer, and on macOS the app, in
+a disk image. Uploading puts staged folders on a version's release and merges
+their platforms into its `latest.json`. On a developer's machine a dry run stages
+and the upload follows once the build is tested; in GitHub Actions each platform
+stages on a runner of its own and one job uploads them all.
 
 A build's number is the number of commits in its history (`git rev-list --count
-HEAD`), so it grows along `main` and is the same on both channels. Only commits on
-`main` on GitHub are published, and a channel refuses a build that isn't newer
-than the one it has for that platform.
+HEAD`). Launchers update to a higher number, so a version is refused when a
+published release of its channel already has a build as high for that platform.
+A version can come from any commit on GitHub: main's tip, an older commit, or a
+fix on a release branch made from one.
 
-Usage, from anywhere in the repository:
+Usage, from a checkout of the version's commit (`git checkout launcher-v0.2.0`):
 
-    python3 launcher/scripts/publish_release.py --dry-run        # stage a build to test
-    python3 launcher/scripts/publish_release.py --channel beta   # upload the dry run's build
-    python3 launcher/scripts/publish_release.py --promote        # beta's builds to stable
+    python3 launcher/scripts/publish_release.py --dry-run --tag launcher-v0.2.0
+                                        # stage this machine's build to test
+    python3 launcher/scripts/publish_release.py --tag launcher-v0.2.0
+                                        # upload the tested build to the draft
+    python3 launcher/scripts/publish_release.py --tag launcher-v0.2.0 --promote-from launcher-v0.2.0-beta.3
+                                        # a stable version from a beta's files
     python3 launcher/scripts/publish_release.py --output DIR --build 2
-                                                                 # local test, no GitHub
+                                        # local test, no GitHub
     # In GitHub Actions:
     python3 launcher/scripts/publish_release.py --stage DIR [--target TRIPLE ...]
-    python3 launcher/scripts/publish_release.py --from DIR [--from DIR ...] --channel beta
+    python3 launcher/scripts/publish_release.py --tag TAG --from DIR [--from DIR ...]
+
+Uploading to a version whose tag doesn't exist yet tags this commit (it must be on
+GitHub) and drafts the release; pushing a tag starts the release workflow, which
+builds macOS and Windows into the same draft.
 
 `--target` builds for a Rust target other than this machine's (a Mac builds both
-`aarch64-apple-darwin` and `x86_64-apple-darwin`, and the app holds both). Each
-platform is otherwise staged on a machine of its own.
+`aarch64-apple-darwin` and `x86_64-apple-darwin`, and the app holds both).
 
 On macOS the binaries, the app and the disk image are signed with the identity in
 LODESTONE_MACOS_SIGN_IDENTITY (a "Developer ID Application" certificate), or
@@ -63,10 +73,16 @@ import tempfile
 from pathlib import Path
 
 REPO = "Lodestone-Team/lodestone"
-CHANNELS = {"stable": "launcher-latest", "beta": "launcher-beta"}
 MANIFEST = "latest.json"
-# Builds kept per platform: the newest and the one before it, so a launcher that
-# started downloading just before a publish can finish.
+# A launcher version's tag: launcher-v0.2.0, launcher-v0.2.0-beta.1.
+TAG_PREFIX = "launcher-v"
+TAG = re.compile(r"^launcher-v(\d+\.\d+\.\d+)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$")
+# The release launchers read before they read versioned releases. Only `--bridge`
+# writes to it, so launchers that old update to one that reads versioned releases.
+LEGACY_TAG = "launcher-latest"
+# Builds kept per platform where several share a release (the legacy one, and test
+# folders): the newest and the one before it, so a launcher that started
+# downloading just before an upload can finish.
 KEEP = 2
 
 LAUNCHER = Path(__file__).resolve().parent.parent
@@ -79,8 +95,8 @@ ASSET_NAME = re.compile(
 )
 INSTALLER_SCRIPT = LAUNCHER / "installer" / "windows" / "lodestone-launcher.iss"
 MACOS = LAUNCHER / "installer" / "macos"
-# The newest installer and disk image under names that never change, so download
-# links don't either.
+# Each release's installer and disk image under names that never change, so the
+# website can link to them without knowing the build.
 STABLE_INSTALLER = "LodestoneLauncherSetup.exe"
 STABLE_DMG = "LodestoneLauncher.dmg"
 APP_NAME = "Lodestone Launcher"
@@ -160,15 +176,6 @@ def workspace_version() -> str:
     return match.group(1) if match else ""
 
 
-def github_remote() -> str:
-    """The git remote that points at REPO."""
-    for line in run(["git", "remote", "-v"]).splitlines():
-        parts = line.split()
-        if len(parts) >= 2 and REPO.lower() in parts[1].lower().removesuffix(".git"):
-            return parts[0]
-    raise Failure(f"no git remote points at {REPO}")
-
-
 def check_clean() -> None:
     if run(["git", "status", "--porcelain", "--untracked-files=no"]):
         raise Failure(
@@ -176,16 +183,28 @@ def check_clean() -> None:
         )
 
 
-def check_on_main(commit: str) -> None:
-    remote = github_remote()
-    run(["git", "fetch", "--quiet", remote, "main"])
-    try:
-        run(["git", "merge-base", "--is-ancestor", commit, f"{remote}/main"])
-    except Failure:
+def check_tag(tag: str) -> None:
+    if not TAG.match(tag):
         raise Failure(
-            f"{commit[:7]} isn't on {remote}/main. Publish merged commits (check out main and "
-            "pull), or pass --allow-unmerged"
+            f"{tag!r} isn't a launcher version: use launcher-vX.Y.Z, or launcher-vX.Y.Z-beta.N "
+            "(or another -suffix) for a beta"
         )
+
+
+def is_prerelease_tag(tag: str) -> bool:
+    """A version with a -suffix is a pre-release: launchers with Beta builds on take it."""
+    match = TAG.match(tag)
+    return bool(match and match.group(2))
+
+
+def tag_version_note(tag: str, version: str) -> str | None:
+    """A note when the tag's version isn't the workspace's (which the build shows)."""
+    match = TAG.match(tag)
+    if match and version and match.group(1) != version.split("-", 1)[0]:
+        return (f"{tag} is version {match.group(1)}, but launcher/Cargo.toml says {version}, "
+                "which the launcher and its installer show. Bump [workspace.package] version "
+                "on the release branch to match, if it should.")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +242,8 @@ def alias_for(name: str) -> str | None:
     return None
 
 
-def updated_manifest(old: dict | None, key: str, entry: dict, version: str, published: str) -> dict:
+def updated_manifest(old: dict | None, key: str, entry: dict, version: str, published: str,
+                     tag: str | None = None) -> dict:
     """`old` with this platform's entry replaced; the top-level build is the newest."""
     assets: dict = {}
     if old:
@@ -235,18 +255,30 @@ def updated_manifest(old: dict | None, key: str, entry: dict, version: str, publ
             assets[name] = asset
     assets[key] = entry
     newest = max(assets.values(), key=lambda asset: asset.get("build") or 0)
-    return {
+    manifest = {
         "build": newest["build"],
         "commit": newest["commit"],
         "version": version if newest is entry else (old or {}).get("version", version),
         "published": published,
         "assets": dict(sorted(assets.items())),
     }
+    tag = tag or (old or {}).get("tag")
+    if tag:
+        manifest["tag"] = tag
+    return manifest
 
 
 def file_key(name: str) -> str | None:
     match = ASSET_NAME.match(name)
     return match.group(2) if match else None
+
+
+def file_build(name: str, key: str) -> int | None:
+    """The build of `name` if it's this platform's standalone binary."""
+    match = ASSET_NAME.match(name)
+    if match and match.group(2) == key and match.group(3) != "-setup" and match.group(4) != ".dmg":
+        return int(match.group(1))
+    return None
 
 
 def stale_names(names: list[str], key: str, keep_builds: set[int]) -> list[str]:
@@ -261,12 +293,32 @@ def stale_names(names: list[str], key: str, keep_builds: set[int]) -> list[str]:
     return [name for build, name in mine if build not in newest]
 
 
+def newest_published(releases: list[dict], key: str, prerelease: bool,
+                     exclude: str) -> tuple[int, str] | None:
+    """The highest build for `key` in the published launcher releases that launchers
+    reading a release like this one also read, and its tag.
+
+    Stable launchers read stable releases only; beta launchers read both, so a beta
+    competes with every release. `releases` are GitHub's release objects."""
+    best = None
+    for release in releases:
+        tag = release.get("tag_name", "")
+        if (not tag.startswith(TAG_PREFIX) or tag == exclude or release.get("draft")
+                or (release.get("prerelease") and not prerelease)):
+            continue
+        for asset in release.get("assets", []):
+            build = file_build(asset.get("name", ""), key)
+            if build is not None and (best is None or build > best[0]):
+                best = (build, tag)
+    return best
+
+
 def summary(manifest: dict, build: int) -> list[str]:
     lines = []
     for key, asset in manifest["assets"].items():
         line = f"  {key}: build {asset['build']} ({str(asset.get('commit') or '')[:7]})"
         if asset["build"] < build:
-            line += " - older; publish it from that platform to bring it up to date"
+            line += " - older than the others"
         lines.append(line)
     return lines
 
@@ -637,12 +689,35 @@ def check_candidate(stage_dir: Path, build: int, commit: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Where it goes: GitHub, or a folder for testing
+# Where it goes: a version's GitHub release, the legacy release, or a test folder
 
 
-class GitHub:
+def utc_now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def restricted(record: dict, skip: set[str]) -> dict:
+    """`record` without the platforms in `skip` and their files. The universal disk
+    image goes only when every macOS platform in it does."""
+    if not skip:
+        return record
+    assets = {key: entry for key, entry in record["assets"].items() if key not in skip}
+    macs_left = any(key.startswith("macos-") for key in assets)
+    files = {}
+    for name, digest in record["files"].items():
+        key = file_key(name)
+        if key in skip or (key == "macos-universal" and not macs_left):
+            continue
+        files[name] = digest
+    return dict(record, assets=assets, files=files)
+
+
+class GitHubRelease:
+    """The files of one GitHub release, through the GitHub CLI."""
+
     def __init__(self, repo: str, tag: str):
         self.repo, self.tag = repo, tag
+        self._info: dict | None = None
 
     def gh(self, *args: str) -> str:
         return run(["gh", *args])
@@ -653,18 +728,20 @@ class GitHub:
         except Failure as err:
             raise Failure(f"the GitHub CLI isn't signed in (`gh auth login`):\n{err}")
 
-    def exists(self) -> bool:
-        try:
-            self.gh("release", "view", self.tag, "--repo", self.repo, "--json", "tagName")
-            return True
-        except Failure:
-            return False
+    def info(self, fresh: bool = False) -> dict | None:
+        """The release (drafts too), or None if there isn't one."""
+        if self._info is None or fresh:
+            try:
+                out = self.gh("release", "view", self.tag, "--repo", self.repo, "--json",
+                              "tagName,isDraft,isPrerelease,url,assets")
+            except Failure:
+                return None
+            self._info = json.loads(out)
+        return self._info
 
     def names(self) -> list[str]:
-        if not self.exists():
-            return []
-        out = self.gh("release", "view", self.tag, "--repo", self.repo, "--json", "assets")
-        return [asset["name"] for asset in json.loads(out)["assets"]]
+        info = self.info(fresh=True)
+        return [asset["name"] for asset in info["assets"]] if info else []
 
     def download(self, name: str, into: Path) -> Path:
         self.gh("release", "download", self.tag, "--repo", self.repo,
@@ -677,31 +754,151 @@ class GitHub:
         with tempfile.TemporaryDirectory() as tmp:
             return json.loads(self.download(MANIFEST, Path(tmp)).read_text(encoding="utf-8"))
 
-    def ensure_release(self, commit: str) -> None:
-        if not self.exists():
-            step(f"Creating the {self.tag} release")
-            self.gh("release", "create", self.tag, "--repo", self.repo, "--target", commit,
-                    "--prerelease", "--latest=false", "--title", release_title(self.tag),
-                    "--notes", release_intro(self.tag))
-
     def upload(self, path: Path) -> None:
         self.gh("release", "upload", self.tag, str(path), "--repo", self.repo, "--clobber")
 
     def delete(self, name: str) -> None:
         self.gh("release", "delete-asset", self.tag, name, "--repo", self.repo, "--yes")
 
-    def point_at(self, commit: str, manifest: dict) -> None:
-        self.gh("api", "-X", "PATCH", f"repos/{self.repo}/git/refs/tags/{self.tag}",
-                "-f", f"sha={commit}", "-F", "force=true")
-        self.gh("release", "edit", self.tag, "--repo", self.repo,
-                "--notes", release_notes(self.tag, manifest))
+    def tag_commit(self) -> str | None:
+        """The commit the tag is on, or None if there's no such tag on GitHub."""
+        try:
+            return self.gh("api", f"repos/{self.repo}/commits/tags/{self.tag}", "--jq", ".sha")
+        except Failure:
+            return None
 
     def url(self) -> str:
-        return f"https://github.com/{self.repo}/releases/tag/{self.tag}"
+        info = self.info()
+        return info["url"] if info else f"https://github.com/{self.repo}/releases/tag/{self.tag}"
+
+
+class VersionRelease(GitHubRelease):
+    """A launcher version's own release: one tag, one commit, one build per platform.
+
+    Uploading to one that doesn't exist yet tags the build's commit and drafts it.
+    A platform it already has is refused (or skipped, or with --force replaced), and
+    so is a build that launchers wouldn't update to because a published release of
+    the same channel already has one as high."""
+
+    keeps_history = False
+
+    def prerelease(self) -> bool:
+        info = self.info()
+        return info["isPrerelease"] if info else is_prerelease_tag(self.tag)
+
+    def published_releases(self) -> list[dict]:
+        out = self.gh("api", "--paginate", f"repos/{self.repo}/releases?per_page=100", "--jq",
+                      '.[] | select(.tag_name | startswith("launcher-v")) '
+                      '| {tag_name, draft, prerelease, assets: [.assets[] | {name}]}')
+        return [json.loads(line) for line in out.splitlines() if line.strip()]
+
+    def create(self, commit: str) -> None:
+        """Tags `commit` (unless the tag exists) and drafts the release."""
+        tagged = self.tag_commit()
+        if tagged is None:
+            step(f"Tagging {commit[:7]} as {self.tag}")
+            try:
+                self.gh("api", "-X", "POST", f"repos/{self.repo}/git/refs",
+                        "-f", f"ref=refs/tags/{self.tag}", "-f", f"sha={commit}")
+            except Failure as err:
+                raise Failure(f"couldn't tag {commit[:7]} on GitHub; push the commit first "
+                              f"(a release branch: `git push origin HEAD`):\n{err}")
+        elif tagged != commit:
+            raise Failure(f"{self.tag} is on {tagged[:7]}, not {commit[:7]}")
+        step(f"Drafting the {self.tag} release")
+        args = ["release", "create", self.tag, "--repo", self.repo, "--draft", "--verify-tag",
+                "--title", release_title(self.tag), "--notes", release_notes(self.tag, commit),
+                "--latest=false"]
+        if is_prerelease_tag(self.tag):
+            args.append("--prerelease")
+        self.gh(*args)
+        self.info(fresh=True)
+
+    def prepare(self, stages: list[tuple[Path, dict]], force: bool, skip_existing: bool,
+                dry: bool = False) -> list[tuple[Path, dict]]:
+        commits = {record["commit"] for _, record in stages}
+        if len(commits) != 1:
+            raise Failure("the builds are of different commits: "
+                          + ", ".join(sorted(c[:7] for c in commits)))
+        commit = commits.pop()
+        tagged = self.tag_commit()
+        if tagged is not None and tagged != commit:
+            raise Failure(
+                f"{self.tag} is on {tagged[:7]}, and this is a build of {commit[:7]}. Build the "
+                f"tag's commit (`git checkout {self.tag}`), or release this commit as a new version"
+            )
+        info = self.info()
+        if info is None:
+            if dry:
+                print(f"    Would tag {commit[:7]} as {self.tag} and draft its release.")
+            else:
+                self.create(commit)
+                info = self.info()
+        elif not info["isDraft"]:
+            print(f"    {self.tag} is already published: launchers can see what's added to it.")
+        current = (self.manifest() if info else None) or {"assets": {}}
+        published = self.published_releases()
+        kept = []
+        for folder, record in stages:
+            skip = set()
+            for key, entry in record["assets"].items():
+                have = current["assets"].get(key)
+                if have:
+                    if skip_existing:
+                        print(f"    {self.tag} already has {key} (build {have.get('build')}); "
+                              "leaving it.")
+                        skip.add(key)
+                        continue
+                    if not force:
+                        raise Failure(
+                            f"{self.tag} already has {key} (build {have.get('build')}). Pass "
+                            "--force to replace it" + ("" if info and info["isDraft"] else
+                                                       ", though launchers may have it already")
+                        )
+                best = newest_published(published, key, self.prerelease(), self.tag)
+                if best and best[0] >= entry["build"] and not force:
+                    channel = "beta" if self.prerelease() else "stable"
+                    raise Failure(
+                        f"{best[1]} is published with {key} build {best[0]}, so {channel} launchers "
+                        f"wouldn't update to this build {entry['build']}. Release a newer commit "
+                        "(a fix on a release branch counts up from its base), or pass --force"
+                    )
+            record = restricted(record, skip)
+            if record["assets"]:
+                kept.append((folder, record))
+        return kept
+
+    def finished(self, manifest: dict) -> None:
+        pass
+
+
+class LegacyRelease(GitHubRelease):
+    """`launcher-latest`, which launchers from before versioned releases read. Only
+    --bridge writes to it, with a published version's files, so those launchers
+    update to a build that reads versioned releases from then on."""
+
+    keeps_history = True
+
+    def prepare(self, stages, force, skip_existing, dry=False):
+        if self.info() is None:
+            raise Failure(f"there's no {self.tag} release; launchers that old don't exist")
+        check_newer(self.manifest(), [record for _, record in stages], force)
+        return stages
+
+    def finished(self, manifest: dict) -> None:
+        tag = manifest.get("tag")
+        notes = ("Lodestone Launcher's old update channel. Launchers update from each version's "
+                 "own release now (`launcher-v*`); this one only carries "
+                 + (f"[{tag}](https://github.com/{self.repo}/releases/tag/{tag}) " if tag else
+                    "a recent build ")
+                 + "for launchers from before that.")
+        self.gh("release", "edit", self.tag, "--repo", self.repo, "--notes", notes)
 
 
 class Folder:
     """A local stand-in for a release, to test the updater against."""
+
+    keeps_history = True
 
     def __init__(self, path: Path):
         self.path = path
@@ -722,8 +919,9 @@ class Folder:
         file = self.path / MANIFEST
         return json.loads(file.read_text(encoding="utf-8")) if file.exists() else None
 
-    def ensure_release(self, commit: str) -> None:
-        pass
+    def prepare(self, stages, force, skip_existing, dry=False):
+        check_newer(self.manifest(), [record for _, record in stages], force)
+        return stages
 
     def upload(self, path: Path) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
@@ -732,7 +930,7 @@ class Folder:
     def delete(self, name: str) -> None:
         (self.path / name).unlink()
 
-    def point_at(self, commit: str, manifest: dict) -> None:
+    def finished(self, manifest: dict) -> None:
         pass
 
     def url(self) -> str:
@@ -740,61 +938,72 @@ class Folder:
 
 
 def release_title(tag: str) -> str:
-    return "Lodestone Launcher (beta)" if tag == CHANNELS["beta"] else "Lodestone Launcher"
+    match = TAG.match(tag)
+    return f"Lodestone Launcher {tag[len('launcher-v'):] if match else tag}"
 
 
-def release_intro(tag: str) -> str:
-    if tag == CHANNELS["beta"]:
-        return ("Lodestone Launcher beta builds: new features before everyone else, and "
-                "sometimes new bugs. Launchers with Settings › General › Beta builds on "
-                "update from here.")
-    return "Lodestone Launcher builds. Installed launchers update from here."
-
-
-def release_notes(tag: str, manifest: dict) -> str:
-    notes = [release_intro(tag), ""]
-    notes += [f"- {key}: build {asset['build']} ({str(asset.get('commit') or '')[:7]})"
-              for key, asset in manifest["assets"].items()]
-    keys = manifest["assets"]
-    if any(key.startswith("macos-") for key in keys):
-        notes += ["", f"**New on a Mac?** Download `{STABLE_DMG}` below, open it and drag "
-                  "Lodestone Launcher into Applications. It keeps itself up to date from then on."]
-    if any(has_installer(key) for key in keys):
-        notes += ["", f"**New on Windows?** Download `{STABLE_INSTALLER}` below and run it. "
-                  "It installs for your account without administrator rights, and the "
-                  "launcher keeps itself up to date from then on."]
-    notes += ["", "The `-standalone` files run without installing, from wherever you put "
-              "them, and update themselves too."]
-    notes += ["", "Published with `launcher/scripts/publish_release.py`."]
-    return "\n".join(notes)
+def release_notes(tag: str, commit: str) -> str:
+    """A new draft's notes, for a developer to finish (the release workflow's
+    release-draft.yml writes the same)."""
+    channel = ("launchers with Settings › General › Beta builds on" if is_prerelease_tag(tag)
+               else "every installed launcher")
+    return "\n".join([
+        "## What's new",
+        "",
+        "<!-- Write what changed before publishing this release. -->",
+        "",
+        "## Download",
+        "",
+        f"- **Windows:** `{STABLE_INSTALLER}`. It installs for your account, without "
+        "administrator rights.",
+        f"- **macOS:** `{STABLE_DMG}`. Open it and drag Lodestone Launcher into Applications.",
+        "- The `-standalone` files run without installing, from wherever you put them.",
+        "",
+        f"Once this release is published, {channel} updates to it.",
+        "",
+        f"Built from {commit}.",
+    ])
 
 
 # ---------------------------------------------------------------------------
 # Uploading
 
 
-def check_newer(current: dict | None, assets: dict, force: bool) -> None:
-    for key, entry in assets.items():
-        published = (current or {}).get("assets", {}).get(key)
-        if not published:
-            continue
-        have = published.get("build", (current or {}).get("build"))
-        if have >= entry["build"] and not force:
-            raise Failure(
-                f"{key} is already at build {have} there, and this is build {entry['build']}. "
-                "Publish a newer commit, or pass --force to replace it"
-            )
+def check_newer(current: dict | None, records: list[dict], force: bool) -> None:
+    """For releases that hold a run of builds: refuses one that isn't newer."""
+    for record in records:
+        for key, entry in record["assets"].items():
+            published = (current or {}).get("assets", {}).get(key)
+            if not published:
+                continue
+            have = published.get("build", (current or {}).get("build"))
+            if have >= entry["build"] and not force:
+                raise Failure(
+                    f"{key} is already at build {have} there, and this is build {entry['build']}. "
+                    "Publish a newer commit, or pass --force to replace it"
+                )
 
 
-def publish(target, stages: list[tuple[Path, dict]], force: bool = False) -> dict:
-    """Uploads staged folders to `target` and merges their platforms into its manifest."""
+def merged_manifest(current: dict | None, stages: list[tuple[Path, dict]],
+                    tag: str | None) -> dict:
+    manifest = current
+    now = utc_now()
+    for _, record in stages:
+        for key, entry in record["assets"].items():
+            manifest = updated_manifest(manifest, key, entry, record["version"], now, tag)
+    return manifest
+
+
+def publish(target, stages: list[tuple[Path, dict]], force: bool = False,
+            skip_existing: bool = False, tag: str | None = None) -> dict | None:
+    """Uploads staged folders to `target` and merges their platforms into its
+    manifest. Returns the manifest, or None if there was nothing new to upload."""
     if not stages:
         raise Failure("nothing to publish")
-    current = target.manifest()
-    for _, record in stages:
-        check_newer(current, record["assets"], force)
-    newest = max(stages, key=lambda item: item[1]["build"])[1]
-    target.ensure_release(newest["commit"])
+    stages = target.prepare(stages, force, skip_existing)
+    if not stages:
+        step("Nothing new to upload")
+        return None
     with tempfile.TemporaryDirectory() as tmp:
         for folder, record in stages:
             binaries = {entry["name"] for entry in record["assets"].values()}
@@ -809,20 +1018,28 @@ def publish(target, stages: list[tuple[Path, dict]], force: bool = False) -> dic
                     copy = Path(tmp) / alias
                     shutil.copyfile(folder / name, copy)
                     target.upload(copy)
-        # Read the manifest again just before replacing it, so a platform published
-        # meanwhile from another machine is kept.
-        manifest = target.manifest()
-        now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        for _, record in stages:
-            for key, entry in record["assets"].items():
-                manifest = updated_manifest(manifest, key, entry, record["version"], now)
-        manifest_file = Path(tmp) / MANIFEST
-        manifest_file.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-        step(f"Uploading {MANIFEST}")
-        target.upload(manifest_file)
-    if manifest["build"] == newest["build"]:
-        target.point_at(newest["commit"], manifest)
-    clean_up(target, manifest, [name for _, record in stages for name in record["files"]])
+        # Builds of other platforms can be uploaded at the same time, from CI or
+        # another developer's machine: merge into the manifest as it is now, and
+        # check it kept ours.
+        ours = {key: entry["sha256"] for _, record in stages
+                for key, entry in record["assets"].items()}
+        for _ in range(3):
+            manifest = merged_manifest(target.manifest(), stages, tag)
+            manifest_file = Path(tmp) / MANIFEST
+            manifest_file.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+            step(f"Uploading {MANIFEST}")
+            target.upload(manifest_file)
+            written = target.manifest() or {"assets": {}}
+            if all(written["assets"].get(key, {}).get("sha256") == digest
+                   for key, digest in ours.items()):
+                manifest = written
+                break
+            print(f"    Another upload replaced {MANIFEST} meanwhile; merging again.")
+        else:
+            raise Failure(f"other uploads kept replacing {MANIFEST}; run this again")
+    if target.keeps_history:
+        clean_up(target, manifest, [name for _, record in stages for name in record["files"]])
+    target.finished(manifest)
     return manifest
 
 
@@ -840,16 +1057,16 @@ def clean_up(target, manifest: dict, uploaded: list[str]) -> None:
             target.delete(name)
 
 
-def promotion(beta: dict, names: list[str], platforms: list[str] | None) -> tuple[dict, list[str]]:
-    """What promoting `beta` copies: its manifest entries for `platforms` (all by
+def promotion(source: dict, names: list[str], platforms: list[str] | None) -> tuple[dict, list[str]]:
+    """What copying `source`'s manifest takes: its entries for `platforms` (all by
     default), and every file of those builds: binaries, installers and disk images."""
-    assets = {key: entry for key, entry in beta.get("assets", {}).items()
+    assets = {key: entry for key, entry in source.get("assets", {}).items()
               if platforms is None or key in platforms}
     missing = set(platforms or []) - set(assets)
     if missing:
-        raise Failure(f"beta has no build for {', '.join(sorted(missing))}")
+        raise Failure(f"it has no build for {', '.join(sorted(missing))}")
     if not assets:
-        raise Failure("beta has no builds to promote")
+        raise Failure("it has no builds to copy")
     files = []
     for name in names:
         match = ASSET_NAME.match(name)
@@ -866,129 +1083,155 @@ def promotion(beta: dict, names: list[str], platforms: list[str] | None) -> tupl
             files.append(name)
     for key, entry in assets.items():
         if entry["name"] not in files:
-            raise Failure(f"beta's manifest lists {entry['name']} for {key}, but the file isn't there")
+            raise Failure(f"its manifest lists {entry['name']} for {key}, but the file isn't there")
     return assets, files
 
 
-def promote(beta, stable, platforms: list[str] | None, force: bool) -> dict:
-    """Copies beta's builds to stable, byte for byte."""
-    manifest = beta.manifest()
+def copy_release(source, dest, platforms: list[str] | None, force: bool,
+                 tag: str | None = None) -> dict | None:
+    """Copies `source`'s builds to `dest`, byte for byte, after checking them
+    against `source`'s manifest."""
+    manifest = source.manifest()
     if not manifest:
-        raise Failure("there's no beta release to promote")
-    assets, files = promotion(manifest, beta.names(), platforms)
+        raise Failure(f"{source.url()} has no {MANIFEST} to copy")
+    try:
+        assets, files = promotion(manifest, source.names(), platforms)
+    except Failure as err:
+        raise Failure(f"{source.url()}: {err}")
     for key, entry in assets.items():
         print(f"    {key}: build {entry['build']} ({entry['commit'][:7]})")
     with tempfile.TemporaryDirectory() as tmp:
         folder = Path(tmp)
         for name in files:
-            step(f"Downloading {name} from beta")
-            beta.download(name, folder)
+            step(f"Downloading {name}")
+            source.download(name, folder)
         for key, entry in assets.items():
             path = folder / entry["name"]
             if path.stat().st_size != entry["size"] or sha256(path) != entry["sha256"]:
-                raise Failure(f"{entry['name']} doesn't match beta's manifest; not promoting it")
-        builds = {entry["build"] for entry in assets.values()}
-        record = {"build": max(builds),
-                  "commit": max(assets.values(), key=lambda e: e["build"])["commit"],
+                raise Failure(f"{entry['name']} doesn't match its manifest; not copying it")
+        newest = max(assets.values(), key=lambda e: e["build"])
+        record = {"build": newest["build"],
+                  "commit": newest["commit"],
                   "version": manifest.get("version", ""),
                   "assets": assets,
                   "files": {name: sha256(folder / name) for name in files}}
-        return publish(stable, [(folder, record)], force)
+        return publish(dest, [(folder, record)], force, tag=tag)
+
+
+def published_source(release: VersionRelease, beta: bool | None) -> None:
+    """Refuses to copy from a release launchers haven't been offered."""
+    info = release.info()
+    if info is None:
+        raise Failure(f"there's no {release.tag} release")
+    if info["isDraft"]:
+        raise Failure(f"{release.tag} is still a draft; copy builds that people have run")
+    if beta is False and info["isPrerelease"]:
+        raise Failure(f"{release.tag} is a pre-release; bridge a stable version")
 
 
 # ---------------------------------------------------------------------------
 
 
+def report(target, manifest: dict | None, build: int | None = None) -> None:
+    step(f"Release: {target.url()}")
+    if manifest:
+        print("\n".join(summary(manifest, build or manifest["build"])))
+
+
 def main(argv: list[str]) -> int:
     # Keep our lines in order with cargo's and gh's output when piped.
     sys.stdout.reconfigure(line_buffering=True)
-    parser = argparse.ArgumentParser(description="Publish Lodestone Launcher builds.")
+    parser = argparse.ArgumentParser(description="Build and upload Lodestone Launcher versions.")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true",
-                      help="stage a build to test, and show the latest.json it would make")
+                      help="stage this machine's build to test (with --tag: and check it against the release)")
     mode.add_argument("--output", type=Path, metavar="DIR",
                       help="build and publish into a local folder instead of GitHub (for testing)")
     mode.add_argument("--stage", type=Path, metavar="DIR",
                       help="only build, into DIR, for a later --from (GitHub Actions)")
     mode.add_argument("--from", dest="sources", type=Path, metavar="DIR", action="append",
-                      help="upload a folder --stage made; repeat for several platforms")
-    mode.add_argument("--promote", action="store_true",
-                      help="copy beta's builds to stable, byte for byte")
-    parser.add_argument("--channel", choices=sorted(CHANNELS),
-                        help="where to publish: beta, or stable")
+                      help="upload a folder --stage made to --tag's release; repeat for several")
+    mode.add_argument("--promote-from", metavar="TAG",
+                      help="give --tag's release this published beta's files, byte for byte")
+    mode.add_argument("--bridge", metavar="TAG",
+                      help=f"copy this published version to {LEGACY_TAG}, for launchers too old "
+                           "to read versioned releases")
+    parser.add_argument("--tag", help="the version: launcher-vX.Y.Z, or launcher-vX.Y.Z-beta.N")
     parser.add_argument("--target", action="append", metavar="TRIPLE",
                         help="a Rust target to build for (repeat for several); this machine's by default")
     parser.add_argument("--platform", action="append", metavar="KEY",
-                        help="with --promote, only this platform (repeat for several)")
+                        help="with --promote-from or --bridge, only this platform (repeat for several)")
     parser.add_argument("--build", type=int,
-                        help="use this build number instead of the commit count (testing only)")
+                        help="use this build number instead of the commit count (--output, --dry-run, --stage)")
     parser.add_argument("--force", action="store_true",
-                        help="publish even if the channel already has this build or a newer one")
+                        help="replace a platform the release has, or upload a build launchers wouldn't take")
+    parser.add_argument("--skip-existing", action="store_true",
+                        help="with --from, leave platforms the release already has")
     parser.add_argument("--allow-dirty", action="store_true",
                         help="publish a checkout with uncommitted changes")
     parser.add_argument("--no-installer", action="store_true",
                         help="on Windows, publish the binary without building the installer")
-    parser.add_argument("--allow-unmerged", action="store_true",
-                        help="publish a commit that isn't on main on GitHub")
+    # Another repository (a fork) to rehearse in.
     parser.add_argument("--repo", default=REPO, help=argparse.SUPPRESS)
-    # Other releases to rehearse a real upload in; launchers never read them.
-    parser.add_argument("--tag", help=argparse.SUPPRESS)
-    parser.add_argument("--beta-tag", default=CHANNELS["beta"], help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
-    tag = args.tag or (CHANNELS[args.channel] if args.channel else None)
-    test_tag = args.tag is not None and args.tag not in CHANNELS.values()
+    if args.tag:
+        check_tag(args.tag)
 
-    if args.promote:
-        if args.channel not in (None, "stable"):
-            raise Failure("--promote copies beta to stable; leave out --channel")
-        beta = GitHub(args.repo, args.beta_tag)
-        stable = GitHub(args.repo, args.tag or CHANNELS["stable"])
-        stable.check()
-        step(f"Promoting {beta.tag} to {stable.tag}")
-        manifest = promote(beta, stable, args.platform, args.force)
-        step(f"Promoted: {stable.url()}")
-        print("\n".join(summary(manifest, manifest["build"])))
+    if args.bridge:
+        check_tag(args.bridge)
+        source = VersionRelease(args.repo, args.bridge)
+        source.check()
+        published_source(source, beta=False)
+        legacy = LegacyRelease(args.repo, LEGACY_TAG)
+        step(f"Copying {args.bridge} to {LEGACY_TAG}")
+        manifest = copy_release(source, legacy, args.platform, args.force, tag=args.bridge)
+        report(legacy, manifest)
+        return 0
+
+    if args.promote_from:
+        if not args.tag:
+            raise Failure("say which version to make: --tag launcher-vX.Y.Z")
+        check_tag(args.promote_from)
+        source = VersionRelease(args.repo, args.promote_from)
+        source.check()
+        published_source(source, beta=None)
+        target = VersionRelease(args.repo, args.tag)
+        step(f"Copying {args.promote_from}'s builds to {args.tag}")
+        manifest = copy_release(source, target, args.platform, args.force, tag=args.tag)
+        report(target, manifest)
         return 0
 
     if args.sources:
-        if tag is None:
-            raise Failure("say where to publish: --channel beta")
-        if tag == CHANNELS["stable"]:
-            raise Failure(
-                "builds reach stable by --promote from beta, after beta users have run them"
-            )
-        target = GitHub(args.repo, tag)
+        if not args.tag:
+            raise Failure("say which version these are: --tag launcher-vX.Y.Z")
+        target = VersionRelease(args.repo, args.tag)
         target.check()
         stages = [(folder, read_stage(folder)) for folder in args.sources]
-        if not args.allow_unmerged:
-            for _, record in stages:
-                check_on_main(record["commit"])
-        manifest = publish(target, stages, args.force)
-        step(f"Published to {target.url()}")
-        print("\n".join(summary(manifest, manifest["build"])))
+        manifest = publish(target, stages, args.force, args.skip_existing, tag=args.tag)
+        report(target, manifest)
         return 0
 
     publishing = not (args.dry_run or args.stage or args.output)
-    if publishing and tag is None:
-        raise Failure("say where to publish: --channel beta (or stable)")
-    if args.build is not None and publishing and not test_tag:
-        raise Failure("--build is for tests; use it with --output, --dry-run, --stage or a test --tag")
+    if publishing and not args.tag:
+        raise Failure("say which version to upload to: --tag launcher-vX.Y.Z")
+    if args.build is not None and publishing:
+        raise Failure("--build is for tests; use it with --output, --dry-run or --stage")
 
     step("Checking the checkout")
     local = args.output is not None
-    if local:
-        print("    Local test: not checking for a clean checkout on main.")
     commit = run(["git", "rev-parse", "HEAD"])
     if not (args.allow_dirty or local or args.stage):
         check_clean()
-    if not (args.allow_unmerged or local or args.stage):
-        check_on_main(commit)
     build = args.build if args.build is not None else int(run(["git", "rev-list", "--count", "HEAD"]))
     version = workspace_version()
     targets: list[str | None] = list(args.target or [None])
     keys = [key_for_target(target or host_target()) for target in targets]
     print(f"    {', '.join(keys)}, build {build}, commit {commit[:7]}, version {version}")
+    if args.tag:
+        note = tag_version_note(args.tag, version)
+        if note:
+            print(f"    Note: {note}")
     installer = not args.no_installer
     if installer and any(has_installer(key) for key in keys):
         find_iscc()  # before the long build, not after it
@@ -1016,39 +1259,35 @@ def main(argv: list[str]) -> int:
         if stage_dir.exists():
             shutil.rmtree(stage_dir)
         record = stage(targets, build, commit, version, stage_dir, installer)
-        if tag:
-            current = GitHub(args.repo, tag).manifest()
-            now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            manifest = current
-            for key, entry in record["assets"].items():
-                manifest = updated_manifest(manifest, key, entry, version, now)
-            step(f"Dry run: nothing uploaded. {tag}'s latest.json would be:")
+        if args.tag:
+            target = VersionRelease(args.repo, args.tag)
+            target.check()
+            step(f"Dry run: nothing uploaded. Checking it against {args.tag}")
+            kept = target.prepare([(stage_dir, record)], args.force, False, dry=True)
+            current = target.manifest() if target.info() else None
+            manifest = merged_manifest(current, kept, args.tag) if kept else current
+            print(f"    {args.tag}'s {MANIFEST} would be:")
             print(json.dumps(manifest, indent=2))
         copies = save_test_copies(stage_dir, test_dir, record)
         step("Test this build on this machine before publishing it:")
         for copy in copies:
             print(f"    {copy}")
-        print("    Then publish from this checkout without changes (--channel beta, or stable);")
+        print("    Then upload it from this checkout without changes (--tag launcher-vX.Y.Z);")
         print("    the script uploads exactly these files.")
         return 0
 
-    target = GitHub(args.repo, tag)
+    target = VersionRelease(args.repo, args.tag)
     target.check()
-    if test_tag:
-        # A rehearsal: build and upload in one go, to a release launchers don't read.
-        with tempfile.TemporaryDirectory() as tmp:
-            record = stage(targets, build, commit, version, Path(tmp), installer)
-            manifest = publish(target, [(Path(tmp), record)], args.force)
-    else:
-        record = check_candidate(stage_dir, build, commit)
-        if set(record["assets"]) != set(keys):
-            raise Failure(
-                f"the dry run staged {', '.join(sorted(record['assets']))}, not "
-                f"{', '.join(sorted(keys))}. Dry-run with the same --target options"
-            )
-        manifest = publish(target, [(stage_dir, record)], args.force)
-    step(f"Published build {build} for {', '.join(keys)}: {target.url()}")
-    print("\n".join(summary(manifest, build)))
+    record = check_candidate(stage_dir, build, commit)
+    if set(record["assets"]) != set(keys):
+        raise Failure(
+            f"the dry run staged {', '.join(sorted(record['assets']))}, not "
+            f"{', '.join(sorted(keys))}. Dry-run with the same --target options"
+        )
+    manifest = publish(target, [(stage_dir, record)], args.force, tag=args.tag)
+    report(target, manifest, build)
+    if manifest and target.info(fresh=True)["isDraft"]:
+        print("    It's a draft: write its notes and publish it on GitHub when every platform is in.")
     return 0
 
 

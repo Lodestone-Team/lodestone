@@ -3,6 +3,12 @@ name: Workspace - Check
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      ref:
+        description: "Commit, branch or tag to check out (empty for the run's own)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -16,6 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref }}
 
       - name: Use Node.js 24.x
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

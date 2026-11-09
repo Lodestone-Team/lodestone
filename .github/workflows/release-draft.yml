@@ -1,0 +1,159 @@
+name: Release - Draft
+
+# Makes the draft GitHub release that a version's builds are uploaded to, before
+# anything is built. Every product releases this way:
+#
+#   vX.Y.Z[-pre]           Lodestone Host and Core (release.yml)
+#   launcher-vX.Y.Z[-pre]  Lodestone Launcher (launcher-release.yml)
+#
+# A version is a tag on one commit. Pushing the tag starts the product's release
+# workflow, which calls this first; running the release workflow by hand with a
+# `tag` and a `commit` makes the tag on that commit instead, so a release can be
+# cut from any commit on GitHub: an older one on main, or a fix on a release
+# branch made from it (see .claude/skills/publish-launcher-release/SKILL.md).
+#
+# The release starts as a draft, which nobody but the repository's members can
+# see, and which installed launchers never read. CI uploads its builds to it, and
+# developers add the platforms CI doesn't build from their own machines
+# (launcher/scripts/publish_release.py --tag). It is published by hand, once its
+# notes are written and its builds tested. A tag ending in -something (-beta.1,
+# -rc.2) makes a pre-release.
+#
+# Running it again for the same tag changes nothing: the tag must still be on the
+# same commit, and an existing release (draft or not) is kept as it is.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The version tag, e.g. launcher-v0.2.0 or v0.6.0-beta.1
+        required: true
+        type: string
+      commit:
+        description: The commit (or branch) to tag; the tag's own commit if it exists, else main's tip
+        required: false
+        type: string
+        default: ""
+    outputs:
+      tag:
+        description: The tag
+        value: ${{ jobs.draft.outputs.tag }}
+      commit:
+        description: The full SHA of the commit the tag is on
+        value: ${{ jobs.draft.outputs.commit }}
+      prerelease:
+        description: Whether the tag names a pre-release ("true" or "false")
+        value: ${{ jobs.draft.outputs.prerelease }}
+      url:
+        description: The release's page
+        value: ${{ jobs.draft.outputs.url }}
+
+permissions:
+  contents: read
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    # Makes the tag (when it's new) and the release.
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      commit: ${{ steps.release.outputs.commit }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      url: ${{ steps.release.outputs.url }}
+
+    steps:
+    - name: Tag and draft the release
+      id: release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag }}
+        COMMIT: ${{ inputs.commit }}
+      run: |
+        set -euo pipefail
+
+        if [[ ! "$TAG" =~ ^(launcher-)?v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+          echo "::error::$TAG isn't a version tag: use vX.Y.Z or launcher-vX.Y.Z, with -beta.N (or another -suffix) for a pre-release."
+          exit 1
+        fi
+        prerelease=false
+        version="${TAG#launcher-}"
+        if [[ "$version" == *-* ]]; then prerelease=true; fi
+
+        # The commit asked for, as a full SHA. A branch name works too.
+        wanted=""
+        if [ -n "$COMMIT" ]; then
+          if ! wanted="$(gh api "repos/$REPO/commits/$COMMIT" --jq .sha 2>/dev/null)"; then
+            echo "::error::$COMMIT isn't a commit or branch on GitHub. Push it first."
+            exit 1
+          fi
+        fi
+
+        if tagged="$(gh api "repos/$REPO/commits/tags/$TAG" --jq .sha 2>/dev/null)"; then
+          # A tag is never moved: a release names one commit for good.
+          if [ -n "$wanted" ] && [ "$wanted" != "$tagged" ]; then
+            echo "::error::$TAG is already on ${tagged:0:7}, not ${wanted:0:7}. Tags aren't moved; release the new commit under a new version."
+            exit 1
+          fi
+          commit="$tagged"
+          echo "$TAG is on ${commit:0:7}."
+        else
+          commit="${wanted:-$(gh api "repos/$REPO/commits/main" --jq .sha)}"
+          # A lightweight tag, like `git tag`. Tags made with this job's token don't
+          # start the push workflows, so this doesn't start a second release run.
+          gh api -X POST "repos/$REPO/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$commit" > /dev/null
+          echo "Tagged ${commit:0:7} as $TAG."
+        fi
+
+        if url="$(gh release view "$TAG" --repo "$REPO" --json url --jq .url 2>/dev/null)"; then
+          echo "The release already exists, kept as it is: $url"
+        else
+          if [[ "$TAG" == launcher-* ]]; then
+            title="Lodestone Launcher ${version}"
+            channel="every installed launcher"
+            if [ "$prerelease" = true ]; then
+              channel="launchers with Settings › General › Beta builds on"
+            fi
+            install=$(printf '%s\n' \
+              "## Download" \
+              "" \
+              "- **Windows:** \`LodestoneLauncherSetup.exe\`. It installs for your account, without administrator rights." \
+              "- **macOS:** \`LodestoneLauncher.dmg\`. Open it and drag Lodestone Launcher into Applications." \
+              "- The \`-standalone\` files run without installing, from wherever you put them." \
+              "" \
+              "Once this release is published, $channel updates to it.")
+            # Launcher releases never become the repository's "Latest", which is Host's.
+            latest=(--latest=false)
+          else
+            title="$TAG"
+            install=""
+            latest=()
+          fi
+          notes=$(printf '%s\n' \
+            "## What's new" \
+            "" \
+            "<!-- Write what changed before publishing this release. -->" \
+            "" \
+            "$install" \
+            "" \
+            "Built from $commit.")
+          flags=(--draft --verify-tag --title "$title" --notes "$notes" "${latest[@]}")
+          if [ "$prerelease" = true ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" --repo "$REPO" "${flags[@]}" > /dev/null
+          url="$(gh release view "$TAG" --repo "$REPO" --json url --jq .url)"
+          echo "Drafted $url"
+        fi
+
+        {
+          echo "tag=$TAG"
+          echo "commit=$commit"
+          echo "prerelease=$prerelease"
+          echo "url=$url"
+        } >> "$GITHUB_OUTPUT"
+        {
+          echo "### $TAG"
+          echo ""
+          echo "Draft release: $url (commit \`${commit:0:7}\`, pre-release: $prerelease)."
+          echo "Builds are uploaded to it as they finish. Publish it by hand once its notes are written and its builds tested."
+        } >> "$GITHUB_STEP_SUMMARY"

@@ -46,13 +46,15 @@ To run it on Cloudflare's own runtime instead, build first, then run
 ## The launcher page
 
 - **Download button.** `main.js` detects the visitor's OS and picks the
-  matching file from the `launcher-latest` (stable) release through the GitHub
-  API: `LodestoneLauncherSetup.exe` on Windows, `LodestoneLauncher.dmg` on macOS.
+  matching file from the newest published stable launcher release (tagged
+  `launcher-vX.Y.Z`, the one with the highest build) through the GitHub API:
+  `LodestoneLauncherSetup.exe` on Windows, `LodestoneLauncher.dmg` on macOS.
   Without JavaScript, or when the API is unavailable, it links to
-  `LodestoneLauncherSetup.exe`. Platforms with no build yet show "Coming soon".
+  `LodestoneLauncherSetup.exe` in the old `launcher-latest` release, an older
+  build that updates itself. Platforms with no build yet show "Coming soon".
   Nothing here needs changing when a Linux build is published, as long as it
-  follows `publish_release.py`'s file names. Beta builds (`launcher-beta`) aren't
-  offered here.
+  follows `publish_release.py`'s file names. Betas (pre-releases,
+  `launcher-vX.Y.Z-beta.N`) aren't offered here.
 - **Star count.** It comes from the GitHub API too, cached in `localStorage` for
   an hour (the unauthenticated API allows 60 calls an hour per visitor).
 - **Download count.** The badge above the headline ("109k+ downloads") counts

@@ -1,4 +1,4 @@
-//! Keeps the launcher up to date with the builds GitHub publishes from `main`
+//! Keeps the launcher up to date with its published GitHub releases
 //! ([`launcher_core::update`]).
 //!
 //! A while after the window opens, and every few hours after that, the latest build
@@ -6,8 +6,9 @@
 //! downloaded and installed in the background; the top bar then offers to restart.
 //! With it off, the top bar offers the download instead.
 //!
-//! Settings > General > "Beta builds" picks the channel: a check reads each of its
-//! releases and takes the newest build ([`update::newest`]).
+//! Settings > General > "Beta builds" picks the channel: a check takes the newest
+//! build of the stable releases, or of the stable and beta ones
+//! ([`update::find_update`]).
 
 use std::{
     path::{Path, PathBuf},
@@ -19,7 +20,7 @@ use std::{
     time::Duration,
 };
 
-use futures::future::{Either, join_all, select};
+use futures::future::{Either, select};
 use gpui::{AppContext as _, Context, Entity, SharedString, Task};
 use http_client::HttpClient;
 use launcher_core::update::{self, Build, Found, UpdateChannel, UpdateError};
@@ -152,13 +153,9 @@ impl Updater {
         self.state = UpdateState::Checking;
         cx.notify();
         let http = self.http.clone();
-        let urls = update::manifest_urls(self.channel(cx));
+        let channel = self.channel(cx);
         let fetch = cx.background_spawn(launcher_core::http::in_http_runtime(async move {
-            let fetches = urls
-                .iter()
-                .map(|url| update::fetch_manifest(http.as_ref(), url));
-            let results = join_all(fetches).await;
-            update::newest(urls.into_iter().zip(results))
+            update::find_update(http.as_ref(), channel).await
         }));
         self.work = Some(cx.spawn(async move |this, cx| {
             let result = fetch.await;
@@ -166,24 +163,27 @@ impl Updater {
         }));
     }
 
-    fn checked(&mut self, result: Result<Found, UpdateError>, cx: &mut Context<Self>) {
+    fn checked(&mut self, result: Result<Option<Found>, UpdateError>, cx: &mut Context<Self>) {
         self.work = None;
         match result {
             Err(err) => self.state = UpdateState::Failed(err.to_string().into()),
             Ok(found) => {
                 let running = self.build.map_or(0, |build| build.number);
                 let have = running.max(self.installed.unwrap_or(0));
-                // Never older than what runs: leaving the beta waits for stable.
-                if found.manifest.newer(have).is_none() {
-                    self.state = match self.installed {
-                        Some(build) => UpdateState::Ready { build },
-                        None => UpdateState::UpToDate,
-                    };
-                } else if self.automatic(cx) {
-                    self.download(found, cx);
-                    return;
-                } else {
-                    self.state = UpdateState::Available(found);
+                // Never older than what runs: leaving the beta waits for stable. No
+                // release with a build for this platform is the same as none newer.
+                match found.filter(|found| found.manifest.newer(have).is_some()) {
+                    None => {
+                        self.state = match self.installed {
+                            Some(build) => UpdateState::Ready { build },
+                            None => UpdateState::UpToDate,
+                        };
+                    }
+                    Some(found) if self.automatic(cx) => {
+                        self.download(found, cx);
+                        return;
+                    }
+                    Some(found) => self.state = UpdateState::Available(found),
                 }
             }
         }

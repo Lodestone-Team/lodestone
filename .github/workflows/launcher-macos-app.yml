@@ -6,9 +6,9 @@ name: Launcher - macOS app
 # artifact, in the folder layout `publish_release.py --from` uploads.
 #
 # Run it by hand (Actions › Launcher - macOS app › Run workflow) to get a build to
-# try. The release workflow (launcher-release.yml) runs it to publish a beta. It
-# never runs on its own: the repository's other workflows are off, and macOS
-# release builds take a while.
+# try. The release workflow (launcher-release.yml) runs it on a version's tagged
+# commit, and uploads the result to that version's draft release. It never runs on
+# its own: macOS release builds take a while.
 #
 # Signing: with the secrets below, the app is signed with a Developer ID and the
 # disk image is notarized, so it opens without a warning. Without them it is signed
@@ -22,7 +22,19 @@ name: Launcher - macOS app
 #   APPLE_APP_PASSWORD          app-specific password for it
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch or tag to build (empty for the branch it runs on)
+        required: false
+        type: string
+        default: ""
   workflow_call:
+    inputs:
+      ref:
+        description: Commit, branch or tag to build (empty for the calling run's)
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -40,6 +52,7 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+        ref: ${{ inputs.ref }}
         # A build's number is the count of commits in its history.
         fetch-depth: 0
 
