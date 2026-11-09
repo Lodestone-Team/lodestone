@@ -6,9 +6,12 @@
 //! secret (its token lets anyone join), so it is kept in the [`SecretStore`] (the
 //! Keychain) under [`invite_secret_name`], never in the file.
 //!
-//! A friend's server is known by [`friend_id`]: `connect:<service>/<code>`. Instances
-//! made for it are linked to that id (`cores::link`), as instances made for a server on
-//! a core are linked to the core's id.
+//! A friend's server is known by [`friend_id`] of the first link it was joined with:
+//! `connect:<service>/<code>`. Instances made for it are linked to that id
+//! (`cores::link`), as instances made for a server on a core are linked to the core's
+//! id. A new link for the same server (the same instance of the same core, as the host
+//! says) replaces the old link and keeps the id, so the server stays one entry and its
+//! instances stay linked ([`FriendsFile::upsert`]).
 
 use std::path::{Path, PathBuf};
 
@@ -53,6 +56,12 @@ pub struct FriendServer {
     pub link: String,
     /// The SHA-256 of the host's certificate, in hex, from the invite.
     pub fingerprint: String,
+    /// The host core's id and the shared instance's, as the host said: which server
+    /// this is, whatever the link. Empty in entries saved before they were kept.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub core_uuid: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub instance_uuid: String,
     /// What the host said when last joined.
     pub name: String,
     pub core_name: String,
@@ -98,6 +107,10 @@ impl FriendServer {
         }
         self.fingerprint = fingerprint;
         self.link = public_link(invite);
+        if !server.core_uuid.is_empty() && !server.instance_uuid.is_empty() {
+            self.core_uuid = server.core_uuid.clone();
+            self.instance_uuid = server.instance_uuid.clone();
+        }
         self.name = server.name.clone();
         self.core_name = server.core_name.clone();
         self.game_version = server.game_version.clone();
@@ -105,6 +118,17 @@ impl FriendServer {
         self.loader_version = server.loader_version.clone().filter(|v| !v.is_empty());
         self.modpack = server.modpack;
         self.last_joined = Some(now);
+    }
+
+    /// Whether this is `server`, whose host's certificate has `fingerprint` (hex): the
+    /// same instance of the same core. An entry saved before the launcher kept those
+    /// is the server whose certificate it has.
+    pub fn is_server(&self, fingerprint: &str, server: &SharedServer) -> bool {
+        if !self.core_uuid.is_empty() && !server.core_uuid.is_empty() {
+            return self.core_uuid == server.core_uuid
+                && self.instance_uuid == server.instance_uuid;
+        }
+        !self.fingerprint.is_empty() && self.fingerprint == fingerprint
     }
 
     /// Whether the user trusts this server for mods, under its current certificate.
@@ -122,8 +146,8 @@ impl FriendServer {
     pub fn shared(&self) -> SharedServer {
         SharedServer {
             core_name: self.core_name.clone(),
-            core_uuid: String::new(),
-            instance_uuid: String::new(),
+            core_uuid: self.core_uuid.clone(),
+            instance_uuid: self.instance_uuid.clone(),
             name: self.name.clone(),
             game_version: self.game_version.clone(),
             loader: self.loader.clone(),
@@ -152,10 +176,18 @@ impl Document for FriendsFile {
 }
 
 impl FriendsFile {
-    /// Adds the server, or updates the entry with the same id. Returns its index.
+    /// Adds the server, or updates its entry: the one joined with this link, else the
+    /// one of the same server joined with another link (which then takes this link,
+    /// keeping its id). Returns its index. Keep the link under the entry's id
+    /// ([`write_invite`]).
     pub fn upsert(&mut self, invite: &Invite, server: &SharedServer, now: i64) -> usize {
-        let id = friend_id(invite);
-        match self.friends.iter().position(|f| f.id == id) {
+        let fingerprint = hex(&invite.fingerprint);
+        let found = position_of(&self.friends, invite).or_else(|| {
+            self.friends
+                .iter()
+                .position(|f| f.is_server(&fingerprint, server))
+        });
+        match found {
             Some(index) => {
                 self.friends[index].update(invite, server, now);
                 index
@@ -180,6 +212,34 @@ impl FriendsFile {
         let index = self.friends.iter().position(|f| f.id == id)?;
         Some(self.friends.remove(index))
     }
+}
+
+/// Where the entry `invite` is the link of is in `friends`: the one joined with it, or
+/// the one that took it in place of an older link.
+fn position_of(friends: &[FriendServer], invite: &Invite) -> Option<usize> {
+    let id = friend_id(invite);
+    let link = public_link(invite);
+    friends
+        .iter()
+        .position(|f| f.id == id)
+        .or_else(|| friends.iter().position(|f| f.link == link))
+}
+
+/// The id of the saved server `invite` is the link of: its entry's (which may be an
+/// older link's [`friend_id`]), or, for a link not saved yet, the link's own.
+pub fn saved_id<'a, I>(friends: I, invite: &Invite) -> String
+where
+    I: IntoIterator<Item = &'a FriendServer>,
+    I::IntoIter: Clone,
+{
+    let id = friend_id(invite);
+    let link = public_link(invite);
+    let friends = friends.into_iter();
+    friends
+        .clone()
+        .find(|f| f.id == id)
+        .or_else(|| friends.clone().find(|f| f.link == link))
+        .map_or(id, |f| f.id.clone())
 }
 
 /// `friends.json` in the data directory.
@@ -207,12 +267,14 @@ pub async fn read_invite(store: &dyn SecretStore, id: &str) -> anyhow::Result<Op
     Ok(Invite::parse(secret.expose()).ok())
 }
 
-pub async fn write_invite(store: &dyn SecretStore, invite: &Invite) -> anyhow::Result<()> {
+/// Keeps `invite` as the link of the saved server `id`, in place of any older one.
+pub async fn write_invite(
+    store: &dyn SecretStore,
+    id: &str,
+    invite: &Invite,
+) -> anyhow::Result<()> {
     store
-        .write(
-            &invite_secret_name(&friend_id(invite)),
-            &Secret::new(invite.link()),
-        )
+        .write(&invite_secret_name(id), &Secret::new(invite.link()))
         .await
 }
 
@@ -402,8 +464,8 @@ mod tests {
 
         let store = MemorySecretStore::new();
         block_on(async {
-            write_invite(&store, &invite).await.unwrap();
             let id = friend_id(&invite);
+            write_invite(&store, &id, &invite).await.unwrap();
             assert_eq!(store.keys(), [invite_secret_name(&id)]);
             assert_eq!(
                 read_invite(&store, &id).await.unwrap(),
@@ -414,6 +476,85 @@ mod tests {
         });
         assert!(file.remove(&friend_id(&invite)).is_some());
         assert!(file.friends.is_empty());
+    }
+
+    fn invite_for(code: &str, fingerprint: u8) -> Invite {
+        let text = format!(
+            "https://connect.lodestone.cc/j/{code}#{}.{}",
+            format!("{fingerprint:02x}").repeat(32),
+            "02".repeat(16)
+        );
+        Invite::parse(&text).unwrap()
+    }
+
+    #[test]
+    fn a_new_link_for_the_same_server_replaces_the_old_one() {
+        let mut file = FriendsFile::default();
+        let first = invite(0xab);
+        let server = shared("fabric", Some("0.16.14"), true);
+        assert_eq!(file.upsert(&first, &server, 1), 0);
+        file.friends[0].set_trusted(true);
+        let id = friend_id(&first);
+
+        // the friend stopped sharing and shared again: a new code and certificate
+        let second = invite_for("NEWCODE777", 0xcd);
+        assert_eq!(saved_id(&file.friends, &second), friend_id(&second));
+        assert_eq!(file.upsert(&second, &server, 2), 0);
+        assert_eq!(file.friends.len(), 1);
+        let entry = &file.friends[0];
+        // the id stays, so instances made for it stay linked; the link is the new one
+        assert_eq!(entry.id, id);
+        assert_eq!(entry.link, public_link(&second));
+        assert_eq!(entry.fingerprint, "cd".repeat(32));
+        assert_eq!((entry.added_at, entry.last_joined), (1, Some(2)));
+        assert!(!entry.is_trusted(), "a new certificate ends the trust");
+        // the new link finds the entry; the old one too
+        assert_eq!(saved_id(&file.friends, &second), id);
+        assert_eq!(saved_id(&file.friends, &first), id);
+        assert_eq!(file.upsert(&second, &server, 3), 0);
+        assert_eq!(file.friends.len(), 1);
+
+        // the stored link is replaced under the same id
+        let store = MemorySecretStore::new();
+        block_on(async {
+            write_invite(&store, &id, &first).await.unwrap();
+            write_invite(&store, &id, &second).await.unwrap();
+            assert_eq!(store.keys(), [invite_secret_name(&id)]);
+            assert_eq!(read_invite(&store, &id).await.unwrap(), Some(second));
+        });
+
+        // another instance of the same core is another server
+        let mut other = server.clone();
+        other.instance_uuid = "creative".into();
+        assert_eq!(file.upsert(&invite_for("OTHER1", 0xcd), &other, 4), 1);
+        // as is the same instance id on another core
+        let mut elsewhere = server.clone();
+        elsewhere.core_uuid = "another core".into();
+        assert_eq!(file.upsert(&invite_for("OTHER2", 0xee), &elsewhere, 5), 2);
+        assert_eq!(file.friends.len(), 3);
+    }
+
+    #[test]
+    fn entries_saved_before_the_ids_were_kept_match_by_certificate() {
+        let server = shared("vanilla", None, false);
+        let mut old = FriendServer::new(&invite(0xab), &server, 1);
+        (old.core_uuid, old.instance_uuid) = (String::new(), String::new());
+        // as an older launcher wrote it: without the ids
+        let text = serde_json::to_string(&old).unwrap();
+        assert!(!text.contains("core_uuid"), "{text}");
+        let mut file = FriendsFile {
+            friends: vec![serde_json::from_str(&text).unwrap()],
+        };
+        // a new link from the same host (its certificate): the same entry, which now
+        // keeps the ids
+        assert_eq!(file.upsert(&invite_for("SAMEHOST1", 0xab), &server, 2), 0);
+        assert_eq!(file.friends[0].core_uuid, "core");
+        assert_eq!(file.friends[0].instance_uuid, "server");
+        assert_eq!(file.friends[0].shared().instance_uuid, "server");
+        // another certificate and other ids: another server
+        let mut other = server.clone();
+        other.core_uuid = "other".into();
+        assert_eq!(file.upsert(&invite_for("ELSE1", 0x11), &other, 3), 1);
     }
 
     #[test]

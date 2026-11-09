@@ -65,6 +65,8 @@ pub struct PrefsData {
     pub sidebar_width: Option<f32>,
     /// The Files tab's list beside the editor (`fileListSize`).
     pub file_list_width: Option<f32>,
+    /// The Files tab's editor wraps long lines (Monaco's `wordWrap: 'on'`).
+    pub editor_wrap: bool,
 }
 
 /// Another core: its address and the HTTPS certificate the user trusted for it.
@@ -91,6 +93,7 @@ impl Default for PrefsData {
             cores: Vec::new(),
             sidebar_width: None,
             file_list_width: None,
+            editor_wrap: true,
         }
     }
 }

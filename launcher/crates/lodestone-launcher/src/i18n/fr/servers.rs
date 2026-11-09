@@ -521,9 +521,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::FriendStarting => "Préparation du jeu…",
         M::FriendInstanceBusy => "Cette instance est déjà lancée. Quittez d’abord le jeu.",
-        M::FriendLinkEnded => "Ce lien d’invitation n’est plus valide",
+        M::FriendLinkEnded => "Votre ami a arrêté de partager ce serveur",
         M::FriendLinkEndedBody => {
-            "Votre ami a arrêté de partager le serveur, ou a créé un nouveau lien. Demandez-lui le nouveau."
+            "Demandez-lui un nouveau lien."
         }
         M::FriendNotSharing => "Votre ami ne partage pas ce serveur en ce moment",
         M::FriendNotSharingBody => {

@@ -28,8 +28,8 @@ use launcher_core::cores::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonVariant, Dialog, DialogSlot, Icon, Language, TextEditor, TextEditorEvent,
-        TextInput, Toast,
+        Button, ButtonVariant, Checkbox, Dialog, DialogSlot, Icon, Language, TextEditor,
+        TextEditorEvent, TextInput, Toast,
         a11y::{Accessible, Role, Toggled},
         check_box, window_layer,
     },
@@ -203,7 +203,12 @@ impl FilesPage {
             .or(crate::prefs::Prefs::get(cx).file_list_width)
             .unwrap_or(LIST_DEFAULT)
             .max(LIST_MIN);
-        let editor = cx.new(|cx| TextEditor::new(cx).with_automation_id("file-editor"));
+        let wrap = crate::prefs::Prefs::get(cx).editor_wrap;
+        let editor = cx.new(|cx| {
+            TextEditor::new(cx)
+                .with_automation_id("file-editor")
+                .with_soft_wrap(wrap)
+        });
         let name_input = cx.new(|cx| TextInput::new(cx).with_automation_id("files-name"));
         let subscriptions = vec![
             cx.subscribe(&state, |this, _, event, cx| this.on_host_event(event, cx)),
@@ -220,6 +225,11 @@ impl FilesPage {
                     }
                     // the matches moved with the edit
                     this.refind(false, cx);
+                }
+                TextEditorEvent::SoftWrapChanged(wrap) => {
+                    let wrap = *wrap;
+                    crate::prefs::Prefs::update(cx, |prefs| prefs.editor_wrap = wrap);
+                    cx.notify();
                 }
             }),
             // unsaved edits outlive the tab
@@ -2211,16 +2221,31 @@ impl Render for FilesPage {
             if !self.clipboard.is_empty() {
                 parts.push(trn!(P::FilesInClipboard, self.clipboard.len()));
             }
+            let wrap = self.editor.read(cx).soft_wrap();
+            let editor = self.editor.clone();
             div()
                 .h(px(20.))
                 .flex()
                 .flex_row()
+                .items_center()
                 .gap(px(16.))
                 .px(px(16.))
                 .text_size(text::MEDIUM)
                 .font_weight(weights::MEDIUM.face())
                 .text_color(colors::WHITE.opacity(50))
                 .children(parts)
+                .when(showing_editor, |this| {
+                    // long lines wrap, or scroll sideways
+                    this.child(div().flex_1()).child(
+                        Checkbox::new("files-wrap", wrap, t(M::FilesWrapLines)).on_change(
+                            move |wrap, _, cx| {
+                                let wrap = *wrap;
+                                editor.update(cx, |editor, cx| editor.set_soft_wrap(wrap, cx));
+                                crate::prefs::Prefs::update(cx, |prefs| prefs.editor_wrap = wrap);
+                            },
+                        ),
+                    )
+                })
         };
 
         if std::mem::take(&mut self.focus_name) {

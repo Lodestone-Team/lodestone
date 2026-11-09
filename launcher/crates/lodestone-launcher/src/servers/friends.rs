@@ -163,6 +163,12 @@ impl Friends {
         self.list.iter().find(|f| f.saved.id == id)
     }
 
+    /// The id of the saved server `invite` is the link of (it keeps the first link's id
+    /// when a new link replaced it), or the link's own id when it isn't saved.
+    fn id_of(&self, invite: &Invite) -> String {
+        friends::saved_id(self.list.iter().map(|f| &f.saved), invite)
+    }
+
     fn get_mut(&mut self, id: &str) -> Option<&mut FriendEntry> {
         self.list.iter_mut().find(|f| f.saved.id == id)
     }
@@ -331,7 +337,7 @@ impl Servers {
     /// Opens a tunnel to the host of `invite` and shows its server; with `then_play`,
     /// goes on to Play once it is open.
     pub fn connect_invite(&mut self, invite: Invite, then_play: bool, cx: &mut Context<Self>) {
-        let id = friends::friend_id(&invite);
+        let id = self.friends.id_of(&invite);
         // already open: the dialog shows it again
         if let Some(session) = self.friends.sessions.get(&id) {
             if session.playing.is_some() {
@@ -428,14 +434,15 @@ impl Servers {
         then_play: bool,
         cx: &mut Context<Self>,
     ) {
-        let id = friends::friend_id(&invite);
         let shared = tunnel.server.clone();
-        // remember it: the file, and the link in the Keychain
+        // remember it: the file, and the link in the Keychain. A new link for a server
+        // saved before takes the old link's place, under the old entry's id.
         let mut file = FriendsFile {
             friends: self.friends.list.iter().map(|f| f.saved.clone()).collect(),
         };
         let index = file.upsert(&invite, &shared, now());
         let saved = file.friends[index].clone();
+        let id = saved.id.clone();
         let status = FriendStatus::Online {
             server: Box::new(shared.clone()),
             kind: tunnel.kind,
@@ -452,9 +459,10 @@ impl Servers {
         if !self.preview {
             let secrets = self.accounts.read(cx).secrets().clone();
             let to_save = invite.clone();
+            let save_as = id.clone();
             self.tasks.push(cx.spawn(async move |this, cx| {
                 let store = secrets.store(cx);
-                if let Err(err) = friends::write_invite(&*store, &to_save).await {
+                if let Err(err) = friends::write_invite(&*store, &save_as, &to_save).await {
                     let err = err.to_string();
                     this.update(cx, |this, cx| {
                         this.notice = Some(Notice::new(move || {
