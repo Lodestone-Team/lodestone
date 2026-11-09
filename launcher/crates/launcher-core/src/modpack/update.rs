@@ -344,16 +344,21 @@ async fn apply_staged(
     let game = &dirs.game;
     // 1. Everything new, into the staging folder.
     if !plan.downloads.is_empty() {
-        let api = api.ok_or_else(|| {
-            ModpackError::Invalid("Modrinth can't be reached to download the pack's files.".into())
-        })?;
         progress.set_label(format!("Downloading {}", plan.record.title));
         let downloads: Vec<(PackDownload, PathBuf)> = plan
             .downloads
             .iter()
             .map(|(d, dest)| (d.clone(), staging.join(dest)))
             .collect();
-        download_files(api, downloader, staging, &downloads, progress, cancel).await?;
+        download_files(
+            crate::content::Platforms::from(api),
+            downloader,
+            staging,
+            &downloads,
+            progress,
+            cancel,
+        )
+        .await?;
     }
     let overrides: Vec<(OverrideFile, PathBuf)> = plan
         .overrides

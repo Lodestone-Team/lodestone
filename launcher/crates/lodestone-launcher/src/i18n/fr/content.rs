@@ -12,6 +12,8 @@ pub fn text(message: M) -> &'static str {
         M::AvailableCount => "Disponibles · {count}",
         M::OnModrinthCount => "Sur Modrinth · {count}",
         M::OnModrinth => "Sur Modrinth",
+        M::OnCurseForgeCount => "Sur CurseForge · {count}",
+        M::OnCurseForge => "Sur CurseForge",
         M::NoInstalledMatch => {
             "Installés · {count} · Aucun élément installé ne correspond ({kind})."
         }
@@ -141,6 +143,7 @@ pub fn text(message: M) -> &'static str {
         M::SortUpdated => "Mis à jour",
         M::SearchingModrinth => "Recherche sur Modrinth",
         M::NothingMatches => "Aucun résultat sur Modrinth.",
+        M::NothingOnCurseForge => "Aucun résultat sur CurseForge.",
         M::PageOf => "Page {page} sur {pages}",
         M::ByAuthor => "par {author}",
         M::InstalledBadge => "Installé",
@@ -168,6 +171,32 @@ pub fn text(message: M) -> &'static str {
         M::Release => "Stable",
         M::Beta => "Bêta",
         M::Alpha => "Alpha",
+
+        M::ModrinthTab => "Modrinth",
+        M::CurseForgeTab => "CurseForge",
+        M::SearchingCurseForge => "Recherche sur CurseForge",
+        M::ViewOnCurseForge => "Voir sur CurseForge",
+        M::NotOnEitherPlatform => "Absent de Modrinth et de CurseForge",
+        M::SortPopular => "Populaires",
+        M::SortName => "Nom",
+        M::WebsiteDownload => "Sur le site uniquement",
+        M::GetOnCurseForge => "L’obtenir sur CurseForge",
+        M::BlockedTitle => "À télécharger depuis CurseForge",
+        M::BlockedLead => {
+            "Leurs auteurs ne permettent pas aux lanceurs de les télécharger. Téléchargez-les dans votre navigateur\u{a0}: Lodestone les ajoute dès qu’ils apparaissent dans {folder}."
+        }
+        M::BlockedNoFolder => {
+            "Leurs auteurs ne permettent pas aux lanceurs de les télécharger. Téléchargez-les dans votre navigateur, puis choisissez le dossier où ils ont été enregistrés."
+        }
+        M::BlockedOpen => "Ouvrir la page de téléchargement",
+        M::BlockedOpenAll => "Ouvrir toutes les pages",
+        M::BlockedAdded => "Ajouté",
+        M::BlockedWaiting => "En attente de {file}",
+        M::BlockedChangeFolder => "Surveiller un autre dossier…",
+        M::BlockedSkip => "Ignorer le reste",
+        M::WatchFolderPrompt => "Surveiller ce dossier",
+        M::CouldntAddDownload => "Impossible d’ajouter {name}\u{a0}: {error}",
+        M::AddedDownloads => "{names} ajouté(s).",
     }
 }
 

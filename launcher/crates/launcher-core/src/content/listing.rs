@@ -1,6 +1,6 @@
 //! The content list an instance's Content tab shows: the scanned files, matched to
-//! Modrinth through [`Provenance`], with each pack's enabled state and order and the
-//! shader mod's selection.
+//! Modrinth and CurseForge through [`Provenance`], with each pack's enabled state and
+//! order and the shader mod's selection.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -10,10 +10,13 @@ use lodestone_minecraft::{
 };
 
 use super::{
-    ContentError, ContentKind, InstanceDirs, Modrinth, Target, io_error,
+    ContentError, ContentKind, CurseForge, CurseForgeError, InstanceDirs, Modrinth, Platforms,
+    Target,
+    curseforge::{self, CfFile, CfMod},
+    io_error,
     options::{OptionsError, PackOptions},
     packs::{self, Compatibility},
-    provenance::{Entry, ModrinthSource, Provenance, nanos},
+    provenance::{CurseForgeSource, Entry, ModrinthSource, Provenance, nanos},
     scan::{self, ScannedFile},
     shaders::{self, ShaderLoader, ShaderSelection},
 };
@@ -24,6 +27,7 @@ pub struct Item {
     pub file: ScannedFile,
     pub sha512: Option<String>,
     pub modrinth: Option<ModrinthSource>,
+    pub curseforge: Option<CurseForgeSource>,
     /// Mods: not `.disabled`. Resource packs: in `options.txt`'s list. Shader packs: the
     /// selected one.
     pub enabled: bool,
@@ -34,21 +38,40 @@ pub struct Item {
 }
 
 impl Item {
-    /// The name to show: Modrinth's title, the metadata's name, or the file name.
+    /// The name to show: the platform's title, the metadata's name, or the file name.
     pub fn display_name(&self) -> String {
-        match &self.modrinth {
-            Some(source) if !source.title.is_empty() => source.title.clone(),
-            _ => self.file.display_name(),
+        if let Some(source) = &self.modrinth
+            && !source.title.is_empty()
+        {
+            return source.title.clone();
         }
+        if let Some(source) = &self.curseforge
+            && !source.title.is_empty()
+        {
+            return source.title.clone();
+        }
+        self.file.display_name()
     }
 
-    /// The version to show: Modrinth's version number, else the metadata's.
+    /// The version to show: Modrinth's version number, else the metadata's, else
+    /// CurseForge's file name for it (often long, so last).
     pub fn display_version(&self) -> Option<String> {
         self.modrinth
             .as_ref()
             .map(|m| m.version_number.clone())
             .filter(|v| !v.is_empty())
             .or_else(|| self.file.meta.version.clone())
+            .or_else(|| {
+                self.curseforge
+                    .as_ref()
+                    .map(|c| c.display_name.clone())
+                    .filter(|v| !v.is_empty())
+            })
+    }
+
+    /// Whether a platform knows the file.
+    pub fn identified(&self) -> bool {
+        self.modrinth.is_some() || self.curseforge.is_some()
     }
 }
 
@@ -63,16 +86,13 @@ pub struct ShaderState {
 pub struct Listing {
     pub kind: ContentKind,
     pub items: Vec<Item>,
-    /// Why some files couldn't be matched to Modrinth (offline, rate limited).
+    /// Why some files couldn't be matched to a platform (offline, rate limited).
     pub lookup_error: Option<String>,
     /// Why `options.txt` couldn't be read, for resource packs.
     pub options_error: Option<String>,
     pub shaders: ShaderState,
 }
 
-/// Brings `content.json` up to date with the folder of `kind`: new and changed files are
-/// hashed, and, with `api`, files without a source are looked up on Modrinth by SHA-1.
-/// Returns the files, the provenance, and why the lookup failed if it did.
 /// The sha512 and sha1 of each of `files`, in order, read on several threads. A file
 /// whose sha512 matches what `provenance` has keeps its known sha1.
 fn hash_files(
@@ -119,11 +139,17 @@ fn hash_files(
     })
 }
 
+/// Brings `content.json` up to date with the folder of `kind`: new and changed files are
+/// hashed, and files without a source are looked up: on Modrinth by SHA-1, then the ones
+/// Modrinth didn't know on CurseForge by fingerprint. Returns the files, the provenance,
+/// and why a lookup failed if one did.
 pub async fn refresh(
-    api: Option<&Modrinth>,
+    platforms: impl Into<Platforms<'_>>,
     dirs: &InstanceDirs,
     kind: ContentKind,
 ) -> Result<(Vec<ScannedFile>, Provenance, Option<String>), ContentError> {
+    let platforms = platforms.into();
+    let api = platforms.modrinth;
     let files = scan::scan(dirs, kind)?;
     let mut provenance = Provenance::load(&dirs.instance);
     let before = provenance.clone();
@@ -149,6 +175,9 @@ pub async fn refresh(
                 sha512,
                 modrinth: same.and_then(|e| e.modrinth.clone()),
                 looked_up: same.is_some_and(|e| e.looked_up),
+                curseforge: same.and_then(|e| e.curseforge.clone()),
+                fingerprint: same.and_then(|e| e.fingerprint),
+                curseforge_looked_up: same.is_some_and(|e| e.curseforge_looked_up),
             },
         );
     }
@@ -184,6 +213,69 @@ pub async fn refresh(
                     }
                 }
                 Err(err) => lookup_error = Some(err.to_string()),
+            }
+        }
+    }
+    if let Some(cf) = platforms.curseforge {
+        // Files Modrinth didn't know (or every file without a source, when Modrinth
+        // can't be asked).
+        let prefix = format!("{}/", kind.dir());
+        let on_disk: HashMap<String, &str> = files
+            .iter()
+            .filter(|f| !f.is_dir)
+            .map(|f| {
+                (
+                    super::provenance::key(kind, &f.file_name),
+                    f.file_name.as_str(),
+                )
+            })
+            .collect();
+        let candidates: Vec<String> = provenance
+            .files
+            .iter()
+            .filter(|(k, e)| {
+                k.starts_with(&prefix)
+                    && !e.identified()
+                    && !e.curseforge_looked_up
+                    && (e.looked_up || api.is_none())
+                    && on_disk.contains_key(*k)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        let mut prints = BTreeSet::new();
+        for key in &candidates {
+            let Some(entry) = provenance.files.get_mut(key) else {
+                continue;
+            };
+            if entry.fingerprint.is_none() {
+                let path = dir.join(on_disk[key]);
+                entry.fingerprint = curseforge::fingerprint_file(&path).ok();
+            }
+            prints.extend(entry.fingerprint);
+        }
+        if !prints.is_empty() {
+            let prints: Vec<u32> = prints.into_iter().collect();
+            match curseforge_lookup(cf, &prints).await {
+                Ok(found) => {
+                    for key in &candidates {
+                        let Some(entry) = provenance.files.get_mut(key) else {
+                            continue;
+                        };
+                        match entry.fingerprint.and_then(|print| found.get(&print)) {
+                            Some((file, project)) => {
+                                entry.curseforge =
+                                    Some(CurseForgeSource::new(file, project.as_ref()))
+                            }
+                            None if entry.fingerprint.is_some() => {
+                                entry.curseforge_looked_up = true
+                            }
+                            None => {}
+                        }
+                    }
+                }
+                Err(err) => {
+                    lookup_error.get_or_insert(err.to_string());
+                }
             }
         }
     }
@@ -231,6 +323,36 @@ pub(crate) async fn lookup(api: &Modrinth, hashes: &[String]) -> Result<Found, C
         .collect())
 }
 
+/// Looks up fingerprints on CurseForge, with the projects of the files found.
+pub(crate) async fn curseforge_lookup(
+    cf: &CurseForge,
+    prints: &[u32],
+) -> Result<HashMap<u32, (CfFile, Option<CfMod>)>, ContentError> {
+    let matches = cf.files_by_fingerprint(prints).await?;
+    let ids: Vec<u64> = matches
+        .values()
+        .map(|m| m.mod_id)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let projects: HashMap<u64, CfMod> = if ids.is_empty() {
+        HashMap::new()
+    } else {
+        cf.projects(&ids)
+            .await?
+            .into_iter()
+            .map(|p| (p.id, p))
+            .collect()
+    };
+    Ok(matches
+        .into_iter()
+        .map(|(print, hit)| {
+            let project = projects.get(&hit.mod_id).cloned();
+            (print, (hit.file, project))
+        })
+        .collect())
+}
+
 /// The shader mod in the instance's enabled mods, and the pack it uses.
 pub fn shader_state(dirs: &InstanceDirs) -> Result<ShaderState, ContentError> {
     let mods = scan::scan(dirs, ContentKind::Mod)?;
@@ -243,15 +365,15 @@ pub fn shader_state(dirs: &InstanceDirs) -> Result<ShaderState, ContentError> {
     Ok(ShaderState { loader, selection })
 }
 
-/// Lists the content of `kind`. Without `api` (or when Modrinth can't be reached) files
-/// are matched only from what `content.json` already knows.
+/// Lists the content of `kind`. Without the platforms (or when they can't be reached)
+/// files are matched only from what `content.json` already knows.
 pub async fn list(
-    api: Option<&Modrinth>,
+    platforms: impl Into<Platforms<'_>>,
     dirs: &InstanceDirs,
     target: &Target,
     kind: ContentKind,
 ) -> Result<Listing, ContentError> {
-    let (files, provenance, lookup_error) = refresh(api, dirs, kind).await?;
+    let (files, provenance, lookup_error) = refresh(platforms, dirs, kind).await?;
     let shaders = if kind == ContentKind::ShaderPack {
         shader_state(dirs)?
     } else {
@@ -289,6 +411,7 @@ pub async fn list(
             Item {
                 sha512: entry.map(|e| e.sha512.clone()),
                 modrinth: entry.and_then(|e| e.modrinth.clone()),
+                curseforge: entry.and_then(|e| e.curseforge.clone()),
                 enabled,
                 priority,
                 compatibility,
@@ -382,6 +505,100 @@ pub async fn check_updates(
     Ok(updates)
 }
 
+/// A newer CurseForge file for an installed one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CurseForgeUpdate {
+    pub file: CfFile,
+    /// What is installed.
+    pub installed: CurseForgeSource,
+}
+
+impl CurseForgeUpdate {
+    /// Whether the launcher may download it; otherwise the user downloads it from
+    /// [`CurseForgeUpdate::page_url`].
+    pub fn downloadable(&self) -> bool {
+        self.file.downloadable()
+    }
+
+    pub fn page_url(&self) -> String {
+        self.file.page_url(&self.installed.page_url)
+    }
+}
+
+/// Whether a CurseForge file of type `candidate` ("release", "beta", "alpha") may update
+/// one of type `installed`, by the same rule as [`update_types`].
+pub fn curseforge_type_allowed(installed: &str, candidate: &str, prerelease: bool) -> bool {
+    let installed = match installed {
+        "beta" => ModrinthVersionType::Beta,
+        "alpha" => ModrinthVersionType::Alpha,
+        _ => ModrinthVersionType::Release,
+    };
+    update_types(Some(installed), prerelease).is_none_or(|allowed| allowed.contains(&candidate))
+}
+
+/// The newer files of the listed files that came from CurseForge (and not also from
+/// Modrinth, whose check covers those), by file name. Files the author doesn't let
+/// launchers download are included: the app links to them instead.
+pub async fn check_curseforge_updates(
+    cf: &CurseForge,
+    dirs: &InstanceDirs,
+    target: &Target,
+    kind: ContentKind,
+    prerelease: bool,
+) -> Result<HashMap<String, CurseForgeUpdate>, ContentError> {
+    let provenance = Provenance::load(&dirs.instance);
+    let files = scan::scan(dirs, kind)?;
+    let mut installed: Vec<(String, CurseForgeSource)> = Vec::new();
+    for file in &files {
+        if let Some(entry) = provenance.current(file)
+            && entry.modrinth.is_none()
+            && let Some(source) = &entry.curseforge
+        {
+            installed.push((file.file_name.clone(), source.clone()));
+        }
+    }
+    // CurseForge filters by one loader at most; with more (Quilt also takes Fabric
+    // files) the files are filtered here instead.
+    let loaders = curseforge::accepted_loaders(target.loader, &target.game_version);
+    let loader = match (kind, loaders.as_slice()) {
+        (ContentKind::Mod, [only]) => Some(*only),
+        _ => None,
+    };
+    let mut by_project: HashMap<u64, Vec<CfFile>> = HashMap::new();
+    let mut updates = HashMap::new();
+    for (file_name, source) in installed {
+        if let std::collections::hash_map::Entry::Vacant(slot) = by_project.entry(source.project_id)
+        {
+            let found = match cf
+                .files(source.project_id, Some(&target.game_version), loader)
+                .await
+            {
+                Ok(found) => found,
+                Err(CurseForgeError::NotFound(_)) => Vec::new(),
+                Err(err) => return Err(err.into()),
+            };
+            slot.insert(found);
+        }
+        let newest = by_project[&source.project_id].iter().find(|file| {
+            target.curseforge_incompatibility(kind, file).is_none()
+                && curseforge_type_allowed(&source.version_type, file.version_type(), prerelease)
+        });
+        if let Some(newest) = newest
+            && newest.id != source.file_id
+            && newest.file_date > source.file_date
+        {
+            updates.insert(
+                file_name,
+                CurseForgeUpdate {
+                    file: newest.clone(),
+                    installed: source,
+                },
+            );
+        }
+    }
+    Ok(updates)
+}
+
 #[cfg(test)]
 mod update_type_tests {
     use super::*;
@@ -397,5 +614,15 @@ mod update_type_tests {
         );
         assert_eq!(update_types(Some(Alpha), false), None);
         assert_eq!(update_types(Some(Release), true), None);
+    }
+
+    #[test]
+    fn curseforge_updates_follow_the_same_rule() {
+        assert!(curseforge_type_allowed("release", "release", false));
+        assert!(!curseforge_type_allowed("release", "beta", false));
+        assert!(curseforge_type_allowed("beta", "beta", false));
+        assert!(!curseforge_type_allowed("beta", "alpha", false));
+        assert!(curseforge_type_allowed("alpha", "alpha", false));
+        assert!(curseforge_type_allowed("release", "alpha", true));
     }
 }

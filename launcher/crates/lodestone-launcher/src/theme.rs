@@ -388,7 +388,28 @@ pub mod layout {
 
     /// The left sidebar's default width (`leftNavSize`).
     pub fn sidebar_width() -> Pixels {
-        px(220.0)
+        px(SIDEBAR_DEFAULT)
+    }
+
+    /// The sidebar's widths, in logical pixels at 100% zoom: the default, how
+    /// narrow and wide it can be dragged, the folded rail of icons, and the width
+    /// below which a drag folds it into the rail.
+    pub const SIDEBAR_DEFAULT: f32 = 220.0;
+    pub const SIDEBAR_MIN: f32 = 180.0;
+    pub const SIDEBAR_MAX: f32 = 360.0;
+    pub const SIDEBAR_RAIL: f32 = 64.0;
+    pub const SIDEBAR_FOLD_BELOW: f32 = 140.0;
+
+    /// The sidebar for its edge dragged to `x` (logical pixels at 100% zoom, from
+    /// the window's left edge), in a window `window_width` wide: its width, and
+    /// whether it is folded into the rail. It never takes more than 45% of the
+    /// window.
+    pub fn sidebar_drag(x: f32, window_width: f32) -> (f32, bool) {
+        if x < SIDEBAR_FOLD_BELOW {
+            return (SIDEBAR_DEFAULT, true);
+        }
+        let max = SIDEBAR_MAX.min(window_width * 0.45).max(SIDEBAR_MIN);
+        (x.clamp(SIDEBAR_MIN, max).round(), false)
     }
 
     /// The logo in the top bar (`w-28`). It doesn't zoom, like the bar it sits in.
@@ -420,6 +441,18 @@ pub fn line_height(size: Rems, leading: f32) -> Rems {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_sidebar_folds_below_its_threshold_and_stays_in_bounds() {
+        use layout::*;
+        assert_eq!(sidebar_drag(100.0, 1200.0), (SIDEBAR_DEFAULT, true));
+        assert_eq!(sidebar_drag(150.0, 1200.0), (SIDEBAR_MIN, false));
+        assert_eq!(sidebar_drag(260.4, 1200.0), (260.0, false));
+        assert_eq!(sidebar_drag(900.0, 1200.0), (SIDEBAR_MAX, false));
+        // never more than 45% of a narrow window, but never under the minimum
+        assert_eq!(sidebar_drag(350.0, 720.0), (324.0, false));
+        assert_eq!(sidebar_drag(350.0, 300.0), (SIDEBAR_MIN, false));
+    }
 
     #[test]
     fn zoom_steps_through_the_levels_and_stops_at_the_ends() {

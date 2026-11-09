@@ -20,7 +20,7 @@ use super::{
 };
 use crate::{
     content::{
-        ContentKind, Modrinth, enabled_name,
+        ContentKind, Modrinth, Platforms, curseforge, enabled_name,
         install::InstallProgress,
         is_content_name,
         provenance::{Entry, ModrinthSource, Provenance, nanos},
@@ -66,10 +66,31 @@ pub(crate) fn prepare_parent(root: &Path, target: &Path) -> Result<(), ModpackEr
     Ok(())
 }
 
+/// The URL to fetch a pack file from: CurseForge's CDN through the CurseForge client,
+/// anything else through Modrinth's (the hosts the `.mrpack` format allows).
+fn file_url(platforms: Platforms<'_>, url: &url::Url) -> Result<String, ModpackError> {
+    let host = url.host_str().unwrap_or_default();
+    if curseforge::DOWNLOAD_HOSTS.contains(&host) {
+        let cf = platforms.curseforge.ok_or_else(|| {
+            ModpackError::Invalid(
+                "CurseForge can't be reached to download the pack's files.".into(),
+            )
+        })?;
+        return cf
+            .cdn_url(url.as_str())
+            .map_err(|err| ModpackError::Invalid(err.to_string()));
+    }
+    let api = platforms.modrinth.ok_or_else(|| {
+        ModpackError::Invalid("Modrinth can't be reached to download the pack's files.".into())
+    })?;
+    Ok(api.pack_file_url(url)?)
+}
+
 /// Downloads `downloads` to the paths `dest` gives them (under `root`), trying each URL
-/// in order, with SHA-1 and size checked by the downloader and SHA-512 checked after.
+/// in order, with SHA-1 and size checked by the downloader and SHA-512 checked after
+/// (CurseForge's files have no SHA-512 to check).
 pub(crate) async fn download_files(
-    api: &Modrinth,
+    platforms: Platforms<'_>,
     downloader: &Downloader,
     root: &Path,
     downloads: &[(PackDownload, PathBuf)],
@@ -87,7 +108,7 @@ pub(crate) async fn download_files(
         .iter()
         .map(|(download, dest)| {
             Box::pin(fetch_one(
-                api, downloader, root, download, dest, progress, cancel,
+                platforms, downloader, root, download, dest, progress, cancel,
             )) as futures::future::BoxFuture<'_, _>
         })
         .collect();
@@ -100,7 +121,7 @@ pub(crate) async fn download_files(
 
 /// Downloads one file of a pack, trying its URLs in order.
 async fn fetch_one(
-    api: &Modrinth,
+    platforms: Platforms<'_>,
     downloader: &Downloader,
     root: &Path,
     download: &PackDownload,
@@ -115,7 +136,7 @@ async fn fetch_one(
             return Err(ModpackError::Cancelled);
         }
         let item = DownloadItem {
-            url: api.pack_file_url(url)?,
+            url: file_url(platforms, url)?,
             dest: dest.to_path_buf(),
             sha1: download.sha1.clone(),
             size: (download.size > 0).then_some(download.size),
@@ -130,6 +151,9 @@ async fn fetch_one(
                 last_error = Some(err.to_string());
                 continue;
             }
+        }
+        if download.sha512.is_empty() {
+            return Ok(());
         }
         let sha512 = hash::sha512_of(dest).map_err(io_error(dest))?;
         if sha512.eq_ignore_ascii_case(&download.sha512) {
@@ -232,17 +256,28 @@ pub(crate) async fn content_entries(
                     })
                 }),
             };
+            // CurseForge gives no SHA-512; content.json keeps one for every file.
+            let sha512 = if download.sha512.is_empty() {
+                hash::sha512_of(&game.join(relative_of(kind, &name))).unwrap_or_default()
+            } else {
+                download.sha512.clone()
+            };
             let entry = Entry {
                 size: metadata.len(),
                 modified: metadata.modified().ok().and_then(nanos),
                 sha1: download.sha1.clone(),
-                sha512: download.sha512.clone(),
+                sha512,
                 looked_up: found.is_some() && modrinth.is_none(),
                 modrinth,
+                ..Default::default()
             };
             (kind, enabled_name(&name), entry)
         })
         .collect()
+}
+
+fn relative_of(kind: ContentKind, name: &str) -> String {
+    format!("{}/{name}", kind.dir())
 }
 
 /// The `.mrpack` file of a Modrinth version: the primary `.mrpack`, or the first one.
@@ -368,9 +403,35 @@ pub async fn import(
     progress: &InstallProgress,
     cancel: &CancelToken,
 ) -> Result<Instance, ModpackError> {
+    import_with(
+        store,
+        Platforms::from(api),
+        downloader,
+        pack_path,
+        pack,
+        options,
+        progress,
+        cancel,
+    )
+    .await
+}
+
+/// [`import`] with both platforms, for packs that download from CurseForge too (a
+/// CurseForge pack made into a [`PackInfo`] by [`super::curseforge::resolve`]).
+#[allow(clippy::too_many_arguments)]
+pub async fn import_with(
+    store: &InstanceStore,
+    platforms: Platforms<'_>,
+    downloader: &Downloader,
+    pack_path: &Path,
+    pack: &PackInfo,
+    options: ImportOptions,
+    progress: &InstallProgress,
+    cancel: &CancelToken,
+) -> Result<Instance, ModpackError> {
     let staging = store.new_staging()?;
     let result = build(
-        store, api, downloader, pack_path, pack, options, progress, cancel, &staging,
+        store, platforms, downloader, pack_path, pack, options, progress, cancel, &staging,
     )
     .await;
     if result.is_err() {
@@ -382,7 +443,7 @@ pub async fn import(
 #[allow(clippy::too_many_arguments)]
 async fn build(
     store: &InstanceStore,
-    api: Option<&Modrinth>,
+    platforms: Platforms<'_>,
     downloader: &Downloader,
     pack_path: &Path,
     pack: &PackInfo,
@@ -394,16 +455,13 @@ async fn build(
     let game = staging.join("minecraft");
     fs::create_dir_all(&game).map_err(io_error(&game))?;
     if !pack.downloads.is_empty() {
-        let api = api.ok_or_else(|| {
-            ModpackError::Invalid("Modrinth can't be reached to download the pack's files.".into())
-        })?;
         progress.set_label(format!("Downloading {} files", pack.downloads.len()));
         let downloads: Vec<(PackDownload, PathBuf)> = pack
             .downloads
             .iter()
             .map(|d| (d.clone(), game.join(&d.path)))
             .collect();
-        download_files(api, downloader, &game, &downloads, progress, cancel).await?;
+        download_files(platforms, downloader, &game, &downloads, progress, cancel).await?;
     }
     progress.set_label("Copying the pack's configs");
     let overrides: Vec<(OverrideFile, PathBuf)> = pack
@@ -426,7 +484,7 @@ async fn build(
         .filter(|(path, _)| !overridden.contains(path.as_str()))
         .collect();
     let mut provenance = Provenance::default();
-    for (kind, name, entry) in content_entries(api, &game, &downloaded).await {
+    for (kind, name, entry) in content_entries(platforms.modrinth, &game, &downloaded).await {
         provenance.insert(kind, &name, entry);
     }
     provenance.save(staging)?;
