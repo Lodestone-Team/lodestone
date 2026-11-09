@@ -270,7 +270,7 @@ fn menu(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 }
             })
             .child(div().flex_none().w(px(12.)).when(is_active, |this| {
-                this.child(Icon::Check.render(px(12.), colors::BLUE_200))
+                this.child(Icon::Check.render(px(12.), crate::theme::accent::light()))
             }))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.set_account_menu(false, cx);

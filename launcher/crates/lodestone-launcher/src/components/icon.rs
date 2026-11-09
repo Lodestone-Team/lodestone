@@ -18,6 +18,7 @@ pub enum Icon {
     Expand,
     Gear,
     HardDrive,
+    Palette,
     MagnifyingGlass,
     Plus,
     RightFromBracket,
@@ -30,7 +31,7 @@ pub enum Icon {
 }
 
 impl Icon {
-    pub const ALL: [Icon; 24] = [
+    pub const ALL: [Icon; 25] = [
         Icon::ArrowDown,
         Icon::ArrowLeft,
         Icon::ArrowUp,
@@ -46,6 +47,7 @@ impl Icon {
         Icon::Expand,
         Icon::Gear,
         Icon::HardDrive,
+        Icon::Palette,
         Icon::MagnifyingGlass,
         Icon::Plus,
         Icon::RightFromBracket,
@@ -75,6 +77,7 @@ impl Icon {
             Icon::Expand => "icons/expand.svg",
             Icon::Gear => "icons/gear.svg",
             Icon::HardDrive => "icons/hard-drive.svg",
+            Icon::Palette => "icons/palette.svg",
             Icon::MagnifyingGlass => "icons/magnifying-glass.svg",
             Icon::Plus => "icons/plus.svg",
             Icon::RightFromBracket => "icons/right-from-bracket.svg",

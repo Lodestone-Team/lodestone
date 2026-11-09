@@ -694,7 +694,7 @@ impl Render for TextInput {
             // `focus-visible:ring-4 ring-blue-faded/50`
             .when(focused && !self.disabled, |this| {
                 this.shadow(vec![BoxShadow {
-                    color: colors::BLUE_FADED.opacity(50).into(),
+                    color: crate::theme::accent::faded().opacity(50).into(),
                     offset: point(px(0.), px(0.)),
                     blur_radius: px(0.),
                     spread_radius: focus_ring_width(),
@@ -837,7 +837,7 @@ impl Element for TextElement {
                         bounds.bottom(),
                     ),
                 ),
-                colors::BLUE_FADED.opacity(50),
+                crate::theme::accent::faded().opacity(50),
             );
             (Some(selection), None)
         };

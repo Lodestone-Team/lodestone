@@ -1,7 +1,7 @@
 use crate::theme::px;
 use gpui::{
-    AnyElement, Context, ExternalPaths, IntoElement, SharedString, Transformation, div, prelude::*,
-    radians,
+    AnyElement, Context, ExternalPaths, IntoElement, ObjectFit, SharedString, Transformation, div,
+    img, prelude::*, radians,
 };
 use launcher_core::instances::{AutoGroup, Instance, last_played};
 
@@ -17,8 +17,16 @@ use crate::{
 /// The left sidebar: the account box at the top, the instance list and "New
 /// instance" in the middle, and Settings pinned at the bottom.
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
+    let look = crate::skin::look(cx);
+    let sidebar = &look.spec.sidebar;
+    // The skin's image under a tint, or only the tint.
+    let tint = sidebar.tint.map(|tint| {
+        let color = theme::Color::rgb(tint.0).opacity(u32::from(sidebar.tint_opacity));
+        div().absolute().inset_0().bg(color)
+    });
     div()
         .id("sidebar")
+        .relative()
         .flex()
         .flex_col()
         .flex_none()
@@ -27,6 +35,17 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .bg(colors::GRAY_850)
         .border_r_1()
         .border_color(colors::FADE_700)
+        .overflow_hidden()
+        .when_some(look.sidebar.clone(), |this, image| {
+            this.child(
+                img(image)
+                    .absolute()
+                    .inset_0()
+                    .size_full()
+                    .object_fit(ObjectFit::Cover),
+            )
+        })
+        .children(tint)
         .child(
             div()
                 .flex_none()
@@ -49,8 +68,8 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 // A dropped .mrpack becomes a new instance.
                 .drag_over::<ExternalPaths>(|style, _, _, _| {
                     style
-                        .border_color(colors::BLUE_200.opacity(60))
-                        .bg(colors::BLUE.opacity(8))
+                        .border_color(crate::theme::accent::light().opacity(60))
+                        .bg(crate::theme::accent::base().opacity(8))
                 })
                 .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
                     let paths = paths.paths().to_vec();
@@ -93,8 +112,8 @@ fn import_row(
         .py_1p5()
         .rounded(radius::MD)
         .border_1()
-        .border_color(colors::BLUE_200.opacity(30))
-        .bg(colors::BLUE.opacity(8))
+        .border_color(crate::theme::accent::light().opacity(30))
+        .bg(crate::theme::accent::base().opacity(8))
         .child(
             div()
                 .flex()
@@ -144,7 +163,7 @@ fn import_row(
                         div()
                             .h_full()
                             .rounded_full()
-                            .bg(colors::BLUE_200)
+                            .bg(crate::theme::accent::light())
                             .w(gpui::relative(fraction.clamp(0.0, 1.0))),
                     ),
             )
@@ -198,9 +217,19 @@ fn instance_row(
         RowPlace::List => format!("instance-{id}"),
         RowPlace::LastPlayed => format!("last-played-{id}"),
     };
+    // The skin can show the instance's Play background faintly behind its row, under
+    // a strong scrim so the name stays readable.
+    let banner = crate::skin::look(cx)
+        .spec
+        .banner
+        .in_sidebar
+        .then(|| instances.sidebar_banner(&id))
+        .flatten();
     div()
         .id(SharedString::from(element_id))
         .keyboard_focus()
+        .relative()
+        .overflow_hidden()
         .flex()
         .flex_row()
         .items_center()
@@ -215,6 +244,21 @@ fn instance_row(
         .hover(|style| style.bg(colors::GRAY_800))
         .when(is_selected, |this| {
             this.bg(colors::GRAY_800).border_color(colors::FADE_700)
+        })
+        .when_some(banner, |this, banner| {
+            this.child(
+                img(banner)
+                    .absolute()
+                    .inset_0()
+                    .size_full()
+                    .object_fit(ObjectFit::Cover)
+                    .opacity(0.45),
+            )
+            .child(div().absolute().inset_0().bg(gpui::linear_gradient(
+                90.,
+                gpui::linear_color_stop(colors::GRAY_900.opacity(92), 0.),
+                gpui::linear_color_stop(colors::GRAY_900.opacity(55), 1.),
+            )))
         })
         .child(icon)
         .child(

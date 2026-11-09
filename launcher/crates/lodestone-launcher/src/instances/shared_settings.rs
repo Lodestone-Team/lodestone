@@ -453,7 +453,7 @@ impl InstanceSharedSettings {
                         Some(control) => line.child(control),
                         None => line.child(value(local_text, false)),
                     })
-                    .child(tag(t(M::ThisInstance), colors::BLUE_200))
+                    .child(tag(t(M::ThisInstance), crate::theme::accent::light()))
                     .when(!busy, |line| {
                         line.when(typed, |line| {
                             line.child(link(("shared-edit", id), t(CommonMsg::Edit)).on_click(

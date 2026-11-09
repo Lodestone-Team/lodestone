@@ -9,6 +9,7 @@ mod play;
 mod settings_modal;
 mod shared_settings;
 mod sidebar;
+pub(crate) mod skin_settings;
 mod storage_settings;
 mod top_bar;
 mod trace_state;
@@ -19,6 +20,7 @@ pub use launcher_settings::LauncherSettings;
 use settings_modal::SettingsModal;
 pub use settings_modal::SettingsPage;
 pub use shared_settings::SharedSettings;
+pub use skin_settings::SkinSettings;
 pub use storage_settings::{StorageEvent, StorageSettings};
 pub use top_bar::TOP_BAR_HEIGHT;
 
@@ -215,6 +217,8 @@ pub struct LauncherShell {
     shared_settings: Entity<SharedSettings>,
     /// Settings > Storage.
     storage: Entity<StorageSettings>,
+    /// Settings > Skin.
+    skin: Entity<SkinSettings>,
     /// Updating the launcher: Settings > General, and the top bar's notice.
     updater: Entity<Updater>,
     /// The Settings tab of the selected instance, rebuilt when the selection changes.
@@ -342,6 +346,11 @@ impl LauncherShell {
             cx.new(|_| StorageSettings::new(instances))
         };
         observe.push(cx.observe(&storage, |_, _, cx| cx.notify()));
+        let skin = {
+            let instances = instances.clone();
+            cx.new(|cx| SkinSettings::new(instances, cx))
+        };
+        observe.push(cx.observe(&skin, |_, _, cx| cx.notify()));
         observe.push(cx.subscribe(&storage, |this, _, event, cx| match event {
             StorageEvent::DeleteInstance(id) => this.confirm_delete_instance(id, cx),
             StorageEvent::Confirm { what, bytes } => {
@@ -377,6 +386,7 @@ impl LauncherShell {
             servers_overlay,
             shared_settings,
             storage,
+            skin,
             updater,
             settings: None,
             page: Page::default(),
@@ -521,7 +531,7 @@ impl LauncherShell {
                         }
                     })
                     .collect(),
-                colors::BLUE_200,
+                crate::theme::accent::light(),
             ));
         }
         if !plan.added.is_empty() {
@@ -1630,6 +1640,14 @@ impl Render for LauncherShell {
         }
         // Text and spacing are in rems: zoom them with everything else.
         window.set_rem_size(theme::zoom::rem_size());
+        // The skin's accent, or the selected instance's own.
+        let look = crate::skin::look(cx);
+        let resolved = crate::skin::resolve(&look.spec, self.instances.read(cx).selected());
+        theme::accent::set(resolved.accent);
+        if look.spec.banner.in_sidebar {
+            self.instances
+                .update(cx, |instances, cx| instances.load_sidebar_banners(cx));
+        }
         self.sync_slideshow(cx);
         let main = match self.page {
             Page::Instance => play::render(self, cx).into_any_element(),

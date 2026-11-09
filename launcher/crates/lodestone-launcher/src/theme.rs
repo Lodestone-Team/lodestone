@@ -233,6 +233,85 @@ pub mod shadow {
     pub const COLOR: Color = Color::rgb(0x111114);
 }
 
+/// The accent colour: links, focus rings, selected tabs and primary buttons. It is
+/// the dashboard's blue unless the skin or the selected instance sets another (see
+/// `crate::skin`), which is made readable first: links keep 4.5:1 against the dark
+/// panels, and white text keeps 3:1 on a primary button.
+pub mod accent {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use launcher_core::ui_skin::Rgb;
+
+    use super::{Color, colors};
+
+    /// The panels links sit on.
+    const PANEL: Rgb = Rgb(0x26282C);
+    /// No custom accent.
+    const NONE: u32 = u32::MAX;
+
+    /// The custom accent as `0xRRGGBB`, or [`NONE`].
+    static ACCENT: AtomicU32 = AtomicU32::new(NONE);
+
+    /// Uses `accent`, or the default blue for `None`. Windows need a refresh to show it.
+    pub fn set(accent: Option<Rgb>) {
+        ACCENT.store(
+            accent.map_or(NONE, |rgb| rgb.0 & 0xFF_FFFF),
+            Ordering::Relaxed,
+        );
+    }
+
+    /// The custom accent, if one is set.
+    pub fn custom() -> Option<Rgb> {
+        match ACCENT.load(Ordering::Relaxed) {
+            NONE => None,
+            rgb => Some(Rgb(rgb)),
+        }
+    }
+
+    /// The light accent, for text and lines on the dark panels: links, tab underlines.
+    pub fn light() -> Color {
+        custom().map_or(colors::BLUE_200, |rgb| {
+            Color::rgb(rgb.readable_against(PANEL, 4.5).0)
+        })
+    }
+
+    /// The fill of primary buttons and selected things, under white text.
+    pub fn base() -> Color {
+        custom().map_or(colors::BLUE, |rgb| Color::rgb(fill(rgb).0))
+    }
+
+    /// A primary button under the pointer.
+    pub fn hover() -> Color {
+        custom().map_or(colors::BLUE_400, |rgb| {
+            Color::rgb(fill(rgb).mix(Rgb::BLACK, 0.15).0)
+        })
+    }
+
+    /// A primary button being pressed.
+    pub fn pressed() -> Color {
+        custom().map_or(colors::BLUE_500, |rgb| {
+            Color::rgb(fill(rgb).mix(Rgb::BLACK, 0.3).0)
+        })
+    }
+
+    /// Focus rings and soft highlights.
+    pub fn faded() -> Color {
+        custom().map_or(colors::BLUE_FADED, |rgb| {
+            Color::rgb(fill(rgb).mix(Rgb(0x7F8AA0), 0.2).0)
+        })
+    }
+
+    /// `rgb`, darkened until white text on it keeps 3:1.
+    pub fn fill(rgb: Rgb) -> Rgb {
+        rgb.readable_against(Rgb::WHITE, 3.0)
+    }
+
+    /// Whether `rgb` had to change to be readable, for the Skin page's check.
+    pub fn adjusted(rgb: Rgb) -> bool {
+        rgb.readable_against(PANEL, 4.5) != rgb || fill(rgb) != rgb
+    }
+}
+
 /// The interface's zoom (Ctrl/⌘ + and −).
 ///
 /// Every size in the launcher goes through [`px`], which multiplies by the zoom, and
