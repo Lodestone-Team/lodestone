@@ -7,8 +7,8 @@
 //! changes that.
 
 use gpui::{
-    AnyElement, App, Context, Entity, IntoElement, PathPromptOptions, Render, SharedString, Task,
-    WeakEntity, Window, div, prelude::*,
+    AnyElement, App, Context, Entity, IntoElement, Render, SharedString, Task, WeakEntity, Window,
+    div, prelude::*,
 };
 use launcher_core::ui_skin::{Rgb, Shape, SkinEntry, SkinStore, readable};
 
@@ -18,6 +18,7 @@ use crate::{
         Button, ButtonSize, ButtonVariant, Icon, KeyboardFocus,
         settings::{Toast, muted_link, section},
     },
+    file_dialog::Pick,
     i18n::{ShellMsg as M, t, tr},
     instances::Instances,
     theme::{self, Color, colors, px, radius, text, weights},
@@ -107,13 +108,10 @@ impl SkinSettings {
             .ok();
     }
 
-    fn import(&mut self, cx: &mut Context<Self>) {
-        let picked = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: true,
-            multiple: false,
-            prompt: Some(t(M::SkinImportButton).into()),
-        });
+    /// "Import…" (a skin pack's `.zip`, or on macOS either) or "Import folder…" (an
+    /// unzipped pack, where the dialog can't show both).
+    fn import(&mut self, pick: Pick, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(pick.options(false, t(M::SkinImportButton)));
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = picked.await else {
                 return;
@@ -174,6 +172,16 @@ impl SkinSettings {
             return;
         }
         self.use_skin(None, cx);
+    }
+}
+
+/// The id and label of the button that opens `pick`'s dialog: "Import…" for the
+/// pack's `.zip` (or, on macOS, a `.zip` or a folder), "Import folder…" for an
+/// unzipped pack where the dialog can't show both.
+fn import_button(pick: Pick) -> (&'static str, M) {
+    match pick {
+        Pick::Files | Pick::FilesOrFolders => ("skin-import", M::SkinImport),
+        Pick::Folders => ("skin-import-folder", M::SkinImportFolder),
     }
 }
 
@@ -344,12 +352,17 @@ impl Render for SkinSettings {
                 .flex_wrap()
                 .items_center()
                 .gap_2()
-                .child(
-                    Button::new("skin-import", t(M::SkinImport))
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Slim)
-                        .icon(Icon::Download)
-                        .on_click(cx.listener(|this, _, _, cx| this.import(cx))),
+                .children(
+                    Pick::file_or_folder(cx.can_select_mixed_files_and_dirs())
+                        .iter()
+                        .map(|&pick| {
+                            let (id, label) = import_button(pick);
+                            Button::new(id, t(label))
+                                .variant(ButtonVariant::Secondary)
+                                .size(ButtonSize::Slim)
+                                .icon(Icon::Download)
+                                .on_click(cx.listener(move |this, _, _, cx| this.import(pick, cx)))
+                        }),
                 )
                 .child(
                     Button::new("skin-export", t(M::SkinExport))
@@ -465,5 +478,38 @@ impl Render for SkinSettings {
                         .on_click(cx.listener(|this, _, _, cx| this.use_skin(None, cx))),
                 ),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Where the dialog can't show files and folders together (Linux, Windows), a
+    /// skin pack's `.zip` gets a dialog of its own and an unzipped pack another; on
+    /// macOS one "Import…" takes either, as before.
+    #[test]
+    fn import_offers_a_zip_dialog_wherever_the_dialog_cant_show_both() {
+        let buttons = |mixed: bool| -> Vec<_> {
+            Pick::file_or_folder(mixed)
+                .iter()
+                .map(|&pick| {
+                    let options = pick.options(false, t(M::SkinImportButton));
+                    assert!(!options.multiple);
+                    (import_button(pick), options.files, options.directories)
+                })
+                .collect()
+        };
+        assert_eq!(
+            buttons(false),
+            [
+                (("skin-import", M::SkinImport), true, false),
+                (("skin-import-folder", M::SkinImportFolder), false, true),
+            ]
+        );
+        assert_eq!(
+            buttons(true),
+            [(("skin-import", M::SkinImport), true, true)]
+        );
     }
 }

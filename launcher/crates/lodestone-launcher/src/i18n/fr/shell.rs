@@ -563,6 +563,7 @@ pub fn text(message: M) -> &'static str {
         M::Skin => "Thème",
         M::SkinGallery => "Thèmes",
         M::SkinImport => "Importer…",
+        M::SkinImportFolder => "Importer un dossier…",
         M::SkinImportButton => "Importer",
         M::SkinExport => "Exporter…",
         M::SkinNew => "Nouveau thème…",

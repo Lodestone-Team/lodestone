@@ -459,6 +459,7 @@ pub fn text(message: M) -> &'static str {
         M::Skin => "皮肤",
         M::SkinGallery => "皮肤",
         M::SkinImport => "导入…",
+        M::SkinImportFolder => "导入文件夹…",
         M::SkinImportButton => "导入",
         M::SkinExport => "导出…",
         M::SkinNew => "新建皮肤…",

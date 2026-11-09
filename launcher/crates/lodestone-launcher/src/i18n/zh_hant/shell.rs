@@ -463,6 +463,7 @@ pub fn text(message: M) -> &'static str {
         M::Skin => "外觀主題",
         M::SkinGallery => "外觀主題",
         M::SkinImport => "匯入…",
+        M::SkinImportFolder => "匯入資料夾…",
         M::SkinImportButton => "匯入",
         M::SkinExport => "匯出…",
         M::SkinNew => "新增外觀主題…",

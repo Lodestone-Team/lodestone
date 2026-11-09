@@ -6,11 +6,49 @@
 //! (with a file chooser for the desktop) is running, which some window managers and
 //! minimal installs don't have. Ignoring the error, as a cancel, made the button do
 //! nothing, so [`chosen`] tells the user instead, in the view's own error message.
+//!
+//! A button that takes a file or a folder asks through [`Pick`]: only macOS has a
+//! dialog that offers both at once.
 
 use futures::channel::oneshot;
-use gpui::{AsyncApp, Context, SharedString, WeakEntity};
+use gpui::{AsyncApp, Context, PathPromptOptions, SharedString, WeakEntity};
 
 use crate::i18n::{CommonMsg, t};
+
+/// What a dialog asks the user to choose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pick {
+    Files,
+    Folders,
+    /// Files and folders in the same dialog, only where the system's dialog can
+    /// (`cx.can_select_mixed_files_and_dirs()`).
+    FilesOrFolders,
+}
+
+impl Pick {
+    /// The dialogs to offer for something that can be a file or a folder (a `.zip` or
+    /// the folder it unzips to), given `cx.can_select_mixed_files_and_dirs()`: one
+    /// dialog that takes either on macOS, and elsewhere one for files and one for
+    /// folders. On Linux (the xdg-desktop-portal's file chooser) and Windows, a dialog
+    /// that allows folders shows only folders, so asking for both hid every file.
+    pub fn file_or_folder(mixed: bool) -> &'static [Pick] {
+        if mixed {
+            &[Pick::FilesOrFolders]
+        } else {
+            &[Pick::Files, Pick::Folders]
+        }
+    }
+
+    /// What to ask `cx.prompt_for_paths` for.
+    pub fn options(self, multiple: bool, prompt: impl Into<SharedString>) -> PathPromptOptions {
+        PathPromptOptions {
+            files: self != Pick::Folders,
+            directories: self != Pick::Files,
+            multiple,
+            prompt: Some(prompt.into()),
+        }
+    }
+}
 
 /// What a file dialog's answer means: what the user chose, `Ok(None)` when they
 /// cancelled (or the dialog went away without answering), or the message to show
@@ -56,6 +94,32 @@ pub async fn chosen<V: ShowsError + 'static, T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dialog_asks_for_both_only_where_it_can_show_both() {
+        assert_eq!(Pick::file_or_folder(true), [Pick::FilesOrFolders]);
+        assert_eq!(Pick::file_or_folder(false), [Pick::Files, Pick::Folders]);
+        // Where the dialog can't mix them, none of the dialogs asks for both: one that
+        // allows folders shows only folders there.
+        for pick in Pick::file_or_folder(false) {
+            let options = pick.options(false, "Import");
+            assert_ne!(options.files, options.directories, "{pick:?}");
+        }
+    }
+
+    #[test]
+    fn each_pick_asks_for_what_it_says() {
+        let ask = |pick: Pick| {
+            let options = pick.options(true, "Add");
+            assert!(options.multiple);
+            assert_eq!(options.prompt, Some("Add".into()));
+            (options.files, options.directories)
+        };
+        assert_eq!(ask(Pick::Files), (true, false));
+        assert_eq!(ask(Pick::Folders), (false, true));
+        assert_eq!(ask(Pick::FilesOrFolders), (true, true));
+        assert!(!Pick::Files.options(false, "Import").multiple);
+    }
 
     #[test]
     fn only_a_dialog_that_couldnt_open_is_an_error() {
