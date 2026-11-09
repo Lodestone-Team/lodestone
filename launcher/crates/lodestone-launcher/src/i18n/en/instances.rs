@@ -59,6 +59,9 @@ crate::i18n::messages! {
         ModpackUpdating = "The modpack is updating",
         WaitForUpdate = "Wait for the update to finish, then press Play.",
         StopBeforeDeleting = "Stop the game before deleting its instance.",
+        /// Another change of the instance's files (a copy, a move to the Trash, an image
+        /// being imported) is still running.
+        FilesBusy = "Wait for the instance's files to finish changing, then try again.",
         CouldntSavePlayed = "Couldn't save when it was played: {error}",
         CouldntSavePlayTime = "Couldn't save the play time: {error}",
         ModpackExported = "Modpack exported",

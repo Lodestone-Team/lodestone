@@ -435,6 +435,10 @@ pub struct InstanceLink {
     pub core_known: bool,
 }
 
+/// How long the poll goes without reading the instances' server links again while
+/// the instances stay the same.
+const LINKS_REREAD: Duration = Duration::from_secs(60);
+
 pub struct Servers {
     accounts: Entity<Accounts>,
     instances: Entity<Instances>,
@@ -445,6 +449,14 @@ pub struct Servers {
     links: HashMap<RowKey, String>,
     /// The same links by instance.
     instance_links: HashMap<String, ServerLink>,
+    /// Reads every instance folder for its link, off the window's thread.
+    links_task: Option<Task<()>>,
+    /// The instance list's generation the links were last read at, and when: the
+    /// poll reads them again only once the instances changed, or a while after.
+    links_read: Option<(u64, Instant)>,
+    /// Goes up when a link is made or removed here, so a read that started before it
+    /// is done again.
+    links_revision: u64,
     pub busy: HashMap<RowKey, Busy>,
     /// A message at the top of the page.
     pub notice: Option<Notice>,
@@ -483,6 +495,9 @@ impl Servers {
             cores: Vec::new(),
             links: HashMap::new(),
             instance_links: HashMap::new(),
+            links_task: None,
+            links_read: None,
+            links_revision: 0,
             busy: HashMap::new(),
             notice: None,
             dialog: DialogSlot::new(|this: &mut Servers| &mut this.dialog),
@@ -611,39 +626,65 @@ impl Servers {
             return;
         }
         self.last_poll = Some(Instant::now());
-        self.reload_links(cx);
+        self.reload_links_if_stale(cx);
         for index in 0..self.cores.len() {
             self.refresh(index, cx);
         }
     }
 
-    /// Finds the launcher instances made for a server.
+    /// Finds the launcher instances made for a server, off the window's thread: it
+    /// reads every instance folder.
     fn reload_links(&mut self, cx: &mut Context<Self>) {
         if self.preview {
             return;
         }
         let root = self.accounts.read(cx).data_dir().instances_dir();
-        let existing: HashSet<String> = self
-            .instances
-            .read(cx)
-            .list()
-            .iter()
-            .map(|i| i.id.clone())
-            .collect();
-        let linked: Vec<(String, ServerLink)> = link::linked_instances(&root)
-            .into_iter()
-            .filter(|(id, _)| existing.contains(id))
-            .collect();
-        self.links = linked
-            .iter()
-            .map(|(id, link)| {
-                (
-                    (link.core_uuid.clone(), link.server_uuid.clone()),
-                    id.clone(),
-                )
+        let instances = self.instances.read(cx);
+        let existing: HashSet<String> = instances.list().iter().map(|i| i.id.clone()).collect();
+        self.links_read = Some((instances.list_generation(), Instant::now()));
+        let revision = self.links_revision;
+        let read = cx.background_spawn(async move {
+            link::linked_instances(&root)
+                .into_iter()
+                .filter(|(id, _)| existing.contains(id))
+                .collect::<Vec<(String, ServerLink)>>()
+        });
+        self.links_task = Some(cx.spawn(async move |this, cx| {
+            let linked = read.await;
+            this.update(cx, |this, cx| {
+                this.links_task = None;
+                if this.links_revision != revision {
+                    // a link was made or removed meanwhile: what was read may miss it
+                    this.reload_links(cx);
+                    return;
+                }
+                this.links = linked
+                    .iter()
+                    .map(|(id, link)| {
+                        (
+                            (link.core_uuid.clone(), link.server_uuid.clone()),
+                            id.clone(),
+                        )
+                    })
+                    .collect();
+                this.instance_links = linked.into_iter().collect();
+                cx.notify();
             })
-            .collect();
-        self.instance_links = linked.into_iter().collect();
+            .ok();
+        }));
+    }
+
+    /// The poll's look at the links: again only once the instances changed, or after
+    /// [`LINKS_REREAD`] in case a link file changed outside the launcher.
+    fn reload_links_if_stale(&mut self, cx: &mut Context<Self>) {
+        let generation = self.instances.read(cx).list_generation();
+        if let Some((read, at)) = self.links_read
+            && read == generation
+            && at.elapsed() < LINKS_REREAD
+        {
+            return;
+        }
+        self.reload_links(cx);
     }
 
     fn client(&self, core: &CoreEntry) -> CoreClient {
@@ -1265,6 +1306,7 @@ impl Servers {
         }
         self.instance_links.remove(instance_id);
         self.links.retain(|_, id| id != instance_id);
+        self.links_revision += 1;
         cx.notify();
         Ok(())
     }
@@ -1430,6 +1472,7 @@ impl Servers {
             instance_id.to_string(),
         );
         self.instance_links.insert(instance_id.to_string(), link);
+        self.links_revision += 1;
         cx.notify();
     }
 

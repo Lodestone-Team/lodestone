@@ -45,6 +45,7 @@ pub fn text(message: M) -> &'static str {
         M::ModpackUpdating => "整合包正在更新",
         M::WaitForUpdate => "请等待更新完成，然后点击“开始游戏”。",
         M::StopBeforeDeleting => "请先停止游戏，再删除该实例。",
+        M::FilesBusy => "请等待该实例的文件处理完成，然后重试。",
         M::CouldntSavePlayed => "无法保存上次游玩时间：{error}",
         M::CouldntSavePlayTime => "无法保存游戏时长：{error}",
         M::ModpackExported => "整合包已导出",

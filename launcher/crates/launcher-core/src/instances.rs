@@ -587,6 +587,19 @@ pub struct InstanceStore {
 /// The longest name kept; longer names are cut.
 const MAX_NAME_CHARS: usize = 64;
 
+/// Puts instances in the order [`InstanceStore::list`] returns them: most recently
+/// played first, then newest first. For a list changed in place after one instance
+/// was saved.
+pub fn sort_listed(instances: &mut [Instance]) {
+    instances.sort_by(|a, b| {
+        b.last_played
+            .unwrap_or(0)
+            .cmp(&a.last_played.unwrap_or(0))
+            .then(b.created.cmp(&a.created))
+            .then(a.name.cmp(&b.name))
+    });
+}
+
 impl InstanceStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
@@ -640,13 +653,7 @@ impl InstanceStore {
                 Err(error) => broken.push(BrokenInstance { dir, error }),
             }
         }
-        instances.sort_by(|a, b| {
-            b.last_played
-                .unwrap_or(0)
-                .cmp(&a.last_played.unwrap_or(0))
-                .then(b.created.cmp(&a.created))
-                .then(a.name.cmp(&b.name))
-        });
+        sort_listed(&mut instances);
         (instances, broken)
     }
 
@@ -760,7 +767,18 @@ impl InstanceStore {
     /// Makes the image at `source` (PNG or JPEG) the instance's icon: cropped to a
     /// square, scaled to [`ICON_SIZE`] and saved as the instance's `icon.png`.
     pub fn set_icon(&self, id: &str, source: &Path) -> Result<Instance, InstanceError> {
-        let mut instance = self.get(id)?;
+        self.write_icon(id, source)?;
+        self.use_custom_icon(id)
+    }
+
+    /// The slow half of [`InstanceStore::set_icon`]: reads, crops and scales the image
+    /// and writes the instance's `icon.png`, without changing its `instance.json`.
+    /// [`InstanceStore::use_custom_icon`] then makes it the icon.
+    pub fn write_icon(&self, id: &str, source: &Path) -> Result<(), InstanceError> {
+        check_id(id)?;
+        if !self.file(id).is_file() {
+            return Err(InstanceError::NotFound(id.to_string()));
+        }
         let icon_error = |reason: String| InstanceError::Icon {
             path: source.to_owned(),
             reason,
@@ -772,6 +790,12 @@ impl InstanceStore {
         let png = icon_png(&bytes).map_err(icon_error)?;
         let path = self.dir(id).join(ICON_FILE);
         storage::write_atomic(&path, &png).map_err(io_error(&path))?;
+        Ok(())
+    }
+
+    /// Makes the `icon.png` that [`InstanceStore::write_icon`] wrote the instance's icon.
+    pub fn use_custom_icon(&self, id: &str) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
         instance.icon = Some(CUSTOM_ICON.to_string());
         self.save(&instance)?;
         Ok(instance)
@@ -808,7 +832,18 @@ impl InstanceStore {
     /// background: scaled down to fit [`BACKGROUND_MAX`] and saved as its
     /// `background.jpg`.
     pub fn set_background(&self, id: &str, source: &Path) -> Result<Instance, InstanceError> {
-        let mut instance = self.get(id)?;
+        self.write_background(id, source)?;
+        self.use_custom_background(id)
+    }
+
+    /// The slow half of [`InstanceStore::set_background`]: reads and scales the image
+    /// and writes the instance's `background.jpg`, without changing its
+    /// `instance.json`. [`InstanceStore::use_custom_background`] then shows it.
+    pub fn write_background(&self, id: &str, source: &Path) -> Result<(), InstanceError> {
+        check_id(id)?;
+        if !self.file(id).is_file() {
+            return Err(InstanceError::NotFound(id.to_string()));
+        }
         let error = |reason: String| InstanceError::Background {
             path: source.to_owned(),
             reason,
@@ -820,6 +855,13 @@ impl InstanceStore {
         let jpeg = background_jpeg(&bytes).map_err(error)?;
         let path = self.dir(id).join(BACKGROUND_FILE);
         storage::write_atomic(&path, &jpeg).map_err(io_error(&path))?;
+        Ok(())
+    }
+
+    /// Makes the `background.jpg` that [`InstanceStore::write_background`] wrote the
+    /// instance's Play background.
+    pub fn use_custom_background(&self, id: &str) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
         instance.background = Some(CUSTOM_BACKGROUND.to_string());
         self.save(&instance)?;
         Ok(instance)

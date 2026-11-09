@@ -217,6 +217,8 @@ crate::i18n::messages! {
         ExportButton = "Export…",
         Exporting = "Exporting…",
         Duplicate = "Duplicate",
+        /// The Duplicate button while the copy is being made.
+        Duplicating = "Duplicating…",
         HostOnCore = "Host on a Lodestone core",
         HostHint = "Creates a server with this instance's mods.",
         HostButton = "Host…",

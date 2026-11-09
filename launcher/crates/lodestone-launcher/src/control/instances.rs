@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{
-    Call, Control, Reply, api_error,
+    ApiResult, Call, Control, Reply, api_error,
     events::row_json,
     jobs::{Cancel, JobSpec, Progress},
     poll_until, ready, servers,
@@ -487,12 +487,20 @@ pub fn set_icon(call: Call, cx: &mut App) -> Reply {
         )));
     }
     let id = instance.id.clone();
-    let result = if let Some(image) = params.image {
+    if let Some(image) = params.image {
         tri!(absolute(&image));
-        call.control
+        // the image is read and scaled off the window's thread
+        let task = call
+            .control
             .instances
-            .update(cx, |instances, cx| instances.set_icon(&id, &image, cx))
-    } else if let Some(name) = params.library {
+            .update(cx, |instances, cx| instances.set_icon(&id, &image, cx));
+        let control = call.control.clone();
+        return cx.spawn(async move |cx| {
+            failed(task.await)?;
+            cx.update(|cx| icon_reply(&control, &id, cx))
+        });
+    }
+    let result = if let Some(name) = params.library {
         let known = crate::instances::appearance::LIBRARY
             .iter()
             .any(|(n, _)| *n == name);
@@ -545,10 +553,13 @@ pub fn set_icon(call: Call, cx: &mut App) -> Reply {
             .update(cx, |instances, cx| instances.set_icon_name(&id, None, cx))
     };
     tri!(failed(result));
-    let current = tri!(call.control.instance(&id, cx));
-    ready(Ok(
-        json!({ "instance": { "id": id, "icon": current.icon } }),
-    ))
+    ready(icon_reply(&call.control, &id, cx))
+}
+
+/// `set_icon`'s answer: the instance's icon now.
+fn icon_reply(control: &Control, id: &str, cx: &App) -> ApiResult {
+    let current = control.instance(id, cx)?;
+    Ok(json!({ "instance": { "id": id, "icon": current.icon } }))
 }
 
 #[derive(Deserialize)]
@@ -579,54 +590,45 @@ pub fn set_background(call: Call, cx: &mut App) -> Reply {
         for path in &params.add {
             tri!(absolute(path));
         }
-        if !params.add.is_empty() {
-            let added = call.control.instances.update(cx, |instances, cx| {
+        let source = match params.slideshow.as_deref() {
+            None => None,
+            Some("off") => Some(None),
+            Some(other) => match serde_json::from_value(json!(other)) {
+                Ok(source) => Some(Some(source)),
+                Err(_) => {
+                    return ready(Err(api_error(
+                        codes::INVALID_PARAMS,
+                        "The slideshow is instance, all_instances, custom or off.",
+                    )));
+                }
+            },
+        };
+        // the images are read and scaled off the window's thread
+        let added = (!params.add.is_empty()).then(|| {
+            call.control.instances.update(cx, |instances, cx| {
                 instances.add_slideshow_images(&id, &params.add, cx)
-            });
-            tri!(failed(added));
-        }
-        if let Some(source) = params.slideshow.as_deref() {
-            let source = match source {
-                "off" => None,
-                other => match serde_json::from_value(json!(other)) {
-                    Ok(source) => Some(source),
-                    Err(_) => {
-                        return ready(Err(api_error(
-                            codes::INVALID_PARAMS,
-                            "The slideshow is instance, all_instances, custom or off.",
-                        )));
-                    }
-                },
-            };
-            let result = call
-                .control
-                .instances
-                .update(cx, |instances, cx| instances.set_slideshow(&id, source, cx));
-            tri!(failed(result));
-        }
-        let current = tri!(call.control.instance(&id, cx));
-        let images: Vec<String> = call
-            .control
-            .instances
-            .read(cx)
-            .store()
-            .slideshow_images(&id)
-            .iter()
-            .filter_map(|p| p.file_name()?.to_str().map(str::to_string))
-            .collect();
-        return ready(Ok(json!({ "instance": {
-            "id": id,
-            "background": current.background,
-            "slideshow": current.slideshow,
-            "slideshow_images": images,
-        } })));
+            })
+        });
+        let control = call.control.clone();
+        return cx.spawn(async move |cx| {
+            if let Some(added) = added {
+                failed(added.await)?;
+            }
+            cx.update(|cx| slideshow_reply(&control, &id, source, cx))
+        });
     }
     let result = match (params.image, params.clear) {
         (Some(image), false) => {
             tri!(absolute(&image));
-            call.control.instances.update(cx, |instances, cx| {
+            // the image is read and scaled off the window's thread
+            let task = call.control.instances.update(cx, |instances, cx| {
                 instances.set_background(&id, &image, cx)
-            })
+            });
+            let control = call.control.clone();
+            return cx.spawn(async move |cx| {
+                failed(task.await)?;
+                cx.update(|cx| background_reply(&control, &id, cx))
+            });
         }
         (None, true) => call
             .control
@@ -640,10 +642,46 @@ pub fn set_background(call: Call, cx: &mut App) -> Reply {
         }
     };
     tri!(failed(result));
-    let current = tri!(call.control.instance(&id, cx));
-    ready(Ok(
+    ready(background_reply(&call.control, &id, cx))
+}
+
+/// `set_background`'s answer for an image: the instance's background now.
+fn background_reply(control: &Control, id: &str, cx: &App) -> ApiResult {
+    let current = control.instance(id, cx)?;
+    Ok(
         json!({ "instance": { "id": id, "background": current.background, "slideshow": current.slideshow } }),
-    ))
+    )
+}
+
+/// The rest of `set_background` for the slideshow, once its images are added: sets
+/// `source` (`Some(None)` turns it off), and answers with the slideshow now.
+fn slideshow_reply(
+    control: &Control,
+    id: &str,
+    source: Option<Option<core_instances::SlideshowSource>>,
+    cx: &mut App,
+) -> ApiResult {
+    if let Some(source) = source {
+        let result = control
+            .instances
+            .update(cx, |instances, cx| instances.set_slideshow(id, source, cx));
+        failed(result)?;
+    }
+    let current = control.instance(id, cx)?;
+    let images: Vec<String> = control
+        .instances
+        .read(cx)
+        .store()
+        .slideshow_images(id)
+        .iter()
+        .filter_map(|p| p.file_name()?.to_str().map(str::to_string))
+        .collect();
+    Ok(json!({ "instance": {
+        "id": id,
+        "background": current.background,
+        "slideshow": current.slideshow,
+        "slideshow_images": images,
+    } }))
 }
 
 /// Paths come from another process with another working directory.
@@ -660,15 +698,20 @@ pub fn absolute(path: &std::path::Path) -> Result<(), ErrorObject> {
 
 pub fn duplicate(call: Call, cx: &mut App) -> Reply {
     let instance = tri!(call.control.instance_param(&call, cx));
-    let copy = call
+    // the files are copied off the window's thread
+    let task = call
         .control
         .instances
         .update(cx, |instances, cx| instances.duplicate(&instance.id, cx));
-    let copy = tri!(failed(copy));
-    let control = &call.control;
-    ready(Ok(json!({
-        "instance": instance_json(&copy, control.instances.read(cx), control.servers.read(cx))
-    })))
+    let control = call.control.clone();
+    cx.spawn(async move |cx| {
+        let copy = failed(task.await)?;
+        Ok(cx.update(|cx| {
+            json!({
+                "instance": instance_json(&copy, control.instances.read(cx), control.servers.read(cx))
+            })
+        }))
+    })
 }
 
 pub fn delete(call: Call, cx: &mut App) -> Reply {
@@ -678,14 +721,15 @@ pub fn delete(call: Call, cx: &mut App) -> Reply {
         instance.name
     )));
     tri!(call.control.idle(&instance, cx));
-    let result = call
+    // the Trash takes its time with a large folder: off the window's thread
+    let task = call
         .control
         .instances
         .update(cx, |instances, cx| instances.delete(&instance.id, cx));
-    tri!(failed(result));
-    ready(Ok(
-        json!({ "deleted": instance.id, "name": instance.name, "trash": true }),
-    ))
+    cx.spawn(async move |_| {
+        failed(task.await)?;
+        Ok(json!({ "deleted": instance.id, "name": instance.name, "trash": true }))
+    })
 }
 
 #[derive(Deserialize)]

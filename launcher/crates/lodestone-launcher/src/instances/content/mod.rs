@@ -248,6 +248,9 @@ pub struct ContentView {
     pub message: Option<(SharedString, bool)>,
     /// The file whose Delete was clicked once.
     pub confirm_delete: Option<(ContentKind, String)>,
+    /// The file being moved to the Trash, off the window's thread, and its instance.
+    pub deleting: Option<(String, ContentKind, String)>,
+    _delete: Option<Task<()>>,
     remote_icons: HashMap<String, RemoteIcon>,
     /// Images of project descriptions, by URL.
     description_images: HashMap<String, RemoteIcon>,
@@ -316,6 +319,8 @@ impl ContentView {
             blocked: None,
             message: None,
             confirm_delete: None,
+            deleting: None,
+            _delete: None,
             remote_icons: HashMap::new(),
             description_images: HashMap::new(),
             descriptions: HashMap::new(),
@@ -1025,15 +1030,38 @@ impl ContentView {
             cx.notify();
             return;
         }
-        self.confirm_delete = None;
-        self.change(
-            kind,
-            |dirs, target| files::delete(dirs, target, kind, &file_name),
-            cx,
-        );
-        if kind == ContentKind::Mod {
-            self.reload(ContentKind::ShaderPack, cx);
+        if self.deleting.is_some() || !self.can_change(cx) {
+            return;
         }
+        let Some((id, dirs, target)) = self.context(cx) else {
+            return;
+        };
+        // The Trash can take a while (on Windows it walks a folder's every file).
+        self.deleting = Some((id.clone(), kind, file_name.clone()));
+        let work = cx.background_spawn(async move {
+            files::delete(&dirs, &target, kind, &file_name).map_err(|err| err.to_string())
+        });
+        self._delete = Some(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            this.update(cx, |this, cx| {
+                this.deleting = None;
+                this.confirm_delete = None;
+                if this.instance_id.as_deref() != Some(id.as_str()) {
+                    cx.notify();
+                    return;
+                }
+                match result {
+                    Ok(()) => this.message = None,
+                    Err(err) => this.message = Some((err.into(), true)),
+                }
+                this.reload(kind, cx);
+                if kind == ContentKind::Mod {
+                    this.reload(ContentKind::ShaderPack, cx);
+                }
+            })
+            .ok();
+        }));
+        cx.notify();
     }
 
     pub fn cancel_delete(&mut self, cx: &mut Context<Self>) {

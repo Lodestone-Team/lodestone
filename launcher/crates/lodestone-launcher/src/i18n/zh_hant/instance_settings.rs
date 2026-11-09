@@ -191,6 +191,7 @@ pub fn text(message: M) -> &'static str {
         M::ExportButton => "匯出…",
         M::Exporting => "正在匯出…",
         M::Duplicate => "製作副本",
+        M::Duplicating => "正在製作副本…",
         M::HostOnCore => "在 Lodestone Core 上架設",
         M::HostHint => "用此實例的模組建立伺服器。",
         M::HostButton => "架設…",

@@ -874,13 +874,11 @@ impl InstanceSettings {
                 return;
             };
             this.update(cx, |this, cx| {
-                let result = this.instances.update(cx, |instances, cx| {
-                    instances.undoable(&id, cx, |instances, cx| instances.set_icon(&id, &path, cx))
+                let task = this.instances.update(cx, |instances, cx| {
+                    instances
+                        .undoable_task(&id, cx, |instances, cx| instances.set_icon(&id, &path, cx))
                 });
-                match result {
-                    Ok(()) => this.set_message(t(CommonMsg::Saved), false, cx),
-                    Err(err) => this.set_message(err, true, cx),
-                }
+                this.report_when_done(task, t(CommonMsg::Saved), |_, _| {}, cx);
             })
             .ok();
         }));
@@ -908,7 +906,6 @@ impl InstanceSettings {
             multiple: false,
             prompt: Some(t(M::UseAsBackground).into()),
         });
-        let id = self.instance_id.clone();
         self._prompt = Some(cx.spawn(async move |this, cx| {
             let Some(paths) = file_dialog::chosen(picked, &this, cx).await else {
                 return;
@@ -916,18 +913,8 @@ impl InstanceSettings {
             let Some(path) = paths.into_iter().next() else {
                 return;
             };
-            this.update(cx, |this, cx| {
-                let result = this.instances.update(cx, |instances, cx| {
-                    instances.undoable(&id, cx, |instances, cx| {
-                        instances.set_background(&id, &path, cx)
-                    })
-                });
-                match result {
-                    Ok(()) => this.set_message(t(M::SavedSeePlayTab), false, cx),
-                    Err(err) => this.set_message(err, true, cx),
-                }
-            })
-            .ok();
+            this.update(cx, |this, cx| this.use_background(path, cx))
+                .ok();
         }));
     }
 
@@ -999,15 +986,36 @@ impl InstanceSettings {
     fn use_background(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         self.background_picker = false;
         let id = self.instance_id.clone();
-        let result = self.instances.update(cx, |instances, cx| {
-            instances.undoable(&id, cx, |instances, cx| {
+        let task = self.instances.update(cx, |instances, cx| {
+            instances.undoable_task(&id, cx, |instances, cx| {
                 instances.set_background(&id, &path, cx)
             })
         });
-        match result {
-            Ok(()) => self.set_message(t(M::SavedSeePlayTab), false, cx),
-            Err(err) => self.set_message(err, true, cx),
-        }
+        self.report_when_done(task, t(M::SavedSeePlayTab), |_, _| {}, cx);
+        cx.notify();
+    }
+
+    /// Says how a change that finishes in the background went, once it is done, after
+    /// `then`.
+    fn report_when_done(
+        &mut self,
+        task: Task<Result<(), String>>,
+        saved: &'static str,
+        then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            this.update(cx, |this, cx| {
+                then(this, cx);
+                match result {
+                    Ok(()) => this.set_message(saved, false, cx),
+                    Err(err) => this.set_message(err, true, cx),
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Reads the slideshow's own images as thumbnails, in the background.
@@ -1228,11 +1236,10 @@ impl InstanceSettings {
     /// Adds images to the slideshow's own set.
     fn add_own_images(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         let id = self.instance_id.clone();
-        let result = self.instances.update(cx, |instances, cx| {
+        let task = self.instances.update(cx, |instances, cx| {
             instances.add_slideshow_images(&id, &paths, cx)
         });
-        self.load_own_images(cx);
-        self.background_result(result, cx);
+        self.report_when_done(task, t(CommonMsg::Saved), Self::load_own_images, cx);
     }
 
     /// "Add images…": the system's file dialog, for several at once.
@@ -2463,6 +2470,7 @@ impl Render for InstanceSettings {
 
         // Maintenance.
         let id = self.instance_id.clone();
+        let duplicating = self.instances.read(cx).file_op(&id) == Some(super::FileOp::Duplicate);
         let maintenance = card([
             SettingRow::new(t(M::VerifyGameFiles))
                 .hint(t(M::VerifyHint))
@@ -2500,18 +2508,30 @@ impl Render for InstanceSettings {
                 .into_any_element(),
             SettingRow::new(t(M::Duplicate))
                 .child(
-                    Button::new("duplicate-instance", t(M::Duplicate))
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let id = this.instance_id.clone();
-                            let result = this
-                                .instances
-                                .update(cx, |instances, cx| instances.duplicate(&id, cx));
-                            if let Err(err) = result {
-                                this.set_message(err, true, cx);
+                    Button::new(
+                        "duplicate-instance",
+                        t(if duplicating {
+                            M::Duplicating
+                        } else {
+                            M::Duplicate
+                        }),
+                    )
+                    .variant(ButtonVariant::Secondary)
+                    .size(ButtonSize::Slim)
+                    .disabled(duplicating)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let id = this.instance_id.clone();
+                        let task = this
+                            .instances
+                            .update(cx, |instances, cx| instances.duplicate(&id, cx));
+                        cx.spawn(async move |this, cx| {
+                            if let Err(err) = task.await {
+                                this.update(cx, |this, cx| this.set_message(err, true, cx))
+                                    .ok();
                             }
-                        })),
+                        })
+                        .detach();
+                    })),
                 )
                 .into_any_element(),
             SettingRow::new(t(M::HostOnCore))

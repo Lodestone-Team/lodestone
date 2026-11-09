@@ -721,7 +721,8 @@ async fn find_items(
     Ok(found)
 }
 
-/// Finds the items, then changes each on the main thread, as the Content tab does.
+/// Finds the items, then changes each off the window's thread (moving a file to the
+/// Trash can take a while), once the game is checked to be stopped.
 fn change_items(
     call: Call,
     cx: &mut App,
@@ -757,17 +758,21 @@ fn change_items(
                 find_items(api, &find_dirs, &find_target, kind, &names).await
             })
             .await?;
-        let results: Vec<Value> = cx.update(|cx| {
+        cx.update(|cx| {
             let instance = control.instance(&id, cx)?;
-            can_change(&control, &instance, cx)?;
-            let results = items
-                .iter()
-                .map(|item| change(&dirs, &target, item))
-                .collect::<Result<Vec<_>, _>>();
-            let kinds: Vec<ContentKind> = items.iter().map(|i| i.file.kind).collect();
-            refresh_view(&control, &id, &kinds, cx);
-            results
+            can_change(&control, &instance, cx)
         })?;
+        let kinds: Vec<ContentKind> = items.iter().map(|i| i.file.kind).collect();
+        let results = cx
+            .background_spawn(async move {
+                items
+                    .iter()
+                    .map(|item| change(&dirs, &target, item))
+                    .collect::<Result<Vec<Value>, _>>()
+            })
+            .await;
+        cx.update(|cx| refresh_view(&control, &id, &kinds, cx));
+        let results = results?;
         Ok(json!({ "instance": id, "changed": results }))
     })
 }
