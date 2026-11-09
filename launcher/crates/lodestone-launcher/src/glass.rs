@@ -22,9 +22,7 @@ use gpui::{
     AbsoluteLength, AnyElement, CornersRefinement, IntoElement, ParentElement, Styled, Window,
     WindowBackgroundAppearance, WindowId, div,
 };
-use launcher_core::ui_skin::{
-    DEFAULT_OPACITY, MIN_OPACITY, SkinSpec, SurfaceId, Transparency,
-};
+use launcher_core::ui_skin::{DEFAULT_OPACITY, MIN_OPACITY, SkinSpec, SurfaceId, Transparency};
 
 use crate::theme::colors;
 
@@ -240,6 +238,4 @@ mod tests {
             WindowBackgroundAppearance::Blurred
         );
     }
-
-
 }

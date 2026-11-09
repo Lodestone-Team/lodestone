@@ -89,7 +89,8 @@ fn read() -> Prefs {
         if workspace.is_null() {
             return Prefs::default();
         }
-        let flag = |name: &std::ffi::CStr| send_bool(workspace, sel_registerName(name.as_ptr())) != 0;
+        let flag =
+            |name: &std::ffi::CStr| send_bool(workspace, sel_registerName(name.as_ptr())) != 0;
         Prefs {
             reduce_motion: flag(c"accessibilityDisplayShouldReduceMotion"),
             reduce_transparency: flag(c"accessibilityDisplayShouldReduceTransparency"),

@@ -262,6 +262,7 @@ pub fn tally_images(tally: &mut crate::perf::ImageTally, cx: &App) {
     for image in look.blurred.values() {
         tally.add(image);
     }
+    crate::liquid::tally(tally);
 }
 
 /// Whether the skin's images are still being prepared (the screenshots wait).
@@ -815,21 +816,22 @@ fn see_through<T: gpui::Styled + gpui::ParentElement>(
     if crate::liquid::is_glass(surface) {
         return liquid_glass(element, surface, frame, alpha, image, behind);
     }
+    let fill = element.style().background.take();
+    let mut fill = fill
+        .filter(|_| !image)
+        .map(|gpui::Fill::Color(fill)| fill.opacity(alpha));
     // Under Glass the content's pane dims over a bright picture (as Apple dims under
     // clear glass), so the text on it stays readable.
-    if crate::liquid::on()
+    if fill.is_none()
+        && crate::liquid::on()
         && surface == SurfaceId::Main
         && let Some(lens) = frame_lens()
     {
-        let dim = (0.55 * lens.tone.luminance).min(0.5);
-        if element.style().background.is_none() && dim > 0.02 {
-            element = element.bg(gpui::hsla(0., 0., 0., dim));
+        let dim = (0.9 * lens.tone.luminance).min(0.55);
+        if dim > 0.02 {
+            fill = Some(gpui::hsla(0., 0., 0., dim).into());
         }
     }
-    let fill = element.style().background.take();
-    let fill = fill
-        .filter(|_| !image)
-        .map(|gpui::Fill::Color(fill)| fill.opacity(alpha));
     let radii = element.style().corner_radii.clone();
     match behind {
         Some(behind) => {
@@ -863,7 +865,7 @@ fn liquid_glass<T: gpui::Styled + gpui::ParentElement>(
     let plain = env.prefs.reduce_transparency || env.prefs.increase_contrast;
     let lens = frame_lens().filter(|_| !plain && !image && liquid::bends(surface));
     let tone = liquid::tone(surface, lens.as_deref());
-    let alpha = liquid::tint_alpha(alpha, tone);
+    let alpha = liquid::tint_alpha(alpha, tone, lens.is_some());
     let fill = element.style().background.take();
     let fill = fill
         .filter(|_| !image)
@@ -876,9 +878,8 @@ fn liquid_glass<T: gpui::Styled + gpui::ParentElement>(
     }
     if let Some(lens) = lens {
         // over the blurred picture: drawn once it is built
-        element = element.child(
-            liquid::lens(surface, lens, frame.opacity, radii.clone()).into_any_element(),
-        );
+        element = element
+            .child(liquid::lens(surface, lens, frame.opacity, radii.clone()).into_any_element());
     }
     if layered {
         if let Some(fill) = fill {
@@ -1083,6 +1084,25 @@ thread_local! {
 pub fn sidebar_inks() -> SidebarInks {
     let mut inks = SIDEBAR_INKS.with(|cell| cell.get());
     inks.fill = crate::glass::row_fill(inks.fill, 9);
+    if crate::liquid::is_glass(SurfaceId::Sidebar) && !crate::liquid::env().prefs.increase_contrast
+    {
+        // vibrant text on Liquid Glass: the quieter colours lifted toward the light
+        // and coloured by what is behind, so they read over any picture
+        let tone = crate::liquid::tone(SurfaceId::Sidebar, frame_lens().as_deref());
+        let [r, g, b] = tone.rgb.map(|c| (c * 255.0).round() as u32);
+        let behind = Color::rgb((r << 16) | (g << 8) | b);
+        let vibrant = |ink: Color, lift: f32| {
+            let alpha = ink.0 & 0xff;
+            let lifted = Color(ink.0 | 0xff)
+                .mix(colors::WHITE, lift)
+                .mix(behind, 0.18);
+            Color((lifted.0 & !0xff) | alpha.max(0xd0))
+        };
+        inks.secondary = vibrant(inks.secondary, 0.45);
+        inks.muted = vibrant(inks.muted, 0.40);
+        inks.faint = vibrant(inks.faint, 0.30);
+        inks.icon = vibrant(inks.icon, 0.30);
+    }
     inks
 }
 

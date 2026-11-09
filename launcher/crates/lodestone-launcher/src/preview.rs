@@ -322,7 +322,9 @@ fn showcase_skin() -> launcher_core::ui_skin::SkinSpec {
 }
 
 /// The see-through scenes' material (Opacity at its default) and skin.
-fn glass_scene(scene: &str) -> Option<(launcher_core::ui_skin::Transparency, Option<&'static str>)> {
+fn glass_scene(
+    scene: &str,
+) -> Option<(launcher_core::ui_skin::Transparency, Option<&'static str>)> {
     use launcher_core::ui_skin::Transparency;
     Some(match scene {
         "glass-clear" => (Transparency::Clear, None),

@@ -45,7 +45,7 @@ use gpui::{
     IntoElement, ParentElement, Pixels, RenderImage, Styled, Window, canvas, div, point, px,
 };
 use image::RgbaImage;
-use launcher_core::ui_skin::{Transparency, SurfaceId};
+use launcher_core::ui_skin::{SurfaceId, Transparency};
 
 use crate::a11y::Prefs;
 
@@ -250,12 +250,17 @@ pub fn tone(surface: SurfaceId, source: Option<&LensSource>) -> Tone {
 /// How opaque a glass pane's tint is: darker over a brighter image, so light text
 /// stays readable; nearly solid with Reduce Transparency, solid with Increase
 /// Contrast, and a little more solid while the window isn't in front.
-pub fn tint_alpha(alpha: f32, tone: Tone) -> f32 {
+pub fn tint_alpha(alpha: f32, tone: Tone, lensed: bool) -> f32 {
     let env = env();
     if env.prefs.increase_contrast {
         return 0.97;
     }
-    let mut alpha = (alpha + 0.50 * tone.luminance).min(0.95);
+    let mut alpha = if lensed {
+        // the lens has already dimmed what is behind: the tint only colours it
+        alpha * 0.45
+    } else {
+        (alpha + 0.50 * tone.luminance).min(0.95)
+    };
     if env.prefs.reduce_transparency {
         alpha = alpha.max(0.92);
     }
@@ -339,7 +344,10 @@ pub fn depth(surface: SurfaceId, tone: Tone) -> Vec<BoxShadow> {
 /// A flash of gathered light that settles as glass appears: Apple's glass
 /// materializes by building up its lensing rather than fading in. Empty with Reduce
 /// Motion.
-pub fn materialize(id: impl Into<ElementId>, radii: CornersRefinement<AbsoluteLength>) -> AnyElement {
+pub fn materialize(
+    id: impl Into<ElementId>,
+    radii: CornersRefinement<AbsoluteLength>,
+) -> AnyElement {
     use gpui::{Animation, AnimationExt};
     let env = env();
     if env.prefs.reduce_motion || env.prefs.increase_contrast {
@@ -477,19 +485,13 @@ pub fn building() -> bool {
     PENDING.with(|pending| !pending.borrow().is_empty())
 }
 
-/// The lens textures held, and their bytes, for the performance monitor.
-pub fn cache_bytes() -> (usize, usize) {
+/// Adds the lens textures held, for the performance monitor.
+pub fn tally(tally: &mut crate::perf::ImageTally) {
     CACHE.with(|cache| {
-        let cache = cache.borrow();
-        let bytes = cache
-            .values()
-            .map(|built| {
-                let size = built.image.size(0);
-                size.width.0 as usize * size.height.0 as usize * 4
-            })
-            .sum();
-        (cache.len(), bytes)
-    })
+        for built in cache.borrow().values() {
+            tally.add(&built.image);
+        }
+    });
 }
 
 /// The skin's window picture as glass `surface` shows it: bent at the rim and
@@ -651,8 +653,12 @@ fn request(
 /// How wide the rim that bends the light is, for a pane `w` × `h`: thicker glass
 /// for larger pieces, as Apple's is.
 fn band(w: f32, h: f32) -> f32 {
-    (w.min(h) * 0.22).clamp(6.0, 22.0)
+    (w.min(h) * 0.25).clamp(8.0, 26.0)
 }
+
+/// How bright the inside of the glass may be: Regular glass lowers the brightness
+/// of what is behind it so light text on it reads, rather than painting over it.
+const INSIDE_LUMINANCE: f32 = 0.20;
 
 /// The lens for a pane at `area` (x, y, w, h, in the window's pixels) with corners
 /// `radii` (top left, top right, bottom right, bottom left), over the source image
@@ -702,7 +708,7 @@ fn build(
             let color = if inside < band {
                 // at the rim: the image from just outside the pane, bent in
                 let t = 1.0 - inside / band;
-                let shift = band * 0.95 * t.powf(2.2);
+                let shift = band * 1.3 * t.powf(2.0);
                 let bent = |k: f32| {
                     sample(
                         &source.sharp,
@@ -729,7 +735,16 @@ fn build(
             };
             // a touch more vivid, as light through glass is
             let l = luminance(color);
-            let color = color.map(|c| (l + (c - l) * 1.12).clamp(0.0, 1.0));
+            let color = color.map(|c| (l + (c - l) * 1.15).clamp(0.0, 1.0));
+            // inside, dimmed to where light text reads; the rim keeps its light
+            let rim = if inside < band {
+                1.0 - inside / band
+            } else {
+                0.0
+            };
+            let dim = (INSIDE_LUMINANCE / l.max(1e-3)).min(1.0);
+            let dim = dim + (1.0 - dim) * smoothstep(0.0, 0.7, rim);
+            let color = color.map(|c| c * dim);
             for i in 0..3 {
                 sum[i] += color[i];
             }
@@ -832,15 +847,19 @@ mod tests {
             1.0,
         );
         assert_eq!(lens.dimensions(), (200, 100));
-        // inside, the stripes are frosted to grey
+        // inside, the stripes are frosted to an even, dimmed grey
         let middle = lens.get_pixel(100, 50).0;
-        assert!((60..200).contains(&middle[0]), "frosted: {middle:?}");
-        // at the rim, crisper: further from grey than the middle
-        let row = 50;
-        let contrast = |x: u32| (i32::from(lens.get_pixel(x, row).0[1]) - 128).abs();
-        let rim = (0..4).map(contrast).max().unwrap();
-        assert!(rim > contrast(100), "rim {rim} vs middle {}", contrast(100));
-        assert!(tone.luminance > 0.2 && tone.luminance < 0.8);
+        assert!((20..120).contains(&middle[0]), "frosted: {middle:?}");
+        let flat = (90..110)
+            .map(|x| i32::from(lens.get_pixel(x, 50).0[1]))
+            .fold((255, 0), |(lo, hi), v| (lo.min(v), hi.max(v)));
+        assert!(flat.1 - flat.0 < 40, "inside varies {flat:?}");
+        // at the rim the stripes show, bent in and brighter
+        let rim = (0..6)
+            .map(|x| i32::from(lens.get_pixel(x, 50).0[1]))
+            .fold((255, 0), |(lo, hi), v| (lo.min(v), hi.max(v)));
+        assert!(rim.1 > 150, "rim keeps its light: {rim:?}");
+        assert!(tone.luminance > 0.05 && tone.luminance < 0.8);
     }
 
     #[test]
@@ -868,16 +887,18 @@ mod tests {
 
     #[test]
     fn a_brighter_image_takes_a_darker_tint() {
-        let dark = tint_alpha(0.4, Tone::DARK);
+        let dark = tint_alpha(0.4, Tone::DARK, false);
         let bright = tint_alpha(
             0.4,
             Tone {
                 rgb: [0.9; 3],
                 luminance: 0.9,
             },
+            false,
         );
         assert!(bright > dark);
         assert!(bright <= 0.95);
+        assert!(tint_alpha(0.4, Tone::DARK, true) < dark);
     }
 
     #[test]

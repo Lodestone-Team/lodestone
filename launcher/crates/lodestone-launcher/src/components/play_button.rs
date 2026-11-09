@@ -222,8 +222,8 @@ impl RenderOnce for PlayButton {
                     Some(caption) => format!("{} {caption}", t(ShellMsg::Play)).into(),
                     None => t(ShellMsg::Play).into(),
                 };
-                let liquid = (crate::liquid::on() && !disabled)
-                    .then(|| Liquid::new(&self.id, window, cx));
+                let liquid =
+                    (crate::liquid::on() && !disabled).then(|| Liquid::new(&self.id, window, cx));
                 let glow = liquid.as_ref().and_then(Liquid::glow);
                 let button = shell(self.id, shape, name)
                     .justify_center()
