@@ -61,6 +61,14 @@ jobs:
     - name: Test
       run: cargo test --locked --no-fail-fast
 
+    # The macOS UI driver (docs/ui-automation.md) is a Swift script nothing else
+    # builds: compile it, and run what needs no Accessibility permission.
+    - name: UI driver (Swift)
+      run: |
+        swiftc -O -o "$RUNNER_TEMP/ui-drive" scripts/ui_drive.swift
+        "$RUNNER_TEMP/ui-drive" --help
+        "$RUNNER_TEMP/ui-drive" --json apps
+
   # The Linux build: GPUI's Wayland and X11 backends are Linux-only code, so neither
   # clippy nor the tests on macOS see it. Formatting does not depend on the platform,
   # so only the macOS job checks it.
