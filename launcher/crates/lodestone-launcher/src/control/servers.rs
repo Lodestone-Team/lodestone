@@ -57,7 +57,6 @@ fn server_json(core: &CoreEntry, server: &ServerInstance, servers: &Servers) -> 
         "max_players": server.max_player_count,
         "port": server.port,
         "address_shown": server.address_shown(),
-        "playit_address": server.playit_address,
         "has_client_pack": server.has_client_pack,
         "listed": server.listed,
         "linked_instance": servers.linked_instance(&core.saved.uuid, &server.uuid),

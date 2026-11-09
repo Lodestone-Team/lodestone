@@ -1,5 +1,4 @@
-//! Settings › General: the core's name and address, Playit.gg, what it lists
-//! publicly, its information and the danger zone, after the dashboard's
+//! Settings › General: the core's name and address, what it lists publicly, its information and the danger zone, after the dashboard's
 //! `pages/settings/CoreSettings.tsx` (`launcher/docs/host-parity.md`, §7.1).
 //!
 //! Only the owner changes these; everyone else sees them read-only. Settings an older
@@ -257,10 +256,6 @@ impl CoreSettingsPage {
             cx,
             async move {
                 admin.set_core_switch(switch, value).await?;
-                // a turned-off playit stops its runner
-                if switch == CoreSwitch::PlayitEnabled && !value {
-                    admin.stop_playit().await.ok();
-                }
                 Ok::<_, launcher_core::cores::CoreError>(())
             },
             move |this, result, cx| {
@@ -584,13 +579,6 @@ impl Render for CoreSettingsPage {
                 .child(settings::card([
                     self.name.clone().into_any_element(),
                     self.domain.clone().into_any_element(),
-                    self.switch_row(
-                        CoreSwitch::PlayitEnabled,
-                        CoreMsg::Playit,
-                        t(CoreMsg::PlayitHint),
-                        owner,
-                        cx,
-                    ),
                 ]))
                 .into_any_element(),
         );

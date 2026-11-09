@@ -81,7 +81,6 @@ pub const CATALOG: &[(&str, &str)] = &[
         "A user signed in (user events are user.*).",
     ),
     ("fs.operation", "A file operation through the API."),
-    ("playit", "The playit.gg tunnel runner."),
     ("settings.global", "A global setting changed."),
 ];
 

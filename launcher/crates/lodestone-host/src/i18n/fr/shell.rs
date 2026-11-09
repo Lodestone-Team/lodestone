@@ -45,7 +45,6 @@ pub fn text(message: M) -> &'static str {
         M::TabPlugins => "Plugins",
         M::TabMacros => "Macros",
         M::TabEventLogs => "Journal des événements",
-        M::TabPlayit => "Playit.gg",
         M::Settings => "Paramètres",
         M::SettingsCore => "Core",
         M::SettingsGeneral => "Général",

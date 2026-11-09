@@ -1,6 +1,5 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faCarTunnel,
   faChartLine,
   faCodeCompare,
   faCog,
@@ -24,8 +23,7 @@ export type InstanceTabPath =
   | 'files'
   | 'mods'
   | 'macros'
-  | 'logs'
-  | 'playitgg';
+  | 'logs';
 
 /** a tab's name, a message without placeholders */
 export type TabTitleKey = Extract<MessageKey, `server.tab.${string}`>;
@@ -93,12 +91,5 @@ export const tabs: InstanceTabInfo[] = [
     path: 'logs',
     width: 'max-w-4xl',
     icon: <FontAwesomeIcon icon={faInbox} />,
-  },
-  {
-    titleKey: 'server.tab.playitgg',
-    displayTitleKey: 'server.tab.playitgg',
-    path: 'playitgg',
-    width: 'max-w-4xl',
-    icon: <FontAwesomeIcon icon={faCarTunnel} />,
   },
 ];

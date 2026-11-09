@@ -27,7 +27,6 @@ use axum::{
 };
 use color_eyre::eyre::{eyre, Context};
 use tokio_util::io::ReaderStream;
-use tracing::warn;
 
 use super::instance::sanitize_instance_dir_name;
 use super::instance_mods::{fabric_loader_version, mod_folder};
@@ -77,41 +76,11 @@ async fn is_minecraft_java(instance: &GameInstance) -> bool {
     matches!(instance.game_type().await, Game::MinecraftJava { .. })
 }
 
-/// The playit.gg addresses by local port, if the core has a playit key and playit is on.
-async fn playit_addresses(state: &AppState) -> Vec<(u16, String)> {
-    if !state.global_settings.lock().await.playit_enabled() {
-        return Vec::new();
-    }
-    let Some(secret) = state.playitgg_key.lock().await.clone() else {
-        return Vec::new();
-    };
-    state
-        .public_listing
-        .playit_addresses(|| async move {
-            match crate::playitgg::fetch_tunnels(secret).await {
-                Ok(tunnels) => tunnels
-                    .into_iter()
-                    .filter(|t| t.active)
-                    .map(|t| (t.local_port, t.server_address))
-                    .collect(),
-                Err(e) => {
-                    warn!(
-                        "Couldn't list the playit.gg tunnels for the instance list: {}",
-                        e.source
-                    );
-                    Vec::new()
-                }
-            }
-        })
-        .await
-}
-
 /// An instance as [`PublicInstance`] with the fields `scope` shows, or `None` if it is
 /// not a Minecraft Java instance. `scope.listed` is only reported, not checked.
 pub(crate) async fn public_instance(
     instance: &GameInstance,
     scope: PublicScope,
-    playit: &[(u16, String)],
 ) -> Option<PublicInstance> {
     let info = instance.get_instance_info().await;
     let Game::MinecraftJava { variant } = &info.game_type else {
@@ -126,10 +95,6 @@ pub(crate) async fn public_instance(
     } else {
         None
     };
-    let playit_address = playit
-        .iter()
-        .find(|(port, _)| u32::from(*port) == info.port)
-        .map(|(_, address)| address.clone());
     let status = scope.status;
     let address = scope.address;
     Some(PublicInstance {
@@ -143,7 +108,6 @@ pub(crate) async fn public_instance(
         player_count: status.then_some(info.player_count),
         max_player_count: status.then_some(info.max_player_count),
         has_client_pack,
-        playit_address: address.then_some(playit_address),
         listed: scope.listed,
     })
 }
@@ -166,15 +130,9 @@ async fn instance_list(
         }
     }
     chosen.sort_by_key(|(created, _, _)| *created);
-    // fetched only when an address is shown
-    let playit = if chosen.iter().any(|(_, scope, _)| scope.address) {
-        playit_addresses(state).await
-    } else {
-        Vec::new()
-    };
     let mut instances = Vec::new();
     for (_, scope, instance) in chosen {
-        if let Some(entry) = public_instance(&instance, scope, &playit).await {
+        if let Some(entry) = public_instance(&instance, scope).await {
             instances.push(entry);
         }
     }

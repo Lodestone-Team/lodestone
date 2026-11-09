@@ -288,7 +288,6 @@ pub struct GlobalSettingsData {
     pub core_name: String,
     pub safe_mode: bool,
     pub domain: Option<String>,
-    pub playit_enabled: bool,
     pub code_execution_enabled: bool,
     pub code_execution_locked: bool,
     pub allow_lan_http: bool,
@@ -414,6 +413,15 @@ mod tests {
             info.capabilities.macros,
             "an older core has every capability"
         );
+        // settings from a core before Lodestone Connect, with its playit.gg switch
+        let settings: GlobalSettingsData = serde_json::from_str(
+            r#"{"core_name":"Home","safe_mode":true,"domain":null,"playit_enabled":true,
+                "code_execution_enabled":true,"code_execution_locked":false,
+                "allow_lan_http":false,"list_instances_publicly":true,"allow_local_claim":true}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.core_name, "Home");
+        assert!(settings.list_instances_publicly);
     }
 
     #[test]

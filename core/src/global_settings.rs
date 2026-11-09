@@ -30,8 +30,6 @@ pub struct GlobalSettingsData {
     pub core_name: String,
     pub safe_mode: bool,
     pub domain: Option<String>,
-    #[serde(default)]
-    pub playit_enabled: bool,
     // Whether macros, atom instances, extensions, instance scripts and custom Java commands
     // may run. Files written by older versions have no switch, so it defaults to on.
     #[serde(default = "default_true")]
@@ -154,7 +152,6 @@ impl Default for GlobalSettingsData {
             ),
             safe_mode: true,
             domain: None,
-            playit_enabled: true,
             code_execution_enabled: true,
             code_execution_locked: false,
             allow_lan_http: false,
@@ -367,22 +364,6 @@ impl GlobalSettings {
         self.global_settings_data.domain.clone()
     }
 
-    pub async fn set_playit_enabled(&mut self, playit_enabled: bool) -> Result<(), Error> {
-        let old_playit_enabled = self.global_settings_data.playit_enabled;
-        self.global_settings_data.playit_enabled = playit_enabled;
-        match self.write_to_file().await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                self.global_settings_data.playit_enabled = old_playit_enabled;
-                Err(e)
-            }
-        }
-    }
-
-    pub fn playit_enabled(&self) -> bool {
-        self.global_settings_data.playit_enabled
-    }
-
     /// Shows or hides the listed instances at `GET /public/instances`.
     pub async fn set_list_instances_publicly(&mut self, enabled: bool) -> Result<(), Error> {
         let old = self.global_settings_data.list_instances_publicly;
@@ -562,6 +543,41 @@ mod tests {
         again.load_from_file().await.unwrap();
         assert!(again.list_instances_publicly());
         assert!(again.client_view().list_instances_publicly);
+    }
+
+    /// Cores before Lodestone Connect saved `playit_enabled`. Such a file still loads with
+    /// its other settings, and the old field is dropped the next time the file is saved.
+    #[tokio::test]
+    async fn settings_from_before_connect_still_load() {
+        use super::*;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("global_settings.json");
+        std::fs::write(
+            &path,
+            r#"{"core_name":"old","safe_mode":false,"domain":"example.com","playit_enabled":true,
+                "code_execution_enabled":false,"allow_lan_http":true,"list_instances_publicly":true,
+                "allow_local_claim":false}"#,
+        )
+        .unwrap();
+        let (event_broadcaster, _) = EventBroadcaster::new(10);
+        let mut settings = GlobalSettings::new(
+            path.clone(),
+            event_broadcaster,
+            GlobalSettingsData::default(),
+        );
+        settings.load_from_file().await.unwrap();
+        assert_eq!(settings.core_name(), "old");
+        assert!(!settings.safe_mode());
+        assert_eq!(settings.domain().as_deref(), Some("example.com"));
+        assert!(settings.allow_lan_http());
+        assert!(settings.list_instances_publicly());
+        assert!(!settings.client_view().code_execution_enabled);
+        assert!(!settings.client_view().allow_local_claim);
+        settings.set_core_name("new".to_string()).await.unwrap();
+        let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap())
+            .unwrap();
+        assert_eq!(stored["core_name"], "new");
+        assert!(stored.get("playit_enabled").is_none());
     }
 
     mod allow_lan_http {

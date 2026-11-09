@@ -14,7 +14,7 @@
 //!   API request; never headers, query strings or bodies;
 //! - `instance.*`: state changes, warnings and errors, players, system messages; console
 //!   output, input and chat live only;
-//! - `macro.*`, `task.*` (progress; updates live only), `user.*`, `fs.*`, `playit`,
+//! - `macro.*`, `task.*` (progress; updates live only), `user.*`, `fs.*`,
 //!   `settings.global`: the core's own events.
 //!
 //! Payloads pass through [`lodestone_trace::scrub`].
@@ -199,7 +199,6 @@ pub fn event_topic(event: &Event) -> String {
             }
         }
         EventInner::FSEvent(_) => "fs.operation".into(),
-        EventInner::PlayitggRunnerEvent(_) => "playit".into(),
         EventInner::GlobalSettingsChanged => "settings.global".into(),
     }
 }

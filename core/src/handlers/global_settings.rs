@@ -166,27 +166,6 @@ pub async fn change_domain(
     Ok(())
 }
 
-pub async fn change_core_playit_enabled(
-    axum::extract::State(state): axum::extract::State<AppState>,
-    requester: AuthedUser,
-    Json(playit_enabled): Json<bool>,
-) -> Result<(), Error> {
-    if !requester.is_owner {
-        return Err(Error {
-            kind: ErrorKind::PermissionDenied,
-            source: eyre!("Not authorized to change Playit Enabled status."),
-        });
-    }
-
-    state
-        .global_settings
-        .lock()
-        .await
-        .set_playit_enabled(playit_enabled)
-        .await?;
-    Ok(())
-}
-
 /// Lets programs on this computer claim owner access through the core's data folder
 /// (`crate::local_claim`), or stops them. Owner only.
 pub async fn change_allow_local_claim(
@@ -259,10 +238,6 @@ pub fn get_global_settings_routes(state: AppState) -> Router {
         .route(
             "/global_settings/allow_lan_http",
             put(change_allow_lan_http),
-        )
-        .route(
-            "/global_settings/playit_enabled",
-            put(change_core_playit_enabled),
         )
         .route(
             "/global_settings/allow_local_claim",

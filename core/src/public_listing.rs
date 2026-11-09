@@ -26,8 +26,6 @@ use crate::{
 
 /// How long the public instance list is reused.
 pub const LIST_CACHE_TTL: Duration = Duration::from_secs(5);
-/// How long the playit.gg tunnel list is reused, including a failed fetch.
-pub const PLAYIT_CACHE_TTL: Duration = Duration::from_secs(60);
 
 /// The mod loader of a listed instance.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, TS)]
@@ -50,7 +48,7 @@ pub enum PublicLoader {
 /// |---------------|-------------------------------------------------|
 /// | `listed`      | `uuid`, `name`, `game_version`, `loader`, `loader_version`, `listed` |
 /// | `status`      | `state`, `player_count`, `max_player_count`     |
-/// | `address`     | `port`, `playit_address`                        |
+/// | `address`     | `port`                                          |
 /// | `client_pack` | `has_client_pack`, and the client-pack download |
 ///
 /// Without `listed` nothing is shown, whatever the other flags say. The fields of a flag
@@ -154,11 +152,6 @@ pub struct PublicInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub has_client_pack: Option<bool>,
-    /// The public address of an active playit.gg tunnel to the game port, `null` when
-    /// there is none. Scope `address`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub playit_address: Option<Option<String>>,
     /// Whether the instance is listed publicly. Always true on the public route.
     pub listed: bool,
 }
@@ -323,7 +316,6 @@ pub struct PublicListing {
     /// Held while the file is written, so writes reach the disk in order.
     file_write: tokio::sync::Mutex<()>,
     list_cache: tokio::sync::Mutex<Option<(Instant, PublicInstanceList)>>,
-    playit_cache: tokio::sync::Mutex<Option<(Instant, Vec<(u16, String)>)>>,
     packs: std::sync::Mutex<HashMap<InstanceUuid, Arc<tokio::sync::Mutex<Option<PackSlot>>>>>,
 }
 
@@ -380,7 +372,6 @@ impl PublicListing {
             scopes: std::sync::RwLock::new(scopes),
             file_write: Default::default(),
             list_cache: Default::default(),
-            playit_cache: Default::default(),
             packs: Default::default(),
         }
     }
@@ -487,24 +478,6 @@ impl PublicListing {
 
     pub async fn store_list(&self, list: PublicInstanceList) {
         *self.list_cache.lock().await = Some((Instant::now(), list));
-    }
-
-    /// The playit.gg addresses by local port: from the cache if it is younger than
-    /// [`PLAYIT_CACHE_TTL`], else from `fetch`, whose failure counts as no tunnels.
-    pub async fn playit_addresses<F, Fut>(&self, fetch: F) -> Vec<(u16, String)>
-    where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Vec<(u16, String)>>,
-    {
-        let mut cache = self.playit_cache.lock().await;
-        if let Some((at, addresses)) = cache.as_ref() {
-            if at.elapsed() < PLAYIT_CACHE_TTL {
-                return addresses.clone();
-            }
-        }
-        let addresses = fetch().await;
-        *cache = Some((Instant::now(), addresses.clone()));
-        addresses
     }
 
     fn packs_lock(
@@ -810,21 +783,5 @@ mod tests {
             .await
             .unwrap();
         assert_ne!(renamed, with_jar);
-    }
-
-    #[tokio::test]
-    async fn playit_addresses_are_cached() {
-        let dir = tempfile::tempdir().unwrap();
-        let listing =
-            PublicListing::load(dir.path().join("l.json"), dir.path().join("packs")).await;
-        let first = listing
-            .playit_addresses(|| async { vec![(25565, "a.ply.gg:1".to_string())] })
-            .await;
-        assert_eq!(first, vec![(25565, "a.ply.gg:1".to_string())]);
-        // the second call does not fetch
-        let second = listing
-            .playit_addresses(|| async { panic!("fetched again") })
-            .await;
-        assert_eq!(second, first);
     }
 }

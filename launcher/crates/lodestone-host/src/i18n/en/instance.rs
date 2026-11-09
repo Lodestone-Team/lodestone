@@ -1,4 +1,4 @@
-//! Work package C: an instance's Settings, Mods, Event logs and Playit.gg tabs.
+//! Work package C: an instance's Settings, Mods and Event logs tabs.
 
 crate::i18n::messages! {
     pub enum InstanceMsg {
@@ -77,43 +77,6 @@ crate::i18n::messages! {
         EulaDialogBody = "{name} only starts after you agree to the Minecraft EULA. Do you agree to it?",
         /// Accepts the EULA and starts the server.
         EulaAcceptAndStart = "I agree, start the server",
-        /// The Playit.gg tab (`PlayitggOverview.tsx`). The runner and its tunnels are the core's.
-        PlayitLoadFailed = "Couldn’t load the playit.gg status: {error}",
-        PlayitSignupFailed = "Couldn’t make a sign-up link: {error}",
-        PlayitVerifyFailed = "Couldn’t check the playit.gg account: {error}",
-        PlayitStartFailed = "Couldn’t start the playit.gg runner: {error}",
-        PlayitStopFailed = "Couldn’t stop the playit.gg runner: {error}",
-        /// The sign-up dialog.
-        PlayitSetupTitle = "Set up playit.gg",
-        PlayitSetupIntro = "Sign up for playit.gg to use it. Make a sign-up link with the button below.",
-        PlayitGenerateLink = "Make a sign-up link",
-        PlayitFollowLink = "Open the link and make an account. When you see the playit.gg dashboard, come back and press Verify.",
-        PlayitOpenLink = "Open the sign-up link",
-        /// Checks the new account; named in PlayitFollowLink.
-        PlayitVerify = "Verify",
-        /// The program that runs the tunnels on this computer.
-        PlayitRunner = "playit.gg runner",
-        PlayitRunnerLead = "Runs your tunnels on this computer, so players can join without port forwarding.",
-        PlayitStopped = "Stopped",
-        PlayitLoading = "Starting",
-        PlayitStarted = "Started",
-        PlayitTrouble = "Having trouble? Check that the tunnel is set up on the playit.gg website and that your server is running.",
-        PlayitSignupRequired = "Sign up for playit.gg before you use it.",
-        PlayitSignUp = "Sign up",
-        PlayitTunnels = "Tunnels",
-        PlayitTunnelsLead = "Make more tunnels and change them on the playit.gg website.",
-        PlayitWebsite = "Open playit.gg",
-        /// {address} is an IP address and port, such as 127.0.0.1:25565.
-        PlayitLocalServer = "Local server at {address}",
-        PlayitCopyAddress = "Copy the address",
-        /// {address} is the tunnel's public address.
-        PlayitCopied = "Copied {address}",
-        PlayitActive = "Active",
-        PlayitInactive = "Not active",
-        PlayitNoTunnels = "You haven’t made any tunnels yet",
-        PlayitNotSignedUp = "You haven’t signed up yet",
-        /// A link to the integration's documentation.
-        PlayitHelp = "Need help?",
         /// The Event logs tab: what happened to this server.
         EventLogsLead = "What happened to this server, newest first. The core keeps the recent events.",
         EventLogsEmpty = "Nothing has happened yet",
