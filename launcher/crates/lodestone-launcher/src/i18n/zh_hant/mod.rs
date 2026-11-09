@@ -28,6 +28,13 @@
 //! | username / password | 使用者名稱 / 密碼 |
 //! | user / owner / permission | 使用者 / 擁有者 / 權限 |
 //! | API key / token | API 金鑰 / 權杖 |
+//! | Undo / Redo | 復原 / 重做 |
+//! | restore (a backup, from the Trash) | 還原 |
+//! | build (a release build) | 組建 |
+//! | dashboard | 控制面板 |
+//! | profile (Minecraft / Xbox) | 個人檔案 |
+//! | narrator / FOV (Minecraft's own words) | 朗讀功能 / 視角廣度 |
+//! | beta / alpha (Modrinth versions) | 測試版 / 早期測試版 |
 //! | start / stop / restart / kill | 啟動 / 停止 / 重新啟動 / 強制停止 |
 //! | running / stopped | 執行中 / 已停止 |
 //! | port / address / connection | 連接埠 / 位址 / 連線 |

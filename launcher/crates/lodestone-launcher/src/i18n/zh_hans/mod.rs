@@ -28,6 +28,9 @@
 //! | username / password | 用户名 / 密码 |
 //! | user / owner / permission | 用户 / 所有者 / 权限 |
 //! | API key / token | API 密钥 / 令牌 |
+//! | narrator / FOV (Minecraft's own words) | 复述功能 / 视场角 |
+//! | Minecraft's natives | 本地库 |
+//! | beta / alpha (Modrinth versions) | 测试版 / 早期测试版 |
 //! | start / stop / restart / kill | 启动 / 停止 / 重启 / 强制停止 |
 //! | running / stopped | 运行中 / 已停止 |
 //! | port / address / connection | 端口 / 地址 / 连接 |

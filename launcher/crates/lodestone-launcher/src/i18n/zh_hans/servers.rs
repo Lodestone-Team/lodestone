@@ -5,7 +5,7 @@ pub fn text(message: M) -> &'static str {
         M::ServersTitle => "服务器",
         M::PageHint => "你的 Lodestone 核心上的服务器。创建与其中一个匹配的实例，然后在上面游玩。",
         M::AddServer => "添加服务器",
-        M::Dismiss => "忽略",
+        M::Dismiss => "关闭",
         M::NoServersYet => "还没有服务器",
         M::NoServersHint => {
             "按地址添加一个 Lodestone 核心。不登录时，你能看到其所有者公开列出的服务器。"
@@ -13,11 +13,11 @@ pub fn text(message: M) -> &'static str {
 
         M::BadgeTrusted => "已信任",
         M::BadgePinned => "证书已固定",
-        M::SignedInAs => "已登录为 {username}",
+        M::SignedInAs => "已以 {username} 身份登录",
         M::SignedIn => "已登录",
         M::NotSignedIn => "未登录：仅显示公开服务器",
         M::TrustedForMods => "信任此核心的模组",
-        M::Offline => "离线：无法连接到此核心。请检查它是否正在运行，并且与你在同一个网络。",
+        M::Offline => "离线：无法连接到此核心。请检查它是否正在运行，并且与你处于同一网络中。",
         M::NotListedPublicly => {
             "所有者尚未在核心设置中开启“公开列出服务器”，因此不登录就没有可显示的内容。"
         }
@@ -72,7 +72,7 @@ pub fn text(message: M) -> &'static str {
         M::NoLongerTrustedCertificateChanged => {
             "它的证书已更改。如果确定它是同一个核心，请在它的卡片上重新信任其模组。"
         }
-        M::SignedOutOf => "已退出 {name} 的登录",
+        M::SignedOutOf => "已从 {name} 退出登录",
         M::KeyStillValid => {
             "此设备的密钥（lsk_{id}_…）在过期前仍然有效。要立即使其失效，请在控制面板的“设置 → API 密钥”中吊销它。"
         }
@@ -209,7 +209,7 @@ pub fn text(message: M) -> &'static str {
         M::ReadConsole => "读取控制台",
         M::SendChat => "发送聊天和命令",
         M::ConsoleAccessHint => {
-            "仅当你的用户可以使用控制台时才开启。命令可以执行管理员能做的任何事，因此只有在你信任所有使用{computer} 的人时才允许。"
+            "仅在你的用户有权使用控制台的服务器上生效。命令可以执行管理员能做的任何事，因此只有在你信任所有使用{computer} 的人时才允许。"
         }
         M::SignInTitle => "登录服务器",
         M::SignInIntro => {

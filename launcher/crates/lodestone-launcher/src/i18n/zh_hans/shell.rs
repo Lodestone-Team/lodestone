@@ -96,7 +96,7 @@ pub fn text(message: M) -> &'static str {
         }
         M::CauseOutOfMemory => "内存不足。请在“设置”中提高最大内存，或关闭其他应用。",
         M::CauseNatives => {
-            "本机库缺失，或与处理器架构不符。在 Apple 芯片上，1.19 之前的版本会通过 Rosetta 2 在 Intel 版 Java 中运行；请确认已安装 Rosetta，并且自定义 Java 不是 arm64 版。"
+            "本地库缺失，或与处理器架构不符。在 Apple 芯片上，1.19 之前的版本会通过 Rosetta 2 在 Intel 版 Java 中运行；请确认已安装 Rosetta，并且自定义 Java 不是 arm64 版。"
         }
         M::CauseJvmOptions => "Java 拒绝了其中一项设置。请检查“设置”中的 JVM 参数和内存。",
         M::CauseGraphics => {
@@ -159,7 +159,7 @@ pub fn text(message: M) -> &'static str {
         M::GameArguments => "游戏参数",
         M::EnvironmentVariables => "环境变量",
 
-        M::SyncedFrom => "现在，在“{name}”游戏内更改的设置会更新所有实例。",
+        M::SyncedFrom => "现在，“{name}”中游戏内的更改会同步到所有实例。",
         M::SyncedFromNone => "现在没有实例会更新共享设置，请在这里编辑。",
         M::SharedCleared => "共享值已清除。各实例保留自己的 options.txt。",
         M::NoInstance => "无实例",
@@ -188,16 +188,16 @@ pub fn text(message: M) -> &'static str {
         M::CategoryAccessibility => "辅助功能与聊天",
         M::CategoryLanguage => "语言",
         M::CategoryControlsHint => "鼠标、按键",
-        M::CategoryVideoHint => "视野、渲染距离、界面尺寸、图像品质",
+        M::CategoryVideoHint => "视场角、渲染距离、界面尺寸、图像品质",
         M::CategorySoundHint => "音量、字幕",
-        M::CategoryAccessibilityHint => "旁白、聊天、文本背景",
+        M::CategoryAccessibilityHint => "复述功能、聊天、文本背景",
         M::CategoryLanguageHint => "游戏语言和字体",
-        M::NarratorSection => "旁白",
-        M::KeepNarratorOff => "始终关闭旁白",
+        M::NarratorSection => "复述功能",
+        M::KeepNarratorOff => "始终关闭复述功能",
         M::KeepNarratorOffHint => "同时跳过首次启动时的辅助功能界面。",
-        M::NarratorNotShared => "“{category}”未共享，因此每个实例保留自己的旁白设置。",
-        M::NarratorKeptOff => "旁白在每个实例中都保持关闭，包括新实例。",
-        M::NarratorPerInstance => "各实例恢复使用自己的旁白设置。",
+        M::NarratorNotShared => "“{category}”未共享，因此每个实例保留自己的复述功能设置。",
+        M::NarratorKeptOff => "复述功能在每个实例中都保持关闭，包括新实例。",
+        M::NarratorPerInstance => "各实例恢复使用自己的复述功能设置。",
 
         M::SigningIn => "正在登录…",
         M::OfflineCouldntConnect => "离线 – 无法连接",
@@ -390,7 +390,7 @@ pub fn text(message: M) -> &'static str {
         M::UpdateReadyBadge => "更新已就绪",
         M::UpdateAvailableBadge => "有可用更新",
 
-        M::RestOnModrinth => "其余描述请在 Modrinth 上查看。",
+        M::RestOnModrinth => "完整简介请在 Modrinth 上查看。",
         M::Storage => "存储",
         M::StorageInstances => "实例",
         M::StorageGameFiles => "游戏文件",

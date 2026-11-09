@@ -5,7 +5,7 @@ pub fn text(message: M) -> &'static str {
         M::ServersTitle => "伺服器",
         M::PageHint => "你的 Lodestone 核心上的伺服器。建立與其中一個相符的實例，然後在上面遊玩。",
         M::AddServer => "新增伺服器",
-        M::Dismiss => "忽略",
+        M::Dismiss => "關閉",
         M::NoServersYet => "還沒有伺服器",
         M::NoServersHint => {
             "依位址新增一個 Lodestone 核心。不登入時，你會看到其擁有者公開列出的伺服器。"
@@ -13,7 +13,7 @@ pub fn text(message: M) -> &'static str {
 
         M::BadgeTrusted => "已信任",
         M::BadgePinned => "憑證已釘選",
-        M::SignedInAs => "已登入為 {username}",
+        M::SignedInAs => "已用 {username} 登入",
         M::SignedIn => "已登入",
         M::NotSignedIn => "未登入：僅顯示公開伺服器",
         M::TrustedForMods => "信任此核心的模組",
@@ -211,7 +211,7 @@ pub fn text(message: M) -> &'static str {
         M::ReadConsole => "讀取主控台",
         M::SendChat => "傳送聊天和指令",
         M::ConsoleAccessHint => {
-            "僅當你的使用者可以使用主控台時才開啟。指令能做管理員能做的任何事，因此只有在你信任所有使用{computer} 的人時才允許。"
+            "僅在你的使用者有權使用主控台的伺服器上有效。指令能做管理員能做的任何事，因此只有在你信任所有使用{computer} 的人時才允許。"
         }
         M::SignInTitle => "登入伺服器",
         M::SignInIntro => {
@@ -297,7 +297,7 @@ pub fn text(message: M) -> &'static str {
         M::LanWorld => "區域網路世界",
         M::Join => "加入",
         M::OnYourNetwork => "你的網路",
-        M::OnYourNetworkHint => "此網路上開放至區域網路的世界。",
+        M::OnYourNetworkHint => "此網路上已在區域網路上公開的世界。",
         M::JoinWorld => "加入 {world}",
         M::PickInstance => {
             "選擇用來遊玩的實例。它需要與位於 {address} 的世界有相同的 Minecraft 版本和模組。"
@@ -347,7 +347,7 @@ pub fn text(message: M) -> &'static str {
             "已匯入為 {instance} 中的世界「{folder}」。請從「單人遊戲」開啟它；它是副本，因此變更不會同步回伺服器。"
         }
         M::PackSaved => {
-            "已儲存到實例的資源包中，檔案名為 {file}。在資源包清單中啟用它，即可在其他伺服器上使用。"
+            "已儲存到實例的資源包中，檔名為 {file}。在資源包清單中啟用它，也能在其他伺服器上使用。"
         }
     }
 }

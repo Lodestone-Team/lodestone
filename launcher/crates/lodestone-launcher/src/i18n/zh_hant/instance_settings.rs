@@ -84,8 +84,8 @@ pub fn text(message: M) -> &'static str {
         M::AboutQuilt => "相容 Fabric，並有自己的擴充。",
         M::AboutForge => "經典之選。大型內容模組和舊整合包。",
         M::AboutNeoForge => "Forge 的後繼者，適用於新版本。",
-        M::PrereleaseUpdates => "Beta 版和 Alpha 版更新",
-        M::PrereleaseUpdatesHint => "關閉時，已處於 Beta 版的模組仍會收到 Beta 版更新。",
+        M::PrereleaseUpdates => "測試版和早期測試版更新",
+        M::PrereleaseUpdatesHint => "關閉時，已在使用測試版的模組仍會收到測試版更新。",
         M::LoaderVersion => "載入器版本",
         M::ChooseLoaderVersion => "請選擇 {loader} 版本。",
         M::ChooseVersion => "選擇版本",
@@ -110,7 +110,7 @@ pub fn text(message: M) -> &'static str {
 
         M::LinkedServerHint => "位於 {core}。「開始遊戲」會加入它並同步模組。",
         M::LinkedServerCoreRemoved => {
-            "位於 {core}，此核心已從「伺服器」頁面移除。請在該頁重新新增此核心，才能加入伺服器。"
+            "位於 {core}，此核心已從「伺服器」頁面移除。請在該頁再次新增此核心，才能加入伺服器。"
         }
         M::CoreRemoved => "核心已移除",
         M::Unlink => "解除連結",
@@ -188,9 +188,9 @@ pub fn text(message: M) -> &'static str {
         M::CategoryAccessibility => "協助工具與聊天",
         M::CategoryLanguage => "語言",
         M::CategoryControlsDescription => "滑鼠、按鍵",
-        M::CategoryVideoDescription => "視野、顯示距離、介面大小、圖像品質",
+        M::CategoryVideoDescription => "視角廣度、顯示距離、介面大小、畫質",
         M::CategorySoundDescription => "音量、字幕",
-        M::CategoryAccessibilityDescription => "朗讀程式、聊天、文字背景",
+        M::CategoryAccessibilityDescription => "朗讀功能、聊天、文字背景",
         M::CategoryLanguageDescription => "遊戲語言和字型",
 
         M::NewInstance => "新增實例",
@@ -234,7 +234,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::SharedWrittenNewFile => ["共用遊戲設定：已將 {count} 個值寫入新建的 options.txt"; 2],
         P::SharedEmitted => ["共用遊戲設定：此實例的 {count} 個值現已套用到所有實例"; 2],
         P::SharedChangedNote => {
-            ["共用遊戲設定：遊戲中變更的 {count} 項設定將在下次啟動時被共用值取代（見設定）"; 2]
+            ["共用遊戲設定：遊戲中變更的 {count} 項設定將在下次啟動時被共用值取代（請見「設定」）";
+                2]
         }
     }
 }

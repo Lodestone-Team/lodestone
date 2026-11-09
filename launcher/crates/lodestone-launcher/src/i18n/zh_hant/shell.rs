@@ -188,16 +188,16 @@ pub fn text(message: M) -> &'static str {
         M::CategoryAccessibility => "協助工具與聊天",
         M::CategoryLanguage => "語言",
         M::CategoryControlsHint => "滑鼠、按鍵",
-        M::CategoryVideoHint => "視野、顯示距離、介面大小、圖像品質",
+        M::CategoryVideoHint => "視角廣度、顯示距離、介面大小、畫質",
         M::CategorySoundHint => "音量、字幕",
-        M::CategoryAccessibilityHint => "朗讀程式、聊天、文字背景",
+        M::CategoryAccessibilityHint => "朗讀功能、聊天、文字背景",
         M::CategoryLanguageHint => "遊戲語言和字型",
-        M::NarratorSection => "朗讀程式",
-        M::KeepNarratorOff => "保持關閉朗讀程式",
+        M::NarratorSection => "朗讀功能",
+        M::KeepNarratorOff => "保持關閉朗讀功能",
         M::KeepNarratorOffHint => "同時略過首次啟動時的協助工具畫面。",
-        M::NarratorNotShared => "「{category}」未共用，因此每個實例保留自己的朗讀程式設定。",
-        M::NarratorKeptOff => "朗讀程式在每個實例中都保持關閉，包括新實例。",
-        M::NarratorPerInstance => "各實例恢復使用自己的朗讀程式設定。",
+        M::NarratorNotShared => "「{category}」未共用，因此每個實例保留自己的朗讀功能設定。",
+        M::NarratorKeptOff => "朗讀功能在每個實例中都保持關閉，包括新實例。",
+        M::NarratorPerInstance => "各實例恢復使用自己的朗讀功能設定。",
 
         M::SigningIn => "正在登入…",
         M::OfflineCouldntConnect => "離線 – 無法連線",
@@ -404,8 +404,8 @@ pub fn text(message: M) -> &'static str {
             "這將釋放 {size}。這些是未完成的模組包下載和匯入留下的檔案。"
         }
         M::StorageOther => "設定和其他檔案",
-        M::StorageCacheAndLogs => "快取和記錄",
-        M::StorageLogs => "記錄和當機報告",
+        M::StorageCacheAndLogs => "快取和日誌",
+        M::StorageLogs => "日誌和當機報告",
         M::StorageOldLogs => "{size} 超過 30 天",
         M::StorageVersions => "版本",
         M::StorageLibraries => "程式庫",
@@ -421,8 +421,8 @@ pub fn text(message: M) -> &'static str {
         M::StorageCounting => "正在統計…",
         M::StorageCouldntCount => "無法統計檔案：{error}",
         M::StorageStopGame => "請先停止遊戲，再移除遊戲檔案、Java 執行環境或快取。",
-        M::StorageOpenFolder => "打開資料夾",
-        M::StorageOpen => "打開",
+        M::StorageOpenFolder => "開啟資料夾",
+        M::StorageOpen => "開啟",
         M::StorageDelete => "刪除…",
         M::StorageRemoveEllipsis => "移除…",
         M::StorageClearEllipsis => "清除…",
@@ -441,11 +441,11 @@ pub fn text(message: M) -> &'static str {
         M::StorageCleanRuntimesBody => "這將釋放 {size}。Minecraft 版本需要時會重新下載。",
         M::StorageClearCacheTitle => "清除快取？",
         M::StorageClearCacheBody => "這將釋放 {size}。啟動器會重新下載所需內容。",
-        M::StorageDeleteOldLogsTitle => "刪除舊記錄？",
-        M::StorageDeleteOldLogsBody => "這將釋放 {size}。超過 30 天的記錄和當機報告會被永久刪除。",
-        M::StorageDeleteAllLogsTitle => "刪除所有記錄？",
+        M::StorageDeleteOldLogsTitle => "刪除舊日誌？",
+        M::StorageDeleteOldLogsBody => "這將釋放 {size}。超過 30 天的日誌和當機報告會被永久刪除。",
+        M::StorageDeleteAllLogsTitle => "刪除所有日誌？",
         M::StorageDeleteAllLogsBody => {
-            "這將釋放 {size}。所有記錄和當機報告都會被永久刪除，正在執行的遊戲的除外。"
+            "這將釋放 {size}。所有日誌和當機報告都會被永久刪除，正在執行的遊戲的除外。"
         }
     }
 }

@@ -84,8 +84,8 @@ pub fn text(message: M) -> &'static str {
         M::AboutQuilt => "兼容 Fabric，并有自己的扩展。",
         M::AboutForge => "经典之选。大型内容模组和旧整合包。",
         M::AboutNeoForge => "Forge 的后继者，面向新版本。",
-        M::PrereleaseUpdates => "Beta 版和 Alpha 版更新",
-        M::PrereleaseUpdatesHint => "关闭时，已处于 Beta 版的模组仍会收到 Beta 版更新。",
+        M::PrereleaseUpdates => "测试版和早期测试版更新",
+        M::PrereleaseUpdatesHint => "关闭时，已在使用测试版的模组仍会收到测试版更新。",
         M::LoaderVersion => "加载器版本",
         M::ChooseLoaderVersion => "请选择 {loader} 版本。",
         M::ChooseVersion => "选择版本",
@@ -162,7 +162,7 @@ pub fn text(message: M) -> &'static str {
         M::Preferred => "首选",
         M::MakePreferred => "设为首选",
         M::PreferredExplained => {
-            "在首选实例中，于游戏内更改的设置会成为共享设置，而每个共享这些设置的实例会在下次启动时获得它们。只能有一个首选实例。"
+            "在首选实例的游戏内更改的设置会成为共享设置；每个使用共享设置的实例会在下次启动时获得这些设置。只能有一个首选实例。"
         }
         M::MadePreferred => "此实例中的游戏内更改现在会更新到每个实例。",
         M::StopGameToChange => "请先停止游戏再更改：游戏退出时会重写 options.txt。",
@@ -188,9 +188,9 @@ pub fn text(message: M) -> &'static str {
         M::CategoryAccessibility => "辅助功能与聊天",
         M::CategoryLanguage => "语言",
         M::CategoryControlsDescription => "鼠标、按键",
-        M::CategoryVideoDescription => "视野、渲染距离、界面尺寸、图像品质",
+        M::CategoryVideoDescription => "视场角、渲染距离、界面尺寸、图像品质",
         M::CategorySoundDescription => "音量、字幕",
-        M::CategoryAccessibilityDescription => "旁白、聊天、文本背景",
+        M::CategoryAccessibilityDescription => "复述功能、聊天、文本背景",
         M::CategoryLanguageDescription => "游戏语言和字体",
 
         M::NewInstance => "新建实例",
@@ -234,7 +234,7 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::SharedWrittenNewFile => ["共享游戏设置：已将 {count} 个值写入新建的 options.txt"; 2],
         P::SharedEmitted => ["共享游戏设置：此实例的 {count} 个值现已应用到所有实例"; 2],
         P::SharedChangedNote => {
-            ["共享游戏设置：游戏中更改的 {count} 项设置将在下次启动时被共享值替换（见设置）"; 2]
+            ["共享游戏设置：游戏中更改的 {count} 项设置将在下次启动时被共享值替换（见“设置”）"; 2]
         }
     }
 }
