@@ -59,9 +59,9 @@ async function showStars() {
 
 // Iron filings. A grid of short strokes, each turned along the field of a
 // magnet at the logo (a dipole whose axis sways a little). The pointer is a
-// second magnet: strokes within about 170px of it turn toward its field and
-// fade back, less the farther they are, so its pull blends into the rest of
-// the field. On load the strokes start at random angles and swing into line,
+// second magnet: strokes within about 170px of it turn toward its field, and
+// the ones closest to it (about 90px) fade almost away, so the pointer reads as
+// a dark spot the field bends around. On load the strokes start at random angles and swing into line,
 // nearest the logo first.
 
 function startField() {
@@ -85,6 +85,8 @@ function startField() {
   const CLEAR_RADIUS = 84; // no filings under the logo
   const POINTER_REACH = 170; // px; the pointer's pull halves at about this distance
   const POINTER_SPREAD = 2 * (POINTER_REACH / 1.18) ** 2;
+  const FADE_REACH = 90; // px; strokes are half faded at about this distance
+  const FADE_SPREAD = 2 * (FADE_REACH / 1.18) ** 2;
   let width = 0;
   let height = 0;
   let spacing = 22;
@@ -182,10 +184,13 @@ function startField() {
       dipole(f.x, f.y, center.x, center.y, mx, my, 1, b);
       let target = Math.atan2(b.y, b.x);
       let near = 0; // how much the pointer pulls on this stroke, 0 to 1
+      let fade = 0; // how much the pointer fades it, 0 to 1
       if (pointer.strength > 0.01) {
         const dx = f.x - pointer.x;
         const dy = f.y - pointer.y;
-        near = pointer.strength * Math.exp(-(dx * dx + dy * dy) / POINTER_SPREAD);
+        const d2 = dx * dx + dy * dy;
+        near = pointer.strength * Math.exp(-d2 / POINTER_SPREAD);
+        fade = pointer.strength * Math.exp(-d2 / FADE_SPREAD);
         if (near > 0.003) {
           pb.x = 0;
           pb.y = 0;
@@ -203,7 +208,9 @@ function startField() {
       const appear = reducedMotion ? 1 : Math.min(1, Math.max(0, elapsed / 600));
       if (appear <= 0) continue;
       const strength = Math.min(1, Math.pow(Math.hypot(b.x, b.y), 0.3) * 0.85);
-      const level = Math.min(BUCKETS - 1, Math.floor(strength * appear * (1 - 0.6 * near) * BUCKETS));
+      const shown = strength * appear * (1 - 0.97 * fade);
+      if (shown < 0.05) continue;
+      const level = Math.min(BUCKETS - 1, Math.floor(shown * BUCKETS));
       const half = (spacing * (0.24 + 0.14 * strength)) / 1;
       const cx = Math.cos(f.angle) * half;
       const cy = Math.sin(f.angle) * half;
