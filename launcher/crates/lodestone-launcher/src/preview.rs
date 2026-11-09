@@ -142,7 +142,6 @@ pub const SCENES: &[&str] = &[
     "glass-skin",
     "glass-dialog",
     "glass-settings",
-    "glass-content",
 ];
 
 /// Keys pressed once a scene has settled, before the screenshot, to show where
@@ -319,7 +318,7 @@ fn glass_scene(scene: &str) -> Option<(launcher_core::ui_skin::Material, Option<
     Some(match scene {
         "glass-clear" => (Material::Clear, None),
         "glass-frosted" => (Material::Frosted, None),
-        "glass" | "glass-dialog" | "glass-settings" | "glass-content" => (Material::Glass, None),
+        "glass" | "glass-dialog" | "glass-settings" => (Material::Glass, None),
         "glass-skin" => (Material::Glass, Some("glass")),
         _ => return None,
     })
@@ -371,7 +370,9 @@ fn desktop_image() -> image::RgbaImage {
 /// for Clear and blurred otherwise. `None` for other scenes.
 pub fn desktop(glass: crate::glass::Glass) -> Option<gpui::AnyElement> {
     use gpui::{IntoElement, ObjectFit, Styled, StyledImage, img};
-    requested_scene().and_then(|scene| glass_scene(&scene))?;
+    if requested_transparency().is_none() {
+        requested_scene().and_then(|scene| glass_scene(&scene))?;
+    }
     let (sharp, blurred) = DESKTOP.with(|desktop| {
         desktop
             .borrow_mut()
@@ -481,6 +482,15 @@ pub fn requested_locale() -> Option<crate::i18n::Locale> {
 }
 
 /// `--zoom 1.5`: the interface's zoom for the screenshot.
+/// `--transparency <off|clear|frosted|glass>`: any scene, see-through, over the
+/// made-up desktop.
+pub fn requested_transparency() -> Option<launcher_core::ui_skin::Material> {
+    let mut args = std::env::args().skip_while(|arg| arg != "--transparency");
+    args.next()?;
+    let name = args.next()?;
+    serde_json::from_value(serde_json::Value::String(name.replace("off", "opaque"))).ok()
+}
+
 pub fn requested_zoom() -> Option<f32> {
     let mut args = std::env::args().skip_while(|arg| arg != "--zoom");
     args.next()?;
@@ -834,6 +844,12 @@ mod worlds;
 pub use shared::{window_height, window_width};
 
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
+    if let Some(material) = requested_transparency() {
+        let instances = shell.instances().clone();
+        instances.update(cx, |instances, cx| {
+            instances.set_transparency(Some(material), cx)
+        });
+    }
     match scene {
         "new-instance" => shell.open_new_instance_with(Some(("Survival", "")), None, cx),
         "new-instance-fabric" | "new-instance-versions" => {
@@ -1160,11 +1176,6 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 "glass-dialog" => shell.open_new_instance_with(Some(("Survival", "")), None, cx),
                 "glass-settings" => {
                     shell.open_settings(Some(crate::shell::SettingsPage::General), None, cx)
-                }
-                "glass-content" => {
-                    shell.select_tab(InstanceTab::Content, cx);
-                    let view = shell.content().clone();
-                    view.update(cx, |view, cx| content::apply("content-mods", view, cx));
                 }
                 _ => {}
             }

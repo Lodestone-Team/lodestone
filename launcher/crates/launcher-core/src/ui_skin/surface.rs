@@ -578,9 +578,7 @@ impl SurfaceSpec {
             )));
         }
         if self.opacity.is_some_and(|o| o > 100) {
-            return Err(SkinError::Invalid(format!(
-                "{at}.opacity must be 0 to 100"
-            )));
+            return Err(SkinError::Invalid(format!("{at}.opacity must be 0 to 100")));
         }
         if self.border_width.is_some_and(|w| w > MAX_BORDER) {
             return Err(SkinError::Invalid(format!(

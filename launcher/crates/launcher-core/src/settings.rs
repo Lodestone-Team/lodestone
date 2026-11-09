@@ -554,7 +554,10 @@ mod tests {
         let loaded = load_or_default(&path);
         assert_eq!(loaded.transparency, Some(Material::Glass));
         assert_eq!(loaded.opacity, Some(45));
-        update(&path, |settings| settings.transparency = Some(Material::Opaque)).unwrap();
+        update(&path, |settings| {
+            settings.transparency = Some(Material::Opaque)
+        })
+        .unwrap();
         assert_eq!(raw(&path)["transparency"], "opaque");
     }
 }

@@ -30,8 +30,10 @@ use crate::paths::DataDir;
 
 pub mod art;
 pub mod fonts;
+pub mod material;
 pub mod surface;
 
+pub use material::{DEFAULT_OPACITY, MIN_OPACITY, Material};
 pub use surface::{
     Fill, FontPart, Fonts, Gradient, GradientKind, ImageFill, SkinBanner, Stop, SurfaceId,
     SurfaceSpec, Surfaces, Tokens,
@@ -283,48 +285,6 @@ pub struct HeroSpec {
     #[serde(default, skip_serializing_if = "is_default")]
     pub readability: Readability,
 }
-
-/// How much of what is behind the window shows through it: Settings > General >
-/// Transparency, or a skin's `material`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Material {
-    /// Nothing shows through.
-    #[default]
-    Opaque,
-    /// The desktop shows through, sharp.
-    Clear,
-    /// The desktop shows through, blurred.
-    Frosted,
-    /// Frosted, with lit edges on panels and cards.
-    Glass,
-}
-
-impl Material {
-    /// The choices, in the order Settings lists them.
-    pub const ALL: [Material; 4] = [
-        Material::Opaque,
-        Material::Clear,
-        Material::Frosted,
-        Material::Glass,
-    ];
-
-    /// Whether anything shows through.
-    pub fn is_see_through(self) -> bool {
-        self != Material::Opaque
-    }
-
-    /// Whether what shows through is blurred.
-    pub fn is_blurred(self) -> bool {
-        matches!(self, Material::Frosted | Material::Glass)
-    }
-}
-
-/// The lowest opacity a see-through window takes, in percent: below it text gets
-/// hard to read over a busy desktop.
-pub const MIN_OPACITY: u8 = 20;
-/// The opacity a see-through window takes unless a setting or skin says otherwise.
-pub const DEFAULT_OPACITY: u8 = 60;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

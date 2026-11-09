@@ -91,9 +91,13 @@ impl RenderOnce for ListRow {
             .font_weight(weights::MEDIUM.into())
             .text_color(crate::theme::ink::text())
             .cursor_pointer()
-            .hover(|style| style.bg(colors::GRAY_700).text_color(colors::WHITE))
+            .hover(|style| {
+                style
+                    .bg(crate::glass::row_fill(colors::GRAY_700, 11))
+                    .text_color(colors::WHITE)
+            })
             .when(self.selected, |this| {
-                this.bg(colors::GRAY_750)
+                this.bg(crate::glass::row_fill(colors::GRAY_750, 9))
                     .border_color(crate::theme::ink::border())
             })
             .when_some(self.icon, |this, icon| {

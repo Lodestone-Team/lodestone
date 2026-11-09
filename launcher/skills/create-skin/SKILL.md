@@ -124,6 +124,36 @@ Each surface takes:
 - `radius`: corners, 0–32 px.
 - `text`: the surface's own text colour. It is only used on `sidebar`, `toast` and the controls (the buttons, `tab`, `pill`, `play_button`); setting it anywhere else is refused. On the other surfaces, text uses `tokens`. A control without `text` gets white or near-black, whichever reads better on its fill.
 - `muted`: only on `sidebar`. It covers the sidebar's quieter text: headers, subtitles, counts, the footer and its icons.
+- `opacity`: how much of the surface's fill is kept while the window is see-through (see below), 0–100. Leave it out to use the launcher's choice for the surface.
+
+### See-through windows: material and opacity
+
+A skin can make the whole window see-through, so the desktop shows behind it:
+
+```json
+{
+  "material": "glass",
+  "opacity": 70,
+  "surfaces": { "card": { "opacity": 40 } }
+}
+```
+
+- `material` is one of:
+  - `opaque` (the default);
+  - `clear`: the desktop shows through, sharp;
+  - `frosted`: the desktop shows through, blurred by the system;
+  - `glass`: frosted, with a lit top edge and a light border on panels, cards and dialogs.
+- `opacity` (30–100, default 75) is how opaque the window is.
+- Each surface then fades by its role:
+  - the window takes `opacity`;
+  - panels on it (`sidebar`, `top_bar`, `play_bar`, `settings_nav`, `main`) add a little more shade;
+  - `card`, `setting_card`, `row`, `input` and `hero` add a little more;
+  - `dialog`, `popover` and `toast` stay mostly solid, because they sit over the launcher's own content, which isn't blurred.
+  - Buttons, toggles and the Play button keep their fill.
+- `surfaces.<id>.opacity` overrides the fade for one surface.
+- When `window` has an image fill, frosted and glass lay a blurred copy of it under the panels and dialogs, so they look frosted over your image. It is made once, small, when the skin loads.
+- The user's Settings › General › Transparency wins over the skin's `material` and `opacity`. Their "Skin" choice follows yours.
+- What shows through changes with the desktop, so the readability checks assume the worst: white behind light text, black behind dark text. When text only falls short because the window is see-through, the suggestion is a higher `opacity`.
 
 ### Tokens, accent and progress
 
@@ -378,3 +408,4 @@ Anyone can import the `.zip` in Settings → Skin → Import….
 | fonts | .ttf/.otf, 2 MB each, 4 per pack |
 | banners | 16; ids 1–32 of `a-z 0-9 -` |
 | Play label | 16 characters |
+| opacity | window 30–100; each surface 0–100 |

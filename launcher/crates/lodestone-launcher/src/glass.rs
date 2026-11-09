@@ -30,7 +30,7 @@ use crate::theme::colors;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Glass {
     pub material: Material,
-    /// 0.2 to 1.0.
+    /// 0.3 to 1.0.
     pub opacity: f32,
 }
 
@@ -122,51 +122,10 @@ pub fn apply_to_window(window: &mut Window, glass: Glass) {
     }
 }
 
-/// How a surface sits in the window, which decides how much of it shows through.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Role {
-    /// The window itself.
-    Base,
-    /// Panels laid on the window: the sidebar, the top bar, the Play bar.
-    Pane,
-    /// Cards, rows and fields on a page.
-    Content,
-    /// Dialogs, popovers and notices over the launcher's own content.
-    Floating,
-}
+pub use launcher_core::ui_skin::material::{Role, role};
 
-/// The role of `surface`; `None` for controls (buttons, toggles, the Play button),
-/// which keep their fill.
-pub fn role(surface: SurfaceId) -> Option<Role> {
-    match surface {
-        SurfaceId::Window => Some(Role::Base),
-        SurfaceId::Main
-        | SurfaceId::Sidebar
-        | SurfaceId::TopBar
-        | SurfaceId::PlayBar
-        | SurfaceId::SettingsNav => Some(Role::Pane),
-        SurfaceId::Card
-        | SurfaceId::SettingCard
-        | SurfaceId::Row
-        | SurfaceId::Input
-        | SurfaceId::Hero
-        | SurfaceId::Pill
-        | SurfaceId::Tab => Some(Role::Content),
-        SurfaceId::Dialog | SurfaceId::Popover | SurfaceId::Toast => Some(Role::Floating),
-        SurfaceId::ButtonPrimary
-        | SurfaceId::ButtonSecondary
-        | SurfaceId::ButtonGhost
-        | SurfaceId::ButtonDanger
-        | SurfaceId::Toggle
-        | SurfaceId::PlayButton
-        | SurfaceId::Progress => None,
-    }
-}
-
-/// How much of `surface`'s fill is kept under `glass`: `None` keeps all of it.
-/// `own` is the skin's `opacity` for the surface, in percent; `image` says the fill
-/// is an image, which fades with the window rather than with its role, and
-/// `backdrop` that a blurred copy of the skin's image lies under it.
+/// How much of `surface`'s fill is kept under `glass`: `None` keeps all of it
+/// (see [`launcher_core::ui_skin::material::alpha`]).
 pub fn alpha(
     glass: Glass,
     surface: SurfaceId,
@@ -177,21 +136,7 @@ pub fn alpha(
     if !glass.is_see_through() {
         return None;
     }
-    if let Some(own) = own {
-        return Some(f32::from(own.min(100)) / 100.0);
-    }
-    let f = glass.opacity;
-    let role = role(surface)?;
-    Some(match role {
-        Role::Base => f,
-        Role::Pane if image => f,
-        // over the window's own tint, so they read as a shade darker
-        Role::Pane => 0.4 * f,
-        Role::Content => 0.6 * f,
-        // over the launcher's content, which isn't blurred: mostly solid
-        Role::Floating if backdrop => 0.55 + 0.35 * f,
-        Role::Floating => 0.85 + 0.1 * f,
-    })
+    launcher_core::ui_skin::material::alpha(glass.opacity, surface, own, image, backdrop)
 }
 
 /// Whether Glass lights `surface`'s top edge.
@@ -237,6 +182,16 @@ pub fn highlight(radii: CornersRefinement<AbsoluteLength>) -> impl IntoElement {
     layer
 }
 
+/// A selected or hovered row's fill: `color`, or while see-through a light veil
+/// (white at `percent`) that lets the panel under it show.
+pub fn row_fill(color: crate::theme::Color, percent: u32) -> crate::theme::Color {
+    if frame().is_see_through() && color.0 & 0xff == 0xff {
+        colors::WHITE.opacity(percent)
+    } else {
+        color
+    }
+}
+
 /// The edge Glass gives a surface's own border.
 pub fn edge() -> Hsla {
     Hsla::from(colors::WHITE).opacity(0.12)
@@ -250,31 +205,30 @@ pub fn backdrop(
     opacity: f32,
     radii: CornersRefinement<AbsoluteLength>,
 ) -> impl IntoElement {
-    let paint = move |bounds: gpui::Bounds<gpui::Pixels>,
-                      _: (),
-                      window: &mut Window,
-                      _: &mut gpui::App| {
-        let rem = window.rem_size();
-        let corner = |r: Option<AbsoluteLength>| r.map_or(gpui::Pixels::ZERO, |r| r.to_pixels(rem));
-        let radii = Corners {
-            top_left: corner(radii.top_left),
-            top_right: corner(radii.top_right),
-            bottom_right: corner(radii.bottom_right),
-            bottom_left: corner(radii.bottom_left),
+    let paint =
+        move |bounds: gpui::Bounds<gpui::Pixels>, _: (), window: &mut Window, _: &mut gpui::App| {
+            let rem = window.rem_size();
+            let corner =
+                |r: Option<AbsoluteLength>| r.map_or(gpui::Pixels::ZERO, |r| r.to_pixels(rem));
+            let radii = Corners {
+                top_left: corner(radii.top_left),
+                top_right: corner(radii.top_right),
+                bottom_right: corner(radii.bottom_right),
+                bottom_left: corner(radii.bottom_left),
+            };
+            let content = crate::components::window_frame::content_bounds(window);
+            let size = image.size(0);
+            let image_bounds = cover(
+                content,
+                gpui::size(
+                    gpui::px(size.width.0 as f32),
+                    gpui::px(size.height.0 as f32),
+                ),
+            );
+            window
+                .paint_image(bounds, image_bounds, radii, image.clone(), 0, false)
+                .ok();
         };
-        let content = crate::components::window_frame::content_bounds(window);
-        let size = image.size(0);
-        let image_bounds = cover(
-            content,
-            gpui::size(
-                gpui::px(size.width.0 as f32),
-                gpui::px(size.height.0 as f32),
-            ),
-        );
-        window
-            .paint_image(bounds, image_bounds, radii, image.clone(), 0, false)
-            .ok();
-    };
     // A div's opacity carries to what it paints; a canvas has none of its own.
     div()
         .absolute()
@@ -346,15 +300,21 @@ mod tests {
     }
 
     #[test]
-    fn panels_show_more_than_dialogs() {
-        let g = glass(Material::Frosted, 0.6);
-        let of = |s| alpha(g, s, None, false, false).unwrap();
-        assert!(of(SurfaceId::Sidebar) < of(SurfaceId::Window));
-        assert!(of(SurfaceId::Card) < of(SurfaceId::Dialog));
-        assert!(of(SurfaceId::Dialog) >= 0.85);
-        assert_eq!(alpha(g, SurfaceId::ButtonPrimary, None, false, false), None);
-        assert_eq!(alpha(g, SurfaceId::Card, Some(30), false, false), Some(0.3));
-        assert_eq!(alpha(Glass::OPAQUE, SurfaceId::Window, None, false, false), None);
+    fn nothing_fades_while_opaque() {
+        assert_eq!(
+            alpha(Glass::OPAQUE, SurfaceId::Window, None, false, false),
+            None
+        );
+        assert!(
+            alpha(
+                glass(Material::Clear, 0.6),
+                SurfaceId::Window,
+                None,
+                false,
+                false
+            )
+            .is_some()
+        );
     }
 
     #[test]

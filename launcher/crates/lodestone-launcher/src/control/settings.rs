@@ -377,7 +377,31 @@ pub fn defaults_reset(call: Call, cx: &mut App) -> Reply {
 }
 
 fn general_json(control: &Control, cx: &App) -> Value {
-    json!({ "auto_groups": control.instances.read(cx).auto_groups() })
+    let instances = control.instances.read(cx);
+    let (transparency, opacity) = instances.transparency();
+    let shown = crate::glass::resolve(&crate::skin::look(cx).spec);
+    json!({
+        "auto_groups": instances.auto_groups(),
+        // "skin" while it follows the skin
+        "transparency": transparency.map_or(json!("skin"), |m| json!(material_key(m))),
+        "opacity": opacity,
+        // what the window shows now, after the skin
+        "shown": {
+            "transparency": material_key(shown.material),
+            "opacity": (shown.opacity * 100.0).round() as u8,
+        },
+    })
+}
+
+/// `off`, `clear`, `frosted` or `glass`.
+fn material_key(material: launcher_core::ui_skin::Material) -> &'static str {
+    use launcher_core::ui_skin::Material;
+    match material {
+        Material::Opaque => "off",
+        Material::Clear => "clear",
+        Material::Frosted => "frosted",
+        Material::Glass => "glass",
+    }
 }
 
 pub fn general_get(call: Call, cx: &mut App) -> Reply {
@@ -389,21 +413,66 @@ pub fn general_get(call: Call, cx: &mut App) -> Reply {
 struct GeneralParams {
     #[serde(default)]
     auto_groups: Option<bool>,
+    #[serde(default)]
+    transparency: Option<String>,
+    #[serde(default)]
+    opacity: Option<u8>,
 }
 
 pub fn general_set(call: Call, cx: &mut App) -> Reply {
+    use launcher_core::ui_skin::{MIN_OPACITY, Material};
     let params: GeneralParams = params!(call);
-    let Some(on) = params.auto_groups else {
+    if params.auto_groups.is_none() && params.transparency.is_none() && params.opacity.is_none() {
         return ready(Err(api_error(
             codes::INVALID_PARAMS,
-            "Give a setting to change: auto_groups.",
+            "Give a setting to change: auto_groups, transparency or opacity.",
         )));
+    }
+    let transparency = match params.transparency.as_deref() {
+        None => None,
+        Some("skin") => Some(None),
+        Some("off") => Some(Some(Material::Opaque)),
+        Some("clear") => Some(Some(Material::Clear)),
+        Some("frosted") => Some(Some(Material::Frosted)),
+        Some("glass") => Some(Some(Material::Glass)),
+        Some(other) => {
+            return ready(Err(api_error(
+                codes::INVALID_PARAMS,
+                format!("transparency {other:?}: use skin, off, clear, frosted or glass."),
+            )));
+        }
     };
-    call.control
-        .instances
-        .update(cx, |instances, cx| instances.set_auto_groups(on, cx));
+    if params
+        .opacity
+        .is_some_and(|o| !(MIN_OPACITY..=100).contains(&o))
+    {
+        return ready(Err(api_error(
+            codes::INVALID_PARAMS,
+            format!("opacity must be {MIN_OPACITY} to 100."),
+        )));
+    }
+    call.control.instances.update(cx, |instances, cx| {
+        if let Some(on) = params.auto_groups {
+            instances.set_auto_groups(on, cx);
+        }
+        if let Some(material) = transparency {
+            instances.set_transparency(material, cx);
+        }
+        if let Some(opacity) = params.opacity {
+            instances.set_opacity(opacity, cx);
+        }
+    });
     let general = general_json(&call.control, cx);
-    if general["auto_groups"] != json!(on) {
+    let saved = params
+        .auto_groups
+        .is_none_or(|on| general["auto_groups"] == json!(on))
+        && transparency.is_none_or(|m| {
+            general["transparency"] == m.map_or(json!("skin"), |m| json!(material_key(m)))
+        })
+        && params
+            .opacity
+            .is_none_or(|o| general["opacity"] == json!(o));
+    if !saved {
         let notice = call
             .control
             .instances

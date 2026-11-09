@@ -512,12 +512,19 @@ pub enum GeneralSettings {
     Get,
     /// Changes general settings.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli settings general set --auto-groups false"
+        after_help = "Examples:\n  lodestone-launcher-cli settings general set --auto-groups false\n  lodestone-launcher-cli settings general set --transparency glass --opacity 70"
     )]
     Set {
         /// Group instances without a group of their own by loader (and Imported).
         #[arg(long)]
         auto_groups: Option<bool>,
+        /// What shows through the window: skin (follow the skin), off, clear,
+        /// frosted or glass.
+        #[arg(long, value_parser = ["skin", "off", "clear", "frosted", "glass"])]
+        transparency: Option<String>,
+        /// How opaque a see-through window is, 30 to 100 percent.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(30..=100))]
+        opacity: Option<u8>,
     },
 }
 

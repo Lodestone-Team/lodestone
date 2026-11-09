@@ -354,9 +354,17 @@ pub fn plan(
             },
             Settings::General(c) => match c {
                 GeneralSettings::Get => call("settings.general.get", vec![]),
-                GeneralSettings::Set { auto_groups } => call(
+                GeneralSettings::Set {
+                    auto_groups,
+                    transparency,
+                    opacity,
+                } => call(
                     "settings.general.set",
-                    vec![("auto_groups", json!(auto_groups))],
+                    vec![
+                        ("auto_groups", json!(auto_groups)),
+                        ("transparency", json!(transparency)),
+                        ("opacity", json!(opacity)),
+                    ],
                 ),
             },
             Settings::Developer(c) => match c {

@@ -605,9 +605,8 @@ impl LauncherShell {
                     Some(&selected),
                     false,
                     move |material, _, cx| {
-                        instances.update(cx, |instances, cx| {
-                            instances.set_transparency(material, cx)
-                        })
+                        instances
+                            .update(cx, |instances, cx| instances.set_transparency(material, cx))
                     },
                 ))
                 .into_any_element(),

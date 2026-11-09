@@ -18,9 +18,9 @@ use launcher_core::ui_skin::SurfaceId;
 
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon},
-    skin::Skinned,
     i18n::{ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     perf::{ProcessReading, Sample, Sampler, Sources},
+    skin::Skinned,
     theme::{self, Color, colors, fonts, px, text, weights},
 };
 

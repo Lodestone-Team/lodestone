@@ -334,9 +334,7 @@ fn finish(look: &mut Look, prepared: Prepared, fonts: HashMap<String, SharedStri
         let painted = look.surfaces.entry(surface).or_default();
         painted.paint = Some(Paint::Image(crate::images::render_image(image)));
     }
-    look.blurred = prepared
-        .blurred
-        .map(|image| crate::images::render_image(image));
+    look.blurred = prepared.blurred.map(crate::images::render_image);
     if let Some((image, scrim, backdrop)) = prepared.hero {
         look.backdrops.insert(SurfaceId::Hero, backdrop);
         look.hero = Some(Background {
@@ -690,7 +688,12 @@ impl<T: gpui::Styled + gpui::ParentElement + Sized> Skinned for T {}
 
 /// The blurred copy of the window's image in this frame's skin, if it has one.
 fn frame_blurred() -> Option<Arc<RenderImage>> {
-    FRAME.with(|frame| frame.borrow().as_ref().and_then(|look| look.blurred.clone()))
+    FRAME.with(|frame| {
+        frame
+            .borrow()
+            .as_ref()
+            .and_then(|look| look.blurred.clone())
+    })
 }
 
 /// `element` as `surface` while the window is see-through: its fill faded to `alpha`
@@ -855,7 +858,9 @@ thread_local! {
 
 /// The sidebar's colours for this frame.
 pub fn sidebar_inks() -> SidebarInks {
-    SIDEBAR_INKS.with(|cell| cell.get())
+    let mut inks = SIDEBAR_INKS.with(|cell| cell.get());
+    inks.fill = crate::glass::row_fill(inks.fill, 9);
+    inks
 }
 
 /// The backing of a sidebar row over an instance's banner: [`readable::DARK`] (or

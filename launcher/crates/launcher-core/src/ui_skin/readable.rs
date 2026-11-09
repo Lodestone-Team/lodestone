@@ -302,6 +302,8 @@ pub enum Fix {
         tint: Rgb,
         opacity: u8,
     },
+    /// Make the see-through window more opaque (the skin's `opacity`, in percent).
+    Opacity(u8),
 }
 
 impl Fix {
@@ -332,6 +334,7 @@ impl Fix {
                 surface.key(),
                 tint.hex()
             ),
+            Fix::Opacity(n) => format!("opacity = {n}"),
         }
     }
 }
@@ -499,7 +502,9 @@ pub fn surface_backdrop(
 /// The surfaces worth checking: those the skin paints or gives colours, those that
 /// show them through, and, when it changes the theme's text colours, the main ones.
 fn checked(spec: &SkinSpec) -> Vec<SurfaceId> {
-    let tokens = spec.tokens != Tokens::default();
+    // a see-through window puts the desktop behind the theme's text everywhere
+    let tokens = spec.tokens != Tokens::default()
+        || spec.material.is_some_and(super::Material::is_see_through);
     let painted = |id: SurfaceId| spec.surface(id).is_some();
     SurfaceId::ALL
         .into_iter()
@@ -656,11 +661,25 @@ pub fn checks(spec: &SkinSpec, measured: &dyn Fn(SurfaceId) -> Option<Backdrop>)
         }
         for role in roles(id) {
             let (color, _) = subject(spec, id, *role, measured);
-            let ratio = ratio_on(color, backdrop);
             let target = role.target();
-            let fix = (ratio + 0.005 < target)
-                .then(|| fix_for(spec, id, *role, measured))
-                .flatten();
+            let opaque = ratio_on(color, backdrop);
+            // see-through, the desktop behind shows: at worst white under light text
+            // and black under dark text
+            let ratio = ratio_on(color, see_through(spec, id, backdrop, None));
+            let fix = if ratio + 0.005 >= target {
+                None
+            } else if opaque + 0.005 >= target {
+                let from = spec.opacity.unwrap_or(super::DEFAULT_OPACITY);
+                (from..=100)
+                    .step_by(5)
+                    .chain([100])
+                    .find(|n| {
+                        ratio_on(color, see_through(spec, id, backdrop, Some(*n))) + 0.005 >= target
+                    })
+                    .map(Fix::Opacity)
+            } else {
+                fix_for(spec, id, *role, measured)
+            };
             out.push(Check {
                 surface: id,
                 role: *role,
@@ -672,6 +691,33 @@ pub fn checks(spec: &SkinSpec, measured: &dyn Fn(SurfaceId) -> Option<Backdrop>)
         }
     }
     out
+}
+
+/// What `surface` shows behind its text while the skin's window is see-through
+/// (at `opacity` percent, else the skin's): `backdrop` over whatever the desktop
+/// shows, from white to black. Unchanged while the skin's window is opaque.
+fn see_through(
+    spec: &SkinSpec,
+    surface: SurfaceId,
+    backdrop: Backdrop,
+    opacity: Option<u8>,
+) -> Backdrop {
+    if !spec.material.is_some_and(super::Material::is_see_through) {
+        return backdrop;
+    }
+    let percent = opacity
+        .or(spec.opacity)
+        .unwrap_or(super::DEFAULT_OPACITY)
+        .clamp(super::MIN_OPACITY, 100);
+    let own = spec.surface(surface).and_then(|s| s.opacity);
+    let Some(cover) = super::material::coverage(f32::from(percent) / 100.0, surface, own) else {
+        return backdrop;
+    };
+    Backdrop {
+        mean: Rgb(0x808080).mix(backdrop.mean, cover),
+        light: Rgb::WHITE.mix(backdrop.light, cover),
+        dark: Rgb(0x000000).mix(backdrop.dark, cover),
+    }
 }
 
 /// Applies `fix` to `spec`.
@@ -697,6 +743,7 @@ pub fn apply(spec: &mut SkinSpec, fix: &Fix) {
             *slot = Some(*color);
         }
         Fix::HeroScrim(n) => spec.hero.scrim = Some(*n),
+        Fix::Opacity(n) => spec.opacity = Some(*n),
         Fix::SurfaceFill { surface, color } => {
             let current = spec.surface(*surface).and_then(|s| s.fill);
             let opacity = match current {
@@ -931,6 +978,36 @@ mod tests {
             spec.surfaces[&SurfaceId::Sidebar].fill,
             Some(Fill::Image(ImageFill { tint: Some(_), .. }))
         ));
+    }
+
+    #[test]
+    fn a_see_through_window_suggests_more_opacity() {
+        let mut spec = SkinSpec::named("See-through");
+        let short = |spec: &SkinSpec| {
+            checks(spec, &|_| None)
+                .into_iter()
+                .filter(|c| !c.passes())
+                .collect::<Vec<_>>()
+        };
+        assert!(short(&spec).is_empty(), "the launcher's own look reads");
+        spec.material = Some(super::super::Material::Clear);
+        spec.opacity = Some(super::super::MIN_OPACITY);
+        let found = short(&spec);
+        assert!(
+            !found.is_empty(),
+            "a faint window over a white desktop doesn't read"
+        );
+        let fix = found
+            .iter()
+            .find_map(|c| match c.fix {
+                Some(Fix::Opacity(n)) => Some(n),
+                _ => None,
+            })
+            .expect("raising the opacity is suggested");
+        assert!(fix > super::super::MIN_OPACITY);
+        fix_all(&mut spec, &|_| None);
+        assert!(spec.opacity.unwrap() >= fix);
+        assert!(short(&spec).is_empty());
     }
 
     #[test]
