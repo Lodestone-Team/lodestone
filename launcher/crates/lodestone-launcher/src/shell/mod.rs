@@ -1422,6 +1422,15 @@ impl LauncherShell {
 
     /// Opens the sign-in dialog at `stage`. Only the screenshots start past
     /// [`Stage::Choose`].
+    /// Asks "Stop signing in?" in the open sign-in dialog, for the offscreen
+    /// screenshots.
+    #[cfg(feature = "screenshot")]
+    pub fn preview_ask_to_stop_signing_in(&mut self, cx: &mut Context<Self>) {
+        if let Some(Modal::SignIn { dialog, .. }) = self.modal.current() {
+            dialog.update(cx, |dialog, cx| dialog.ask_to_stop(cx));
+        }
+    }
+
     pub fn open_sign_in_at(
         &mut self,
         stage: Stage,

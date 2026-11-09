@@ -337,6 +337,10 @@ pub fn text(message: M) -> &'static str {
         M::WaitingForCode => "正在等待你输入代码…",
         M::CopyCodeAndOpen => "复制代码并打开 {host}",
         M::CopySignInCode => "复制代码",
+        M::StopSigningInTitle => "停止登录？",
+        M::StopSigningInBody => "Microsoft 仍在等待你复制的代码。如果现在停止，输入它将无法登录。",
+        M::StopSigningIn => "停止登录",
+        M::KeepWaiting => "继续等待",
         M::LinkInstructions => {
             "请在打开的浏览器窗口中登录。随后 Microsoft 会显示一个页面，说明该页面通常不会显示。从浏览器地址栏复制完整地址，并且只粘贴到本启动器中。"
         }

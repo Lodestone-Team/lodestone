@@ -403,6 +403,12 @@ pub fn text(message: M) -> &'static str {
         M::WaitingForCode => "En attente de la saisie du code…",
         M::CopyCodeAndOpen => "Copier le code et ouvrir {host}",
         M::CopySignInCode => "Copier le code",
+        M::StopSigningInTitle => "Arrêter la connexion\u{202F}?",
+        M::StopSigningInBody => {
+            "Microsoft attend toujours le code que vous avez copié. Si vous arrêtez maintenant, le saisir ne vous connectera pas."
+        }
+        M::StopSigningIn => "Arrêter la connexion",
+        M::KeepWaiting => "Continuer d’attendre",
         M::LinkInstructions => {
             "Connectez-vous dans la fenêtre du navigateur qui s’est ouverte. Microsoft affiche ensuite une page indiquant qu’elle n’est normalement pas affichée. Copiez l’adresse complète depuis la barre d’adresse du navigateur et collez-la uniquement dans ce lanceur."
         }
