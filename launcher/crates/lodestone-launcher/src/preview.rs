@@ -35,6 +35,9 @@ pub const SCENES: &[&str] = &[
     "skin-neon",
     "skin-overrides",
     "skin-bright",
+    "sidebar-resized",
+    "sidebar-rail",
+    "sidebar-rail-skin",
     "settings-skin",
     "account-menu",
     "needs-sign-in",
@@ -198,6 +201,10 @@ fn has_instances(scene: &str) -> bool {
         || scene == "instance-linked"
         || is_appearance_scene(scene)
         || scene.starts_with("skin-")
+        || matches!(
+            scene,
+            "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin"
+        )
 }
 
 /// `--lang <tag>`: shows the scene in that language (`en`, `fr`, `zh-Hans`,
@@ -734,6 +741,19 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                     instances.set_skin(Some("bright".into()), cx)
                 });
             }
+        }
+        "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin" => {
+            let instances = shell.instances().clone();
+            instances.update(cx, |instances, cx| {
+                if scene == "sidebar-resized" {
+                    instances.set_sidebar(320.0, false, cx);
+                } else {
+                    instances.set_sidebar(crate::theme::layout::SIDEBAR_DEFAULT, true, cx);
+                }
+                if scene == "sidebar-rail-skin" {
+                    instances.set_skin(Some("grassblock".into()), cx);
+                }
+            });
         }
         "skin-grassblock" | "skin-glass" | "skin-neon" | "skin-overrides" | "settings-skin" => {
             let id = match scene {

@@ -16,6 +16,7 @@
 //!
 //! See <https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack>.
 
+pub mod curseforge;
 pub mod import;
 pub mod update;
 
@@ -66,6 +67,8 @@ pub enum ModpackError {
     Download(#[from] DownloadError),
     #[error(transparent)]
     Modrinth(#[from] ModrinthError),
+    #[error(transparent)]
+    CurseForge(#[from] crate::content::CurseForgeError),
     #[error(transparent)]
     Instance(#[from] InstanceError),
     #[error(transparent)]
@@ -140,6 +143,21 @@ pub struct ModpackRecord {
     pub icon_url: Option<String>,
     #[serde(default)]
     pub files: BTreeMap<String, PackFile>,
+    /// The CurseForge project and file, for a pack from CurseForge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curseforge: Option<CurseForgePack>,
+}
+
+/// The CurseForge file a modpack instance was made from.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurseForgePack {
+    pub project_id: u64,
+    pub file_id: u64,
+    #[serde(default)]
+    pub file_date: String,
+    /// The project's page on curseforge.com.
+    #[serde(default)]
+    pub page_url: String,
 }
 
 impl Document for ModpackRecord {
@@ -166,6 +184,11 @@ impl ModpackRecord {
         storage::save(&Self::path(instance_dir), self)
     }
 
+    /// Whether the pack is from CurseForge.
+    pub fn on_curseforge(&self) -> bool {
+        self.curseforge.is_some()
+    }
+
     /// Whether the pack is on Modrinth, so it can be updated.
     pub fn on_modrinth(&self) -> bool {
         !self.project_id.is_empty() && !self.version_id.is_empty()
@@ -188,6 +211,7 @@ impl ModpackRecord {
                 .as_deref()
                 .and_then(crate::markdown::loadable_image),
             files: BTreeMap::new(),
+            curseforge: None,
         }
     }
 }
@@ -347,9 +371,9 @@ pub fn cdn_ids(url: &url::Url) -> Option<(String, String)> {
     }
 }
 
-/// Reads and checks the pack at `path`. A pack that can't be used is an error that says
-/// why.
-pub fn read_pack(path: &Path) -> Result<PackInfo, ModpackError> {
+/// Opens the zip at `path` after checking it isn't unsafe: too many entries, or too large
+/// once unpacked.
+pub(crate) fn open_pack(path: &Path) -> Result<zip::ZipArchive<File>, ModpackError> {
     let file = File::open(path).map_err(io_error(path))?;
     let mut archive = zip::ZipArchive::new(file).map_err(zip_error)?;
     if archive.len() > MAX_ENTRIES {
@@ -367,53 +391,19 @@ pub fn read_pack(path: &Path) -> Result<PackInfo, ModpackError> {
             "The modpack is unsafe: its files are larger than 4 GB unpacked".into(),
         ));
     }
-    let index: Index = {
-        let entry = archive
-            .by_name(INDEX_FILE)
-            .map_err(|_| invalid(format!("it has no {INDEX_FILE}")))?;
-        if entry.size() > MAX_INDEX_BYTES {
-            return Err(invalid(format!("{INDEX_FILE} is too large")));
-        }
-        let mut bytes = Vec::new();
-        entry
-            .take(MAX_INDEX_BYTES)
-            .read_to_end(&mut bytes)
-            .map_err(|e| invalid(format!("{INDEX_FILE} can't be read ({e})")))?;
-        serde_json::from_slice(&bytes)
-            .map_err(|e| invalid(format!("{INDEX_FILE} is invalid ({e})")))?
-    };
-    if index.format_version != 1 {
-        return Err(ModpackError::Invalid(format!(
-            "Modpack format version {} isn't supported.",
-            index.format_version
-        )));
-    }
-    if index.game != "minecraft" {
-        return Err(ModpackError::Invalid(format!(
-            "The modpack is for {}, not Minecraft.",
-            index.game
-        )));
-    }
-    let game_version = index
-        .dependencies
-        .get("minecraft")
-        .map(|v| v.trim().to_string())
-        .ok_or_else(|| {
-            ModpackError::Invalid(
-                "The modpack doesn't say which Minecraft version it needs.".into(),
-            )
-        })?;
-    if !is_valid_filter_value(&game_version) {
-        return Err(ModpackError::Invalid(
-            "The modpack's Minecraft version isn't valid.".into(),
-        ));
-    }
-    let loader = pack_loader(&index.dependencies).map_err(ModpackError::Invalid)?;
-    let (downloads, mut skipped) = check_files(&index, Side::Client, &ClientPolicy)?;
+    Ok(archive)
+}
 
+/// The override files under `prefixes` (later folders winning), each checked and hashed;
+/// the paths that can't be written go to `skipped`.
+pub(crate) fn read_overrides<R: Read + io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    prefixes: &[&str],
+    skipped: &mut Vec<SkippedPath>,
+) -> Result<Vec<OverrideFile>, ModpackError> {
     // The overrides, later folders winning, each hashed.
     let mut overrides: BTreeMap<String, OverrideFile> = BTreeMap::new();
-    for prefix in Side::Client.override_dirs() {
+    for prefix in prefixes {
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i).map_err(zip_error)?;
             let name = entry.name().to_string();
@@ -483,6 +473,58 @@ pub fn read_pack(path: &Path) -> Result<PackInfo, ModpackError> {
             );
         }
     }
+    Ok(overrides.into_values().collect())
+}
+
+/// Reads and checks the pack at `path`. A pack that can't be used is an error that says
+/// why.
+pub fn read_pack(path: &Path) -> Result<PackInfo, ModpackError> {
+    let mut archive = open_pack(path)?;
+    let index: Index = {
+        let entry = archive
+            .by_name(INDEX_FILE)
+            .map_err(|_| invalid(format!("it has no {INDEX_FILE}")))?;
+        if entry.size() > MAX_INDEX_BYTES {
+            return Err(invalid(format!("{INDEX_FILE} is too large")));
+        }
+        let mut bytes = Vec::new();
+        entry
+            .take(MAX_INDEX_BYTES)
+            .read_to_end(&mut bytes)
+            .map_err(|e| invalid(format!("{INDEX_FILE} can't be read ({e})")))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|e| invalid(format!("{INDEX_FILE} is invalid ({e})")))?
+    };
+    if index.format_version != 1 {
+        return Err(ModpackError::Invalid(format!(
+            "Modpack format version {} isn't supported.",
+            index.format_version
+        )));
+    }
+    if index.game != "minecraft" {
+        return Err(ModpackError::Invalid(format!(
+            "The modpack is for {}, not Minecraft.",
+            index.game
+        )));
+    }
+    let game_version = index
+        .dependencies
+        .get("minecraft")
+        .map(|v| v.trim().to_string())
+        .ok_or_else(|| {
+            ModpackError::Invalid(
+                "The modpack doesn't say which Minecraft version it needs.".into(),
+            )
+        })?;
+    if !is_valid_filter_value(&game_version) {
+        return Err(ModpackError::Invalid(
+            "The modpack's Minecraft version isn't valid.".into(),
+        ));
+    }
+    let loader = pack_loader(&index.dependencies).map_err(ModpackError::Invalid)?;
+    let (downloads, mut skipped) = check_files(&index, Side::Client, &ClientPolicy)?;
+
+    let overrides = read_overrides(&mut archive, &Side::Client.override_dirs(), &mut skipped)?;
     let name = index.name.trim().to_string();
     Ok(PackInfo {
         name: if name.is_empty() {
@@ -495,7 +537,7 @@ pub fn read_pack(path: &Path) -> Result<PackInfo, ModpackError> {
         game_version,
         loader,
         downloads,
-        overrides: overrides.into_values().collect(),
+        overrides,
         skipped,
     })
 }

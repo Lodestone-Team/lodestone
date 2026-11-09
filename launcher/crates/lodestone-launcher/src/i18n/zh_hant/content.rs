@@ -6,12 +6,14 @@ pub fn text(message: M) -> &'static str {
         M::KindResourcePacks => "資源包",
         M::KindShaders => "光影",
         M::Vanilla => "原版",
-        M::SearchInstalledOrModrinth => "搜尋已安裝內容或 Modrinth",
+        M::SearchInstalledOrModrinth => "搜尋",
         M::InstalledCount => "已安裝 · {count}",
         M::EnabledCount => "已啟用 · {count} · 重疊時以最上面的包為準",
         M::AvailableCount => "可用 · {count}",
         M::OnModrinthCount => "Modrinth 上 · {count}",
         M::OnModrinth => "Modrinth 上",
+        M::OnCurseForgeCount => "CurseForge 上 · {count}",
+        M::OnCurseForge => "CurseForge 上",
         M::NoInstalledMatch => "已安裝 · {count} · 沒有符合的已安裝{kind}。",
         M::OnlyTarget => "僅限 {target}",
 
@@ -125,6 +127,7 @@ pub fn text(message: M) -> &'static str {
         M::SortUpdated => "最近更新",
         M::SearchingModrinth => "正在搜尋 Modrinth",
         M::NothingMatches => "Modrinth 上沒有符合的結果。",
+        M::NothingOnCurseForge => "CurseForge 上沒有符合的結果。",
         M::PageOf => "第 {page} 頁，共 {pages} 頁",
         M::ByAuthor => "作者：{author}",
         M::InstalledBadge => "已安裝",
@@ -150,6 +153,32 @@ pub fn text(message: M) -> &'static str {
         M::Release => "正式版",
         M::Beta => "測試版",
         M::Alpha => "早期測試版",
+
+        M::ModrinthTab => "Modrinth",
+        M::CurseForgeTab => "CurseForge",
+        M::SearchingCurseForge => "正在搜尋 CurseForge",
+        M::ViewOnCurseForge => "在 CurseForge 上檢視",
+        M::NotOnEitherPlatform => "不在 Modrinth 或 CurseForge 上",
+        M::SortPopular => "熱門",
+        M::SortName => "名稱",
+        M::WebsiteDownload => "僅限網站下載",
+        M::GetOnCurseForge => "在 CurseForge 上取得",
+        M::BlockedTitle => "請從 CurseForge 下載這些檔案",
+        M::BlockedLead => {
+            "這些檔案的作者不允許啟動器下載。請在瀏覽器中逐一下載，檔案一出現在 {folder} 中，Lodestone 就會加入它。"
+        }
+        M::BlockedNoFolder => {
+            "這些檔案的作者不允許啟動器下載。請在瀏覽器中逐一下載，然後選擇儲存它們的資料夾。"
+        }
+        M::BlockedOpen => "開啟下載頁面",
+        M::BlockedOpenAll => "開啟所有頁面",
+        M::BlockedAdded => "已加入",
+        M::BlockedWaiting => "正在等待 {file}",
+        M::BlockedChangeFolder => "監視其他資料夾…",
+        M::BlockedSkip => "略過其餘檔案",
+        M::WatchFolderPrompt => "監視此資料夾",
+        M::CouldntAddDownload => "無法加入 {name}：{error}",
+        M::AddedDownloads => "已加入 {names}。",
     }
 }
 

@@ -319,7 +319,11 @@ fn picker(
         .flex_row()
         .items_center()
         .gap_3()
+        // 200 wide when there's room; narrower (the value truncating) when the
+        // window isn't, so the bar never spills under the sidebar.
         .w(px(200.))
+        .min_w_0()
+        .flex_shrink(1.)
         .px_3()
         .py_2()
         .rounded(radius::LG)
@@ -397,6 +401,7 @@ fn play_bar(
         .justify_center()
         .gap_6()
         .w_full()
+        .overflow_hidden()
         .px_8()
         .py_4()
         .border_t_1()
@@ -412,6 +417,7 @@ fn play_bar(
             div()
                 .flex()
                 .flex_col()
+                .flex_none()
                 .items_center()
                 .gap_1()
                 .child(

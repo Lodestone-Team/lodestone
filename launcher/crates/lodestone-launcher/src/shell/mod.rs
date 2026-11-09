@@ -235,6 +235,9 @@ pub struct LauncherShell {
     /// The dialog over the window, and those still fading out.
     modal: DialogSlot<LauncherShell, Modal>,
     account_menu_open: bool,
+    /// While the sidebar's edge is dragged: its width and whether it is folded, as
+    /// drawn. Saved when the drag ends.
+    sidebar_drag: Option<(f32, bool)>,
     /// Settings > General: the Language list is open.
     language_menu_open: bool,
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
@@ -397,6 +400,7 @@ impl LauncherShell {
             settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
+            sidebar_drag: None,
             language_menu_open: false,
             top_bar_drag_pending: false,
             root_focus: cx.focus_handle(),
@@ -416,6 +420,70 @@ impl LauncherShell {
         };
         this.sync_settings(cx);
         this
+    }
+
+    /// The sidebar's width (logical pixels at 100% zoom) and fold, as drawn now: the
+    /// one being dragged, or the saved one.
+    pub(crate) fn sidebar_state(&self, cx: &App) -> (f32, bool) {
+        self.sidebar_drag
+            .unwrap_or_else(|| self.instances.read(cx).sidebar())
+    }
+
+    /// Whether the sidebar's edge is being dragged.
+    pub(crate) fn sidebar_dragging(&self) -> bool {
+        self.sidebar_drag.is_some()
+    }
+
+    /// A mouse down on the sidebar's edge.
+    pub(crate) fn start_sidebar_drag(&mut self, cx: &mut Context<Self>) {
+        self.sidebar_drag = Some(self.sidebar_state(cx));
+        cx.notify();
+    }
+
+    /// The pointer moved during a drag: the edge follows it. A move without the
+    /// button held (released outside the window) ends the drag.
+    fn drag_sidebar(
+        &mut self,
+        event: &gpui::MouseMoveEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.pressed_button != Some(gpui::MouseButton::Left) {
+            return self.end_sidebar_drag(cx);
+        }
+        let zoom = theme::zoom::get();
+        let x = f32::from(event.position.x) / zoom;
+        let width = f32::from(window.viewport_size().width) / zoom;
+        let next = theme::layout::sidebar_drag(x, width);
+        if self.sidebar_drag != Some(next) {
+            self.sidebar_drag = Some(next);
+            cx.notify();
+        }
+    }
+
+    /// The drag ended: keep the width.
+    fn end_sidebar_drag(&mut self, cx: &mut Context<Self>) {
+        if let Some((width, collapsed)) = self.sidebar_drag.take() {
+            self.instances.update(cx, |instances, cx| {
+                instances.set_sidebar(width, collapsed, cx)
+            });
+            crate::components::trace_ui(
+                "ui.sidebar",
+                "sidebar",
+                &gpui::ElementId::Name("sidebar".into()),
+                serde_json::json!({ "width": width, "collapsed": collapsed }),
+            );
+            cx.notify();
+        }
+    }
+
+    /// A double click on the edge: back to the default width, unfolded.
+    pub(crate) fn reset_sidebar(&mut self, cx: &mut Context<Self>) {
+        self.sidebar_drag = None;
+        self.instances.update(cx, |instances, cx| {
+            instances.set_sidebar(theme::layout::SIDEBAR_DEFAULT, false, cx)
+        });
+        cx.notify();
     }
 
     pub fn instances(&self) -> &Entity<Instances> {
@@ -1687,6 +1755,16 @@ impl Render for LauncherShell {
                 this.instances
                     .update(cx, |instances, cx| instances.set_zoom(1.0, cx))
             }))
+            // While the sidebar's edge is dragged, the whole window follows the
+            // pointer; otherwise nothing listens to it moving.
+            .when(self.sidebar_drag.is_some(), |this| {
+                this.cursor(gpui::CursorStyle::ResizeLeftRight)
+                    .on_mouse_move(cx.listener(Self::drag_sidebar))
+                    .on_mouse_up(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| this.end_sidebar_drag(cx)),
+                    )
+            })
             .relative()
             .flex()
             .flex_col()

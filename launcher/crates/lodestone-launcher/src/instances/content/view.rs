@@ -36,7 +36,7 @@ use crate::{
 
 /// A count of downloads, follows or followers: the plural `exact` for a small count,
 /// else `shortened` with the count shortened ("1.2k downloads").
-fn counted(value: u64, exact: P, shortened: M) -> String {
+pub(crate) fn counted(value: u64, exact: P, shortened: M) -> String {
     let short = format::compact(value);
     if short == format::number(value) {
         trn!(exact, value)
@@ -243,6 +243,20 @@ pub(super) enum Entry {
     },
     /// Previous and next page of the Modrinth results.
     Pager,
+    /// "On CurseForge · n", with its sort.
+    CurseForgeHeading,
+    CurseForgeLoading,
+    CurseForgeFailed(SharedString),
+    CurseForgeNothing,
+    /// A CurseForge result, by its index in the results.
+    CfHit {
+        index: usize,
+        id: u64,
+        first: bool,
+        last: bool,
+    },
+    /// Previous and next page of the CurseForge results.
+    CfPager,
 }
 
 /// A heading over installed rows, with how many there are.
@@ -325,7 +339,7 @@ impl ContentView {
         }
     }
 
-    fn target_label(&self, kind: ContentKind, cx: &gpui::App) -> String {
+    pub(crate) fn target_label(&self, kind: ContentKind, cx: &gpui::App) -> String {
         let Some((_, _, target)) = self.context(cx) else {
             return String::new();
         };
@@ -357,7 +371,9 @@ impl ContentView {
         let checking = section.checking_updates;
         let search = section.browse.search.clone();
         let busy = self.locked(cx) || self.job.is_some();
-        div()
+        // Two rows: the kinds with the update button and the menu, then the search
+        // across the whole width, so neither runs out of room in a narrow window.
+        let actions = div()
             .flex()
             .flex_row()
             .items_center()
@@ -370,20 +386,7 @@ impl ContentView {
                     entity.update(cx, |this, cx| this.select_kind(ContentKind::ALL[index], cx))
                 },
             ))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(160.))
-                    // Escape empties the search first; an empty one lets it through.
-                    .on_action(cx.listener(move |this, _: &Dismiss, _, cx| {
-                        if this.query(kind, cx).is_empty() {
-                            cx.propagate();
-                        } else {
-                            this.clear_search(kind, cx);
-                        }
-                    }))
-                    .child(search),
-            )
+            .child(div().flex_1())
             .map(|this| {
                 if updates > 0 {
                     this.child(
@@ -407,12 +410,26 @@ impl ContentView {
                     this
                 }
             })
-            .child(self.render_menu(kind, cx))
+            .child(self.render_menu(kind, cx));
+        div().flex().flex_col().gap_3().child(actions).child(
+            div()
+                .w_full()
+                // Escape empties the search first; an empty one lets it through.
+                .on_action(cx.listener(move |this, _: &Dismiss, _, cx| {
+                    if this.query(kind, cx).is_empty() {
+                        cx.propagate();
+                    } else {
+                        this.clear_search(kind, cx);
+                    }
+                }))
+                .child(search),
+        )
     }
 
     /// "⋯": Check for updates, Add file… and Open folder.
     fn render_menu(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> impl IntoElement {
-        let can_check = self.modrinth(cx).is_some() && !self.section(kind).items().is_empty();
+        let can_check = (self.modrinth(cx).is_some() || self.curseforge(cx).is_some())
+            && !self.section(kind).items().is_empty();
         div()
             .flex()
             .flex_col()
@@ -635,7 +652,11 @@ impl ContentView {
         if let Some(icon) = self.section(kind).icons.get(&item.file.file_name) {
             return Some(icon.clone());
         }
-        let url = item.modrinth.as_ref()?.icon_url.clone()?;
+        let url = item
+            .modrinth
+            .as_ref()
+            .and_then(|m| m.icon_url.clone())
+            .or_else(|| item.curseforge.as_ref().and_then(|c| c.icon_url.clone()))?;
         self.remote_icon(&url, cx)
     }
 
@@ -655,6 +676,14 @@ impl ContentView {
         let name = item.file.file_name.clone();
         let icon = self.item_icon(kind, item, cx);
         let update = self.section(kind).updates.get(&name).cloned();
+        // A Modrinth update takes the row's button when there are both.
+        let cf_update = self
+            .section(kind)
+            .cf_updates
+            .get(&name)
+            .cloned()
+            .filter(|_| update.is_none());
+        let curseforge_on = self.curseforge(cx).is_some();
         let confirming = self.confirm_delete.as_ref() == Some(&(kind, name.clone()));
         let title = item.display_name();
         let version = item.display_version();
@@ -678,6 +707,12 @@ impl ContentView {
                     },
                     &m.slug,
                 )
+            })
+            .or_else(|| {
+                item.curseforge
+                    .as_ref()
+                    .map(|c| c.page_url.clone())
+                    .filter(|p| !p.is_empty())
             });
         let enabled = item.enabled;
         let compatibility = item.compatibility;
@@ -731,8 +766,19 @@ impl ContentView {
                                     colors::YELLOW_300,
                                 ))
                             })
-                            .when(item.modrinth.is_none() && !item.file.is_dir, |this| {
-                                this.child(badge(t(M::NotOnModrinth), colors::GRAY_500))
+                            .when(
+                                item.modrinth.is_none() && item.curseforge.is_some(),
+                                |this| this.child(badge(t(M::CurseForgeTab), colors::YELLOW_300)),
+                            )
+                            .when(!item.identified() && !item.file.is_dir, |this| {
+                                this.child(badge(
+                                    t(if curseforge_on {
+                                        M::NotOnEitherPlatform
+                                    } else {
+                                        M::NotOnModrinth
+                                    }),
+                                    colors::GRAY_500,
+                                ))
                             }),
                     )
                     .child(
@@ -767,6 +813,29 @@ impl ContentView {
                             Button::new(
                                 ("update-one", id_base),
                                 tr!(M::UpdateTo, version = update.version_number),
+                            )
+                            .variant(ButtonVariant::Primary)
+                            .icon(Icon::CircleUp)
+                            .size(ButtonSize::Slim)
+                            .disabled(busy)
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.update_one(kind, &name, cx)),
+                            ),
+                        )
+                    })
+                    .when_some(cf_update, |this, cf_update| {
+                        let name = name.clone();
+                        this.child(
+                            Button::new(
+                                ("cf-update-one", id_base),
+                                if cf_update.downloadable() {
+                                    tr!(
+                                        M::UpdateTo,
+                                        version = cf_update.file.display_name_or_file()
+                                    )
+                                } else {
+                                    t(M::GetOnCurseForge).to_string()
+                                },
                             )
                             .variant(ButtonVariant::Primary)
                             .icon(Icon::CircleUp)
@@ -981,7 +1050,7 @@ impl ContentView {
     }
 
     /// The Shaders section's card: the shader mod in use, or the one to install.
-    fn render_shader_mod(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_shader_mod(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let busy = self.locked(cx) || self.job.is_some();
         if let Some(loader) = self.shaders.loader {
             let using = match (
@@ -1156,6 +1225,7 @@ impl ContentView {
                 plan.push(Entry::Loading);
                 if searching {
                     self.modrinth_plan(kind, cx, &mut plan);
+                    self.curseforge_plan(kind, cx, &mut plan);
                 }
                 return plan;
             }
@@ -1189,6 +1259,7 @@ impl ContentView {
                 }
             }
             self.modrinth_plan(kind, cx, &mut plan);
+            self.curseforge_plan(kind, cx, &mut plan);
             return plan;
         }
         if let Some(error) = &listing.lookup_error {
@@ -1201,6 +1272,7 @@ impl ContentView {
             plan.push(Entry::Empty);
             // Something to start from: the most relevant projects.
             self.modrinth_plan(kind, cx, &mut plan);
+            self.curseforge_plan(kind, cx, &mut plan);
             return plan;
         }
         let count = listing.items.len();
@@ -1289,6 +1361,49 @@ impl ContentView {
                 }
                 if results.total_hits > PAGE_SIZE {
                     plan.push(Entry::Pager);
+                }
+            }
+        }
+    }
+
+    /// The CurseForge part of the list, after Modrinth's: its heading, then the results
+    /// not installed yet. Only in builds with Lodestone's CurseForge key.
+    fn curseforge_plan(&self, kind: ContentKind, cx: &gpui::App, plan: &mut Vec<Entry>) {
+        if self.curseforge(cx).is_none() {
+            return;
+        }
+        plan.push(Entry::CurseForgeHeading);
+        match &self.section(kind).cf.results {
+            Load::NotLoaded | Load::Loading => plan.push(Entry::CurseForgeLoading),
+            Load::Failed(err) => plan.push(Entry::CurseForgeFailed(err.clone())),
+            Load::Ready(results) => {
+                let installed: Vec<u64> = self
+                    .section(kind)
+                    .items()
+                    .iter()
+                    .filter_map(|i| i.curseforge.as_ref().map(|c| c.project_id))
+                    .collect();
+                let hits: Vec<(usize, u64)> = results
+                    .hits
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, hit)| !installed.contains(&hit.id))
+                    .map(|(index, hit)| (index, hit.id))
+                    .collect();
+                if hits.is_empty() {
+                    plan.push(Entry::CurseForgeNothing);
+                }
+                let count = hits.len();
+                for (position, (index, id)) in hits.into_iter().enumerate() {
+                    plan.push(Entry::CfHit {
+                        index,
+                        id,
+                        first: position == 0,
+                        last: position + 1 == count,
+                    });
+                }
+                if results.total > PAGE_SIZE as usize {
+                    plan.push(Entry::CfPager);
                 }
             }
         }
@@ -1401,6 +1516,36 @@ impl ContentView {
                 in_box(row, *first, *last)
             }
             Entry::Pager => self.render_pager(kind, cx),
+            Entry::CurseForgeHeading => self.render_cf_heading(kind, cx),
+            Entry::CurseForgeLoading => div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .py_4()
+                .justify_center()
+                .text_color(colors::GRAY_500)
+                .child(LoadingDots)
+                .child(t(M::SearchingCurseForge))
+                .into_any_element(),
+            Entry::CurseForgeFailed(err) => small(err.clone())
+                .text_color(colors::RED_200)
+                .into_any_element(),
+            Entry::CurseForgeNothing => muted(t(M::NothingOnCurseForge)).into_any_element(),
+            Entry::CfHit {
+                index, first, last, ..
+            } => {
+                let hit = match &self.section(kind).cf.results {
+                    Load::Ready(results) => results.hits.get(*index).cloned(),
+                    _ => None,
+                };
+                let Some(hit) = hit else {
+                    return div().into_any_element();
+                };
+                let row = self.render_cf_hit(kind, *index, &hit, *first, cx);
+                in_box(row, *first, *last)
+            }
+            Entry::CfPager => self.render_cf_pager(kind, cx),
             Entry::ShadersOff => {
                 let loader = self.shaders.loader;
                 let busy = self.locked(cx) || self.job.is_some() || loader.is_none();
@@ -1489,7 +1634,9 @@ impl ContentView {
         // The gap between blocks; rows of one box touch.
         let joined = matches!(
             entry,
-            Entry::Row { first: false, .. } | Entry::Hit { first: false, .. }
+            Entry::Row { first: false, .. }
+                | Entry::Hit { first: false, .. }
+                | Entry::CfHit { first: false, .. }
         ) || (matches!(entry, Entry::Row { .. })
             && kind == ContentKind::ShaderPack
             && self.query(kind, cx).is_empty());
@@ -2162,7 +2309,16 @@ impl Render for ContentView {
         for kind in ContentKind::ALL {
             self.ensure_loaded(kind, cx);
         }
-        let project_open = self.section(kind).browse.project.is_some();
+        let cf_project_open = self.section(kind).cf.project.is_some();
+        let project_open = self.section(kind).browse.project.is_some() || cf_project_open;
+        if !project_open
+            && self.shows_modrinth(kind, cx)
+            && matches!(self.section(kind).cf.results, Load::NotLoaded)
+            && self.curseforge(cx).is_some()
+            && (self.query(kind, cx).is_empty() || self.section(kind).browse.task.is_none())
+        {
+            self.cf_search(kind, cx);
+        }
         // Nothing installed: the most relevant projects, to start from. (While typing,
         // the search runs once typing pauses.)
         if !project_open
@@ -2178,7 +2334,11 @@ impl Render for ContentView {
                 .id(("content-project", kind as usize))
                 .size_full()
                 .overflow_y_scroll()
-                .child(div().pb_4().child(self.render_project(kind, cx)))
+                .child(div().pb_4().child(if cf_project_open {
+                    self.render_cf_project(kind, cx)
+                } else {
+                    self.render_project(kind, cx)
+                }))
                 .into_any_element()
         } else {
             // Only the rows on screen are made: a long list scrolls as fast as a short
@@ -2199,6 +2359,7 @@ impl Render for ContentView {
             .gap_3()
             .child(self.render_header(cx))
             .child(self.render_banners(cx))
+            .children(self.render_blocked(cx))
             .child(
                 div()
                     .id(("content-body", kind as usize))
