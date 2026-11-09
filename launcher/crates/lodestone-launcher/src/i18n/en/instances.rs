@@ -40,6 +40,19 @@ crate::i18n::messages! {
         RosettaNote = "This version runs in an Intel (x86_64) Java under Rosetta 2.",
         /// Followed by the Java command line.
         StartingJavaNote = "Starting Java: {command}",
+        /// Automatic setup gave the instance memory: {memory} is a range, "2 GB – 4 GB".
+        AutoMemoryNote = "Automatic setup: memory set to {memory} for this computer and the instance's mods",
+        /// The mods want more memory than the computer can spare.
+        AutoMemoryLimitedNote = "The mods would like {wanted} of memory, more than this computer can spare; close other apps while playing.",
+        AutoJvmArgsNote = "Automatic setup: Java's garbage collector tuned for modded play",
+        /// The memory the user chose is well below what the mods need.
+        AutoLowMemoryNote = "This instance has {have} of memory; with its mods, {recommended} is recommended. Change it in the instance's Settings.",
+        /// {distance} is the render distance, in chunks.
+        AutoVideoNote = "Automatic setup: video settings chosen for this computer (render distance {distance})",
+        AutoVideoNoDistanceNote = "Automatic setup: video settings chosen for this computer",
+        /// {source} is the name of the instance they were copied from.
+        AutoControlsNote = "Automatic setup: mouse sensitivity, key bindings and language copied from {source}",
+        AutoControlsLauncherNote = "Automatic setup: mouse sensitivity, key bindings and language copied from the Minecraft Launcher",
         StoppedNote = "Stopped",
         ExitedWithCode = "Minecraft exited with code {code}",
         EndedBySignal = "Minecraft was ended by a signal",

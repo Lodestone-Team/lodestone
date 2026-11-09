@@ -2,6 +2,7 @@
 //! instance's run (installing, playing) with its console log.
 
 pub mod appearance;
+mod auto_config;
 pub mod console;
 pub mod content;
 pub mod fields;
@@ -1437,7 +1438,7 @@ impl Instances {
             });
             return;
         }
-        let Ok(instance) = self.store.get(id) else {
+        let Ok(mut instance) = self.store.get(id) else {
             return;
         };
         let progress = Arc::new(InstallProgress::default());
@@ -1472,6 +1473,7 @@ impl Instances {
             })
         });
         cx.notify();
+        self.auto_configure_launch(&mut instance, cx);
 
         let account = self
             .accounts
@@ -1708,6 +1710,7 @@ impl Instances {
     fn start(&mut self, id: &str, command: LaunchCommand, rosetta: bool, cx: &mut Context<Self>) {
         let game_dir = self.store.game_dir(id);
         let before = crash::crash_reports(&game_dir);
+        self.auto_configure_options(id, cx);
         self.merge_shared_settings(id);
         let Some(run) = self.runs.get_mut(id) else {
             return;

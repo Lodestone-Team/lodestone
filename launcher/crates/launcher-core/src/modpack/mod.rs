@@ -237,6 +237,9 @@ pub struct PackInfo {
     pub game_version: String,
     /// The loader and its version as the pack writes it (`47.4.28` for Forge).
     pub loader: Option<(LoaderKind, String)>,
+    /// The memory the pack recommends, MiB: a CurseForge manifest's `recommendedRam`.
+    /// Modrinth packs have none.
+    pub recommended_memory: Option<u32>,
     /// The files to download for the client.
     pub downloads: Vec<PackDownload>,
     pub overrides: Vec<OverrideFile>,
@@ -538,6 +541,7 @@ pub fn read_pack(path: &Path) -> Result<PackInfo, ModpackError> {
         summary: index.summary.filter(|v| !v.trim().is_empty()),
         game_version,
         loader,
+        recommended_memory: None,
         downloads,
         overrides,
         skipped,

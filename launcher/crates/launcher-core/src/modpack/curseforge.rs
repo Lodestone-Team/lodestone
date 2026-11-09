@@ -94,6 +94,31 @@ struct ManifestMinecraft {
     version: String,
     #[serde(default)]
     mod_loaders: Vec<ManifestLoader>,
+    /// The memory the pack's author recommends, in MiB, which the CurseForge app writes
+    /// when a pack sets one. Read loosely: a value of another type is ignored rather
+    /// than refusing the pack.
+    #[serde(default)]
+    recommended_ram: Option<serde_json::Value>,
+}
+
+/// The memory a manifest's `recommendedRam` asks for, in MiB: a number of MiB (512 to
+/// 64 GiB), or of GiB when it is 64 or less, as a few hand-written manifests have it.
+/// `None` for anything else.
+pub fn recommended_ram(value: &serde_json::Value) -> Option<u32> {
+    let number = match value {
+        serde_json::Value::Number(n) => n.as_f64()?,
+        serde_json::Value::String(s) => s.trim().parse::<f64>().ok()?,
+        _ => return None,
+    };
+    if !number.is_finite() || number <= 0.0 {
+        return None;
+    }
+    let mb = if number <= 64.0 {
+        number * 1024.0
+    } else {
+        number
+    };
+    (512.0..=65536.0).contains(&mb).then(|| mb.round() as u32)
 }
 
 #[derive(Deserialize)]
@@ -125,6 +150,8 @@ pub struct CfPack {
     pub author: Option<String>,
     pub game_version: String,
     pub loader: Option<(LoaderKind, String)>,
+    /// The memory the pack recommends, MiB ([`recommended_ram`]).
+    pub recommended_memory: Option<u32>,
     pub files: Vec<CfPackFile>,
     pub overrides: Vec<OverrideFile>,
     pub skipped: Vec<SkippedPath>,
@@ -279,6 +306,11 @@ pub fn read_curseforge_pack(path: &Path) -> Result<CfPack, ModpackError> {
         author: Some(manifest.author.trim().to_string()).filter(|v| !v.is_empty()),
         game_version,
         loader,
+        recommended_memory: manifest
+            .minecraft
+            .recommended_ram
+            .as_ref()
+            .and_then(recommended_ram),
         files,
         overrides,
         skipped,
@@ -457,6 +489,7 @@ pub async fn resolve(
             summary: pack.author.clone(),
             game_version: pack.game_version.clone(),
             loader: pack.loader.clone(),
+            recommended_memory: pack.recommended_memory,
             downloads: downloads.into_values().collect(),
             overrides: pack.overrides.clone(),
             skipped,
@@ -490,6 +523,74 @@ mod tests {
         assert!(manifest_loader("liteloader-1.12", "1.12.2").is_err());
         assert!(manifest_loader("forge-recommended", "1.20.1").is_err());
         assert!(manifest_loader("forge", "1.20.1").is_err());
+    }
+
+    #[test]
+    fn recommended_ram_is_read_loosely() {
+        use serde_json::json;
+        assert_eq!(recommended_ram(&json!(8192)), Some(8192));
+        assert_eq!(recommended_ram(&json!("6144")), Some(6144));
+        assert_eq!(recommended_ram(&json!(6144.0)), Some(6144));
+        // A few hand-written manifests give GiB.
+        assert_eq!(recommended_ram(&json!(8)), Some(8192));
+        assert_eq!(recommended_ram(&json!(4.5)), Some(4608));
+        for nonsense in [
+            json!(0),
+            json!(-1),
+            json!(100),
+            json!(1_000_000),
+            json!("lots"),
+            json!(null),
+            json!(true),
+        ] {
+            assert_eq!(recommended_ram(&nonsense), None, "{nonsense}");
+        }
+    }
+
+    fn manifest_zip(dir: &Path, minecraft: serde_json::Value) -> std::path::PathBuf {
+        let manifest = serde_json::json!({
+            "manifestType": "minecraftModpack",
+            "manifestVersion": 1,
+            "name": "Pack",
+            "version": "1.0",
+            "minecraft": minecraft,
+            "files": [],
+            "overrides": "overrides",
+        });
+        let path = dir.join("pack.zip");
+        crate::content::scan::tests::write_zip(
+            &path,
+            &[(MANIFEST_FILE, manifest.to_string().as_bytes())],
+        );
+        path
+    }
+
+    #[test]
+    fn a_pack_keeps_its_recommended_memory() {
+        let dir = tempfile::tempdir().unwrap();
+        let with = manifest_zip(
+            dir.path(),
+            serde_json::json!({
+                "version": "1.20.1",
+                "modLoaders": [{"id": "forge-47.2.0", "primary": true}],
+                "recommendedRam": 8192,
+            }),
+        );
+        assert_eq!(
+            read_curseforge_pack(&with).unwrap().recommended_memory,
+            Some(8192)
+        );
+        // A value of the wrong type doesn't refuse the pack.
+        let odd = manifest_zip(
+            dir.path(),
+            serde_json::json!({"version": "1.20.1", "recommendedRam": {"min": 4}}),
+        );
+        assert_eq!(read_curseforge_pack(&odd).unwrap().recommended_memory, None);
+        let without = manifest_zip(dir.path(), serde_json::json!({"version": "1.20.1"}));
+        assert_eq!(
+            read_curseforge_pack(&without).unwrap().recommended_memory,
+            None
+        );
     }
 
     #[test]

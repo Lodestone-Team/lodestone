@@ -188,6 +188,10 @@ pub fn text(message: M) -> &'static str {
         M::ManageAccounts => "Gérer les comptes",
         M::GroupAutomatically => "Grouper les instances automatiquement",
         M::GroupAutomaticallyHint => "Classe les instances sans groupe par chargeur de mods.",
+        M::AutoConfigure => "Configurer automatiquement les nouvelles instances",
+        M::AutoConfigureHint => {
+            "Avant la première partie d’une nouvelle instance, choisit sa mémoire, ses arguments Java et ses réglages graphiques selon cet ordinateur et ses mods, et reprend votre sensibilité de la souris et vos touches si les paramètres partagés ne le font pas. Ce que vous modifiez vous-même est conservé."
+        }
         M::WhenAGameStarts => "Au lancement d’un jeu",
         M::AfterLaunchStay => "Rester ouvert",
         M::AfterLaunchMinimize => "Réduire",

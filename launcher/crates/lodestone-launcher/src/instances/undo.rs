@@ -32,6 +32,7 @@ pub(crate) struct LauncherValues {
     language: Language,
     zoom: f32,
     auto_groups: bool,
+    auto_configure: bool,
     auto_update: bool,
     update_channel: UpdateChannel,
     after_launch: AfterLaunch,
@@ -46,6 +47,7 @@ impl LauncherValues {
             language: settings.language,
             zoom: settings.zoom,
             auto_groups: settings.auto_groups,
+            auto_configure: settings.auto_configure,
             auto_update: settings.auto_update,
             update_channel: settings.update_channel,
             after_launch: settings.after_launch,
@@ -59,6 +61,7 @@ impl LauncherValues {
         settings.language = self.language;
         settings.zoom = self.zoom;
         settings.auto_groups = self.auto_groups;
+        settings.auto_configure = self.auto_configure;
         settings.auto_update = self.auto_update;
         settings.update_channel = self.update_channel;
         settings.after_launch = self.after_launch;
@@ -82,6 +85,8 @@ impl LauncherValues {
             )
         } else if self.auto_groups != other.auto_groups {
             arrow(t(SM::GroupAutomatically), on_off(self.auto_groups))
+        } else if self.auto_configure != other.auto_configure {
+            arrow(t(SM::AutoConfigure), on_off(self.auto_configure))
         } else if self.auto_update != other.auto_update {
             arrow(t(SM::UpdateAutomatically), on_off(self.auto_update))
         } else if self.update_channel != other.update_channel {
