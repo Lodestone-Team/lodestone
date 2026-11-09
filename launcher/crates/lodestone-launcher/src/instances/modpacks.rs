@@ -269,13 +269,15 @@ impl Instances {
     /// Creates an instance from a share code and installs its content in the
     /// background, like a modpack import (with its progress in the sidebar). Returns
     /// the new instance's id.
-    pub fn import_share_code(
+    /// Makes the empty instance a share code describes: its Minecraft version and
+    /// loader, named `name`, else the code's name, else "1.21.1 Fabric".
+    pub fn create_from_share_code(
         &mut self,
-        code: launcher_core::content::share::ShareCode,
+        code: &launcher_core::content::share::ShareCode,
         name: Option<String>,
         cx: &mut Context<Self>,
-    ) -> Result<String, String> {
-        use launcher_core::{content::share, game::loaders::LoaderChoice};
+    ) -> Result<launcher_core::instances::Instance, String> {
+        use launcher_core::game::loaders::LoaderChoice;
         let name = name
             .or_else(|| code.name.clone())
             .unwrap_or_else(|| match code.loader.kind() {
@@ -287,8 +289,19 @@ impl Instances {
             .kind()
             .zip(code.loader_version.clone())
             .map(|(kind, version)| LoaderChoice { kind, version });
-        let instance = self.create(&name, &code.game_version, loader.as_ref(), cx)?;
+        self.create(&name, &code.game_version, loader.as_ref(), cx)
+    }
+
+    pub fn import_share_code(
+        &mut self,
+        code: launcher_core::content::share::ShareCode,
+        name: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Result<String, String> {
+        use launcher_core::content::share;
+        let instance = self.create_from_share_code(&code, name, cx)?;
         let id = instance.id.clone();
+        let name = instance.name.clone();
         if code.items.is_empty() {
             return Ok(id);
         }

@@ -118,8 +118,17 @@ lodestone-launcher-cli instances duplicate Survival
 lodestone-launcher-cli instances select Survival          # shows it in the window
 lodestone-launcher-cli instances export Survival ./survival.mrpack          # long
 lodestone-launcher-cli instances verify Survival                            # long; downloads missing game files
+lodestone-launcher-cli instances share-code Survival --json | jq -r .code   # an LDS1: share code
+lodestone-launcher-cli instances import-code "$CODE" --name "Friend's pack" # long; a new instance
 lodestone-launcher-cli instances delete Survival --yes
 ```
+
+A share code (`LDS1:…`, a few KB for hundreds of mods) holds the Minecraft version,
+the loader and its version, and the exact Modrinth versions of the mods, resource
+packs (in order) and shader packs, with which are on. Only Modrinth content is in it:
+`share-code` lists the rest in `left_out` (CurseForge files and files added by hand).
+Tell the user about them before they share the code. `import-code` makes the
+instance, then installs each version; `failed` lists any that are gone from Modrinth.
 
 `instances list` gives `instances` (each with `effective_group`: its own group, or with
 automatic groups on, "Fabric (modded)", "Vanilla", "Imported" …), `groups` in sidebar

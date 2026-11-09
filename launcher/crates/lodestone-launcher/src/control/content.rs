@@ -14,7 +14,7 @@ use launcher_core::{
         ContentKind, InstanceDirs, Modrinth, Target, files,
         install::{self, InstallOutcome, InstallProgress, InstallRequest},
         listing::{self, Item},
-        loader_change,
+        loader_change, share,
         shaders::{self, ShaderModOffer},
     },
     game::download::CancelToken,
@@ -1486,4 +1486,120 @@ mod tests {
         assert!(sort(Some("downloads")).is_ok());
         assert!(sort(Some("stars")).is_err());
     }
+}
+
+/// `instances.share_code`: the instance's Modrinth content as a code another
+/// Lodestone Launcher can paste, and what it leaves out.
+pub fn share_code(call: Call, cx: &mut App) -> Reply {
+    let control = call.control.clone();
+    let instance = tri!(control.instance_param(&call, cx));
+    let (dirs, target) = tri!(context(&control, &instance, cx));
+    let api = control.instances.read(cx).modrinth();
+    cx.background_spawn(async move {
+        let plan = share::collect(
+            api.as_deref(),
+            &dirs,
+            &target,
+            Some(instance.name.clone()),
+            instance.loader,
+            instance.loader_version.clone(),
+        )
+        .await
+        .map_err(|err| api_error(codes::FAILED, err.to_string()))?;
+        let code = plan.code.encode();
+        Ok(json!({
+            "code": code,
+            "chars": code.len(),
+            "mods": plan.code.count(ContentKind::Mod),
+            "resource_packs": plan.code.count(ContentKind::ResourcePack),
+            "shader_packs": plan.code.count(ContentKind::ShaderPack),
+            "left_out": plan.left_out.iter().map(|item| json!({
+                "kind": kind_name(item.kind),
+                "file": item.file_name,
+                "reason": match item.reason {
+                    share::LeftOutReason::CurseForge => "from CurseForge, which can't be shared",
+                    share::LeftOutReason::NotOnModrinth => "not on Modrinth (added by hand)",
+                },
+            })).collect::<Vec<_>>(),
+        }))
+    })
+}
+
+#[derive(Deserialize)]
+struct ImportCodeParams {
+    code: String,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// `instances.import_code`: makes the instance a share code describes, then installs
+/// its content from Modrinth as a job.
+pub fn import_code(call: Call, cx: &mut App) -> Reply {
+    let params: ImportCodeParams = params!(call);
+    let code = match share::ShareCode::decode(&params.code) {
+        Ok(code) => code,
+        Err(err) => return ready(Err(api_error(codes::INVALID_PARAMS, err.to_string()))),
+    };
+    let name = params.name.filter(|n| !n.trim().is_empty());
+    let control = call.control.clone();
+    let api = if code.items.is_empty() {
+        None
+    } else {
+        Some(tri!(modrinth(&control, cx)))
+    };
+    let created = control.instances.update(cx, |instances, cx| {
+        instances.create_from_share_code(&code, name, cx)
+    });
+    let instance = tri!(failed(created));
+    let summary = {
+        let instances = control.instances.read(cx);
+        super::instances::instance_json(&instance, instances, control.servers.read(cx))
+    };
+    let Some(api) = api else {
+        return ready(Ok(json!({ "instance": summary, "installed": [], "failed": [] })));
+    };
+    let (dirs, target) = tri!(context(&control, &instance, cx));
+    let downloader = control.instances.read(cx).content_downloader();
+    let progress = Arc::new(InstallProgress::default());
+    let cancel = CancelToken::new();
+    let (job_progress, job_cancel) = (progress.clone(), cancel.clone());
+    let refresh = Rc::downgrade(&control);
+    let id = instance.id.clone();
+    let work = cx.spawn(async move |cx| {
+        let outcome = cx
+            .background_spawn(async move {
+                share::install(&api, &downloader, &dirs, &target, &code, &progress, &cancel).await
+            })
+            .await;
+        if let Some(control) = refresh.upgrade() {
+            cx.update(|cx| {
+                control.instances.update(cx, |instances, cx| instances.reload(cx));
+                refresh_view(
+                    &control,
+                    &id,
+                    &[
+                        ContentKind::Mod,
+                        ContentKind::ResourcePack,
+                        ContentKind::ShaderPack,
+                    ],
+                    cx,
+                );
+            });
+        }
+        let outcome = outcome.map_err(|err| api_error(codes::FAILED, err.to_string()))?;
+        Ok(json!({
+            "instance": summary,
+            "installed": outcome.installed,
+            "failed": outcome.failed.iter().map(|(title, why)| json!({ "title": title, "reason": why })).collect::<Vec<_>>(),
+        }))
+    });
+    let job = control.start_job(
+        JobSpec::new("content", format!("Installing {}'s content", instance.name))
+            .instance(&instance)
+            .progress(Progress::Install(job_progress))
+            .cancel(Cancel::Token(job_cancel)),
+        work,
+        cx,
+    );
+    control.reply_job(&call, job, cx)
 }
