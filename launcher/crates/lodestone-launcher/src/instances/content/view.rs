@@ -666,7 +666,7 @@ impl ContentView {
                                 } else {
                                     colors::GREEN_300
                                 })
-                                .child(message),
+                                .child(RichText::minecraft(message)),
                         )
                         .child(IconButton::new("dismiss-message", Icon::Xmark).on_click(
                             cx.listener(|this, _, _, cx| {

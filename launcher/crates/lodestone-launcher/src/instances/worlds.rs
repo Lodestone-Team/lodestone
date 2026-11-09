@@ -5,6 +5,7 @@
 //! Deleting a world and replacing it with a backup ask the window for a confirmation
 //! ([`WorldsEvent`]).
 
+use crate::components::RichText;
 use crate::skin::Skinned;
 use crate::theme::px;
 use std::{
@@ -31,7 +32,7 @@ use super::{
     Instances,
     content::{
         Load,
-        view::{badge, card, list_box, muted, pills, row_base, small},
+        view::{badge, card, list_box, muted, pills, row_base, small, small_rich},
     },
 };
 use crate::components::KeyboardFocus;
@@ -1009,14 +1010,14 @@ impl WorldsView {
                         .truncate()
                         .font_weight(weights::BOLD.into())
                         .text_color(crate::theme::ink::text())
-                        .child(name.clone()),
+                        .child(RichText::minecraft(name.clone())),
                 )
                 .when(hardcore, |this| {
                     this.child(badge(t(M::Hardcore), colors::RED_200))
                 })
                 .when(name != folder, |this| {
                     this.child(
-                        small(folder.clone())
+                        small_rich(RichText::minecraft(folder.clone()))
                             .truncate()
                             .text_color(crate::theme::ink::muted()),
                     )
@@ -1035,12 +1036,12 @@ impl WorldsView {
                         .gap_0p5()
                         .child(title)
                         .child(
-                            small(details.join(" · "))
+                            small_rich(RichText::new(details.join(" · ")))
                                 .truncate()
                                 .text_color(crate::theme::ink::muted()),
                         )
                         .when_some(world.problem.clone(), |this, problem| {
-                            this.child(small(problem).text_color(colors::YELLOW_300))
+                            this.child(small_rich(RichText::new(problem)).text_color(colors::YELLOW_300))
                         }),
                 )
                 .child(

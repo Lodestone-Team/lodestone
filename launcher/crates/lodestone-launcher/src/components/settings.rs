@@ -556,7 +556,8 @@ impl Toast {
                             .and_then(|p| p.text)
                             .unwrap_or_else(crate::theme::ink::text),
                     )
-                    .child(message),
+                    // Messages name packs and worlds, which may have `§` codes.
+                    .child(super::RichText::minecraft(message)),
             )
             .when_some(action, |pill, (label, action)| {
                 pill.child(
