@@ -5,7 +5,7 @@
 //! Pages read it and subscribe to its [`HostEvent`]s; they fetch what only they show
 //! (a console, a folder) themselves, through [`HostState::admin`].
 
-use gpui::{AppContext as _, Context, EventEmitter, Task};
+use gpui::{AppContext as _, Context, Entity, EventEmitter, Task};
 use launcher_core::cores::{
     CoreError,
     admin::{
@@ -20,6 +20,8 @@ use launcher_core::cores::{
     },
     live::{LiveMessage, LiveStream, StreamKind},
 };
+
+use lodestone_ui::components::{Toast, Toasts};
 
 use crate::session::Session;
 
@@ -69,6 +71,8 @@ pub struct HostState {
     pub creating: Vec<Creating>,
     /// Why the last list or power request failed.
     pub error: Option<String>,
+    /// The window's toasts, which the shell draws over the page (see [`Self::toast`]).
+    pub toasts: Entity<Toasts>,
     _stream: Option<LiveStream>,
     _tasks: Vec<Task<()>>,
 }
@@ -86,6 +90,7 @@ impl HostState {
             connection: Connection::Connecting,
             creating: Vec::new(),
             error: None,
+            toasts: cx.new(|_| Toasts::new()),
             _stream: None,
             _tasks: Vec::new(),
         };
@@ -107,6 +112,14 @@ impl HostState {
     /// Asks the shell for the "New server" dialog.
     pub fn open_create_instance(&mut self, cx: &mut Context<Self>) {
         cx.emit(HostEvent::OpenCreateInstance);
+    }
+
+    /// Shows a toast at the bottom right of the window: `Toast::success(…)`,
+    /// `Toast::error(…)`, with a key to replace an earlier one, or an action button.
+    pub fn toast(&mut self, toast: Toast, cx: &mut Context<Self>) {
+        self.toasts.update(cx, |toasts, cx| {
+            toasts.push(toast, cx);
+        });
     }
 
     /// Fetches the instances, the core's settings and the user again.
