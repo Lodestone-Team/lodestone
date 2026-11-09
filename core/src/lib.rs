@@ -747,8 +747,38 @@ pub struct Args {
     pub disable_code_execution: bool,
 }
 
+/// How a core run by another program is started, beyond [`Args`]. The core's own
+/// binary sets these from its command line (`--port`, `--stop-with-stdin`); Lodestone
+/// Host's GPUI app passes them when it runs the core as a child process.
+#[derive(Debug, Clone, Default)]
+pub struct RunOptions {
+    /// Serve on exactly this port, and fail when it is taken. Without it the core uses
+    /// 16662: a release build fails when it is taken, a debug build tries the next ports.
+    pub port: Option<u16>,
+    /// Shut down (stopping the servers, as on Ctrl+C) when stdin closes. A parent
+    /// process that holds the core's stdin then stops it by closing the pipe, and the
+    /// core also stops when the parent dies, on every system.
+    pub stop_with_stdin: bool,
+}
+
 pub async fn run(
     args: Args,
+) -> Result<
+    (
+        impl Future<Output = ()>,
+        AppState,
+        tracing_appender::non_blocking::WorkerGuard,
+        tokio::sync::oneshot::Sender<()>,
+    ),
+    Error,
+> {
+    run_with(args, RunOptions::default()).await
+}
+
+/// [`run`], with [`RunOptions`].
+pub async fn run_with(
+    args: Args,
+    options: RunOptions,
 ) -> Result<
     (
         impl Future<Output = ()>,
@@ -1003,7 +1033,11 @@ pub async fn run(
         shared_state.users_manager.clone(),
     ));
 
-    command_console::init(shared_state.clone());
+    let (stdin_closed_tx, stdin_closed_rx) = tokio::sync::oneshot::channel::<()>();
+    command_console::init(
+        shared_state.clone(),
+        options.stop_with_stdin.then_some(stdin_closed_tx),
+    );
     init_app_state(shared_state.clone());
     // mod changes made while an instance runs need a restart; this notices the restart
     tokio::spawn(shared_state.mods.restart.clone().watch(tx.subscribe()));
@@ -1108,21 +1142,21 @@ pub async fn run(
 
     // Pick the port now, so a port conflict is reported to the caller of `run` instead of
     // exiting the process from inside the library.
-    #[allow(unused_mut)]
-    let mut port = 16_662_u16;
-    #[cfg(not(debug_assertions))]
-    if port_in_use(port) {
-        return Err(Error {
-            kind: ErrorKind::Internal,
-            source: Report::msg(format!(
-                "Port {port} is already in use. Is another Lodestone Core running?"
-            )),
-        });
-    }
-    #[cfg(debug_assertions)]
-    while port_in_use(port) {
-        debug!("Port {port} is already in use, trying next port");
-        port += 1;
+    let mut port = options.port.unwrap_or(16_662_u16);
+    if options.port.is_some() || cfg!(not(debug_assertions)) {
+        if port_in_use(port) {
+            return Err(Error {
+                kind: ErrorKind::Internal,
+                source: Report::msg(format!(
+                    "Port {port} is already in use. Is another Lodestone Core running?"
+                )),
+            });
+        }
+    } else {
+        while port_in_use(port) {
+            debug!("Port {port} is already in use, trying next port");
+            port += 1;
+        }
     }
     let listeners = listen::bind_all_interfaces(port).map_err(|e| Error {
         kind: ErrorKind::Internal,
@@ -1209,6 +1243,9 @@ pub async fn run(
                     _ = event_buffer_task => info!("Event buffer task exited"),
                     _ = monitor_report_task => info!("Monitor report task exited"),
                     _ = shutdown_rx => info!("Shutdown signal received"),
+                    // only with `stop_with_stdin`: otherwise the sender is dropped at
+                    // once, the receive fails and this branch is never taken
+                    Ok(()) = stdin_closed_rx => info!("Stdin closed, shutting down"),
                     _ = tokio::signal::ctrl_c() => info!("Ctrl+C received"),
                 }
                 info!("Shutting down web server");
