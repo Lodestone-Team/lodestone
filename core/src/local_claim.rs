@@ -17,7 +17,10 @@
 //!    and, for a core without an owner yet, `owner.json` (`{"username", "password"}`).
 //! 3. `POST /local_claim/finish` checks `claim`, creates the owner if asked, mints an
 //!    owner API key and writes `result.json` (0600): the key, the program's `reply`, and
-//!    the SHA-256 fingerprint of the core's certificate.
+//!    the SHA-256 fingerprint of the core's certificate. A program that asks for a
+//!    `session` (Lodestone Host, which runs this core as its child process) gets an owner
+//!    sign-in token instead of a key, as `POST /user/login` would give the owner: it can
+//!    then do what only a signed-in session may (change the password, manage API keys).
 //!
 //! Finding its own `reply` in `result.json` tells the program that a core read the
 //! folder, but not that the server it dialed is that core: a server in between could
@@ -116,13 +119,22 @@ pub struct FinishRequest {
     /// The API key's name, such as "Lodestone Launcher on Peter's Mac". A claim with the
     /// same name replaces the key the last one made.
     pub name: String,
+    /// Asks for an owner sign-in token (a session, as `POST /user/login` gives) instead
+    /// of an API key. No key is made then.
+    #[serde(default)]
+    pub session: bool,
 }
 
 /// `<dir>/result.json`, written by `finish`. Holds the key, so it is never sent over the
 /// network and the file is readable only by the core's OS user.
 #[derive(Serialize, Deserialize)]
 pub struct ClaimResult {
-    pub api_key: String,
+    /// The owner API key; `None` for a claim that asked for a session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    /// The owner's sign-in token, for a claim that asked for a session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_token: Option<String>,
     /// The program's `reply`, read from the folder.
     pub reply: String,
     pub owner_created: bool,
@@ -401,7 +413,7 @@ impl LocalClaims {
         drop(state);
         let dir = self.claim_dir(&pending.id);
         let result = self
-            .check_and_grant(app, &pending, &dir, &request.name)
+            .check_and_grant(app, &pending, &dir, &request.name, request.session)
             .await;
         match &result {
             Ok(()) => {
@@ -426,6 +438,7 @@ impl LocalClaims {
         pending: &Pending,
         dir: &Path,
         name: &str,
+        session: bool,
     ) -> Result<(), Error> {
         if pending.started.elapsed() >= CLAIM_TTL {
             return Err(denied("The claim has expired. Start a new one"));
@@ -461,14 +474,21 @@ impl LocalClaims {
             }
         };
         let name = key_name(name);
-        let (created, replaced) = app
-            .users_manager
-            .write()
-            .await
-            .replace_claim_key(&owner.uid, name.clone())
-            .await?;
+        let (api_key, session_token, replaced) = if session {
+            let token = owner.create_jwt()?;
+            (None, Some(token.to_string()), 0)
+        } else {
+            let (created, replaced) = app
+                .users_manager
+                .write()
+                .await
+                .replace_claim_key(&owner.uid, name.clone())
+                .await?;
+            (Some(created.key), None, replaced)
+        };
         let result = ClaimResult {
-            api_key: created.key,
+            api_key,
+            session_token,
             reply,
             owner_created,
             owner_username: owner.username.clone(),
@@ -487,14 +507,18 @@ impl LocalClaims {
                 owner.username
             );
         }
-        info!(
-            "{name} was given owner access through the data folder (API key `{name}`{})",
-            if replaced > 0 {
-                ", replacing its earlier key"
-            } else {
-                ""
-            }
-        );
+        if session {
+            info!("{name} was signed in as the owner through the data folder");
+        } else {
+            info!(
+                "{name} was given owner access through the data folder (API key `{name}`{})",
+                if replaced > 0 {
+                    ", replacing its earlier key"
+                } else {
+                    ""
+                }
+            );
+        }
         Ok(())
     }
 }
@@ -948,7 +972,7 @@ mod tests {
             assert!(!folder.join(gone).exists(), "{gone}");
         }
         let users = core.state.users_manager.read().await;
-        let user = users.try_auth(&result.api_key).unwrap();
+        let user = users.try_auth(result.api_key.as_deref().unwrap()).unwrap();
         assert!(user.is_owner);
         assert_eq!(user.username, "boss");
         let keys = users.list_api_keys(&user.uid);
@@ -978,7 +1002,71 @@ mod tests {
         let users = core.state.users_manager.read().await;
         let owner = users.get_user_by_username("owner_x7k2q").unwrap();
         assert!(owner.is_owner);
-        assert!(users.try_auth(&result.api_key).unwrap().is_owner);
+        assert!(
+            users
+                .try_auth(result.api_key.as_deref().unwrap())
+                .unwrap()
+                .is_owner
+        );
+    }
+
+    /// Lodestone Host asks for a session: an owner sign-in token, and no API key.
+    #[tokio::test]
+    async fn a_session_claim_signs_in_the_owner_without_a_key() {
+        for owner in [true, false] {
+            let core = core(owner).await;
+            let start = core.start().await;
+            core.answer(&start, &start.value);
+            if !owner {
+                std::fs::write(
+                    core.folder(&start).join("owner.json"),
+                    r#"{"username":"host_owner","password":"Zq8-strong-chosen-pw"}"#,
+                )
+                .unwrap();
+            }
+            let (status, body) = core
+                .post(
+                    "/local_claim/finish",
+                    json!({ "id": start.id, "name": "Lodestone Host", "session": true }),
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body, json!({ "ok": true }));
+            let result = core.result(&start);
+            assert!(result.api_key.is_none());
+            assert_eq!(result.owner_created, !owner);
+            let token = result.session_token.expect("a session token");
+            #[cfg(unix)]
+            assert_eq!(mode(&core.folder(&start).join("result.json")), 0o600);
+
+            let users = core.state.users_manager.read().await;
+            let user = users.try_auth(&token).unwrap();
+            assert!(user.is_owner);
+            assert!(user.require_session().is_ok(), "a session, not a key");
+            assert!(users.list_api_keys(&user.uid).is_empty(), "no key made");
+            drop(users);
+
+            // what only a session may do works with it
+            let response = core
+                .client
+                .get(format!("{}/user/api_keys", core.base))
+                .bearer_auth(&token)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+    }
+
+    /// A launcher's claim (no `session`) still gets a key and no token.
+    #[tokio::test]
+    async fn a_key_claim_gets_no_session_token() {
+        let core = core(true).await;
+        let result = core.claim().await;
+        assert!(result.api_key.is_some());
+        assert!(result.session_token.is_none());
+        let text = serde_json::to_value(&result).unwrap();
+        assert!(text.get("session_token").is_none());
     }
 
     #[tokio::test]
@@ -1161,10 +1249,10 @@ mod tests {
         let second = core.claim().await;
         let users = core.state.users_manager.read().await;
         assert!(
-            users.try_auth(&first.api_key).is_none(),
+            users.try_auth(first.api_key.as_deref().unwrap()).is_none(),
             "the old key is revoked"
         );
-        let owner = users.try_auth(&second.api_key).unwrap();
+        let owner = users.try_auth(second.api_key.as_deref().unwrap()).unwrap();
         assert_eq!(users.list_api_keys(&owner.uid).len(), 1);
     }
 
@@ -1193,7 +1281,7 @@ mod tests {
             .users_manager
             .read()
             .await
-            .try_auth(&result.api_key)
+            .try_auth(result.api_key.as_deref().unwrap())
             .is_some());
     }
 
@@ -1248,6 +1336,7 @@ mod tests {
         let request = || FinishRequest {
             id: start.id.clone(),
             name: NAME.to_string(),
+            session: false,
         };
         let claims = &core.state.local_claims;
         // from this computer (the API), it isn't found, and stays
