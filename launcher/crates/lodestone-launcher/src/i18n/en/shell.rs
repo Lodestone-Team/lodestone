@@ -331,7 +331,6 @@ crate::i18n::messages! {
         /// {pid} is a process number.
         ClientPid = "Process {pid}",
         Disconnect = "Disconnect",
-        CliUnavailable = "Command-line control isn’t available on Windows yet.",
         /// Settings > Developer: the section of the performance monitor.
         DiagnosticsSection = "Diagnostics",
         /// The performance monitor window, and its row in Settings > Developer.

@@ -1482,13 +1482,16 @@ fn sample_pack_share_plan() -> launcher_core::content::share::SharePlan {
 }
 
 /// Settings > Developer's socket, with two programs connected.
-#[cfg(unix)]
 fn preview_control(cx: &mut App) {
     use std::time::{Duration, SystemTime};
     let now = SystemTime::now();
     crate::control::preview(
         crate::control::ControlStatus {
-            socket: "/Users/you/Library/Application Support/Lodestone Launcher/control.sock".into(),
+            socket: if cfg!(windows) {
+                r"C:\Users\you\AppData\Roaming\Lodestone Launcher\control.sock".into()
+            } else {
+                "/Users/you/Library/Application Support/Lodestone Launcher/control.sock".into()
+            },
             running: true,
             error: None,
             clients: vec![
@@ -1514,9 +1517,6 @@ fn preview_control(cx: &mut App) {
         cx,
     );
 }
-
-#[cfg(not(unix))]
-fn preview_control(_: &mut App) {}
 
 /// A made-up minute of readings for the performance monitor's screenshot: the
 /// launcher settling after a download, with a game running.

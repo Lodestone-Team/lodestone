@@ -13,5 +13,19 @@ libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# Windows has AF_UNIX sockets, which std doesn't expose there (`transport`), and the
+# calls that find the user on a socket's other end (`peer`).
+[target.'cfg(windows)'.dependencies]
+socket2.workspace = true
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Threading",
+] }
+
 [dev-dependencies]
 tempfile.workspace = true

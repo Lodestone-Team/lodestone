@@ -289,7 +289,6 @@ pub fn text(message: M) -> &'static str {
         M::ClientSince => "連線於 {time}",
         M::ClientPid => "處理程序 {pid}",
         M::Disconnect => "中斷連線",
-        M::CliUnavailable => "Windows 上暫不支援命令列控制。",
         M::DiagnosticsSection => "診斷",
         M::PerfMonitor => "效能監視器",
         M::PerfMonitorHint => {

@@ -336,7 +336,7 @@ pub mod codes {
     pub const NOT_RUNNING: &str = "not_running";
     /// The command line is wrong.
     pub const USAGE: &str = "usage";
-    /// The platform has no control endpoint (Windows, for now).
+    /// The system has no Unix domain sockets (Windows before 10 1803).
     pub const UNSUPPORTED_PLATFORM: &str = "unsupported_platform";
 
     /// Every code with its exit code and meaning, for `lodestone-launcher-cli schema`.
@@ -356,7 +356,7 @@ pub mod codes {
         (
             UNSUPPORTED_PLATFORM,
             3,
-            "This platform has no control socket (Windows, for now).",
+            "This system has no Unix domain sockets for the control socket (Windows before 10 1803).",
         ),
         (
             NOT_FOUND,

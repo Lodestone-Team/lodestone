@@ -1,5 +1,6 @@
 //! The control API: what `lodestone-launcher-cli` (and other programs of this user)
-//! can do with the running launcher, over a Unix socket in the data directory.
+//! can do with the running launcher, over a Unix domain socket in the data directory
+//! (on Windows too, which has had them since Windows 10 1803).
 //!
 //! The socket and its threads are `launcher_control`'s. They only read and write the
 //! socket: every request comes here, to the GPUI main thread, and is handled with the

@@ -1006,7 +1006,7 @@ mod tests {
         );
         let (method, params, _) = call_of(&["skins", "import", "/tmp/Cozy.zip", "--use"]);
         assert_eq!(method, "skins.import");
-        assert_eq!(params, json!({ "path": "/tmp/Cozy.zip", "use": true }));
+        assert_eq!(params, json!({ "path": abs("/tmp/Cozy.zip"), "use": true }));
         let (_, params, _) = call_of(&["play", "launch", "Smp", "--skip-update"]);
         assert_eq!(params["update_mods"], json!(false));
         assert_eq!(
@@ -1039,7 +1039,7 @@ mod tests {
             call_of(&["snapshots", "import", "/tmp/a.lodesnap", "--preview"]),
             (
                 "snapshots.import",
-                json!({ "path": "/tmp/a.lodesnap", "preview": true }),
+                json!({ "path": abs("/tmp/a.lodesnap"), "preview": true }),
                 false
             )
         );
@@ -1099,6 +1099,12 @@ mod tests {
         ]);
         assert_eq!(params["password"], "");
         assert_eq!(params["accept_eula"], false);
+    }
+
+    /// `path` as the CLI sends it: `/tmp/x` is absolute on Unix, but on Windows it
+    /// gets the current drive.
+    fn abs(path: &str) -> PathBuf {
+        absolute(Path::new(path)).unwrap()
     }
 
     #[test]

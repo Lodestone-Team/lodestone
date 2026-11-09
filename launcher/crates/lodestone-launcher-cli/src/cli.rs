@@ -6,11 +6,6 @@ use clap::{Args, Parser, Subcommand};
 
 const ABOUT: &str = "Controls a running Lodestone Launcher: instances, games, mods, worlds, accounts, settings, and Lodestone cores and their servers. Everything the launcher's window does, from scripts and AI agents.";
 
-#[cfg(unix)]
-const LONG_ABOUT_PLATFORM: &str = "";
-#[cfg(not(unix))]
-const LONG_ABOUT_PLATFORM: &str = "\n\nNote: the launcher's control socket is Unix-only for now (macOS and Linux). On Windows this CLI can't reach the launcher yet; every command fails with exit code 3 (unsupported_platform).";
-
 const AFTER_HELP: &str = "\
 Output:
   JSON when stdout isn't a terminal (or with --json): one JSON document on stdout.
@@ -37,7 +32,6 @@ Examples:
     name = "lodestone-launcher-cli",
     version,
     about = ABOUT,
-    long_about = format!("{ABOUT}{LONG_ABOUT_PLATFORM}"),
     after_help = AFTER_HELP
 )]
 pub struct Cli {
