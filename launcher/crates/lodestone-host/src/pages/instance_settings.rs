@@ -8,11 +8,14 @@
 
 mod field;
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, FocusHandle, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Task, Window, div, prelude::*,
+    AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Global, IntoElement,
+    ParentElement, Render, SharedString, Styled, Subscription, Task, Window, div, prelude::*,
 };
 use launcher_core::cores::{
     CoreError,
@@ -55,6 +58,25 @@ enum Load<T> {
     Ready(T),
     Failed(String),
 }
+
+/// What an instance's Settings tab fetched last, by instance: shown at once when the
+/// tab opens again while it fetches anew, so switching tabs doesn't flash "Loading".
+#[derive(Default)]
+struct SettingsCache(HashMap<String, Fetched>);
+
+impl Global for SettingsCache {}
+
+#[derive(Clone)]
+struct Fetched {
+    manifest: ConfigurableManifest,
+    pack: Option<ServerResourcePack>,
+    eula: Option<EulaStatus>,
+    listing: Option<InstancePublicListing>,
+}
+
+/// How long the tab waits for its first answer before it shows "Loading": a local
+/// core answers well within it, so the tab doesn't flash.
+const LOADING_DELAY: Duration = Duration::from_millis(300);
 
 /// The resource pack's draft, while it isn't saved.
 struct PackForm {
@@ -109,6 +131,10 @@ pub struct InstanceSettingsPage {
     delete: DialogSlot<Self, DeletePrompt>,
     deleting: bool,
     nav: SectionNav,
+    /// When the tab opened, so "Loading" waits [`LOADING_DELAY`].
+    opened: Instant,
+    /// What it shows came from the cache, and the fetch hasn't answered yet.
+    fetched: Option<Fetched>,
     _tasks: Vec<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -132,11 +158,37 @@ impl InstanceSettingsPage {
             delete: DialogSlot::new(|this: &mut Self| &mut this.delete),
             deleting: false,
             nav: SectionNav::default(),
+            opened: Instant::now(),
+            fetched: None,
             _tasks: Vec::new(),
             _subscriptions: subscriptions,
         };
+        let cached = cx
+            .try_global::<SettingsCache>()
+            .and_then(|cache| cache.0.get(&this.uuid).cloned());
+        if let Some(cached) = cached {
+            this.show(cached.clone(), cx);
+            this.fetched = Some(cached);
+        } else {
+            // redraw when "Loading" may show, if the answer hasn't come by then
+            let wait = cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(LOADING_DELAY).await;
+                this.update(cx, |_, cx| cx.notify()).ok();
+            });
+            this._tasks.push(wait);
+        }
         this.load(cx);
         this
+    }
+
+    /// Shows fetched settings: the manifest's fields, the resource pack's draft, the
+    /// EULA and the listing.
+    fn show(&mut self, fetched: Fetched, cx: &mut Context<Self>) {
+        self.make_fields(&fetched.manifest, cx);
+        self.manifest = Load::Ready(fetched.manifest);
+        self.pack = fetched.pack.map(|pack| self.pack_form(pack, cx));
+        self.eula = fetched.eula;
+        self.listing = fetched.listing;
     }
 
     fn instance<'a>(&self, cx: &'a Context<Self>) -> Option<&'a InstanceInfo> {
@@ -211,10 +263,27 @@ impl InstanceSettingsPage {
             });
             let (manifest, pack, eula, listing) = work.await;
             this.update(cx, |this, cx| {
+                let shown = this.fetched.take();
                 match manifest {
                     Ok(manifest) => {
-                        this.make_fields(&manifest, cx);
-                        this.manifest = Load::Ready(manifest);
+                        let fetched = Fetched {
+                            manifest,
+                            pack,
+                            eula,
+                            listing,
+                        };
+                        remember(&this.uuid, &fetched, cx);
+                        // what the cache showed is still right: keep its fields, and
+                        // anything typed into them meanwhile
+                        let same = shown.as_ref().is_some_and(|shown| {
+                            shown.manifest == fetched.manifest && shown.pack == fetched.pack
+                        });
+                        if same {
+                            this.eula = fetched.eula;
+                            this.listing = fetched.listing;
+                        } else {
+                            this.show(fetched, cx);
+                        }
                     }
                     Err(CoreError::SignedOut) => {
                         this.state.update(cx, |state, cx| state.reload(cx));
@@ -222,11 +291,6 @@ impl InstanceSettingsPage {
                     }
                     Err(err) => this.manifest = Load::Failed(err.to_string()),
                 }
-                if let Some(pack) = pack {
-                    this.pack = Some(this.pack_form(pack, cx));
-                }
-                this.eula = eula;
-                this.listing = listing;
                 cx.notify();
             })
             .ok();
@@ -1104,6 +1168,11 @@ impl InstanceSettingsPage {
 
 impl Render for InstanceSettingsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // the first answer is on its way: an empty page for a moment, not sections that
+        // pop in around a "Loading" that flashes by
+        if matches!(self.manifest, Load::Loading) && self.opened.elapsed() < LOADING_DELAY {
+            return div().size_full().into_any_element();
+        }
         let mut sections = self.manifest_sections(cx);
         if let Some(automation) = self.automation_section(cx) {
             sections.push((t(M::Automation).into(), automation));
@@ -1171,8 +1240,16 @@ impl Render for InstanceSettingsPage {
             .children(list)
             .child(content)
             .children(window_layer(window, dialogs))
+            .into_any_element()
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+/// Keeps what the tab fetched for its next opening.
+fn remember(uuid: &str, fetched: &Fetched, cx: &mut App) {
+    cx.default_global::<SettingsCache>()
+        .0
+        .insert(uuid.to_string(), fetched.clone());
+}
