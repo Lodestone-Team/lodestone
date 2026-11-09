@@ -15,11 +15,11 @@
 //! ```
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fmt,
     net::{SocketAddr, UdpSocket},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -47,6 +47,14 @@ const RENEW_AFTER_JOINS: u64 = 48;
 const PORTMAP_EVERY: Duration = Duration::from_secs(20 * 60);
 /// The most friends connected at once.
 pub const MAX_FRIENDS: usize = 32;
+/// The most connections at once that haven't shown the token yet. Anyone who reaches
+/// the host's port can open one, so they are few and last [`PROVE_WITHIN`] at most.
+pub const MAX_UNPROVEN: usize = 16;
+/// The most joins the host probes towards at once. Anyone with the code can join, with
+/// any addresses, so a new join stops the oldest probing beyond this.
+pub const MAX_SPRAYS: usize = 8;
+/// The most addresses of one join the host probes (the service allows 8).
+pub const MAX_PEERS: usize = 8;
 /// How long a stream has to send its header.
 const HEADER_WITHIN: Duration = Duration::from_secs(10);
 
@@ -559,6 +567,7 @@ async fn open_invite(shared: &Shared, reopen: bool) -> Result<Registered> {
 /// (renewing it daily) and reconnects to the service when it drops.
 async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::Receiver<bool>) {
     let mut seen: u64 = 0;
+    let mut sprays: VecDeque<JoinHandle<()>> = VecDeque::new();
     let mut backoff = Duration::from_secs(2);
     let mut renew_at = tokio::time::Instant::now() + RENEW_EVERY;
     // After a failed start the invite isn't known to be open: renew it first.
@@ -636,14 +645,21 @@ async fn service_loop(shared: Arc<Shared>, sprayer: UdpSocket, mut stop: watch::
                 }
                 event = watch.next() => match event {
                     Ok(Event::Joins(joins)) => {
-                        for (id, peers) in joins {
+                        for (id, mut peers) in joins {
                             if id < seen {
                                 continue;
                             }
                             seen = id + 1;
                             shared.update(|status| status.joins += 1);
+                            peers.truncate(MAX_PEERS);
+                            sprays.retain(|spray| !spray.is_finished());
+                            while sprays.len() >= MAX_SPRAYS {
+                                if let Some(oldest) = sprays.pop_front() {
+                                    oldest.abort();
+                                }
+                            }
                             if let Ok(socket) = sprayer.try_clone() {
-                                tokio::spawn(probe::spray(socket, peers, shared.tag, SPRAY_FOR, stop.clone()));
+                                sprays.push_back(tokio::spawn(probe::spray(socket, peers, shared.tag, SPRAY_FOR, stop.clone())));
                             }
                         }
                         if seen >= RENEW_AFTER_JOINS && saved.kept {
@@ -712,11 +728,25 @@ async fn accept_loop(
     token: [u8; TOKEN_LEN],
     handler: Arc<dyn StreamHandler>,
 ) {
+    let unproven = Arc::new(AtomicUsize::new(0));
     while let Some(incoming) = endpoint.accept().await {
+        // First make the other side show it gets packets at its address (a QUIC
+        // retry), so no one can open connections in someone else's name, which would
+        // also make the host send its handshake to them.
+        if !incoming.remote_address_validated() {
+            if let Err(err) = incoming.retry() {
+                err.into_incoming().refuse();
+            }
+            continue;
+        }
         if shared.friends.lock().expect("not poisoned").len() >= MAX_FRIENDS {
             incoming.refuse();
             continue;
         }
+        let Some(slot) = UnprovenSlot::take(&unproven) else {
+            incoming.refuse();
+            continue;
+        };
         let shared = shared.clone();
         let handler = handler.clone();
         tokio::spawn(async move {
@@ -724,26 +754,51 @@ async fn accept_loop(
                 Ok(connection) => connection,
                 Err(err) => return tracing::debug!("connect: a connection attempt failed: {err}"),
             };
-            serve_connection(connection, shared, token, handler).await;
+            serve_connection(connection, slot, shared, token, handler).await;
         });
+    }
+}
+
+/// One of the [`MAX_UNPROVEN`] places for a connection that hasn't shown the token
+/// yet. Dropping it frees the place.
+struct UnprovenSlot(Arc<AtomicUsize>);
+
+impl UnprovenSlot {
+    fn take(count: &Arc<AtomicUsize>) -> Option<Self> {
+        // When all places are taken, dropping `slot` gives this one back.
+        let slot = Self(count.clone());
+        (count.fetch_add(1, Ordering::AcqRel) < MAX_UNPROVEN).then_some(slot)
+    }
+}
+
+impl Drop for UnprovenSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
 async fn serve_connection(
     connection: quinn::Connection,
+    slot: UnprovenSlot,
     shared: Arc<Shared>,
     token: [u8; TOKEN_LEN],
     handler: Arc<dyn StreamHandler>,
 ) {
     let id = shared.next_friend.fetch_add(1, Ordering::Relaxed);
     let (proved_tx, mut proved_rx) = watch::channel(false);
-    // Closes the connection unless it proves it has the token in time.
+    // Closes the connection unless it proves it has the token in time. The slot is
+    // freed once it has, or once the connection ends.
     {
         let connection = connection.clone();
         tokio::spawn(async move {
-            let proved = tokio::time::timeout(PROVE_WITHIN, proved_rx.wait_for(|p| *p)).await;
-            if !matches!(proved, Ok(Ok(_))) {
-                connection.close(1u32.into(), b"no token");
+            let _slot = slot;
+            tokio::select! {
+                proved = tokio::time::timeout(PROVE_WITHIN, proved_rx.wait_for(|p| *p)) => {
+                    if !matches!(proved, Ok(Ok(_))) {
+                        connection.close(1u32.into(), b"no token");
+                    }
+                }
+                _ = connection.closed() => {}
             }
         });
     }
@@ -828,5 +883,116 @@ mod tests {
 
         let invite = identity.invite_at(Service::default(), "ABCDEFGH23");
         assert_eq!(Invite::parse(&invite.link()), Ok(invite));
+    }
+
+    /// A host waiting for friends on a loopback socket.
+    fn host_endpoint(identity: &HostIdentity) -> (quinn::Endpoint, Arc<Shared>, SocketAddr) {
+        let server = tunnel::server_config(&identity.cert_der, &identity.key_der).unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = socket.local_addr().unwrap();
+        let endpoint = tunnel::endpoint(socket, Some(server)).unwrap();
+        let shared = Arc::new(Shared {
+            identity: Mutex::new(identity.clone()),
+            service: Service::default(),
+            keep: false,
+            status: Mutex::new(HostStatus {
+                state: HostState::Sharing,
+                link: String::new(),
+                code: String::new(),
+                stable_link: false,
+                candidates: Vec::new(),
+                symmetric_nat: false,
+                joins: 0,
+                friends: Vec::new(),
+                problem: None,
+            }),
+            friends: Mutex::new(HashMap::new()),
+            next_friend: AtomicU64::new(1),
+            mapping: Mutex::new(None),
+            candidates: Vec::new(),
+            tag: probe::tag(&identity.token),
+            changed: watch::channel(0).0,
+        });
+        (endpoint, shared, addr)
+    }
+
+    struct Discard;
+
+    impl StreamHandler for Discard {
+        fn game(&self, _: TunnelStream, _: FriendId) {}
+        fn info(&self, _: TunnelStream, _: FriendId) {}
+    }
+
+    async fn stranger(identity: &HostIdentity, host: SocketAddr) -> quinn::Connection {
+        let mut client = tunnel::endpoint(UdpSocket::bind("127.0.0.1:0").unwrap(), None).unwrap();
+        client.set_default_client_config(tunnel::client_config(identity.fingerprint()).unwrap());
+        client
+            .connect(host, tunnel::SERVER_NAME)
+            .unwrap()
+            .await
+            .unwrap()
+    }
+
+    /// Someone who reaches the host's port but has no token can't make the host hold
+    /// much of their data in streams it never reads.
+    #[tokio::test]
+    async fn a_stranger_cannot_make_the_host_buffer_much() {
+        let identity = HostIdentity::generate().unwrap();
+        let (endpoint, shared, addr) = host_endpoint(&identity);
+        tokio::spawn(accept_loop(
+            endpoint,
+            shared,
+            identity.token,
+            Arc::new(Discard),
+        ));
+        let connection = stranger(&identity, addr).await;
+        let pushing = connection.clone();
+        tokio::spawn(async move {
+            let chunk = vec![7u8; 1 << 20];
+            let mut streams = Vec::new();
+            for _ in 0..64 {
+                let Ok(mut stream) = pushing.open_uni().await else {
+                    return;
+                };
+                let _ = stream.write_all(&chunk).await;
+                streams.push(stream);
+            }
+            std::future::pending::<()>().await
+        });
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let sent = connection.stats().udp_tx.bytes;
+        assert!(
+            sent < 2 * tunnel::HOST_RECEIVE_WINDOW as u64,
+            "the host let a stranger send {sent} bytes"
+        );
+    }
+
+    /// Strangers can hold only a few connections open at once while they haven't shown
+    /// the token.
+    #[tokio::test]
+    async fn strangers_cannot_hold_many_connections() {
+        let identity = HostIdentity::generate().unwrap();
+        let (endpoint, shared, addr) = host_endpoint(&identity);
+        tokio::spawn(accept_loop(
+            endpoint,
+            shared,
+            identity.token,
+            Arc::new(Discard),
+        ));
+        let mut client = tunnel::endpoint(UdpSocket::bind("127.0.0.1:0").unwrap(), None).unwrap();
+        client.set_default_client_config(tunnel::client_config(identity.fingerprint()).unwrap());
+        let mut held = Vec::new();
+        for _ in 0..40 {
+            let attempt = client.connect(addr, tunnel::SERVER_NAME).unwrap();
+            if let Ok(Ok(connection)) = tokio::time::timeout(Duration::from_secs(2), attempt).await
+            {
+                held.push(connection);
+            }
+        }
+        assert!(
+            held.len() <= MAX_UNPROVEN,
+            "a stranger holds {} connections",
+            held.len()
+        );
     }
 }
