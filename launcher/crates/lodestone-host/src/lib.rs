@@ -15,6 +15,7 @@
 pub mod app;
 pub mod core_process;
 pub mod i18n;
+pub mod instance_icons;
 pub mod onboarding;
 pub mod pages;
 pub mod routes;

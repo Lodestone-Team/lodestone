@@ -1,5 +1,6 @@
-//! The Console tab: an instance's console history and sending it commands, and which
-//! players are linked to Lodestone users (for the badges on console lines). The live
+//! The Console tab: an instance's console history and sending it commands, and the
+//! linked players' users for the badges on console lines (fetched with
+//! `AdminClient::linked_players`, in `instances.rs`). The live
 //! console is `LiveStream::open(.., StreamKind::Console, ..)` (`cores::live`), whose
 //! lines merge into the history with [`merge_console`].
 //!
@@ -8,7 +9,6 @@
 use std::collections::HashMap;
 
 use http_client::Method;
-use serde::Deserialize;
 use serde_json::Value;
 
 use super::{AdminClient, segment};
@@ -39,40 +39,6 @@ impl AdminClient {
         )
         .await
     }
-
-    /// The Lodestone users of linked Minecraft accounts: every link for the owner
-    /// (`GET /minecraft_links`), the user's own for everyone else
-    /// (`GET /user/minecraft_links`), as the dashboard's `useLinkedPlayers`. An older
-    /// core without links gives none.
-    pub async fn linked_players(
-        &self,
-        is_owner: bool,
-        username: &str,
-    ) -> Result<LinkedPlayers, CoreError> {
-        let path = if is_owner {
-            "minecraft_links"
-        } else {
-            "user/minecraft_links"
-        };
-        let links: Vec<Link> = match self.get(path).await {
-            Ok(links) => links,
-            Err(CoreError::NotFound(_)) => Vec::new(),
-            Err(err) => return Err(err),
-        };
-        Ok(LinkedPlayers::new(links.into_iter().map(|link| {
-            let user = link.username.unwrap_or_else(|| username.to_string());
-            (link.minecraft_uuid, link.minecraft_name, user)
-        })))
-    }
-}
-
-#[derive(Deserialize)]
-struct Link {
-    minecraft_uuid: String,
-    minecraft_name: String,
-    /// Only in the owner's list of every link.
-    #[serde(default)]
-    username: Option<String>,
 }
 
 /// Lodestone usernames of linked Minecraft players, by name and UUID
@@ -94,6 +60,15 @@ impl LinkedPlayers {
             this.by_uuid.insert(normalize_uuid(&uuid), user);
         }
         this
+    }
+
+    /// From [`AdminClient::linked_players`](super::AdminClient::linked_players).
+    pub fn from_links(links: Vec<super::instances::LinkedPlayer>) -> Self {
+        Self::new(
+            links
+                .into_iter()
+                .map(|link| (link.minecraft_uuid, link.minecraft_name, link.username)),
+        )
     }
 
     pub fn is_empty(&self) -> bool {

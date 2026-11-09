@@ -5,7 +5,6 @@
 
 pub mod a11y;
 mod button;
-mod checkbox;
 pub mod console_line;
 mod dialog;
 mod dialog_slot;
@@ -23,10 +22,10 @@ mod toast;
 mod toggle;
 mod tooltip;
 pub mod window_frame;
+mod window_layer;
 
 pub use a11y::Accessible;
 pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
-pub use checkbox::Checkbox;
 pub use dialog::Dialog;
 pub use dialog::prefers_reduced_motion;
 pub use dialog_slot::{DialogSlot, EXIT, EXIT_REDUCED, Presence};
@@ -41,6 +40,7 @@ pub use text_input::TextInput;
 pub use toast::{Toast, ToastAction, ToastLevel, Toasts};
 pub use toggle::Toggle;
 pub use tooltip::{TextTooltip, text_tooltip};
+pub use window_layer::window_layer;
 
 use gpui::{App, ClickEvent, Window};
 
@@ -68,3 +68,8 @@ pub fn trace_ui(topic: &str, control: &str, id: &gpui::ElementId, detail: serde_
         event
     });
 }
+
+mod checkbox;
+mod line_chart;
+pub use checkbox::{Checkbox, check_box};
+pub use line_chart::LineChart;

@@ -477,6 +477,7 @@ impl ConsolePage {
                 )
                 .await;
             if let Ok(linked) = linked {
+                let linked = LinkedPlayers::from_links(linked);
                 this.update(cx, |this, cx| {
                     this.log.relink(&linked);
                     this.linked = linked;
@@ -844,15 +845,15 @@ impl Render for ConsolePage {
                     .font_family(fonts::mono())
                     .child(div().flex_1().min_w_0().child(self.search.clone()))
                     .child(
-                        Checkbox::new("console-regex", self.regex)
-                            .label(t(M::ConsoleRegex))
-                            .on_change(move |regex, _, cx| {
+                        Checkbox::new("console-regex", self.regex, t(M::ConsoleRegex)).on_change(
+                            move |regex, _, cx| {
                                 this.update(cx, |this, cx| {
-                                    this.regex = regex;
+                                    this.regex = *regex;
                                     this.refilter(cx);
                                 })
                                 .ok();
-                            }),
+                            },
+                        ),
                     ),
             )
             .child(

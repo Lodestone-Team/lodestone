@@ -29,6 +29,8 @@ pub struct HostShell {
     pub route: Route,
     page: Option<(Route, AnyView)>,
     create: Option<Entity<CreateInstance>>,
+    /// Asks to accept the Minecraft EULA when a server doesn't start without it.
+    eula: Entity<pages::eula_prompt::EulaPrompt>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -42,11 +44,16 @@ impl HostShell {
                 _ => {}
             }),
         ];
+        let eula = {
+            let state = state.clone();
+            cx.new(|cx| pages::eula_prompt::EulaPrompt::new(state, cx))
+        };
         Self {
             state,
             route: Route::Home,
             page: None,
             create: None,
+            eula,
             _subscriptions: subscriptions,
         }
     }
@@ -218,6 +225,7 @@ impl Render for HostShell {
                     ),
             )
             .when_some(self.create.clone(), |this, dialog| this.child(dialog))
+            .child(self.eula.clone())
             .child(toasts)
             .min_w(layout::sidebar_width())
     }
