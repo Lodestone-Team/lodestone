@@ -134,6 +134,9 @@ pub enum Command {
     /// Disk space: what the data folder takes, and removing what can go.
     #[command(subcommand)]
     Storage(Storage),
+    /// The launcher's look: list skins, use one, import or export a pack.
+    #[command(subcommand)]
+    Skins(Skins),
     /// Streams events as JSON lines: log lines, game states, progress, jobs, notices.
     #[command(
         after_help = "Examples:\n  lodestone-launcher-cli events --topics state,notices\n  lodestone-launcher-cli events --instance Survival --topics log --count 50"
@@ -1066,6 +1069,38 @@ pub enum Storage {
     Clean {
         #[arg(value_parser = ["game-files", "runtimes", "cache", "leftovers", "old-logs", "logs"])]
         what: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Skins {
+    /// The skins: built-in ones first, then imported packs, and the one in use.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli skins list")]
+    List,
+    /// Uses a skin by id ("default" for the default look).
+    #[command(
+        name = "use",
+        after_help = "Examples:\n  lodestone-launcher-cli skins use grassblock\n  lodestone-launcher-cli skins use default"
+    )]
+    Use { id: String },
+    /// Imports a skin pack: a .zip file or a folder with skin.json and its images.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli skins import ~/Downloads/Cozy.zip --use"
+    )]
+    Import {
+        path: PathBuf,
+        /// Use it once imported.
+        #[arg(long = "use")]
+        use_it: bool,
+    },
+    /// Writes a skin to a .zip file: the one in use, or --id.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli skins export ~/Desktop/mine.zip\n  lodestone-launcher-cli skins export neon.zip --id neon"
+    )]
+    Export {
+        path: PathBuf,
+        #[arg(long)]
+        id: Option<String>,
     },
 }
 

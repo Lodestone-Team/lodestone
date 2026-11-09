@@ -878,8 +878,8 @@ impl WorldsView {
                 .py_2()
                 .rounded(radius::LG)
                 .border_1()
-                .border_color(colors::BLUE_200.opacity(40))
-                .bg(colors::BLUE.opacity(10))
+                .border_color(crate::theme::accent::light().opacity(40))
+                .bg(crate::theme::accent::base().opacity(10))
                 .child(LoadingDots)
                 .child(
                     div()
@@ -905,7 +905,7 @@ impl WorldsView {
                                         div()
                                             .h_full()
                                             .rounded_full()
-                                            .bg(colors::BLUE_200)
+                                            .bg(crate::theme::accent::light())
                                             .w(gpui::relative(fraction.clamp(0.0, 1.0))),
                                     ),
                             )
@@ -1436,7 +1436,7 @@ impl WorldsView {
                     .border_color(colors::FADE_700)
                     .bg(colors::GRAY_800)
                     .cursor_pointer()
-                    .hover(|style| style.border_color(colors::BLUE_200.opacity(60)))
+                    .hover(|style| style.border_color(crate::theme::accent::light().opacity(60)))
                     .on_click(cx.listener(move |this, _, _, cx| this.view(index, cx)))
                     .child(
                         div()
@@ -1723,8 +1723,8 @@ impl Render for WorldsView {
                     .when(accepts_drop, |this| {
                         this.drag_over::<ExternalPaths>(|style, _, _, _| {
                             style
-                                .border_color(colors::BLUE_200.opacity(60))
-                                .bg(colors::BLUE.opacity(8))
+                                .border_color(crate::theme::accent::light().opacity(60))
+                                .bg(crate::theme::accent::base().opacity(8))
                         })
                         .on_drop(cx.listener(
                             |this, paths: &ExternalPaths, _, cx| {

@@ -65,6 +65,7 @@ fn settings_page_name(page: SettingsPage) -> &'static str {
         SettingsPage::Accounts => "accounts",
         SettingsPage::Storage => "storage",
         SettingsPage::Developer => "developer",
+        SettingsPage::Skin => "skin",
     }
 }
 

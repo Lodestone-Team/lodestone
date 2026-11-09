@@ -752,6 +752,18 @@ pub fn plan(
                 ],
             ),
         },
+        Command::Skins(c) => match c {
+            Skins::List => call("skins.list", vec![]),
+            Skins::Use { id } => call("skins.use", vec![("id", json!(id))]),
+            Skins::Import { path, use_it } => call(
+                "skins.import",
+                vec![("path", json!(absolute(path)?)), ("use", json!(use_it))],
+            ),
+            Skins::Export { path, id } => call(
+                "skins.export",
+                vec![("path", json!(absolute(path)?)), ("id", json!(id))],
+            ),
+        },
         Command::Storage(c) => match c {
             Storage::Show => call("storage.show", vec![]),
             Storage::Clean { what } => call("storage.clean", vec![("what", json!(what))]),
@@ -873,6 +885,13 @@ mod tests {
         assert_eq!(method, "instances.set_background");
         assert_eq!(params["slideshow"], json!("all_instances"));
         assert!(params.get("add").is_none());
+        assert_eq!(
+            call_of(&["skins", "use", "neon"]),
+            ("skins.use", json!({ "id": "neon" }), false)
+        );
+        let (method, params, _) = call_of(&["skins", "import", "/tmp/Cozy.zip", "--use"]);
+        assert_eq!(method, "skins.import");
+        assert_eq!(params, json!({ "path": "/tmp/Cozy.zip", "use": true }));
         let (_, params, _) = call_of(&["play", "launch", "Smp", "--skip-update"]);
         assert_eq!(params["update_mods"], json!(false));
         let (_, params, _) = call_of(&["worlds", "restore", "S", "World", "--replace"]);

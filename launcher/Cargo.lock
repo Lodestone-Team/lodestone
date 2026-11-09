@@ -2940,9 +2940,11 @@ dependencies = [
  "lodestone_minecraft",
  "lodestone_trace",
  "log",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "url",
+ "windows-sys 0.61.2",
  "zip",
 ]
 

@@ -6,15 +6,29 @@ crate::i18n::messages! {
         KindMods = "Mods",
         KindResourcePacks = "Resource packs",
         KindShaders = "Shaders",
-        /// The sub-view switch: what is installed, or the Modrinth browser.
-        InstalledTab = "Installed",
-        BrowseModrinth = "Browse Modrinth",
         /// An instance without a mod loader, in "1.21.1 / Vanilla".
         Vanilla = "Vanilla",
 
-        SearchModsPlaceholder = "Search mods on Modrinth, or paste a Modrinth link",
-        SearchResourcePacksPlaceholder = "Search resource packs on Modrinth, or paste a Modrinth link",
-        SearchShaderPacksPlaceholder = "Search shader packs on Modrinth, or paste a Modrinth link",
+        /// The search over the list: it filters what is installed and searches
+        /// Modrinth too.
+        SearchInstalledOrModrinth = "Search",
+        /// Headings over the list, with how many rows follow.
+        InstalledCount = "Installed · {count}",
+        /// Resource packs in use; the top one wins where they overlap.
+        EnabledCount = "Enabled · {count} · the top pack wins where packs overlap",
+        AvailableCount = "Available · {count}",
+        /// The heading of the Modrinth results below the installed ones.
+        OnModrinthCount = "On Modrinth · {count}",
+        OnModrinth = "On Modrinth",
+        /// The heading over CurseForge's results in the list.
+        OnCurseForgeCount = "On CurseForge · {count}",
+        OnCurseForge = "On CurseForge",
+        /// Nothing installed matches the search; {kind} is "mods", "resource packs" or
+        /// "shaders".
+        NoInstalledMatch = "Installed · {count} · No installed {kind} match.",
+        /// The filter beside the Modrinth heading; {target} is "1.20.1 / Fabric".
+        OnlyTarget = "{target} only",
+
 
         StopGameFirst = "Stop the game first: it rewrites these files when it exits.",
         WaitForInstall = "Wait for the install to finish.",
@@ -67,8 +81,6 @@ crate::i18n::messages! {
         Compatible = "Compatible",
         OlderVersion = "Older version",
         NewerVersion = "Newer version",
-        MadeForOlder = "Made for an older version of Minecraft",
-        MadeForNewer = "Made for a newer version of Minecraft",
         NotOnModrinth = "Not on Modrinth",
         UpdateTo = "Update to {version}",
         NoModsYet = "No mods yet. Browse Modrinth, or drop .jar files here.",
@@ -78,10 +90,6 @@ crate::i18n::messages! {
         ReadingFolder = "Reading the {folder} folder",
         CouldntReadFolder = "Couldn't read the {folder} folder: {error}",
         SomeFilesNotMatched = "Some files couldn't be matched to Modrinth: {error}",
-        /// Over the enabled resource packs, in capitals.
-        EnabledHeader = "ENABLED · the top pack wins where packs overlap",
-        /// Over the other resource packs, in capitals.
-        AvailableHeader = "AVAILABLE",
         ShadersOff = "Shaders off",
         NormalLook = "Minecraft's normal look.",
 
@@ -127,12 +135,9 @@ crate::i18n::messages! {
         SortFollows = "Follows",
         SortNewest = "Newest",
         SortUpdated = "Updated",
-        /// {target} is the game version and loader: "1.21.1 / Fabric".
-        OnlyShowModsFor = "Only show mods for {target}",
-        OnlyShowResourcePacksFor = "Only show resource packs for {target}",
-        OnlyShowShaderPacksFor = "Only show shader packs for {target}",
         SearchingModrinth = "Searching Modrinth",
         NothingMatches = "Nothing on Modrinth matches.",
+        NothingOnCurseForge = "Nothing on CurseForge matches.",
         PageOf = "Page {page} of {pages}",
         /// A project's author.
         ByAuthor = "by {author}",
@@ -146,7 +151,6 @@ crate::i18n::messages! {
         FollowersCompact = "{count} followers",
 
         // A project's page.
-        BackToResults = "Back to results",
         LoadingProject = "Loading the project",
         ViewOnModrinth = "View on Modrinth",
         Versions = "Versions",
@@ -165,12 +169,43 @@ crate::i18n::messages! {
         Release = "Release",
         Beta = "Beta",
         Alpha = "Alpha",
+
+        // CurseForge.
+        /// The sub-view switch with CurseForge: Installed / Modrinth / CurseForge.
+        ModrinthTab = "Modrinth",
+        /// The switch, and the badge of a file that came from CurseForge.
+        CurseForgeTab = "CurseForge",
+        SearchingCurseForge = "Searching CurseForge",
+        ViewOnCurseForge = "View on CurseForge",
+        /// A file neither platform knows (added by hand).
+        NotOnEitherPlatform = "Not on Modrinth or CurseForge",
+        /// CurseForge's sort orders, with SortDownloads and SortUpdated.
+        SortPopular = "Popular",
+        SortName = "Name",
+        /// A CurseForge file the author only lets people download from curseforge.com.
+        WebsiteDownload = "Website download",
+        /// An update that has to be downloaded from curseforge.com.
+        GetOnCurseForge = "Get it on CurseForge",
+        /// The card for files downloaded from curseforge.com by hand.
+        BlockedTitle = "Download these from CurseForge",
+        /// {folder} is the folder watched for the downloads.
+        BlockedLead = "Their authors don't let launchers download them. Download each one in your browser; Lodestone adds it as soon as it appears in {folder}.",
+        BlockedNoFolder = "Their authors don't let launchers download them. Download each one in your browser, then choose the folder it was saved to.",
+        BlockedOpen = "Open download page",
+        BlockedOpenAll = "Open all pages",
+        BlockedAdded = "Added",
+        /// {file} is the file name to download.
+        BlockedWaiting = "Waiting for {file}",
+        BlockedChangeFolder = "Watch another folder…",
+        BlockedSkip = "Skip the rest",
+        /// The folder dialog's button.
+        WatchFolderPrompt = "Watch this folder",
+        CouldntAddDownload = "Couldn't add {name}: {error}",
+        /// {names} is the list of files the user downloaded.
+        AddedDownloads = "Added {names}.",
     }
 
     pub enum ContentPlural {
-        ResourcePacksEnabled = ("{count} resource pack, {enabled} enabled", "{count} resource packs, {enabled} enabled"),
-        ModsEnabled = ("{count} mod, {enabled} enabled", "{count} mods, {enabled} enabled"),
-        ShaderPacks = ("{count} shader pack", "{count} shader packs"),
         Downloads = ("{count} download", "{count} downloads"),
         Follows = ("{count} follow", "{count} follows"),
         Followers = ("{count} follower", "{count} followers"),

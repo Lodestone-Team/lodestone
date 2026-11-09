@@ -792,7 +792,8 @@ fn checkbox(checked: bool) -> impl IntoElement {
         .border_1()
         .map(|this| {
             if checked {
-                this.bg(colors::BLUE).border_color(colors::BLUE)
+                this.bg(crate::theme::accent::base())
+                    .border_color(crate::theme::accent::base())
             } else {
                 this.border_color(colors::GRAY_FADED.opacity(50))
             }
@@ -812,7 +813,7 @@ fn progress_bar(fraction: f32) -> impl IntoElement {
             div()
                 .h_full()
                 .rounded_full()
-                .bg(colors::BLUE_200)
+                .bg(crate::theme::accent::light())
                 .w(gpui::relative(fraction.clamp(0., 1.))),
         )
 }

@@ -46,7 +46,8 @@ use crate::{
     },
     file_dialog,
     i18n::{
-        CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, Text, format, t, tr, trn,
+        CommonMsg, InstanceSettingsMsg as M, InstanceSettingsPlural as P, ShellMsg, Text, format,
+        t, tr, trn,
     },
     servers::Servers,
     theme::{self, colors, leading, radius, text, weights},
@@ -1371,7 +1372,8 @@ impl InstanceSettings {
                 .cursor_pointer()
                 .map(|this| {
                     if selected {
-                        this.border_color(colors::BLUE_200).bg(colors::GRAY_750)
+                        this.border_color(crate::theme::accent::light())
+                            .bg(colors::GRAY_750)
                     } else {
                         this.border_color(colors::TRANSPARENT)
                             .hover(|style| style.bg(colors::GRAY_700))
@@ -1795,6 +1797,70 @@ impl InstanceSettings {
     }
 }
 
+impl InstanceSettings {
+    /// "Play button colour" (`play`) or "Accent": the skin's, or a colour of the
+    /// instance's own. Saved at once, like the icon.
+    fn color_override_row(
+        &self,
+        play: bool,
+        value: Option<launcher_core::ui_skin::Rgb>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        use crate::shell::skin_settings::{BRIGHT, swatch, swatch_none};
+        use launcher_core::ui_skin::Rgb;
+        let pick = move |this: &mut Self, rgb: Option<Rgb>, cx: &mut Context<Self>| {
+            let id = this.instance_id.clone();
+            let Some(instance) = this.instance(cx) else {
+                return;
+            };
+            let (play_color, accent) = if play {
+                (rgb, instance.accent)
+            } else {
+                (instance.play_color, rgb)
+            };
+            let result = this.instances.update(cx, |instances, cx| {
+                instances.set_instance_colors(&id, play_color, accent, cx)
+            });
+            if let Err(err) = result {
+                this.set_message(err, true, cx);
+            }
+        };
+        let base = if play { 0 } else { 100 };
+        let mut choices: Vec<AnyElement> = vec![
+            swatch_none(
+                ("instance-color-none", base),
+                t(ShellMsg::SkinUseSkins),
+                value.is_none(),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| pick(this, None, cx)))
+            .into_any_element(),
+        ];
+        for (i, rgb) in BRIGHT.iter().map(|&c| Rgb(c)).enumerate() {
+            choices.push(
+                swatch(("instance-color", base + 1 + i), rgb, value == Some(rgb))
+                    .on_click(cx.listener(move |this, _, _, cx| pick(this, Some(rgb), cx)))
+                    .into_any_element(),
+            );
+        }
+        SettingRow::new(t(if play {
+            ShellMsg::SkinPlayColor
+        } else {
+            ShellMsg::SkinAccent
+        }))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .justify_end()
+                .gap_1p5()
+                .children(choices),
+        )
+        .into_any_element()
+    }
+}
+
 /// `~/Downloads`, where exports are offered first.
 pub(crate) fn dirs_downloads() -> PathBuf {
     std::env::var_os("HOME")
@@ -1937,9 +2003,8 @@ impl Render for InstanceSettings {
                 .into_any_element(),
             SettingRow::new(t(M::PlayBackground))
                 .child(match (&background, has_background) {
-                    _ if slideshow => {
-                        tag(t(M::BackgroundSlideshow), colors::BLUE_200).into_any_element()
-                    }
+                    _ if slideshow => tag(t(M::BackgroundSlideshow), crate::theme::accent::light())
+                        .into_any_element(),
                     (Some(image), _) => img(image.clone())
                         .w(px(72.))
                         .h(px(40.))
@@ -1980,6 +2045,8 @@ impl Render for InstanceSettings {
                         }),
                 )
                 .into_any_element(),
+            self.color_override_row(true, instance.as_ref().and_then(|i| i.play_color), cx),
+            self.color_override_row(false, instance.as_ref().and_then(|i| i.accent), cx),
         ]);
         sections.push((
             t(M::General).into(),
@@ -2368,7 +2435,7 @@ fn thumb_tile(
         .border_1()
         .border_color(colors::TRANSPARENT)
         .cursor_pointer()
-        .hover(|style| style.border_color(colors::BLUE_200))
+        .hover(|style| style.border_color(crate::theme::accent::light()))
         .child(img(thumb).size_full().object_fit(ObjectFit::Cover))
 }
 

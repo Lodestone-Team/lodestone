@@ -501,9 +501,7 @@ pub fn display_version(version: &str, build: u64) -> String {
     format!("{version} (build {build})")
 }
 
-/// Whether the installer's `InstallLocation` is the folder `exe` is in. Windows only:
-/// elsewhere a backslash isn't a separator, so `exe.parent()` of a Windows path is
-/// empty.
+/// Whether the installer's `InstallLocation` is the folder `exe` is in.
 #[cfg(windows)]
 fn is_install_location(install_location: &str, exe: &Path) -> bool {
     let Some(dir) = exe.parent() else {
@@ -788,6 +786,7 @@ mod tests {
         assert_eq!(display_version("0.1.0", 531), "0.1.0 (build 531)");
     }
 
+    // Windows paths: `Path` only splits them on Windows.
     #[cfg(windows)]
     #[test]
     fn the_install_location_is_the_executables_folder() {

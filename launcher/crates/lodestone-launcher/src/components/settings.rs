@@ -259,7 +259,7 @@ pub fn tag(text_: impl Into<SharedString>, color: Color) -> Div {
 
 /// A blue text action, such as "Change".
 pub fn link(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
-    link_colored(id, label, colors::BLUE_200)
+    link_colored(id, label, crate::theme::accent::light())
 }
 
 /// A grey text action, such as "Reset".

@@ -5,17 +5,19 @@ pub fn text(message: M) -> &'static str {
         M::KindMods => "Mods",
         M::KindResourcePacks => "Packs de ressources",
         M::KindShaders => "Shaders",
-        M::InstalledTab => "Installés",
-        M::BrowseModrinth => "Parcourir Modrinth",
         M::Vanilla => "Vanilla",
-
-        M::SearchModsPlaceholder => "Rechercher des mods sur Modrinth, ou coller un lien Modrinth",
-        M::SearchResourcePacksPlaceholder => {
-            "Rechercher des packs de ressources sur Modrinth, ou coller un lien Modrinth"
+        M::SearchInstalledOrModrinth => "Rechercher",
+        M::InstalledCount => "Installés · {count}",
+        M::EnabledCount => "Activés · {count} · le pack du haut l’emporte en cas de chevauchement",
+        M::AvailableCount => "Disponibles · {count}",
+        M::OnModrinthCount => "Sur Modrinth · {count}",
+        M::OnModrinth => "Sur Modrinth",
+        M::OnCurseForgeCount => "Sur CurseForge · {count}",
+        M::OnCurseForge => "Sur CurseForge",
+        M::NoInstalledMatch => {
+            "Installés · {count} · Aucun élément installé ne correspond ({kind})."
         }
-        M::SearchShaderPacksPlaceholder => {
-            "Rechercher des packs de shaders sur Modrinth, ou coller un lien Modrinth"
-        }
+        M::OnlyTarget => "{target} uniquement",
 
         M::StopGameFirst => {
             "Arrêtez d’abord le jeu\u{a0}: il réécrit ces fichiers lorsqu’il se ferme."
@@ -62,8 +64,6 @@ pub fn text(message: M) -> &'static str {
         M::Compatible => "Compatible",
         M::OlderVersion => "Version plus ancienne",
         M::NewerVersion => "Version plus récente",
-        M::MadeForOlder => "Conçu pour une version plus ancienne de Minecraft",
-        M::MadeForNewer => "Conçu pour une version plus récente de Minecraft",
         M::NotOnModrinth => "Absent de Modrinth",
         M::UpdateTo => "Passer à {version}",
         M::NoModsYet => {
@@ -80,8 +80,6 @@ pub fn text(message: M) -> &'static str {
         M::SomeFilesNotMatched => {
             "Certains fichiers n’ont pas pu être associés à Modrinth\u{a0}: {error}"
         }
-        M::EnabledHeader => "ACTIVÉS · le pack du haut l’emporte quand des packs se chevauchent",
-        M::AvailableHeader => "DISPONIBLES",
         M::ShadersOff => "Shaders désactivés",
         M::NormalLook => "L’apparence normale de Minecraft.",
 
@@ -143,11 +141,9 @@ pub fn text(message: M) -> &'static str {
         M::SortFollows => "Abonnés",
         M::SortNewest => "Récents",
         M::SortUpdated => "Mis à jour",
-        M::OnlyShowModsFor => "Afficher uniquement les mods pour {target}",
-        M::OnlyShowResourcePacksFor => "Afficher uniquement les packs de ressources pour {target}",
-        M::OnlyShowShaderPacksFor => "Afficher uniquement les packs de shaders pour {target}",
         M::SearchingModrinth => "Recherche sur Modrinth",
         M::NothingMatches => "Aucun résultat sur Modrinth.",
+        M::NothingOnCurseForge => "Aucun résultat sur CurseForge.",
         M::PageOf => "Page {page} sur {pages}",
         M::ByAuthor => "par {author}",
         M::InstalledBadge => "Installé",
@@ -156,7 +152,6 @@ pub fn text(message: M) -> &'static str {
         M::FollowsCompact => "{count} abonnés",
         M::FollowersCompact => "{count} abonnés",
 
-        M::BackToResults => "Retour aux résultats",
         M::LoadingProject => "Chargement du projet",
         M::ViewOnModrinth => "Voir sur Modrinth",
         M::Versions => "Versions",
@@ -176,20 +171,37 @@ pub fn text(message: M) -> &'static str {
         M::Release => "Stable",
         M::Beta => "Bêta",
         M::Alpha => "Alpha",
+
+        M::ModrinthTab => "Modrinth",
+        M::CurseForgeTab => "CurseForge",
+        M::SearchingCurseForge => "Recherche sur CurseForge",
+        M::ViewOnCurseForge => "Voir sur CurseForge",
+        M::NotOnEitherPlatform => "Absent de Modrinth et de CurseForge",
+        M::SortPopular => "Populaires",
+        M::SortName => "Nom",
+        M::WebsiteDownload => "Sur le site uniquement",
+        M::GetOnCurseForge => "L’obtenir sur CurseForge",
+        M::BlockedTitle => "À télécharger depuis CurseForge",
+        M::BlockedLead => {
+            "Leurs auteurs ne permettent pas aux lanceurs de les télécharger. Téléchargez-les dans votre navigateur\u{a0}: Lodestone les ajoute dès qu’ils apparaissent dans {folder}."
+        }
+        M::BlockedNoFolder => {
+            "Leurs auteurs ne permettent pas aux lanceurs de les télécharger. Téléchargez-les dans votre navigateur, puis choisissez le dossier où ils ont été enregistrés."
+        }
+        M::BlockedOpen => "Ouvrir la page de téléchargement",
+        M::BlockedOpenAll => "Ouvrir toutes les pages",
+        M::BlockedAdded => "Ajouté",
+        M::BlockedWaiting => "En attente de {file}",
+        M::BlockedChangeFolder => "Surveiller un autre dossier…",
+        M::BlockedSkip => "Ignorer le reste",
+        M::WatchFolderPrompt => "Surveiller ce dossier",
+        M::CouldntAddDownload => "Impossible d’ajouter {name}\u{a0}: {error}",
+        M::AddedDownloads => "{names} ajouté(s).",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
     match message {
-        P::ResourcePacksEnabled => [
-            "{count} pack de ressources (activés\u{a0}: {enabled})",
-            "{count} packs de ressources (activés\u{a0}: {enabled})",
-        ],
-        P::ModsEnabled => [
-            "{count} mod (activés\u{a0}: {enabled})",
-            "{count} mods (activés\u{a0}: {enabled})",
-        ],
-        P::ShaderPacks => ["{count} pack de shaders", "{count} packs de shaders"],
         P::Downloads => ["{count} téléchargement", "{count} téléchargements"],
         P::Follows => ["{count} abonné", "{count} abonnés"],
         P::Followers => ["{count} abonné", "{count} abonnés"],

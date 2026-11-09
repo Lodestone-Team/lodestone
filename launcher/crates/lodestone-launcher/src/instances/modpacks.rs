@@ -1,16 +1,22 @@
-//! Modpacks: importing a `.mrpack` (a file, or a version from Modrinth) as a new
-//! instance in the background, and updating an instance to another version of its pack.
+//! Modpacks: importing a `.mrpack` (a file, or a version from Modrinth) or a CurseForge
+//! pack (a `.zip` with `manifest.json`, or a file from CurseForge) as a new instance in
+//! the background, and updating an instance to another version of its pack.
 //! The work is `launcher_core::modpack`'s; this keeps the jobs and their progress.
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use gpui::{AppContext as _, Context, SharedString, Task};
 use launcher_core::{
-    content::{Modrinth, install::InstallProgress},
+    content::{
+        Modrinth, Platforms,
+        curseforge::{CfFile, CfMod},
+        curseforge_install::CfPlannedFile,
+        install::InstallProgress,
+    },
     game::{download::CancelToken, install::Installer, loaders::LoaderKind},
     instances::{Instance, Loader},
     modpack::{
-        self, ModpackError, ModpackRecord, PackInfo,
+        self, CurseForgePack, ModpackError, ModpackRecord, PackInfo,
         import::{self, ImportOptions},
         update::{self, UpdatePlan},
     },
@@ -99,6 +105,8 @@ struct Source {
     downloaded: bool,
     record: ModpackRecord,
     name: Option<String>,
+    /// A CurseForge pack to download first, with its project (for the icon).
+    curseforge: Option<(CfMod, CfFile)>,
 }
 
 /// The loader the instance gets for a pack, with Forge's list for old Forge builds.
@@ -153,14 +161,18 @@ impl Instances {
         cx.notify();
     }
 
-    /// Imports `.mrpack` files (from "Import .mrpack…" or a drop). Others are refused.
+    /// Imports `.mrpack` files and CurseForge packs (`.zip` files with `manifest.json`),
+    /// from "Import…" or a drop. Others are refused.
     pub fn import_files(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         for path in paths {
-            let is_mrpack = path
+            let extension = path
                 .extension()
                 .and_then(|e| e.to_str())
-                .is_some_and(|e| e.eq_ignore_ascii_case("mrpack"));
-            if !is_mrpack {
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_default();
+            let is_pack = extension == "mrpack"
+                || (extension == "zip" && modpack::curseforge::is_curseforge_pack(&path));
+            if !is_pack {
                 cx.emit(InstancesEvent::LaunchFailed {
                     title: t(M::NotAModpack).into(),
                     message: tr!(
@@ -184,11 +196,49 @@ impl Instances {
                     downloaded: false,
                     record: ModpackRecord::default(),
                     name: None,
+                    curseforge: None,
                 },
                 None,
                 cx,
             );
         }
+    }
+
+    /// Downloads the CurseForge modpack `file` of `project` and imports it, named `name`
+    /// (or the project's name).
+    pub fn import_curseforge(
+        &mut self,
+        project: CfMod,
+        file: CfFile,
+        name: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let record = ModpackRecord {
+            title: project.name.clone(),
+            slug: project.slug.clone(),
+            version_number: file.display_name_or_file().to_string(),
+            date_published: file.file_date.clone(),
+            curseforge: Some(CurseForgePack {
+                project_id: project.id,
+                file_id: file.id,
+                file_date: file.file_date.clone(),
+                page_url: project.page_url(),
+            }),
+            ..ModpackRecord::default()
+        };
+        let title = name.clone().unwrap_or_else(|| project.name.clone());
+        self.start_import(
+            title,
+            Source {
+                pack_path: PathBuf::new(),
+                downloaded: true,
+                record,
+                name,
+                curseforge: Some((project, file)),
+            },
+            None,
+            cx,
+        );
     }
 
     /// Downloads `version` of the modpack `project` and imports it, named `name` (or the
@@ -209,6 +259,7 @@ impl Instances {
                 downloaded: true,
                 record,
                 name,
+                curseforge: None,
             },
             Some(version),
             cx,
@@ -225,6 +276,7 @@ impl Instances {
         let Some(api) = self.modrinth.clone() else {
             return;
         };
+        let cf = self.curseforge.clone();
         self.next_import += 1;
         let id = self.next_import;
         let progress = Arc::new(InstallProgress::default());
@@ -248,12 +300,41 @@ impl Instances {
                     )
                     .await?;
                 }
+                if let Some((_, file)) = &source.curseforge {
+                    let cf = cf
+                        .as_deref()
+                        .ok_or_else(|| ModpackError::Invalid(t(M::CurseForgeUnreachable).into()))?;
+                    if !file.downloadable() {
+                        return Err(ModpackError::Invalid(t(M::CurseForgePackOnWebsite).into()));
+                    }
+                    source.pack_path = modpack::curseforge::download(
+                        cf,
+                        &downloader,
+                        file,
+                        store.root(),
+                        &progress,
+                        &cancel,
+                    )
+                    .await?;
+                }
                 let result = async {
                     progress.set_label(t(M::ReadingModpack));
-                    let pack = modpack::read_pack(&source.pack_path)?;
+                    let from_curseforge =
+                        modpack::curseforge::is_curseforge_pack(&source.pack_path);
+                    let (pack, blocked): (PackInfo, Vec<CfPlannedFile>) = if from_curseforge {
+                        let cf = cf.as_deref().ok_or_else(|| {
+                            ModpackError::Invalid(t(M::CurseForgeUnreachable).into())
+                        })?;
+                        let read = modpack::curseforge::read_curseforge_pack(&source.pack_path)?;
+                        let resolved = modpack::curseforge::resolve(cf, Some(&api), &read).await?;
+                        (resolved.info, resolved.blocked)
+                    } else {
+                        (modpack::read_pack(&source.pack_path)?, Vec::new())
+                    };
                     let mut record = source.record.clone();
                     let mut icon_url = record.icon_url.clone();
-                    if !record.on_modrinth()
+                    if !from_curseforge
+                        && !record.on_modrinth()
                         && let Some((found, icon)) = identify(&api, &source.pack_path).await
                     {
                         record = found;
@@ -266,14 +347,18 @@ impl Instances {
                         record.version_number = pack.version_number.clone().unwrap_or_default();
                     }
                     let loader = resolve_loader(&installer, &pack).await?;
-                    let icon = match &icon_url {
-                        Some(url) => api.image(url).await.ok(),
-                        None => None,
+                    let icon = match (&icon_url, &source.curseforge, cf.as_deref()) {
+                        (Some(url), _, _) => api.image(url).await.ok(),
+                        (None, Some((project, _)), Some(cf)) => match project.icon_url() {
+                            Some(url) => cf.image(url).await.ok(),
+                            None => None,
+                        },
+                        _ => None,
                     };
                     let name = source.name.clone().unwrap_or_else(|| record.title.clone());
-                    import::import(
+                    import::import_with(
                         &store,
-                        Some(&api),
+                        Platforms::new(Some(&api), cf.as_deref()),
                         &downloader,
                         &source.pack_path,
                         &pack,
@@ -287,7 +372,7 @@ impl Instances {
                         &cancel,
                     )
                     .await
-                    .map(|instance| (instance, pack))
+                    .map(|instance| (instance, pack, blocked))
                 }
                 .await;
                 if source.downloaded {
@@ -301,15 +386,19 @@ impl Instances {
             this.update(cx, |this, cx| {
                 this.imports.retain(|job| job.id != id);
                 match result {
-                    Ok((instance, pack)) => {
+                    Ok((instance, pack, blocked)) => {
                         this.selected = Some(instance.id.clone());
+                        let to_download = blocked.len();
+                        if !blocked.is_empty() {
+                            this.pending_downloads.insert(instance.id.clone(), blocked);
+                        }
                         this.reload(cx);
                         let ready = tr!(
                             M::ModpackReadyMessage,
                             version = instance.game_version,
                             loader = super::loader_label(&instance),
                         );
-                        let message = match pack.skipped.first() {
+                        let mut message = match pack.skipped.first() {
                             None => ready,
                             Some(first) => tr!(
                                 M::TwoSentences,
@@ -321,6 +410,13 @@ impl Instances {
                                 )
                             ),
                         };
+                        if to_download > 0 {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(P::PackFilesToDownload, to_download)
+                            );
+                        }
                         cx.emit(InstancesEvent::Notice {
                             title: tr!(M::ModpackReady, name = instance.name).into(),
                             message: message.into(),

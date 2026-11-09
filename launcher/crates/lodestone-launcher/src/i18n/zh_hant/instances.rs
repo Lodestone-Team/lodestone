@@ -40,14 +40,14 @@ pub fn text(message: M) -> &'static str {
         M::EveryFileIntact => "所有檔案皆完好無缺。{summary}",
         M::ModpackUpdating => "模組包正在更新",
         M::WaitForUpdate => "請等待更新完成，再按「開始遊戲」。",
-        M::StopBeforeDeleting => "請先停止遊戲，再刪除其實例。",
-        M::CouldntSavePlayed => "無法儲存遊玩時間點：{error}",
+        M::StopBeforeDeleting => "請先停止遊戲，再刪除該實例。",
+        M::CouldntSavePlayed => "無法儲存上次遊玩時間：{error}",
         M::CouldntSavePlayTime => "無法儲存遊戲時數：{error}",
         M::ModpackExported => "模組包已匯出",
         M::CouldntExportModpack => "無法匯出模組包",
         M::CouldntSwitchLoader => "無法切換至模組載入器",
         M::NoModLoaderFor => {
-            "Lodestone Launcher 支援的模組載入器都無法在 Minecraft {version} 上執行：Fabric 從 1.14 起才支援，而 Forge 沒有適用於該版本的建置。"
+            "Lodestone Launcher 支援的模組載入器都無法在 Minecraft {version} 上執行：Fabric 從 1.14 起才支援，而 Forge 沒有適用於該版本的組建。"
         }
         M::SwitchedTo => "已切換至 {loader}",
         M::SwitchedToMessage => {
@@ -62,11 +62,11 @@ pub fn text(message: M) -> &'static str {
         M::LogEmpty => "按下「開始遊戲」後，遊戲輸出會顯示在這裡。",
         M::NoLinesMatch => "沒有符合篩選條件的行。",
         M::JumpToLatest => "跳至最新",
-        M::CopyLog => "拷貝日誌",
+        M::CopyLog => "複製日誌",
 
         M::ImportTitle => "從其他啟動器匯入",
         M::ImportFromHere => "從這裡匯入",
-        M::LinksLeftOut => "已略過指向遊戲資料夾以外的連結。",
+        M::LinksLeftOut => "已略過指向遊戲資料夾以外的符號連結。",
         M::NewestRelease => "最新正式版",
         M::NewestSnapshot => "最新快照版",
         M::NoInstances => "沒有實例。",
@@ -78,9 +78,9 @@ pub fn text(message: M) -> &'static str {
         M::FindingVersion => "正在確認版本和載入器",
         M::Imported => "已匯入",
         M::ImportedNote => "已匯入。{note}",
-        M::Copying => "正在拷貝 {done} / {total}",
+        M::Copying => "正在複製 {done} / {total}",
         M::MatchingModrinth => "正在將模組和資源包與 Modrinth 比對",
-        M::CheckToImport => "勾選要匯入的實例。其檔案會被拷貝，原啟動器中的檔案維持不變。",
+        M::CheckToImport => "勾選要匯入的實例。其檔案會被複製，原啟動器中的檔案維持不變。",
         M::LeaveWorldsOut => "不匯入世界",
         M::LeaveWorldsOutSize => "不匯入世界（{size}）",
         M::Import => "匯入",
@@ -88,7 +88,15 @@ pub fn text(message: M) -> &'static str {
         M::StopAndClose => "停止並關閉",
 
         M::NotAModpack => "不是模組包",
-        M::NotMrpack => "{name} 不是 .mrpack 檔案。Modrinth 模組包的副檔名為 .mrpack。",
+        M::NotMrpack => {
+            "{name} 不是模組包。Modrinth 模組包的副檔名為 .mrpack，CurseForge 模組包是含有 manifest.json 的 .zip 檔案。"
+        }
+        M::CurseForgeUnreachable => {
+            "這是 CurseForge 模組包，而此 Lodestone Launcher 無法連線至 CurseForge。"
+        }
+        M::CurseForgePackOnWebsite => {
+            "此模組包只能從 CurseForge 網站下載。請在網站上下載，然後將 .zip 拖曳到 Lodestone Launcher 上。"
+        }
         M::Modpack => "模組包",
         M::ReadingModpack => "正在讀取模組包",
         M::ModpackReady => "{name} 已準備就緒",
@@ -105,13 +113,14 @@ pub fn text(message: M) -> &'static str {
         M::UpdatedButNotSaved => "檔案已更新，但無法儲存實例：{error}",
         M::DownloadingName => "正在下載 {name}",
         M::InstallingName => "正在安裝 {name}",
-        M::CopyingConfigs => "正在拷貝模組包的設定檔",
+        M::CopyingConfigs => "正在複製模組包的設定檔",
         M::RecordingFiles => "正在記錄模組包的檔案",
         M::SavingSnapshot => "正在儲存實例檔案的快照",
         M::BackingUp => "正在備份 {name}",
         M::UpdatingTo => "正在更新至 {version}",
 
         M::SearchModpacks => "在 Modrinth 上搜尋模組包，或貼上 Modrinth 連結",
+        M::SearchModpacksCurseForge => "在 CurseForge 上搜尋模組包",
         M::SortRelevance => "相關性",
         M::SortDownloads => "下載次數",
         M::SortFollows => "追蹤數",
@@ -128,7 +137,7 @@ pub fn text(message: M) -> &'static str {
         M::PickModpack => "選擇一個模組包以查看其版本。",
         M::LoadingModpack => "正在載入模組包",
         M::Versions => "版本",
-        M::Description => "說明",
+        M::Description => "簡介",
         M::NoVersions => "此模組包沒有任何版本。",
         M::LoadingVersions => "正在載入版本",
     }
@@ -143,12 +152,19 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FilesRepaired => ["已重新下載 {count} 個遺失或損毀的檔案。{summary}"; 2],
         P::BrokenFolders => ["有 {count} 個實例資料夾無法讀取，例如 {path}。"; 2],
         P::FilesSaved => ["已將 {count} 個檔案儲存至 {path}。"; 2],
+        P::CurseForgeLeftOut => {
+            ["有 {count} 個檔案僅在 CurseForge 上，CurseForge 的檔案不能放進 Modrinth 模組包，因此已略過：{names}。";
+                2]
+        }
         P::FilesLeftOut => ["有 {count} 個檔案被略過，例如 {name}。"; 2],
         P::LinesShown => ["顯示 {shown} 行，共 {count} 行"; 2],
         P::LinesShownFollowing => ["顯示 {shown} 行，共 {count} 行 · 自動捲動"; 2],
         P::ProblemAndMore => ["{problem}（另有 {count} 個問題）"; 2],
-        P::InstancesToCopy => ["將拷貝 {count} 個實例，共 {size}。"; 2],
+        P::InstancesToCopy => ["將複製 {count} 個實例，共 {size}。"; 2],
         P::ImportInstances => ["匯入 {count} 個實例"; 2],
+        P::PackFilesToDownload => {
+            ["有 {count} 個檔案需要從 CurseForge 網站下載：實例的「內容」分頁會列出它們。"; 2]
+        }
         P::PackFilesLeftOut => ["模組包中有 {count} 個檔案被略過，例如 {path}。"; 2],
         P::WorldsBackedUp => ["已先備份 {count} 個世界。"; 2],
         P::DownloadingFiles => ["正在下載 {count} 個檔案"; 2],

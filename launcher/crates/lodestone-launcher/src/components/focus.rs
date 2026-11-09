@@ -28,7 +28,7 @@ use gpui::{
     Subscription, WeakFocusHandle, Window, actions, div, point, prelude::FluentBuilder as _,
 };
 
-use crate::theme::{colors, focus_ring_width};
+use crate::theme::focus_ring_width;
 
 actions!(
     focus,
@@ -67,7 +67,7 @@ pub(super) fn init(cx: &mut App) {
 /// as a ring around an element with an opaque background; see [`inner_ring`].
 pub fn ring(style: StyleRefinement) -> StyleRefinement {
     style.shadow(vec![BoxShadow {
-        color: colors::BLUE_FADED.opacity(50).into(),
+        color: crate::theme::accent::faded().opacity(50).into(),
         offset: point(px(0.), px(0.)),
         blur_radius: px(0.),
         spread_radius: focus_ring_width(),
@@ -80,7 +80,7 @@ pub fn ring(style: StyleRefinement) -> StyleRefinement {
 /// would show as a tint over its whole area.
 pub fn inner_ring(style: StyleRefinement) -> StyleRefinement {
     style.shadow(vec![BoxShadow {
-        color: colors::BLUE_FADED.into(),
+        color: crate::theme::accent::faded().into(),
         offset: point(px(0.), px(0.)),
         blur_radius: px(0.),
         spread_radius: focus_ring_width() / 2.,
