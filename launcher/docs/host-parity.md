@@ -148,15 +148,22 @@ shows for a core with the `macros` capability and then says scripting is unavail
 - **Packaging and updates** (§8.7): no release packaging, signing or updater for the
   Host yet. The Tauri Host's updater feed is different from the launcher's channels;
   the Host should use the launcher's (`launcher_core::update`) with its own channel.
-- **Light theme** (§1.8): `lodestone-ui`'s theme is dark only. A light theme touches
-  the shared theme and every component; do it in one dedicated change.
+- **Light theme** (§1.8): done (D). `lodestone_ui::theme::palette` maps every `Color`
+  to the dashboard's light tokens when the Host turns it on, so components keep naming
+  the dark tokens; the launcher never turns it on. Colours made with `Color::mix` (a
+  switch moving) and opaque `WHITE` (text on accent buttons) aren't mapped. Pages that
+  draw their own colours (charts, the console's palette, the editor) should check
+  `palette::is_light()` where the dashboard has light values of its own.
 - **Text editor** (§5): the dashboard uses Monaco. `TextInput` is single-line; package
   B needs a multi-line, scrollable editor (ideally in `lodestone-ui`), with syntax
   colouring as a later step.
 - **Charts** (§3): no chart component yet; package A draws the performance graphs
   (GPUI `canvas` paths).
-- **Error messages** of `CoreError` mention "Lodestone Launcher" in a few places; make
-  them app-neutral when touching `cores/client.rs`.
+- **Error messages** of `CoreError` and `ClaimError`: done (D). They name
+  `launcher_core::wording::app_name()`, which the Host sets to "Lodestone Host" at start.
+- **The setup key** (done, D): the core no longer writes its first-time setup key to its
+  log files; it prints it to the console only, and not at all with `--is-host` (the Host
+  makes the owner through the local claim and never needs it).
 - The session token lasts 60 days; a Host left running that long signs in again when
   the core refuses it (handled by `HostEvent::SignedOut`).
 
@@ -385,20 +392,23 @@ Conventions in the code that every area relies on:
 ### 1.7 Notifications (`data/NotificationContext.tsx`, `data/EventStream.ts`, `components/DashboardLayout/Notification*.tsx`, `components/Atoms/NotificationCard.tsx`)  
 **Package: D.**
 
-- [ ] Event history on sign-in: `GET /events/all/buffer?filter=<EventQuery JSON, all null>` → replay
+- [x] Event history on sign-in: `GET /events/all/buffer?filter=<EventQuery JSON, all null>` → replay
   (non-console) events as non-fresh; failure toast "Couldn't load past events" (id `eventBufferError`);
   "historyLoaded" flag drives skeleton.
-- [ ] Live events: WS `/events/all/stream?filter=<EventQuery JSON with bearer_token>` (console-type events
+  - *Host:* notifications.rs (event_history); a failure is an error toast.
+- [x] Live events: WS `/events/all/stream?filter=<EventQuery JSON with bearer_token>` (console-type events
   `InstanceOutput/InstanceInput/SystemMessage` ignored here).
-- [ ] Notification list: max 200, deduped by snowflake; each item has title, message, timestamp (from
+  - *Host:* HostState's event stream; notifications.rs follows its HostEvent::Core.
+- [x] Notification list: max 200, deduped by snowflake; each item has title, message, timestamp (from
   snowflake: `(id >> 22) + 1667530800000`), level (Info/Warning/Error), fresh flag.
-- [ ] Ongoing (progress) notifications from `ProgressionEvent`: Start (title, total, start value) → Update
+- [x] Ongoing (progress) notifications from `ProgressionEvent`: Start (title, total, start value) → Update
   (add `progress`, message; clamp to total) → End (moves to normal list with end message). Progress shown
   as bar (capped at 99 % while ongoing).
-- [ ] Bell icon in top bar with red dot when a new fresh notification or any ongoing one arrives; cleared
+- [x] Bell icon in top bar with red dot when a new fresh notification or any ongoing one arrives; cleared
   on click. Popover 480 px wide, 80 vh: title, "In progress" section, "All notifications" section
   (newest first), skeleton while history loads, empty state.
-- [ ] Notification titles produced per event (i18n `shell.event.*`): state transitions per state
+  - *Host:* A panel under the bell; the system's notification for a crashed server while the window is in the background, and for a core that can't start (osascript on macOS, notify-send on Linux; none on Windows yet).
+- [x] Notification titles produced per event (i18n `shell.event.*`): state transitions per state
   (`Starting/Running/Stopping/Stopped/Error` "<name> is …"), instance warning (+ error toast
   "warningToast"), instance error, players joined/left/both, player chat message, API key created/revoked,
   macro started/detached/stopped (with exit status type), playit runner started/loading/stopped.
@@ -415,18 +425,21 @@ Conventions in the code that every area relies on:
 ### 1.8 Theme, language, zoom, keyboard  
 **Package: D.**
 
-- [ ] Theme preference `system | light | dark` in `localStorage.theme`; system follows OS live; syncs across
+- [x] Theme preference `system | light | dark` in `localStorage.theme`; system follows OS live; syncs across
   tabs; applied before first paint; Tauri window theme set to match (`setTheme(null)` for system) —
   `utils/theme.ts`, `components/Settings/AppearanceSetting.tsx` (segmented control with per-option hint).
+  - *Host:* prefs.rs saves it in settings.json; the light theme is lodestone_ui::theme::palette (the dashboard's light tokens), and System follows the OS live.
 - [ ] Separate light/dark colour tokens, graph colours, Monaco themes (`lodestone-dark` bg `#26282C`,
   `lodestone-light` white), console palette per theme — `globals.css`, `light-overrides.css`.
-- [ ] Languages: English, Français, 简体中文 (zh-Hans), 繁體中文 (zh-Hant); preference `auto` (browser
+- [x] Languages: English, Français, 简体中文 (zh-Hans), 繁體中文 (zh-Hant); preference `auto` (browser
   languages; zh-TW/HK/MO → Hant) or explicit, `localStorage.language`; `<html lang>` set; plural forms via
   `Intl.PluralRules`; locale-aware number/date/relative-time/bytes/list formatting — `i18n/*`,
   `components/Settings/LanguageSetting.tsx`. ~1,600 message keys in `i18n/en.ts`.
-- [ ] Zoom (Tauri only): Ctrl/⌘ `+`/`=`/NumpadAdd zoom in, `-`/NumpadSubtract out, `0` reset; levels
+  - *Host:* Profile › Appearance; saved in settings.json.
+- [x] Zoom (Tauri only): Ctrl/⌘ `+`/`=`/NumpadAdd zoom in, `-`/NumpadSubtract out, `0` reset; levels
   0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2; persisted `localStorage.lodestone-zoom` —
   `utils/zoom.ts`, `utils/zoomLevels.ts`.
+  - *Host:* lodestone-ui's levels (67–200%); saved in settings.json; also on Profile › Appearance.
 - [ ] Other keyboard behaviour: Ctrl/⌘+S saves in file editor; ↑/↓ console command history; Enter saves /
   Esc cancels inline-edit text fields (`components/EditableTextfield.tsx`); Esc resets a setting input
   (`components/Atoms/Config/InputBox.tsx`); Esc in settings modal closes the narrow-window page list first,
@@ -824,22 +837,23 @@ Conventions in the code that every area relies on:
 ### 7.1 Core › General — `pages/settings/CoreSettings.tsx`  
 **Package: D.**
 
-- [ ] Data: `GET /global_settings` → `GlobalSettingsData {core_name, safe_mode, domain, playit_enabled,
+- [x] Data: `GET /global_settings` → `GlobalSettingsData {core_name, safe_mode, domain, playit_enabled,
   code_execution_enabled, code_execution_locked, allow_lan_http, list_instances_publicly,
   allow_local_claim}`; `GET /info`. Edits only by owner (`is_owner`); others see read-only values.
-- [ ] Warning banner when `allow_lan_http` is on (owner/other wording).
-- [ ] **Core** section:
+- [x] Warning banner when `allow_lan_http` is on (owner/other wording).
+- [x] **Core** section:
   - Core name: text, not empty, ≤32 → `PUT /global_settings/name`.
   - Public domain/IP: text, may be empty, ≤253, placeholder current address, tooltip → `PUT
     /global_settings/domain`. Used for "Copy IP" everywhere.
   - Enable Playit.gg toggle → `PUT /global_settings/playit_enabled` then `POST /playitgg/stop_cli`.
-- [ ] **Public instances** section (owner, cores that support it): "List instances publicly" toggle →
+- [x] **Public instances** section (owner, cores that support it): "List instances publicly" toggle →
   `PUT /global_settings/list_instances_publicly`; per-instance Public toggle + Status/Address/Client pack
   checkboxes for every Minecraft Java instance from `GET /public_listing` → `PublicListingOverview` (same
   row component as §6.1, `PUT /instance/{uuid}/public_listing`); "No servers" empty row.
-- [ ] **Information** (read-only): Core version, Dashboard version, OS, Architecture, CPU, CPU cores, Total
+- [x] **Information** (read-only): Core version, Dashboard version, OS, Architecture, CPU, CPU cores, Total
   RAM, HTTPS certificate mode (self-signed / user-provided / none), certificate SHA-256 fingerprint.
-- [ ] **Danger zone**:
+  - *Host:* Shows the Lodestone Host version where the dashboard shows its own.
+- [x] **Danger zone**:
   - Safe mode toggle (turning on saves; turning off asks confirm) → `PUT /global_settings/safe_mode`.
   - Code execution toggle (owner; disabled if locked, with "locked by administrator" note; hint differs
     when core has no Deno: only custom Java commands) → turning off asks danger confirm → `PUT
@@ -849,20 +863,21 @@ Conventions in the code that every area relies on:
   - Allow local claim (owner, if supported) → `PUT /global_settings/allow_local_claim`.
   - Open port (UPnP): button (owner) → modal with port (1–65535, default 25565) → `PUT
     /gateway/open_port/{port}`; error inline; toast "Port N opened".
-- [ ] All setting PUTs send a JSON value body; success → "Saved" toast and cache update.
+- [x] All setting PUTs send a JSON value body; success → "Saved" toast and cache update.
 
 ### 7.2 Core › Users — `pages/settings/UserSettings.tsx`, `components/UserBox.tsx`, `components/Settings/*`  
 **Package: D.**
 
-- [ ] User list only fetched for the owner: `GET /user/list` → `PublicUser[]`. Selected user in `?user=`.
-- [ ] List view: "All members (N)", **Create user** button, rows (avatar, name — click opens user, tags
+- [x] User list only fetched for the owner: `GET /user/list` → `PublicUser[]`. Selected user in `?user=`.
+  - *Host:* The selected user is the page's own state (no URL).
+- [x] List view: "All members (N)", **Create user** button, rows (avatar, name — click opens user, tags
   You/Admin/Owner, "…" menu: **Change password**, **Delete user** (disabled for self)).
   - Create user dialog: Username (required), Password (required), Confirm (match) → `POST /user
     {username,password}` → `PublicUser`; added to list.
   - Change password dialog: self → Old password + new + confirm; other user → new + confirm (no old) →
     `PUT /user/{uid}/password {uid, old_password|null, new_password}`; error box.
   - Delete user confirm → `DELETE /user/{uid}`; removed from cache (no error handling).
-- [ ] User detail view (header "username · All users" link):
+- [x] User detail view (header "username · All users" link):
   - **Permissions** (normal): `can_create_instance`, `can_delete_instance`, `can_read_global_file` (toggles);
     `can_view_instance`, `can_start_instance`, `can_stop_instance`, `can_access_instance_console`,
     `can_access_instance_setting`, `can_read_instance_resource`, `can_read_instance_file` (per-instance
@@ -876,46 +891,48 @@ Conventions in the code that every area relies on:
   - Not editable/listed: `can_access_instance_macro`, `can_install_extension`.
   - **API keys** of that user (§7.4, revoke only).
   - **Minecraft accounts** of that user (owner): list + Remove (§7.5).
-- [ ] Non-owners see no user list (the page is effectively empty for them).
+- [x] Non-owners see no user list (the page is effectively empty for them).
+  - *Host:* Non-owners see a line saying only the owner manages users.
 
 ### 7.3 Account › Profile — `pages/settings/profile.tsx`  
 **Package: D.**
 
-- [ ] Toast warning if not logged in; skeleton while loading.
-- [ ] Username (inline save) → `PUT /user/{uid}/rename` (JSON string); updates self + list caches.
-- [ ] Password: **Change password** button → dialog (old/new/confirm) → `PUT /user/{uid}/password`.
-- [ ] **Appearance**: Language select (§1.8), Theme segmented control (§1.8), "Coloured console" toggle
+- [x] Toast warning if not logged in; skeleton while loading.
+  - *Host:* Not needed: the Host is always signed in.
+- [x] Username (inline save) → `PUT /user/{uid}/rename` (JSON string); updates self + list caches.
+- [x] Password: **Change password** button → dialog (old/new/confirm) → `PUT /user/{uid}/password`.
+- [x] **Appearance**: Language select (§1.8), Theme segmented control (§1.8), "Coloured console" toggle
   (local only).
-- [ ] **API keys** section (own keys, §7.4).
-- [ ] **Minecraft accounts** section (own links, §7.5).
+- [x] **API keys** section (own keys, §7.4).
+- [x] **Minecraft accounts** section (own links, §7.5).
 
 ### 7.4 API keys — `components/Settings/ApiKeys/*`, `data/ApiKeys.ts`  
 **Package: D.**
 
-- [ ] Own keys: `GET /user/api_keys` (refetched every visit) → `ApiKeyInfo[]`. Other user's keys (owner/
+- [x] Own keys: `GET /user/api_keys` (refetched every visit) → `ApiKeyInfo[]`. Other user's keys (owner/
   admin): `GET /user/{uid}/api_keys`. 4xx not retried; 403 for API-key sessions shown as "only from a
   signed-in session".
-- [ ] Key row: name, display prefix `lsk_<id>_…`, scope summary ("Full access", "Custom: N servers, M
+- [x] Key row: name, display prefix `lsk_<id>_…`, scope summary ("Full access", "Custom: N servers, M
   permissions", launcher variants with/without console read/write), Created date, Expires/Expired (red)/
   Never, Last used ("x ago"/never); **Revoke** → confirm → `DELETE /user/api_keys/{id}` or
   `DELETE /user/{uid}/api_keys/{id}`; toast.
-- [ ] **Create key** dialog (own only): Name (required, ≤64), Expires in (30 days / 90 days (default) /
+- [x] **Create key** dialog (own only): Name (required, ≤64), Expires in (30 days / 90 days (default) /
   1 year / Never — warning for Never), Access (Full / Custom). Custom → scope editor with the same
   permission list as §7.2, limited to what the user can grant (owner all; admin implicit set: view, start,
   stop, console, settings, read resource, read file, create, delete; else own grants); per-instance grids
   with non-grantable instances disabled; must pick ≥1 permission. → `POST /user/api_keys
   CreateApiKeyRequest {name, expires_at (unix s|null), scope}` → `CreatedApiKey {key, info}`.
-- [ ] **New key** dialog (can't be dismissed by Esc/backdrop, only Done): key in a copyable code block,
+- [x] **New key** dialog (can't be dismissed by Esc/backdrop, only Done): key in a copyable code block,
   CLI example `LODESTONE_URL=<proto://addr:port> LODESTONE_TOKEN=<key> lodestone_cli instance list`
   (copyable), "store it now" warning; key never cached. Copy toasts never include the key.
 
 ### 7.5 Minecraft account links — `components/Settings/MinecraftLinks.tsx`, `data/MinecraftLinks.ts`  
 **Package: D.**
 
-- [ ] Own: `GET /user/minecraft_links` → `MinecraftLink[]`; remove `DELETE /user/minecraft_links/{mcUuid}`.
-- [ ] Owner, all users: `GET /minecraft_links` → `MinecraftLinkInfo[]`; remove `DELETE
+- [x] Own: `GET /user/minecraft_links` → `MinecraftLink[]`; remove `DELETE /user/minecraft_links/{mcUuid}`.
+- [x] Owner, all users: `GET /minecraft_links` → `MinecraftLinkInfo[]`; remove `DELETE
   /minecraft_links/{mcUuid}`.
-- [ ] Row: Minecraft name, UUID (mono), Remove (confirm). 404 → "core too old". Links are created in
+- [x] Row: Minecraft name, UUID (mono), Remove (confirm). 404 → "core too old". Links are created in
   Lodestone Launcher, not here.
 - [ ] Also used to annotate players (Overview) and console lines with Lodestone usernames.
 
@@ -1017,10 +1034,12 @@ Conventions in the code that every area relies on:
 - [ ] `tokens` — `{ "addr:port": token }`.
 - [ ] `latestVersion` — last seen core version (beta dialog).
 - [ ] `leftNavSize` (200–280), `fileListSize`.
-- [ ] `coloredConsole` (bool, default true).
-- [ ] `theme` (`system|light|dark`), `language` (`en|fr|zh-Hans|zh-Hant`, absent = auto).
-- [ ] `lodestone-zoom` (Host only).
-- [ ] `instanceDetailsOpen` (bool).
+- [x] `coloredConsole` (bool, default true).
+  - *Host:* prefs.rs: settings.json in the Host's folder (LODESTONE_HOST_DATA_DIR).
+- [x] `theme` (`system|light|dark`), `language` (`en|fr|zh-Hans|zh-Hant`, absent = auto).
+- [x] `lodestone-zoom` (Host only).
+- [x] `instanceDetailsOpen` (bool).
+  - *Host:* The field is in prefs.rs for package A's Details section.
 - [ ] sessionStorage `settingsReturnTo`.
 
 ---

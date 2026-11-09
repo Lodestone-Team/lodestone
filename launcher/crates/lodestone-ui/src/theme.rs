@@ -58,7 +58,103 @@ impl Color {
 
 impl From<Color> for Rgba {
     fn from(color: Color) -> Self {
-        gpui::rgba(color.0)
+        gpui::rgba(palette::map(color).0)
+    }
+}
+
+/// The dashboard's light theme ("Daylight lodestone", `globals.css` and
+/// `light-overrides.css`), for an app that offers it. Lodestone Host does; the launcher
+/// never turns it on, so its look doesn't change.
+///
+/// The dashboard's colours are CSS variables that the light theme sets again: the gray
+/// scale turns around (text becomes dark, surfaces light) and the bright accents get
+/// darker to stay readable on white. Here every [`Color`] passes through [`map`] when
+/// it becomes a GPUI colour, so components keep naming the dark tokens (`GRAY_800`,
+/// `ink::text()`) and draw the light ones while the theme is on. The colours the
+/// dashboard keeps in both themes (white on accent buttons, the `-faded` tints) stay.
+pub mod palette {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::Color;
+
+    static LIGHT: AtomicBool = AtomicBool::new(false);
+
+    /// Turns the light theme on or off. Windows need a refresh to show it.
+    pub fn set_light(light: bool) {
+        LIGHT.store(light, Ordering::Relaxed);
+    }
+
+    pub fn is_light() -> bool {
+        LIGHT.load(Ordering::Relaxed)
+    }
+
+    /// The logo for the current theme: a dark wordmark on the light theme
+    /// (`components/Atoms/Logo.tsx`).
+    pub fn logo() -> &'static str {
+        if is_light() {
+            "images/logo_light.svg"
+        } else {
+            "images/logo.svg"
+        }
+    }
+
+    /// `color` as the current theme draws it.
+    pub fn map(color: Color) -> Color {
+        if is_light() { light(color) } else { color }
+    }
+
+    /// `color` in the light theme.
+    pub fn light(color: Color) -> Color {
+        let rgb = color.0 >> 8;
+        let alpha = color.0 & 0xff;
+        if alpha == 0xff {
+            return match rgb {
+                0xE3E3E4 => Color::rgb(0x14171C),            // gray-300: text
+                0xA5A5AC => Color::rgb(0x474D58),            // gray-400 (and gray-faded)
+                0x767A82 => Color::rgb(0x5E6470),            // gray-500
+                0x67686A => Color::rgb(0xB9C0CB),            // gray-550
+                0x44464B => Color::rgb(0xE1E5EB),            // gray-600: selection
+                0x36393F => Color::rgb(0xF1F4F7),            // gray-700: hover
+                0x303338 => Color::rgb(0xF7F8FA),            // gray-750
+                0x2B2D32 => Color::rgb(0xFFFFFF),            // gray-800: cards, rows, buttons
+                0x26282C => Color::rgb(0xF7F8FA),            // gray-850: side panels, top bar
+                0x212327 => Color::rgb(0xECEFF3),            // gray-875: the page
+                0x1D1E21 => Color::rgb(0xF3F5F8),            // gray-900: inputs, console
+                0x69C9FF => Color::rgb(0x0E5D7D),            // blue-150
+                0x59B2F3 => Color::rgb(0x0F6E92),            // blue-200: links
+                0x1D8EB2 => Color::rgb(0x167FA3),            // blue-300
+                0x037AA0 => Color::rgb(0x126E8E),            // blue-400
+                0x2AF588 | 0x6DD277 => Color::rgb(0x1D7A3A), // green-200, green-300
+                0xFF5C5C | 0xCF4545 => Color::rgb(0xB4282C), // red-200, red
+                0xEFB440 => Color::rgb(0x8A5A00),            // yellow-300
+                0x111114 => Color::rgba(0x141E2D29),         // the shadows
+                _ => color,
+            };
+        }
+        match (rgb, alpha) {
+            // fade-700: the lines between rows
+            (0xD1D1DA, _) => Color::rgb(0xD6DBE3),
+            // gray-faded at the opacities the dashboard maps (`light-overrides.css`)
+            (0xA5A5AC, 0x1A) => Color::rgb(0xE1E5EB),
+            (0xA5A5AC, 0x40) => Color::rgb(0x7D838E),
+            (0xA5A5AC, 0x4D) => Color::rgb(0xD6DBE3),
+            (0xA5A5AC, 0x66) => Color::rgb(0xC9CFD8),
+            (0xA5A5AC, 0x80) => Color::rgb(0x7D838E),
+            (0xA5A5AC, 0xCC) => Color::rgb(0x474D58),
+            // pills and the selected fill
+            (0x3C85BA, 0x40) => Color::rgb(0xE2EFF6),
+            (0x3C85BA, 0x4D) => Color::rgb(0xD6E8F2),
+            (0xAE3232, 0x40) => Color::rgb(0xFBE6E6),
+            (0x61AE32, 0x40) => Color::rgb(0xE3F3E7),
+            (0xAE8B32, 0x40) => Color::rgb(0xFBF0D9),
+            // translucent white (muted text, hover lines) becomes translucent ink
+            (0xFFFFFF, _) => Color(0x14171C00 | alpha),
+            // the dim behind dialogs
+            (0x1D1E21, _) | (0x000000, _) => Color(0x141E2D00 | (alpha * 53 / 100)),
+            // other translucent grays: the same alpha of the light theme's ink
+            (0xA5A5AC, _) | (0xE3E3E4, _) | (0x767A82, _) => Color(0x5E647000 | alpha),
+            _ => color,
+        }
     }
 }
 
@@ -752,6 +848,61 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name} is not in the dashboard's colours"));
             assert_eq!(color.to_hex(), resolve(value), "{name}");
         }
+    }
+
+    #[test]
+    fn the_light_theme_matches_the_dashboards() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../dashboard/src/globals.css");
+        let css = fs::read_to_string(&path).unwrap();
+        let start = css.find("[data-theme='light'] {").unwrap();
+        let body = &css[start..start + css[start..].find('}').unwrap()];
+        let light: BTreeMap<String, String> = body
+            .lines()
+            .filter_map(|line| {
+                let (name, value) = line.trim().strip_prefix("--")?.split_once(':')?;
+                Some((
+                    name.trim().to_string(),
+                    value.trim().trim_end_matches(';').to_uppercase(),
+                ))
+            })
+            .collect();
+        use colors::*;
+        for (name, color) in [
+            ("gray-300", GRAY_300),
+            ("gray-500", GRAY_500),
+            ("gray-550", GRAY_550),
+            ("gray-600", GRAY_600),
+            ("gray-700", GRAY_700),
+            ("gray-750", GRAY_750),
+            ("gray-800", GRAY_800),
+            ("gray-850", GRAY_850),
+            ("gray-875", GRAY_875),
+            ("gray-900", GRAY_900),
+            ("fade-700", FADE_700),
+            ("blue-150", BLUE_150),
+            ("blue-200", BLUE_200),
+            ("blue-300", BLUE_300),
+            ("blue-400", BLUE_400),
+            ("green-200", GREEN_200),
+            ("green-300", GREEN_300),
+            ("red-200", RED_200),
+            ("red", RED),
+            ("yellow-300", YELLOW_300),
+        ] {
+            assert_eq!(palette::light(color).to_hex(), light[name], "{name}");
+        }
+        assert_eq!(palette::light(GRAY_400).to_hex(), light["gray-400"]);
+        // on-accent white and the tints stay; translucent white becomes ink
+        assert_eq!(palette::light(WHITE), WHITE);
+        assert_eq!(palette::light(BLUE_FADED), BLUE_FADED);
+        assert_eq!(palette::light(WHITE.opacity(50)), Color::rgba(0x14171C80));
+        assert_eq!(
+            palette::light(GRAY_FADED.opacity(30)).to_hex(),
+            light["line"]
+        );
+        // the dark theme is the default, and unchanged
+        assert!(!palette::is_light());
+        assert_eq!(palette::map(GRAY_800), GRAY_800);
     }
 
     #[test]

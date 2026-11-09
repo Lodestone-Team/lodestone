@@ -78,6 +78,16 @@ impl HostApp {
                 {
                     this.phase = Phase::Core;
                 }
+                // a core that can't start, while the window is in the background: say
+                // so with the system's notification, as the Tauri Host did
+                if let CoreStatus::Failed { reason, .. } = &this.supervisor.read(cx).status
+                    && crate::notifications::in_background(cx)
+                {
+                    crate::notifications::native::notify(
+                        crate::APP_NAME,
+                        &crate::i18n::tr!(crate::i18n::CoreMsg::CoreFailedNotice, error = reason),
+                    );
+                }
                 cx.notify();
             }
         });
@@ -86,12 +96,19 @@ impl HostApp {
             hide(window, cx);
             false
         });
+        // the theme follows the computer's light or dark setting, when set to
+        let appearance = window.observe_window_appearance(|window, cx| {
+            if crate::prefs::Prefs::apply_theme(window.appearance(), cx) {
+                cx.refresh_windows();
+            }
+        });
+        crate::prefs::Prefs::apply_theme(window.appearance(), cx);
         Self {
             supervisor,
             phase: Phase::Core,
             root_focus: cx.focus_handle(),
             _focus_lost: None,
-            _subscriptions: vec![subscription],
+            _subscriptions: vec![subscription, appearance],
             task: None,
         }
     }
@@ -317,10 +334,10 @@ impl HostApp {
         }
     }
 
+    /// Zooms in or out a step, and remembers it (`lodestone-zoom`).
     fn zoom_by(&mut self, up: bool, cx: &mut Context<Self>) {
         let zoom = theme::zoom::step(theme::zoom::get(), up);
-        theme::zoom::set(zoom);
-        cx.refresh_windows();
+        crate::prefs::Prefs::update(cx, |prefs| prefs.zoom = zoom);
     }
 }
 
@@ -388,8 +405,7 @@ impl Render for HostApp {
             .on_action(cx.listener(|this, _: &crate::ZoomIn, _, cx| this.zoom_by(true, cx)))
             .on_action(cx.listener(|this, _: &crate::ZoomOut, _, cx| this.zoom_by(false, cx)))
             .on_action(cx.listener(|_, _: &crate::ResetZoom, _, cx| {
-                theme::zoom::set(1.0);
-                cx.refresh_windows();
+                crate::prefs::Prefs::update(cx, |prefs| prefs.zoom = 1.0);
             }))
             .size_full()
             .flex()
