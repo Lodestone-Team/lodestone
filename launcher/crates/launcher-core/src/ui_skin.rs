@@ -159,6 +159,29 @@ pub enum Fit {
     Tile,
 }
 
+/// Whether the launcher keeps a surface's text readable on its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Readability {
+    /// Text colours (and a darker backing if needed) are worked out from the image,
+    /// so text keeps [`readable::BODY`] contrast.
+    #[default]
+    Auto,
+    /// The colours are used as given.
+    Off,
+}
+
+/// A surface's own text colours. With [`Readability::Auto`] they are starting points,
+/// made readable if they need to be.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primary: Option<Rgb>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted: Option<Rgb>,
+}
+
 /// The Play button's shape.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -186,6 +209,10 @@ pub struct SidebarSpec {
     /// Blur of the image, 0 to [`MAX_BLUR`] pixels, applied once when it loads.
     #[serde(default, skip_serializing_if = "is_default")]
     pub blur: u8,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub text: TextSpec,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub readability: Readability,
 }
 
 impl Default for SidebarSpec {
@@ -196,6 +223,8 @@ impl Default for SidebarSpec {
             tint: None,
             tint_opacity: tint_default(),
             blur: 0,
+            text: TextSpec::default(),
+            readability: Readability::Auto,
         }
     }
 }
@@ -214,6 +243,8 @@ pub struct BannerSpec {
     /// Each instance's Play background, faintly, behind its row in the sidebar.
     #[serde(default, skip_serializing_if = "is_default")]
     pub in_sidebar: bool,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub readability: Readability,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,6 +253,8 @@ pub struct HeroSpec {
     /// The Play tab's image for an instance without its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub readability: Readability,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -428,7 +461,7 @@ pub fn built_in(id: &str) -> Option<SkinSpec> {
                 fit: Fit::Tile,
                 tint: Some(Rgb(0x140E08)),
                 tint_opacity: 55,
-                blur: 0,
+                ..SidebarSpec::default()
             };
             spec.hero.image = Some("builtin:sky".into());
             spec.play = PlaySpec {
@@ -449,6 +482,7 @@ pub fn built_in(id: &str) -> Option<SkinSpec> {
                 tint: Some(Rgb(0x10131A)),
                 tint_opacity: 45,
                 blur: 16,
+                ..SidebarSpec::default()
             };
             spec.hero.image = Some("builtin:glass".into());
             spec.banner.in_sidebar = true;
@@ -469,7 +503,7 @@ pub fn built_in(id: &str) -> Option<SkinSpec> {
                 fit: Fit::Cover,
                 tint: Some(Rgb(0x07070C)),
                 tint_opacity: 92,
-                blur: 0,
+                ..SidebarSpec::default()
             };
             spec.hero.image = Some("builtin:grid".into());
             spec.play = PlaySpec {
@@ -961,6 +995,232 @@ fn tempdir_in(dir: &Path) -> io::Result<PathBuf> {
     Err(io::Error::other("no free folder to import into"))
 }
 
+/// Keeping text readable on a skin's images: measuring an image, and working out
+/// text colours (and a darker or lighter backing when colours can't do it alone) that
+/// keep a minimum contrast against it.
+pub mod readable {
+    use super::{Readability, Rgb, TextSpec};
+
+    /// The contrast body text and subtitles keep: WCAG AA.
+    pub const BODY: f32 = 4.5;
+    /// The contrast icons and large text keep.
+    pub const LARGE: f32 = 3.0;
+    /// The most backing a surface gets: past it the image would barely show.
+    pub const MAX_BACKING: f32 = 0.85;
+    /// The dark backing under light text.
+    pub const DARK: Rgb = Rgb(0x1D1E21);
+    /// The light backing under dark text.
+    pub const LIGHT: Rgb = Rgb(0xF4F6FB);
+
+    /// What an image looks like behind text: its average, and its light and dark
+    /// ends (the 90th and 10th percentiles of luminance), so a busy texture's bright
+    /// specks count without one stray pixel deciding.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Backdrop {
+        pub mean: Rgb,
+        pub light: Rgb,
+        pub dark: Rgb,
+    }
+
+    impl Backdrop {
+        /// A plain colour.
+        pub fn solid(color: Rgb) -> Self {
+            Self {
+                mean: color,
+                light: color,
+                dark: color,
+            }
+        }
+
+        /// The backdrop of `pixels` (sRGB, `0xRRGGBB`). `None` without pixels.
+        pub fn measure(pixels: impl IntoIterator<Item = Rgb>) -> Option<Self> {
+            let mut lit: Vec<(f32, Rgb)> = pixels.into_iter().map(|p| (p.luminance(), p)).collect();
+            if lit.is_empty() {
+                return None;
+            }
+            let n = lit.len() as f64;
+            let sums = lit.iter().fold([0f64; 3], |mut sum, (_, p)| {
+                sum[0] += ((p.0 >> 16) & 0xFF) as f64;
+                sum[1] += ((p.0 >> 8) & 0xFF) as f64;
+                sum[2] += (p.0 & 0xFF) as f64;
+                sum
+            });
+            let mean = Rgb(sums
+                .iter()
+                .fold(0u32, |acc, s| (acc << 8) | ((s / n).round() as u32 & 0xFF)));
+            lit.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let at = |q: f64| lit[((lit.len() - 1) as f64 * q).round() as usize].1;
+            Some(Self {
+                mean,
+                light: at(0.9),
+                dark: at(0.1),
+            })
+        }
+
+        /// The backdrop under a layer of `color` at `alpha` (0 to 1).
+        pub fn under(self, color: Rgb, alpha: f32) -> Self {
+            Self {
+                mean: self.mean.mix(color, alpha),
+                light: self.light.mix(color, alpha),
+                dark: self.dark.mix(color, alpha),
+            }
+        }
+    }
+
+    /// A surface's text colours: from the brightest to the faintest, and its icons.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Inks {
+        pub primary: Rgb,
+        pub secondary: Rgb,
+        pub muted: Rgb,
+        pub faint: Rgb,
+        pub icon: Rgb,
+    }
+
+    /// The launcher's own text colours on its dark panels.
+    pub const LIGHT_INKS: Inks = Inks {
+        primary: Rgb(0xE3E3E4),
+        secondary: Rgb(0xA5A5AC),
+        muted: Rgb(0x8A8E96),
+        faint: Rgb(0x7A7D84),
+        icon: Rgb(0x8E8E95),
+    };
+
+    /// Dark text, for light images.
+    pub const DARK_INKS: Inks = Inks {
+        primary: Rgb(0x111114),
+        secondary: Rgb(0x2B2D32),
+        muted: Rgb(0x3F4249),
+        faint: Rgb(0x4A4D55),
+        icon: Rgb(0x44464B),
+    };
+
+    /// The text colours worked out for a surface.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct Palette {
+        pub inks: Inks,
+        /// Dark text on a light backdrop.
+        pub dark_text: bool,
+        /// A backing over the image, under the text: [`DARK`] (or [`LIGHT`] under
+        /// dark text) at this opacity, 0 for none.
+        pub backing: f32,
+        /// The lowest contrast of the small text (secondary, muted, faint) against the
+        /// backdrop's worst end, after the backing.
+        pub contrast: f32,
+    }
+
+    impl Palette {
+        /// Whether all text reaches [`BODY`].
+        pub fn passes(&self) -> bool {
+            self.contrast + 0.005 >= BODY
+        }
+    }
+
+    /// The lowest contrast of `inks`' text against `backdrop`, for `dark_text`.
+    fn worst(inks: &Inks, backdrop: Backdrop, dark_text: bool) -> f32 {
+        // light text loses on the light end of the image, dark text on the dark end
+        let against = if dark_text {
+            backdrop.dark
+        } else {
+            backdrop.light
+        };
+        [inks.primary, inks.secondary, inks.muted, inks.faint]
+            .iter()
+            .map(|ink| ink.contrast(against))
+            .fold(f32::MAX, f32::min)
+    }
+
+    /// `ink` moved towards `extreme` (white for light text, near-black for dark) until
+    /// it keeps `min` contrast with `against`.
+    fn push(ink: Rgb, extreme: Rgb, against: Rgb, min: f32) -> Rgb {
+        if ink.contrast(against) >= min {
+            return ink;
+        }
+        (1..=20)
+            .map(|step| ink.mix(extreme, step as f32 / 20.0))
+            .find(|c| c.contrast(against) >= min)
+            .unwrap_or(extreme)
+    }
+
+    /// `inks` made readable against `against`: text to [`BODY`], icons to [`LARGE`].
+    fn adjust(inks: Inks, against: Rgb, dark_text: bool) -> Inks {
+        let extreme = if dark_text { Rgb(0x111114) } else { Rgb::WHITE };
+        Inks {
+            primary: push(inks.primary, extreme, against, BODY),
+            secondary: push(inks.secondary, extreme, against, BODY),
+            muted: push(inks.muted, extreme, against, BODY),
+            faint: push(inks.faint, extreme, against, BODY),
+            icon: push(inks.icon, extreme, against, LARGE),
+        }
+    }
+
+    /// The text colours for `backdrop`.
+    ///
+    /// With [`Readability::Auto`]: light text (or dark text, if the image is light
+    /// enough that dark text needs less help), each colour moved until it reaches its
+    /// contrast. Where even white (or black) can't, a backing is added, as light as
+    /// still works, so the image keeps showing. `text` gives starting colours.
+    ///
+    /// With [`Readability::Off`]: the colours as given, and no backing.
+    pub fn derive(backdrop: Backdrop, text: &TextSpec, readability: Readability) -> Palette {
+        let with = |mut inks: Inks| {
+            if let Some(primary) = text.primary {
+                inks.primary = primary;
+            }
+            if let Some(muted) = text.muted {
+                inks.muted = muted;
+                inks.faint = muted;
+            }
+            inks
+        };
+        if readability == Readability::Off {
+            let dark_text = text.primary.is_some_and(|p| p.luminance() < 0.3);
+            let inks = with(if dark_text { DARK_INKS } else { LIGHT_INKS });
+            return Palette {
+                inks,
+                dark_text,
+                backing: 0.0,
+                contrast: worst(&inks, backdrop, dark_text),
+            };
+        }
+        // the least backing with which the extreme colour (white or black) leaves
+        // room for the greys to reach BODY
+        let backing = |dark_text: bool| -> Option<f32> {
+            let (end, layer, extreme) = if dark_text {
+                (backdrop.dark, LIGHT, Rgb(0x111114))
+            } else {
+                (backdrop.light, DARK, Rgb::WHITE)
+            };
+            (0..=17)
+                .map(|step| step as f32 * 0.05)
+                .find(|&alpha| extreme.contrast(end.mix(layer, alpha)) >= BODY + 1.5)
+        };
+        let light = backing(false);
+        let dark = backing(true);
+        // dark text only when it needs clearly less help than light text
+        let dark_text = match (light, dark) {
+            (Some(l), Some(d)) => d + 0.2 < l,
+            (None, Some(_)) => true,
+            _ => false,
+        };
+        let alpha = (if dark_text { dark } else { light }).unwrap_or(MAX_BACKING);
+        let layer = if dark_text { LIGHT } else { DARK };
+        let seen = backdrop.under(layer, alpha);
+        let against = if dark_text { seen.dark } else { seen.light };
+        let inks = adjust(
+            with(if dark_text { DARK_INKS } else { LIGHT_INKS }),
+            against,
+            dark_text,
+        );
+        Palette {
+            inks,
+            dark_text,
+            backing: alpha,
+            contrast: worst(&inks, seen, dark_text),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1034,6 +1294,67 @@ mod tests {
         let mut bad = spec.clone();
         bad.sidebar.blur = 21;
         assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn backdrops_are_measured_by_their_ends() {
+        use readable::Backdrop;
+        // mostly dark, with 20% bright specks: the light end sees the specks
+        let pixels = (0..100).map(|i| {
+            if i % 5 == 0 {
+                Rgb(0xE0E0E0)
+            } else {
+                Rgb(0x202020)
+            }
+        });
+        let backdrop = Backdrop::measure(pixels).unwrap();
+        assert_eq!(backdrop.light, Rgb(0xE0E0E0));
+        assert_eq!(backdrop.dark, Rgb(0x202020));
+        assert!(backdrop.mean.luminance() > Rgb(0x202020).luminance());
+        assert!(Backdrop::measure(std::iter::empty()).is_none());
+        // a dark layer darkens every end
+        let under = backdrop.under(Rgb::BLACK, 0.5);
+        assert!(under.light.luminance() < backdrop.light.luminance());
+    }
+
+    #[test]
+    fn text_is_made_readable_on_any_backdrop() {
+        use readable::{BODY, Backdrop, derive};
+        let none = TextSpec::default();
+        for color in [
+            0x000000, 0x26282C, 0x6B4A2F, 0x8A8E96, 0xC8C8C8, 0xFFFFFF, 0x5FA8F0,
+        ] {
+            let palette = derive(Backdrop::solid(Rgb(color)), &none, Readability::Auto);
+            assert!(palette.passes(), "#{color:06X}: {palette:?}");
+        }
+        // a busy dirt texture: light text, greys lifted, little or no backing
+        let dirt = Backdrop {
+            mean: Rgb(0x6F4C31),
+            light: Rgb(0x8B623F),
+            dark: Rgb(0x5C3F28),
+        };
+        let palette = derive(dirt, &none, Readability::Auto);
+        assert!(!palette.dark_text);
+        assert!(palette.contrast >= BODY);
+        // a white image takes dark text rather than a heavy backing
+        let paper = derive(Backdrop::solid(Rgb(0xF8F8F8)), &none, Readability::Auto);
+        assert!(paper.dark_text, "{paper:?}");
+        assert!(paper.backing < 0.3);
+        // the launcher's own panel needs no backing
+        let panel = derive(Backdrop::solid(Rgb(0x26282C)), &none, Readability::Auto);
+        assert_eq!(panel.backing, 0.0);
+        // given colours are starting points, made readable
+        let given = TextSpec {
+            primary: Some(Rgb(0x404040)),
+            muted: Some(Rgb(0x303030)),
+        };
+        let fixed = derive(dirt, &given, Readability::Auto);
+        assert!(fixed.passes());
+        // off: as given, and it says it falls short
+        let off = derive(dirt, &given, Readability::Off);
+        assert_eq!(off.inks.muted, Rgb(0x303030));
+        assert_eq!(off.backing, 0.0);
+        assert!(!off.passes());
     }
 
     #[test]

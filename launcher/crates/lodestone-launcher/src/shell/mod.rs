@@ -1712,6 +1712,7 @@ impl Render for LauncherShell {
         let look = crate::skin::look(cx);
         let resolved = crate::skin::resolve(&look.spec, self.instances.read(cx).selected());
         theme::accent::set(resolved.accent);
+        crate::skin::set_sidebar_inks(&look);
         if look.spec.banner.in_sidebar {
             self.instances
                 .update(cx, |instances, cx| instances.load_sidebar_banners(cx));

@@ -53,6 +53,7 @@ enum Control {
     Glow,
     Accent,
     Progress,
+    Readability,
 }
 
 /// A colour that a hex field sets.
@@ -262,6 +263,16 @@ impl SkinSettings {
             );
         }
         cx.notify();
+    }
+
+    /// "Fix readability": every surface works its text out from its image again.
+    fn fix_readability(&mut self, cx: &mut Context<Self>) {
+        use launcher_core::ui_skin::Readability;
+        self.edit(Control::Readability, cx, |spec| {
+            spec.sidebar.readability = Readability::Auto;
+            spec.hero.readability = Readability::Auto;
+            spec.banner.readability = Readability::Auto;
+        });
     }
 
     fn set_color(&mut self, which: Hex, rgb: Option<Rgb>, cx: &mut Context<Self>) {
@@ -830,14 +841,80 @@ impl Render for SkinSettings {
             ),
         ]);
 
-        let readable = match spec.accent {
-            Some(accent) if crate::theme::accent::adjusted(accent) => (
-                t(M::SkinAdjusted),
-                colors::YELLOW,
-                Icon::TriangleExclamation,
-            ),
-            _ => (t(M::SkinReadable), colors::GREEN_300, Icon::Check),
-        };
+        // each surface's text contrast, as worked out from its image
+        let ratio = |value: f32| crate::i18n::format::decimal(f64::from(value), 1);
+        let mut checks: Vec<(String, bool)> = Vec::new();
+        if let Some(palette) = crate::skin::sidebar_palette(&look) {
+            checks.push((
+                tr!(M::SkinContrastSidebar, ratio = ratio(palette.contrast)),
+                palette.passes(),
+            ));
+        }
+        if let Some(contrast) = crate::skin::hero_contrast(&look) {
+            checks.push((
+                tr!(M::SkinContrastHero, ratio = ratio(contrast)),
+                contrast + 0.005 >= launcher_core::ui_skin::readable::BODY,
+            ));
+        }
+        let short = checks.iter().any(|(_, ok)| !ok);
+        let accent_adjusted = spec.accent.is_some_and(crate::theme::accent::adjusted);
+        let checks_line: Vec<AnyElement> = checks
+            .into_iter()
+            .map(|(label, ok)| {
+                let color = if ok {
+                    colors::GREEN_300
+                } else {
+                    colors::YELLOW
+                };
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1p5()
+                    .text_color(color)
+                    .child(
+                        if ok {
+                            Icon::Check
+                        } else {
+                            Icon::TriangleExclamation
+                        }
+                        .render(px(14.), color),
+                    )
+                    .child(label)
+                    .into_any_element()
+            })
+            .collect();
+        let readable = div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .gap_x_4()
+            .gap_y_2()
+            .when(checks_line.is_empty(), |this| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1p5()
+                        .text_color(colors::GREEN_300)
+                        .child(Icon::Check.render(px(14.), colors::GREEN_300))
+                        .child(t(M::SkinReadable)),
+                )
+            })
+            .children(checks_line)
+            .when(accent_adjusted, |this| {
+                this.child(div().text_color(colors::YELLOW).child(t(M::SkinAdjusted)))
+            })
+            .when(short && !builtin, |this| {
+                this.child(
+                    Button::new("skin-fix-readability", t(M::SkinFixReadability))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Slim)
+                        .on_click(cx.listener(|this, _, _, cx| this.fix_readability(cx))),
+                )
+            });
 
         div()
             .flex()
@@ -862,16 +939,7 @@ impl Render for SkinSettings {
             .child(section(t(M::SkinHero), None).child(hero))
             .child(section(t(M::SkinPlayButton), None).child(play))
             .child(section(t(M::SkinColors), None).child(colours))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .text_color(readable.1)
-                    .child(readable.2.render(px(14.), readable.1))
-                    .child(readable.0),
-            )
+            .child(readable)
             .child(
                 div().flex().child(
                     Button::new("skin-reset", t(M::SkinReset))
