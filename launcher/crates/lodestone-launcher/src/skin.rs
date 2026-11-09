@@ -18,8 +18,13 @@ use gpui::{App, Global, RenderImage, Task};
 use image::RgbaImage;
 use launcher_core::{
     instances::Instance,
-    ui_skin::{Fit, ImageRole, PlaySpec, Rgb, SkinEntry, SkinSpec, SkinStore},
+    ui_skin::{
+        Fit, ImageRole, PlaySpec, Readability, Rgb, SkinEntry, SkinSpec, SkinStore,
+        readable::{self, Backdrop, Palette},
+    },
 };
+
+use crate::theme::{Color, colors};
 
 use crate::instances::appearance::{Background, scrim_for};
 
@@ -31,6 +36,10 @@ pub struct Look {
     pub sidebar: Option<Arc<RenderImage>>,
     /// The Play tab's image for an instance without its own.
     pub hero: Option<Background>,
+    /// How the sidebar's prepared image looks behind text, before the tint.
+    pub sidebar_backdrop: Option<Backdrop>,
+    /// How the hero's image looks behind text, before its scrim.
+    pub hero_backdrop: Option<Backdrop>,
 }
 
 impl Look {
@@ -40,6 +49,8 @@ impl Look {
             spec,
             sidebar: None,
             hero: None,
+            sidebar_backdrop: None,
+            hero_backdrop: None,
         }
     }
 
@@ -54,6 +65,8 @@ pub struct SkinState {
     /// Bumped by each apply, so a slower decode of an older skin is dropped.
     generation: u64,
     _decode: Option<Task<()>>,
+    /// Whether the skin's images are still being prepared.
+    decoding: bool,
     /// Why the chosen skin couldn't be used, if it couldn't.
     pub error: Option<String>,
 }
@@ -66,6 +79,7 @@ impl Default for SkinState {
             look: Arc::new(Look::default_look()),
             generation: 0,
             _decode: None,
+            decoding: false,
             error: None,
         }
     }
@@ -76,6 +90,12 @@ pub fn look(cx: &App) -> Arc<Look> {
     cx.try_global::<SkinState>()
         .map(|state| state.look.clone())
         .unwrap_or_else(|| Arc::new(Look::default_look()))
+}
+
+/// Whether the skin's images are still being prepared (the screenshots wait).
+pub fn decoding(cx: &App) -> bool {
+    cx.try_global::<SkinState>()
+        .is_some_and(|state| state.decoding)
 }
 
 /// Why the chosen skin isn't shown, if it isn't.
@@ -120,6 +140,7 @@ pub fn apply_entry(
     state.look = Arc::new(Look::plain(&id, spec.clone()));
     if spec.images().is_empty() {
         state._decode = None;
+        state.decoding = false;
         cx.refresh_windows();
         return;
     }
@@ -128,12 +149,13 @@ pub fn apply_entry(
         async move { prepare(&id, &spec, &store) }
     });
     let task = cx.spawn(async move |cx| {
-        let (sidebar, hero) = work.await;
+        let ((sidebar, sidebar_backdrop), (hero, hero_backdrop)) = work.await;
         cx.update(|cx| {
             let state = cx.default_global::<SkinState>();
             if state.generation != generation {
                 return;
             }
+            state.decoding = false;
             state.look = Arc::new(Look {
                 id,
                 spec,
@@ -142,11 +164,15 @@ pub fn apply_entry(
                     image: crate::images::render_image(image),
                     scrim,
                 }),
+                sidebar_backdrop,
+                hero_backdrop,
             });
             cx.refresh_windows();
         });
     });
-    cx.default_global::<SkinState>()._decode = Some(task);
+    let state = cx.default_global::<SkinState>();
+    state._decode = Some(task);
+    state.decoding = true;
     cx.refresh_windows();
 }
 
@@ -159,7 +185,8 @@ pub fn update(entry: SkinEntry, store: SkinStore, cx: &mut App) {
         && current.spec.sidebar.image == entry.spec.sidebar.image
         && current.spec.sidebar.fit == entry.spec.sidebar.fit
         && current.spec.sidebar.blur == entry.spec.sidebar.blur
-        && current.spec.hero.image == entry.spec.hero.image;
+        && current.spec.hero.image == entry.spec.hero.image
+        && current.spec.hero.readability == entry.spec.hero.readability;
     if !same_images {
         return apply_entry(Some(entry), store, None, cx);
     }
@@ -169,18 +196,34 @@ pub fn update(entry: SkinEntry, store: SkinStore, cx: &mut App) {
         spec: entry.spec,
         sidebar: current.sidebar.clone(),
         hero: current.hero.clone(),
+        sidebar_backdrop: current.sidebar_backdrop,
+        hero_backdrop: current.hero_backdrop,
     });
     cx.refresh_windows();
 }
 
-/// The skin's images, ready to draw: the sidebar's and the hero's with its scrim.
+/// An image ready to draw, and how it looks behind text.
+type Prepared<T> = (Option<T>, Option<Backdrop>);
+
+/// How `image` looks behind text: every fourth pixel each way is plenty.
+fn measure(image: &RgbaImage) -> Option<Backdrop> {
+    Backdrop::measure(
+        image
+            .enumerate_pixels()
+            .filter(|(x, y, _)| x % 4 == 0 && y % 4 == 0)
+            .map(|(_, _, p)| Rgb(((p[0] as u32) << 16) | ((p[1] as u32) << 8) | p[2] as u32)),
+    )
+}
+
+/// The skin's images, ready to draw: the sidebar's and the hero's with its scrim
+/// (none when the hero's readability is off), and how each looks behind text.
 fn prepare(
     id: &str,
     spec: &SkinSpec,
     store: &SkinStore,
 ) -> (
-    Option<RgbaImage>,
-    Option<(RgbaImage, crate::instances::appearance::Scrim)>,
+    Prepared<RgbaImage>,
+    Prepared<(RgbaImage, crate::instances::appearance::Scrim)>,
 ) {
     let sidebar = spec.sidebar.image.as_deref().and_then(|name| {
         let image = load(id, name, store, ImageRole::Sidebar)?;
@@ -220,10 +263,154 @@ fn prepare(
         } else {
             image
         };
-        let scrim = scrim_for(&image);
+        let scrim = match spec.hero.readability {
+            Readability::Auto => scrim_for(&image),
+            Readability::Off => crate::instances::appearance::Scrim {
+                text: 0.0,
+                dim: 0.0,
+            },
+        };
         Some((image, scrim))
     });
-    (sidebar, hero)
+    let sidebar_backdrop = sidebar.as_ref().and_then(measure);
+    let hero_backdrop = hero.as_ref().and_then(|(image, _)| measure(image));
+    ((sidebar, sidebar_backdrop), (hero, hero_backdrop))
+}
+
+/// The panel colour the sidebar is drawn on.
+const PANEL: Rgb = Rgb(0x26282C);
+
+/// The sidebar's text colours for `look`: `None` for the launcher's own (no image,
+/// no tint, no colours of its own), else worked out from the image under its tint.
+pub fn sidebar_palette(look: &Look) -> Option<Palette> {
+    let sidebar = &look.spec.sidebar;
+    if sidebar.image.is_none() && sidebar.tint.is_none() && sidebar.text == Default::default() {
+        return None;
+    }
+    let base = look
+        .sidebar_backdrop
+        .filter(|_| sidebar.image.is_some())
+        .unwrap_or_else(|| Backdrop::solid(PANEL));
+    let seen = match sidebar.tint {
+        Some(tint) => base.under(tint, f32::from(sidebar.tint_opacity) / 100.0),
+        None => base,
+    };
+    Some(readable::derive(seen, &sidebar.text, sidebar.readability))
+}
+
+/// The hero's text contrast: white over the image's light end, under its scrim.
+pub fn hero_contrast(look: &Look) -> Option<f32> {
+    let backdrop = look.hero_backdrop?;
+    let scrim = look.hero.as_ref()?.scrim;
+    let seen = backdrop.under(readable::DARK, scrim.text.max(scrim.dim));
+    Some(Rgb::WHITE.contrast(seen.light))
+}
+
+/// The sidebar's text colours as the sidebar draws them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SidebarInks {
+    pub primary: Color,
+    pub secondary: Color,
+    pub muted: Color,
+    pub faint: Color,
+    pub icon: Color,
+    /// Behind the selected or hovered row.
+    pub fill: Color,
+    /// The quiet buttons' labels (New instance…, Import instances…).
+    pub ghost: Color,
+    /// A backing over the sidebar's image, under its text.
+    pub backing: Option<Color>,
+}
+
+impl Default for SidebarInks {
+    /// The launcher's own.
+    fn default() -> Self {
+        Self {
+            primary: colors::GRAY_300,
+            secondary: colors::GRAY_400,
+            muted: colors::GRAY_500,
+            faint: colors::GRAY_FADED.opacity(30),
+            icon: colors::GRAY_FADED.opacity(50),
+            fill: colors::GRAY_800,
+            ghost: colors::WHITE.opacity(50),
+            backing: None,
+        }
+    }
+}
+
+impl SidebarInks {
+    fn of(palette: Option<Palette>) -> Self {
+        let Some(palette) = palette else {
+            return Self::default();
+        };
+        let color = |rgb: Rgb| Color::rgb(rgb.0);
+        let layer = if palette.dark_text {
+            readable::LIGHT
+        } else {
+            readable::DARK
+        };
+        Self {
+            primary: color(palette.inks.primary),
+            secondary: color(palette.inks.secondary),
+            muted: color(palette.inks.muted),
+            faint: color(palette.inks.faint),
+            icon: color(palette.inks.icon),
+            // a light row under dark text; the launcher's own under light text
+            fill: if palette.dark_text {
+                color(readable::LIGHT).opacity(70)
+            } else {
+                colors::GRAY_800
+            },
+            ghost: color(palette.inks.muted),
+            backing: (palette.backing > 0.0)
+                .then(|| color(layer).opacity((palette.backing * 100.0).round() as u32)),
+        }
+    }
+}
+
+thread_local! {
+    /// The sidebar's colours for this frame, set by the window's root view.
+    static SIDEBAR_INKS: std::cell::Cell<SidebarInks> =
+        std::cell::Cell::new(SidebarInks::default());
+}
+
+/// Works out the sidebar's colours for this frame from `look`.
+pub fn set_sidebar_inks(look: &Look) {
+    let inks = SidebarInks::of(sidebar_palette(look));
+    SIDEBAR_INKS.with(|cell| cell.set(inks));
+}
+
+/// The sidebar's colours for this frame.
+pub fn sidebar_inks() -> SidebarInks {
+    SIDEBAR_INKS.with(|cell| cell.get())
+}
+
+/// The backing of a sidebar row over an instance's banner: [`readable::DARK`] (or
+/// [`readable::LIGHT`] under dark text) as strong as the row's text needs over
+/// `backdrop`, from 55%. With readability off, a fixed 70%.
+pub fn row_backing(backdrop: Backdrop, inks: &SidebarInks, readability: Readability) -> Color {
+    let rgb = |c: Color| Rgb(c.0 >> 8);
+    let dark_text = rgb(inks.primary).luminance() < 0.3;
+    let layer = if dark_text {
+        readable::LIGHT
+    } else {
+        readable::DARK
+    };
+    let alpha = match readability {
+        Readability::Off => 0.7,
+        Readability::Auto => {
+            let texts = [inks.primary, inks.secondary, inks.muted, inks.faint].map(rgb);
+            (11..=19)
+                .map(|step| step as f32 * 0.05)
+                .find(|&alpha| {
+                    let seen = backdrop.under(layer, alpha);
+                    let end = if dark_text { seen.dark } else { seen.light };
+                    texts.iter().all(|t| t.contrast(end) >= readable::BODY)
+                })
+                .unwrap_or(0.95)
+        }
+    };
+    Color::rgb(layer.0).opacity((alpha * 100.0).round() as u32)
 }
 
 /// Image `name` of skin `id`: drawn for a built-in image, read from the pack else.
@@ -454,11 +641,89 @@ mod tests {
         for id in ["grassblock", "glass", "neon"] {
             let spec = launcher_core::ui_skin::built_in(id).unwrap();
             let start = std::time::Instant::now();
-            let (sidebar, hero) = prepare(id, &spec, &store);
+            let ((sidebar, _), (hero, _)) = prepare(id, &spec, &store);
             eprintln!("{id}: {:?}", start.elapsed());
             assert_eq!(sidebar.is_some(), spec.sidebar.image.is_some(), "{id}");
             assert!(hero.is_some(), "{id}");
         }
+    }
+
+    #[test]
+    fn built_in_skins_keep_text_readable() {
+        let store = SkinStore::at(std::path::PathBuf::from("/nonexistent"));
+        for id in launcher_core::ui_skin::BUILT_IN {
+            let spec = launcher_core::ui_skin::built_in(id).unwrap();
+            let ((_, sidebar_backdrop), (hero, hero_backdrop)) = prepare(id, &spec, &store);
+            let look = Look {
+                id: id.into(),
+                spec: spec.clone(),
+                sidebar: None,
+                hero: hero.map(|(image, scrim)| Background {
+                    image: crate::images::render_image(image),
+                    scrim,
+                }),
+                sidebar_backdrop,
+                hero_backdrop,
+            };
+            // every sidebar text style: primary, secondary, muted, faint
+            if let Some(palette) = sidebar_palette(&look) {
+                assert!(palette.passes(), "{id} sidebar: {palette:?}");
+                eprintln!(
+                    "{id}: sidebar {:.2}:1, backing {:.2}",
+                    palette.contrast, palette.backing
+                );
+            } else {
+                assert_eq!(id, "default");
+            }
+            if let Some(contrast) = hero_contrast(&look) {
+                eprintln!("{id}: hero {contrast:.2}:1");
+                assert!(contrast >= readable::BODY - 0.05, "{id} hero: {contrast}");
+            }
+        }
+    }
+
+    #[test]
+    fn sidebar_inks_are_the_launchers_own_without_a_skin() {
+        let look = Look::default_look();
+        assert_eq!(
+            SidebarInks::of(sidebar_palette(&look)),
+            SidebarInks::default()
+        );
+        // a bright pack image takes dark text or a backing, and passes
+        let mut spec = SkinSpec::named("Bright");
+        spec.sidebar.image = Some("x.png".into());
+        let look = Look {
+            spec,
+            sidebar_backdrop: Some(Backdrop::solid(Rgb(0xF2F2F2))),
+            ..Look::default_look()
+        };
+        let palette = sidebar_palette(&look).unwrap();
+        assert!(palette.passes(), "{palette:?}");
+        // dark text sits on light rows, not the launcher's dark ones
+        let inks = SidebarInks::of(Some(palette));
+        assert!(palette.dark_text);
+        assert_ne!(inks.fill, colors::GRAY_800);
+        assert_ne!(inks.ghost, SidebarInks::default().ghost);
+        // readability off: the colours as given, and it says so
+        let mut off = look.spec.clone();
+        off.sidebar.readability = Readability::Off;
+        let look = Look {
+            spec: off,
+            sidebar_backdrop: Some(Backdrop::solid(Rgb(0xF2F2F2))),
+            ..Look::default_look()
+        };
+        assert!(!sidebar_palette(&look).unwrap().passes());
+    }
+
+    #[test]
+    fn banner_rows_back_their_text() {
+        let inks = SidebarInks::default();
+        let bright = Backdrop::solid(Rgb(0xF0F0F0));
+        let backing = row_backing(bright, &inks, Readability::Auto);
+        // strong enough that the faintest row text reads over a white banner
+        assert!(backing.0 & 0xFF >= (0.8 * 255.0) as u32, "{backing:?}");
+        let dark = row_backing(Backdrop::solid(Rgb(0x101010)), &inks, Readability::Auto);
+        assert!(dark.0 & 0xFF <= backing.0 & 0xFF);
     }
 
     #[test]

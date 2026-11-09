@@ -473,6 +473,11 @@ crate::i18n::messages! {
         SkinReadable = "Text stays readable.",
         SkinAdjusted = "The accent was adjusted to stay readable.",
         SkinReset = "Reset to Default",
+        /// {ratio} is a contrast ratio, "4.8".
+        SkinContrastSidebar = "Sidebar text {ratio}:1",
+        /// {ratio} is a contrast ratio, "7.1".
+        SkinContrastHero = "Play hero {ratio}:1",
+        SkinFixReadability = "Fix readability",
         /// An instance's own colour, over the skin's.
         SkinPlayColor = "Play button colour",
         /// Use the skin's colour, not the instance's own.

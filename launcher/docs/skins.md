@@ -54,6 +54,8 @@ The format is meant to be shared with other Lodestone apps later; it holds only 
 | `sidebar.fit` | `cover` (default) or `tile` (repeated at its size, for a pattern). |
 | `sidebar.tint`, `sidebar.tint_opacity` | A colour over the sidebar (0–100, default 60). |
 | `sidebar.blur` | 0–20 pixels, applied once when the skin loads. |
+| `sidebar.text.primary`, `sidebar.text.muted` | The sidebar's names and its quieter text (subtitles, headers, footer). Optional: they are worked out from the image. |
+| `sidebar.readability`, `banner.readability`, `hero.readability` | `auto` (default) or `off`. See below. |
 | `banner.in_sidebar` | Each instance's Play background, faintly, behind its sidebar row. |
 | `hero.image` | The Play tab's image for instances without their own. |
 | `play.color`, `play.gradient` | The Play button's colour, and a second colour to fade to. Text is white, or dark on a light colour. |
@@ -62,6 +64,26 @@ The format is meant to be shared with other Lodestone apps later; it holds only 
 | `play.glow` | A soft glow in the button's colour. |
 
 Colours are `#RRGGBB`. Every key but `schema` and `name` is optional.
+
+## Readable text
+
+When a skin loads, the launcher measures each image after its tint and blur: the
+average colour, and the light and dark ends (the 90th and 10th percentile of
+brightness). With `readability` `auto`:
+
+- **Sidebar.** Light or dark text is chosen for the image, starting from
+  `sidebar.text` if given. Each kind of text is then moved toward white (or
+  black) until it reaches 4.5:1 against the image's worst end; icons and the
+  caret reach 3:1. When colours alone can't get there, a light or dark layer
+  goes over the image, as faint as it can be. Selected rows use a light fill
+  under dark text.
+- **Banner rows.** Each instance's banner gets its own backing, as strong as its
+  image needs (55–95%).
+- **Play hero.** The shade under the title is set from the image.
+
+With `off`, the colours are used as given and nothing is added. The skin editor
+shows the result, such as "Sidebar text 4.8:1 ✓", and offers **Fix readability**
+when a skin's text falls short.
 
 ## What importing checks
 

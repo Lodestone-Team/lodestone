@@ -278,7 +278,14 @@ pub struct Instances {
     background_tasks: HashMap<String, appearance::BackgroundTask>,
     /// Small copies of the instances' Play backgrounds, for a skin that shows them
     /// behind the sidebar's rows: by id, with the file's modification time.
-    sidebar_banners: HashMap<String, (Option<std::time::SystemTime>, Arc<RenderImage>)>,
+    sidebar_banners: HashMap<
+        String,
+        (
+            Option<std::time::SystemTime>,
+            Arc<RenderImage>,
+            launcher_core::ui_skin::readable::Backdrop,
+        ),
+    >,
     sidebar_banner_tasks: HashMap<String, Task<()>>,
     /// Goes up when an instance's slideshow changes, so the Play tab lists it again.
     slideshow_revision: u64,
@@ -573,8 +580,13 @@ impl Instances {
     }
 
     /// The small copy of an instance's Play background for its sidebar row.
-    pub fn sidebar_banner(&self, id: &str) -> Option<Arc<RenderImage>> {
-        self.sidebar_banners.get(id).map(|(_, image)| image.clone())
+    pub fn sidebar_banner(
+        &self,
+        id: &str,
+    ) -> Option<(Arc<RenderImage>, launcher_core::ui_skin::readable::Backdrop)> {
+        self.sidebar_banners
+            .get(id)
+            .map(|(_, image, backdrop)| (image.clone(), *backdrop))
     }
 
     /// Makes the sidebar rows' copies of the Play backgrounds that are missing or
@@ -591,7 +603,7 @@ impl Instances {
             })
             .collect();
         self.sidebar_banners
-            .retain(|id, (time, _)| wanted.iter().any(|(w, _, m)| w == id && m == time));
+            .retain(|id, (time, _, _)| wanted.iter().any(|(w, _, m)| w == id && m == time));
         for (id, path, modified) in wanted {
             if self.sidebar_banners.contains_key(&id) || self.sidebar_banner_tasks.contains_key(&id)
             {
@@ -599,21 +611,29 @@ impl Instances {
             }
             let decode = cx.background_spawn(async move {
                 let image = image::open(&path).ok()?;
-                // the row's size at 2×, cropped to fill it
-                Some(
-                    image
-                        .resize_to_fill(440, 96, image::imageops::FilterType::Triangle)
-                        .to_rgba8(),
-                )
+                // the row's size at 2×, cropped to fill it, and how it looks behind
+                // the row's text
+                let thumb = image
+                    .resize_to_fill(440, 96, image::imageops::FilterType::Triangle)
+                    .to_rgba8();
+                let backdrop =
+                    launcher_core::ui_skin::readable::Backdrop::measure(thumb.pixels().map(|p| {
+                        launcher_core::ui_skin::Rgb(
+                            ((p[0] as u32) << 16) | ((p[1] as u32) << 8) | p[2] as u32,
+                        )
+                    }))?;
+                Some((thumb, backdrop))
             });
             let task_id = id.clone();
             let task = cx.spawn(async move |this, cx| {
                 let decoded = decode.await;
                 this.update(cx, |this, cx| {
                     this.sidebar_banner_tasks.remove(&task_id);
-                    if let Some(image) = decoded {
-                        this.sidebar_banners
-                            .insert(task_id, (modified, crate::images::render_image(image)));
+                    if let Some((image, backdrop)) = decoded {
+                        this.sidebar_banners.insert(
+                            task_id,
+                            (modified, crate::images::render_image(image), backdrop),
+                        );
                         cx.notify();
                     }
                 })
