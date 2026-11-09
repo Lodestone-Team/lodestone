@@ -89,7 +89,10 @@ pub fn text(message: M) -> &'static str {
         M::LeaveWorldsOutSize => "不导入世界（{size}）",
         M::Import => "导入",
         M::ChooseFolder => "选择文件夹…",
-        M::StopAndClose => "停止并关闭",
+        M::StopImportingTitle => "停止导入？",
+        M::StopImportingBody => "尚未完成的导入会停止，已复制的内容会被删除。已导入的实例会保留。",
+        M::StopImporting => "停止导入",
+        M::KeepImporting => "继续导入",
 
         M::NotAModpack => "不是整合包",
         M::NotMrpack => {

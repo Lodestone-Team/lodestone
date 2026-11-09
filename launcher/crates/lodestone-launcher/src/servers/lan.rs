@@ -31,7 +31,7 @@ use super::{Servers, ServersEvent, extras::note};
 use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Dialog, Icon, LoadingDots},
-    i18n::{CommonMsg, ServersMsg as M, t, tr},
+    i18n::{ServersMsg as M, t, tr},
     theme::{self, colors, fonts, radius, text, weights},
 };
 
@@ -198,15 +198,21 @@ impl Servers {
                 .border_t_1()
                 .border_color(crate::theme::ink::border())
                 .when(!quiet, |this| this.child(LoadingDots))
-                .child(note(t(if !quiet {
-                    M::LanLooking
-                } else if cfg!(target_os = "macos") {
-                    M::LanNoneMac
-                } else if cfg!(windows) {
-                    M::LanNoneWindows
-                } else {
-                    M::LanNoneOther
-                })))
+                .child(
+                    // Without flex_1 + min_w_0 the text keeps its unwrapped
+                    // width in this row and runs past the card's edge.
+                    note(t(if !quiet {
+                        M::LanLooking
+                    } else if cfg!(target_os = "macos") {
+                        M::LanNoneMac
+                    } else if cfg!(windows) {
+                        M::LanNoneWindows
+                    } else {
+                        M::LanNoneOther
+                    }))
+                    .flex_1()
+                    .min_w_0(),
+                )
                 .into_any_element()
         } else {
             div()
@@ -405,13 +411,5 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
                     })
             })),
     )
-    .footer({
-        let cancel = servers.clone();
-        Button::new("lan-join-cancel", t(CommonMsg::Cancel)).on_click(move |_, _, cx| {
-            cancel.update(cx, |this, cx| {
-                this.extras.lan_picker.close(cx);
-            })
-        })
-    })
     .into_any_element()
 }

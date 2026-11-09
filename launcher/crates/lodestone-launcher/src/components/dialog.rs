@@ -44,7 +44,8 @@ use gpui::{
     MouseButton, ParentElement, RenderOnce, SharedString, Window, div, point, prelude::*,
 };
 
-use super::focus;
+use super::{Icon, IconButton, focus};
+use crate::i18n::{CommonMsg, t};
 use crate::theme::{self, colors, layout, leading, radius, shadow, text, weights};
 
 type CloseHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
@@ -63,8 +64,12 @@ fn ease_out_cubic(delta: f32) -> f32 {
 
 /// A modal dialog over a dimmed backdrop, after the dashboard's `ConfirmDialog`.
 ///
-/// Render it as the last child of a full-window, relatively positioned element. It
-/// closes on Escape and on a click on the backdrop.
+/// Render it as the last child of a full-window, relatively positioned element. With
+/// an [`on_close`](Self::on_close) handler (every dialog has one), it closes on
+/// Escape, on a click on the backdrop and with its × button, at the end of the title's
+/// row (at the top right corner of a frameless dialog). So no dialog lacks a way out
+/// for the mouse, and none needs a footer button that only closes it; see
+/// [`Self::footer`] for the footer's order.
 ///
 /// The dialog tracks `focus_handle`, which should be its own (not a text field's).
 /// When it first renders it takes focus, unless focus is already in it (say, in a
@@ -117,8 +122,6 @@ impl Dialog {
         }
     }
 
-    /// A panel of `width` × `height` that its body fills, without the title, the
-    /// padding or the footer, for a page such as Settings.
     /// Fills the window from `top` down (leaving the top bar and the window buttons
     /// clear), for a frameless dialog in a window too small for it to float.
     pub fn edge_to_edge(mut self, top: gpui::Pixels) -> Self {
@@ -126,6 +129,9 @@ impl Dialog {
         self
     }
 
+    /// A panel of `width` × `height` that its body fills, without the title, the
+    /// padding or the footer, for a page such as Settings. The × sits over the body's
+    /// top right corner, so the body leaves that corner clear.
     pub fn frameless(mut self, width: gpui::Pixels, height: gpui::Pixels) -> Self {
         self.width = width;
         self.frameless = Some(height);
@@ -138,25 +144,31 @@ impl Dialog {
         self
     }
 
-    /// Adds an element at the end of the title's row, such as a switch.
+    /// Adds an element at the end of the title's row, such as a switch, before the ×.
     pub fn header_end(mut self, element: impl IntoElement) -> Self {
         self.header_end.push(element.into_any_element());
         self
     }
 
-    /// Adds an element to the start of the row at the bottom; the elements added
-    /// with [`Self::footer`] then line up at its end, primary action last.
+    /// Adds an element to the start of the row at the bottom, apart from the actions,
+    /// such as "Import .mrpack"; the elements added with [`Self::footer`] then line
+    /// up at its end.
     pub fn footer_start(mut self, element: impl IntoElement) -> Self {
         self.footer_start.push(element.into_any_element());
         self
     }
 
-    /// Adds an element, usually a button, to the row at the bottom of the dialog.
+    /// Adds an element, usually a button, to the row at the bottom of the dialog, in
+    /// order: the main action first, then any others, and Cancel (or "Not now",
+    /// "Keep editing", …) last. Don't add a button that only closes the dialog, such
+    /// as a lone Close: the × does that. A dialog with nothing here has no footer.
     pub fn footer(mut self, element: impl IntoElement) -> Self {
         self.footer.push(element.into_any_element());
         self
     }
 
+    /// What closing does, by Escape, a click on the backdrop or the ×. Without it the
+    /// dialog has no × and doesn't close on its own.
     pub fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Rc::new(handler));
         self
@@ -179,6 +191,7 @@ impl RenderOnce for Dialog {
             cx,
         );
         let on_dismiss = self.on_close.clone();
+        let close = self.on_close.clone().map(close_button);
         let on_backdrop = self.on_close;
         let reduce_motion = prefers_reduced_motion();
         let enter = Animation::new(if reduce_motion { ENTER_REDUCED } else { ENTER })
@@ -215,7 +228,9 @@ impl RenderOnce for Dialog {
                     .flex_row()
                     .h(height)
                     .overflow_hidden()
-                    .children(self.body),
+                    .children(self.body)
+                    // over the body, at the corner (the dashboard's Settings ×)
+                    .children(close.map(|close| div().absolute().top_3().right_3().child(close))),
                 None => panel
                     .flex_col()
                     .gap_6()
@@ -236,7 +251,8 @@ impl RenderOnce for Dialog {
                                     .text_color(crate::theme::ink::text())
                                     .child(self.title),
                             )
-                            .children(self.header_end),
+                            .children(self.header_end)
+                            .children(close),
                     )
                     .child(
                         div()
@@ -294,6 +310,18 @@ impl RenderOnce for Dialog {
     }
 }
 
+/// The ×, which calls `on_close` like Escape and a click on the backdrop.
+fn close_button(on_close: CloseHandler) -> impl IntoElement {
+    div()
+        .flex_none()
+        .debug_selector(|| "dialog-close".into())
+        .child(
+            IconButton::new("dialog-close", Icon::Xmark)
+                .label(t(CommonMsg::Close))
+                .on_click(move |_, window, cx| on_close(window, cx)),
+        )
+}
+
 /// Whether macOS asks apps to reduce motion (Accessibility > Display > Reduce
 /// motion), from `NSWorkspace.accessibilityDisplayShouldReduceMotion`. The dialog
 /// then fades in without the slide.
@@ -346,4 +374,137 @@ pub(crate) fn prefers_reduced_motion() -> bool {
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn prefers_reduced_motion() -> bool {
     false
+}
+
+#[cfg(all(test, feature = "screenshot"))]
+mod tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use gpui::{
+        Context, Entity, FocusHandle, IntoElement, Modifiers, Render, TestAppContext,
+        VisualTestContext, Window, div, prelude::*,
+    };
+
+    use super::Dialog;
+    use crate::components::Button;
+    use crate::theme::px;
+
+    #[derive(Clone, Copy, Debug)]
+    enum Variant {
+        Normal,
+        Wide,
+        EdgeToEdge,
+        Frameless,
+        FramelessEdgeToEdge,
+    }
+
+    const VARIANTS: [Variant; 5] = [
+        Variant::Normal,
+        Variant::Wide,
+        Variant::EdgeToEdge,
+        Variant::Frameless,
+        Variant::FramelessEdgeToEdge,
+    ];
+
+    /// A window with one dialog of `variant`, with or without an `on_close` handler
+    /// that counts its calls.
+    struct Harness {
+        focus: FocusHandle,
+        variant: Variant,
+        closable: bool,
+        closed: Rc<Cell<usize>>,
+    }
+
+    impl Render for Harness {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let closed = self.closed.clone();
+            let dialog = Dialog::new("dialog", "Dialog", self.focus.clone())
+                .map(|dialog| match self.variant {
+                    Variant::Normal => dialog,
+                    Variant::Wide => dialog.width(px(760.)),
+                    Variant::EdgeToEdge => dialog.edge_to_edge(px(40.)),
+                    Variant::Frameless => dialog.frameless(px(600.), px(400.)),
+                    Variant::FramelessEdgeToEdge => {
+                        dialog.frameless(px(600.), px(400.)).edge_to_edge(px(40.))
+                    }
+                })
+                .when(self.closable, |dialog| {
+                    dialog.on_close(move |_, _| closed.set(closed.get() + 1))
+                })
+                .child(div().child("Body"))
+                .footer(Button::new("ok", "OK"));
+            div().relative().size_full().child(dialog)
+        }
+    }
+
+    fn open(
+        variant: Variant,
+        closable: bool,
+        cx: &mut TestAppContext,
+    ) -> (Entity<Harness>, &mut VisualTestContext) {
+        cx.update(crate::components::init);
+        let (view, cx) = cx.add_window_view(|_, cx| Harness {
+            focus: cx.focus_handle(),
+            variant,
+            closable,
+            closed: Rc::new(Cell::new(0)),
+        });
+        cx.run_until_parked();
+        (view, cx)
+    }
+
+    fn closed(view: &Entity<Harness>, cx: &mut VisualTestContext) -> usize {
+        view.read_with(cx, |this, _| this.closed.get())
+    }
+
+    #[test]
+    fn every_variant_has_a_close_button_that_calls_on_close() {
+        for variant in VARIANTS {
+            let mut cx = TestAppContext::single();
+            let (view, cx) = open(variant, true, &mut cx);
+            let bounds = cx
+                .debug_bounds("dialog-close")
+                .unwrap_or_else(|| panic!("a {variant:?} dialog with on_close shows a ×"));
+            cx.simulate_click(bounds.center(), Modifiers::none());
+            assert_eq!(
+                closed(&view, cx),
+                1,
+                "the × of a {variant:?} dialog calls on_close, once"
+            );
+        }
+    }
+
+    #[test]
+    fn no_close_button_without_on_close() {
+        for variant in VARIANTS {
+            let mut cx = TestAppContext::single();
+            let (_, cx) = open(variant, false, &mut cx);
+            assert!(
+                cx.debug_bounds("dialog-close").is_none(),
+                "a {variant:?} dialog without on_close has no ×"
+            );
+        }
+    }
+
+    #[test]
+    fn the_close_button_works_from_the_keyboard() {
+        let mut cx = TestAppContext::single();
+        let (view, cx) = open(Variant::Normal, true, &mut cx);
+        // The dialog took focus; Tab reaches the ×, first in the title's row, and
+        // Enter clicks it.
+        cx.simulate_keystrokes("tab");
+        assert_eq!(closed(&view, cx), 0);
+        crate::components::focus::press_enter(cx);
+        assert_eq!(closed(&view, cx), 1);
+    }
+
+    #[test]
+    fn escape_and_the_backdrop_call_the_same_handler() {
+        let mut cx = TestAppContext::single();
+        let (view, cx) = open(Variant::Normal, true, &mut cx);
+        cx.simulate_keystrokes("escape");
+        assert_eq!(closed(&view, cx), 1);
+        cx.simulate_click(gpui::point(px(4.), px(4.)), Modifiers::none());
+        assert_eq!(closed(&view, cx), 2);
+    }
 }

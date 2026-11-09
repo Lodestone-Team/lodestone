@@ -371,11 +371,6 @@ impl Render for ServerTools {
                 .disabled(busy || !stopped)
                 .on_click(cx.listener(|this, _, _, cx| this.download_world(cx))),
         )
-        .footer(
-            Button::new("server-tools-close", t(CommonMsg::Close))
-                .variant(ButtonVariant::Secondary)
-                .on_click(cx.listener(|_, _, _, cx| cx.emit(ToolsEvent::Dismissed))),
-        )
     }
 }
 

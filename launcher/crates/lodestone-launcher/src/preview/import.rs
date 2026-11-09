@@ -148,7 +148,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
     .into_iter()
     .map(|(key, rgb)| (key.to_string(), icon(rgb)))
     .collect();
-    let queue = if scene == "import-progress" {
+    let queue = if scene != "import" {
         vec![
             (
                 "Vanilla:Fabric 1.20.1".to_string(),
@@ -181,5 +181,9 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
     };
     let instances = shell.instances().clone();
     let dialog = cx.new(|cx| ImportDialog::preview(instances, launchers, sizes, icons, queue, cx));
+    if scene == "import-stop" {
+        // closed while importing: "Stop importing?"
+        dialog.update(cx, |dialog, cx| dialog.request_close(cx));
+    }
     shell.show_import(dialog, cx);
 }
