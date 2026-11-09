@@ -7,6 +7,7 @@ use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
 use launcher_core::accounts::AccountKind;
+use launcher_core::settings::AfterLaunch;
 use launcher_core::ui_skin::SurfaceId;
 use launcher_core::update::UpdateChannel;
 
@@ -18,7 +19,7 @@ use crate::components::{
 use crate::{
     accounts::SessionState,
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, ListRow, Toggle,
+        Button, ButtonSize, ButtonVariant, Dialog, Icon, IconButton, ListRow, Toggle, segmented,
         settings::{
             SettingRow, card, content_width, left_overlay, link, muted_link, popover,
             popover_panel, section, select_button, tag, unsaved_bar,
@@ -487,6 +488,7 @@ impl LauncherShell {
     fn render_general_page(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let instances = self.instances.read(cx);
         let auto_groups = instances.auto_groups();
+        let after_launch = instances.after_launch();
         let language = instances.language();
         let current = match language {
             Language::System => tr!(
@@ -594,6 +596,36 @@ impl LauncherShell {
                                 .update(cx, |instances, cx| instances.set_auto_groups(on, cx));
                         })),
                 )
+                .into_any_element(),
+            SettingRow::new(t(M::WhenAGameStarts))
+                .hint(t(match after_launch {
+                    AfterLaunch::Stay => M::AfterLaunchStayHint,
+                    AfterLaunch::Minimize => M::AfterLaunchMinimizeHint,
+                    AfterLaunch::Quit => M::AfterLaunchQuitHint,
+                }))
+                .child(segmented(
+                    "after-launch",
+                    AfterLaunch::ALL
+                        .into_iter()
+                        .map(|choice| {
+                            let name = match choice {
+                                AfterLaunch::Stay => t(M::AfterLaunchStay),
+                                AfterLaunch::Minimize => t(M::AfterLaunchMinimize),
+                                AfterLaunch::Quit => t(M::AfterLaunchQuit),
+                            };
+                            (choice, name.into())
+                        })
+                        .collect(),
+                    Some(&after_launch),
+                    false,
+                    {
+                        let instances = self.instances.clone();
+                        move |choice, _, cx| {
+                            instances
+                                .update(cx, |instances, cx| instances.set_after_launch(choice, cx));
+                        }
+                    },
+                ))
                 .into_any_element(),
         ]);
         div()

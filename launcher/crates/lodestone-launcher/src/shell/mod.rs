@@ -66,6 +66,7 @@ use crate::{
     theme::{self, colors, fonts, leading, radius, text, weights},
     updater::Updater,
 };
+use launcher_core::settings::AfterLaunch;
 
 /// What the main area shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -256,6 +257,12 @@ pub struct LauncherShell {
     /// The dialog over the window, and those still fading out.
     modal: DialogSlot<LauncherShell, Modal>,
     account_menu_open: bool,
+    /// The window the shell draws in, for "When a game starts" to minimize and bring
+    /// back.
+    window: Option<gpui::AnyWindowHandle>,
+    /// "When a game starts" minimized the window; it comes back when the last game
+    /// exits.
+    minimized_for_game: bool,
     /// While the sidebar's edge is dragged: its width and whether it is folded, as
     /// drawn. Saved when the drag ends.
     sidebar_drag: Option<(f32, bool)>,
@@ -313,6 +320,8 @@ impl LauncherShell {
                     this.sync_settings(cx);
                     cx.notify();
                 }
+                InstancesEvent::GameWindowOpened(_) => this.game_window_opened(cx),
+                InstancesEvent::GameExited(_) => this.game_exited(cx),
             }),
         ];
         let console = cx.new(|cx| Console::new(instances.clone(), cx));
@@ -429,6 +438,8 @@ impl LauncherShell {
             settings_nav_open: false,
             modal: DialogSlot::new(|this: &mut LauncherShell| &mut this.modal),
             account_menu_open: false,
+            window: None,
+            minimized_for_game: false,
             sidebar_drag: None,
             language_menu_open: false,
             top_bar_drag_pending: false,
@@ -1431,6 +1442,46 @@ impl LauncherShell {
         }
     }
 
+    /// A game's window opened: Settings > General > "When a game starts".
+    fn game_window_opened(&mut self, cx: &mut Context<Self>) {
+        let instances = self.instances.read(cx);
+        match instances.after_launch() {
+            AfterLaunch::Stay => {}
+            AfterLaunch::Minimize => {
+                self.minimized_for_game = true;
+                self.with_window(cx, |window| window.minimize_window());
+            }
+            // Not while another instance is still installing or starting: quitting
+            // would stop it. Minimized instead, until that game opens too.
+            AfterLaunch::Quit if instances.any_preparing() => {
+                self.minimized_for_game = true;
+                self.with_window(cx, |window| window.minimize_window());
+            }
+            AfterLaunch::Quit => {
+                launcher_core::trace::emit("app.quit_after_launch", || serde_json::json!({}));
+                cx.defer(|cx| cx.quit());
+            }
+        }
+    }
+
+    /// A game exited: the window comes back if a game minimized it and none still runs.
+    fn game_exited(&mut self, cx: &mut Context<Self>) {
+        if self.minimized_for_game && !self.instances.read(cx).any_running() {
+            self.minimized_for_game = false;
+            self.with_window(cx, |window| window.activate_window());
+        }
+    }
+
+    /// Runs `f` on the shell's window, after the current update.
+    fn with_window(&self, cx: &mut Context<Self>, f: impl FnOnce(&mut Window) + 'static) {
+        let Some(handle) = self.window else {
+            return;
+        };
+        cx.defer(move |cx| {
+            handle.update(cx, |_, window, _| f(window)).ok();
+        });
+    }
+
     pub fn open_sign_in_at(
         &mut self,
         stage: Stage,
@@ -1872,6 +1923,7 @@ impl LauncherShell {
 
 impl Render for LauncherShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.window = Some(window.window_handle());
         self.trace_frame(window, cx);
         if self._focus_lost.is_none() {
             self._focus_lost = Some(focus::install(&self.root_focus, window, cx));
