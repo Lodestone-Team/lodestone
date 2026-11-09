@@ -52,6 +52,10 @@ pub struct HostShell {
     sidebar_dragging: bool,
     /// The top bar was pressed: the next mouse move drags the window.
     pub top_bar_drag_pending: bool,
+    /// How tall the sidebar's selected-instance block was when last drawn, so the
+    /// empty block keeps its space and nothing under it moves (the dashboard's fixed
+    /// `h-[17.625rem]`).
+    pub selected_block_height: Option<gpui::Pixels>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -96,6 +100,7 @@ impl HostShell {
                 .clamp(layout::SIDEBAR_MIN, layout::SIDEBAR_MAX),
             sidebar_dragging: false,
             top_bar_drag_pending: false,
+            selected_block_height: None,
             _subscriptions: subscriptions,
         }
     }
