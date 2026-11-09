@@ -58,6 +58,19 @@ pub struct PrefsData {
     pub beta_builds: bool,
     /// The last beta core version thanked for (`latestVersion`).
     pub latest_version: Option<String>,
+    /// Other cores connected to before (the dashboard's `cores`), with the certificate
+    /// trusted for each. Their sign-ins aren't saved.
+    pub cores: Vec<SavedCore>,
+}
+
+/// Another core: its address and the HTTPS certificate the user trusted for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavedCore {
+    /// As `launcher_core::cores::client::display_address` writes it.
+    pub address: String,
+    /// SHA-256, as the core shows it.
+    pub fingerprint: Option<String>,
 }
 
 impl Default for PrefsData {
@@ -71,6 +84,7 @@ impl Default for PrefsData {
             auto_update: true,
             beta_builds: false,
             latest_version: None,
+            cores: Vec::new(),
         }
     }
 }
@@ -172,6 +186,10 @@ mod tests {
             auto_update: false,
             beta_builds: true,
             latest_version: Some("0.5.2-beta.1".into()),
+            cores: vec![SavedCore {
+                address: "https://192.168.1.5:16662".into(),
+                fingerprint: Some("AB:CD".into()),
+            }],
         };
         save(&path, &data).unwrap();
         assert_eq!(load(&path), data);

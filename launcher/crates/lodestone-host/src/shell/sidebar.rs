@@ -350,6 +350,12 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.navigate(Route::Settings(SettingsPage::General), cx)
                         })),
+                )
+                // other cores (package D)
+                .child(
+                    ListRow::new("change-core", t(crate::i18n::CoreMsg::ChangeCore))
+                        .icon(Icon::HardDrive)
+                        .on_click(cx.listener(|this, _, _, cx| this.open_cores(cx))),
                 ),
         )
 }

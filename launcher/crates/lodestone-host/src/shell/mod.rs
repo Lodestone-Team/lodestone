@@ -29,6 +29,10 @@ pub struct HostShell {
     pub route: Route,
     page: Option<(Route, AnyView)>,
     create: Option<Entity<CreateInstance>>,
+    /// The other cores (package D), from the footer's "Change core".
+    cores: Option<Entity<pages::cores::CoresDialog>>,
+    /// The core shown is this computer's (not another one's).
+    pub on_local: bool,
     /// Asks to accept the Minecraft EULA when a server doesn't start without it.
     eula: Entity<pages::eula_prompt::EulaPrompt>,
     /// The bell in the top bar and its list (package D).
@@ -62,6 +66,8 @@ impl HostShell {
             route: Route::Home,
             page: None,
             create: None,
+            cores: None,
+            on_local: true,
             eula,
             notifications,
             _subscriptions: subscriptions,
@@ -84,6 +90,22 @@ impl HostShell {
             },
             cx,
         );
+    }
+
+    /// The other cores, from the footer.
+    pub fn open_cores(&mut self, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        let on_local = self.on_local;
+        let dialog = cx.new(|cx| pages::cores::CoresDialog::new(state, on_local, cx));
+        let subscription = cx.subscribe(&dialog, |this, _, event, cx| match event {
+            pages::cores::CoresEvent::Close => {
+                this.cores = None;
+                cx.notify();
+            }
+        });
+        self._subscriptions.push(subscription);
+        self.cores = Some(dialog);
+        cx.notify();
     }
 
     pub fn open_create(&mut self, cx: &mut Context<Self>) {
@@ -257,6 +279,9 @@ impl Render for HostShell {
                     ),
             )
             .when_some(self.create.clone(), |this, dialog| this.child(dialog))
+            .when_some(self.cores.clone(), |this, dialog| {
+                this.child(div().absolute().inset_0().child(dialog))
+            })
             .child(self.eula.clone())
             .child(toasts)
             .min_w(layout::sidebar_width())

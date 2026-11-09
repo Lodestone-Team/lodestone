@@ -54,6 +54,9 @@ pub enum HostEvent {
     InstancesReloaded,
     /// The session ended: the window signs in again.
     SignedOut,
+    /// Show another core (package D's Cores dialog): `None` for this computer's, or a
+    /// session on another core.
+    SwitchCore(Option<Box<crate::session::Session>>),
     /// A page asks the shell to show another route (see [`HostState::navigate`]).
     Navigate(crate::routes::Route),
     /// A page asks for the "New server" dialog.
