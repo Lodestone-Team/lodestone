@@ -48,7 +48,10 @@ function file(pathname) {
 
 function send(res, status, path) {
   res.writeHead(status, { 'Content-Type': TYPES[extname(path)] || 'application/octet-stream' });
-  createReadStream(path).pipe(res);
+  // a rebuild can delete the file mid-request; don't let that stop the server
+  createReadStream(path)
+    .on('error', () => res.destroy())
+    .pipe(res);
 }
 
 createServer((req, res) => {

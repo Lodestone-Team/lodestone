@@ -59,9 +59,9 @@ async function showStars() {
 
 // Iron filings. A grid of short strokes, each turned along the field of a
 // magnet at the logo (a dipole whose axis sways a little). The pointer is a
-// second magnet: strokes within a few hundred pixels of it turn toward its
-// field and brighten, less the farther they are, so its pull fades out
-// smoothly. On load the strokes start at random angles and swing into line,
+// second magnet: strokes within about 170px of it turn toward its field and
+// fade back, less the farther they are, so its pull blends into the rest of
+// the field. On load the strokes start at random angles and swing into line,
 // nearest the logo first.
 
 function startField() {
@@ -83,7 +83,7 @@ function startField() {
   ];
   const BANDS = BAND_COLORS.length;
   const CLEAR_RADIUS = 84; // no filings under the logo
-  const POINTER_REACH = 280; // px; the pointer's pull halves at about this distance
+  const POINTER_REACH = 170; // px; the pointer's pull halves at about this distance
   const POINTER_SPREAD = 2 * (POINTER_REACH / 1.18) ** 2;
   let width = 0;
   let height = 0;
@@ -202,8 +202,8 @@ function startField() {
       }
       const appear = reducedMotion ? 1 : Math.min(1, Math.max(0, elapsed / 600));
       if (appear <= 0) continue;
-      const strength = Math.min(1, Math.pow(Math.hypot(b.x, b.y), 0.3) * 0.7 + near * 0.45);
-      const level = Math.min(BUCKETS - 1, Math.floor(strength * appear * BUCKETS));
+      const strength = Math.min(1, Math.pow(Math.hypot(b.x, b.y), 0.3) * 0.85);
+      const level = Math.min(BUCKETS - 1, Math.floor(strength * appear * (1 - 0.6 * near) * BUCKETS));
       const half = (spacing * (0.24 + 0.14 * strength)) / 1;
       const cx = Math.cos(f.angle) * half;
       const cy = Math.sin(f.angle) * half;
@@ -223,7 +223,7 @@ function startField() {
         const r = Math.round(104 + (hr - 104) * s);
         const g = Math.round(116 + (hg - 116) * s);
         const bl = Math.round(134 + (hb - 134) * s);
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${bl}, ${0.16 + 0.6 * s})`;
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${bl}, ${0.08 + 0.68 * s})`;
         ctx.beginPath();
         for (let k = 0; k < seg.length; k += 4) {
           ctx.moveTo(seg[k], seg[k + 1]);
