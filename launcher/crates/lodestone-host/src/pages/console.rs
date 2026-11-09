@@ -58,19 +58,11 @@ struct CommandHistories(HashMap<String, CommandHistory>);
 
 impl Global for CommandHistories {}
 
-/// Whether consoles show colours (Settings › Profile › Coloured console; on by
-/// default). Package D's settings store sets it with [`set_colored`].
-struct Colored(bool);
-
-impl Global for Colored {}
-
+/// Whether consoles show colours: Settings › Profile › Coloured console (on by
+/// default).
 pub fn colored(cx: &App) -> bool {
-    cx.try_global::<Colored>().is_none_or(|c| c.0)
-}
-
-pub fn set_colored(colored: bool, cx: &mut App) {
-    cx.set_global(Colored(colored));
-    cx.refresh_windows();
+    cx.try_global::<crate::prefs::Prefs>()
+        .is_none_or(|prefs| prefs.data.colored_console)
 }
 
 /// A console line, parsed once.

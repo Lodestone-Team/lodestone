@@ -59,6 +59,7 @@ use crate::{
 /// Registers the pages' key bindings. Call once, after `lodestone_ui::init`.
 pub fn init(cx: &mut App) {
     console::init(cx);
+    files::init(cx);
 }
 
 /// The page for `route`.
@@ -104,6 +105,9 @@ pub fn demo(view: &AnyView, cx: &mut App) {
     if let Ok(page) = view.clone().downcast::<console::ConsolePage>() {
         page.update(cx, |page, cx| page.demo(cx));
     }
+    if let Ok(page) = view.clone().downcast::<files::FilesPage>() {
+        page.update(cx, |page, cx| page.demo(cx));
+    }
     if let Ok(page) = view.clone().downcast::<overview::OverviewPage>() {
         page.update(cx, |page, cx| page.demo(cx));
     }
@@ -130,4 +134,16 @@ pub fn not_built(package: &'static str) -> AnyElement {
             )
         })
         .into_any_element()
+}
+
+#[cfg(all(test, feature = "screenshot"))]
+mod tests {
+    /// Every page's key bindings parse (a bad one panics at startup).
+    #[gpui::test]
+    fn the_pages_key_bindings_load(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            lodestone_ui::components::init(cx);
+            super::init(cx);
+        });
+    }
 }

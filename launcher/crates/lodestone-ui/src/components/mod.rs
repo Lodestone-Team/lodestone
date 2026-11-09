@@ -17,6 +17,7 @@ mod segmented;
 pub mod settings;
 mod slider;
 mod tabs;
+mod text_editor;
 mod text_input;
 mod toast;
 mod toggle;
@@ -36,6 +37,7 @@ pub use rich_text::{RichText, clear_selection};
 pub use segmented::segmented;
 pub use slider::Slider;
 pub use tabs::Tabs;
+pub use text_editor::{Language, Pos, TextEditor, TextEditorEvent, Token};
 pub use text_input::TextInput;
 pub use toast::{Toast, ToastAction, ToastLevel, Toasts};
 pub use toggle::Toggle;
@@ -50,8 +52,11 @@ pub type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static
 /// Registers the components' key bindings. Call once at startup.
 pub fn init(cx: &mut App) {
     focus::init(cx);
-    text_input::init(cx);
+    // First: its ⌘C (Ctrl+C) has no context, and a binding added later wins, so the
+    // text fields' own Copy must come after it.
     rich_text::init(cx);
+    text_input::init(cx);
+    text_editor::init(cx);
 }
 
 /// Emits `ui.click` (or another `ui.*` topic) for a shared control, with its element
