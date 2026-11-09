@@ -304,6 +304,11 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffAndSignOut => "關閉並登出",
         M::TurnOffOnly => "只關閉",
         M::SignInSection => "Microsoft 登入",
+        M::OfflineAccountsSetting => "離線帳號",
+        M::OfflineAccountsSettingHint => "在帳號選單中顯示「{add}」。僅供測試。",
+        M::OfflineAccountsAlwaysOn => {
+            "在偵錯版本中以及設定 LODESTONE_LAUNCHER_OFFLINE=1 時一律開啟。"
+        }
         M::CodingAgentsSection => "程式設計助手",
         M::CodingAgentsLead => {
             "Claude Code、Codex 等程式設計助手可以透過 lodestone-launcher-cli 操作啟動器。啟動器在資料夾中為它們保存了指南。"

@@ -75,12 +75,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-shift-z", Redo, None),
         KeyBinding::new("ctrl-y", Redo, None),
     ]);
-    // Pasting a friend's invite link anywhere outside a text field opens it. A focused
-    // text field takes the shortcut first, for its text.
-    #[cfg(target_os = "macos")]
-    cx.bind_keys([KeyBinding::new("cmd-v", PasteInvite, None)]);
-    #[cfg(not(target_os = "macos"))]
-    cx.bind_keys([KeyBinding::new("ctrl-v", PasteInvite, None)]);
+    bind_paste_invite(cx);
     set_menus(cx);
     // The launcher has one window; closing it quits, as in the dashboard app.
     cx.on_window_closed(|cx, _| {
@@ -89,6 +84,29 @@ pub fn init(cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// The key context of the launcher window's root, which handles its own shortcuts.
+pub const SHELL_CONTEXT: &str = "Launcher";
+
+/// Pasting a friend's invite link anywhere outside a text field opens it. Inside a
+/// text field the shortcut is the field's own Paste: a binding without a context
+/// would outrank the field's (GPUI ranks it as deep as the focused element), so this
+/// one leaves text fields out.
+fn bind_paste_invite(cx: &mut App) {
+    const OUTSIDE_TEXT_FIELDS: &str = "Launcher && !TextInput && !TextEditor";
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([KeyBinding::new(
+        "cmd-v",
+        PasteInvite,
+        Some(OUTSIDE_TEXT_FIELDS),
+    )]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([KeyBinding::new(
+        "ctrl-v",
+        PasteInvite,
+        Some(OUTSIDE_TEXT_FIELDS),
+    )]);
 }
 
 /// Quit's shortcut: ⌘Q on macOS and Ctrl+Q elsewhere, as in browsers and most
@@ -519,7 +537,9 @@ mod screenshot {
 mod tests {
     use std::{cell::Cell, rc::Rc};
 
-    use gpui::{Context, IntoElement, Render, TestAppContext, Window, div};
+    use gpui::{
+        AppContext as _, Context, Focusable as _, IntoElement, Render, TestAppContext, Window, div,
+    };
 
     struct Empty;
 
@@ -549,5 +569,85 @@ mod tests {
         assert_eq!(quits.get(), 0, "{other} doesn't quit");
         cx.simulate_keystrokes(shortcut);
         assert_eq!(quits.get(), 1, "{shortcut} quits");
+    }
+
+    const PASTE: &str = if cfg!(target_os = "macos") {
+        "cmd-v"
+    } else {
+        "ctrl-v"
+    };
+
+    /// Counts PasteInvite, which the shell handles at the window's root.
+    fn count_paste_invites(cx: &mut TestAppContext) -> Rc<Cell<usize>> {
+        let invites = Rc::new(Cell::new(0));
+        cx.update(|cx| {
+            crate::components::init(cx);
+            super::bind_paste_invite(cx);
+            let invites = invites.clone();
+            cx.on_action(move |_: &super::PasteInvite, _| invites.set(invites.get() + 1));
+        });
+        invites
+    }
+
+    /// A field inside the shell's key context, as in the launcher's window.
+    struct Shell {
+        input: gpui::Entity<crate::components::TextInput>,
+        focus: gpui::FocusHandle,
+    }
+
+    impl Render for Shell {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            use gpui::{InteractiveElement as _, ParentElement as _};
+            div()
+                .key_context(super::SHELL_CONTEXT)
+                .track_focus(&self.focus)
+                .child(self.input.clone())
+        }
+    }
+
+    fn shell(cx: &mut TestAppContext) -> (gpui::Entity<Shell>, &mut gpui::VisualTestContext) {
+        cx.add_window_view(|_, cx| Shell {
+            input: cx.new(crate::components::TextInput::new),
+            focus: cx.focus_handle(),
+        })
+    }
+
+    /// The paste shortcut in a focused text field pastes into it, and is not taken for
+    /// an invite link.
+    #[test]
+    fn paste_in_a_text_field_pastes_into_it() {
+        let mut cx = TestAppContext::single();
+        let invites = count_paste_invites(&mut cx);
+        let (shell, cx) = shell(&mut cx);
+        let input = shell.read_with(cx, |shell, _| shell.input.clone());
+        cx.update(|window, cx| {
+            let handle = input.read(cx).focus_handle(cx);
+            window.focus(&handle, cx);
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                "https://login.live.com/oauth20_desktop.srf?code=M.C1".into(),
+            ));
+        });
+        cx.run_until_parked();
+        cx.simulate_keystrokes(PASTE);
+        assert_eq!(
+            input.read_with(cx, |input, _| input.text().to_string()),
+            "https://login.live.com/oauth20_desktop.srf?code=M.C1"
+        );
+        assert_eq!(invites.get(), 0, "{PASTE} in a field isn't an invite paste");
+    }
+
+    /// Outside a text field, the shortcut looks for an invite link.
+    #[test]
+    fn paste_outside_a_text_field_looks_for_an_invite() {
+        let mut cx = TestAppContext::single();
+        let invites = count_paste_invites(&mut cx);
+        let (shell, cx) = shell(&mut cx);
+        cx.update(|window, cx| {
+            let handle = shell.read(cx).focus.clone();
+            window.focus(&handle, cx);
+        });
+        cx.run_until_parked();
+        cx.simulate_keystrokes(PASTE);
+        assert_eq!(invites.get(), 1);
     }
 }

@@ -337,6 +337,12 @@ crate::i18n::messages! {
         TurnOffOnly = "Turn off only",
         /// Settings > Developer: the section of "Sign in as the Minecraft Launcher".
         SignInSection = "Microsoft sign-in",
+        /// Settings > Developer: the toggle for offline accounts.
+        OfflineAccountsSetting = "Offline accounts",
+        /// {add} is "Add offline account".
+        OfflineAccountsSettingHint = "Shows “{add}” in the account menu. For testing only.",
+        /// The hint while offline accounts are on whatever the setting says.
+        OfflineAccountsAlwaysOn = "Always on in debug builds and with LODESTONE_LAUNCHER_OFFLINE=1.",
         /// Settings > Developer: what lodestone-launcher-cli may do.
         /// Settings > Developer > Coding agents.
         CodingAgentsSection = "Coding agents",

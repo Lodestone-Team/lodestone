@@ -2544,6 +2544,8 @@ impl Render for LauncherShell {
 
         let shell = div()
             .id("launcher-shell")
+            // Scopes the shell's own shortcuts, such as pasting an invite link.
+            .key_context(crate::SHELL_CONTEXT)
             .track_focus(&self.root_focus)
             // For the debug traces: where the pointer went down, to place clicks on
             // elements that aren't shared controls.

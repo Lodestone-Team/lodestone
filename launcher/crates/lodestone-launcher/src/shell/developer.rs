@@ -63,6 +63,25 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 })),
         )
         .into_any_element()]);
+    let accounts = shell.accounts.read(cx);
+    let (offline_on, offline_forced) = (accounts.offline_enabled(), accounts.offline_forced());
+    let offline = card([SettingRow::new(t(M::OfflineAccountsSetting))
+        .hint(if offline_forced {
+            SharedString::from(t(M::OfflineAccountsAlwaysOn))
+        } else {
+            tr!(M::OfflineAccountsSettingHint, add = t(M::AddOfflineAccount)).into()
+        })
+        .child(
+            Toggle::new("offline-accounts", offline_on)
+                .label(t(M::OfflineAccountsSetting))
+                .disabled(offline_forced)
+                .on_change(cx.listener(|this, value: &bool, _, cx| {
+                    let on = *value;
+                    this.accounts
+                        .update(cx, |accounts, cx| accounts.set_offline_accounts(on, cx));
+                })),
+        )
+        .into_any_element()]);
     div()
         .flex()
         .flex_col()
@@ -96,6 +115,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
             .into_any_element()])),
         )
         .child(section(t(M::SignInSection), None).child(sign_in))
+        .child(section(t(M::Accounts), None).child(offline))
         .child(
             section(t(M::FirstTimeSetupSection), None).child(card([SettingRow::new(t(
                 M::ResetFirstTimeSetup,

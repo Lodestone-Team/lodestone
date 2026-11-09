@@ -364,6 +364,13 @@ pub fn text(message: M) -> &'static str {
         M::TurnOffAndSignOut => "Désactiver et déconnecter",
         M::TurnOffOnly => "Désactiver seulement",
         M::SignInSection => "Connexion Microsoft",
+        M::OfflineAccountsSetting => "Comptes hors ligne",
+        M::OfflineAccountsSettingHint => {
+            "Affiche «\u{a0}{add}\u{a0}» dans le menu du compte. Pour les tests uniquement."
+        }
+        M::OfflineAccountsAlwaysOn => {
+            "Toujours activé dans les versions de débogage et avec LODESTONE_LAUNCHER_OFFLINE=1."
+        }
         M::CodingAgentsSection => "Agents de programmation",
         M::CodingAgentsLead => {
             "Claude Code, Codex et d’autres agents de programmation peuvent piloter le lanceur avec lodestone-launcher-cli. Le lanceur garde des guides pour eux dans son dossier de données."
