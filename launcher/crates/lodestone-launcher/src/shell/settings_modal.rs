@@ -579,9 +579,9 @@ impl LauncherShell {
                     )),
                 )
             });
-        let general = card([
-            language_row.into_any_element(),
-            zoom_row.into_any_element(),
+        let mut rows = vec![language_row.into_any_element(), zoom_row.into_any_element()];
+        rows.extend(self.render_transparency(cx));
+        rows.push(
             SettingRow::new(t(M::GroupAutomatically))
                 .hint(t(M::GroupAutomaticallyHint))
                 .child(
@@ -594,7 +594,8 @@ impl LauncherShell {
                         })),
                 )
                 .into_any_element(),
-        ]);
+        );
+        let general = card(rows);
         div()
             .flex()
             .flex_col()
@@ -602,6 +603,72 @@ impl LauncherShell {
             .w_full()
             .child(general)
             .child(section(t(M::UpdatesSection), None).child(self.render_updates(cx)))
+    }
+
+    /// Settings > General > Transparency, and Opacity while the window is
+    /// see-through.
+    fn render_transparency(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        use launcher_core::ui_skin::{DEFAULT_OPACITY, MIN_OPACITY, Transparency};
+        let (chosen, opacity) = self.instances.read(cx).transparency();
+        let look = crate::skin::look(cx);
+        let skin = look.spec.transparency;
+        // "Skin" only while the skin has a material of its own
+        let mut choices: Vec<(Option<Transparency>, SharedString)> = Vec::new();
+        if skin.is_some() {
+            choices.push((None, t(ShellMsg::TransparencySkin).into()));
+        }
+        choices.extend(
+            Transparency::ALL
+                .into_iter()
+                .map(|m| (Some(m), super::material_name(m).into())),
+        );
+        let selected = match (chosen, skin) {
+            (None, Some(_)) => None,
+            (None, None) => Some(Transparency::Opaque),
+            (Some(m), _) => Some(m),
+        };
+        let instances = self.instances.clone();
+        let mut rows = vec![
+            SettingRow::new(t(ShellMsg::Transparency))
+                .child(crate::components::segmented(
+                    "transparency",
+                    choices,
+                    Some(&selected),
+                    false,
+                    move |material, _, cx| {
+                        instances
+                            .update(cx, |instances, cx| instances.set_transparency(material, cx))
+                    },
+                ))
+                .into_any_element(),
+        ];
+        if crate::glass::resolve(&look.spec).is_see_through() {
+            let percent = opacity
+                .or(look.spec.window_opacity)
+                .unwrap_or(DEFAULT_OPACITY)
+                .clamp(MIN_OPACITY, 100);
+            let instances = self.instances.clone();
+            rows.push(
+                SettingRow::new(t(ShellMsg::Opacity))
+                    .child(
+                        crate::components::Slider::new(
+                            "opacity",
+                            f64::from(percent),
+                            f64::from(MIN_OPACITY),
+                            100.0,
+                            5.0,
+                        )
+                        .format(|v| i18n::format::percent(v.round() as u64).into())
+                        .on_change(move |value, _, cx| {
+                            instances.update(cx, |instances, cx| {
+                                instances.set_opacity(value.round() as u8, cx)
+                            })
+                        }),
+                    )
+                    .into_any_element(),
+            );
+        }
+        rows
     }
 
     /// Settings > General > Updates: "Update automatically", and the running build

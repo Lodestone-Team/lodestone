@@ -202,6 +202,33 @@ impl Glass {
         })
     }
 
+    /// The window's picture, already blurred (`image`), with nothing over it: what a
+    /// see-through window's panels show (Settings > General > Transparency), when
+    /// the skin gives them no material of their own.
+    pub fn window(spec: &SkinSpec, image: Arc<RenderImage>) -> Glass {
+        let fill = spec.surface(SurfaceId::Window).and_then(|s| s.fill);
+        Glass {
+            under: Base::Layer {
+                layer: SurfaceId::Window,
+                blur: crate::glass::WINDOW_BLUR,
+                image: Some(image),
+                stretch: false,
+                stand_in: hsla(
+                    launcher_core::ui_skin::readable::backdrop_of(
+                        fill.as_ref(),
+                        SurfaceId::Window.base(),
+                        None,
+                    )
+                    .mean,
+                    1.0,
+                ),
+            },
+            overlays: Vec::new(),
+            frost: 0.0,
+            grain: 0.0,
+        }
+    }
+
     /// The layer picture it needs, with its blur, if it needs one.
     pub fn source(&self) -> Option<(SurfaceId, u8)> {
         match &self.under {

@@ -1838,8 +1838,10 @@ impl SkinEditor {
 impl Render for SkinEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let look = crate::skin::look(cx);
-        // the editor itself in the launcher's own look
+        // the editor itself in the launcher's own look, opaque, so colours show true
         crate::skin::set_frame(&crate::skin::launcher_look());
+        crate::glass::set_frame(crate::glass::Glass::OPAQUE);
+        crate::glass::apply_to_window(window, crate::glass::Glass::OPAQUE);
         window.set_rem_size(theme::zoom::rem_size());
         let checks = crate::skin::checks(&look);
         let short = checks.iter().filter(|c| !c.passes()).count();

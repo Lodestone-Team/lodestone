@@ -139,6 +139,18 @@ pub const SCENES: &[&str] = &[
     "snapshot-share",
     "snapshot-delete",
     "snapshot-import",
+    "glass-clear",
+    "glass-frosted",
+    "glass",
+    "glass-skin",
+    "glass-dialog",
+    "glass-settings",
+    "liquid",
+    "liquid-skin",
+    "liquid-press",
+    "liquid-popover",
+    "liquid-dialog",
+    "liquid-contrast",
 ];
 
 /// Keys pressed once a scene has settled, before the screenshot, to show where
@@ -309,6 +321,100 @@ fn showcase_skin() -> launcher_core::ui_skin::SkinSpec {
     spec
 }
 
+/// The see-through scenes' material (Opacity at its default) and skin.
+fn glass_scene(
+    scene: &str,
+) -> Option<(launcher_core::ui_skin::Transparency, Option<&'static str>)> {
+    use launcher_core::ui_skin::Transparency;
+    Some(match scene {
+        "glass-clear" => (Transparency::Clear, None),
+        "glass-frosted" => (Transparency::Frosted, None),
+        "glass" | "glass-dialog" | "glass-settings" => (Transparency::Glass, None),
+        "glass-skin" => (Transparency::Glass, Some("glass")),
+        "liquid" | "liquid-popover" | "liquid-contrast" => (Transparency::Glass, None),
+        "liquid-skin" | "liquid-press" | "liquid-dialog" => (Transparency::Glass, Some("lagoon")),
+        _ => return None,
+    })
+}
+
+thread_local! {
+    /// The made-up desktop the see-through scenes show behind the window: sharp,
+    /// and blurred as the compositor would.
+    static DESKTOP: std::cell::RefCell<Option<(Arc<gpui::RenderImage>, Arc<gpui::RenderImage>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A made-up desktop: a wallpaper with a document window and a row of app icons,
+/// so what shows through reads as sharp or blurred.
+fn desktop_image() -> image::RgbaImage {
+    let wallpaper = launcher_core::ui_skin::art::draw("sunset").expect("built-in");
+    let mut image =
+        image::imageops::resize(&wallpaper, 1400, 900, image::imageops::FilterType::Triangle);
+    let mut rect = |x0: u32, y0: u32, w: u32, h: u32, rgba: [u8; 4]| {
+        for y in y0..(y0 + h).min(900) {
+            for x in x0..(x0 + w).min(1400) {
+                image.put_pixel(x, y, image::Rgba(rgba));
+            }
+        }
+    };
+    // a document window, with lines of "text"
+    rect(120, 120, 520, 560, [246, 246, 248, 255]);
+    rect(120, 120, 520, 36, [222, 224, 230, 255]);
+    for line in 0..16 {
+        let width = [440, 400, 460, 300][line % 4];
+        rect(150, 190 + line as u32 * 28, width, 10, [60, 64, 74, 255]);
+    }
+    // app icons along the bottom
+    let icons = [
+        [229, 84, 106, 255],
+        [89, 178, 243, 255],
+        [109, 210, 119, 255],
+        [239, 180, 64, 255],
+        [167, 139, 250, 255],
+        [34, 211, 238, 255],
+    ];
+    for (i, color) in icons.into_iter().enumerate() {
+        rect(760 + i as u32 * 90, 780, 64, 64, color);
+    }
+    image
+}
+
+/// What the see-through scenes show behind the window: the made-up desktop, sharp
+/// for Clear and blurred otherwise. `None` for other scenes.
+pub fn desktop(glass: crate::glass::Glass) -> Option<gpui::AnyElement> {
+    use gpui::{IntoElement, ObjectFit, Styled, StyledImage, img};
+    if requested_transparency().is_none() {
+        requested_scene().and_then(|scene| glass_scene(&scene))?;
+    }
+    let (sharp, blurred) = DESKTOP.with(|desktop| {
+        desktop
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                let image = desktop_image();
+                // about the blur macOS gives a window's background
+                let blurred = image::imageops::fast_blur(&image, 18.0);
+                (
+                    crate::images::render_image(image),
+                    crate::images::render_image(blurred),
+                )
+            })
+            .clone()
+    });
+    let image = if glass.material.is_blurred() {
+        blurred
+    } else {
+        sharp
+    };
+    Some(
+        img(image)
+            .absolute()
+            .inset_0()
+            .size_full()
+            .object_fit(ObjectFit::Cover)
+            .into_any_element(),
+    )
+}
+
 /// A skin of see-through panels over a busy picture: frosted, blurred and
 /// translucent, for the material scenes.
 fn materials_skin() -> launcher_core::ui_skin::SkinSpec {
@@ -456,6 +562,7 @@ fn has_instances(scene: &str) -> bool {
         || scene == "instance-linked"
         || is_appearance_scene(scene)
         || scene.starts_with("skin-")
+        || glass_scene(scene).is_some()
         || matches!(
             scene,
             "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin"
@@ -479,6 +586,15 @@ pub fn requested_locale() -> Option<crate::i18n::Locale> {
 }
 
 /// `--zoom 1.5`: the interface's zoom for the screenshot.
+/// `--transparency <off|clear|frosted|glass>`: any scene, see-through, over the
+/// made-up desktop.
+pub fn requested_transparency() -> Option<launcher_core::ui_skin::Transparency> {
+    let mut args = std::env::args().skip_while(|arg| arg != "--transparency");
+    args.next()?;
+    let name = args.next()?;
+    serde_json::from_value(serde_json::Value::String(name.replace("off", "opaque"))).ok()
+}
+
 pub fn requested_zoom() -> Option<f32> {
     let mut args = std::env::args().skip_while(|arg| arg != "--zoom");
     args.next()?;
@@ -832,6 +948,12 @@ mod worlds;
 pub use shared::{window_height, window_width};
 
 pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherShell>) {
+    if let Some(material) = requested_transparency() {
+        let instances = shell.instances().clone();
+        instances.update(cx, |instances, cx| {
+            instances.set_transparency(Some(material), cx)
+        });
+    }
     match scene {
         "new-instance" => shell.open_new_instance_with(Some(("Survival", "")), None, cx),
         "new-instance-fabric" | "new-instance-versions" => {
@@ -1161,6 +1283,63 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                     instances.set_skin(Some("grassblock".into()), cx);
                 }
             });
+        }
+        scene if glass_scene(scene).is_some() => {
+            let (material, skin) = glass_scene(scene).expect("checked");
+            let instances = shell.instances().clone();
+            if scene.starts_with("liquid") {
+                // lit from the upper left, the window in front, and the machine's
+                // accessibility settings left out
+                crate::liquid::force_env(Some(crate::liquid::Env {
+                    light: -0.45,
+                    active: true,
+                    prefs: crate::a11y::Prefs {
+                        increase_contrast: scene == "liquid-contrast",
+                        ..Default::default()
+                    },
+                }));
+                // the moment a popover or dialog materializes
+                if matches!(scene, "liquid-popover" | "liquid-dialog") {
+                    crate::liquid::freeze_materialize(Some(0.25));
+                }
+            }
+            if skin == Some("lagoon") {
+                // a skin with a detailed image behind the window, for the glass to bend
+                let store = instances.read(cx).skins();
+                let mut spec = launcher_core::ui_skin::SkinSpec::named("Lagoon");
+                spec.surfaces.insert(
+                    launcher_core::ui_skin::SurfaceId::Window,
+                    launcher_core::ui_skin::SurfaceSpec {
+                        fill: Some(launcher_core::ui_skin::Fill::Image(
+                            launcher_core::ui_skin::ImageFill {
+                                image: "builtin:sunset".into(),
+                                fit: launcher_core::ui_skin::Fit::Cover,
+                                tint: None,
+                                tint_opacity: 0,
+                                blur: 0,
+                            },
+                        )),
+                        ..Default::default()
+                    },
+                );
+                store.save("lagoon", &spec).ok();
+            }
+            instances.update(cx, |instances, cx| {
+                instances.set_transparency(Some(material), cx);
+                if skin.is_some() {
+                    instances.set_skin(skin.map(String::from), cx);
+                }
+            });
+            match scene {
+                "glass-dialog" | "liquid-dialog" => {
+                    shell.open_new_instance_with(Some(("Survival", "")), None, cx)
+                }
+                "liquid-popover" => shell.open_account_menu(cx),
+                "glass-settings" => {
+                    shell.open_settings(Some(crate::shell::SettingsPage::General), None, cx)
+                }
+                _ => {}
+            }
         }
         "skin-grassblock" | "skin-glass" | "skin-neon" | "skin-overrides" | "settings-skin" => {
             let id = match scene {

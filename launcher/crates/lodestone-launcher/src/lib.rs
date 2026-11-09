@@ -3,6 +3,7 @@
 //! This crate holds the app shell, the theme carried over from the dashboard and a
 //! small set of components. The binary in `main.rs` only opens the window.
 
+pub mod a11y;
 pub mod accounts;
 pub mod assets;
 pub mod components;
@@ -11,9 +12,11 @@ pub mod components;
 #[cfg(unix)]
 pub mod control;
 pub mod file_dialog;
+pub mod glass;
 pub mod i18n;
 pub mod images;
 pub mod instances;
+pub mod liquid;
 pub mod markdown;
 pub mod perf;
 #[cfg(feature = "screenshot")]
@@ -292,6 +295,18 @@ mod screenshot {
                     .timer(Duration::from_millis(250))
                     .await;
             }
+            // Then Liquid Glass's lenses, which are built once the window is drawn.
+            for _ in 0..40 {
+                window
+                    .update(cx, |_, window, cx| window.draw(cx).clear(cx))
+                    .ok();
+                if !crate::liquid::building() {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+            }
             // Keys the scene presses, to show keyboard focus.
             let keys = crate::preview::requested_scene()
                 .map(|scene| crate::preview::keystrokes(&scene))
@@ -363,6 +378,40 @@ mod screenshot {
                         .timer(Duration::from_millis(600))
                         .await;
                 }
+            }
+            // `--press X,Y`: the pointer moved there and the left button held down, not
+            // let go, to picture a control while it is pressed.
+            if let Some(at) = arg_after("--press")
+                && let Some((x, y)) = at.split_once(',')
+                && let (Ok(x), Ok(y)) = (x.trim().parse::<f32>(), y.trim().parse::<f32>())
+            {
+                let position = gpui::point(gpui::px(x), gpui::px(y));
+                window
+                    .update(cx, |_, window, cx| {
+                        window.dispatch_event(
+                            gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+                                position,
+                                ..Default::default()
+                            }),
+                            cx,
+                        );
+                        window.draw(cx).clear(cx);
+                        window.dispatch_event(
+                            gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+                                button: gpui::MouseButton::Left,
+                                position,
+                                modifiers: Default::default(),
+                                click_count: 1,
+                                first_mouse: false,
+                            }),
+                            cx,
+                        );
+                        window.draw(cx).clear(cx);
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(900))
+                    .await;
             }
             // `--drag X,Y>X,Y` (repeatable with `;`): a left-button drag between window
             // points, as selecting text does. `--right-click X,Y` opens a context menu.

@@ -5,6 +5,7 @@ use gpui::{App, Context, Entity};
 use launcher_core::{
     instances::{BACKGROUND_FILE, ICON_FILE, Instance},
     settings::{CliAccess, CliSettings, InstanceDefaults, Settings},
+    ui_skin::Transparency,
 };
 
 use super::{Instances, fields};
@@ -31,6 +32,8 @@ pub(crate) struct LauncherValues {
     auto_groups: bool,
     auto_update: bool,
     skin: Option<String>,
+    transparency: Option<Transparency>,
+    opacity: Option<u8>,
     instance_defaults: InstanceDefaults,
     cli: CliSettings,
 }
@@ -43,6 +46,8 @@ impl LauncherValues {
             auto_groups: settings.auto_groups,
             auto_update: settings.auto_update,
             skin: settings.skin.clone(),
+            transparency: settings.transparency,
+            opacity: settings.opacity,
             instance_defaults: settings.instance_defaults.clone(),
             cli: settings.cli,
         }
@@ -54,6 +59,8 @@ impl LauncherValues {
         settings.auto_groups = self.auto_groups;
         settings.auto_update = self.auto_update;
         settings.skin = self.skin.clone();
+        settings.transparency = self.transparency;
+        settings.opacity = self.opacity;
         settings.instance_defaults = self.instance_defaults.clone();
         settings.cli = self.cli;
     }
@@ -80,6 +87,17 @@ impl LauncherValues {
                 .map(|spec| spec.name)
                 .unwrap_or_else(|| self.skin.clone().unwrap_or_default());
             arrow(t(SM::Skin), &name)
+        } else if self.transparency != other.transparency {
+            let name = match self.transparency {
+                Some(material) => crate::shell::material_name(material),
+                None => t(SM::TransparencySkin),
+            };
+            arrow(t(SM::Transparency), name)
+        } else if self.opacity != other.opacity {
+            let percent = self
+                .opacity
+                .unwrap_or(launcher_core::ui_skin::DEFAULT_OPACITY);
+            arrow(t(SM::Opacity), &format::percent(u64::from(percent)))
         } else if self.cli.enabled != other.cli.enabled {
             arrow(t(SM::AllowCli), on_off(self.cli.enabled))
         } else if self.cli.access != other.cli.access {
@@ -380,6 +398,7 @@ fn restore_settings(
             .map_err(UndoError::Refused)?;
         i18n::apply(this.settings.language);
         crate::theme::zoom::set(this.settings.zoom);
+        crate::glass::set_user(this.settings.transparency, this.settings.opacity);
         this.reload_skin(cx);
         crate::set_menus(cx);
         cx.refresh_windows();

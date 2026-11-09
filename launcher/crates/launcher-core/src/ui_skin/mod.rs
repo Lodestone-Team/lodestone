@@ -31,11 +31,13 @@ use crate::paths::DataDir;
 pub mod art;
 pub mod fonts;
 pub mod surface;
+pub mod transparency;
 
 pub use surface::{
     Fill, FontPart, Fonts, Gradient, GradientKind, ImageFill, Material, MaterialKind, SkinBanner,
     Stop, SurfaceId, SurfaceSpec, Surfaces, Tokens,
 };
+pub use transparency::{DEFAULT_OPACITY, MIN_OPACITY, Transparency};
 
 /// The version of [`SkinSpec`] this build reads and writes.
 pub const SCHEMA: u32 = 1;
@@ -335,6 +337,14 @@ pub struct SkinSpec {
     /// Play backgrounds the skin gives instances: a new instance takes one at random.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub banners: Vec<SkinBanner>,
+    /// What shows through the window while the skin is used, unless Settings >
+    /// General > Transparency says otherwise. (A surface's own `material` is how
+    /// what is behind it, inside the window, shows through it.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transparency: Option<Transparency>,
+    /// How opaque the window is while see-through, [`MIN_OPACITY`] to 100 percent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_opacity: Option<u8>,
 }
 
 impl Default for SkinSpec {
@@ -364,6 +374,8 @@ impl SkinSpec {
             tokens: Tokens::default(),
             fonts: Fonts::default(),
             banners: Vec::new(),
+            transparency: None,
+            window_opacity: None,
         }
     }
 
@@ -487,6 +499,14 @@ impl SkinSpec {
         if self.sidebar.blur > MAX_BLUR {
             return Err(SkinError::Invalid(format!(
                 "sidebar.blur must be 0 to {MAX_BLUR}"
+            )));
+        }
+        if self
+            .window_opacity
+            .is_some_and(|o| !(MIN_OPACITY..=100).contains(&o))
+        {
+            return Err(SkinError::Invalid(format!(
+                "window_opacity must be {MIN_OPACITY} to 100"
             )));
         }
         if self.hero.scrim.is_some_and(|s| s > 100) {
@@ -1549,6 +1569,28 @@ mod tests {
         }
         zip.finish().unwrap();
         file
+    }
+
+    #[test]
+    fn transparency_and_window_opacity_are_checked() {
+        let mut spec: SkinSpec = serde_json::from_str(
+            r#"{"schema": 1, "name": "See-through", "transparency": "frosted",
+                "window_opacity": 50, "surfaces": {"card": {"material": "frost"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(spec.transparency, Some(Transparency::Frosted));
+        assert!(spec.surface(SurfaceId::Card).unwrap().material.is_some());
+        assert!(spec.validate().is_ok());
+        spec.window_opacity = Some(MIN_OPACITY - 1);
+        assert!(spec.validate().is_err());
+        spec.window_opacity = Some(100);
+        assert!(spec.validate().is_ok());
+        assert!(
+            serde_json::from_str::<SkinSpec>(
+                r#"{"schema": 1, "name": "x", "transparency": "liquid"}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]

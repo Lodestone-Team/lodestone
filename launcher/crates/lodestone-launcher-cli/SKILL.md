@@ -265,6 +265,7 @@ lodestone-launcher-cli settings instance reset Survival --key memory      # foll
 lodestone-launcher-cli settings defaults get
 lodestone-launcher-cli settings defaults set --max-memory 4G --jvm-args "-XX:+UseG1GC"
 lodestone-launcher-cli settings general set --auto-groups false
+lodestone-launcher-cli settings general set --transparency glass --opacity 70   # or skin, off, clear, frosted
 lodestone-launcher-cli settings developer get
 lodestone-launcher-cli shared get                                 # shared game settings
 lodestone-launcher-cli shared set guiScale 3

@@ -61,6 +61,16 @@ pub struct Settings {
     /// ([`crate::ui_skin`]). Left out of the file for the default look.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skin: Option<String>,
+    /// Settings > General > Transparency: what shows through the window. `None`
+    /// follows the skin, which is opaque unless it says otherwise. Left out of the
+    /// file while it follows the skin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transparency: Option<crate::ui_skin::Transparency>,
+    /// Settings > General > Opacity: how opaque a see-through window is, in percent
+    /// ([`crate::ui_skin::MIN_OPACITY`] to 100). `None` follows the skin, else
+    /// [`crate::ui_skin::DEFAULT_OPACITY`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<u8>,
     /// The sidebar's width, dragged from its edge, in logical pixels at 100% zoom.
     /// Left out of the file at the default width.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,6 +94,8 @@ impl Default for Settings {
             auto_update: true,
             zoom: 1.0,
             skin: None,
+            transparency: None,
+            opacity: None,
             sidebar_width: None,
             sidebar_collapsed: false,
             other: Map::new(),
@@ -519,5 +531,33 @@ mod tests {
         ] {
             assert_eq!(serde_json::to_value(language).unwrap(), code);
         }
+    }
+
+    #[test]
+    fn transparency_follows_the_skin_until_chosen() {
+        use crate::ui_skin::Transparency;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let raw = |path: &Path| -> Value {
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+        };
+        storage::save(&path, &Settings::default()).unwrap();
+        assert!(raw(&path).get("transparency").is_none());
+        assert!(raw(&path).get("opacity").is_none());
+        update(&path, |settings| {
+            settings.transparency = Some(Transparency::Glass);
+            settings.opacity = Some(45);
+        })
+        .unwrap();
+        assert_eq!(raw(&path)["transparency"], "glass");
+        assert_eq!(raw(&path)["opacity"], 45);
+        let loaded = load_or_default(&path);
+        assert_eq!(loaded.transparency, Some(Transparency::Glass));
+        assert_eq!(loaded.opacity, Some(45));
+        update(&path, |settings| {
+            settings.transparency = Some(Transparency::Opaque)
+        })
+        .unwrap();
+        assert_eq!(raw(&path)["transparency"], "opaque");
     }
 }

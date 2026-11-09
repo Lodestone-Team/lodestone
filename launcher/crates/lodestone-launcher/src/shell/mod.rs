@@ -108,6 +108,17 @@ impl InstanceTab {
 }
 
 /// A loader's name, or "Vanilla" in the current language for none.
+/// The name Settings > General > Transparency gives `material`.
+pub(crate) fn material_name(material: launcher_core::ui_skin::Transparency) -> &'static str {
+    use launcher_core::ui_skin::Transparency;
+    match material {
+        Transparency::Opaque => t(CommonMsg::Off),
+        Transparency::Clear => t(M::MaterialClear),
+        Transparency::Frosted => t(M::MaterialFrosted),
+        Transparency::Glass => t(M::MaterialGlass),
+    }
+}
+
 pub(crate) fn loader_name(loader: Loader) -> &'static str {
     match loader.kind() {
         Some(kind) => kind.label(),
@@ -1840,6 +1851,11 @@ impl Render for LauncherShell {
         let resolved = crate::skin::resolve(&look.spec, self.instances.read(cx).selected());
         theme::accent::set(resolved.accent);
         crate::skin::set_frame(&look);
+        // what shows through the window, as the setting or the skin says
+        let glass = crate::glass::resolve(&look.spec);
+        crate::glass::set_frame(glass);
+        crate::glass::apply_to_window(window, glass);
+        crate::liquid::set_env(window, cx);
         if look.spec.banner.in_sidebar {
             self.instances
                 .update(cx, |instances, cx| instances.load_sidebar_banners(cx));
@@ -1930,7 +1946,18 @@ impl Render for LauncherShell {
             .child(self.servers_overlay.clone())
             .children(self.undo_toast.render())
             .children(top_bar::window_controls(window, cx));
-        window_frame::frame(shell, window)
+        let root = window_frame::frame(shell, window);
+        // the see-through scenes' made-up desktop, behind the window
+        #[cfg(feature = "screenshot")]
+        if let Some(desktop) = crate::preview::desktop(glass) {
+            return div()
+                .relative()
+                .size_full()
+                .child(desktop)
+                .child(root)
+                .into_any_element();
+        }
+        root.into_any_element()
     }
 }
 

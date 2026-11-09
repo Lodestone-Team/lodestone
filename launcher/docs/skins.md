@@ -73,6 +73,8 @@ names and the font files it names, and nothing else. Imported packs are kept in
 | `banner.in_sidebar` | Each instance's Play background, faintly, behind its sidebar row. |
 | `sidebar.*`, `play.color`, `play.gradient` | The older way to paint the sidebar and the Play button; still read. `surfaces` wins where both are given. |
 | `sidebar.readability`, `hero.readability` | `off` (default) or `auto`. See [Readable text](#readable-text). |
+| `transparency` | What shows through the whole window from the desktop: `opaque` (default), `clear` (sharp), `frosted` (blurred by the system) or `glass` (frosted, with the sidebar, bars, dialogs, menus and notices as Liquid Glass). The user's Settings › General › Transparency wins. Not the same as a surface's `material`, which is what shows through a panel from inside the window. |
+| `window_opacity` | 30–100 (default 75): how opaque a see-through window is. |
 
 Colours are `#RRGGBB`. Every key but `schema` and `name` is optional.
 

@@ -396,6 +396,7 @@ impl Instances {
         };
         crate::i18n::apply(settings.language);
         crate::theme::zoom::set(settings.zoom);
+        crate::glass::set_user(settings.transparency, settings.opacity);
         crate::skin::apply(
             settings.skin.as_deref(),
             &launcher_core::ui_skin::SkinStore::new(&data_dir),
@@ -613,6 +614,35 @@ impl Instances {
         if let Err(err) = self.update_settings(|settings| settings.zoom = zoom, cx) {
             self.notice = Some(err.into());
         }
+        cx.refresh_windows();
+    }
+
+    /// Settings > General > Transparency (`None` follows the skin) and Opacity
+    /// (`None`: the skin's, else the default).
+    pub fn transparency(&self) -> (Option<launcher_core::ui_skin::Transparency>, Option<u8>) {
+        (self.settings.transparency, self.settings.opacity)
+    }
+
+    /// Changes what shows through the window, saves it, and shows it.
+    pub fn set_transparency(
+        &mut self,
+        material: Option<launcher_core::ui_skin::Transparency>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(err) = self.update_settings(|settings| settings.transparency = material, cx) {
+            self.notice = Some(err.into());
+        }
+        crate::glass::set_user(self.settings.transparency, self.settings.opacity);
+        cx.refresh_windows();
+    }
+
+    /// Changes how opaque a see-through window is, in percent, saves it, and shows it.
+    pub fn set_opacity(&mut self, percent: u8, cx: &mut Context<Self>) {
+        let percent = percent.clamp(launcher_core::ui_skin::MIN_OPACITY, 100);
+        if let Err(err) = self.update_settings(|settings| settings.opacity = Some(percent), cx) {
+            self.notice = Some(err.into());
+        }
+        crate::glass::set_user(self.settings.transparency, self.settings.opacity);
         cx.refresh_windows();
     }
 

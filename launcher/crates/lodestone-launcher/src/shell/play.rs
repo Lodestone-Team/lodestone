@@ -339,13 +339,21 @@ fn picker(
         .w(px(200.))
         .min_w_0()
         .flex_shrink(1.)
-        .px_3()
         .py_2()
-        .rounded(radius::LG)
         .border_1()
-        .border_color(crate::theme::ink::border())
-        .bg(colors::GRAY_800)
-        .surface(SurfaceId::Card)
+        .px_3()
+        .rounded(radius::LG)
+        .map(|this| {
+            if crate::liquid::on() {
+                // on the glass bar: a light fill rather than glass on glass
+                this.border_color(gpui::hsla(0., 0., 1., 0.10))
+                    .bg(gpui::hsla(0., 0., 1., 0.07))
+            } else {
+                this.border_color(crate::theme::ink::border())
+                    .bg(colors::GRAY_800)
+                    .surface(SurfaceId::Card)
+            }
+        })
         .when(!enabled, |this| this.opacity(0.6))
         .child(
             div()

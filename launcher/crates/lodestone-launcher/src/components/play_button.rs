@@ -188,7 +188,7 @@ fn side_button(
 }
 
 impl RenderOnce for PlayButton {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let look = self.look;
         let label = look
             .label
@@ -222,7 +222,10 @@ impl RenderOnce for PlayButton {
                     Some(caption) => format!("{} {caption}", t(ShellMsg::Play)).into(),
                     None => t(ShellMsg::Play).into(),
                 };
-                shell(self.id, shape, name)
+                let liquid =
+                    (crate::liquid::on() && !disabled).then(|| Liquid::new(&self.id, window, cx));
+                let glow = liquid.as_ref().and_then(Liquid::glow);
+                let button = shell(self.id, shape, name)
                     .justify_center()
                     .font_family(fonts::title())
                     .text_size(theme::text_size(text::H1))
@@ -275,6 +278,7 @@ impl RenderOnce for PlayButton {
                     .when(shape == Shape::Pixel && !disabled, |this| {
                         this.children(bevel())
                     })
+                    .children(glow)
                     .map(|this| match self.caption {
                         None => this.child(div().max_w_full().px_3().truncate().child(play())),
                         Some(caption) => this.child(
@@ -299,8 +303,11 @@ impl RenderOnce for PlayButton {
                                         .child(caption),
                                 ),
                         ),
-                    })
-                    .into_any_element()
+                    });
+                match liquid {
+                    Some(liquid) => liquid.wrap(button, shape, fill),
+                    None => button.into_any_element(),
+                }
             }
             PlayButtonState::Preparing {
                 label,
@@ -398,5 +405,175 @@ impl RenderOnce for PlayButton {
                 .child(side_button("play-stop", t(CommonMsg::Stop), self.on_stop))
                 .into_any_element(),
         }
+    }
+}
+
+/// The Play button as Liquid Glass ([`crate::liquid`]): a lit rim, a soft light
+/// under the pointer, and on a press the glass flexes outward with a spring and
+/// lights up from where it was pressed.
+struct Liquid {
+    touch: gpui::Entity<Touch>,
+    /// How far into a press: springs to 1 while held and back, overshooting a little.
+    press: f32,
+    /// How much the pointer's light shows: 0 to 1.
+    hover: f32,
+    at: Option<gpui::Point<gpui::Pixels>>,
+}
+
+/// Where the pointer is over the button, and whether it is held down.
+#[derive(Clone, Default)]
+struct Touch {
+    down: bool,
+    /// Where it was last pressed, or is, in the window.
+    at: Option<gpui::Point<gpui::Pixels>>,
+    hovered: bool,
+}
+
+/// How far a press flexes the glass outward.
+const FLEX: f32 = 5.;
+
+impl Liquid {
+    fn new(id: &ElementId, window: &mut Window, cx: &mut App) -> Self {
+        let child = |name: &'static str| {
+            ElementId::NamedChild(std::sync::Arc::new(id.clone()), name.into())
+        };
+        let touch = window.use_keyed_state(child("liquid-touch"), cx, |_, _| Touch::default());
+        let state = touch.read(cx).clone();
+        let press = crate::liquid::spring(
+            child("liquid-press"),
+            if state.down { 1. } else { 0. },
+            window,
+            cx,
+        );
+        let hover = super::motion::switch(child("liquid-hover"), state.hovered, window, cx);
+        Self {
+            touch,
+            press,
+            hover,
+            at: state.at,
+        }
+    }
+
+    /// The light: under the press while it lasts, else under the pointer. Laid under
+    /// the label.
+    fn glow(&self) -> Option<gpui::Div> {
+        use gpui::canvas;
+        let press = self.press;
+        let lit = (0.16 * self.hover + 0.34 * press.clamp(0., 1.2)).min(0.6);
+        let at = self.at.filter(|_| lit > 0.005)?;
+        let size = HEIGHT * (1.0 + 0.9 * press.max(0.));
+        Some(
+            div().absolute().inset_0().opacity(lit).child(
+                canvas(
+                    |_, _, _| (),
+                    move |bounds, _, window, _| {
+                        let r = gpui::px(size / 2.);
+                        let center = gpui::point(
+                            at.x.clamp(bounds.left(), bounds.right()),
+                            at.y.clamp(bounds.top(), bounds.bottom()),
+                        );
+                        let spot = gpui::Bounds::new(
+                            gpui::point(center.x - r, center.y - r),
+                            gpui::size(r * 2., r * 2.),
+                        );
+                        window
+                            .paint_image(
+                                spot,
+                                spot,
+                                gpui::Corners::all(r),
+                                crate::liquid::glow_image(),
+                                0,
+                                false,
+                            )
+                            .ok();
+                    },
+                )
+                .size_full(),
+            ),
+        )
+    }
+
+    /// `button` with the pointer and press followed, its rim lit, and the glass
+    /// swelling past it as it flexes.
+    fn wrap(
+        self,
+        button: gpui::Stateful<gpui::Div>,
+        shape: Shape,
+        fill: Color,
+    ) -> gpui::AnyElement {
+        use gpui::{Hsla, MouseButton};
+        let Liquid { touch, press, .. } = self;
+        let (down, up, up_out, moved, hovered) = (
+            touch.clone(),
+            touch.clone(),
+            touch.clone(),
+            touch.clone(),
+            touch,
+        );
+        let mut button = button
+            .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                down.update(cx, |touch, _| {
+                    touch.down = true;
+                    touch.at = Some(event.position);
+                });
+                window.refresh();
+            })
+            .on_mouse_up(MouseButton::Left, move |_, window, cx| {
+                up.update(cx, |touch, _| touch.down = false);
+                window.refresh();
+            })
+            .on_mouse_up_out(MouseButton::Left, move |_, window, cx| {
+                up_out.update(cx, |touch, _| touch.down = false);
+                window.refresh();
+            })
+            .on_mouse_move(move |event, window, cx| {
+                // the light follows the pointer, a few pixels at a time
+                let touch = moved.read(cx);
+                let far = touch.at.is_none_or(|at| {
+                    let d = at - event.position;
+                    f32::from(d.x).abs() + f32::from(d.y).abs() > 3.
+                });
+                if far && !touch.down {
+                    moved.update(cx, |touch, _| touch.at = Some(event.position));
+                    window.refresh();
+                }
+            })
+            .on_hover(move |on, window, cx| {
+                hovered.update(cx, |touch, _| {
+                    touch.hovered = *on;
+                    if !on {
+                        touch.down = false;
+                    }
+                });
+                window.refresh();
+            });
+        let rim = crate::liquid::rim_shadows(0.9);
+        let style = button.style();
+        let mut shadows = style.box_shadow.take().unwrap_or_default();
+        shadows.extend(rim.iter().cloned());
+        style.box_shadow = Some(shadows);
+        let grow = FLEX * press.max(0.);
+        let swell = (grow > 0.05).then(|| {
+            let swell = div()
+                .absolute()
+                .top(gpui::px(-grow))
+                .bottom(gpui::px(-grow))
+                .left(gpui::px(-grow))
+                .right(gpui::px(-grow));
+            let mut swell = match shape {
+                Shape::Pill => swell.rounded_full(),
+                Shape::Rounded => swell.rounded(radius::LG),
+                Shape::Pixel => swell.rounded_none(),
+            }
+            .bg(Hsla::from(fill).opacity(0.35 * press.clamp(0., 1.)));
+            swell.style().box_shadow = Some(rim);
+            swell
+        });
+        div()
+            .relative()
+            .flex_none()
+            .children(swell)
+            .child(button)
+            .into_any_element()
     }
 }

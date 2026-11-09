@@ -130,6 +130,34 @@ Each surface takes:
   - It shows what the skin paints behind it: the `window` for the bars, `main`, dialogs, menus and notices; `main` (or the `window` through a see-through `main`) for cards, rows and inputs; the dialog, and the dimmed window behind it, for `setting_card` and `settings_nav`. Give the `window` an image for glass to have something to blur.
   - Readability checks count the material: what is behind, softened by the blur, under the veil and the fill at its opacity.
 
+### See-through windows: transparency and window_opacity
+
+A skin can make the whole window see-through, so the desktop shows behind it. This is separate from a surface's `material`, which is how what is *inside* the window shows through a panel.
+
+```json
+{
+  "transparency": "glass",
+  "window_opacity": 70
+}
+```
+
+- `transparency` is one of:
+  - `opaque` (the default);
+  - `clear`: the desktop shows through, sharp;
+  - `frosted`: the desktop shows through, blurred by the system;
+  - `glass`: frosted, and the floating layer (sidebar, top bar, Play bar, dialogs, popovers, notices) becomes Liquid Glass: a lit rim, a shadow beneath, the window's picture bent at the edges, a flash of light as dialogs and popovers appear.
+- `window_opacity` (30–100, default 75) is how opaque the window is.
+- Each surface then fades by its role:
+  - the window takes `window_opacity`;
+  - panels on it (`sidebar`, `top_bar`, `play_bar`, `settings_nav`, `main`) add a little more shade;
+  - `card`, `setting_card`, `row`, `input` and `hero` add a little more;
+  - `dialog`, `popover` and `toast` stay mostly solid, because they sit over the launcher's own content, which isn't blurred.
+  - Buttons, toggles and the Play button keep their fill.
+  - A surface with its own `material` keeps it, and keeps as much of its fill as the material says.
+- When `window` has an image fill, the panels without a `material` of their own show it blurred under them, so they look frosted over your image.
+- The user's Settings › General › Transparency wins over the skin's `transparency` and `window_opacity`. Their "Skin" choice follows yours.
+- What shows through changes with the desktop, so the readability checks assume the worst: white behind light text, black behind dark text. When text only falls short because the window is see-through, the suggestion is a higher `window_opacity`.
+
 ### Tokens, accent and progress
 
 ```json
@@ -385,3 +413,4 @@ Anyone can import the `.zip` in Settings → Skin → Import….
 | fonts | .ttf/.otf, 2 MB each, 4 per pack |
 | banners | 16; ids 1–32 of `a-z 0-9 -` |
 | Play label | 16 characters |
+| opacity | window 30–100; each surface 0–100 |
