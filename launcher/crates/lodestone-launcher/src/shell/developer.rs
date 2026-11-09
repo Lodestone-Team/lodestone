@@ -258,6 +258,12 @@ fn clients(_: &mut Context<LauncherShell>) -> Option<AnyElement> {
 }
 
 impl LauncherShell {
+    /// Settings > Developer is on screen.
+    pub fn shows_developer_settings(&self) -> bool {
+        self.settings_modal.current().is_some()
+            && self.settings_page == super::SettingsPage::Developer
+    }
+
     /// What the performance monitor reads.
     pub fn perf_sources(&self) -> crate::perf::Sources {
         crate::perf::Sources {

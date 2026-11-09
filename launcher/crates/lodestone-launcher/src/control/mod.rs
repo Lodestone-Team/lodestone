@@ -1172,7 +1172,13 @@ pub fn start(shell: &LauncherShell, cx: &mut gpui::Context<LauncherShell>) {
     start_service(shell, cx);
     // the Developer page shows the socket and its clients
     if let Some(status) = status(cx) {
-        cx.observe(&status, |_, _, cx| cx.notify()).detach();
+        // only while it is on screen: a client coming or going redraws nothing else
+        cx.observe(&status, |shell, _, cx| {
+            if shell.shows_developer_settings() {
+                cx.notify();
+            }
+        })
+        .detach();
     }
 }
 
