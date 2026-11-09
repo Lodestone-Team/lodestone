@@ -1,5 +1,6 @@
-/* Lodestone Launcher landing page. Colors and fonts follow the launcher
-   (launcher/crates/lodestone-launcher/src/theme.rs). */
+/* Lodestone Launcher landing page. Colors follow the launcher
+   (launcher/crates/lodestone-launcher/src/theme.rs); the headline uses Clash
+   Grotesk, the dashboard's title font. */
 
 @font-face {
   font-family: 'Satoshi';
@@ -9,8 +10,8 @@
 }
 
 @font-face {
-  font-family: 'Chillax';
-  src: url('/fonts/Chillax-Variable.woff2') format('woff2');
+  font-family: 'Clash Grotesk';
+  src: url('/fonts/ClashGrotesk-Variable.woff2') format('woff2');
   font-weight: 200 700;
   font-display: swap;
 }
@@ -183,11 +184,11 @@ a {
 h1 {
   margin: 0;
   max-width: 24ch;
-  font-family: 'Chillax', 'Satoshi', system-ui, sans-serif;
+  font-family: 'Clash Grotesk', 'Satoshi', system-ui, sans-serif;
   font-weight: 600;
-  font-size: clamp(40px, 5.6vw, 68px);
-  line-height: 1.04;
-  letter-spacing: -0.02em;
+  font-size: clamp(42px, 6vw, 74px);
+  line-height: 1.02;
+  letter-spacing: -0.015em;
 }
 
 /* Wrap the headline at the comma, not mid-phrase. */
