@@ -1438,6 +1438,7 @@ mod restore_tests {
                 description: String::new(),
                 cmd_args: Vec::new(),
                 java_cmd: Some("java".to_string()),
+                custom_cmd: None,
                 port: 25565,
                 min_ram: 1024,
                 max_ram: 2048,

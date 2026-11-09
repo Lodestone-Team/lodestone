@@ -284,7 +284,9 @@ impl MinecraftInstance {
                     change
                 }
                 // the command line can run any program, so it is part of code execution
-                "java_cmd" | "cmd_args" if !self.macro_executor.code_execution_enabled() => {
+                "java_cmd" | "cmd_args" | "custom_cmd"
+                    if !self.macro_executor.code_execution_enabled() =>
+                {
                     return Err(crate::global_settings::code_execution_disabled_error());
                 }
                 "java_cmd" => {
@@ -295,6 +297,14 @@ impl MinecraftInstance {
                     CmdArgSetting::JavaCmd(cmd)
                 }
                 "cmd_args" => CmdArgSetting::Args(split_args(value.try_as_string()?)?),
+                "custom_cmd" => {
+                    let cmd = value.try_as_string()?.trim().to_string();
+                    // an unclosed quote or a missing program is rejected now, not at launch
+                    if !cmd.is_empty() && split_args(&cmd)?.is_empty() {
+                        return Err(bad_request("The custom command has no program to run"));
+                    }
+                    CmdArgSetting::CustomCmd(cmd)
+                }
                 _ => {
                     return Err(Error {
                         kind: ErrorKind::NotFound,
@@ -306,7 +316,9 @@ impl MinecraftInstance {
                 CmdArgSetting::MinRam(ram) | CmdArgSetting::MaxRam(ram) => {
                     ConfigurableValue::UnsignedInteger(*ram)
                 }
-                CmdArgSetting::JavaCmd(cmd) => ConfigurableValue::String(cmd.clone()),
+                CmdArgSetting::JavaCmd(cmd) | CmdArgSetting::CustomCmd(cmd) => {
+                    ConfigurableValue::String(cmd.clone())
+                }
                 CmdArgSetting::Args(args) => ConfigurableValue::String(join_args(args)),
             };
             self.configurable_manifest
@@ -321,6 +333,9 @@ impl MinecraftInstance {
                 CmdArgSetting::MinRam(ram) => config.min_ram = ram,
                 CmdArgSetting::MaxRam(ram) => config.max_ram = ram,
                 CmdArgSetting::JavaCmd(cmd) => config.java_cmd = Some(cmd),
+                CmdArgSetting::CustomCmd(cmd) => {
+                    config.custom_cmd = Some(cmd).filter(|cmd| !cmd.is_empty())
+                }
                 CmdArgSetting::Args(args) => config.cmd_args = args,
             }
         }
@@ -333,6 +348,7 @@ pub(super) enum CmdArgSetting {
     MinRam(u32),
     MaxRam(u32),
     JavaCmd(String),
+    CustomCmd(String),
     Args(Vec<String>),
 }
 
@@ -345,6 +361,7 @@ impl CmdArgSetting {
             CmdArgSetting::MinRam(_) => "min_ram",
             CmdArgSetting::MaxRam(_) => "max_ram",
             CmdArgSetting::JavaCmd(_) => "java_cmd",
+            CmdArgSetting::CustomCmd(_) => "custom_cmd",
             CmdArgSetting::Args(_) => "cmd_args",
         }
     }
@@ -353,6 +370,7 @@ impl CmdArgSetting {
             CmdArgSetting::MinRam(_) => "Minimum RAM",
             CmdArgSetting::MaxRam(_) => "Maximum RAM",
             CmdArgSetting::JavaCmd(_) => "Java command",
+            CmdArgSetting::CustomCmd(_) => "Custom command",
             CmdArgSetting::Args(_) => "Command line arguments",
         }
     }
@@ -365,6 +383,11 @@ impl CmdArgSetting {
                 "The maximum amount of RAM to allocate to the server, in MB"
             }
             CmdArgSetting::JavaCmd(_) => "The command to use to run the java executable",
+            CmdArgSetting::CustomCmd(_) => {
+                "A command that replaces the whole Java launch command, including the RAM and \
+                 command line argument settings. It runs in the instance folder. Use quotes for \
+                 arguments that contain spaces. Leave empty to launch Java as usual"
+            }
             CmdArgSetting::Args(_) => {
                 "The command line arguments to pass to Java. Use quotes for arguments that contain spaces"
             }
@@ -382,8 +405,8 @@ impl From<CmdArgSetting> for SettingManifest {
             CmdArgSetting::MinRam(ram) | CmdArgSetting::MaxRam(ram) => {
                 (ConfigurableValue::UnsignedInteger(*ram), ram_type)
             }
-            CmdArgSetting::JavaCmd(java_cmd) => (
-                ConfigurableValue::String(java_cmd.to_owned()),
+            CmdArgSetting::JavaCmd(cmd) | CmdArgSetting::CustomCmd(cmd) => (
+                ConfigurableValue::String(cmd.to_owned()),
                 ConfigurableValueType::String { regex: None },
             ),
             CmdArgSetting::Args(args) => (
@@ -413,6 +436,7 @@ impl From<CmdArgSetting> for SettingManifest {
 mod test {
     use std::io::BufRead;
 
+    use super::super::test_support::{config, instance};
     use super::*;
     use crate::implementations::minecraft::properties::PropertiesDocument;
 
@@ -479,5 +503,113 @@ mod test {
         assert!(as_ram(&ConfigurableValue::Integer(-1)).is_err());
         assert!(as_ram(&ConfigurableValue::UnsignedInteger(0)).is_err());
         assert!(as_ram(&ConfigurableValue::String("1G".to_string())).is_err());
+    }
+
+    fn text(value: &str) -> ConfigurableValue {
+        ConfigurableValue::String(value.to_string())
+    }
+
+    #[test]
+    fn custom_cmd_manifest() {
+        let setting: SettingManifest = CmdArgSetting::CustomCmd("./run.sh -x".to_string()).into();
+        assert_eq!(setting.get_identifier(), "custom_cmd");
+        assert_eq!(setting.get_value(), Some(&text("./run.sh -x")));
+        let setting: SettingManifest = CmdArgSetting::CustomCmd(String::new()).into();
+        assert_eq!(setting.get_value(), Some(&text("")));
+    }
+
+    #[tokio::test]
+    async fn custom_cmd_edit_is_validated_saved_and_cleared() {
+        let dir = tempfile::tempdir().unwrap();
+        let (instance, _) = instance(dir.path(), config(None), true).await;
+        let section = CmdArgSetting::get_section_id();
+
+        let cmd = r#""C:\Program Files\Java\bin\java.exe" -jar server.jar"#;
+        instance
+            .update_configurable(section, "custom_cmd", text(&format!("  {cmd}  ")))
+            .await
+            .unwrap();
+        assert_eq!(
+            instance.config.lock().await.custom_cmd.as_deref(),
+            Some(cmd)
+        );
+        let manifest = instance.configurable_manifest().await;
+        let shown = manifest
+            .get_setting(section, "custom_cmd")
+            .unwrap()
+            .get_value()
+            .cloned();
+        assert_eq!(shown, Some(text(cmd)));
+        let saved =
+            std::fs::read_to_string(dir.path().join(".lodestone_minecraft_config.json")).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&saved).unwrap()["custom_cmd"],
+            cmd
+        );
+
+        for bad in ["run.sh \"unclosed", "''", "\"\""] {
+            let err = instance
+                .update_configurable(section, "custom_cmd", text(bad))
+                .await
+                .unwrap_err();
+            assert!(matches!(err.kind, ErrorKind::BadRequest), "{bad}: {err:?}");
+        }
+        let err = instance
+            .update_configurable(section, "custom_cmd", ConfigurableValue::Boolean(true))
+            .await
+            .unwrap_err();
+        assert!(!matches!(err.kind, ErrorKind::PermissionDenied), "{err:?}");
+        assert_eq!(
+            instance.config.lock().await.custom_cmd.as_deref(),
+            Some(cmd)
+        );
+
+        instance
+            .update_configurable(section, "custom_cmd", text(" "))
+            .await
+            .unwrap();
+        assert_eq!(instance.config.lock().await.custom_cmd, None);
+    }
+
+    #[tokio::test]
+    async fn command_line_edits_need_code_execution() {
+        let dir = tempfile::tempdir().unwrap();
+        let (instance, switch) = instance(dir.path(), config(None), false).await;
+        let section = CmdArgSetting::get_section_id();
+        for (setting, value) in [
+            ("custom_cmd", "./run.sh"),
+            ("java_cmd", "/usr/bin/java"),
+            ("cmd_args", "-Xss4M"),
+        ] {
+            let err = instance
+                .update_configurable(section, setting, text(value))
+                .await
+                .unwrap_err();
+            assert!(matches!(err.kind, ErrorKind::PermissionDenied), "{err:?}");
+            assert_eq!(
+                err.source.to_string(),
+                crate::global_settings::CODE_EXECUTION_DISABLED_MESSAGE
+            );
+        }
+        let config = instance.config.lock().await.clone();
+        assert_eq!(config.custom_cmd, None);
+        assert_eq!(config.java_cmd.as_deref(), Some("/opt/jre/bin/java"));
+
+        // RAM does not run anything
+        instance
+            .update_configurable(section, "max_ram", ConfigurableValue::UnsignedInteger(4096))
+            .await
+            .unwrap();
+        assert_eq!(instance.config.lock().await.max_ram, 4096);
+
+        switch.set(true);
+        instance
+            .update_configurable(section, "custom_cmd", text("./run.sh"))
+            .await
+            .unwrap();
+        assert_eq!(
+            instance.config.lock().await.custom_cmd.as_deref(),
+            Some("./run.sh")
+        );
     }
 }

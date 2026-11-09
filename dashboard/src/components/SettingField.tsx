@@ -41,8 +41,8 @@ export default function SettingField({
   const { name: label, type, options, value: initialValue, min, max } = setting;
   const commandLineBlockedReason = useCommandLineBlockedReason();
   const canControlInstance = useCanControlInstance(instance);
-  // atom instances can only be changed by the owner; java_cmd and
-  // cmd_args also need code execution to be enabled
+  // atom instances can only be changed by the owner; java_cmd,
+  // cmd_args and custom_cmd also need code execution to be enabled
   const readOnlyReason = !canControlInstance
     ? t('console.ownerOnlyAtomSentence')
     : COMMAND_LINE_SETTINGS.includes(settingId)
