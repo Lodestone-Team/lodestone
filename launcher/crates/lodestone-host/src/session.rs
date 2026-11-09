@@ -117,6 +117,17 @@ async fn finish(admin: AdminClient) -> Result<Session, SignInError> {
     Ok(Session { admin, info, me })
 }
 
+/// When a sign-in token (a JWT) expires, in Unix seconds: its `exp` claim, read without
+/// checking the signature (the core checks it). `None` for anything else, such as an
+/// API key.
+pub fn token_expiry(token: &str) -> Option<i64> {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    let payload = token.split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    claims.get("exp")?.as_i64()
+}
+
 /// Checks the owner account the user typed on the first run, as the dashboard's setup
 /// form does. `None` when it is fine; the core checks again.
 pub fn owner_problem(username: &str, password: &str, confirm: &str) -> Option<OwnerProblem> {
@@ -142,6 +153,22 @@ pub enum OwnerProblem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_token_expiry_is_read_from_a_jwt() {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        let part = |json: &str| URL_SAFE_NO_PAD.encode(json);
+        let jwt = format!(
+            "{}.{}.signature",
+            part(r#"{"alg":"HS512"}"#),
+            part(r#"{"uid":"abc","exp":1794244636}"#)
+        );
+        assert_eq!(token_expiry(&jwt), Some(1794244636));
+        assert_eq!(token_expiry("lsk_abc_def"), None);
+        assert_eq!(token_expiry("a.not base64.c"), None);
+        let no_exp = format!("{}.{}.s", part("{}"), part(r#"{"uid":"abc"}"#));
+        assert_eq!(token_expiry(&no_exp), None);
+    }
 
     #[test]
     fn the_owner_form_is_checked() {

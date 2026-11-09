@@ -70,6 +70,15 @@ pub fn text(message: M) -> &'static str {
         M::QuitHost => "退出 Lodestone Host",
         M::DevBadge => "DEV",
         M::CoreVersion => "版本 {version}",
+        M::Degraded => "实时更新已停止",
+        M::DegradedBanner => {
+            "Lodestone Host 能连接到 Core，但实时更新已停止。显示的内容可能不是最新的。"
+        }
+        M::Reload => "重新加载",
+        M::CoreAddress => "地址：{address}",
+        M::CoreHost => "计算机：{host}",
+        M::CoreSystem => "系统：{system}",
+        M::CoreUptime => "已运行 {uptime}",
     }
 }
 

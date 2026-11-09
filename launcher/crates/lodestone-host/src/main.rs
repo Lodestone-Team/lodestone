@@ -251,6 +251,21 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
+            // `--degraded`: the banner shown while live updates stopped
+            if std::env::args().any(|arg| arg == "--degraded") {
+                window
+                    .update(cx, |app, _, cx| {
+                        let state = app.shell()?.read(cx).state.clone();
+                        state.update(cx, |state, cx| {
+                            state.connection = lodestone_host::state::Connection::Degraded(
+                                "the event stream closed".into(),
+                            );
+                            cx.notify();
+                        });
+                        Some(())
+                    })
+                    .ok();
+            }
             if toasts {
                 use lodestone_ui::components::Toast;
                 window

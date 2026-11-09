@@ -309,6 +309,9 @@ crate::i18n::messages! {
         FingerprintHelp = "Compare it with the fingerprint in that core’s Settings › General › Information, or in its log when it starts.",
         TrustCertificate = "Trust certificate",
         SignInTo = "Sign in to {name}",
+        /// The Cores dialog, when the other core's version differs from this computer's.
+        VersionIncompatible = "This core runs Lodestone Core {theirs}, and this computer's runs {ours}. Some pages may not work until both are updated.",
+        VersionPatch = "This core runs Lodestone Core {theirs} (this computer's: {ours}).",
         SignIn = "Sign in",
         RemoveCore = "Remove",
         RemoteSignedOut = "You were signed out of {name}. Lodestone Host is back on this computer’s core.",

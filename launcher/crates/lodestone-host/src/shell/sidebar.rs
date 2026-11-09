@@ -10,7 +10,7 @@ use launcher_core::cores::admin::{
 };
 use lodestone_ui::{
     components::{Button, ButtonSize, ButtonVariant, Icon, ListRow, text_tooltip},
-    theme::{Color, colors, ink, layout, px, radius, text, weights},
+    theme::{Color, colors, ink, px, radius, text, weights},
 };
 
 use super::HostShell;
@@ -90,6 +90,8 @@ struct Snapshot {
     instances: Option<Vec<InstanceInfo>>,
     creating: Vec<Creating>,
     connection: Connection,
+    /// The core's address, as the footer's tooltip shows it.
+    address: String,
 }
 
 impl Snapshot {
@@ -101,6 +103,7 @@ impl Snapshot {
             instances: state.instances.clone(),
             creating: state.creating.clone(),
             connection: state.connection.clone(),
+            address: launcher_core::cores::client::display_address(state.admin.core().base()),
         }
     }
 
@@ -273,20 +276,18 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
     };
 
     let may_create = state.me.may_core(CorePermission::CreateInstance);
-    let connection = state.connection.clone();
     let core_name = state
         .settings
         .as_ref()
         .map(|s| s.core_name.clone())
         .unwrap_or_else(|| state.info.core_name.clone());
     let username = state.me.username.clone();
-    let version = state.info.version.clone();
     let settings_selected = matches!(shell.route, Route::Settings(_));
 
     div()
         .id("sidebar")
         .flex_none()
-        .w(layout::sidebar_width())
+        .w(px(shell.sidebar_width))
         .h_full()
         .flex()
         .flex_col()
@@ -334,7 +335,7 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
                 .p(px(8.))
                 .border_t_1()
                 .border_color(ink::border())
-                .child(connection_row(&connection, core_name, version))
+                .child(connection_row(state, core_name))
                 .child(
                     div()
                         .px(px(8.))
@@ -361,20 +362,37 @@ pub fn render(shell: &HostShell, cx: &mut Context<HostShell>) -> impl IntoElemen
 }
 
 /// The footer's connection to the core (`CoreConnectionStatus.tsx`).
-fn connection_row(connection: &Connection, core_name: String, version: String) -> AnyElement {
+fn connection_row(state: &Snapshot, core_name: String) -> AnyElement {
+    let connection = &state.connection;
     let (color, label) = match connection {
         Connection::Live => (colors::GREEN, t(ShellMsg::Connected)),
         Connection::Connecting => (colors::GRAY_500, t(ShellMsg::Connecting)),
-        Connection::Reconnecting(_) => (colors::YELLOW, t(ShellMsg::Reconnecting)),
+        Connection::Degraded(_) => (colors::YELLOW, t(ShellMsg::Degraded)),
+        Connection::Reconnecting(_) => (colors::RED, t(ShellMsg::Reconnecting)),
         Connection::SignedOut => (colors::RED, t(ShellMsg::SignedOut)),
     };
-    let detail = match connection {
-        Connection::Reconnecting(reason) => format!("{label}: {reason}"),
-        _ => format!(
-            "{label} · {}",
-            tr!(ShellMsg::CoreVersion, version = version)
-        ),
-    };
+    let info = &state.info;
+    let mut lines = vec![match connection {
+        Connection::Reconnecting(reason) | Connection::Degraded(reason) => {
+            format!("{label}: {reason}")
+        }
+        _ => label.to_string(),
+    }];
+    lines.push(tr!(ShellMsg::CoreAddress, address = state.address.clone()));
+    lines.push(tr!(ShellMsg::CoreVersion, version = info.version.clone()));
+    if !info.host_name.is_empty() {
+        lines.push(tr!(ShellMsg::CoreHost, host = info.host_name.clone()));
+    }
+    lines.push(tr!(
+        ShellMsg::CoreSystem,
+        system = system_name(&info.os, &info.arch)
+    ));
+    let now = chrono::Utc::now().timestamp();
+    if info.up_since > 0 && now > info.up_since {
+        let uptime = lodestone_ui::i18n::format::play_time((now - info.up_since) as u64);
+        lines.push(tr!(ShellMsg::CoreUptime, uptime = uptime));
+    }
+    let detail = lines.join("\n");
     div()
         .id("connection")
         .flex()
@@ -388,6 +406,21 @@ fn connection_row(connection: &Connection, core_name: String, version: String) -
         .child(div().flex_1().min_w_0().truncate().child(core_name))
         .tooltip(text_tooltip(detail))
         .into_any_element()
+}
+
+/// The core's system as the dashboard names it: "macOS arm64", "Windows x86_64".
+pub fn system_name(os: &str, arch: &str) -> String {
+    let os = match os {
+        "macos" => "macOS",
+        "windows" => "Windows",
+        "linux" => "Linux",
+        other => other,
+    };
+    let arch = match arch {
+        "aarch64" => "arm64",
+        other => other,
+    };
+    format!("{os} {arch}")
 }
 
 /// The selected instance: its name, game, state, players, power button and tabs

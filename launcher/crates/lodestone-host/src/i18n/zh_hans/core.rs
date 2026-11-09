@@ -349,6 +349,10 @@ pub fn text(message: M) -> &'static str {
         }
         M::TrustCertificate => "信任证书",
         M::SignInTo => "登录到 {name}",
+        M::VersionIncompatible => {
+            "此 Core 运行 Lodestone Core {theirs}，本机运行 {ours}。在两者都更新之前，某些页面可能无法使用。"
+        }
+        M::VersionPatch => "此 Core 运行 Lodestone Core {theirs}（本机：{ours}）。",
         M::SignIn => "登录",
         M::RemoveCore => "移除",
         M::RemoteSignedOut => "你已从 {name} 退出登录。Lodestone Host 已回到这台电脑的核心。",

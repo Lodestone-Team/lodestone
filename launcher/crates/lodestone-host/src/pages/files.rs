@@ -193,7 +193,11 @@ impl FilesPage {
             .get(&uuid)
             .cloned()
             .unwrap_or_else(|| ".".into());
-        let list_width = remembered.list_width.unwrap_or(LIST_DEFAULT);
+        let list_width = remembered.list_width;
+        let list_width = list_width
+            .or(crate::prefs::Prefs::get(cx).file_list_width)
+            .unwrap_or(LIST_DEFAULT)
+            .max(LIST_MIN);
         let editor = cx.new(|cx| TextEditor::new(cx).with_automation_id("file-editor"));
         let name_input = cx.new(|cx| TextInput::new(cx).with_automation_id("files-name"));
         let subscriptions = vec![
@@ -355,8 +359,8 @@ impl FilesPage {
         self.load(cx);
     }
 
-    /// The core finished zipping or unzipping: says how it went, and lists the folder
-    /// again.
+    /// The core finished zipping or unzipping: lists the folder again. (The state says
+    /// how it went, on any page, as the dashboard does.)
     fn on_host_event(&mut self, event: &HostEvent, cx: &mut Context<Self>) {
         let HostEvent::Core(event) = event else {
             return;
@@ -365,22 +369,11 @@ impl FilesPage {
             return;
         };
         if let ProgressionEventInner::ProgressionEnd {
-            inner:
-                Some(ProgressionEndValue::FsOperationCompleted {
-                    instance_uuid,
-                    success,
-                    message,
-                }),
+            inner: Some(ProgressionEndValue::FsOperationCompleted { instance_uuid, .. }),
             ..
         } = &progression.progression_event_inner
             && *instance_uuid == self.uuid
         {
-            let toast = if *success {
-                Toast::success(message.clone())
-            } else {
-                Toast::error(message.clone())
-            };
-            self.toast(toast, cx);
             self.load(cx);
         }
     }
@@ -2244,7 +2237,15 @@ impl Render for FilesPage {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, _| this.resizing = None),
+                cx.listener(|this, _, _, cx| {
+                    // the width dragged to is kept for the next start
+                    if this.resizing.take().is_some() {
+                        let width = this.list_width;
+                        crate::prefs::Prefs::update(cx, |prefs| {
+                            prefs.file_list_width = Some(width)
+                        });
+                    }
+                }),
             )
             .when(can_write, |this| {
                 this.on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {

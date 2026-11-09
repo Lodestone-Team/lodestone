@@ -30,8 +30,12 @@ use crate::session::Session;
 pub enum Connection {
     Connecting,
     Live,
-    /// The event stream dropped; it reconnects by itself.
+    /// The event stream dropped and the core doesn't answer either; the stream
+    /// reconnects by itself.
     Reconnecting(String),
+    /// The core answers requests, but the event stream keeps failing, so live updates
+    /// stopped (the dashboard's `degraded`).
+    Degraded(String),
     /// The core refused the session.
     SignedOut,
 }
@@ -109,6 +113,7 @@ impl HostState {
         };
         this.follow_events(cx);
         this.reload(cx);
+        this.expire_with_token(cx);
         this
     }
 
@@ -234,6 +239,60 @@ impl HostState {
         cx.notify();
     }
 
+    /// The event stream failed: asks the core for the user, as the dashboard does,
+    /// to tell a core that is down (still reconnecting) from one whose live updates
+    /// alone fail (degraded), and from a session that ended.
+    fn probe(&mut self, reason: String, cx: &mut Context<Self>) {
+        let admin = self.admin.clone();
+        let task = cx.spawn(async move |this, cx| {
+            let answer = cx.background_spawn(async move { admin.me().await }).await;
+            this.update(cx, |this, cx| {
+                // the stream came back meanwhile
+                if !matches!(this.connection, Connection::Reconnecting(_)) {
+                    return;
+                }
+                match connection_after_probe(answer.map(|_| ()), reason) {
+                    Some(connection) => this.connection = connection,
+                    None => return this.signed_out(cx),
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+        self._tasks.push(task);
+        self._tasks.retain(|task| !task.is_ready());
+    }
+
+    /// Opens the event stream again and fetches everything: the banner's Reload when
+    /// live updates stopped.
+    pub fn reconnect(&mut self, cx: &mut Context<Self>) {
+        self._stream = None;
+        self.connection = Connection::Connecting;
+        self.follow_events(cx);
+        self.reload(cx);
+        cx.notify();
+    }
+
+    /// Ends the session when the core's sign-in token expires (the dashboard's
+    /// `sessionExpired`): the window then signs in again, as when the core refuses it.
+    fn expire_with_token(&mut self, cx: &mut Context<Self>) {
+        let Some(expires) = crate::session::token_expiry(self.admin.token().expose()) else {
+            return;
+        };
+        let now = chrono::Utc::now().timestamp();
+        let left = std::time::Duration::from_secs(expires.saturating_sub(now).max(0) as u64);
+        let task = cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(left).await;
+            this.update(cx, |this, cx| {
+                if this.connection != Connection::SignedOut {
+                    this.signed_out(cx);
+                }
+            })
+            .ok();
+        });
+        self._tasks.push(task);
+    }
+
     /// Follows every event the user may see.
     fn follow_events(&mut self, cx: &mut Context<Self>) {
         let (tx, mut rx) = futures::channel::mpsc::unbounded();
@@ -269,7 +328,8 @@ impl HostState {
                 }
             }
             LiveMessage::Disconnected(reason) => {
-                self.connection = Connection::Reconnecting(reason);
+                self.connection = Connection::Reconnecting(reason.clone());
+                self.probe(reason, cx);
             }
             LiveMessage::Frame(text) => {
                 if let Some(event) = launcher_core::cores::admin::events::parse(&text) {
@@ -280,6 +340,7 @@ impl HostState {
             LiveMessage::Ended(CoreError::SignedOut) => return self.signed_out(cx),
             LiveMessage::Ended(err) => {
                 self.connection = Connection::Reconnecting(err.to_string());
+                self.probe(err.to_string(), cx);
             }
             LiveMessage::State(_) | LiveMessage::Players(_) | LiveMessage::Output(_) => {}
         }
@@ -349,6 +410,20 @@ impl HostState {
                                     list.retain(|i| &i.uuid != instance_uuid);
                                 }
                             }
+                            // zipping or unzipping finished: say how it went, whatever
+                            // the page (the Files tab lists its folder again)
+                            Some(ProgressionEndValue::FsOperationCompleted {
+                                success,
+                                message,
+                                ..
+                            }) => {
+                                let toast = if *success {
+                                    Toast::success(message.clone())
+                                } else {
+                                    Toast::error(message.clone())
+                                };
+                                self.toast(toast, cx);
+                            }
                             _ => {}
                         }
                     }
@@ -375,6 +450,17 @@ impl HostState {
     }
 }
 
+/// The connection after the event stream failed and the core was asked for the user:
+/// it answers (live updates alone fail: degraded), it doesn't (still reconnecting), or
+/// it refuses the session (`None`: sign out).
+pub fn connection_after_probe(answer: Result<(), CoreError>, reason: String) -> Option<Connection> {
+    match answer {
+        Ok(()) => Some(Connection::Degraded(reason)),
+        Err(CoreError::SignedOut) => None,
+        Err(_) => Some(Connection::Reconnecting(reason)),
+    }
+}
+
 /// What the power button offers for an instance in `state`, as the dashboard's
 /// instance card does.
 pub fn power_actions(state: InstanceState) -> &'static [Power] {
@@ -390,6 +476,23 @@ pub fn power_actions(state: InstanceState) -> &'static [Power] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_stream_is_degraded_only_while_the_core_answers() {
+        let reason = || "stream closed".to_string();
+        assert_eq!(
+            connection_after_probe(Ok(()), reason()),
+            Some(Connection::Degraded(reason()))
+        );
+        assert_eq!(
+            connection_after_probe(Err(CoreError::Unreachable("refused".into())), reason()),
+            Some(Connection::Reconnecting(reason()))
+        );
+        assert_eq!(
+            connection_after_probe(Err(CoreError::SignedOut), reason()),
+            None
+        );
+    }
 
     #[test]
     fn power_follows_the_state() {
