@@ -17,7 +17,7 @@ use launcher_core::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, ButtonVariant, Checkbox, Icon, LoadingDots,
+        Accessible as _, Button, ButtonSize, ButtonVariant, Checkbox, Icon, LoadingDots,
         settings::{card, link, tag},
         text_tooltip,
     },
@@ -25,7 +25,11 @@ use lodestone_ui::{
     theme::{colors, ink, px, radius, text, weights},
 };
 
-use super::{ModsPage, Prompt, Target, installed::{mod_icon, why_not}, muted, warning};
+use super::{
+    ModsPage, Prompt, Target,
+    installed::{mod_icon, why_not},
+    muted, warning,
+};
 use crate::{
     i18n::{CommonMsg, InstanceMsg as M, InstancePlural as P, t, tr, trn},
     pages::create_instance::ModpackPreset,
@@ -106,7 +110,11 @@ impl ModsPage {
         hit: Option<ModrinthSearchHit>,
         cx: &mut Context<Self>,
     ) {
-        self.project = Some(ProjectView::new(project_id.clone(), linked_version_id.clone(), hit));
+        self.project = Some(ProjectView::new(
+            project_id.clone(),
+            linked_version_id.clone(),
+            hit,
+        ));
         let admin = self.state.read(cx).admin.clone();
         let task = cx.spawn(async move |this, cx| {
             let (project, linked) = cx
@@ -218,7 +226,12 @@ impl ModsPage {
         );
     }
 
-    pub(super) fn install_version(&mut self, version_id: String, force: bool, cx: &mut Context<Self>) {
+    pub(super) fn install_version(
+        &mut self,
+        version_id: String,
+        force: bool,
+        cx: &mut Context<Self>,
+    ) {
         let Some(view) = &mut self.project else {
             return;
         };
@@ -295,7 +308,12 @@ impl ModsPage {
             ModrinthVersionType::Alpha => (t(M::ModsAlpha), colors::RED_200),
             ModrinthVersionType::Unknown => ("?", colors::GRAY_500),
         };
-        let shown: Vec<&str> = version.game_versions.iter().take(3).map(String::as_str).collect();
+        let shown: Vec<&str> = version
+            .game_versions
+            .iter()
+            .take(3)
+            .map(String::as_str)
+            .collect();
         let rest = version.game_versions.len().saturating_sub(shown.len());
         let mut games = shown.join(", ");
         if rest > 0 {
@@ -375,9 +393,9 @@ impl ModsPage {
                         .size(ButtonSize::Slim)
                         .loading(installing)
                         .disabled(!can_write || installing)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.request_install(&picked, cx)
-                        })),
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.request_install(&picked, cx)),
+                        ),
                 ))
             })
             .into_any_element()
@@ -422,12 +440,14 @@ impl ModsPage {
                             t(M::ModsWithDependencies),
                         )
                         .disabled(!can_write)
-                        .on_change(cx.listener(|this, on: &bool, _, cx| {
-                            if let Some(view) = &mut this.project {
-                                view.with_dependencies = *on;
-                            }
-                            cx.notify();
-                        })),
+                        .on_change(cx.listener(
+                            |this, on: &bool, _, cx| {
+                                if let Some(view) = &mut this.project {
+                                    view.with_dependencies = *on;
+                                }
+                                cx.notify();
+                            },
+                        )),
                     )
                     .child(
                         Checkbox::new("show-all-versions", view.show_all, t(M::ModsShowAll))
@@ -527,7 +547,11 @@ impl ModsPage {
                 this.project = None;
                 cx.notify();
             }));
-        let column = div().flex().flex_col().gap(px(24.)).child(div().flex().child(back));
+        let column = div()
+            .flex()
+            .flex_col()
+            .gap(px(24.))
+            .child(div().flex().child(back));
         let project = match &view.project {
             None => {
                 return column
@@ -592,13 +616,20 @@ impl ModsPage {
             .child(
                 div()
                     .id("project-followers")
-                    .child(trn!(P::ModsFollowers, project.followers))
+                    .child(trn!(P::ModsFollowers, project.followers)),
             )
             .child(tr!(M::ModsServerSide, value = side(&project.server_side)))
             .when(installable && !target.is_plugin(), |this| {
                 this.children(match project.client_side.as_str() {
-                    "required" => Some(tag(t(M::ModsPlayersNeedToo), colors::BLUE_200).into_any_element()),
-                    "unsupported" => Some(div().text_color(ink::faint()).child(t(M::ModsServerOnly)).into_any_element()),
+                    "required" => {
+                        Some(tag(t(M::ModsPlayersNeedToo), colors::BLUE_200).into_any_element())
+                    }
+                    "unsupported" => Some(
+                        div()
+                            .text_color(ink::faint())
+                            .child(t(M::ModsServerOnly))
+                            .into_any_element(),
+                    ),
                     _ => None,
                 })
             })
@@ -610,9 +641,21 @@ impl ModsPage {
             );
         // Modrinth and Discord are names
         let links: Vec<(&str, String, Option<String>)> = vec![
-            ("modrinth", "Modrinth".into(), Some(modrinth_project_url(&project.project_type, &project.slug))),
-            ("source", t(M::ModsSource).into(), project.source_url.clone()),
-            ("issues", t(M::ModsIssues).into(), project.issues_url.clone()),
+            (
+                "modrinth",
+                "Modrinth".into(),
+                Some(modrinth_project_url(&project.project_type, &project.slug)),
+            ),
+            (
+                "source",
+                t(M::ModsSource).into(),
+                project.source_url.clone(),
+            ),
+            (
+                "issues",
+                t(M::ModsIssues).into(),
+                project.issues_url.clone(),
+            ),
             ("wiki", t(M::ModsWiki).into(), project.wiki_url.clone()),
             ("discord", "Discord".into(), project.discord_url.clone()),
         ];
@@ -648,7 +691,11 @@ impl ModsPage {
                             .child(project.title.clone()),
                     )
                     .child(muted(byline))
-                    .child(div().text_color(ink::text()).child(project.description.clone()))
+                    .child(
+                        div()
+                            .text_color(ink::text())
+                            .child(project.description.clone()),
+                    )
                     .child(stats)
                     .child(links),
             );
@@ -673,7 +720,9 @@ impl ModsPage {
                         .bg(colors::GRAY_900)
                         .cursor_pointer()
                         .when_some(picture, |this, picture| this.child(img(picture).h(px(96.))))
-                        .when_some(image.title.clone(), |this, title| this.tooltip(text_tooltip(title)))
+                        .when_some(image.title.clone(), |this, title| {
+                            this.tooltip(text_tooltip(title))
+                        })
                         .on_click(move |_, _, cx| cx.open_url(&url))
                         .into_any_element(),
                 )

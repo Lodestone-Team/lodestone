@@ -21,8 +21,8 @@ use gpui::{
 };
 use launcher_core::cores::admin::{
     InstanceInfo,
-    mods::{InstalledModKind, InstalledModList, InstalledModLoader, ModInstallResult},
     models::{CorePermission, InstancePermission},
+    mods::{InstalledModKind, InstalledModList, InstalledModLoader, ModInstallResult},
 };
 use lodestone_ui::{
     components::{Icon, Tabs, Toast, window_layer},
@@ -375,6 +375,14 @@ fn muted(text_: impl Into<SharedString>) -> AnyElement {
 impl Render for ModsPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let target = self.target(cx);
+        // Browse is made when it first shows, then kept
+        if self.view == SubView::Browse
+            && self.browse.is_none()
+            && let Some(target) = &target
+        {
+            let admin = self.state.read(cx).admin.clone();
+            self.browse = Some(Browse::new(target, admin, window, cx));
+        }
         let body: AnyElement = match &target {
             None => muted(t(M::ModsUnsupported)),
             Some(_) if !self.can_read(cx) => muted(t(M::ModsNoRead)),
@@ -407,8 +415,12 @@ impl Render for ModsPage {
                             } else {
                                 SubView::Browse
                             };
-                            if this.view == SubView::Browse && this.browse.is_none() {
-                                this.browse = Some(Browse::new(window, cx));
+                            if this.view == SubView::Browse
+                                && this.browse.is_none()
+                                && let Some(target) = this.target(cx)
+                            {
+                                let admin = this.state.read(cx).admin.clone();
+                                this.browse = Some(Browse::new(&target, admin, window, cx));
                             }
                             cx.notify();
                         })

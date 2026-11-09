@@ -71,7 +71,9 @@ pub fn text(message: M) -> &'static str {
         M::PlayitSetupTitle => "设置 playit.gg",
         M::PlayitSetupIntro => "你需要先注册 playit.gg 才能使用它。使用下面的按钮生成注册链接。",
         M::PlayitGenerateLink => "生成注册链接",
-        M::PlayitFollowLink => "打开链接并创建账户。看到 playit.gg 控制面板后，回到这里点击“验证”。",
+        M::PlayitFollowLink => {
+            "打开链接并创建账户。看到 playit.gg 控制面板后，回到这里点击“验证”。"
+        }
         M::PlayitOpenLink => "打开注册链接",
         M::PlayitVerify => "验证",
         M::PlayitRunner => "playit.gg 运行程序",
@@ -79,7 +81,9 @@ pub fn text(message: M) -> &'static str {
         M::PlayitStopped => "已停止",
         M::PlayitLoading => "启动中",
         M::PlayitStarted => "已启动",
-        M::PlayitTrouble => "遇到问题？请确认已在 playit.gg 网站上设置隧道，并且你的服务器正在运行。",
+        M::PlayitTrouble => {
+            "遇到问题？请确认已在 playit.gg 网站上设置隧道，并且你的服务器正在运行。"
+        }
         M::PlayitSignupRequired => "使用前请先注册 playit.gg。",
         M::PlayitSignUp => "注册",
         M::PlayitTunnels => "隧道",
@@ -100,7 +104,9 @@ pub fn text(message: M) -> &'static str {
         M::EventJoined => "{names} 加入了",
         M::EventLeft => "{names} 离开了",
         M::EventBy => "由 {user}",
-        M::ModsUnsupported => "此服务器不支持模组或插件。Fabric、Forge、Paper 和 Spigot 服务器支持。",
+        M::ModsUnsupported => {
+            "此服务器不支持模组或插件。Fabric、Forge、Paper 和 Spigot 服务器支持。"
+        }
         M::ModsNoRead => "你没有读取此服务器文件的权限。",
         M::ModsNoWrite => "你没有更改此服务器文件的权限",
         M::ModsInstalledView => "已安装",
@@ -177,7 +183,9 @@ pub fn text(message: M) -> &'static str {
         M::ModsDownloadPackFailed => "无法下载客户端整合包：{error}",
         M::ModsPackSaved => "已保存 {name}",
         M::ModsSavePack => "保存",
-        M::ModsImportHint => "将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。",
+        M::ModsImportHint => {
+            "将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。"
+        }
         M::ModsProjectFailed => "无法加载项目：{error}",
         M::ModsSource => "源代码",
         M::ModsIssues => "问题反馈",
@@ -199,13 +207,17 @@ pub fn text(message: M) -> &'static str {
         M::ModsShowAll => "显示所有版本",
         M::ModsVersionsFailed => "无法加载版本：{error}",
         M::ModsNoVersions => "没有适用于 {loader} {gameVersion} 的版本。",
-        M::ModsNoVersionsShowAll => "没有适用于 {loader} {gameVersion} 的版本。打开“显示所有版本”以查看其他版本。",
+        M::ModsNoVersionsShowAll => {
+            "没有适用于 {loader} {gameVersion} 的版本。打开“显示所有版本”以查看其他版本。"
+        }
         M::ModsNotFor => "不适用于 {loader} {gameVersion}",
         M::ModsInstalledVersion => "已安装 {title} {version}",
         M::ModsInstallFailed => "无法安装 {title}：{error}",
         M::ModsIncompatibleTitle => "安装不兼容的版本？",
         M::ModsInstallAnyway => "仍然安装",
-        M::ModsIncompatibleBody => "{title} {version} 适用于 {loaders} {gameVersions}，而不是 {loader} {gameVersion}。它可能导致服务器崩溃。",
+        M::ModsIncompatibleBody => {
+            "{title} {version} 适用于 {loaders} {gameVersions}，而不是 {loader} {gameVersion}。它可能导致服务器崩溃。"
+        }
     }
 }
 
@@ -213,10 +225,22 @@ pub fn plural(message: P) -> [&'static str; 2] {
     match message {
         P::ModsDownloads => ["{count} 次下载", "{count} 次下载"],
         P::ModsFollowers => ["{count} 位关注者", "{count} 位关注者"],
-        P::ModsCountMod => ["{directory}/ 中有 {count} 个模组", "{directory}/ 中有 {count} 个模组"],
-        P::ModsCountPlugin => ["{directory}/ 中有 {count} 个插件", "{directory}/ 中有 {count} 个插件"],
-        P::ModsPackTitle => ["玩家需要 {count} 个模组才能加入", "玩家需要 {count} 个模组才能加入"],
-        P::ModsImportHintJars => ["将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。有 {count} 个模组不在 Modrinth 上，因此其文件已包含在整合包中。", "将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。有 {count} 个模组不在 Modrinth 上，因此其文件已包含在整合包中。"],
+        P::ModsCountMod => [
+            "{directory}/ 中有 {count} 个模组",
+            "{directory}/ 中有 {count} 个模组",
+        ],
+        P::ModsCountPlugin => [
+            "{directory}/ 中有 {count} 个插件",
+            "{directory}/ 中有 {count} 个插件",
+        ],
+        P::ModsPackTitle => [
+            "玩家需要 {count} 个模组才能加入",
+            "玩家需要 {count} 个模组才能加入",
+        ],
+        P::ModsImportHintJars => [
+            "将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。有 {count} 个模组不在 Modrinth 上，因此其文件已包含在整合包中。",
+            "将其导入 Prism Launcher、Modrinth App 或 ATLauncher，即可获得所有正确版本的内容。有 {count} 个模组不在 Modrinth 上，因此其文件已包含在整合包中。",
+        ],
         P::ModsShowMore => ["显示更多（还有 {count} 个）", "显示更多（还有 {count} 个）"],
         P::ModsMoreGameVersions => ["还有 {count} 个", "还有 {count} 个"],
     }

@@ -3,7 +3,7 @@
 //! per mod with its update, Modrinth link, switch and delete.
 
 use gpui::{
-    AnyElement, AppContext as _, ClipboardItem, Context, IntoElement, ParentElement, PathPromptOptions,
+    AnyElement, AppContext as _, Context, IntoElement, ParentElement, PathPromptOptions,
     SharedString, Styled, div, img, prelude::*,
 };
 use launcher_core::cores::admin::mods::{
@@ -221,7 +221,10 @@ impl ModsPage {
                 }
                 if !failures.is_empty() {
                     this.toast(
-                        Toast::error(tr!(M::ModsSomeUpdatesFailed, failures = failures.join("; "))),
+                        Toast::error(tr!(
+                            M::ModsSomeUpdatesFailed,
+                            failures = failures.join("; ")
+                        )),
                         cx,
                     );
                 }
@@ -262,10 +265,7 @@ impl ModsPage {
             };
             let not_jars: Vec<String> = paths
                 .iter()
-                .filter(|p| {
-                    !p.extension()
-                        .is_some_and(|e| e.eq_ignore_ascii_case("jar"))
-                })
+                .filter(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jar")))
                 .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
                 .collect();
             if !not_jars.is_empty() {
@@ -294,10 +294,7 @@ impl ModsPage {
                 .await;
             this.update(cx, |this, cx| match read {
                 Ok(files) => this.upload(files, false, cx),
-                Err(err) => this.toast(
-                    Toast::error(tr!(M::ModsUploadFailed, error = err)),
-                    cx,
-                ),
+                Err(err) => this.toast(Toast::error(tr!(M::ModsUploadFailed, error = err)), cx),
             })
             .ok();
         });
@@ -336,9 +333,7 @@ impl ModsPage {
                         status: 409,
                         message,
                     }) if !overwrite => this.open_prompt(Prompt::Overwrite { files, message }, cx),
-                    Err(err) => {
-                        this.toast(Toast::error(tr!(M::ModsUploadFailed, error = err)), cx)
-                    }
+                    Err(err) => this.toast(Toast::error(tr!(M::ModsUploadFailed, error = err)), cx),
                 }
                 this.reload(cx);
             })
@@ -392,7 +387,10 @@ impl ModsPage {
                 Err(err) => {
                     this.update(cx, |this, cx| {
                         this.downloading_pack = false;
-                        this.toast(Toast::error(tr!(M::ModsDownloadPackFailed, error = err)), cx);
+                        this.toast(
+                            Toast::error(tr!(M::ModsDownloadPackFailed, error = err)),
+                            cx,
+                        );
                     })
                     .ok();
                     return;
@@ -549,22 +547,32 @@ impl ModsPage {
                                 .on_click(cx.listener(|this, _, _, cx| this.download_pack(cx))),
                         ),
                 )
-                .child(div().flex().flex_row().flex_wrap().gap(px(8.)).children(chips))
                 .child(
                     div()
-                        .text_size(text::SMALL)
-                        .text_color(ink::muted())
-                        .child(if included_jars > 0 {
-                            trn!(P::ModsImportHintJars, included_jars)
-                        } else {
-                            t(M::ModsImportHint).to_string()
-                        }),
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap(px(8.))
+                        .children(chips),
                 )
+                .child(div().text_size(text::SMALL).text_color(ink::muted()).child(
+                    if included_jars > 0 {
+                        trn!(P::ModsImportHintJars, included_jars)
+                    } else {
+                        t(M::ModsImportHint).to_string()
+                    },
+                ))
                 .into_any_element(),
         )
     }
 
-    fn mod_row(&self, index: usize, m: &InstalledMod, target: &Target, cx: &mut Context<Self>) -> AnyElement {
+    fn mod_row(
+        &self,
+        index: usize,
+        m: &InstalledMod,
+        target: &Target,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let can_write = self.can_write(cx);
         let busy = self.busy_files.contains(&m.file_name);
         let update = m.modrinth.as_ref().and_then(|m| m.update.clone());
@@ -600,11 +608,7 @@ impl ModsPage {
                                 div()
                                     .truncate()
                                     .font_weight(weights::BOLD.face())
-                                    .text_color(if m.enabled {
-                                        ink::text()
-                                    } else {
-                                        ink::muted()
-                                    })
+                                    .text_color(if m.enabled { ink::text() } else { ink::muted() })
                                     .child(name.clone()),
                             )
                             .when_some(m.version().map(str::to_string), |this, v| {
@@ -640,13 +644,18 @@ impl ModsPage {
                         this.child(why_not(
                             id("update-why"),
                             can_write,
-                            Button::new(id("update"), tr!(M::ModsUpdateTo, version = update.version_number))
-                                .variant(ButtonVariant::Primary)
-                                .size(ButtonSize::Slim)
-                                .icon(Icon::CircleUp)
-                                .loading(busy)
-                                .disabled(!can_write || busy)
-                                .on_click(cx.listener(move |this, _, _, cx| this.update_one(&updated, cx))),
+                            Button::new(
+                                id("update"),
+                                tr!(M::ModsUpdateTo, version = update.version_number),
+                            )
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Slim)
+                            .icon(Icon::CircleUp)
+                            .loading(busy)
+                            .disabled(!can_write || busy)
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.update_one(&updated, cx)),
+                            ),
                         ))
                     })
                     .when_some(m.modrinth.clone(), |this, modrinth| {
@@ -697,11 +706,20 @@ impl ModsPage {
         let updates = self
             .list
             .as_ref()
-            .map(|l| l.mods.iter().filter(|m| m.modrinth.as_ref().is_some_and(|m| m.update.is_some())).count())
+            .map(|l| {
+                l.mods
+                    .iter()
+                    .filter(|m| m.modrinth.as_ref().is_some_and(|m| m.update.is_some()))
+                    .count()
+            })
             .unwrap_or(0);
         let count = self.list.as_ref().map(|list| {
             if plugin {
-                trn!(P::ModsCountPlugin, list.mods.len(), directory = list.directory)
+                trn!(
+                    P::ModsCountPlugin,
+                    list.mods.len(),
+                    directory = list.directory
+                )
             } else {
                 trn!(P::ModsCountMod, list.mods.len(), directory = list.directory)
             }
@@ -799,12 +817,13 @@ impl ModsPage {
                 .into_any_element()])
             .into_any_element()
         };
-        let _ = ClipboardItem::new_string;
         div()
             .flex()
             .flex_col()
             .gap(px(16.))
-            .when(!first_load, |this| this.children(self.client_pack_panel(cx)))
+            .when(!first_load, |this| {
+                this.children(self.client_pack_panel(cx))
+            })
             .child(toolbar)
             .child(list)
             .into_any_element()
