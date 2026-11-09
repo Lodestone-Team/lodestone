@@ -80,7 +80,7 @@ impl LauncherShell {
     /// comparisons when nothing changed.
     pub(super) fn trace_frame(&mut self, window: &Window, cx: &mut Context<Self>) {
         let now = Instant::now();
-        crate::perf::frame(now);
+        crate::perf::frame(now, window.is_window_active());
         if let Some(last) = self.trace.last_frame.replace(now) {
             let gap = now.duration_since(last).as_secs_f64() * 1000.0;
             trace::emit(

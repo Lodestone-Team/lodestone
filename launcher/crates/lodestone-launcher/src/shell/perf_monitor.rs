@@ -207,6 +207,16 @@ fn cpu(percent: Option<f64>) -> String {
     })
 }
 
+/// The CPU figure the chart and the first number show: of one core, or on Windows of
+/// every core, as Task Manager counts it.
+fn cpu_shown(percent: Option<f64>, cores: usize) -> Option<f64> {
+    if cfg!(target_os = "windows") {
+        percent.map(|p| p / cores.max(1) as f64)
+    } else {
+        percent
+    }
+}
+
 fn count(value: Option<u32>) -> String {
     value.map_or_else(unknown, |n| format::number(u64::from(n)))
 }
@@ -227,7 +237,8 @@ impl Render for PerfMonitor {
         let windows = cfg!(target_os = "windows");
         let launcher = &now.launcher;
         let memory_series = self.series(|s| s.launcher.memory.map(|m| m as f64));
-        let cpu_series = self.series(|s| s.launcher.cpu_percent);
+        // Windows counts CPU as Task Manager does, as a share of every core.
+        let cpu_series = self.series(|s| cpu_shown(s.launcher.cpu_percent, s.cores));
         let frame_series = self.series(|s| s.frames.p95_ms);
 
         let process_rows = |process: &ProcessReading, full: bool| {
@@ -236,14 +247,28 @@ impl Render for PerfMonitor {
                 row(
                     t(M::PerfCpu),
                     process.cpu_percent.map_or_else(unknown, |p| {
-                        tr!(M::PerfCpuValue, percent = cpu(Some(p)), cores = now.cores)
+                        if windows {
+                            tr!(
+                                M::PerfCpuValueAll,
+                                percent = cpu(cpu_shown(Some(p), now.cores)),
+                                cores = now.cores,
+                                one = cpu(Some(p))
+                            )
+                        } else {
+                            tr!(M::PerfCpuValue, percent = cpu(Some(p)), cores = now.cores)
+                        }
                     }),
                 )
                 .into_any_element(),
             ];
             if full {
                 rows.push(row(t(M::PerfThreads), count(process.threads)).into_any_element());
-                rows.push(row(t(M::PerfOpenFiles), count(process.open_files)).into_any_element());
+                let handles = if windows {
+                    M::PerfHandles
+                } else {
+                    M::PerfOpenFiles
+                };
+                rows.push(row(t(handles), count(process.open_files)).into_any_element());
             }
             rows
         };
@@ -447,6 +472,21 @@ impl Render for PerfMonitor {
                                 .child(t(M::PerfIdle)),
                         )
                     })
+                    .when(frames.background && !frames.idle, |this| {
+                        this.child(
+                            div()
+                                .py_1()
+                                .text_color(colors::GRAY_500)
+                                .child(t(M::PerfBackground)),
+                        )
+                    })
+                    .child(
+                        div()
+                            .py_1()
+                            .text_size(theme::text_size(text::SMALL))
+                            .text_color(colors::GRAY_500)
+                            .child(t(M::PerfFramesNote)),
+                    )
                     .child(heading(t(M::PerfGame)))
                     .children(games)
                     .child(heading(t(M::PerfInternals)))

@@ -1631,10 +1631,11 @@ fn perf_history() -> Vec<crate::perf::Sample> {
                 cores: 10,
                 frames: FrameStats {
                     fps: if busy { 58.4 } else { 4.0 },
-                    avg_ms: Some(16.9),
-                    p95_ms: Some(if busy { 19.5 + wave * 3.0 } else { 17.2 }),
-                    max_ms: Some(31.0),
+                    avg_ms: Some(if busy { 4.1 } else { 2.6 }),
+                    p95_ms: Some(if busy { 6.5 + wave * 1.5 } else { 3.4 }),
+                    max_ms: Some(if busy { 11.0 } else { 4.8 }),
                     idle: false,
+                    background: false,
                 },
                 games: vec![GameReading {
                     instance: "a1".into(),

@@ -3,7 +3,8 @@
 //!
 //! Memory is the number Activity Monitor (macOS) or Task Manager (Windows) shows: the
 //! physical footprint on macOS, the working set on Windows, the resident size
-//! elsewhere.
+//! elsewhere. On Windows "open files" is the process's handle count, which Task
+//! Manager calls Handles: files, but also events, threads, registry keys and so on.
 
 use std::time::Duration;
 
@@ -15,6 +16,7 @@ pub struct ProcessStats {
     /// User and system time used since it started.
     pub cpu_time: Option<Duration>,
     pub threads: Option<u32>,
+    /// Open file descriptors; on Windows, open handles of every kind.
     pub open_files: Option<u32>,
 }
 
@@ -33,9 +35,10 @@ pub fn cpu_percent(before: &ProcessStats, after: &ProcessStats, wall: Duration) 
     Some(used.as_secs_f64() / wall.as_secs_f64() * 100.0)
 }
 
-/// The number of cores the system has.
+/// The number of logical cores the system has: what CPU time is shared between, so
+/// a process using all of them reads `cores() * 100` percent of one core.
 pub fn cores() -> usize {
-    std::thread::available_parallelism().map_or(1, |n| n.get())
+    imp::cores().unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()))
 }
 
 #[cfg(target_os = "macos")]
@@ -43,6 +46,10 @@ mod imp {
     use std::{mem, sync::OnceLock, time::Duration};
 
     use super::ProcessStats;
+
+    pub fn cores() -> Option<usize> {
+        None
+    }
 
     /// `mach_timebase_info_data_t`. libc's copy is deprecated in favour of a crate the
     /// launcher doesn't use, so it is declared here.
@@ -149,6 +156,10 @@ mod imp {
 
     use super::ProcessStats;
 
+    pub fn cores() -> Option<usize> {
+        None
+    }
+
     pub fn sample(pid: u32) -> Option<ProcessStats> {
         let dir = format!("/proc/{pid}");
         let status = std::fs::read_to_string(format!("{dir}/status")).ok()?;
@@ -191,17 +202,30 @@ mod imp {
     use std::{mem, time::Duration};
 
     use windows_sys::Win32::{
-        Foundation::{CloseHandle, FILETIME},
+        Foundation::{CloseHandle, FILETIME, INVALID_HANDLE_VALUE},
         System::{
+            Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+                TH32CS_SNAPPROCESS,
+            },
             ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS},
             Threading::{
-                GetProcessHandleCount, GetProcessTimes, OpenProcess,
-                PROCESS_QUERY_LIMITED_INFORMATION,
+                ALL_PROCESSOR_GROUPS, GetActiveProcessorCount, GetProcessHandleCount,
+                GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
             },
         },
     };
 
     use super::ProcessStats;
+
+    /// Every processor group's logical processors. `available_parallelism` counts
+    /// only the launcher's own group (at most 64) and its affinity, while process CPU
+    /// times add up across all of them.
+    pub fn cores() -> Option<usize> {
+        // SAFETY: GetActiveProcessorCount has no preconditions; 0 means it failed.
+        let count = unsafe { GetActiveProcessorCount(ALL_PROCESSOR_GROUPS) };
+        (count > 0).then_some(count as usize)
+    }
 
     fn hundreds_of_ns(time: &FILETIME) -> u64 {
         (u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime)
@@ -238,11 +262,39 @@ mod imp {
             ProcessStats {
                 memory,
                 cpu_time,
-                threads: None,
+                threads: threads(pid),
                 open_files,
             }
         };
         Some(stats)
+    }
+
+    /// The process's thread count, from a snapshot of the system's processes (Windows
+    /// has no call that asks one process for it).
+    fn threads(pid: u32) -> Option<u32> {
+        // SAFETY: CreateToolhelp32Snapshot has no preconditions; it returns
+        // INVALID_HANDLE_VALUE when it fails.
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        if snapshot == INVALID_HANDLE_VALUE || snapshot.is_null() {
+            return None;
+        }
+        // SAFETY: an all-zero PROCESSENTRY32W is valid once dwSize is set; the
+        // snapshot is open until CloseHandle.
+        unsafe {
+            let mut entry: PROCESSENTRY32W = mem::zeroed();
+            entry.dwSize = mem::size_of::<PROCESSENTRY32W>() as u32;
+            let mut found = None;
+            let mut more = Process32FirstW(snapshot, &mut entry) != 0;
+            while more {
+                if entry.th32ProcessID == pid {
+                    found = Some(entry.cntThreads);
+                    break;
+                }
+                more = Process32NextW(snapshot, &mut entry) != 0;
+            }
+            CloseHandle(snapshot);
+            found
+        }
     }
 }
 
@@ -255,6 +307,10 @@ mod imp {
 mod imp {
     use super::ProcessStats;
 
+    pub fn cores() -> Option<usize> {
+        None
+    }
+
     pub fn sample(_pid: u32) -> Option<ProcessStats> {
         None
     }
@@ -264,7 +320,7 @@ mod imp {
 mod tests {
     use super::*;
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     #[test]
     fn this_process_has_memory_threads_and_cpu_time() {
         let before = sample(std::process::id()).expect("reads itself");
@@ -282,6 +338,11 @@ mod tests {
         let percent = cpu_percent(&before, &after, started.elapsed()).unwrap();
         assert!(percent > 20.0, "{percent}");
         assert!(after.cpu_time.unwrap() > Duration::ZERO);
+    }
+
+    #[test]
+    fn there_is_at_least_one_core() {
+        assert!(cores() >= 1);
     }
 
     #[test]
