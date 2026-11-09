@@ -563,6 +563,8 @@ pub fn accounts(scene: &str, cx: &mut App) -> Entity<Accounts> {
             true,
             cx,
         );
+        // The scenes show Lodestone's own sign-in, apart from the "-launcher" ones.
+        accounts.preview_launcher_identity(false);
         if scene == "signed-out" {
             return accounts;
         }
