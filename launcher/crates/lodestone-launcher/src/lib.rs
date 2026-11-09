@@ -43,7 +43,7 @@ pub fn init(cx: &mut App) {
     trace_hooks::install(cx);
 
     cx.on_action(|_: &Quit, cx| cx.quit());
-    cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+    bind_quit(cx);
     // Zoom, as in browsers: ⌘ on macOS (Ctrl works there too), Ctrl elsewhere. The
     // window's root handles the actions, so they reach it from anywhere inside.
     cx.bind_keys([
@@ -82,6 +82,17 @@ pub fn init(cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// Quit's shortcut: ⌘Q on macOS and Ctrl+Q elsewhere, as in browsers and most
+/// Linux apps. GPUI reads `cmd` as the Super key on Linux and Windows, so `cmd-q`
+/// there would be Super+Q, which desktops keep for themselves. Alt+F4 also works
+/// outside macOS: the system closes the window, and the launcher quits with it.
+fn bind_quit(cx: &mut App) {
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+    #[cfg(not(target_os = "macos"))]
+    cx.bind_keys([KeyBinding::new("ctrl-q", Quit, None)]);
 }
 
 /// Sets the app menu, in the current language. Called again when it changes.
@@ -285,5 +296,42 @@ mod screenshot {
             cx.update(|cx| cx.quit());
         })
         .detach();
+    }
+}
+
+#[cfg(all(test, feature = "screenshot"))]
+mod tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use gpui::{Context, IntoElement, Render, TestAppContext, Window, div};
+
+    struct Empty;
+
+    impl Render for Empty {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    /// Quit is ⌘Q on macOS and Ctrl+Q elsewhere, where `cmd` would be the Super key.
+    #[test]
+    fn quit_takes_the_platform_shortcut() {
+        let mut cx = TestAppContext::single();
+        let quits = Rc::new(Cell::new(0));
+        cx.update(|cx| {
+            super::bind_quit(cx);
+            let quits = quits.clone();
+            cx.on_action(move |_: &super::Quit, _| quits.set(quits.get() + 1));
+        });
+        let (_, cx) = cx.add_window_view(|_, _| Empty);
+        let (shortcut, other) = if cfg!(target_os = "macos") {
+            ("cmd-q", "ctrl-q")
+        } else {
+            ("ctrl-q", "cmd-q")
+        };
+        cx.simulate_keystrokes(other);
+        assert_eq!(quits.get(), 0, "{other} doesn't quit");
+        cx.simulate_keystrokes(shortcut);
+        assert_eq!(quits.get(), 1, "{shortcut} quits");
     }
 }
