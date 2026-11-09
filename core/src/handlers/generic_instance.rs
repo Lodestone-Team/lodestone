@@ -109,6 +109,13 @@ pub async fn create_generic_instance(
             return;
         }
 
+        if let Err(e) = state
+            .instance_folders
+            .record([(instance_uuid.clone(), setup_path)])
+            .await
+        {
+            error!("Failed to record the folder of instance {instance_uuid}: {e}");
+        }
         state
             .instances
             .insert(instance_uuid.clone(), instance.into());

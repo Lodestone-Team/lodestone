@@ -185,6 +185,10 @@ pub(crate) mod test_util {
         let code_execution = global_settings.code_execution_switch();
         crate::AppState {
             instances: Arc::new(dashmap::DashMap::new()),
+            instance_folders: Arc::new(
+                crate::instance_identity::InstanceFolders::load(dir.join("instance_folders.json"))
+                    .await,
+            ),
             users_manager: Arc::new(RwLock::new(users_manager)),
             events_buffer: Arc::new(Mutex::new(ringbuffer::AllocRingBuffer::new(512))),
             console_out_buffer: Default::default(),
@@ -277,6 +281,9 @@ pub(crate) mod test_util {
 #[derive(Clone)]
 pub struct AppState {
     instances: Arc<DashMap<InstanceUuid, GameInstance>>,
+    /// The folder each instance UUID was last loaded or created in, see
+    /// [`instance_identity`].
+    instance_folders: Arc<instance_identity::InstanceFolders>,
     users_manager: Arc<RwLock<UsersManager>>,
     events_buffer: Arc<Mutex<AllocRingBuffer<Event>>>,
     console_out_buffer: Arc<Mutex<HashMap<InstanceUuid, AllocRingBuffer<Event>>>>,
@@ -457,14 +464,20 @@ fn snapshot_instances(
 
 async fn restore_instances(
     instances_path: &Path,
+    instance_folders: &instance_identity::InstanceFolders,
     event_broadcaster: EventBroadcaster,
     macro_executor: MacroExecutor,
 ) -> Result<DashMap<InstanceUuid, GameInstance>, Error> {
     let ret: DashMap<InstanceUuid, GameInstance> = DashMap::new();
 
-    for (path, dot_lodestone_config) in
-        instance_identity::load_unique_configs(instances_path).await?
-    {
+    let loaded =
+        instance_identity::load_unique_configs(instances_path, &instance_folders.snapshot().await)
+            .await?;
+    for conflict in &loaded.conflicts {
+        error!("{conflict}");
+    }
+    let mut restored_folders = Vec::new();
+    for (path, dot_lodestone_config) in loaded.ready {
         debug!("restoring instance: {}", path.display());
         let uuid_instance: (InstanceUuid, GameInstance) = match dot_lodestone_config.game_type() {
             GameType::MinecraftJava => {
@@ -537,7 +550,11 @@ async fn restore_instances(
                 continue;
             }
         };
+        restored_folders.push((uuid_instance.0.clone(), path));
         ret.insert(uuid_instance.0, uuid_instance.1);
+    }
+    if let Err(e) = instance_folders.record(restored_folders).await {
+        error!("Failed to record the folders of the restored instances: {e}");
     }
     Ok(ret)
 }
@@ -936,12 +953,21 @@ pub async fn run_with(
         tokio::runtime::Handle::current(),
         code_execution.clone(),
     );
-    let instances = restore_instances(&path_to_instances, tx.clone(), macro_executor.clone())
-        .await
-        .map_err(|_| Error {
-            kind: ErrorKind::Internal,
-            source: Report::msg("failed to restore instances"),
-        })?;
+    let instance_folders = Arc::new(
+        instance_identity::InstanceFolders::load(path_to_stores().join("instance_folders.json"))
+            .await,
+    );
+    let instances = restore_instances(
+        &path_to_instances,
+        &instance_folders,
+        tx.clone(),
+        macro_executor.clone(),
+    )
+    .await
+    .map_err(|_| Error {
+        kind: ErrorKind::Internal,
+        source: Report::msg("failed to restore instances"),
+    })?;
 
     let mut allocated_ports = HashSet::new();
     for (_, instance) in snapshot_instances(&instances) {
@@ -960,6 +986,7 @@ pub async fn run_with(
         product,
         launched_by,
         instances: Arc::new(instances),
+        instance_folders,
         users_manager: Arc::new(RwLock::new(users_manager)),
         events_buffer: Arc::new(Mutex::new(AllocRingBuffer::new(512))),
         console_out_buffer: Arc::new(Mutex::new(HashMap::new())),
@@ -1349,6 +1376,7 @@ mod restore_tests {
     use super::*;
     use crate::global_settings::CodeExecutionSwitch;
     use crate::implementations::minecraft::{Flavour, RestoreConfig};
+    use crate::instance_identity::InstanceFolders;
     use crate::traits::t_macro::TMacro;
     use crate::types::DotLodestoneConfig;
 
@@ -1421,51 +1449,123 @@ mod restore_tests {
         (tx, executor)
     }
 
-    /// Two instances share a UUID. The older one keeps it, the other gets a new one that
-    /// is saved with its other metadata untouched, and the next start changes nothing.
+    /// The original instance is recorded on its first start. A copy of its folder, with
+    /// the same creation time and listed first, gets a new UUID on the next start while the
+    /// recorded folder keeps its own, and the start after that changes nothing.
     #[tokio::test]
-    async fn duplicate_uuids_are_regenerated_once() {
+    async fn copied_instance_gets_a_new_uuid_and_the_recorded_folder_keeps_its_own() {
         init_lodestone_paths();
         let dir = tempfile::tempdir().unwrap();
         let instances = dir.path().join("instances");
+        let record = dir.path().join("instance_folders.json");
+        let folders = InstanceFolders::load(record.clone()).await;
         let uuid = InstanceUuid::default();
-        let mut older = serde_json::to_value(DotLodestoneConfig::new(
-            uuid.clone(),
-            GameType::MinecraftJava,
-        ))
-        .unwrap();
-        older["creation_time"] = 1_000.into();
-        let mut newer = older.clone();
-        newer["creation_time"] = 2_000.into();
-        let older: DotLodestoneConfig = serde_json::from_value(older).unwrap();
-        let newer: DotLodestoneConfig = serde_json::from_value(newer).unwrap();
-        // "a" is listed first, but is the newer one
-        write_minecraft_instance(&instances.join("a"), "newer", &newer);
-        write_minecraft_instance(&instances.join("b"), "older", &older);
-
+        let config = DotLodestoneConfig::new(uuid.clone(), GameType::MinecraftJava);
+        write_minecraft_instance(&instances.join("b"), "original", &config);
         let (tx, executor) = test_executor();
-        let restored = restore_instances(&instances, tx.clone(), executor.clone())
+        let restored = restore_instances(&instances, &folders, tx.clone(), executor.clone())
+            .await
+            .unwrap();
+        assert_eq!(restored.len(), 1);
+
+        // "a" is listed first, and has the same creation time
+        write_minecraft_instance(&instances.join("a"), "copy", &config);
+        let restored = restore_instances(&instances, &folders, tx.clone(), executor.clone())
             .await
             .unwrap();
         assert_eq!(restored.len(), 2);
-        assert_eq!(restored.get(&uuid).unwrap().name().await, "older");
+        assert_eq!(restored.get(&uuid).unwrap().name().await, "original");
         let saved: DotLodestoneConfig =
             serde_json::from_slice(&std::fs::read(instances.join("a/.lodestone_config")).unwrap())
                 .unwrap();
         assert_ne!(saved.uuid(), &uuid);
-        assert_eq!(saved.creation_time(), 2_000);
-        assert_eq!(saved.game_type(), newer.game_type());
-        assert_eq!(restored.get(saved.uuid()).unwrap().name().await, "newer");
+        assert_eq!(saved.creation_time(), config.creation_time());
+        assert_eq!(saved.game_type(), config.game_type());
+        assert_eq!(restored.get(saved.uuid()).unwrap().name().await, "copy");
+        let recorded = InstanceFolders::load(record.clone()).await.snapshot().await;
+        assert_eq!(recorded.get(&uuid).map(String::as_str), Some("b"));
+        assert_eq!(recorded.get(saved.uuid()).map(String::as_str), Some("a"));
 
-        let after_first_start = snapshot_files(&instances);
-        let restored_again = restore_instances(&instances, tx, executor).await.unwrap();
+        let files = snapshot_files(&instances);
+        let record_file = std::fs::read(&record).unwrap();
+        let restored_again = restore_instances(&instances, &folders, tx, executor)
+            .await
+            .unwrap();
         assert_eq!(restored_again.len(), 2);
-        assert_eq!(restored_again.get(&uuid).unwrap().name().await, "older");
+        assert_eq!(restored_again.get(&uuid).unwrap().name().await, "original");
         assert_eq!(
             restored_again.get(saved.uuid()).unwrap().name().await,
-            "newer"
+            "copy"
         );
-        assert_eq!(snapshot_files(&instances), after_first_start);
+        assert_eq!(snapshot_files(&instances), files);
+        assert_eq!(std::fs::read(&record).unwrap(), record_file);
+    }
+
+    /// Without a record of their UUID, as on a core from before the record, none of the
+    /// folders sharing it is restored and none is changed; other instances are restored.
+    #[tokio::test]
+    async fn copies_without_a_record_are_not_restored() {
+        init_lodestone_paths();
+        let dir = tempfile::tempdir().unwrap();
+        let instances = dir.path().join("instances");
+        let record = dir.path().join("instance_folders.json");
+        let folders = InstanceFolders::load(record.clone()).await;
+        let uuid = InstanceUuid::default();
+        let other = InstanceUuid::default();
+        let config = DotLodestoneConfig::new(uuid.clone(), GameType::MinecraftJava);
+        write_minecraft_instance(&instances.join("a"), "one", &config);
+        write_minecraft_instance(&instances.join("b"), "two", &config);
+        write_minecraft_instance(
+            &instances.join("c"),
+            "other",
+            &DotLodestoneConfig::new(other.clone(), GameType::MinecraftJava),
+        );
+        let files = snapshot_files(&instances);
+
+        #[derive(Clone, Default)]
+        struct Log(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Log {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let log = Log::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer({
+                let log = log.clone();
+                move || log.clone()
+            })
+            .finish();
+        let guard = tracing::subscriber::set_default(subscriber);
+        let (tx, executor) = test_executor();
+        let restored = restore_instances(&instances, &folders, tx, executor)
+            .await
+            .unwrap();
+        drop(guard);
+        let log = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+        let line = log
+            .lines()
+            .find(|line| line.contains(&format!("Instance UUID {uuid} is used by 2 folders")))
+            .unwrap_or_else(|| panic!("no conflict error in {log}"));
+        assert!(line.contains("ERROR"), "{line}");
+        for folder in ["a", "b"] {
+            assert!(
+                line.contains(&instances.join(folder).display().to_string()),
+                "{line}"
+            );
+        }
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored.get(&other).unwrap().name().await, "other");
+        assert!(restored.get(&uuid).is_none());
+        assert_eq!(snapshot_files(&instances), files);
+        let recorded = InstanceFolders::load(record).await.snapshot().await;
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded.get(&other).map(String::as_str), Some("c"));
     }
 
     /// Instances written by a core built with `deno`: an atom instance, and a Minecraft
@@ -1538,7 +1638,10 @@ mod restore_tests {
             tokio::runtime::Handle::current(),
             CodeExecutionSwitch::new(false),
         );
-        let restored = restore_instances(&instances, tx, executor).await.unwrap();
+        let folders = InstanceFolders::load(dir.path().join("instance_folders.json")).await;
+        let restored = restore_instances(&instances, &folders, tx, executor)
+            .await
+            .unwrap();
 
         assert_eq!(restored.len(), 1);
         let server_instance = restored.get(&server_uuid).unwrap().value().clone();
