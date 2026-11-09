@@ -28,6 +28,8 @@ pub enum Plan {
     Events { params: Value, count: Option<usize> },
     /// Trace events: lines for people, JSON lines otherwise.
     Trace { params: Value, count: Option<usize> },
+    /// Performance readings as JSON lines.
+    PerfWatch { count: Option<usize> },
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -882,6 +884,10 @@ pub fn plan(
                 ]),
                 count: w.count,
             },
+        },
+        Command::Perf(p) => match p.command {
+            None | Some(Perf::Show) => call("perf.show", vec![]),
+            Some(Perf::Watch { count }) => Plan::PerfWatch { count },
         },
         Command::Events(e) => Plan::Events {
             params: params(vec![

@@ -281,6 +281,40 @@ pub fn text(message: M) -> &'static str {
         M::ClientPid => "處理程序 {pid}",
         M::Disconnect => "中斷連線",
         M::CliUnavailable => "Windows 上暫不支援命令列控制。",
+        M::DiagnosticsSection => "診斷",
+        M::PerfMonitor => "效能監視器",
+        M::PerfMonitorHint => {
+            "一個小視窗，每秒更新啟動器及正在執行的遊戲的記憶體、CPU 和影格時間。"
+        }
+        M::PerfOpen => "開啟監視器",
+        M::PerfLauncher => "啟動器",
+        M::PerfMemory => "記憶體",
+        M::PerfCpu => "CPU",
+        M::PerfCpuValue => "單核的 {percent} · 共 {cores} 核",
+        M::PerfThreads => "執行緒",
+        M::PerfOpenFiles => "開啟的檔案",
+        M::PerfRendering => "繪製",
+        M::PerfFps => "每秒影格數",
+        M::PerfFrameTime => "影格時間",
+        M::PerfFrameStats => "平均 {avg} · p95 {p95} · 最長 {max}",
+        M::PerfIdle => "閒置：最近 2 秒沒有重繪",
+        M::PerfGame => "遊戲",
+        M::PerfNoGame => "沒有正在執行的遊戲。",
+        M::PerfInternals => "啟動器內部",
+        M::PerfImages => "已解碼的影像",
+        M::PerfContentCache => "內容快取",
+        M::PerfJobs => "工作",
+        M::PerfDownloads => "下載",
+        M::PerfCliClients => "CLI 用戶端",
+        M::PerfTraceBus => "追蹤匯流排",
+        M::PerfTraceValue => "{subscribers} 個訂閱者 · 每秒 {rate} 個事件",
+        M::PerfRate => "{rate}/秒",
+        M::PerfSelfNote => "此視窗開啟時每秒取樣一次。它也會測量自身：它自己的重繪會增加少量 CPU。",
+        M::PerfCopy => "複製快照",
+        M::PerfCopied => "已複製",
+        M::PerfLastMinute => "最近 60 秒",
+        M::PerfUnknown => "–",
+        M::PerfOff => "關閉",
 
         M::SignInWithMicrosoft => "使用 Microsoft 登入",
         M::LauncherIdentityNote => {
@@ -633,5 +667,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::CopiedValues => ["已從「{name}」複製 {count} 個值。"; 2],
         P::LauncherAccounts => ["有 {count} 個帳號正以 Minecraft Launcher 身分登入：{names}。"; 2],
         P::Subscriptions => ["{count} 個訂閱"; 2],
+        P::PerfEntries => ["{count} 個項目"; 2],
     }
 }

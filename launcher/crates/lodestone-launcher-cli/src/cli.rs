@@ -150,6 +150,34 @@ pub enum Command {
     /// events, without screenshots. Local only.
     #[command(subcommand)]
     Trace(Trace),
+    /// The launcher's memory, CPU, threads and open files, how its window draws, a
+    /// running game's memory and CPU, and what it holds. `perf` alone is `perf show`.
+    Perf(PerfArgs),
+}
+
+#[derive(Args, Debug)]
+#[command(
+    after_help = "Examples:\n  lodestone-launcher-cli perf\n  lodestone-launcher-cli perf watch --count 10"
+)]
+pub struct PerfArgs {
+    #[command(subcommand)]
+    pub command: Option<Perf>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Perf {
+    /// One reading, taken over a second (CPU is time used over that second).
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli perf show")]
+    Show,
+    /// A reading every second, as JSON lines.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli perf watch\n  lodestone-launcher-cli perf watch --count 30"
+    )]
+    Watch {
+        /// Stop after this many readings.
+        #[arg(long)]
+        count: Option<usize>,
+    },
 }
 
 /// An instance: its id, or its name (any case).

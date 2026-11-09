@@ -25,6 +25,7 @@ mod events;
 mod import;
 mod instances;
 mod jobs;
+mod perf;
 mod servers;
 mod settings;
 mod skins;
@@ -699,6 +700,17 @@ pub const METHODS: &[Method] = &[
         "What the window shows now (page, tab, instance, dialog, size, zoom), games and running jobs.",
         trace::snapshot,
     ),
+    // perf
+    method(
+        "perf.show",
+        "The launcher's memory, CPU, threads and open files, frame rate and frame times, a running game's memory and CPU, decoded images, the content cache, jobs, downloads, CLI clients and the trace bus. Takes a second.",
+        perf::show,
+    ),
+    method(
+        "perf.watch",
+        "The same as perf.show every second, as perf events. End it with events.unsubscribe.",
+        perf::watch,
+    ),
 ];
 
 /// A request being handled.
@@ -1250,6 +1262,7 @@ const CHANGES_CLIENTS: &[&str] = &[
     "events.unsubscribe",
     "trace.subscribe",
     "trace.unsubscribe",
+    "perf.watch",
 ];
 
 /// Opens or closes the socket, and turns traces and game logs on or off, as the
@@ -1482,6 +1495,8 @@ pub const READ_METHODS: &[&str] = &[
     "trace.subscribe",
     "trace.unsubscribe",
     "trace.snapshot",
+    "perf.show",
+    "perf.watch",
 ];
 
 /// The access settings as `meta.ping` and `meta.status` report them.

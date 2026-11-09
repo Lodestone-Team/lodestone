@@ -73,6 +73,21 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
                 .child(command_line(shell, cx)),
         )
         .children(clients(cx))
+        .child(
+            section(t(M::DiagnosticsSection), None).child(card([SettingRow::new(t(
+                M::PerfMonitor,
+            ))
+            .hint(t(M::PerfMonitorHint))
+            .child(
+                Button::new("open-perf-monitor", t(M::PerfOpen))
+                    .size(ButtonSize::Slim)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let sources = this.perf_sources();
+                        super::perf_monitor::open(sources, cx);
+                    })),
+            )
+            .into_any_element()])),
+        )
         .child(section(t(M::SignInSection), None).child(sign_in))
 }
 
@@ -243,6 +258,16 @@ fn clients(_: &mut Context<LauncherShell>) -> Option<AnyElement> {
 }
 
 impl LauncherShell {
+    /// What the performance monitor reads.
+    pub fn perf_sources(&self) -> crate::perf::Sources {
+        crate::perf::Sources {
+            instances: self.instances.clone(),
+            accounts: self.accounts.clone(),
+            content: Some(self.content.clone()),
+            worlds: Some(self.worlds.clone()),
+        }
+    }
+
     /// Turning the option on asks first; turning it off asks what to do with the
     /// accounts that used it, if there are any.
     fn request_launcher_identity(

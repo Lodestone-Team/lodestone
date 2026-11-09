@@ -203,6 +203,8 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
     ("trace topics", "trace.topics", false, false),
     ("trace watch", "trace.subscribe", false, false),
     ("trace snapshot", "trace.snapshot", false, false),
+    ("perf show", "perf.show", false, false),
+    ("perf watch", "perf.watch", false, false),
 ];
 
 fn arg_json(arg: &Arg) -> Value {

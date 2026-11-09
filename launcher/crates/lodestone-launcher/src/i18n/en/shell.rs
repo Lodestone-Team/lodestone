@@ -324,6 +324,50 @@ crate::i18n::messages! {
         ClientPid = "Process {pid}",
         Disconnect = "Disconnect",
         CliUnavailable = "Command-line control isn’t available on Windows yet.",
+        /// Settings > Developer: the section of the performance monitor.
+        DiagnosticsSection = "Diagnostics",
+        /// The performance monitor window, and its row in Settings > Developer.
+        PerfMonitor = "Performance monitor",
+        PerfMonitorHint = "A small window with the launcher’s memory, CPU and frame times, and a running game’s, updated every second.",
+        PerfOpen = "Open monitor",
+        /// The launcher's own process.
+        PerfLauncher = "Launcher",
+        PerfMemory = "Memory",
+        PerfCpu = "CPU",
+        /// {percent} is "12.5%", {cores} the number of cores.
+        PerfCpuValue = "{percent} of one core · {cores} cores",
+        PerfThreads = "Threads",
+        PerfOpenFiles = "Open files",
+        /// How the main window draws.
+        PerfRendering = "Rendering",
+        PerfFps = "Frames per second",
+        PerfFrameTime = "Frame time",
+        /// {avg}, {p95} and {max} are times such as "16.7 ms".
+        PerfFrameStats = "avg {avg} · p95 {p95} · max {max}",
+        PerfIdle = "Idle: nothing redrew in the last 2 seconds",
+        PerfGame = "Game",
+        PerfNoGame = "No game is running.",
+        PerfInternals = "Inside the launcher",
+        PerfImages = "Decoded images",
+        /// Modrinth answers kept in memory.
+        PerfContentCache = "Content cache",
+        /// Command-line jobs running.
+        PerfJobs = "Jobs",
+        PerfDownloads = "Downloads",
+        PerfCliClients = "CLI clients",
+        PerfTraceBus = "Trace bus",
+        /// {subscribers} is a number, {rate} "3.5".
+        PerfTraceValue = "{subscribers} listening · {rate} events/s",
+        /// {rate} is a size such as "2.1 MB".
+        PerfRate = "{rate}/s",
+        PerfSelfNote = "Sampled once a second while this window is open. It measures itself too: its own redraws add a little CPU.",
+        PerfCopy = "Copy snapshot",
+        PerfCopied = "Copied",
+        /// Under the small charts.
+        PerfLastMinute = "Last 60 s",
+        /// A number the system doesn't give.
+        PerfUnknown = "–",
+        PerfOff = "Off",
 
         // Signing in with Microsoft.
         SignInWithMicrosoft = "Sign in with Microsoft",
@@ -682,5 +726,6 @@ crate::i18n::messages! {
         ),
         /// Event and trace subscriptions a connected program has.
         Subscriptions = ("{count} subscription", "{count} subscriptions"),
+        PerfEntries = ("{count} entry", "{count} entries"),
     }
 }

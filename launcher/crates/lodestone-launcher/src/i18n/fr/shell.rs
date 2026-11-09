@@ -339,6 +339,42 @@ pub fn text(message: M) -> &'static str {
         M::CliUnavailable => {
             "Le contrôle en ligne de commande n’est pas encore disponible sur Windows."
         }
+        M::DiagnosticsSection => "Diagnostic",
+        M::PerfMonitor => "Moniteur de performances",
+        M::PerfMonitorHint => {
+            "Une petite fenêtre avec la mémoire, le processeur et les temps d’image du lanceur, et ceux d’un jeu en cours, mis à jour chaque seconde."
+        }
+        M::PerfOpen => "Ouvrir le moniteur",
+        M::PerfLauncher => "Lanceur",
+        M::PerfMemory => "Mémoire",
+        M::PerfCpu => "Processeur",
+        M::PerfCpuValue => "{percent} d’un cœur · {cores} cœurs",
+        M::PerfThreads => "Threads",
+        M::PerfOpenFiles => "Fichiers ouverts",
+        M::PerfRendering => "Affichage",
+        M::PerfFps => "Images par seconde",
+        M::PerfFrameTime => "Temps par image",
+        M::PerfFrameStats => "moy. {avg} · p95 {p95} · max {max}",
+        M::PerfIdle => "Au repos : rien n’a été redessiné depuis 2 secondes",
+        M::PerfGame => "Jeu",
+        M::PerfNoGame => "Aucun jeu n’est lancé.",
+        M::PerfInternals => "Dans le lanceur",
+        M::PerfImages => "Images décodées",
+        M::PerfContentCache => "Cache du contenu",
+        M::PerfJobs => "Tâches",
+        M::PerfDownloads => "Téléchargements",
+        M::PerfCliClients => "Clients CLI",
+        M::PerfTraceBus => "Bus de traces",
+        M::PerfTraceValue => "{subscribers} à l’écoute · {rate} évén./s",
+        M::PerfRate => "{rate}/s",
+        M::PerfSelfNote => {
+            "Mesuré chaque seconde tant que cette fenêtre est ouverte. Elle se mesure aussi elle-même : ses propres rafraîchissements ajoutent un peu de processeur."
+        }
+        M::PerfCopy => "Copier l’instantané",
+        M::PerfCopied => "Copié",
+        M::PerfLastMinute => "60 dernières s",
+        M::PerfUnknown => "–",
+        M::PerfOff => "Désactivé",
 
         M::SignInWithMicrosoft => "Se connecter avec Microsoft",
         M::LauncherIdentityNote => {
@@ -753,5 +789,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} comptes sont connectés en tant que Minecraft Launcher\u{a0}: {names}.",
         ],
         P::Subscriptions => ["{count} abonnement", "{count} abonnements"],
+        P::PerfEntries => ["{count} entrée", "{count} entrées"],
     }
 }
