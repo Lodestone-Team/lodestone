@@ -160,6 +160,52 @@ pub fn text(message: M) -> &'static str {
         M::Description => "Description",
         M::NoVersions => "Ce modpack n’a aucune version.",
         M::LoadingVersions => "Chargement des versions",
+        M::FindModButton => "Le trouver pour moi",
+        M::FinderTitle => "Trouver le mod qui fait planter {name}",
+        M::FinderIntro => {
+            "Lodestone Launcher lance le jeu plusieurs fois. Chaque essai désactive la moitié des mods qui pourraient être en cause, jusqu’à ce qu’il n’en reste qu’un. Vos mods sont remis en place à la fin."
+        }
+        M::FinderAutomatic => {
+            "Le jeu a planté au démarrage, donc les essais se font seuls. Chacun se termine quand le jeu plante ou atteint le menu principal."
+        }
+        M::FinderManual => {
+            "Le jeu a planté après le démarrage, donc vous jouez chaque essai en refaisant ce qui l’a fait planter. S’il plante encore, l’essai suivant démarre seul. Sinon, appuyez sur Il n’a pas planté."
+        }
+        M::FinderStart => "Commencer",
+        M::FinderReading => "Lecture des mods",
+        M::FinderTry => "Essai {number}",
+        M::FinderStarting => "Lancement du jeu",
+        M::FinderWaiting => "En attente d’un plantage ou du menu principal",
+        M::FinderSettling => "Le jeu a atteint le menu principal. Vérification qu’il tient",
+        M::FinderPlay => {
+            "Refaites ce qui l’a fait planter. S’il ne plante pas, appuyez sur Il n’a pas planté."
+        }
+        M::FinderAsk => "Le jeu s’est fermé. A-t-il planté ou montré le problème\u{202F}?",
+        M::FinderDidntCrash => "Il n’a pas planté",
+        M::FinderItCrashed => "Il a planté",
+        M::FinderStopping => "Arrêt du jeu",
+        M::FinderFound => "Trouvé",
+        M::FinderFoundOne => "Le jeu ne plante plus quand {name} est désactivé.",
+        M::FinderFoundGroup => {
+            "Ces mods ont besoin les uns des autres, et le jeu ne plante plus quand ils sont désactivés\u{a0}: {names}."
+        }
+        M::FinderAlsoOff => "Les mods qui en ont besoin restent aussi désactivés\u{a0}: {names}.",
+        M::FinderKeepOff => "Le garder désactivé",
+        M::FinderPutBack => "Tout réactiver",
+        M::FinderNotFound => {
+            "Le jeu a encore planté avec tous ces mods désactivés. La cause n’est probablement pas un mod, ou le plantage ne survient pas à chaque fois. Vos mods sont revenus comme avant."
+        }
+        M::FinderRefused => {
+            "Désactiver ces mods a empêché d’autres mods de se charger, donc la recherche ne peut pas continuer. Vos mods sont revenus comme avant."
+        }
+        M::FinderFailed => "La recherche s’est arrêtée. Vos mods sont revenus comme avant.",
+        M::FinderStopped => "Recherche arrêtée. Vos mods sont revenus comme avant.",
+        M::FinderStop => "Arrêter",
+        M::FinderInterruptedTitle => "Terminer la recherche du mod dans {name}\u{202F}?",
+        M::FinderInterrupted => {
+            "Une recherche du mod qui fait planter {name} a été interrompue, et certains de ses mods sont encore désactivés."
+        }
+        M::FinderPutBackFailed => "Certains mods n’ont pas pu être réactivés\u{a0}: {error}",
     }
 }
 
@@ -222,6 +268,15 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::DownloadingFiles => [
             "Téléchargement de {count} fichier",
             "Téléchargement de {count} fichiers",
+        ],
+        P::FinderModsLeft => [
+            "{count} mod reste à vérifier",
+            "{count} mods restent à vérifier",
+        ],
+        P::FinderModsOff => ["{count} mod désactivé", "{count} mods désactivés"],
+        P::FinderTriesLeft => [
+            "Environ {count} essai de plus",
+            "Environ {count} essais de plus",
         ],
     }
 }

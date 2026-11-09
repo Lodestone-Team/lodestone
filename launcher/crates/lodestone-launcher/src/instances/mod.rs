@@ -8,6 +8,7 @@ pub mod fields;
 mod files;
 pub mod import;
 pub mod loader_picker;
+pub mod mod_finder;
 pub mod modpack_browser;
 pub mod modpacks;
 pub mod new_instance;
@@ -199,6 +200,10 @@ pub enum PlayState {
 struct Run {
     state: RunState,
     log: GameLog,
+    /// Whether this run's game has finished loading (see [`crash::reached_menu`]).
+    reached_menu: bool,
+    /// Whether this run's mod loader refused the mods (see [`crash::mods_refused`]).
+    mods_refused: bool,
     /// The preparation or the output reader. Dropping it cancels it.
     task: Option<Task<()>>,
     /// Redraws the progress while preparing.
@@ -210,6 +215,8 @@ impl Default for Run {
         Self {
             state: RunState::Idle,
             log: GameLog::default(),
+            reached_menu: false,
+            mods_refused: false,
             task: None,
             ticker: None,
         }
@@ -247,10 +254,25 @@ pub struct CrashInfo {
     pub exit_code: Option<i32>,
     pub report: Option<PathBuf>,
     pub log_text: String,
+    /// Whether it crashed before the game finished loading.
+    pub at_startup: bool,
+    /// Whether the mod loader refused the mods (one is missing what it needs).
+    pub mods_refused: bool,
 }
 
 pub enum InstancesEvent {
     Crashed(CrashInfo),
+    /// The game of the instance exited without crashing: closed, or stopped
+    /// (`stopped`) from the launcher.
+    Exited {
+        id: String,
+        stopped: bool,
+    },
+    /// The game of the instance has finished loading.
+    ReachedMenu(String),
+    /// The instance's mod loader refused its mods. Forge and NeoForge then wait on an
+    /// error screen instead of exiting.
+    ModsRefused(String),
     LaunchFailed {
         title: SharedString,
         message: SharedString,
@@ -1335,6 +1357,8 @@ impl Instances {
         let progress = Arc::new(InstallProgress::default());
         let cancel = CancelToken::new();
         let run = self.runs.entry(id.to_string()).or_default();
+        run.reached_menu = false;
+        run.mods_refused = false;
         run.log.note(
             Level::Info,
             tr!(
@@ -1650,10 +1674,25 @@ impl Instances {
             while let Some(batch) = events.next().await {
                 let mut exited = None;
                 let alive = this.update(cx, |this, cx| {
+                    let mut milestones = Vec::new();
                     if let Some(run) = this.runs.get_mut(&id) {
                         for event in batch {
                             match event {
                                 GameEvent::Line(line) => {
+                                    if !run.reached_menu && crash::reached_menu(&line.message) {
+                                        run.reached_menu = true;
+                                        milestones.push(InstancesEvent::ReachedMenu(id.clone()));
+                                    }
+                                    if !run.mods_refused
+                                        && (crash::mods_refused(&line.message)
+                                            || line
+                                                .throwable
+                                                .as_deref()
+                                                .is_some_and(crash::mods_refused))
+                                    {
+                                        run.mods_refused = true;
+                                        milestones.push(InstancesEvent::ModsRefused(id.clone()));
+                                    }
                                     launcher_core::trace::emit("game.log", || {
                                         serde_json::json!({
                                             "instance": id,
@@ -1670,6 +1709,9 @@ impl Instances {
                                 }
                             }
                         }
+                    }
+                    for milestone in milestones {
+                        cx.emit(milestone);
                     }
                     cx.notify();
                 });
@@ -1735,6 +1777,7 @@ impl Instances {
             .map(|i| i.name.clone())
             .unwrap_or_default();
         let dirs = self.content_dirs(id);
+        let exited = !matches!(outcome, Outcome::Crashed { .. });
         if let Some(run) = self.runs.get_mut(id) {
             let message = match (code, stopped) {
                 (_, true) => t(M::StoppedNote).to_string(),
@@ -1747,6 +1790,8 @@ impl Instances {
                 Level::Info
             };
             run.log.note(level, message);
+            let at_startup = !run.reached_menu;
+            let mods_refused = run.mods_refused;
             if let Outcome::Crashed { exit_code, report } = outcome {
                 // Finding the mods involved opens their jars, so the report is read and
                 // the crash worked out off the window's thread. It takes well under a
@@ -1768,6 +1813,8 @@ impl Instances {
                         exit_code,
                         report,
                         log_text,
+                        at_startup,
+                        mods_refused,
                     }
                 });
                 cx.spawn(async move |this, cx| {
@@ -1781,6 +1828,13 @@ impl Instances {
         self.read_back_shared_settings(id);
         self.set_idle(id, cx);
         self.refresh(id, cx);
+        // After it is idle, so whoever hears it can start the game again.
+        if exited {
+            cx.emit(InstancesEvent::Exited {
+                id: id.to_string(),
+                stopped,
+            });
+        }
     }
 
     /// Cancels the preparation, or kills the game.

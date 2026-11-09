@@ -204,6 +204,7 @@ fn clues(crash_report: Option<&str>, log: &[LogLine]) -> Clues {
 
     for text in crash_report.into_iter().chain([log_text.as_str()]) {
         failed_patches(text, &mut clues);
+        failed_entrypoints(text, &mut clues);
     }
 
     // The stack trace: the report's, else the last one in the log.
@@ -251,6 +252,21 @@ fn failed_patches(text: &str, clues: &mut Clues) {
         for word in line.split(|c: char| c.is_whitespace() || "[](){}:,'\"".contains(c)) {
             if word.ends_with(".json") && word.contains("mixin") && !is_platform_config(word) {
                 clues.push(Target::Config(word.to_string()), Evidence::FailedToPatch);
+            }
+        }
+    }
+}
+
+/// Mods whose start-up code failed, as Fabric and Quilt name them: `Could not execute
+/// entrypoint stage 'main' due to errors, provided by 'india' at '...'`.
+fn failed_entrypoints(text: &str, clues: &mut Clues) {
+    for line in text.lines().filter(|l| l.contains("entrypoint")) {
+        for marker in ["provided by '", "provided by mod '"] {
+            for (index, _) in line.match_indices(marker) {
+                let id = mod_id_at(&line[index + marker.len()..]);
+                if !id.is_empty() && !is_platform_mod(&id) {
+                    clues.push(Target::ModId(id), Evidence::CrashedInItsCode);
+                }
             }
         }
     }

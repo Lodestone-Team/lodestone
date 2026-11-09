@@ -212,6 +212,29 @@ pub fn causes(text: &str) -> Vec<Cause> {
         .collect()
 }
 
+/// Whether a log line says the game has finished loading: the sound engine starts at
+/// the end of the first resource reload, just before the main menu, in every version
+/// and loader since 1.12.
+pub fn reached_menu(line: &str) -> bool {
+    line.contains("Sound engine started")
+}
+
+/// Whether the log says the mod loader refused the mods: one needs a mod that's
+/// missing or of the wrong version, or two can't be loaded together. Fabric and Quilt
+/// exit; Forge and NeoForge show an error screen and stay open.
+pub fn mods_refused(text: &str) -> bool {
+    const SIGNS: &[&str] = &[
+        "Incompatible mods found!",
+        "Incompatible mod set!",
+        "Mod resolution failed",
+        "Mod resolution encountered an incompatible mod set",
+        "Missing or unsupported mandatory dependencies",
+        "Mod loading failures have occurred",
+        "Failed to resolve mods",
+    ];
+    SIGNS.iter().any(|sign| text.contains(sign))
+}
+
 /// The names of the crash reports in `<game dir>/crash-reports` now.
 pub fn crash_reports(game_dir: &Path) -> BTreeSet<String> {
     fs::read_dir(game_dir.join("crash-reports"))
@@ -336,6 +359,19 @@ mod tests {
             causes("GLFW error 65543: NSGL: Failed to find a suitable pixel format"),
             [Cause::Graphics]
         );
+    }
+
+    #[test]
+    fn recognises_loading_milestones() {
+        assert!(reached_menu("Sound engine started"));
+        assert!(!reached_menu("Starting up SoundSystem..."));
+        assert!(mods_refused(
+            "Incompatible mods found!\n - Mod 'Zenith' (zenith) requires mod 'Porting Lib'"
+        ));
+        assert!(mods_refused(
+            "Missing or unsupported mandatory dependencies:\n\tMod ID: 'flywheel'"
+        ));
+        assert!(!mods_refused("Loading 212 mods"));
     }
 
     #[test]

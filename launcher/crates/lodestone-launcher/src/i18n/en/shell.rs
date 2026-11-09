@@ -138,7 +138,7 @@ crate::i18n::messages! {
         ProbablyCausedBy = "Probably caused by",
         /// A heading in the crash dialog (shown in capitals), above several mods.
         ModsInvolved = "Mods involved",
-        ModsInvolvedHint = "The crash went through these mods. Turn them off one at a time to find the one that causes it.",
+        ModsInvolvedHint = "Each of these mods had code in the crash. Turn them off one at a time to find the one causing it.",
         /// Why the crash dialog names a mod.
         EvidenceFailedToPatch = "It couldn't patch the game, so it may be made for a different Minecraft version.",
         EvidenceCrashedInItsCode = "The crash happened in its code.",

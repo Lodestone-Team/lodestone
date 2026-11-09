@@ -172,6 +172,41 @@ crate::i18n::messages! {
         Description = "Description",
         NoVersions = "This modpack has no versions.",
         LoadingVersions = "Loading versions",
+
+        // Finding the mod that crashes the game.
+        /// The crash dialog's button that starts the search.
+        FindModButton = "Find it for me",
+        FinderTitle = "Find the mod that crashes {name}",
+        FinderIntro = "Lodestone Launcher starts the game several times. Each try turns off half of the mods that could be the cause, until one is left. Your mods are put back afterwards.",
+        FinderAutomatic = "The game crashed while starting, so the tries run by themselves. Each one ends when the game crashes or reaches the main menu.",
+        FinderManual = "The game crashed after it had started, so you play each try and do what made it crash. If it crashes again, the next try starts by itself. If it doesn't, press It didn't crash.",
+        FinderStart = "Start",
+        FinderReading = "Reading the mods",
+        /// A heading: the try being played, 1, 2, 3…
+        FinderTry = "Try {number}",
+        FinderStarting = "Starting the game",
+        FinderWaiting = "Waiting for the game to crash or reach the main menu",
+        FinderSettling = "The game reached the main menu. Making sure it stays up",
+        FinderPlay = "Do what made it crash. If it doesn't crash, press It didn't crash.",
+        FinderAsk = "The game closed. Did it crash or show the problem?",
+        FinderDidntCrash = "It didn't crash",
+        FinderItCrashed = "It crashed",
+        FinderStopping = "Stopping the game",
+        FinderFound = "Found it",
+        FinderFoundOne = "The game stops crashing with {name} turned off.",
+        FinderFoundGroup = "These mods need each other, and the game stops crashing with them turned off: {names}.",
+        FinderAlsoOff = "The mods that need it stay off too: {names}.",
+        FinderKeepOff = "Keep it off",
+        FinderPutBack = "Turn everything back on",
+        FinderNotFound = "The game still crashed with all of those mods turned off. The cause is probably not a mod, or the crash doesn't happen every time. Your mods are back as they were.",
+        FinderRefused = "Turning those mods off stopped other mods from loading, so the search can't go on. Your mods are back as they were.",
+        FinderFailed = "The search stopped. Your mods are back as they were.",
+        FinderStopped = "Search stopped. Your mods are back as they were.",
+        FinderStop = "Stop",
+        FinderInterruptedTitle = "Finish finding the mod in {name}?",
+        FinderInterrupted = "A search for the mod that crashes {name} was interrupted, and some of its mods are still turned off.",
+        /// {error} says what went wrong.
+        FinderPutBackFailed = "Some mods couldn't be turned back on: {error}",
     }
 
     pub enum InstancesPlural {
@@ -229,5 +264,9 @@ crate::i18n::messages! {
         WorldsBackedUp = ("{count} world was backed up first.", "{count} worlds were backed up first."),
         /// A modpack's progress.
         DownloadingFiles = ("Downloading {count} file", "Downloading {count} files"),
+        /// The mod finder's progress.
+        FinderModsLeft = ("{count} mod left to check", "{count} mods left to check"),
+        FinderModsOff = ("{count} mod turned off", "{count} mods turned off"),
+        FinderTriesLeft = ("About {count} more try", "About {count} more tries"),
     }
 }

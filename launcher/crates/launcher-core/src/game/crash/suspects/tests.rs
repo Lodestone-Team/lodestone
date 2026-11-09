@@ -326,3 +326,17 @@ fn reads_the_root_cause() {
     assert_eq!(trace.len(), 2);
     assert_eq!(trace[1][0].class, "com.inner.Mod");
 }
+
+#[test]
+fn names_the_mod_whose_entrypoint_failed() {
+    let (_dir, dirs) = instance();
+    let mods = mods(&dirs);
+    jar(&mods.join("india-1.0.jar"), "india", "India Effects", &[]);
+    jar(&mods.join("juliet-1.0.jar"), "juliet", "Juliet Menus", &[]);
+    let report = "---- Minecraft Crash Report ----\nDescription: Initializing game\n\njava.lang.RuntimeException: Could not execute entrypoint stage 'main' due to errors, provided by 'india' at 'com.example.india.IndiaMod'!\n\tat net.fabricmc.loader.impl.FabricLoaderImpl.lambda$invokeEntrypoints$2(FabricLoaderImpl.java:403)\n\tat knot//net.minecraft.class_310.<init>(class_310.java:458)\n";
+    let suspects = find(&dirs, Some(report), &[]);
+    assert_eq!(suspects.len(), 1);
+    assert_eq!(suspects[0].name, "India Effects");
+    assert_eq!(suspects[0].evidence, Evidence::CrashedInItsCode);
+    assert!(likely(&suspects));
+}

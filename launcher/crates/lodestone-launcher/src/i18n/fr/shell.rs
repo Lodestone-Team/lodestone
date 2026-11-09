@@ -132,7 +132,7 @@ pub fn text(message: M) -> &'static str {
         M::ProbablyCausedBy => "Probablement causé par",
         M::ModsInvolved => "Mods en cause",
         M::ModsInvolvedHint => {
-            "Le plantage est passé par ces mods. Désactivez-les un par un pour trouver celui qui le provoque."
+            "Chacun de ces mods avait du code dans le plantage. Désactivez-les un par un pour trouver celui qui le provoque."
         }
         M::EvidenceFailedToPatch => {
             "Il n’a pas pu modifier le jeu, il est peut-être fait pour une autre version de Minecraft."

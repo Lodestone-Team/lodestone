@@ -111,7 +111,9 @@ pub fn text(message: M) -> &'static str {
         }
         M::ProbablyCausedBy => "很可能由此造成",
         M::ModsInvolved => "涉及的模組",
-        M::ModsInvolvedHint => "當機經過了這些模組。逐一停用它們，即可找出造成當機的那一個。",
+        M::ModsInvolvedHint => {
+            "這些模組的程式碼都出現在當機中。逐一停用它們，即可找出造成當機的那一個。"
+        }
         M::EvidenceFailedToPatch => "它無法修改遊戲，可能是為其他 Minecraft 版本製作的。",
         M::EvidenceCrashedInItsCode => "當機發生在它的程式碼中。",
         M::EvidencePatchedCrashingCode => "它修改了當機的程式碼。",

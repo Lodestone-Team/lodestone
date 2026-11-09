@@ -148,6 +148,46 @@ pub fn text(message: M) -> &'static str {
         M::Description => "简介",
         M::NoVersions => "此整合包没有任何版本。",
         M::LoadingVersions => "正在加载版本",
+        M::FindModButton => "帮我找出来",
+        M::FinderTitle => "找出导致“{name}”崩溃的模组",
+        M::FinderIntro => {
+            "Lodestone Launcher 会多次启动游戏。每次尝试都会禁用可能导致崩溃的模组中的一半，直到只剩一个。完成后会恢复你的模组。"
+        }
+        M::FinderAutomatic => {
+            "游戏在启动时崩溃，所以尝试会自动进行。每次尝试在游戏崩溃或到达主菜单时结束。"
+        }
+        M::FinderManual => {
+            "游戏在启动后崩溃，所以每次尝试需要你来玩，并重复导致崩溃的操作。如果再次崩溃，下一次尝试会自动开始；如果没有，请按“没有崩溃”。"
+        }
+        M::FinderStart => "开始",
+        M::FinderReading => "正在读取模组",
+        M::FinderTry => "第 {number} 次尝试",
+        M::FinderStarting => "正在启动游戏",
+        M::FinderWaiting => "正在等待游戏崩溃或到达主菜单",
+        M::FinderSettling => "游戏已到达主菜单，正在确认它保持运行",
+        M::FinderPlay => "重复导致崩溃的操作。如果没有崩溃，请按“没有崩溃”。",
+        M::FinderAsk => "游戏已关闭。它崩溃了或出现问题了吗？",
+        M::FinderDidntCrash => "没有崩溃",
+        M::FinderItCrashed => "崩溃了",
+        M::FinderStopping => "正在停止游戏",
+        M::FinderFound => "找到了",
+        M::FinderFoundOne => "禁用 {name} 后游戏不再崩溃。",
+        M::FinderFoundGroup => "这些模组相互依赖，禁用它们后游戏不再崩溃：{names}。",
+        M::FinderAlsoOff => "依赖它的模组也会保持禁用：{names}。",
+        M::FinderKeepOff => "保持禁用",
+        M::FinderPutBack => "全部重新启用",
+        M::FinderNotFound => {
+            "禁用所有这些模组后，游戏仍然崩溃。原因可能不是模组，或者崩溃并非每次都会发生。你的模组已恢复原样。"
+        }
+        M::FinderRefused => {
+            "禁用这些模组导致其他模组无法加载，所以无法继续查找。你的模组已恢复原样。"
+        }
+        M::FinderFailed => "查找已停止。你的模组已恢复原样。",
+        M::FinderStopped => "已停止查找。你的模组已恢复原样。",
+        M::FinderStop => "停止",
+        M::FinderInterruptedTitle => "要完成在“{name}”中查找模组吗？",
+        M::FinderInterrupted => "查找导致“{name}”崩溃的模组时被中断，它的部分模组仍处于禁用状态。",
+        M::FinderPutBackFailed => "部分模组无法重新启用：{error}",
     }
 }
 
@@ -177,5 +217,8 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::PackFilesLeftOut => ["整合包中有 {count} 个文件被跳过，例如 {path}。"; 2],
         P::WorldsBackedUp => ["已先备份 {count} 个世界。"; 2],
         P::DownloadingFiles => ["正在下载 {count} 个文件"; 2],
+        P::FinderModsLeft => ["还有 {count} 个模组待检查"; 2],
+        P::FinderModsOff => ["已禁用 {count} 个模组"; 2],
+        P::FinderTriesLeft => ["大约还需 {count} 次尝试"; 2],
     }
 }
