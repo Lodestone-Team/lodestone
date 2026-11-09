@@ -85,6 +85,15 @@ crate::i18n::messages! {
         /// Beside the logo in development builds.
         DevBadge = "DEV",
         CoreVersion = "Version {version}",
+        /// The footer and the banner when the core answers but its live updates stopped.
+        Degraded = "Live updates stopped",
+        DegradedBanner = "Lodestone Host reaches the core, but live updates stopped. What you see may be out of date.",
+        Reload = "Reload",
+        /// The footer's tooltip.
+        CoreAddress = "Address: {address}",
+        CoreHost = "Computer: {host}",
+        CoreSystem = "System: {system}",
+        CoreUptime = "Running for {uptime}",
     }
 
     pub enum ShellPlural {

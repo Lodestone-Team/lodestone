@@ -110,7 +110,26 @@ mod screenshot {
         let select_first = tab.is_some() || std::env::args().any(|arg| arg == "--select-first");
         let toasts = std::env::args().any(|arg| arg == "--toasts");
         let demo = std::env::args().any(|arg| arg == "--demo");
+        let share = std::env::args().any(|arg| arg == "--share");
+        let select_first = select_first || share;
         cx.spawn(async move |cx| {
+            // `--owner <username>`: on a first run, fill in the owner account (password
+            // from LODESTONE_E2E_PASSWORD) and the core's name, as a user would
+            if let Some(username) = arg_after("--owner") {
+                let password = std::env::var("LODESTONE_E2E_PASSWORD").unwrap_or_default();
+                for _ in 0..120 {
+                    let step = window
+                        .update(cx, |app, _, cx| {
+                            app.onboard_for_screenshot(&username, &password, cx)
+                        })
+                        .unwrap_or("waiting");
+                    eprintln!("first run: {step}");
+                    if step == "shell" {
+                        break;
+                    }
+                    cx.background_executor().timer(Duration::from_secs(1)).await;
+                }
+            }
             cx.background_executor()
                 .timer(Duration::from_secs(wait))
                 .await;
@@ -118,6 +137,26 @@ mod screenshot {
                 window
                     .update(cx, |app, _, cx| app.select_first_instance(cx))
                     .ok();
+                // `--share`: the sidebar's Share button on that instance
+                if share {
+                    window
+                        .update(cx, |app, _, cx| {
+                            let shell = app.shell()?;
+                            shell.update(cx, |shell, cx| {
+                                let lodestone_host::routes::Route::Instance { uuid, .. } =
+                                    shell.route.clone()
+                                else {
+                                    return;
+                                };
+                                shell.state.update(cx, |state, cx| {
+                                    state.share_requested = Some(uuid.clone());
+                                    cx.notify();
+                                });
+                            });
+                            Some(())
+                        })
+                        .ok();
+                }
                 if let Some(tab) = tab {
                     window
                         .update(cx, |app, _, cx| {
@@ -212,6 +251,34 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
+            // `--find <text>`: the Files tab's find bar (with `--tab files --demo`)
+            if let Some(query) = arg_after("--find") {
+                window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).page_view()?;
+                        lodestone_host::pages::find_for_screenshot(&view, &query, cx);
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
+            // `--degraded`: the banner shown while live updates stopped
+            if std::env::args().any(|arg| arg == "--degraded") {
+                window
+                    .update(cx, |app, _, cx| {
+                        let state = app.shell()?.read(cx).state.clone();
+                        state.update(cx, |state, cx| {
+                            state.connection = lodestone_host::state::Connection::Degraded(
+                                "the event stream closed".into(),
+                            );
+                            cx.notify();
+                        });
+                        Some(())
+                    })
+                    .ok();
+            }
             if toasts {
                 use lodestone_ui::components::Toast;
                 window
@@ -245,17 +312,42 @@ mod screenshot {
                     .timer(Duration::from_millis(500))
                     .await;
             }
-            let image = window.update(cx, |_, window, _| {
-                window.refresh();
-                window.render_to_image()
-            });
-            match image.and_then(|image| image) {
-                Ok(image) => match image.save(&path) {
-                    Ok(()) => eprintln!("saved {path}"),
-                    Err(err) => eprintln!("could not save {path}: {err}"),
-                },
-                Err(err) => eprintln!("could not render the window: {err:#}"),
+            let save = |path: &str, cx: &mut gpui::AsyncApp| {
+                // draw a new frame first: a window in the background may not have
+                let image = gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                    window.render_to_image()
+                });
+                match image.and_then(|image| image) {
+                    Ok(image) => match image.save(path) {
+                        Ok(()) => eprintln!("saved {path}"),
+                        Err(err) => eprintln!("could not save {path}: {err}"),
+                    },
+                    Err(err) => eprintln!("could not render the window: {err:#}"),
+                }
+            };
+            // `--control <folder>`: keep running, saving the window to the screenshot
+            // path every few seconds, until a file named `quit` appears in the folder; a
+            // file named `stop-share` presses the Overview's Stop sharing (once)
+            if let Some(control) = arg_after("--control").map(std::path::PathBuf::from) {
+                let mut stopped_share = false;
+                while !control.join("quit").exists() {
+                    if !stopped_share && control.join("stop-share").exists() {
+                        stopped_share = true;
+                        window
+                            .update(cx, |app, _, cx| {
+                                let view = app.shell()?.read(cx).page_view()?;
+                                lodestone_host::pages::stop_share_for_screenshot(&view, cx);
+                                Some(())
+                            })
+                            .ok();
+                    }
+                    save(&path, cx);
+                    cx.background_executor().timer(Duration::from_secs(3)).await;
+                }
             }
+            save(&path, cx);
             // `--restart-to-update`: with an update downloaded, quit into it as Settings ›
             // Updates' Restart does (to test updating against a local folder)
             if std::env::args().any(|arg| arg == "--restart-to-update") {

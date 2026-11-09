@@ -9,6 +9,7 @@ use gpui::{
     AnyView, Context, Entity, IntoElement, ParentElement, Render, Styled, Subscription, Window,
     div, prelude::*,
 };
+use launcher_core::cores::admin::InstanceState;
 use lodestone_ui::{
     components::Tabs,
     theme::{colors, fonts, ink, layout, px, text, weights},
@@ -37,6 +38,12 @@ pub struct HostShell {
     eula: Entity<pages::eula_prompt::EulaPrompt>,
     /// The bell in the top bar and its list (package D).
     pub notifications: Entity<crate::notifications::Notifications>,
+    /// The window title last set.
+    title: String,
+    /// The sidebar's width in pixels at 100% zoom, dragged by its edge (the
+    /// dashboard's `leftNavSize`), and whether a drag is going on.
+    pub sidebar_width: f32,
+    sidebar_dragging: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -70,7 +77,34 @@ impl HostShell {
             on_local: true,
             eula,
             notifications,
+            title: String::new(),
+            sidebar_width: cx
+                .try_global::<crate::prefs::Prefs>()
+                .and_then(|prefs| prefs.data.sidebar_width)
+                .unwrap_or(layout::SIDEBAR_DEFAULT)
+                .clamp(layout::SIDEBAR_MIN, layout::SIDEBAR_MAX),
+            sidebar_dragging: false,
             _subscriptions: subscriptions,
+        }
+    }
+
+    /// The sidebar's edge, dragged to `x` in a window `width` wide (window pixels).
+    fn drag_sidebar(&mut self, x: f32, width: f32, cx: &mut Context<Self>) {
+        let zoom = lodestone_ui::theme::zoom::get();
+        let (dragged, folded) = layout::sidebar_drag(x / zoom, width / zoom);
+        // the Host's sidebar doesn't fold into a rail
+        let dragged = if folded { layout::SIDEBAR_MIN } else { dragged };
+        if dragged != self.sidebar_width {
+            self.sidebar_width = dragged;
+            cx.notify();
+        }
+    }
+
+    /// The drag ended: keep the width for the next start.
+    fn end_sidebar_drag(&mut self, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.sidebar_dragging) {
+            let width = self.sidebar_width;
+            crate::prefs::Prefs::update(cx, |prefs| prefs.sidebar_width = Some(width));
         }
     }
 
@@ -171,25 +205,97 @@ impl HostShell {
         self.page.as_ref().map(|(_, view)| view.clone())
     }
 
-    /// The page's heading, as `InstanceTabs.tsx` and the settings show it.
-    fn heading(&self, cx: &Context<Self>) -> Option<String> {
+    /// The page's heading, as `InstanceTabs.tsx` and the settings show it: none on the
+    /// Overview (its heading is the server's name), and the server's state beside the
+    /// Console's.
+    fn heading(&self, cx: &Context<Self>) -> Option<(String, Option<InstanceState>)> {
         match &self.route {
             Route::Home => None,
             Route::Instance { uuid, tab } => {
+                if *tab == InstanceTab::Overview {
+                    return None;
+                }
                 let state = self.state.read(cx);
                 let instance = state.instance(uuid)?;
-                Some(sidebar::tab_name(*tab, instance).to_string())
+                let label = (*tab == InstanceTab::Console).then_some(instance.state);
+                Some((sidebar::tab_name(*tab, instance).to_string(), label))
             }
-            Route::Settings(page) => Some(
-                match page {
-                    SettingsPage::General => t(ShellMsg::SettingsGeneral),
-                    SettingsPage::Users => t(ShellMsg::SettingsUsers),
-                    SettingsPage::Profile => t(ShellMsg::SettingsProfile),
-                    SettingsPage::Updates => t(crate::i18n::CoreMsg::UpdatesTitle),
-                }
-                .to_string(),
-            ),
+            Route::Settings(page) => Some((settings_name(*page).to_string(), None)),
         }
+    }
+
+    /// The banner under the top bar while the core answers but its live updates
+    /// stopped (the dashboard's `TopBanner`), with Reload.
+    fn degraded_banner(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let state = self.state.clone();
+        div()
+            .flex()
+            .flex_none()
+            .flex_row()
+            .items_center()
+            .justify_center()
+            .gap(px(12.))
+            .px(px(16.))
+            .py(px(6.))
+            .bg(colors::YELLOW.opacity(15))
+            .border_b_1()
+            .border_color(colors::YELLOW.opacity(40))
+            .text_size(text::MEDIUM)
+            .text_color(ink::text())
+            .child(div().min_w_0().child(t(ShellMsg::DegradedBanner)))
+            .child(
+                lodestone_ui::components::Button::new("degraded-reload", t(ShellMsg::Reload))
+                    .size(lodestone_ui::components::ButtonSize::Slim)
+                    .variant(lodestone_ui::components::ButtonVariant::Secondary)
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        state.update(cx, |state, cx| state.reconnect(cx));
+                    })),
+            )
+    }
+
+    /// The window's title: the page, then the app (the dashboard's `pageTitle`).
+    fn title(&self, cx: &Context<Self>) -> String {
+        let page = match &self.route {
+            Route::Home => None,
+            Route::Instance { uuid, tab } => {
+                let state = self.state.read(cx);
+                state.instance(uuid).map(|instance| {
+                    if *tab == InstanceTab::Overview {
+                        instance.name.clone()
+                    } else {
+                        format!("{} – {}", sidebar::tab_name(*tab, instance), instance.name)
+                    }
+                })
+            }
+            Route::Settings(page) => Some(settings_name(*page).to_string()),
+        };
+        match page {
+            Some(page) => format!("{page} – {}", crate::APP_NAME),
+            None => crate::APP_NAME.to_string(),
+        }
+    }
+}
+
+fn settings_name(page: SettingsPage) -> &'static str {
+    match page {
+        SettingsPage::General => t(ShellMsg::SettingsGeneral),
+        SettingsPage::Users => t(ShellMsg::SettingsUsers),
+        SettingsPage::Profile => t(ShellMsg::SettingsProfile),
+        SettingsPage::Updates => t(crate::i18n::CoreMsg::UpdatesTitle),
+    }
+}
+
+/// How wide a page's content may grow, as the dashboard's tabs (`max-w-4xl`, and
+/// `max-w-6xl` for the console and the files) and its settings.
+pub fn page_max_width(route: &Route) -> Option<gpui::Pixels> {
+    match route {
+        Route::Home => None,
+        Route::Instance {
+            tab: InstanceTab::Console | InstanceTab::Files,
+            ..
+        } => Some(gpui::px(1152.)),
+        Route::Instance { .. } => Some(gpui::px(896.)),
+        Route::Settings(_) => None,
     }
 }
 
@@ -226,12 +332,93 @@ impl Render for HostShell {
         };
         let error = self.state.read(cx).error.clone();
         let toasts = self.state.read(cx).toasts.clone();
+        let title = self.title(cx);
+        if self.title != title {
+            window.set_window_title(&title);
+            self.title = title;
+        }
+        let degraded = matches!(
+            self.state.read(cx).connection,
+            crate::state::Connection::Degraded(_)
+        );
+        let max_width = page_max_width(&self.route);
+        let content = div()
+            .flex_1()
+            .w_full()
+            .when_some(max_width, |this, width| this.max_w(width))
+            .mx_auto()
+            .flex()
+            .flex_col()
+            .gap(px(16.))
+            .when_some(error, |this, error| {
+                this.child(
+                    div()
+                        .px(px(12.))
+                        .py(px(8.))
+                        .rounded(lodestone_ui::theme::radius::MD)
+                        .bg(colors::RED_FADED.opacity(25))
+                        .text_size(text::MEDIUM)
+                        .text_color(colors::RED_200)
+                        .child(error),
+                )
+            })
+            .when_some(heading, |this, (heading, state)| {
+                this.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_wrap()
+                        .items_center()
+                        .gap(px(12.))
+                        .child(
+                            div()
+                                .font_family(fonts::heading())
+                                .text_size(text::XLARGE_2)
+                                .font_weight(weights::BOLD.face())
+                                .text_color(ink::text())
+                                .child(heading),
+                        )
+                        .when_some(state, |this, state| {
+                            let color = sidebar::state_color(state);
+                            this.child(
+                                div()
+                                    .px(px(8.))
+                                    .py(px(2.))
+                                    .rounded(lodestone_ui::theme::radius::MD)
+                                    .bg(color.opacity(15))
+                                    .text_size(text::MEDIUM)
+                                    .font_weight(weights::MEDIUMBOLD.face())
+                                    .text_color(color)
+                                    .child(sidebar::state_name(state)),
+                            )
+                        }),
+                )
+            })
+            .children(settings_tabs)
+            .child(div().flex_1().min_h_0().child(page));
         div()
             .relative()
             .size_full()
             .flex()
             .flex_col()
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                    if !this.sidebar_dragging {
+                        return;
+                    }
+                    if event.pressed_button != Some(gpui::MouseButton::Left) {
+                        return this.end_sidebar_drag(cx);
+                    }
+                    let width = f32::from(window.viewport_size().width);
+                    this.drag_sidebar(f32::from(event.position.x), width, cx);
+                }),
+            )
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.end_sidebar_drag(cx)),
+            )
             .child(top_bar::render(self.notifications.clone(), window, cx))
+            .when(degraded, |this| this.child(self.degraded_banner(cx)))
             .child(
                 div()
                     .flex_1()
@@ -239,6 +426,24 @@ impl Render for HostShell {
                     .flex()
                     .flex_row()
                     .child(sidebar::render(self, cx))
+                    // the sidebar's edge, to drag
+                    .child(
+                        div()
+                            .id("sidebar-edge")
+                            .flex_none()
+                            .w(gpui::px(4.))
+                            .ml(gpui::px(-4.))
+                            .h_full()
+                            .cursor_col_resize()
+                            .hover(|style| style.bg(colors::GRAY_700))
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(|this, _, _, cx| {
+                                    this.sidebar_dragging = true;
+                                    cx.stop_propagation();
+                                }),
+                            ),
+                    )
                     .child(
                         div()
                             .id("main")
@@ -250,32 +455,8 @@ impl Render for HostShell {
                             .flex_col()
                             .px(px(40.))
                             .py(px(32.))
-                            .gap(px(16.))
                             .bg(colors::GRAY_800)
-                            .when_some(error, |this, error| {
-                                this.child(
-                                    div()
-                                        .px(px(12.))
-                                        .py(px(8.))
-                                        .rounded(lodestone_ui::theme::radius::MD)
-                                        .bg(colors::RED_FADED.opacity(25))
-                                        .text_size(text::MEDIUM)
-                                        .text_color(colors::RED_200)
-                                        .child(error),
-                                )
-                            })
-                            .when_some(heading, |this, heading| {
-                                this.child(
-                                    div()
-                                        .font_family(fonts::heading())
-                                        .text_size(text::XLARGE_2)
-                                        .font_weight(weights::BOLD.face())
-                                        .text_color(ink::text())
-                                        .child(heading),
-                                )
-                            })
-                            .children(settings_tabs)
-                            .child(div().flex_1().min_h_0().child(page)),
+                            .child(content),
                     ),
             )
             .when_some(self.create.clone(), |this, dialog| this.child(dialog))

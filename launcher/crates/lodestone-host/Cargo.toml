@@ -23,6 +23,8 @@ screenshot = ["gpui_platform/test-support", "lodestone-ui/screenshot"]
 
 [dependencies]
 anyhow.workspace = true
+# Reads the sign-in token's expiry (`session::token_expiry`).
+base64.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 futures.workspace = true

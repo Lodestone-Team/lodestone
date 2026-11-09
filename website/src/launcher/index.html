@@ -93,8 +93,12 @@
         <p class="meta">
           <span data-download-note>Windows 10 and 11</span>
           <span aria-hidden="true">·</span>
+          <!-- Launcher releases only. GitHub's release search matches words in a
+               release's title and notes, not the start of a tag, so ?q=launcher-v
+               finds nothing, while every launcher release's notes name this file.
+               Keep in step with RELEASE_PAGE in main.js. -->
           <a
-            href="https://github.com/Lodestone-Team/lodestone/releases?q=launcher-v&amp;expanded=true"
+            href="https://github.com/Lodestone-Team/lodestone/releases?q=LodestoneLauncherSetup.exe&amp;expanded=true"
             target="_blank"
             rel="noopener"
             >All downloads</a
