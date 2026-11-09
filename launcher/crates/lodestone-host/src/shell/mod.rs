@@ -50,6 +50,8 @@ pub struct HostShell {
     /// dashboard's `leftNavSize`), and whether a drag is going on.
     pub sidebar_width: f32,
     sidebar_dragging: bool,
+    /// The top bar was pressed: the next mouse move drags the window.
+    pub top_bar_drag_pending: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -93,6 +95,7 @@ impl HostShell {
                 .unwrap_or(layout::SIDEBAR_DEFAULT)
                 .clamp(layout::SIDEBAR_MIN, layout::SIDEBAR_MAX),
             sidebar_dragging: false,
+            top_bar_drag_pending: false,
             _subscriptions: subscriptions,
         }
     }
@@ -459,5 +462,15 @@ impl Render for HostShell {
             .child(self.eula.clone())
             .child(toasts)
             .min_w(layout::sidebar_width())
+    }
+}
+
+/// Lodestone's logo (the dashboard's `Logo`), not the launcher's: a dark wordmark on
+/// the light theme.
+pub fn logo() -> &'static str {
+    if lodestone_ui::theme::palette::is_light() {
+        "images/logo_light.svg"
+    } else {
+        "images/host_logo.svg"
     }
 }

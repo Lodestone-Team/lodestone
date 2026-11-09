@@ -36,6 +36,7 @@ static FILES: &[(&str, &[u8])] = embed!(
     "images/file-icons/yaml.svg",
     "images/file-icons/zip.svg",
     "images/logo.svg",
+    "images/host_logo.svg",
     "images/logo_light.svg",
     "images/instance-icons/amethyst.png",
     "images/instance-icons/apple.png",
