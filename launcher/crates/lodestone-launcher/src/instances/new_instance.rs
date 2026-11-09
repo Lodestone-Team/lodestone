@@ -11,6 +11,10 @@ use gpui::{
 };
 use lodestone_minecraft::versions::mojang::{MojangVersion, MojangVersionType};
 
+use launcher_core::content::{
+    ContentKind,
+    share::{ShareCode, ShareError},
+};
 use launcher_core::game::loaders::LoaderKind;
 
 use super::{Instances, Versions, loader_picker::LoaderPicker, modpack_browser::ModpackBrowser};
@@ -21,7 +25,7 @@ use crate::{
         motion::Animated,
         settings::{popover, popover_panel, select_button},
     },
-    i18n::{CommonMsg, InstanceSettingsMsg as M, format, t, tr},
+    i18n::{CommonMsg, ContentMsg, InstanceSettingsMsg as M, format, t, tr},
     theme::{self, Color, colors, leading, radius, text, weights},
 };
 
@@ -77,6 +81,8 @@ pub enum Mode {
     Version,
     /// A Modrinth modpack.
     Modpack,
+    /// A share code from another Lodestone Launcher.
+    Code,
 }
 
 pub struct NewInstanceDialog {
@@ -86,6 +92,9 @@ pub struct NewInstanceDialog {
     instances: Entity<Instances>,
     name: Entity<TextInput>,
     search: Entity<TextInput>,
+    /// The pasted share code, and what it decoded to the last time it changed.
+    code: Entity<TextInput>,
+    decoded: Option<(String, Result<ShareCode, ShareError>)>,
     filter: VersionFilter,
     selected: Option<String>,
     loader: Entity<LoaderPicker>,
@@ -111,6 +120,7 @@ impl NewInstanceDialog {
         instances.update(cx, |instances, cx| instances.load_versions(cx));
         let name = cx.new(|cx| TextInput::new(cx).with_placeholder(M::MyInstance));
         let search = cx.new(|cx| TextInput::new(cx).with_placeholder(M::SearchVersions));
+        let code = cx.new(|cx| TextInput::new(cx).with_placeholder(M::PasteShareCode));
         let observe = vec![
             cx.observe(&instances, |this, _, cx| {
                 this.pick_default(cx);
@@ -118,6 +128,7 @@ impl NewInstanceDialog {
             }),
             cx.observe(&search, |_, _, cx| cx.notify()),
             cx.observe(&name, |_, _, cx| cx.notify()),
+            cx.observe(&code, |_, _, cx| cx.notify()),
         ];
         let modpacks = {
             let instances = instances.clone();
@@ -137,6 +148,8 @@ impl NewInstanceDialog {
             instances,
             name,
             search,
+            code,
+            decoded: None,
             filter: VersionFilter::default(),
             selected: None,
             loader,
@@ -204,6 +217,72 @@ impl NewInstanceDialog {
         self.mode = mode;
         self.error = None;
         cx.notify();
+    }
+
+    /// Pastes a share code, for the offscreen screenshots.
+    pub fn with_code(self, code: &str, cx: &mut Context<Self>) -> Self {
+        self.code
+            .update(cx, |input, cx| input.set_text(code.to_string(), cx));
+        self
+    }
+
+    /// The pasted code, decoded. Decodes again only when the text changed.
+    fn decoded(&mut self, cx: &App) -> Option<&Result<ShareCode, ShareError>> {
+        let text = self.code.read(cx).text().trim().to_string();
+        if text.is_empty() {
+            self.decoded = None;
+            return None;
+        }
+        if self.decoded.as_ref().is_none_or(|(old, _)| *old != text) {
+            let result = ShareCode::decode(&text);
+            self.decoded = Some((text, result));
+        }
+        self.decoded.as_ref().map(|(_, result)| result)
+    }
+
+    /// Makes the instance the pasted code describes and starts installing its content.
+    fn import_code(&mut self, cx: &mut Context<Self>) {
+        let Some(Ok(code)) = self.decoded(cx).cloned() else {
+            return;
+        };
+        let typed = self.name.read(cx).text().trim().to_string();
+        let name = (!typed.is_empty()).then_some(typed);
+        match self.instances.update(cx, |instances, cx| {
+            instances.import_share_code(code, name, cx)
+        }) {
+            Ok(_) => cx.emit(NewInstanceDismissed),
+            Err(err) => {
+                self.error = Some(err.into());
+                cx.notify();
+            }
+        }
+    }
+
+    /// Name, the code field, and what the code makes.
+    fn code_form(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let preview = match self.decoded(cx) {
+            None => None,
+            Some(Err(err)) => Some(
+                div()
+                    .text_size(theme::text_size(text::SMALL))
+                    .text_color(colors::RED_200)
+                    .child(t(match err {
+                        ShareError::NotACode => M::CodeNotACode,
+                        ShareError::NewerFormat => M::CodeNewer,
+                        ShareError::TooLarge => M::CodeTooLarge,
+                        ShareError::Damaged(_) => M::CodeDamaged,
+                    }))
+                    .into_any_element(),
+            ),
+            Some(Ok(code)) => Some(code_preview(code).into_any_element()),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap_4()
+            .child(form_row(t(M::Name), self.name.clone()))
+            .child(form_row(t(M::ShareCodeMode), self.code.clone()))
+            .children(preview)
     }
 
     /// The modpack browser, for the offscreen screenshots.
@@ -453,6 +532,54 @@ fn version_row(index: usize, version: &MojangVersion, selected: bool) -> gpui::S
 }
 
 /// A row of the form: its name in a column on the left, then the control.
+/// What a share code makes: its name, Minecraft and loader, and how much of each kind.
+fn code_preview(code: &ShareCode) -> impl IntoElement {
+    let game = match (code.loader.kind(), &code.loader_version) {
+        (Some(kind), Some(version)) => {
+            format!("Minecraft {} · {} {version}", code.game_version, kind.label())
+        }
+        (Some(kind), None) => format!("Minecraft {} · {}", code.game_version, kind.label()),
+        (None, _) => format!("Minecraft {}", code.game_version),
+    };
+    let counts = [
+        (ContentMsg::KindMods, ContentKind::Mod),
+        (ContentMsg::KindResourcePacks, ContentKind::ResourcePack),
+        (ContentMsg::KindShaders, ContentKind::ShaderPack),
+    ]
+    .into_iter()
+    .map(|(label, kind)| format!("{} {}", format::number(code.count(kind) as u64), t(label)))
+    .collect::<Vec<_>>()
+    .join(" · ");
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .px_4()
+        .py_3()
+        .rounded(radius::LG)
+        .border_1()
+        .border_color(colors::FADE_700)
+        .bg(colors::GRAY_800)
+        .child(
+            div()
+                .font_weight(weights::BOLD.into())
+                .text_color(colors::GRAY_300)
+                .child(code.name.clone().unwrap_or_else(|| game.clone())),
+        )
+        .child(
+            div()
+                .text_size(theme::text_size(text::SMALL))
+                .text_color(colors::GRAY_400)
+                .child(game),
+        )
+        .child(
+            div()
+                .text_size(theme::text_size(text::SMALL))
+                .text_color(colors::GRAY_500)
+                .child(counts),
+        )
+}
+
 fn form_row(name: impl Into<SharedString>, control: impl IntoElement) -> impl IntoElement {
     div()
         .flex()
@@ -604,18 +731,23 @@ impl Render for NewInstanceDialog {
             .update(cx, |input, cx| input.set_placeholder(default_name, cx));
         let switch = crate::instances::content::view::pills(
             "new-instance-mode",
-            vec![t(M::MinecraftVersion).into(), t(M::Modpack).into()],
+            vec![
+                t(M::MinecraftVersion).into(),
+                t(M::Modpack).into(),
+                t(M::ShareCodeMode).into(),
+            ],
             match mode {
                 Mode::Version => 0,
                 Mode::Modpack => 1,
+                Mode::Code => 2,
             },
             {
                 let entity = entity.clone();
                 move |index, _, cx| {
-                    let mode = if index == 0 {
-                        Mode::Version
-                    } else {
-                        Mode::Modpack
+                    let mode = match index {
+                        0 => Mode::Version,
+                        1 => Mode::Modpack,
+                        _ => Mode::Code,
                     };
                     entity.update(cx, |this, cx| this.set_mode(mode, cx));
                 }
@@ -631,7 +763,9 @@ impl Render for NewInstanceDialog {
                 .child(self.modpacks.clone())
                 .into_any_element(),
             Mode::Version => self.version_form(cx).into_any_element(),
+            Mode::Code => self.code_form(cx).into_any_element(),
         };
+        let code_ok = matches!(self.decoded, Some((_, Ok(_))));
         Dialog::new("new-instance", t(M::NewInstance), self.focus.clone())
             .width(px(820.))
             .on_close({
@@ -683,6 +817,12 @@ impl Render for NewInstanceDialog {
                         .disabled(!modpack_selected)
                         .on_click(cx.listener(|this, _, _, cx| this.install_modpack(cx))),
                 ),
+                Mode::Code => dialog.footer(
+                    Button::new("import-share-code", t(M::CreateInstance))
+                        .variant(ButtonVariant::Primary)
+                        .disabled(!code_ok)
+                        .on_click(cx.listener(|this, _, _, cx| this.import_code(cx))),
+                ),
             })
     }
 }
@@ -700,6 +840,15 @@ impl NewInstanceDialog {
                 (Some(version), Some(kind)) => format!("{version} {}", kind.label()),
                 (Some(version), None) => version.clone(),
                 (None, _) => t(M::MyInstance).to_string(),
+            },
+            Mode::Code => match &self.decoded {
+                Some((_, Ok(code))) => code.name.clone().unwrap_or_else(|| {
+                    match code.loader.kind() {
+                        Some(kind) => format!("{} {}", code.game_version, kind.label()),
+                        None => code.game_version.clone(),
+                    }
+                }),
+                _ => t(M::MyInstance).to_string(),
             },
         }
     }

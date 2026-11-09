@@ -42,7 +42,7 @@ pub const MAX_ITEMS: usize = 5000;
 const MAX_NAME_CHARS: usize = 100;
 
 /// Why a code can't be read.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ShareError {
     #[error("That isn't a Lodestone share code.")]
     NotACode,
