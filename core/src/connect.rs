@@ -50,7 +50,10 @@ use crate::{
         util::get_instance,
     },
     public_listing::{PublicInstance, PublicInstanceList, PublicScope},
-    traits::t_configurable::{Game, TConfigurable},
+    traits::{
+        t_configurable::{Game, TConfigurable},
+        t_server::{State as ServerState, TServer},
+    },
     types::InstanceUuid,
     AppState,
 };
@@ -422,6 +425,22 @@ impl ConnectShares {
         }
     }
 
+    /// Stops sharing every instance as the core shuts down, keeping the links: sharing
+    /// resumes at the next start. Closing the connections tells connected friends at
+    /// once, instead of after their connection times out.
+    pub async fn stop_all(&self) {
+        let slots: Vec<_> = self.slots.lock().await.drain().collect();
+        for (uuid, slot) in slots {
+            if let Slot::Running { host, tasks } = slot {
+                for task in tasks {
+                    task.abort();
+                }
+                (*host).stop(false).await;
+                info!("Stopped sharing {uuid} with friends (shutting down)");
+            }
+        }
+    }
+
     /// Resumes sharing the instances that were shared when the core last stopped,
     /// retrying in the background while this computer is offline. Saved identities of
     /// instances that no longer exist are deleted.
@@ -477,6 +496,9 @@ impl StreamHandler for CoreStreams {
             let Ok(instance) = get_instance(&state, &uuid) else {
                 return;
             };
+            if !game_port_open(instance.state().await) {
+                return;
+            }
             let Ok(port) = u16::try_from(instance.port().await) else {
                 return;
             };
@@ -489,6 +511,19 @@ impl StreamHandler for CoreStreams {
         // dropped (closed) when too many are waiting
         let _ = self.info.try_send(stream);
     }
+}
+
+/// Lets debug builds pass game streams to a stopped instance's port, so the tunnel can
+/// be tested against a plain TCP listener without starting a Minecraft server.
+pub const ANY_STATE_ENV: &str = "LODESTONE_CONNECT_ANY_STATE";
+
+/// Whether friends' game streams reach the instance's game port. Only while the server
+/// runs: then the port is the Minecraft server's. A stopped instance's port could be
+/// set to another service on this computer (SSH, the core itself), which a link must
+/// never reach.
+fn game_port_open(state: ServerState) -> bool {
+    state == ServerState::Running
+        || (cfg!(debug_assertions) && std::env::var_os(ANY_STATE_ENV).is_some())
 }
 
 /// Info streams, as connections for axum.
