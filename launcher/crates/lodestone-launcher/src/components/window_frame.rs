@@ -52,6 +52,26 @@ pub fn client_tiling(window: &Window) -> Option<Tiling> {
     }
 }
 
+/// The room the window's content has: the viewport, less the frame's shadow band and
+/// outline on each untiled edge while the launcher draws its own frame. Use it, not
+/// `window.viewport_size()`, to size or lay out anything by the window's size.
+pub fn content_size(window: &Window) -> Size<Pixels> {
+    let viewport = window.viewport_size();
+    match client_tiling(window) {
+        Some(tiling) => inside_frame(viewport, tiling),
+        None => viewport,
+    }
+}
+
+/// `viewport` less what [`frame`] puts around the content for `tiling`.
+fn inside_frame(viewport: Size<Pixels>, tiling: Tiling) -> Size<Pixels> {
+    let edge = |tiled: bool| if tiled { Pixels::ZERO } else { SHADOW + BORDER };
+    size(
+        (viewport.width - edge(tiling.left) - edge(tiling.right)).max(Pixels::ZERO),
+        (viewport.height - edge(tiling.top) - edge(tiling.bottom)).max(Pixels::ZERO),
+    )
+}
+
 /// Rounds `element`'s top corners to sit inside the frame's, for the window's content
 /// and anything drawn over all of it (a dialog's backdrop). Without the app's own
 /// frame it is unchanged.
@@ -139,6 +159,10 @@ pub fn frame(content: impl IntoElement, window: &mut Window) -> Stateful<Div> {
                 .size_full()
                 .when_some(tiling, |this, tiling| {
                     round_top(this, tiling, ROUNDING)
+                        // Keeps the content out of the shadow band: a closing dialog
+                        // rises, backdrop and all, and would otherwise draw above the
+                        // window's top edge.
+                        .overflow_hidden()
                         .cursor(CursorStyle::Arrow)
                         .border_color(colors::GRAY_FADED.opacity(30))
                         .when(!tiling.top, |this| this.border_t(BORDER))
@@ -454,6 +478,23 @@ mod tests {
         assert_eq!(
             resize_edge(at(796., 596.), WINDOW, free),
             Some(ResizeEdge::BottomRight)
+        );
+    }
+
+    #[test]
+    fn the_content_is_inside_the_band_and_the_outline() {
+        assert_eq!(
+            inside_frame(WINDOW, Tiling::default()),
+            size(gpui::px(778.), gpui::px(578.))
+        );
+        assert_eq!(inside_frame(WINDOW, Tiling::tiled()), WINDOW);
+        let left = Tiling {
+            left: true,
+            ..Tiling::default()
+        };
+        assert_eq!(
+            inside_frame(WINDOW, left),
+            size(gpui::px(789.), gpui::px(578.))
         );
     }
 
