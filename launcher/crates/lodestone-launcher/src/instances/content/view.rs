@@ -1904,7 +1904,7 @@ impl ContentView {
                             }),
                     )
                     .child(
-                        small(hit.description.clone())
+                        small_rich(RichText::minecraft(hit.description.clone()))
                             .truncate()
                             .text_color(crate::theme::ink::secondary()),
                     ),
@@ -2011,7 +2011,9 @@ impl ContentView {
                                     div()
                                         .text_color(crate::theme::ink::secondary())
                                         .whitespace_normal()
-                                        .child(project.description.clone()),
+                                        .child(RichText::minecraft(
+                                            project.description.clone(),
+                                        )),
                                 )
                                 .child(
                                     div()

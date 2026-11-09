@@ -10,6 +10,7 @@ use std::{path::PathBuf, rc::Rc, sync::Arc, time::Duration};
 use gpui::{App, AppContext as _, AsyncApp};
 use launcher_control::{ErrorObject, codes};
 use launcher_core::{
+    mc_text,
     content::{
         ContentKind, InstanceDirs, Modrinth, Target, files,
         install::{self, InstallOutcome, InstallProgress, InstallRequest},
@@ -140,10 +141,17 @@ fn refresh_view(control: &Control, instance: &str, kinds: &[ContentKind], cx: &m
     }
 }
 
+/// An installed file. Names and descriptions keep Minecraft's `§` formatting codes;
+/// the `_plain` fields are the same without them.
 fn item_json(item: &Item) -> Value {
+    let name = item.display_name();
     json!({
         "file": item.file.file_name,
-        "name": item.display_name(),
+        "file_plain": mc_text::strip(&item.file.file_name),
+        "name_plain": mc_text::strip(&name),
+        "name": name,
+        "description": item.file.meta.description,
+        "description_plain": item.file.meta.description.as_deref().map(mc_text::strip),
         "version": item.display_version(),
         "enabled": item.enabled,
         "folder": item.file.is_dir,
@@ -192,6 +200,8 @@ pub fn list(call: Call, cx: &mut App) -> Reply {
                 shaders = json!({
                     "loader": listing.shaders.loader.map(|l| l.label()),
                     "selected": listing.shaders.selection.pack.clone(),
+                    // Without Minecraft's `§` formatting codes, for display.
+                    "selected_plain": listing.shaders.selection.pack.as_deref().map(mc_text::strip),
                 });
             }
             out.insert(
