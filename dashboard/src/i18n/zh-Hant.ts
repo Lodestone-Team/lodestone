@@ -1086,6 +1086,12 @@ export const zhHant: Messages = {
 
   // FileList: the list of files and folders
   'files.list.loading': '正在載入檔案列表',
+  'files.list.name': '名稱',
+  'files.list.dateModified': '修改日期',
+  'files.list.size': '大小',
+  'files.list.sortBy': '依{field}排序',
+  'files.list.sortedAscending': '依{field}遞增排序',
+  'files.list.sortedDescending': '依{field}遞減排序',
   'files.list.empty': '這裡沒有檔案…',
   'files.list.unknownTime': '建立時間未知',
   'files.list.folderIcon': '資料夾圖示',

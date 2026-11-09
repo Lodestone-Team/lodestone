@@ -1080,6 +1080,12 @@ export const zhHans: Messages = {
 
   // FileList: the list of files and folders
   'files.list.loading': '正在加载文件列表',
+  'files.list.name': '名称',
+  'files.list.dateModified': '修改日期',
+  'files.list.size': '大小',
+  'files.list.sortBy': '按{field}排序',
+  'files.list.sortedAscending': '按{field}升序排列',
+  'files.list.sortedDescending': '按{field}降序排列',
   'files.list.empty': '这里没有文件…',
   'files.list.unknownTime': '创建时间未知',
   'files.list.folderIcon': '文件夹图标',

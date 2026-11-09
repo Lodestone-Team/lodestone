@@ -1244,6 +1244,12 @@ export const fr: Messages = {
 
   // FileList: the list of files and folders
   'files.list.loading': 'Chargement des fichiers',
+  'files.list.name': 'Nom',
+  'files.list.dateModified': 'Date de modification',
+  'files.list.size': 'Taille',
+  'files.list.sortBy': 'Trier par : {field}',
+  'files.list.sortedAscending': 'Trié par {field}, ordre croissant',
+  'files.list.sortedDescending': 'Trié par {field}, ordre décroissant',
   'files.list.empty': 'Aucun fichier ici…',
   'files.list.unknownTime': 'Date de création inconnue',
   'files.list.folderIcon': 'icône de dossier',

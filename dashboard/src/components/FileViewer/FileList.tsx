@@ -9,7 +9,13 @@ import clsx from 'clsx';
 import Checkbox from 'components/Atoms/Checkbox';
 import { formatBytes, formatTimeAgo } from 'utils/util';
 import FileContextMenu from './FileContextMenu';
-import React, { RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  RefObject,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useOnClickOutside } from 'usehooks-ts';
 import { useFileViewer } from './FileViewerContext';
 import { SkeletonGroup, SkeletonRows } from 'components/Atoms/Skeleton';
@@ -63,14 +69,22 @@ const iconMap: { [key: string]: string } = {
   mcfunction: '/icons/minecraft.svg',
 };
 
-const sortHeaders: { key: FileSortKey; label: string; layout: string }[] = [
-  { key: 'name', label: 'Name', layout: 'pl-[4.75rem] grow' },
+const sortHeaders: {
+  key: FileSortKey;
+  label: 'files.list.name' | 'files.list.dateModified' | 'files.list.size';
+  layout: string;
+}[] = [
+  { key: 'name', label: 'files.list.name', layout: 'pl-[4.75rem] grow' },
   {
     key: 'date_modified',
-    label: 'Date modified',
-    layout: 'min-w-[8ch] justify-end pr-8',
+    label: 'files.list.dateModified',
+    layout: 'min-w-[8ch] justify-end',
   },
-  { key: 'size', label: 'Size', layout: 'min-w-[8ch] justify-end pr-4' },
+  {
+    key: 'size',
+    label: 'files.list.size',
+    layout: 'min-w-[8ch] justify-end pr-4',
+  },
 ];
 
 export default function FileList({
@@ -291,14 +305,19 @@ export default function FileList({
                     active && 'text-gray-300',
                     layout
                   )}
-                  title={
+                  aria-label={
                     active
-                      ? `Sorted by ${label.toLowerCase()}, ${sort.direction === 'asc' ? 'ascending' : 'descending'}`
-                      : `Sort by ${label.toLowerCase()}`
+                      ? t(
+                          sort.direction === 'asc'
+                            ? 'files.list.sortedAscending'
+                            : 'files.list.sortedDescending',
+                          { field: t(label) }
+                        )
+                      : t('files.list.sortBy', { field: t(label) })
                   }
                   onClick={() => setSort(nextSort(sort, key))}
                 >
-                  {label}
+                  {t(label)}
                   {active && (
                     <FontAwesomeIcon
                       icon={sort.direction === 'asc' ? faCaretUp : faCaretDown}
@@ -349,7 +368,7 @@ export default function FileList({
               <div className="grow"></div>
 
               <p className="hidden min-w-[8ch] text-right text-gray-500 @xs:inline">
-                {file.modification_time || file.creation_time
+                {(file.modification_time ?? file.creation_time) != null
                   ? formatTimeAgo(
                       Number(file.modification_time ?? file.creation_time) *
                         1000
@@ -360,7 +379,7 @@ export default function FileList({
               <p className="hidden min-w-[8ch] text-right text-gray-500 @sm:inline">
                 {file.file_type === 'Directory'
                   ? ''
-                  : file.size
+                  : file.size != null
                     ? formatBytes(file.size, 1)
                     : ''}
               </p>
