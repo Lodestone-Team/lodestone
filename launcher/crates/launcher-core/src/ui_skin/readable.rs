@@ -468,6 +468,47 @@ fn below(surface: SurfaceId) -> Option<SurfaceId> {
     }
 }
 
+/// The dimmer drawn over the window behind a dialog, and how strong it is.
+pub const DIALOG_SCRIM: (Rgb, f32) = (Rgb(0x1D1E21), 0.6);
+
+/// What a surface with `material` shows behind its text: what is behind it (dimmed
+/// under a dialog), blurred and frosted as the material says, under its own fill at
+/// the material's opacity.
+fn material_backdrop(
+    spec: &SkinSpec,
+    surface: SurfaceId,
+    material: super::Material,
+    behind: SurfaceId,
+    measured: &dyn Fn(SurfaceId) -> Option<Backdrop>,
+) -> Backdrop {
+    let mut under = surface_backdrop(spec, behind, measured);
+    if surface == SurfaceId::Dialog {
+        under = under.under(DIALOG_SCRIM.0, DIALOG_SCRIM.1);
+    }
+    let blur = f32::from(material.blur());
+    if blur > 0.0 {
+        // a blur pulls the light and dark ends towards the average
+        let soften = blur / (blur + 8.0);
+        under = Backdrop {
+            mean: under.mean,
+            light: under.light.mix(under.mean, soften),
+            dark: under.dark.mix(under.mean, soften),
+        };
+    }
+    under = under.under(Rgb::WHITE, f32::from(material.frost()) / 100.0);
+    let fill = spec.surface(surface).and_then(|s| s.fill);
+    let alpha = f32::from(material.opacity(fill.as_ref())) / 100.0;
+    let own = match &fill {
+        Some(Fill::Solid { color, .. }) => Backdrop::solid(*color),
+        fill => backdrop_of(fill.as_ref(), surface.base(), measured(surface)),
+    };
+    Backdrop {
+        mean: under.mean.mix(own.mean, alpha),
+        light: under.light.mix(own.light, alpha),
+        dark: under.dark.mix(own.dark, alpha),
+    }
+}
+
 /// What `surface` shows behind its text: its fill over what is below it. `measured`
 /// gives an image fill's backdrop (before its tint), when known.
 pub fn surface_backdrop(
@@ -480,7 +521,11 @@ pub fn surface_backdrop(
             .map(|b| surface_backdrop(spec, b, measured))
             .unwrap_or(Backdrop::solid(surface.base()))
     };
-    match spec.surface(surface).and_then(|s| s.fill) {
+    let own = spec.surface(surface);
+    if let Some((material, behind)) = own.as_ref().and_then(|s| s.material).zip(surface.behind()) {
+        return material_backdrop(spec, surface, material, behind, measured);
+    }
+    match own.and_then(|s| s.fill) {
         // the page paints nothing of its own: the window shows
         None if surface == SurfaceId::Main => under(),
         None => Backdrop::solid(surface.base()),

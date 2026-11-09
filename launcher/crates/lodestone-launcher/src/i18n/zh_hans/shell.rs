@@ -485,6 +485,17 @@ pub fn text(message: M) -> &'static str {
         M::SkinTint => "色调",
         M::SkinTintStrength => "色调强度",
         M::SkinBlur => "模糊",
+        M::SkinMaterial => "材质",
+        M::SkinMaterialHint => {
+            "让面板后面的内容透出来：窗口背景、页面或对话框。模糊和磨砂会将其模糊显示。"
+        }
+        M::SkinMaterialTranslucent => "半透明",
+        M::SkinMaterialBlur => "模糊",
+        M::SkinMaterialFrost => "磨砂",
+        M::SkinMaterialOpacity => "填充显示",
+        M::SkinMaterialBlurAmount => "背景模糊",
+        M::SkinMaterialFrostVeil => "磨砂层",
+        M::SkinMaterialGrain => "颗粒",
         M::SkinBanner => "实例横幅",
         M::SkinBannerInSidebar => "显示在侧边栏条目后面",
         M::SkinHero => "“开始游戏”横幅",
