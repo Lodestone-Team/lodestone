@@ -28,7 +28,8 @@ use crate::{implementations::minecraft, traits::t_server::State as InstanceState
 use super::global_fs::canonicalize_global_read;
 use super::instance_setup_configs::HandlerGameType;
 use super::util::{
-    all_instances, get_instance, require_code_execution, require_owner_if_atom, AuthedUser,
+    all_instances, check_code_write, get_instance, require_code_execution, require_owner_if_atom,
+    AuthedUser,
 };
 
 /// The longest instance name, in characters, that is used in the folder name.
@@ -139,13 +140,7 @@ pub async fn create_minecraft_instance(
 
     let mut setup_config =
         MinecraftInstance::construct_setup_config(manifest_value, flavour).await?;
-    if let Some(source) = setup_config.existing_server_path.take() {
-        authorize_server_import(&requester, state.safe_mode(), &state.code_execution)?;
-        // symbolic links in the path are resolved, and Lodestone's own data is refused
-        let source = canonicalize_global_read(&source, true).await?;
-        minecraft::import::validate_source(source.clone()).await?;
-        setup_config.existing_server_path = Some(source);
-    }
+    prepare_server_import(&state, &requester, &mut setup_config).await?;
     // Extra command line arguments can make Java run any code, so they need the same
     // permission as changing them later (see `instance_config::set_instance_setting`).
     // Creation does not accept a custom `java_cmd`.
@@ -164,7 +159,29 @@ pub async fn create_minecraft_instance(
     Ok(Json(uuid))
 }
 
-/// Checks that `user` may import a server folder from the host's file system.
+/// Checks a requested server import before anything is created: that the requester may
+/// import (see [`authorize_server_import`]), and that the path, with symbolic links
+/// resolved, is a server folder or zip that is safe to import and is not Lodestone's own
+/// data or a folder holding it (such as the data folder). Sets whether the import may
+/// bring script files: like the file APIs, only the owner adds them.
+async fn prepare_server_import(
+    state: &AppState,
+    requester: &User,
+    setup_config: &mut SetupConfig,
+) -> Result<(), Error> {
+    let Some(source) = setup_config.existing_server_path.take() else {
+        return Ok(());
+    };
+    authorize_server_import(requester, state.safe_mode(), &state.code_execution)?;
+    let source = canonicalize_global_read(&source, true).await?;
+    let import_scripts = check_code_write(requester.is_owner, &state.code_execution).is_ok();
+    minecraft::import::validate_source(source.clone(), import_scripts).await?;
+    setup_config.existing_server_path = Some(source);
+    setup_config.import_scripts = import_scripts;
+    Ok(())
+}
+
+/// Checks that `user` may import a server folder or zip from the host's file system.
 ///
 /// Importing reads an arbitrary host path, so it needs the same permission as the global
 /// file API (`ReadGlobalFile`). The folder's jar and plugins are code that Lodestone then
@@ -483,6 +500,131 @@ mod tests {
         let owner = user_with(true, UserPermission::default());
         assert!(authorize_server_import(&owner, true, &on).is_ok());
         assert!(authorize_server_import(&owner, false, &off).is_err());
+    }
+
+    fn import_config(path: PathBuf) -> SetupConfig {
+        SetupConfig {
+            name: "Imported".to_string(),
+            version: "1.21.1".to_string(),
+            flavour: minecraft::Flavour::Vanilla,
+            port: 25565,
+            existing_server_path: Some(path),
+            // always worked out again
+            import_scripts: true,
+            cmd_args: Vec::new(),
+            description: None,
+            min_ram: None,
+            max_ram: None,
+            auto_start: None,
+            restart_on_crash: None,
+            backup_period: None,
+            modpack: None,
+            accept_eula: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_server_import_is_checked_before_anything_is_created() {
+        static LODESTONE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+        let data = LODESTONE_DIR.get_or_init(|| tempfile::tempdir().unwrap());
+        crate::prelude::try_init_paths(data.path().to_owned()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let settings = |code_execution_enabled| crate::global_settings::GlobalSettingsData {
+            code_execution_enabled,
+            safe_mode: false,
+            ..Default::default()
+        };
+        let state = crate::test_util::test_app_state(dir.path(), settings(true)).await;
+        let server = dir.path().join("server");
+        std::fs::create_dir_all(server.join("plugins")).unwrap();
+        std::fs::write(server.join("server.jar"), b"jar").unwrap();
+        std::fs::write(server.join("plugins/map.js"), "x").unwrap();
+
+        let owner = user_with(true, UserPermission::default());
+        let member = user_with(
+            false,
+            UserPermission {
+                can_create_instance: true,
+                can_read_global_file: true,
+                can_write_global_file: true,
+                ..Default::default()
+            },
+        );
+        let creator = user_with(
+            false,
+            UserPermission {
+                can_create_instance: true,
+                ..Default::default()
+            },
+        );
+        let denied = |r: Result<(), Error>| {
+            matches!(
+                r,
+                Err(Error {
+                    kind: ErrorKind::PermissionDenied,
+                    ..
+                })
+            )
+        };
+
+        // creating instances is not enough
+        let mut config = import_config(server.clone());
+        assert!(denied(
+            prepare_server_import(&state, &creator, &mut config).await
+        ));
+        // only the owner imports script files
+        let mut config = import_config(server.clone());
+        assert!(denied(
+            prepare_server_import(&state, &member, &mut config).await
+        ));
+        let mut config = import_config(server.clone());
+        prepare_server_import(&state, &owner, &mut config)
+            .await
+            .unwrap();
+        assert!(config.import_scripts);
+        assert_eq!(
+            config.existing_server_path,
+            Some(std::fs::canonicalize(&server).unwrap())
+        );
+        std::fs::remove_file(server.join("plugins/map.js")).unwrap();
+        let mut config = import_config(server.clone());
+        prepare_server_import(&state, &member, &mut config)
+            .await
+            .unwrap();
+        assert!(!config.import_scripts);
+
+        // Lodestone's data folder, or anything holding or in its secrets, even for the owner
+        let lodestone = crate::prelude::lodestone_path().clone();
+        std::fs::write(lodestone.join("server.jar"), b"jar").unwrap();
+        for path in [
+            lodestone.clone(),
+            lodestone.join("stores"),
+            lodestone.parent().unwrap().to_path_buf(),
+        ] {
+            let mut config = import_config(path.clone());
+            assert!(
+                denied(prepare_server_import(&state, &owner, &mut config).await),
+                "{} was accepted",
+                path.display()
+            );
+        }
+
+        // nothing to import
+        let mut config = import_config(server.clone());
+        config.existing_server_path = None;
+        prepare_server_import(&state, &creator, &mut config)
+            .await
+            .unwrap();
+
+        // with code execution off, nobody imports
+        std::fs::create_dir_all(dir.path().join("off")).unwrap();
+        let off = crate::test_util::test_app_state(&dir.path().join("off"), settings(false)).await;
+        for user in [&owner, &member] {
+            let mut config = import_config(server.clone());
+            assert!(prepare_server_import(&off, user, &mut config)
+                .await
+                .is_err());
+        }
     }
 
     #[test]

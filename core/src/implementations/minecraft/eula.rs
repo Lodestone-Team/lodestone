@@ -103,6 +103,8 @@ mod tests {
             version: "1.21.1".to_string(),
             flavour: Flavour::Vanilla,
             port: 25565,
+            existing_server_path: None,
+            import_scripts: false,
             cmd_args: Vec::new(),
             description: None,
             min_ram: None,

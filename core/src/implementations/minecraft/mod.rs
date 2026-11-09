@@ -154,9 +154,15 @@ pub struct SetupConfig {
     pub version: String,
     pub flavour: Flavour,
     pub port: u32,
-    /// A server folder to import instead of downloading a server jar. The setup handler
-    /// checks that the requester may read it and that it is safe to import.
+    /// A server folder, or a `.zip` of one, to import instead of downloading a server jar.
+    /// The setup handler checks that the requester may read it and that it is safe to
+    /// import. Never read from or written to JSON, so only that handler can set it.
+    #[serde(skip)]
     pub existing_server_path: Option<PathBuf>,
+    /// Whether the import may bring script files: only when the owner imports, while code
+    /// execution is on.
+    #[serde(skip)]
+    pub import_scripts: bool,
     pub cmd_args: Vec<String>,
     pub description: Option<String>,
     pub min_ram: Option<u32>,
@@ -567,7 +573,7 @@ impl MinecraftInstance {
         let existing_server_path_setting = SettingManifest::new_optional_value(
             "existing_server_path".to_string(),
             "Existing Server Path".to_string(),
-            "Absolute path of an existing server folder (with a server.jar) to import instead of downloading a server. Its version must match the version above. Requires access to the host's files".to_string(),
+            "Absolute path of an existing server folder, or a .zip of one, with a server.jar to import instead of downloading a server. Its version must match the version above. Requires access to the host's files".to_string(),
             None,
             ConfigurableValueType::String { regex: None },
             None,
@@ -717,6 +723,7 @@ impl MinecraftInstance {
             version,
             port,
             existing_server_path,
+            import_scripts: false,
             min_ram: Some(min_ram),
             max_ram: Some(max_ram),
             cmd_args,
@@ -788,8 +795,10 @@ impl MinecraftInstance {
         let keep_eula = importing
             && !config.accept_eula
             && tokio::fs::try_exists(&path_to_eula).await.unwrap_or(false);
-        let keep_properties =
-            importing && tokio::fs::try_exists(&path_to_properties).await.unwrap_or(false);
+        let keep_properties = importing
+            && tokio::fs::try_exists(&path_to_properties)
+                .await
+                .unwrap_or(false);
         let write_eula = async {
             if keep_eula {
                 Ok(())
@@ -801,8 +810,11 @@ impl MinecraftInstance {
             if keep_properties {
                 Ok(())
             } else {
-                tokio::fs::write(&path_to_properties, format!("server-port={}\n", config.port))
-                    .await
+                tokio::fs::write(
+                    &path_to_properties,
+                    format!("server-port={}\n", config.port),
+                )
+                .await
             }
         };
         tokio::fs::create_dir_all(path_to_instance)
@@ -841,8 +853,8 @@ impl MinecraftInstance {
             "1/4: Creating directories",
             1.0,
         ));
-        if matches!(config.flavour, Flavour::Forge { .. }) && config.existing_server_path.is_some()
-        {
+        let importing = config.existing_server_path.is_some();
+        if importing && matches!(config.flavour, Flavour::Forge { .. }) {
             return Err(bad_request(
                 "Importing an existing server is not supported for Forge",
             ));
@@ -857,7 +869,7 @@ impl MinecraftInstance {
                 })?;
             // The files go in first, so that the folders and files created below only
             // fill in what the imported server does not have.
-            import::import_into(source, path_to_instance.clone())
+            import::import_into(source, path_to_instance.clone(), config.import_scripts)
                 .await
                 .map_err(|e| {
                     error!("Could not import the existing server: {e}");
