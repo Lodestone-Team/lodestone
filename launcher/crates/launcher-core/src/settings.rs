@@ -24,7 +24,7 @@ use crate::{
 /// version survives a round trip.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
-    /// Developer options, off by default. Left out of the file while untouched.
+    /// Developer options. Left out of the file while untouched.
     #[serde(default, skip_serializing_if = "is_default")]
     pub developer: DeveloperSettings,
     /// Settings > Developer > Command line: what the control socket allows. Changed
@@ -196,15 +196,24 @@ fn is_true(value: &bool) -> bool {
 }
 
 /// Settings > Developer.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeveloperSettings {
     /// "Sign in as the Minecraft Launcher": new Microsoft sign-ins use the official
     /// launcher's client ([`ClientIdentity::MinecraftLauncher`]) instead of
-    /// Lodestone's app.
+    /// Lodestone's app. On by default until Lodestone's own app is approved; left out
+    /// of the file while on.
     ///
     /// [`ClientIdentity::MinecraftLauncher`]: crate::auth::ClientIdentity::MinecraftLauncher
-    #[serde(default)]
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub sign_in_as_minecraft_launcher: bool,
+}
+
+impl Default for DeveloperSettings {
+    fn default() -> Self {
+        Self {
+            sign_in_as_minecraft_launcher: true,
+        }
+    }
 }
 
 /// Settings > Developer > Command line: what `lodestone-launcher-cli` and other
@@ -451,13 +460,13 @@ mod tests {
     }
 
     #[test]
-    fn developer_options_are_off_by_default() {
-        assert!(!Settings::default().developer.sign_in_as_minecraft_launcher);
+    fn signing_in_as_the_launcher_is_on_by_default() {
+        assert!(Settings::default().developer.sign_in_as_minecraft_launcher);
         let dir = tempfile::tempdir().unwrap();
         // No file, an empty file at version 1, and a file from before the field.
         let missing = dir.path().join("missing.json");
         assert!(
-            !load_or_default(&missing)
+            load_or_default(&missing)
                 .developer
                 .sign_in_as_minecraft_launcher
         );
@@ -469,8 +478,11 @@ mod tests {
             let path = dir.path().join("settings.json");
             std::fs::write(&path, raw).unwrap();
             let loaded = load_or_default(&path);
-            assert!(!loaded.developer.sign_in_as_minecraft_launcher, "{raw}");
+            assert!(loaded.developer.sign_in_as_minecraft_launcher, "{raw}");
         }
+        // Left out of the file while on.
+        let raw = serde_json::to_value(Settings::default()).unwrap();
+        assert!(raw.get("developer").is_none(), "{raw}");
     }
 
     #[test]
@@ -479,21 +491,21 @@ mod tests {
         let path = dir.path().join("settings.json");
         std::fs::write(&path, r#"{"version": 1, "memory": {"max_mb": 4096}}"#).unwrap();
         let settings = update(&path, |settings| {
-            settings.developer.sign_in_as_minecraft_launcher = true;
+            settings.developer.sign_in_as_minecraft_launcher = false;
         })
         .unwrap();
-        assert!(settings.developer.sign_in_as_minecraft_launcher);
+        assert!(!settings.developer.sign_in_as_minecraft_launcher);
         let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(
             raw,
             json!({
                 "version": 1,
                 "memory": {"max_mb": 4096},
-                "developer": {"sign_in_as_minecraft_launcher": true},
+                "developer": {"sign_in_as_minecraft_launcher": false},
             })
         );
         assert!(
-            load_or_default(&path)
+            !load_or_default(&path)
                 .developer
                 .sign_in_as_minecraft_launcher
         );
@@ -527,17 +539,17 @@ mod tests {
     fn sections_saved_separately_keep_each_other() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        update(&path, |s| s.developer.sign_in_as_minecraft_launcher = true).unwrap();
+        update(&path, |s| s.developer.sign_in_as_minecraft_launcher = false).unwrap();
         update(&path, |s| {
             s.instance_defaults.max_ram = Some(6144);
             s.collapsed_groups.insert("Modded".into());
         })
         .unwrap();
-        update(&path, |s| s.developer.sign_in_as_minecraft_launcher = false).unwrap();
+        update(&path, |s| s.developer.sign_in_as_minecraft_launcher = true).unwrap();
         let loaded = load(&path).unwrap();
         assert_eq!(loaded.instance_defaults.max_ram, Some(6144));
         assert!(loaded.collapsed_groups.contains("Modded"));
-        assert!(!loaded.developer.sign_in_as_minecraft_launcher);
+        assert!(loaded.developer.sign_in_as_minecraft_launcher);
         let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(
             raw,
