@@ -525,6 +525,36 @@ impl CoreClient {
         Ok((Secret::new(created.key), created.info))
     }
 
+    /// `POST /local_claim/start`: begins a claim of owner access by a launcher on the
+    /// core's computer (see [`super::local_claim`]). Needs no sign-in.
+    pub async fn local_claim_start(&self) -> Result<super::local_claim::ClaimStart, CoreError> {
+        self.json(
+            Method::POST,
+            "local_claim/start",
+            Auth::None,
+            Some(b"{}".to_vec()),
+        )
+        .await
+    }
+
+    /// `POST /local_claim/finish`: the core checks the files the launcher wrote and
+    /// writes the key into the claim's folder. Nothing secret is in the reply.
+    pub async fn local_claim_finish(&self, id: &str, key_name: &str) -> Result<(), CoreError> {
+        let body = serde_json::json!({ "id": id, "name": key_name });
+        let response = self
+            .send(
+                Method::POST,
+                "local_claim/finish",
+                Auth::None,
+                Some(body.to_string().into_bytes()),
+                None,
+                MAX_JSON_BYTES,
+                REQUEST_TIMEOUT,
+            )
+            .await?;
+        check(&response, Auth::None)
+    }
+
     /// A JSON request with this device's key, for the routes in [`super::live`].
     pub(crate) async fn json_with_key<T: serde::de::DeserializeOwned>(
         &self,
