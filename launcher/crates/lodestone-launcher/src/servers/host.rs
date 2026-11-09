@@ -25,7 +25,7 @@ use super::{
 use crate::{
     components::{Button, ButtonVariant, Dialog, LoadingDots, TextInput, Toggle},
     i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, Text, format, t, tr, trn},
-    theme::{colors, layout},
+    theme::layout,
 };
 
 /// The server's memory choices, in MB.
@@ -254,7 +254,7 @@ impl Render for HostDialog {
 
         if let Some(done) = &self.done {
             return dialog
-                .child(note(done.label()).text_color(colors::GRAY_300))
+                .child(note(done.label()).text_color(crate::theme::ink::text()))
                 .footer(
                     Button::new("host-show-servers", t(M::ShowOnServersPage))
                         .variant(ButtonVariant::Primary)
@@ -339,7 +339,7 @@ impl Render for HostDialog {
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .text_color(colors::GRAY_400)
+                            .text_color(crate::theme::ink::secondary())
                             .child(LoadingDots)
                             .child(note(stage.label()))
                     }))

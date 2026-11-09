@@ -759,6 +759,14 @@ pub fn plan(
                 "skins.import",
                 vec![("path", json!(absolute(path)?)), ("use", json!(use_it))],
             ),
+            Skins::Check { id, path } => call(
+                "skins.check",
+                vec![
+                    ("id", json!(id)),
+                    ("path", json!(path.as_deref().map(absolute).transpose()?)),
+                ],
+            ),
+            Skins::Fix { id } => call("skins.fix", vec![("id", json!(id))]),
             Skins::Export { path, id } => call(
                 "skins.export",
                 vec![("path", json!(absolute(path)?)), ("id", json!(id))],

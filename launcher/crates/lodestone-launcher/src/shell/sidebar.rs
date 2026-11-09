@@ -4,9 +4,11 @@ use gpui::{
     img, prelude::*, radians,
 };
 use launcher_core::instances::{AutoGroup, Instance, last_played};
+use launcher_core::ui_skin::{FontPart, SurfaceId};
 
 use super::{LauncherShell, Page, account_box};
 use crate::components::KeyboardFocus;
+use crate::skin::Skinned;
 use crate::{
     components::{Align, Button, ButtonVariant, Icon},
     i18n::{ShellMsg as M, format, t, tr},
@@ -19,13 +21,6 @@ use crate::{
 /// to resize it; dragged narrow enough it folds into a rail of icons.
 pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElement {
     let (width, collapsed) = shell.sidebar_state(cx);
-    let look = crate::skin::look(cx);
-    let sidebar = &look.spec.sidebar;
-    // The skin's image under a tint, or only the tint.
-    let tint = sidebar.tint.map(|tint| {
-        let color = theme::Color::rgb(tint.0).opacity(u32::from(sidebar.tint_opacity));
-        div().absolute().inset_0().bg(color)
-    });
     let dragging = shell.sidebar_dragging();
     div()
         .id("sidebar")
@@ -41,18 +36,12 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .h_full()
         .bg(colors::GRAY_850)
         .border_r_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .overflow_hidden()
-        .when_some(look.sidebar.clone(), |this, image| {
-            this.child(
-                img(image)
-                    .absolute()
-                    .inset_0()
-                    .size_full()
-                    .object_fit(ObjectFit::Cover),
-            )
+        .surface(SurfaceId::Sidebar)
+        .when_some(theme::fonts::own(FontPart::Sidebar), |this, font| {
+            this.font_family(font)
         })
-        .children(tint)
         // a backing, when the skin's text colours alone can't stay readable
         .when_some(crate::skin::sidebar_inks().backing, |this, backing| {
             this.child(div().absolute().inset_0().bg(backing))
@@ -256,7 +245,7 @@ fn rail(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoElem
                 .w_full()
                 .py_2()
                 .border_t_1()
-                .border_color(colors::FADE_700)
+                .border_color(crate::theme::ink::border())
                 .child(rail_button(
                     "servers",
                     Icon::Cube,
@@ -359,7 +348,7 @@ fn rail_instance(
         .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .when(is_selected, |this| {
             this.bg(crate::skin::sidebar_inks().fill)
-                .border_color(colors::FADE_700)
+                .border_color(crate::theme::ink::border())
         })
         .child(icon)
         .when(active, |this| {
@@ -461,6 +450,7 @@ fn import_row(
                             .h_full()
                             .rounded_full()
                             .bg(crate::theme::accent::light())
+                            .surface(launcher_core::ui_skin::SurfaceId::Progress)
                             .w(gpui::relative(fraction.clamp(0.0, 1.0))),
                     ),
             )
@@ -542,7 +532,7 @@ fn instance_row(
         .hover(|style| style.bg(crate::skin::sidebar_inks().fill))
         .when(is_selected, |this| {
             this.bg(crate::skin::sidebar_inks().fill)
-                .border_color(colors::FADE_700)
+                .border_color(crate::theme::ink::border())
         })
         .when_some(banner, |this, (banner, backdrop)| {
             this.child(
@@ -854,7 +844,7 @@ fn footer(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl IntoEl
         .px_2()
         .py_2()
         .border_t_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .child(page_link(
             "servers",
             t(M::Servers),

@@ -93,7 +93,7 @@ impl Renderer<'_> {
                     if style.code {
                         highlight.background_color = Some(colors::GRAY_700.into());
                         highlight.color = Some(colors::GRAY_300.into());
-                        code.push((range.clone(), fonts::MONO.into()));
+                        code.push((range.clone(), fonts::mono()));
                     }
                     if let Some(link) = link {
                         highlight.color = Some(colors::BLUE_150.into());
@@ -213,16 +213,16 @@ impl Renderer<'_> {
                 };
                 div()
                     .pt_2()
-                    .font_family(fonts::HEADING)
+                    .font_family(fonts::heading())
                     .text_size(theme::text_size(size))
                     .line_height(theme::line_height(size, leading::TIGHT))
                     .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_300)
+                    .text_color(crate::theme::ink::text())
                     .child(self.inlines(inlines))
                     .into_any_element()
             }
             Block::Paragraph(inlines) => div()
-                .text_color(colors::GRAY_400)
+                .text_color(crate::theme::ink::secondary())
                 .child(self.inlines(inlines))
                 .into_any_element(),
             Block::List { start, items } => {
@@ -241,7 +241,7 @@ impl Renderer<'_> {
                                 div()
                                     .flex_none()
                                     .min_w(px(16.))
-                                    .text_color(colors::GRAY_500)
+                                    .text_color(crate::theme::ink::muted())
                                     .child(marker),
                             )
                             .child(
@@ -272,10 +272,10 @@ impl Renderer<'_> {
                 .rounded(radius::MD)
                 .bg(colors::GRAY_900)
                 .border_1()
-                .border_color(colors::FADE_700)
-                .font_family(fonts::MONO)
+                .border_color(crate::theme::ink::border())
+                .font_family(fonts::mono())
                 .text_size(theme::text_size(text::SMALL))
-                .text_color(colors::GRAY_300)
+                .text_color(crate::theme::ink::text())
                 .child(code.clone())
                 .into_any_element(),
             Block::Rule => div()
@@ -289,7 +289,7 @@ impl Renderer<'_> {
                     .flex_col()
                     .rounded(radius::MD)
                     .border_1()
-                    .border_color(colors::FADE_700)
+                    .border_color(crate::theme::ink::border())
                     .overflow_hidden();
                 for (index, row) in rows.iter().enumerate() {
                     let mut line = div()
@@ -299,7 +299,7 @@ impl Renderer<'_> {
                             this.bg(colors::GRAY_800).font_weight(weights::BOLD.into())
                         })
                         .when(index > 0, |this| {
-                            this.border_t_1().border_color(colors::FADE_700)
+                            this.border_t_1().border_color(crate::theme::ink::border())
                         });
                     for cell in row {
                         line = line.child(
@@ -309,7 +309,7 @@ impl Renderer<'_> {
                                 .px_2()
                                 .py_1()
                                 .text_size(theme::text_size(text::SMALL))
-                                .text_color(colors::GRAY_400)
+                                .text_color(crate::theme::ink::secondary())
                                 .child(self.inlines(cell)),
                         );
                     }
@@ -343,7 +343,7 @@ pub fn render(
         .when(blocks.len() > shown, |this| {
             this.child(
                 div()
-                    .text_color(colors::GRAY_500)
+                    .text_color(crate::theme::ink::muted())
                     .child(crate::i18n::t(crate::i18n::ShellMsg::RestOnModrinth)),
             )
         })

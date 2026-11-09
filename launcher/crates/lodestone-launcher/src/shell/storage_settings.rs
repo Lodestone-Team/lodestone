@@ -242,7 +242,7 @@ fn counting() -> AnyElement {
         .gap_2()
         .px_4()
         .py_3()
-        .text_color(colors::GRAY_500)
+        .text_color(crate::theme::ink::muted())
         .child(LoadingDots)
         .child(t(M::StorageCounting))
         .into_any_element()
@@ -316,7 +316,7 @@ impl Render for StorageSettings {
             .gap_x_4()
             .gap_y_1()
             .text_size(theme::text_size(text::SMALL))
-            .text_color(colors::GRAY_400)
+            .text_color(crate::theme::ink::secondary())
             .children(parts.iter().map(|(color, label, bytes)| {
                 div()
                     .flex()
@@ -340,7 +340,7 @@ impl Render for StorageSettings {
                         div()
                             .text_size(theme::text_size(text::H2))
                             .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_300)
+                            .text_color(crate::theme::ink::text())
                             .child(format::bytes(report.total())),
                     )
                     .when(self.work.is_some() && !busy, |this| this.child(LoadingDots))
@@ -608,7 +608,7 @@ impl super::LauncherShell {
         let entity = cx.entity();
         crate::components::Dialog::new("storage-clean", t(title), focus)
             .on_close(move |_, cx| entity.update(cx, |this, cx| this.close_modal(cx)))
-            .child(div().text_color(colors::GRAY_400).child(body))
+            .child(div().text_color(crate::theme::ink::secondary()).child(body))
             .footer(
                 Button::new("confirm-storage-clean", t(action))
                     .variant(ButtonVariant::Danger)

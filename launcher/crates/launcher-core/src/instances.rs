@@ -93,6 +93,8 @@ pub const BUILTIN_ICON: &str = "builtin:";
 pub const EMOJI_ICON: &str = "emoji:";
 /// What `background` is set to when the instance has its own `background.jpg`.
 pub const CUSTOM_BACKGROUND: &str = "custom";
+/// The prefix of `background` for a skin's banner: `skin:<skin id>/<banner id>`.
+pub const SKIN_BANNER: &str = "skin:";
 /// The instance's own Play background, in its folder.
 pub const BACKGROUND_FILE: &str = "background.jpg";
 /// Backgrounds are stored at most this size, keeping their aspect ratio.
@@ -119,6 +121,8 @@ pub enum BackgroundMode {
     Default,
     /// The instance's own `background.jpg`.
     Image,
+    /// A banner from a skin ([`Instance::skin_banner`]).
+    Banner,
     /// Images in turn, crossfading.
     Slideshow(SlideshowSource),
 }
@@ -278,8 +282,18 @@ impl Instance {
         match (self.slideshow, self.background.as_deref()) {
             (Some(source), _) => BackgroundMode::Slideshow(source),
             (None, Some(CUSTOM_BACKGROUND)) => BackgroundMode::Image,
+            (None, Some(other)) if other.starts_with(SKIN_BANNER) => BackgroundMode::Banner,
             (None, _) => BackgroundMode::Default,
         }
+    }
+
+    /// The skin and banner the instance's Play background is, when it is a skin's
+    /// banner.
+    pub fn skin_banner(&self) -> Option<(&str, &str)> {
+        self.background
+            .as_deref()?
+            .strip_prefix(SKIN_BANNER)?
+            .split_once('/')
     }
 
     /// The instance's loader and its version, if it has a loader.
@@ -802,6 +816,22 @@ impl InstanceStore {
         Ok(instance)
     }
 
+    /// Makes banner `banner` of skin `skin` the instance's Play background. The
+    /// banner is kept by id, so it follows the skin's updates.
+    pub fn set_skin_banner(
+        &self,
+        id: &str,
+        skin: &str,
+        banner: &str,
+    ) -> Result<Instance, InstanceError> {
+        let mut instance = self.get(id)?;
+        remove_if_present(&self.dir(id).join(BACKGROUND_FILE))?;
+        instance.background = Some(format!("{SKIN_BANNER}{skin}/{banner}"));
+        instance.slideshow = None;
+        self.save(&instance)?;
+        Ok(instance)
+    }
+
     /// Goes back to the launcher's Play background. The slideshow's own images stay,
     /// for when it is chosen again.
     pub fn clear_background(&self, id: &str) -> Result<Instance, InstanceError> {
@@ -1199,6 +1229,22 @@ mod tests {
         let cleared = store.clear_background(&instance.id).unwrap();
         assert_eq!(cleared.background, None);
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn a_skin_banner_is_kept_by_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = InstanceStore::new(dir.path().join("instances"));
+        let instance = store.create("Banner", "1.20.1", None).unwrap();
+        let with = store
+            .set_skin_banner(&instance.id, "grassblock", "sunset")
+            .unwrap();
+        assert_eq!(with.background_mode(), BackgroundMode::Banner);
+        assert_eq!(with.skin_banner(), Some(("grassblock", "sunset")));
+        assert!(store.background_path(&with).is_none());
+        let cleared = store.clear_background(&instance.id).unwrap();
+        assert_eq!(cleared.skin_banner(), None);
+        assert_eq!(cleared.background_mode(), BackgroundMode::Default);
     }
 
     #[test]

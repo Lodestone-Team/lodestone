@@ -554,7 +554,7 @@ impl ContentView {
                                 div()
                                     .truncate()
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(file.title()),
                             )
                             .child(
@@ -584,7 +584,7 @@ impl ContentView {
                         None => t(M::BlockedNoFolder).to_string(),
                     })
                     .whitespace_normal()
-                    .text_color(colors::GRAY_400),
+                    .text_color(crate::theme::ink::secondary()),
                 )
                 .child(rows)
                 .when_some(error, |this, error| {
@@ -701,7 +701,7 @@ impl ContentView {
                 div().flex_1().min_w_0().child(
                     small(title)
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_500),
+                        .text_color(crate::theme::ink::muted()),
                 ),
             )
             .child(pills(
@@ -752,7 +752,7 @@ impl ContentView {
                     page = format::number(page as u64),
                     pages = format::number(pages as u64)
                 ))
-                .text_color(colors::GRAY_500),
+                .text_color(crate::theme::ink::muted()),
             )
             .child(
                 Button::new(("cf-next-page", kind as usize), t(CommonMsg::Next))
@@ -807,7 +807,7 @@ impl ContentView {
                                 div()
                                     .truncate()
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(hit.name.clone()),
                             )
                             .when(!author.is_empty(), |this| {
@@ -821,7 +821,7 @@ impl ContentView {
                     .child(
                         small(hit.summary.clone())
                             .truncate()
-                            .text_color(colors::GRAY_400),
+                            .text_color(crate::theme::ink::secondary()),
                     ),
             )
             .child(
@@ -831,7 +831,7 @@ impl ContentView {
                     M::DownloadsCompact,
                 ))
                 .flex_none()
-                .text_color(colors::GRAY_500),
+                .text_color(crate::theme::ink::muted()),
             )
             .child(
                 Button::new(("cf-install-hit", index), t(CommonMsg::Install))
@@ -888,7 +888,7 @@ impl ContentView {
                             .flex()
                             .flex_row()
                             .gap_2()
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(LoadingDots)
                             .child(t(M::LoadingProject)),
                     )
@@ -923,15 +923,15 @@ impl ContentView {
                             .gap_1()
                             .child(
                                 div()
-                                    .font_family(fonts::TITLE)
+                                    .font_family(fonts::display())
                                     .text_size(theme::text_size(text::H2))
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(project.name.clone()),
                             )
                             .child(
                                 div()
-                                    .text_color(colors::GRAY_400)
+                                    .text_color(crate::theme::ink::secondary())
                                     .whitespace_normal()
                                     .child(project.summary.clone()),
                             )
@@ -953,7 +953,7 @@ impl ContentView {
                                         )
                                     )
                                 })
-                                .text_color(colors::GRAY_500),
+                                .text_color(crate::theme::ink::muted()),
                             ),
                     )
                     .child(
@@ -981,7 +981,7 @@ impl ContentView {
                             .flex()
                             .flex_row()
                             .gap_2()
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(LoadingDots)
                             .child(t(M::LoadingVersions)),
                     )
@@ -1033,7 +1033,9 @@ impl ContentView {
                                 }),
                             ),
                         )
-                        .child(small(t(M::ShowAllVersions)).text_color(colors::GRAY_400)),
+                        .child(
+                            small(t(M::ShowAllVersions)).text_color(crate::theme::ink::secondary()),
+                        ),
                 )
                 .when(kind == ContentKind::Mod, |this| {
                     this.child(
@@ -1052,7 +1054,8 @@ impl ContentView {
                                     })),
                             )
                             .child(
-                                small(t(M::AlsoInstallDependencies)).text_color(colors::GRAY_400),
+                                small(t(M::AlsoInstallDependencies))
+                                    .text_color(crate::theme::ink::secondary()),
                             ),
                     )
                 }),
@@ -1177,7 +1180,8 @@ impl ContentView {
         column = column.child(rows);
         if total > 40 {
             column = column.child(
-                small(crate::i18n::trn!(P::MoreVersions, total - 40)).text_color(colors::GRAY_500),
+                small(crate::i18n::trn!(P::MoreVersions, total - 40))
+                    .text_color(crate::theme::ink::muted()),
             );
         }
         column.into_any_element()

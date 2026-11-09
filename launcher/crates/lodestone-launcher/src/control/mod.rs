@@ -311,6 +311,16 @@ pub const METHODS: &[Method] = &[
         skins::export,
     ),
     method(
+        "skins.check",
+        "Readability checks for a skin (the one in use without id), or a pack at path (absolute; checked as importing would, not kept): each surface's text, its contrast, the target and a suggested fix.",
+        skins::check,
+    ),
+    method(
+        "skins.fix",
+        "Applies the suggested readability fixes to an imported skin (the one in use without id), a round at a time; not to a built-in skin.",
+        skins::fix,
+    ),
+    method(
         "storage.show",
         "What the data folder takes: instances, game files, Java runtimes, cache, logs; and what is unused.",
         storage::show,

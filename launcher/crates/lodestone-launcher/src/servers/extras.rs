@@ -39,7 +39,7 @@ pub(super) fn label(value: impl Into<SharedString>) -> gpui::Div {
     div()
         .text_size(theme::text_size(text::SMALL))
         .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_400)
+        .text_color(crate::theme::ink::secondary())
         .child(value.into())
 }
 
@@ -47,7 +47,7 @@ pub(super) fn note(value: impl Into<SharedString>) -> gpui::Div {
     div()
         .text_size(theme::text_size(text::SMALL))
         .line_height(theme::line_height(text::SMALL, leading::NORMAL))
-        .text_color(colors::GRAY_500)
+        .text_color(crate::theme::ink::muted())
         .child(value.into())
 }
 

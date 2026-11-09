@@ -482,7 +482,7 @@ impl Render for SharedSettings {
                     .child(
                         div()
                             .text_size(theme::text_size(text::SMALL))
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(match count {
                                 0 => t(M::NoValuesYet).to_string(),
                                 n => trn!(P::Values, n),

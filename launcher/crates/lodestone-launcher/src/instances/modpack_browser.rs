@@ -498,7 +498,7 @@ fn loading(label: M) -> AnyElement {
         .items_center()
         .gap_2()
         .p_3()
-        .text_color(colors::GRAY_500)
+        .text_color(crate::theme::ink::muted())
         .child(LoadingDots)
         .child(t(label))
         .into_any_element()
@@ -555,7 +555,7 @@ impl ModpackBrowser {
                     .items_center()
                     .gap_2()
                     .p_3()
-                    .text_color(colors::GRAY_500)
+                    .text_color(crate::theme::ink::muted())
                     .child(LoadingDots)
                     .child(t(C::SearchingCurseForge))
                     .into_any_element();
@@ -571,7 +571,7 @@ impl ModpackBrowser {
         if results.hits.is_empty() {
             return small(t(M::NoModpacksMatch))
                 .p_3()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .into_any_element();
         }
         let picked_id = self
@@ -619,7 +619,7 @@ impl ModpackBrowser {
                                 div()
                                     .truncate()
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(hit.name.clone()),
                             )
                             .child(
@@ -629,7 +629,7 @@ impl ModpackBrowser {
                                     downloads = format::compact(hit.download_count.max(0.0) as u64)
                                 ))
                                 .truncate()
-                                .text_color(colors::GRAY_500),
+                                .text_color(crate::theme::ink::muted()),
                             ),
                     ),
             );
@@ -646,7 +646,7 @@ impl ModpackBrowser {
                 .size_full()
                 .p_4()
                 .text_center()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(t(M::PickModpack))
                 .into_any_element();
         };
@@ -678,15 +678,15 @@ impl ModpackBrowser {
                     .min_w_0()
                     .child(
                         div()
-                            .font_family(fonts::HEADING)
+                            .font_family(fonts::heading())
                             .text_size(theme::text_size(text::H3))
                             .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_300)
+                            .text_color(crate::theme::ink::text())
                             .child(project.name.clone()),
                     )
                     .child(
                         small(project.summary.clone())
-                            .text_color(colors::GRAY_400)
+                            .text_color(crate::theme::ink::secondary())
                             .line_clamp(2),
                     ),
             )
@@ -699,7 +699,7 @@ impl ModpackBrowser {
             );
         let body: AnyElement = match files {
             Load::Ready(list) if list.is_empty() => small(t(M::NoVersions))
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .into_any_element(),
             Load::Ready(list) => {
                 let mut rows = div().flex().flex_col().gap_0p5();
@@ -774,7 +774,7 @@ impl ModpackBrowser {
                                             format::bytes_binary(file.file_length)
                                         ))
                                         .truncate()
-                                        .text_color(colors::GRAY_500),
+                                        .text_color(crate::theme::ink::muted()),
                                     ),
                             ),
                     );
@@ -816,7 +816,7 @@ impl ModpackBrowser {
         if results.hits.is_empty() {
             return small(t(M::NoModpacksMatch))
                 .p_3()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .into_any_element();
         }
         let picked_id = self
@@ -859,7 +859,7 @@ impl ModpackBrowser {
                                 div()
                                     .truncate()
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(hit.title.clone()),
                             )
                             .child(
@@ -869,7 +869,7 @@ impl ModpackBrowser {
                                     downloads = format::compact(hit.downloads)
                                 ))
                                 .truncate()
-                                .text_color(colors::GRAY_500),
+                                .text_color(crate::theme::ink::muted()),
                             ),
                     ),
             );
@@ -886,7 +886,7 @@ impl ModpackBrowser {
                 .size_full()
                 .p_4()
                 .text_center()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(t(M::PickModpack))
                 .into_any_element();
         };
@@ -921,15 +921,15 @@ impl ModpackBrowser {
                     .min_w_0()
                     .child(
                         div()
-                            .font_family(fonts::HEADING)
+                            .font_family(fonts::heading())
                             .text_size(theme::text_size(text::H3))
                             .font_weight(weights::BOLD.into())
-                            .text_color(colors::GRAY_300)
+                            .text_color(crate::theme::ink::text())
                             .child(project.title.clone()),
                     )
                     .child(
                         small(project.description.clone())
-                            .text_color(colors::GRAY_400)
+                            .text_color(crate::theme::ink::secondary())
                             .line_clamp(2),
                     ),
             );
@@ -969,7 +969,7 @@ impl ModpackBrowser {
         } else {
             match versions {
                 Load::Ready(list) if list.is_empty() => small(t(M::NoVersions))
-                    .text_color(colors::GRAY_500)
+                    .text_color(crate::theme::ink::muted())
                     .into_any_element(),
                 Load::Ready(list) => {
                     let mut rows = div().flex().flex_col().gap_0p5();
@@ -1033,7 +1033,7 @@ impl ModpackBrowser {
                                                 format::bytes_binary(size)
                                             ))
                                             .truncate()
-                                            .text_color(colors::GRAY_500),
+                                            .text_color(crate::theme::ink::muted()),
                                         ),
                                 ),
                         );

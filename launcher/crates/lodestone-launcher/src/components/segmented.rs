@@ -2,6 +2,7 @@ use gpui::{App, SharedString, Window, div, prelude::*};
 
 use super::{ArrowGroup, KeyboardFocus};
 use crate::theme::{self, colors, radius, text, weights};
+use launcher_core::ui_skin::SurfaceId;
 
 /// A row of choices with the selected one raised, as in "Add server". `selected` is
 /// `None` when the value isn't one of the choices. The arrow keys move between them.
@@ -22,7 +23,7 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
         .rounded(radius::LG)
         .bg(colors::GRAY_900)
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .children(choices.into_iter().enumerate().map(|(i, (value, name))| {
             let is_selected = selected == Some(&value);
             let on_pick = on_pick.clone();
@@ -38,7 +39,7 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
                         if disabled {
                             s
                         } else {
-                            s.text_color(colors::GRAY_300)
+                            s.text_color(crate::theme::ink::text())
                         }
                     })
                 })
@@ -59,6 +60,16 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
                 });
             // The raised background fades in under the chosen one, and out of the
             // one left.
+            // the skin's pill, when it paints one in a colour
+            let skin = crate::skin::painted(SurfaceId::Pill);
+            let chosen = match skin.as_ref().and_then(|s| s.paint.clone()) {
+                Some(crate::skin::Paint::Solid(color)) => color,
+                _ => colors::GRAY_700,
+            };
+            let chosen_text = skin
+                .as_ref()
+                .and_then(|s| s.text)
+                .unwrap_or(colors::GRAY_300);
             super::motion::Animated::new(
                 ("segmented-choice", i),
                 is_selected,
@@ -67,10 +78,10 @@ pub fn segmented<T: Clone + PartialEq + 'static>(
                     let rest = if disabled {
                         colors::GRAY_600
                     } else {
-                        colors::GRAY_500
+                        crate::theme::ink::muted()
                     };
-                    this.bg(colors::GRAY_700.opacity(0).mix(colors::GRAY_700, t))
-                        .text_color(rest.mix(colors::GRAY_300, t))
+                    this.bg(chosen.opacity(0).mix(chosen, t))
+                        .text_color(rest.mix(chosen_text, t))
                 },
             )
         }))

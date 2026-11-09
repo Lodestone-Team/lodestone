@@ -1,6 +1,7 @@
 //! How the Servers page looks: each core as a card with its servers, and the dialogs
 //! over the window (Add server, the mod update prompt).
 
+use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{
     AnyElement, App, Context, Entity, IntoElement, Render, SharedString, Subscription, Window, div,
@@ -10,6 +11,7 @@ use launcher_core::cores::{
     CoreError, ServerInstance, ServerLoader, ServerState, client::display_address,
     sync::PackChanges, trust::Advisory,
 };
+use launcher_core::ui_skin::SurfaceId;
 use launcher_core::wording;
 
 use super::{
@@ -114,12 +116,12 @@ fn fingerprint_block(caption: &'static str, fingerprint: &str, color: theme::Col
             div()
                 .text_size(theme::text_size(text::CAPTION))
                 .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(caption),
         )
         .children(lines.into_iter().map(move |line| {
             div()
-                .font_family(fonts::MONO)
+                .font_family(fonts::mono())
                 .text_size(theme::text_size(text::SMALL))
                 .text_color(color)
                 .child(line)
@@ -165,7 +167,7 @@ fn certificate_warning(
         .px_4()
         .py_3()
         .border_t_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .when(changed, |this| this.bg(colors::RED_300.opacity(8)))
         .child(Icon::TriangleExclamation.render(px(14.), color))
         .child(small(message).flex_1().min_w_0().text_color(color))
@@ -221,7 +223,7 @@ impl Servers {
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .text_color(colors::GRAY_400)
+                    .text_color(crate::theme::ink::secondary())
                     .child(LoadingDots)
                     .child(small(busy.label()))
                     .into_any_element(),
@@ -289,7 +291,7 @@ impl Servers {
                 if !server.address_shown() {
                     actions.push(
                         small(t(M::AddressHidden))
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .into_any_element(),
                     );
                 }
@@ -326,7 +328,7 @@ impl Servers {
             .px_4()
             .py_2p5()
             .border_t_1()
-            .border_color(colors::FADE_700)
+            .border_color(crate::theme::ink::border())
             .when(server.state != ServerState::Hidden, |this| {
                 this.child(
                     div()
@@ -352,7 +354,7 @@ impl Servers {
                                 div()
                                     .truncate()
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(server.name.clone()),
                             )
                             .when(linked, |this| {
@@ -369,9 +371,13 @@ impl Servers {
                                 )
                             }),
                     )
-                    .child(small(detail(server)).text_color(colors::GRAY_500)),
+                    .child(small(detail(server)).text_color(crate::theme::ink::muted())),
             )
-            .child(small(status).flex_none().text_color(colors::GRAY_400))
+            .child(
+                small(status)
+                    .flex_none()
+                    .text_color(crate::theme::ink::secondary()),
+            )
             .child(
                 div()
                     .flex()
@@ -396,7 +402,7 @@ impl Servers {
                 .px_4()
                 .py_3()
                 .border_t_1()
-                .border_color(colors::FADE_700)
+                .border_color(crate::theme::ink::border())
                 .child(LoadingDots)
                 .into_any_element(),
             CoreStatus::Failed(err) if err.is_certificate() => {
@@ -410,7 +416,7 @@ impl Servers {
                 .px_4()
                 .py_3()
                 .border_t_1()
-                .border_color(colors::FADE_700)
+                .border_color(crate::theme::ink::border())
                 .text_color(if err.is_offline() {
                     colors::YELLOW
                 } else {
@@ -426,8 +432,8 @@ impl Servers {
                 .px_4()
                 .py_3()
                 .border_t_1()
-                .border_color(colors::FADE_700)
-                .text_color(colors::GRAY_500)
+                .border_color(crate::theme::ink::border())
+                .text_color(crate::theme::ink::muted())
                 .child(small(t(if !signed_in && !list.listing_enabled {
                     M::NotListedPublicly
                 } else if !signed_in {
@@ -453,8 +459,9 @@ impl Servers {
             .w_full()
             .rounded(radius::XL)
             .border_1()
-            .border_color(colors::FADE_700)
+            .border_color(crate::theme::ink::border())
             .bg(colors::GRAY_850)
+            .surface(SurfaceId::Card)
             .child(
                 div()
                     .flex()
@@ -479,10 +486,10 @@ impl Servers {
                                     .child(
                                         div()
                                             .truncate()
-                                            .font_family(fonts::HEADING)
+                                            .font_family(fonts::heading())
                                             .text_size(theme::text_size(text::H3))
                                             .font_weight(weights::BOLD.into())
-                                            .text_color(colors::GRAY_300)
+                                            .text_color(crate::theme::ink::text())
                                             .child(core.saved.name.clone()),
                                     )
                                     .when(trusted, |this| {
@@ -498,7 +505,7 @@ impl Servers {
                             .child(
                                 small(format!("{} · {account}", display_address(&core.url)))
                                     .truncate()
-                                    .text_color(colors::GRAY_500),
+                                    .text_color(crate::theme::ink::muted()),
                             ),
                     )
                     .child(
@@ -509,7 +516,10 @@ impl Servers {
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .child(small(t(M::TrustedForMods)).text_color(colors::GRAY_400))
+                            .child(
+                                small(t(M::TrustedForMods))
+                                    .text_color(crate::theme::ink::secondary()),
+                            )
                             .child(
                                 Toggle::new(SharedString::from(format!("trust-{index}")), trusted)
                                     .on_change(cx.listener(move |this, value: &bool, _, cx| {
@@ -584,13 +594,13 @@ impl Render for Servers {
                             .flex_1()
                             .child(
                                 div()
-                                    .font_family(fonts::HEADING)
+                                    .font_family(fonts::heading())
                                     .text_size(theme::text_size(text::H1))
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(t(M::ServersTitle)),
                             )
-                            .child(small(t(M::PageHint)).text_color(colors::GRAY_500)),
+                            .child(small(t(M::PageHint)).text_color(crate::theme::ink::muted())),
                     )
                     .child(
                         Button::new("add-server", t(M::AddServer))
@@ -626,10 +636,10 @@ impl Render for Servers {
                             .child(
                                 div()
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(title),
                             )
-                            .child(small(message).text_color(colors::GRAY_400)),
+                            .child(small(message).text_color(crate::theme::ink::secondary())),
                     )
                     .child(
                         Button::new("dismiss-notice", t(M::Dismiss))
@@ -658,7 +668,7 @@ impl Render for Servers {
                                 .text_color(colors::GRAY_FADED.opacity(50))
                                 .child(t(M::NoServersYet)),
                         )
-                        .child(small(t(M::NoServersHint)).text_color(colors::GRAY_500)),
+                        .child(small(t(M::NoServersHint)).text_color(crate::theme::ink::muted())),
                 )
             })
             .children(cards)
@@ -783,15 +793,15 @@ fn update_dialog(servers: &Entity<Servers>, prompt: &UpdatePrompt) -> AnyElement
             .flex()
             .flex_col()
             .gap_2()
-            .text_color(colors::GRAY_400)
+            .text_color(crate::theme::ink::secondary())
             .child(tr!(
                 M::DifferentModsBody,
                 changes = changes_summary(changes)
             ))
             .children(lines.into_iter().map(|line| {
                 small(line)
-                    .font_family(fonts::MONO)
-                    .text_color(colors::GRAY_300)
+                    .font_family(fonts::mono())
+                    .text_color(crate::theme::ink::text())
             })),
     )
     .footer(
@@ -815,7 +825,7 @@ fn paragraph(value: impl Into<SharedString>) -> gpui::Div {
     div()
         .text_size(theme::text_size(text::MEDIUM))
         .line_height(theme::line_height(text::MEDIUM, leading::NORMAL))
-        .text_color(colors::GRAY_400)
+        .text_color(crate::theme::ink::secondary())
         .child(value.into())
 }
 
@@ -866,7 +876,7 @@ fn certificate_dialog(servers: &Entity<Servers>, prompt: &CertPrompt) -> Dialog 
                         colors::GRAY_300
                     },
                 ))
-                .child(small(t(M::FingerprintHelp)).text_color(colors::GRAY_500))
+                .child(small(t(M::FingerprintHelp)).text_color(crate::theme::ink::muted()))
                 .child(
                     small(tr!(
                         if changed {
@@ -876,7 +886,7 @@ fn certificate_dialog(servers: &Entity<Servers>, prompt: &CertPrompt) -> Dialog 
                         },
                         host = prompt.host
                     ))
-                    .text_color(colors::GRAY_500),
+                    .text_color(crate::theme::ink::muted()),
                 ),
         )
         .footer(
@@ -934,7 +944,7 @@ fn trust_dialog(servers: &Entity<Servers>, prompt: &TrustPrompt) -> Dialog {
                 } else {
                     t(M::TrustLater).to_string()
                 })
-                .text_color(colors::GRAY_500),
+                .text_color(crate::theme::ink::muted()),
             ),
     )
     .footer(
@@ -963,7 +973,8 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
     let once = servers.clone();
     let trust = servers.clone();
     let more = |count: usize| {
-        (count > SHOWN).then(|| small(trn!(P::AndMore, count - SHOWN)).text_color(colors::GRAY_500))
+        (count > SHOWN)
+            .then(|| small(trn!(P::AndMore, count - SHOWN)).text_color(crate::theme::ink::muted()))
     };
     let uploaded = (!advisory.uploaded.is_empty()).then(|| {
         div()
@@ -994,8 +1005,8 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
             )
             .children(advisory.uploaded.iter().take(SHOWN).map(|path| {
                 small(file_label(path))
-                    .font_family(fonts::MONO)
-                    .text_color(colors::GRAY_300)
+                    .font_family(fonts::mono())
+                    .text_color(crate::theme::ink::text())
             }))
             .children(more(advisory.uploaded.len()))
     });
@@ -1008,7 +1019,7 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
             .py_2()
             .rounded(radius::LG)
             .border_1()
-            .border_color(colors::FADE_700)
+            .border_color(crate::theme::ink::border())
             .bg(colors::GRAY_900)
             .child(
                 small(tr!(
@@ -1016,7 +1027,7 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
                     count = format::number(advisory.on_modrinth.len() as u64)
                 ))
                 .font_weight(weights::BOLD.into())
-                .text_color(colors::GRAY_400),
+                .text_color(crate::theme::ink::secondary()),
             )
             .children(advisory.on_modrinth.iter().take(SHOWN).map(|found| {
                 div()
@@ -1025,13 +1036,13 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
                     .gap_2()
                     .child(
                         small(format!("{} {}", found.project, found.version))
-                            .text_color(colors::GRAY_300),
+                            .text_color(crate::theme::ink::text()),
                     )
                     .child(
                         small(file_label(&found.path))
-                            .font_family(fonts::MONO)
+                            .font_family(fonts::mono())
                             .truncate()
-                            .text_color(colors::GRAY_500),
+                            .text_color(crate::theme::ink::muted()),
                     )
             }))
             .children(more(advisory.on_modrinth.len()))
@@ -1077,12 +1088,12 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
                     },
                     files = files
                 ))
-                .text_color(colors::GRAY_400)
+                .text_color(crate::theme::ink::secondary())
             }))
             .child(
                 paragraph(tr!(M::OnlyIfYouTrust, core = prompt.core_name))
                     .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_300),
+                    .text_color(crate::theme::ink::text()),
             )
             .child(
                 small(tr!(
@@ -1090,7 +1101,7 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
                     button = trust_label,
                     explanation = trust_explanation()
                 ))
-                .text_color(colors::GRAY_500),
+                .text_color(crate::theme::ink::muted()),
             ),
     )
     // one footer item that wraps: the trust button holds the core's name

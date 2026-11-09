@@ -1,4 +1,6 @@
+use crate::skin::Skinned;
 use crate::theme::px;
+use launcher_core::ui_skin::SurfaceId;
 use std::sync::OnceLock;
 
 use gpui::{
@@ -58,6 +60,7 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
         .bg(colors::GRAY_800)
         .border_b_1()
         .border_color(colors::GRAY_FADED.opacity(30))
+        .surface(SurfaceId::TopBar)
         // Move the window when the bar is dragged, as Zed's title bar does: a mouse
         // down arms the drag and the first move starts it, so clicks still work.
         .on_mouse_down(
@@ -348,14 +351,14 @@ fn update_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Opti
             .rounded_full()
             .bg(colors::GRAY_850)
             .border_1()
-            .border_color(colors::FADE_700)
+            .border_color(crate::theme::ink::border())
             // Clicks here don't move the window.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(div().size(px(6.)).rounded_full().bg(colors::GREEN_400))
             .child(
                 div()
                     .text_size(theme::text_size(text::SMALL))
-                    .text_color(colors::GRAY_300)
+                    .text_color(crate::theme::ink::text())
                     .whitespace_nowrap()
                     .child(label),
             )

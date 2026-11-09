@@ -164,7 +164,7 @@ fn row_element(index: usize, row: &LogRow) -> gpui::Stateful<gpui::Div> {
         .px_3()
         .items_center()
         .whitespace_nowrap()
-        .font_family(fonts::MONO)
+        .font_family(fonts::mono())
         .text_size(theme::text_size(text::SMALL))
         .hover(|style| style.bg(colors::GRAY_850))
         .child(
@@ -358,7 +358,7 @@ impl Render for Console {
                     .min_h_0()
                     .rounded(radius::LG)
                     .border_1()
-                    .border_color(colors::FADE_700)
+                    .border_color(crate::theme::ink::border())
                     .bg(colors::GRAY_900)
                     .overflow_hidden()
                     .on_scroll(cx.listener(Self::on_scroll))

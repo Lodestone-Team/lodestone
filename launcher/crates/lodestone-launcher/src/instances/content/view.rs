@@ -2,7 +2,9 @@
 //! lists (filtered by the search), the Modrinth results below them while searching,
 //! the Shaders section's shader mod card, and a project's page.
 
+use crate::skin::Skinned;
 use crate::theme::px;
+use launcher_core::ui_skin::SurfaceId;
 use std::sync::Arc;
 
 use gpui::{
@@ -68,7 +70,9 @@ pub fn modrinth_page(project_type: &str, slug: &str) -> String {
 }
 
 pub(crate) fn muted(text: impl Into<SharedString>) -> gpui::Div {
-    div().text_color(colors::GRAY_500).child(text.into())
+    div()
+        .text_color(crate::theme::ink::muted())
+        .child(text.into())
 }
 
 pub(crate) fn small(text: impl Into<SharedString>) -> gpui::Div {
@@ -132,7 +136,7 @@ pub(crate) fn pills(
         .rounded(radius::LG)
         .bg(colors::GRAY_900)
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .children(labels.into_iter().enumerate().map(|(index, label)| {
             let on_select = on_select.clone();
             let item = div()
@@ -144,7 +148,7 @@ pub(crate) fn pills(
                 .font_weight(weights::BOLD.into())
                 .cursor_pointer()
                 .when(index != selected, |this| {
-                    this.hover(|style| style.text_color(colors::GRAY_400))
+                    this.hover(|style| style.text_color(crate::theme::ink::secondary()))
                 })
                 .on_click({
                     let (pills, label) = (id, label.clone());
@@ -181,16 +185,17 @@ pub(crate) fn card() -> gpui::Div {
         .p_4()
         .rounded(radius::LG)
         .border_1()
-        .border_color(colors::FADE_700)
+        .border_color(crate::theme::ink::border())
         .bg(colors::GRAY_850)
+        .surface(SurfaceId::Card)
 }
 
 pub(crate) fn heading(text_value: impl Into<SharedString>) -> gpui::Div {
     div()
-        .font_family(fonts::HEADING)
+        .font_family(fonts::heading())
         .text_size(theme::text_size(text::H3))
         .font_weight(weights::BOLD.into())
-        .text_color(colors::GRAY_300)
+        .text_color(crate::theme::ink::text())
         .child(text_value.into())
 }
 
@@ -303,6 +308,7 @@ pub(crate) fn row_base(id: impl Into<gpui::ElementId>, first: bool) -> gpui::Sta
         .px_4()
         .py_2p5()
         .bg(colors::GRAY_800)
+        .surface(SurfaceId::Row)
         .when(!first, |this| {
             this.border_t_1()
                 .border_color(colors::GRAY_FADED.opacity(15))
@@ -571,7 +577,7 @@ impl ContentView {
                         .rounded(radius::MD)
                         .bg(colors::GRAY_850)
                         .border_1()
-                        .border_color(colors::FADE_700)
+                        .border_color(crate::theme::ink::border())
                         .child(
                             div()
                                 .flex()
@@ -587,7 +593,11 @@ impl ContentView {
                                         .font_weight(weights::BOLD.into())
                                         .child(label),
                                 )
-                                .child(small(detail).flex_none().text_color(colors::GRAY_500))
+                                .child(
+                                    small(detail)
+                                        .flex_none()
+                                        .text_color(crate::theme::ink::muted()),
+                                )
                                 .child(
                                     Button::new("cancel-install", t(CommonMsg::Cancel))
                                         .variant(ButtonVariant::Ghost)
@@ -608,6 +618,7 @@ impl ContentView {
                                         .h_full()
                                         .rounded(radius::XS)
                                         .bg(crate::theme::accent::light())
+                                        .surface(launcher_core::ui_skin::SurfaceId::Progress)
                                         .w(gpui::relative(fraction)),
                                 ),
                         ),
@@ -806,7 +817,11 @@ impl ContentView {
                             .clone()
                             .filter(|_| kind == ContentKind::ResourcePack),
                         |this, description| {
-                            this.child(small(description).truncate().text_color(colors::GRAY_400))
+                            this.child(
+                                small(description)
+                                    .truncate()
+                                    .text_color(crate::theme::ink::secondary()),
+                            )
                         },
                     )
                     .when_some(warning, |this, warning| {
@@ -1054,7 +1069,7 @@ impl ContentView {
             )))
             .child(
                 div()
-                    .text_color(colors::GRAY_400)
+                    .text_color(crate::theme::ink::secondary())
                     .whitespace_normal()
                     .child(text),
             )
@@ -1104,7 +1119,7 @@ impl ContentView {
                                 file = loader.config_file()
                             ))
                             .whitespace_normal()
-                            .text_color(colors::GRAY_500),
+                            .text_color(crate::theme::ink::muted()),
                         ),
                 )
                 .into_any_element();
@@ -1122,13 +1137,13 @@ impl ContentView {
             mods = t(M::KindMods)
         ))
         .whitespace_normal()
-        .text_color(colors::GRAY_500);
+        .text_color(crate::theme::ink::muted());
         let body: AnyElement = match &self.shader_offer {
             Load::NotLoaded | Load::Loading => div()
                 .flex()
                 .flex_row()
                 .gap_2()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(LoadingDots)
                 .child(t(M::LookingForShaderMod))
                 .into_any_element(),
@@ -1182,7 +1197,7 @@ impl ContentView {
                     .gap_2()
                     .child(
                         div()
-                            .text_color(colors::GRAY_400)
+                            .text_color(crate::theme::ink::secondary())
                             .whitespace_normal()
                             .child(text),
                     )
@@ -1200,7 +1215,7 @@ impl ContentView {
                     .into_any_element()
             }
             Load::Ready(ShaderModOffer::Unavailable { reason }) => div()
-                .text_color(colors::GRAY_400)
+                .text_color(crate::theme::ink::secondary())
                 .whitespace_normal()
                 .child(tr!(M::ShaderModUnavailable, reason = reason))
                 .into_any_element(),
@@ -1459,7 +1474,7 @@ impl ContentView {
                 .gap_2()
                 .py_6()
                 .justify_center()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(LoadingDots)
                 .child(tr!(M::ReadingFolder, folder = kind.dir()))
                 .into_any_element(),
@@ -1488,7 +1503,7 @@ impl ContentView {
                 };
                 small(tr!(message, count = format::number(*count as u64)))
                     .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_500)
+                    .text_color(crate::theme::ink::muted())
                     .into_any_element()
             }
             Entry::NoInstalledMatch => small(tr!(
@@ -1496,7 +1511,7 @@ impl ContentView {
                 count = format::number(0),
                 kind = kind_name(kind).to_lowercase()
             ))
-            .text_color(colors::GRAY_500)
+            .text_color(crate::theme::ink::muted())
             .into_any_element(),
             Entry::ModrinthHeading => self.render_modrinth_heading(kind, cx),
             Entry::ModrinthLoading => div()
@@ -1506,7 +1521,7 @@ impl ContentView {
                 .gap_2()
                 .py_4()
                 .justify_center()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(LoadingDots)
                 .child(t(M::SearchingModrinth))
                 .into_any_element(),
@@ -1537,7 +1552,7 @@ impl ContentView {
                 .gap_2()
                 .py_4()
                 .justify_center()
-                .text_color(colors::GRAY_500)
+                .text_color(crate::theme::ink::muted())
                 .child(LoadingDots)
                 .child(t(M::SearchingCurseForge))
                 .into_any_element(),
@@ -1746,9 +1761,13 @@ impl ContentView {
                         .border_color(crate::theme::accent::light().opacity(60))
                         .text_color(colors::WHITE)
                 } else {
-                    this.border_color(colors::FADE_700)
-                        .text_color(colors::GRAY_400)
-                        .hover(|style| style.text_color(colors::GRAY_300).bg(colors::GRAY_750))
+                    this.border_color(crate::theme::ink::border())
+                        .text_color(crate::theme::ink::secondary())
+                        .hover(|style| {
+                            style
+                                .text_color(crate::theme::ink::text())
+                                .bg(colors::GRAY_750)
+                        })
                 }
             })
             .when(only, |this| {
@@ -1765,7 +1784,7 @@ impl ContentView {
                 div().flex_1().min_w_0().child(
                     small(title)
                         .font_weight(weights::BOLD.into())
-                        .text_color(colors::GRAY_500),
+                        .text_color(crate::theme::ink::muted()),
                 ),
             )
             .child(sort)
@@ -1801,7 +1820,7 @@ impl ContentView {
                     page = format::number(page as u64),
                     pages = format::number(pages as u64)
                 ))
-                .text_color(colors::GRAY_500),
+                .text_color(crate::theme::ink::muted()),
             )
             .child(
                 Button::new(("next-page", kind as usize), t(CommonMsg::Next))
@@ -1858,7 +1877,7 @@ impl ContentView {
                                 div()
                                     .truncate()
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(hit.title.clone()),
                             )
                             .child(
@@ -1873,13 +1892,13 @@ impl ContentView {
                     .child(
                         small(hit.description.clone())
                             .truncate()
-                            .text_color(colors::GRAY_400),
+                            .text_color(crate::theme::ink::secondary()),
                     ),
             )
             .child(
                 small(counted(hit.downloads, P::Downloads, M::DownloadsCompact))
                     .flex_none()
-                    .text_color(colors::GRAY_500),
+                    .text_color(crate::theme::ink::muted()),
             )
             .child(
                 Button::new(("install-hit", index), t(CommonMsg::Install))
@@ -1934,7 +1953,7 @@ impl ContentView {
                             .flex()
                             .flex_row()
                             .gap_2()
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(LoadingDots)
                             .child(t(M::LoadingProject)),
                     )
@@ -1968,15 +1987,15 @@ impl ContentView {
                                 .gap_1()
                                 .child(
                                     div()
-                                        .font_family(fonts::TITLE)
+                                        .font_family(fonts::display())
                                         .text_size(theme::text_size(text::H2))
                                         .font_weight(weights::BOLD.into())
-                                        .text_color(colors::GRAY_300)
+                                        .text_color(crate::theme::ink::text())
                                         .child(project.title.clone()),
                                 )
                                 .child(
                                     div()
-                                        .text_color(colors::GRAY_400)
+                                        .text_color(crate::theme::ink::secondary())
                                         .whitespace_normal()
                                         .child(project.description.clone()),
                                 )
@@ -2001,7 +2020,7 @@ impl ContentView {
                                                     M::FollowersCompact
                                                 )
                                             ))
-                                            .text_color(colors::GRAY_500),
+                                            .text_color(crate::theme::ink::muted()),
                                         )
                                         .children(project.categories.iter().take(6).map(|c| {
                                             badge(c.clone(), crate::theme::accent::light())
@@ -2049,7 +2068,7 @@ impl ContentView {
                         .p_4()
                         .rounded(radius::LG)
                         .border_1()
-                        .border_color(colors::FADE_700)
+                        .border_color(crate::theme::ink::border())
                         .bg(colors::GRAY_850)
                         .child(crate::markdown::render(
                             format!("description-{}", project.id),
@@ -2073,7 +2092,7 @@ impl ContentView {
                             .flex()
                             .flex_row()
                             .gap_2()
-                            .text_color(colors::GRAY_500)
+                            .text_color(crate::theme::ink::muted())
                             .child(LoadingDots)
                             .child(t(M::LoadingVersions)),
                     )
@@ -2125,7 +2144,9 @@ impl ContentView {
                                 }),
                             ),
                         )
-                        .child(small(t(M::ShowAllVersions)).text_color(colors::GRAY_400)),
+                        .child(
+                            small(t(M::ShowAllVersions)).text_color(crate::theme::ink::secondary()),
+                        ),
                 )
                 .when(kind == ContentKind::Mod, |this| {
                     this.child(
@@ -2144,7 +2165,8 @@ impl ContentView {
                                     })),
                             )
                             .child(
-                                small(t(M::AlsoInstallDependencies)).text_color(colors::GRAY_400),
+                                small(t(M::AlsoInstallDependencies))
+                                    .text_color(crate::theme::ink::secondary()),
                             ),
                     )
                 }),
@@ -2266,8 +2288,9 @@ impl ContentView {
         }
         column = column.child(rows);
         if total > 40 {
-            column =
-                column.child(small(trn!(P::MoreVersions, total - 40)).text_color(colors::GRAY_500));
+            column = column.child(
+                small(trn!(P::MoreVersions, total - 40)).text_color(crate::theme::ink::muted()),
+            );
         }
         column.into_any_element()
     }

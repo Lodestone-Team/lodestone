@@ -13,7 +13,7 @@ use gpui::{
     Subscription, Task, Window, div, img, prelude::*,
 };
 use launcher_core::ui_skin::{
-    Fit, ImageRole, MAX_BLUR, MAX_LABEL, Rgb, Shape, SkinEntry, SkinSpec, SkinStore,
+    Fit, ImageRole, MAX_BLUR, MAX_LABEL, Rgb, Shape, SkinEntry, SkinSpec, SkinStore, readable,
 };
 
 use crate::{
@@ -266,12 +266,14 @@ impl SkinSettings {
     }
 
     /// "Fix readability": every surface works its text out from its image again.
-    fn fix_readability(&mut self, cx: &mut Context<Self>) {
-        use launcher_core::ui_skin::Readability;
-        self.edit(Control::Readability, cx, |spec| {
-            spec.sidebar.readability = Readability::Auto;
-            spec.hero.readability = Readability::Auto;
-            spec.banner.readability = Readability::Auto;
+    /// Applies a suggested fix, or all of them (`None`).
+    fn apply_fix(&mut self, fix: Option<readable::Fix>, cx: &mut Context<Self>) {
+        let backdrops = crate::skin::look(cx).backdrops.clone();
+        self.edit(Control::Readability, cx, move |spec| match fix {
+            Some(fix) => readable::apply(spec, &fix),
+            None => {
+                readable::fix_all(spec, &|surface| backdrops.get(&surface).copied());
+            }
         });
     }
 
@@ -319,12 +321,12 @@ impl SkinSettings {
         match self.store(cx).add_image(&id, &path, role) {
             Ok(name) => {
                 let control = match role {
-                    ImageRole::Sidebar => Control::SidebarImage,
                     ImageRole::Hero => Control::Hero,
+                    _ => Control::SidebarImage,
                 };
                 self.edit(control, cx, move |spec| match role {
-                    ImageRole::Sidebar => spec.sidebar.image = Some(name),
                     ImageRole::Hero => spec.hero.image = Some(name),
+                    _ => spec.sidebar.image = Some(name),
                 });
             }
             Err(err) => self.say(err.to_string(), true, cx),
@@ -498,11 +500,11 @@ pub fn swatch_none(
         .map(|this| {
             if selected {
                 this.border_color(colors::WHITE)
-                    .text_color(colors::GRAY_300)
+                    .text_color(crate::theme::ink::text())
             } else {
-                this.border_color(colors::FADE_700)
-                    .text_color(colors::GRAY_500)
-                    .hover(|style| style.text_color(colors::GRAY_300))
+                this.border_color(crate::theme::ink::border())
+                    .text_color(crate::theme::ink::muted())
+                    .hover(|style| style.text_color(crate::theme::ink::text()))
             }
         })
         .child(label)
@@ -543,7 +545,7 @@ fn gallery_card(entry: &SkinEntry, selected: bool) -> gpui::Stateful<gpui::Div> 
                 this.border_color(crate::theme::accent::light())
             } else {
                 this.border_color(colors::TRANSPARENT)
-                    .hover(|style| style.border_color(colors::FADE_700))
+                    .hover(|style| style.border_color(crate::theme::ink::border()))
             }
         })
         .child(
@@ -554,7 +556,7 @@ fn gallery_card(entry: &SkinEntry, selected: bool) -> gpui::Stateful<gpui::Div> 
                 .rounded(radius::MD)
                 .overflow_hidden()
                 .border_1()
-                .border_color(colors::FADE_700)
+                .border_color(crate::theme::ink::border())
                 .child(div().w(px(34.)).h_full().bg(sidebar))
                 .child(
                     div()
@@ -680,7 +682,12 @@ impl Render for SkinSettings {
             self.image_row(
                 ImageRole::Sidebar,
                 spec.sidebar.image.is_some(),
-                look.sidebar.clone(),
+                look.surfaces
+                    .get(&launcher_core::ui_skin::SurfaceId::Sidebar)
+                    .and_then(|p| match &p.paint {
+                        Some(crate::skin::Paint::Image(image)) => Some(image.clone()),
+                        _ => None,
+                    }),
                 cx,
             ),
             SettingRow::new(t(M::SkinFit))
@@ -841,79 +848,20 @@ impl Render for SkinSettings {
             ),
         ]);
 
-        // each surface's text contrast, as worked out from its image
-        let ratio = |value: f32| crate::i18n::format::decimal(f64::from(value), 1);
-        let mut checks: Vec<(String, bool)> = Vec::new();
-        if let Some(palette) = crate::skin::sidebar_palette(&look) {
-            checks.push((
-                tr!(M::SkinContrastSidebar, ratio = ratio(palette.contrast)),
-                palette.passes(),
-            ));
-        }
-        if let Some(contrast) = crate::skin::hero_contrast(&look) {
-            checks.push((
-                tr!(M::SkinContrastHero, ratio = ratio(contrast)),
-                contrast + 0.005 >= launcher_core::ui_skin::readable::BODY,
-            ));
-        }
-        let short = checks.iter().any(|(_, ok)| !ok);
         let accent_adjusted = spec.accent.is_some_and(crate::theme::accent::adjusted);
-        let checks_line: Vec<AnyElement> = checks
-            .into_iter()
-            .map(|(label, ok)| {
-                let color = if ok {
-                    colors::GREEN_300
-                } else {
-                    colors::YELLOW
-                };
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_1p5()
-                    .text_color(color)
-                    .child(
-                        if ok {
-                            Icon::Check
-                        } else {
-                            Icon::TriangleExclamation
-                        }
-                        .render(px(14.), color),
-                    )
-                    .child(label)
-                    .into_any_element()
-            })
-            .collect();
         let readable = div()
             .flex()
-            .flex_row()
-            .flex_wrap()
-            .items_center()
-            .gap_x_4()
-            .gap_y_2()
-            .when(checks_line.is_empty(), |this| {
-                this.child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_1p5()
-                        .text_color(colors::GREEN_300)
-                        .child(Icon::Check.render(px(14.), colors::GREEN_300))
-                        .child(t(M::SkinReadable)),
-                )
-            })
-            .children(checks_line)
+            .flex_col()
+            .gap_2()
+            .child(super::skin_checks::render(
+                &crate::skin::checks(&look),
+                !builtin,
+                "skin-fix",
+                |this: &mut Self, fix, cx| this.apply_fix(fix, cx),
+                cx,
+            ))
             .when(accent_adjusted, |this| {
                 this.child(div().text_color(colors::YELLOW).child(t(M::SkinAdjusted)))
-            })
-            .when(short && !builtin, |this| {
-                this.child(
-                    Button::new("skin-fix-readability", t(M::SkinFixReadability))
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|this, _, _, cx| this.fix_readability(cx))),
-                )
             });
 
         div()
@@ -962,8 +910,8 @@ impl SkinSettings {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (id, remove_id) = match role {
-            ImageRole::Sidebar => ("skin-sidebar-image", "skin-sidebar-remove"),
             ImageRole::Hero => ("skin-hero-image", "skin-hero-remove"),
+            _ => ("skin-sidebar-image", "skin-sidebar-remove"),
         };
         SettingRow::new(t(M::SkinImage))
             .when(role == ImageRole::Hero, |row| row.hint(t(M::SkinHeroHint)))
@@ -988,12 +936,12 @@ impl SkinSettings {
                     muted_link(remove_id, t(M::SkinRemove)).on_click(cx.listener(
                         move |this, _, _, cx| {
                             let control = match role {
-                                ImageRole::Sidebar => Control::SidebarImage,
                                 ImageRole::Hero => Control::Hero,
+                                _ => Control::SidebarImage,
                             };
                             this.edit(control, cx, move |spec| match role {
-                                ImageRole::Sidebar => spec.sidebar.image = None,
                                 ImageRole::Hero => spec.hero.image = None,
+                                _ => spec.sidebar.image = None,
                             })
                         },
                     )),

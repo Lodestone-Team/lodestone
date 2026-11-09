@@ -2,9 +2,11 @@
 //! pages listed on the left and the open page on the right. Other dialogs, such as
 //! signing in, open over it.
 
+use crate::skin::Skinned;
 use crate::theme::px;
 use gpui::{AnyElement, Context, FocusHandle, IntoElement, SharedString, Window, div, prelude::*};
 use launcher_core::accounts::AccountKind;
+use launcher_core::ui_skin::SurfaceId;
 
 use super::{LauncherShell, account_box, developer};
 use crate::components::KeyboardFocus;
@@ -285,14 +287,14 @@ impl LauncherShell {
                                     .gap_1()
                                     .child(
                                         div()
-                                            .font_family(fonts::HEADING)
+                                            .font_family(fonts::heading())
                                             .text_size(theme::text_size(text::H2))
                                             .line_height(theme::line_height(
                                                 text::H2,
                                                 leading::TIGHT,
                                             ))
                                             .font_weight(weights::BOLD.into())
-                                            .text_color(colors::GRAY_300)
+                                            .text_color(crate::theme::ink::text())
                                             .child(page.title()),
                                     )
                                     .children(page.lead().map(|lead| {
@@ -302,7 +304,7 @@ impl LauncherShell {
                                                 text::SMALL,
                                                 leading::NORMAL,
                                             ))
-                                            .text_color(colors::GRAY_500)
+                                            .text_color(crate::theme::ink::muted())
                                             .child(lead)
                                     })),
                             )
@@ -361,7 +363,8 @@ impl LauncherShell {
                         .p_3()
                         .bg(colors::GRAY_875)
                         .border_r_1()
-                        .border_color(colors::FADE_700)
+                        .border_color(crate::theme::ink::border())
+                        .surface(SurfaceId::SettingsNav)
                 }
             })
             .child(
@@ -383,7 +386,7 @@ impl LauncherShell {
                                 div()
                                     .truncate()
                                     .font_weight(weights::BOLD.into())
-                                    .text_color(colors::GRAY_300)
+                                    .text_color(crate::theme::ink::text())
                                     .child(name),
                             )
                             .child(div().flex().child(
@@ -405,7 +408,7 @@ impl LauncherShell {
                     .pb_1()
                     .text_size(theme::text_size(text::SMALL))
                     .font_weight(weights::BOLD.into())
-                    .text_color(colors::GRAY_500)
+                    .text_color(crate::theme::ink::muted())
                     .child(t(group)),
             );
             for &page in pages {
@@ -425,11 +428,15 @@ impl LauncherShell {
                         .font_weight(weights::BOLD.into())
                         .map(|this| {
                             if selected {
-                                this.bg(colors::GRAY_800).text_color(colors::GRAY_300)
+                                this.bg(colors::GRAY_800)
+                                    .text_color(crate::theme::ink::text())
                             } else {
-                                this.text_color(colors::GRAY_400).hover(|style| {
-                                    style.bg(colors::GRAY_850).text_color(colors::GRAY_300)
-                                })
+                                this.text_color(crate::theme::ink::secondary())
+                                    .hover(|style| {
+                                        style
+                                            .bg(colors::GRAY_850)
+                                            .text_color(crate::theme::ink::text())
+                                    })
                             }
                         })
                         .child(page.icon().render(
