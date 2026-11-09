@@ -48,11 +48,13 @@ impl Toggle {
 }
 
 impl RenderOnce for Toggle {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let track = match (self.disabled, self.value) {
-            (true, _) => colors::GRAY_FADED.opacity(30),
-            (false, true) => colors::GREEN_400,
-            (false, false) => colors::WHITE.opacity(50),
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // 0.0 off, 1.0 on, easing between them when the value changes.
+        let on = super::motion::switch((self.id.clone(), "switch"), self.value, window, cx);
+        let track = if self.disabled {
+            colors::GRAY_FADED.opacity(30)
+        } else {
+            colors::WHITE.opacity(50).mix(colors::GREEN_400, on)
         };
         let knob = if self.disabled {
             colors::GRAY_FADED.opacity(40)
@@ -75,7 +77,7 @@ impl RenderOnce for Toggle {
             .child(
                 div()
                     .size(px(16.))
-                    .ml(if value { px(24.) } else { px(4.) })
+                    .ml(px(4. + 20. * on))
                     .rounded_full()
                     .bg(knob),
             )
