@@ -170,6 +170,66 @@ impl ModFinder {
         &self.id
     }
 
+    /// A made-up search for the offscreen screenshots: before the first try, or
+    /// (`found`) with Zenith found and its add-on kept off with it.
+    pub fn preview(
+        instances: Entity<Instances>,
+        id: &str,
+        found: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        use launcher_core::content::mod_finder::ModNode;
+        let mut this = Self::empty(instances, id, cx);
+        let names = [
+            ("zenith.jar", "Zenith", vec!["zenith"], vec![]),
+            (
+                "zenith-addon.jar",
+                "Zenith Attributes",
+                vec![],
+                vec!["zenith"],
+            ),
+            ("fancymenu.jar", "FancyMenu", vec![], vec![]),
+            ("sodium.jar", "Sodium", vec![], vec![]),
+        ];
+        let mut files: Vec<String> = names.iter().map(|n| n.0.to_string()).collect();
+        files.extend((0..208).map(|i| format!("mod{i:03}.jar")));
+        let mut nodes: Vec<ModNode> = names
+            .iter()
+            .map(|(file, name, provides, requires)| ModNode {
+                file_name: file.to_string(),
+                name: name.to_string(),
+                provides: provides.iter().map(|s| s.to_string()).collect(),
+                requires: requires.iter().map(|s| s.to_string()).collect(),
+            })
+            .collect();
+        nodes.extend(files[4..].iter().map(|f| ModNode {
+            file_name: f.clone(),
+            name: f.clone(),
+            ..ModNode::default()
+        }));
+        let mods = Mods::new(nodes);
+        let mut search = Search::new(files, &["fancymenu.jar".into()], true);
+        if found {
+            search.candidates = vec!["zenith.jar".into()];
+            search.rounds = (0..8)
+                .map(|i| mod_finder::Round {
+                    off: Vec::new(),
+                    crashed: i % 2 == 0,
+                })
+                .collect();
+            let found = vec!["zenith.jar".to_string()];
+            this.state = State::Found {
+                keep_off: mods.closure(&found.iter().cloned().collect()),
+                mods: found,
+            };
+        } else {
+            this.state = State::Ready;
+        }
+        this.search = Some(search);
+        this.mods = Some(Arc::new(mods));
+        this
+    }
+
     fn read(
         &mut self,
         start: impl FnOnce(&InstanceDirs) -> (Search, bool) + Send + 'static,

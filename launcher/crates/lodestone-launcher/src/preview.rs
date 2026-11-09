@@ -78,6 +78,8 @@ pub const SCENES: &[&str] = &[
     "instance-settings",
     "crash",
     "crash-mods",
+    "mod-finder",
+    "mod-finder-found",
     "rosetta",
     "content-mods",
     "content-browse",
@@ -453,6 +455,8 @@ fn has_instances(scene: &str) -> bool {
             | "instance-settings"
             | "crash"
             | "crash-mods"
+            | "mod-finder"
+            | "mod-finder-found"
             | "rosetta"
     ) || scene.starts_with("content-")
         || scene.starts_with("modpack-")
@@ -932,10 +936,20 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             },
             cx,
         ),
-        "crash-mods" => shell.show_crash(
+        "crash-mods" => {
+            // A modded instance, so the dialog offers "Find it for me".
+            let (instance_id, instance_name) = shell
+                .instances()
+                .read(cx)
+                .list()
+                .iter()
+                .find(|i| i.loader != launcher_core::instances::Loader::None)
+                .map(|i| (i.id.clone(), i.name.clone()))
+                .unwrap_or_default();
+            shell.show_crash(
             CrashInfo {
-                instance_id: "preview".into(),
-                instance_name: "Fabulously Fancy 1.21.1".into(),
+                instance_id,
+                instance_name,
                 summary: CrashSummary {
                     exception: Some(
                         "java.lang.NullPointerException: Cannot invoke \"net.minecraft.class_1799.method_7909()\" because \"stack\" is null".into(),
@@ -962,7 +976,23 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 mods_refused: false,
             },
             cx,
-        ),
+        );
+        }
+        "mod-finder" | "mod-finder-found" => {
+            let instances = shell.instances().clone();
+            let id = instances
+                .read(cx)
+                .list()
+                .iter()
+                .find(|i| i.loader != launcher_core::instances::Loader::None)
+                .map(|i| i.id.clone())
+                .unwrap_or_default();
+            let found = scene == "mod-finder-found";
+            let finder = cx.new(|cx| {
+                crate::instances::mod_finder::ModFinder::preview(instances, &id, found, cx)
+            });
+            shell.show_mod_finder(finder, cx);
+        }
         "rosetta" => shell.preview_launch_failed(
             crate::i18n::t(crate::i18n::InstancesMsg::RosettaNeeded),
             crate::instances::rosetta_missing(),
