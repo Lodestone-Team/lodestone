@@ -100,13 +100,16 @@ pub enum SettingsPage {
     Users,
     /// Account › Profile.
     Profile,
+    /// Lodestone Host's own updates (package D; not in the dashboard).
+    Updates,
 }
 
 impl SettingsPage {
-    pub const ALL: [SettingsPage; 3] = [
+    pub const ALL: [SettingsPage; 4] = [
         SettingsPage::General,
         SettingsPage::Users,
         SettingsPage::Profile,
+        SettingsPage::Updates,
     ];
 }
 

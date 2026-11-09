@@ -380,14 +380,17 @@ Conventions in the code that every area relies on:
 - [ ] Reconnecting websocket helper: exponential backoff 1 s → max 30 s, reset on open; URL rebuilt each
   attempt; close code 1000 by client stops it — `utils/websocket.ts`.
 - [ ] After an event-stream reconnect: invalidate instance list, user info, global settings.
-- [ ] **Core error dialog** (status `error`): "Can't reach <addr:port>", **Back** (→ `/login/core/select`) /
+- [x] **Core error dialog** (status `error`): "Can't reach <addr:port>", **Back** (→ `/login/core/select`) /
   **Continue** (reload page).
-- [ ] **Setup required dialog** (`/info.is_setup === false` while in dashboard): **Set up** (→ first_setup)
+  - *Host:* The Host's own core: the supervisor's status screen, which restarts it and shows its log.
+- [x] **Setup required dialog** (`/info.is_setup === false` while in dashboard): **Set up** (→ first_setup)
   / **Change core**.
+  - *Host:* The Host's own core: the first run's owner form (onboarding.rs).
 - [ ] **Version mismatch** (`DASHBOARD_VERSION` vs `/info.version`, semver): different major or minor, or
   core 0.4.x with patch < 4 → danger dialog (core/dashboard versions, "incompatible", wiki Updating link,
   "Continue anyway"); patch-only difference → warning toast top-centre 10 s (id `patchVersionMismatch`).
-- [ ] **Beta thank-you dialog** once per new core version containing "beta" (`localStorage.latestVersion`).
+- [x] **Beta thank-you dialog** once per new core version containing "beta" (`localStorage.latestVersion`).
+  - *Host:* notifications.rs; the version thanked for is latest_version in settings.json.
 
 ### 1.7 Notifications (`data/NotificationContext.tsx`, `data/EventStream.ts`, `components/DashboardLayout/Notification*.tsx`, `components/Atoms/NotificationCard.tsx`)  
 **Package: D.**
@@ -1007,8 +1010,10 @@ Conventions in the code that every area relies on:
 ### 8.5 Tray — `main.rs`  
 **Package: foundation (macOS done); D: Windows and Linux.**
 
-- [ ] Template tray icon (`icons/icon.png`); menu with single **Quit** item.
-- [ ] Left click (button up) shows + focuses the main window; on macOS left click also opens the menu.
+- [x] Template tray icon (`icons/icon.png`); menu with single **Quit** item.
+  - *Host:* macOS: the menu bar icon (foundation). Windows: a notification area icon with Show and Quit (tray_windows.rs; compile-checked for x86_64-pc-windows-msvc in a scratch crate, not run). Linux: none, see tray.rs.
+- [x] Left click (button up) shows + focuses the main window; on macOS left click also opens the menu.
+  - *Host:* Windows: a left click shows the window, a right click opens the menu.
 - [x] Quit: signals core shutdown (stop servers), waits up to 10 s for it, then exits.
 
 ### 8.6 Single instance — `main.rs`  
@@ -1020,10 +1025,11 @@ Conventions in the code that every area relies on:
 ### 8.7 Updater — `main.rs`, `tauri.conf.json`  
 **Package: D.**
 
-- [ ] On startup (Linux: only AppImage or dev), checks `https://raw.githubusercontent.com/Lodestone-Team/
+- [x] On startup (Linux: only AppImage or dev), checks `https://raw.githubusercontent.com/Lodestone-Team/
   updates/main/updates.json` (minisign pubkey in config). If an update exists: native Yes/No dialog "A new
   version of Lodestone Host is available!" with versions and release notes → download+install → second
   dialog "Ready to restart" → restart. Errors logged only. Bundles `v1Compatible` updater artifacts.
+  - *Host:* Settings › Updates (pages/updates.rs) and updater.rs, after the launcher's updater: check, download, install, restart, with Update automatically and Beta builds saved in settings.json. The source of builds (an UpdateSource) comes with the Host's release channel; until then the page says the Host doesn't update itself.
 
 ### 8.8 Other Tauri facts  
 **Package: D (packaging).**

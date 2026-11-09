@@ -40,6 +40,7 @@ pub mod permissions;
 pub mod playit;
 pub mod profile;
 pub mod public_listing;
+pub mod updates;
 pub mod users;
 
 use gpui::{
@@ -90,6 +91,7 @@ pub fn open(route: &Route, state: Entity<HostState>, cx: &mut App) -> AnyView {
                 .into(),
             SettingsPage::Users => cx.new(|cx| users::UsersPage::new(state, cx)).into(),
             SettingsPage::Profile => cx.new(|cx| profile::ProfilePage::new(state, cx)).into(),
+            SettingsPage::Updates => cx.new(|cx| updates::UpdatesPage::new(state, cx)).into(),
         },
     }
 }
