@@ -127,23 +127,23 @@ pub fn text(message: M) -> &'static str {
             }
         }
         M::CauseModPatch => {
-            "Un mod n’a pas pu modifier le jeu. Il est souvent fait pour une autre version de Minecraft, ou a besoin d’une version plus récente d’un mod dont il dépend. Mettez à jour ou désactivez le mod."
+            "Un mod n’a pas pu appliquer ses modifications au jeu. Il est sans doute fait pour une autre version de Minecraft, ou il a besoin d’une version plus récente d’un autre mod. Mettez-le à jour ou désactivez-le."
         }
         M::ProbablyCausedBy => "Probablement causé par",
         M::ModsInvolved => "Mods en cause",
         M::ModsInvolvedHint => {
-            "Chacun de ces mods avait du code dans le plantage. Désactivez-les un par un pour trouver celui qui le provoque."
+            "Chacun d’eux pourrait être en cause. Essayez de les désactiver un par un."
         }
         M::EvidenceFailedToPatch => {
-            "Il n’a pas pu modifier le jeu, il est peut-être fait pour une autre version de Minecraft."
+            "Il n’a pas pu se charger, il est peut-être fait pour une autre version de Minecraft."
         }
-        M::EvidenceCrashedInItsCode => "Le plantage s’est produit dans son code.",
-        M::EvidencePatchedCrashingCode => "Il a modifié le code qui a planté.",
-        M::EvidenceInStack => "Son code était en cours d’exécution quand le jeu a planté.",
+        M::EvidenceCrashedInItsCode => "Le plantage s’est produit dans ce mod.",
+        M::EvidencePatchedCrashingCode => "Il modifie la partie du jeu qui a planté.",
+        M::EvidenceInStack => "Il était en cours d’exécution quand le jeu a planté.",
         M::TurnOffMod => "Désactiver",
         M::TurnOnMod => "Réactiver",
         M::ModTurnedOff => {
-            "Désactivé. Rejouez pour voir si le problème est réglé. Vous pouvez le réactiver ici ou dans Contenu."
+            "Désactivé. Rejouez pour voir si le problème est réglé. Vous pouvez le réactiver ici ou dans l’onglet Contenu."
         }
         M::CopyLog => "Copier le journal",
 

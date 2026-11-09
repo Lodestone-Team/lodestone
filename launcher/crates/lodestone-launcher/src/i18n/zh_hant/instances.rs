@@ -151,42 +151,44 @@ pub fn text(message: M) -> &'static str {
         M::FindModButton => "幫我找出來",
         M::FinderTitle => "找出造成「{name}」當機的模組",
         M::FinderIntro => {
-            "Lodestone Launcher 會多次啟動遊戲。每次嘗試都會停用可能造成當機的模組中的一半，直到只剩一個。完成後會還原你的模組。"
+            "啟動器會多次啟動遊戲，每次停用可能造成當機的模組中的一半，直到只剩下一個。完成後，你的模組會恢復原狀。"
         }
         M::FinderAutomatic => {
-            "遊戲在啟動時當機，所以嘗試會自動進行。每次嘗試在遊戲當機或到達主選單時結束。"
+            "遊戲在啟動時當機，所以你什麼都不用做。每次嘗試會在遊戲當機或進入主選單時結束。"
         }
         M::FinderManual => {
-            "遊戲在啟動後當機，所以每次嘗試需要你來玩，並重複造成當機的操作。如果再次當機，下一次嘗試會自動開始；如果沒有，請按「沒有當機」。"
+            "遊戲是在你遊玩時當機的，所以每次嘗試都需要你來玩。重複之前造成當機的操作。如果再次當機，下一次嘗試會自動開始；如果沒有，請按「沒有當機」。"
         }
         M::FinderStart => "開始",
-        M::FinderReading => "正在讀取模組",
+        M::FinderReading => "正在檢查你的模組",
         M::FinderTry => "第 {number} 次嘗試",
         M::FinderStarting => "正在啟動遊戲",
-        M::FinderWaiting => "正在等待遊戲當機或到達主選單",
-        M::FinderSettling => "遊戲已到達主選單，正在確認它保持執行",
-        M::FinderPlay => "重複造成當機的操作。如果沒有當機，請按「沒有當機」。",
-        M::FinderAsk => "遊戲已關閉。它當機了或出現問題了嗎？",
+        M::FinderWaiting => "正在等待，看遊戲是否當機",
+        M::FinderSettling => "已進入主選單，正在確認遊戲不會關閉",
+        M::FinderPlay => "一直玩到當機為止。如果沒有當機，請按「沒有當機」。",
+        M::FinderAsk => "遊戲已關閉。問題出現了嗎？",
         M::FinderDidntCrash => "沒有當機",
         M::FinderItCrashed => "當機了",
         M::FinderStopping => "正在停止遊戲",
         M::FinderFound => "找到了",
-        M::FinderFoundOne => "停用 {name} 後遊戲不再當機。",
-        M::FinderFoundGroup => "這些模組彼此相依，停用它們後遊戲不再當機：{names}。",
+        M::FinderFoundOne => "停用 {name} 後，遊戲不會當機。",
+        M::FinderFoundGroup => {
+            "停用這些模組後，遊戲不會當機：{names}。它們彼此相依，只能一起停用。"
+        }
         M::FinderAlsoOff => "相依於它的模組也會保持停用：{names}。",
         M::FinderKeepOff => "保持停用",
         M::FinderPutBack => "全部重新啟用",
         M::FinderNotFound => {
-            "停用所有這些模組後，遊戲仍然當機。原因可能不是模組，或者當機並非每次都會發生。你的模組已還原。"
+            "即使停用了這些模組，遊戲仍然當機，所以原因可能不是模組，或者當機只是偶爾發生。你的模組已恢復原狀。"
         }
-        M::FinderRefused => "停用這些模組導致其他模組無法載入，所以無法繼續尋找。你的模組已還原。",
-        M::FinderFailed => "尋找已停止。你的模組已還原。",
-        M::FinderStopped => "已停止尋找。你的模組已還原。",
+        M::FinderRefused => {
+            "有些模組少了被停用的模組就無法載入，所以只能停止尋找。你的模組已恢復原狀。"
+        }
+        M::FinderFailed => "發生問題，尋找已停止。你的模組已恢復原狀。",
+        M::FinderStopped => "已停止尋找。你的模組已恢復原狀。",
         M::FinderStop => "停止",
         M::FinderInterruptedTitle => "要完成在「{name}」中尋找模組嗎？",
-        M::FinderInterrupted => {
-            "尋找造成「{name}」當機的模組時被中斷，它的部分模組仍處於停用狀態。"
-        }
+        M::FinderInterrupted => "啟動器在尋找途中關閉了，所以「{name}」的部分模組仍處於停用狀態。",
         M::FinderPutBackFailed => "部分模組無法重新啟用：{error}",
     }
 }

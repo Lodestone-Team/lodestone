@@ -107,21 +107,19 @@ pub fn text(message: M) -> &'static str {
             }
         }
         M::CauseModPatch => {
-            "某個模組無法修改遊戲。它通常是為其他 Minecraft 版本製作的，或需要其相依模組的較新版本。請更新或停用該模組。"
+            "某個模組無法將它的修改載入遊戲。它可能是為其他 Minecraft 版本製作的，或者需要另一個模組的較新版本。請更新或停用該模組。"
         }
         M::ProbablyCausedBy => "很可能由此造成",
         M::ModsInvolved => "涉及的模組",
-        M::ModsInvolvedHint => {
-            "這些模組的程式碼都出現在當機中。逐一停用它們，即可找出造成當機的那一個。"
-        }
-        M::EvidenceFailedToPatch => "它無法修改遊戲，可能是為其他 Minecraft 版本製作的。",
-        M::EvidenceCrashedInItsCode => "當機發生在它的程式碼中。",
-        M::EvidencePatchedCrashingCode => "它修改了當機的程式碼。",
-        M::EvidenceInStack => "遊戲當機時它的程式碼正在執行。",
+        M::ModsInvolvedHint => "其中任何一個都可能是原因。試著逐一停用它們。",
+        M::EvidenceFailedToPatch => "它載入失敗，可能是為其他 Minecraft 版本製作的。",
+        M::EvidenceCrashedInItsCode => "當機發生在這個模組內部。",
+        M::EvidencePatchedCrashingCode => "它修改了遊戲中當機的部分。",
+        M::EvidenceInStack => "遊戲當機時它正在執行。",
         M::TurnOffMod => "停用",
         M::TurnOnMod => "啟用",
         M::ModTurnedOff => {
-            "已停用。再玩一次，看看問題是否解決。你可以在這裡或在「內容」中重新啟用它。"
+            "已停用。再玩一次，看看問題是否解決。你可以在這裡或「內容」分頁中重新啟用它。"
         }
         M::CopyLog => "複製日誌",
 

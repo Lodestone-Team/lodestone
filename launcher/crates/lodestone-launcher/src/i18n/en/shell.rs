@@ -132,22 +132,22 @@ crate::i18n::messages! {
         } else {
             "The game couldn't set up its window or OpenGL. Update your graphics drivers, or try without a custom window size or fullscreen."
         },
-        CauseModPatch = "A mod couldn't patch the game. It's usually made for a different Minecraft version, or needs a newer version of a mod it depends on. Update or turn off the mod.",
+        CauseModPatch = "A mod couldn't load its changes into the game. It's probably made for a different Minecraft version, or it needs a newer version of another mod. Update the mod or turn it off.",
         /// A heading in the crash dialog (shown in capitals), above the one mod the
         /// crash points at.
         ProbablyCausedBy = "Probably caused by",
         /// A heading in the crash dialog (shown in capitals), above several mods.
         ModsInvolved = "Mods involved",
-        ModsInvolvedHint = "Each of these mods had code in the crash. Turn them off one at a time to find the one causing it.",
+        ModsInvolvedHint = "Any of these could be the cause. Try turning them off one at a time.",
         /// Why the crash dialog names a mod.
-        EvidenceFailedToPatch = "It couldn't patch the game, so it may be made for a different Minecraft version.",
-        EvidenceCrashedInItsCode = "The crash happened in its code.",
-        EvidencePatchedCrashingCode = "It changed the code that crashed.",
-        EvidenceInStack = "Its code was running when the game crashed.",
+        EvidenceFailedToPatch = "It failed to load, so it may be made for a different Minecraft version.",
+        EvidenceCrashedInItsCode = "The crash happened inside this mod.",
+        EvidencePatchedCrashingCode = "It changes the part of the game that crashed.",
+        EvidenceInStack = "It was running when the game crashed.",
         /// The crash dialog's buttons on a mod: rename it to .disabled, and back.
         TurnOffMod = "Turn off",
         TurnOnMod = "Turn on",
-        ModTurnedOff = "Turned off. Play again to see if that fixed it. You can turn it back on here or in Content.",
+        ModTurnedOff = "Turned off. Play again to see if that fixed it. You can turn it back on here or in the Content tab.",
         CopyLog = "Copy log",
 
         // A modpack update.

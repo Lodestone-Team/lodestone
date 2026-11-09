@@ -55,7 +55,7 @@ impl Cause {
                 }
             }
             Cause::ModPatch => {
-                "A mod couldn't patch the game. It's usually made for a different Minecraft version, or needs a newer version of a mod it depends on. Update or turn off the mod."
+                "A mod couldn't load its changes into the game. It's probably made for a different Minecraft version, or it needs a newer version of another mod. Update the mod or turn it off."
             }
         }
     }

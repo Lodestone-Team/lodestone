@@ -107,21 +107,19 @@ pub fn text(message: M) -> &'static str {
             }
         }
         M::CauseModPatch => {
-            "某个模组无法修改游戏。它通常是为其他 Minecraft 版本制作的，或需要其依赖模组的更新版本。请更新或禁用该模组。"
+            "某个模组无法把它的修改载入游戏。它可能是为其他 Minecraft 版本制作的，或者需要另一个模组的更新版本。请更新或禁用该模组。"
         }
         M::ProbablyCausedBy => "很可能由此导致",
         M::ModsInvolved => "涉及的模组",
-        M::ModsInvolvedHint => {
-            "这些模组的代码都出现在崩溃中。逐个禁用它们，即可找出导致崩溃的那个。"
-        }
-        M::EvidenceFailedToPatch => "它无法修改游戏，可能是为其他 Minecraft 版本制作的。",
-        M::EvidenceCrashedInItsCode => "崩溃发生在它的代码中。",
-        M::EvidencePatchedCrashingCode => "它修改了崩溃的代码。",
-        M::EvidenceInStack => "游戏崩溃时它的代码正在运行。",
+        M::ModsInvolvedHint => "其中任何一个都可能是原因。试着逐个禁用它们。",
+        M::EvidenceFailedToPatch => "它加载失败，可能是为其他 Minecraft 版本制作的。",
+        M::EvidenceCrashedInItsCode => "崩溃发生在这个模组内部。",
+        M::EvidencePatchedCrashingCode => "它修改了游戏中崩溃的部分。",
+        M::EvidenceInStack => "游戏崩溃时它正在运行。",
         M::TurnOffMod => "禁用",
         M::TurnOnMod => "启用",
         M::ModTurnedOff => {
-            "已禁用。再玩一次，看看问题是否解决。你可以在这里或在“内容”中重新启用它。"
+            "已禁用。再玩一次，看看问题是否解决。你可以在这里或“内容”标签页中重新启用它。"
         }
         M::CopyLog => "复制日志",
 
