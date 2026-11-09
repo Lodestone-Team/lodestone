@@ -126,3 +126,17 @@ plan: how the Host works, the feature checklist and the work packages. In short:
   `LODESTONE_HOST_DATA_DIR`) to temp folders. `launcher/scripts/host_dev_bundle.py`
   makes a runnable `Lodestone Host Dev.app` that does this.
 - Never start a Minecraft server while testing the Host.
+
+## Testing the launcher's and Host's UI
+
+Drive the app in the background, so the developer can keep using their machine; use
+computer-use tools only when these can't do it. `launcher/docs/ui-automation.md` has the
+details.
+
+- **Press, fill in and read controls** with `launcher/scripts/ui_drive.swift` (macOS,
+  accessibility API) or `launcher/scripts/ui_drive.ps1` (Windows, UI Automation). They
+  find controls by automation id (`tree` lists them) and never move the pointer or
+  bring the window forward. `screenshot` captures the window even behind others.
+- **Set up state** (instances, mods, accounts) with `lodestone-launcher-cli`.
+- **Check a UI change in the code** with the offscreen scenes:
+  `--features screenshot`, then `--scene NAME --screenshot FILE.png`.
