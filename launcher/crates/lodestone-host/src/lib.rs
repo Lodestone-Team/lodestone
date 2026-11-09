@@ -17,6 +17,7 @@ pub mod core_process;
 pub mod i18n;
 pub mod onboarding;
 pub mod pages;
+pub mod prefs;
 pub mod routes;
 pub mod session;
 pub mod shell;
@@ -47,7 +48,10 @@ pub const TOP_BAR_HEIGHT: f32 = 42.0;
 
 /// Sets up the fonts, the components, key bindings and the app menu. Call once.
 pub fn init(cx: &mut App) {
+    // the messages shared with the launcher name this app
+    launcher_core::wording::set_app_name(APP_NAME);
     lodestone_ui::init(cx);
+    prefs::Prefs::init(cx);
     #[cfg(target_os = "macos")]
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),

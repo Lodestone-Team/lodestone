@@ -63,3 +63,6 @@ pub fn trace_ui(topic: &str, control: &str, id: &gpui::ElementId, detail: serde_
         event
     });
 }
+
+mod checkbox;
+pub use checkbox::Checkbox;
