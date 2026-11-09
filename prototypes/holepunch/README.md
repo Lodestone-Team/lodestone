@@ -17,8 +17,16 @@ next step is a tiny introduction service and doing this inside Lodestone.
 Needs Rust (<https://rustup.rs>). From this folder:
 
 ```sh
-cargo build --release --offline   # the binary is target/release/holepunch(.exe)
+cargo build --release --locked    # the binary is target/release/holepunch(.exe)
 ```
+
+On a cloud server (for example AWS EC2) as the other side: keep its firewall's inbound
+rules closed apart from SSH. Opening UDP would connect without punching, and the test
+would prove nothing. A cloud server's NAT is much friendlier than a home router's, so a
+success there doesn't promise one between two homes.
+
+No Minecraft on that side? Check the tunnel with `nc`: `nc -l 25565` on the host, then
+`nc 127.0.0.1 25566` on the joining side once it says Connected, and type a line.
 
 ## Try it
 
