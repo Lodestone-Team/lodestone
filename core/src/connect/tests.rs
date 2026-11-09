@@ -319,6 +319,11 @@ async fn identities_are_saved_for_the_core_user_only_and_resumed_for_existing_in
         "kept for an instance that exists (resuming it retries)"
     );
 
+    // shutting down keeps the identity, to resume with the same link
+    shares.stop_all().await;
+    assert!(file.exists(), "kept when the core shuts down");
+    assert!(shares.slots.lock().await.is_empty());
+
     shares.stop(&core.fabric, true).await;
     assert!(!file.exists(), "stopping for good deletes the identity");
 }
