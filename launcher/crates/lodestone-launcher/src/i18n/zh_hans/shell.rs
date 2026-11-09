@@ -336,6 +336,7 @@ pub fn text(message: M) -> &'static str {
         M::CodeCopiedWaiting => "代码已复制。正在等待你输入…",
         M::WaitingForCode => "正在等待你输入代码…",
         M::CopyCodeAndOpen => "复制代码并打开 {host}",
+        M::CopySignInCode => "复制代码",
         M::LinkInstructions => {
             "请在打开的浏览器窗口中登录。随后 Microsoft 会显示一个页面，说明该页面通常不会显示。从浏览器地址栏复制完整地址，并且只粘贴到本启动器中。"
         }

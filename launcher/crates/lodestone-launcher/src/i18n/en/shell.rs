@@ -388,6 +388,8 @@ crate::i18n::messages! {
         CodeCopiedWaiting = "Code copied. Waiting for you to enter it…",
         WaitingForCode = "Waiting for you to enter the code…",
         CopyCodeAndOpen = "Copy code and open {host}",
+        /// The button beside the sign-in code.
+        CopySignInCode = "Copy code",
         LinkInstructions = "Sign in in the browser window that opened. Microsoft then shows a page saying it is not normally shown. Copy the full address from the browser's address bar and paste it only into this launcher.",
         /// {url} is the start of the address to paste.
         LinkStartsWith = "It starts with {url}",
