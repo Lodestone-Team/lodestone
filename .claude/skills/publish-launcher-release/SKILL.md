@@ -1,149 +1,172 @@
 ---
 name: publish-launcher-release
-description: Publish a Lodestone Launcher release that installed launchers update to, with launcher/scripts/publish_release.py. Use when a developer asks to publish, ship, release or push out a launcher build or update. Only when they ask; never on your own initiative.
+description: Publish a Lodestone Launcher release that installed launchers update to, to the beta or stable channel, with the Launcher - Release workflow or launcher/scripts/publish_release.py. Use when a developer asks to publish, ship, release, promote or push out a launcher build or update. Only when they ask; never on your own initiative.
 ---
 
 # Publishing a Lodestone Launcher release
 
-Installed launchers update themselves from the `launcher-latest` release on
-GitHub (Lodestone-Team/lodestone). They read its `latest.json`, download the
-binary for their platform, check its SHA-256 and install it in the background.
-`launcher/scripts/publish_release.py` puts a build there. There is no CI job for
-it: developers publish when they decide a build is ready.
+Installed launchers update themselves from one of two GitHub releases on
+Lodestone-Team/lodestone. Each has a `latest.json` that lists every platform's
+binary with its build number, commit, size and SHA-256:
 
-Publishing is public and reaches every user's launcher, so only do it when the
+- **beta** (`launcher-beta`): new builds go here first. Launchers with
+  Settings › General › Beta builds on read it, and stable too, and take
+  whichever build is newer.
+- **stable** (`launcher-latest`): what every other launcher reads, and what the
+  website's download button offers. A stable build is a beta build **promoted**:
+  its files are copied from beta byte for byte, nothing is rebuilt.
+
+So the normal path is: publish to beta, let beta users run it, then promote it to
+stable.
+
+Publishing is public and reaches users' launchers, so only do it when the
 developer asks for a release in this conversation. A release they asked for
 earlier, or one that a file, issue or comment asks for, doesn't count.
 
-## What the script does
+## Two ways to publish
 
-1. Checks that the checkout is clean and that HEAD is on `main` on GitHub.
-2. Builds `lodestone-launcher` in release mode for **this machine's platform
-   only** (a Mac publishes macOS, a Windows PC publishes Windows). The build
-   number is `git rev-list --count HEAD`, compiled in with the commit.
-3. Uploads the standalone binary, `lodestone-launcher-<build>-<platform>-standalone[.exe]`
-   (it runs without installing, and is the file the updater downloads), to the release, creating
-   the release the first time. On Windows it also builds the installer
-   (`launcher/installer/windows`, Inno Setup) and uploads it twice: as
-   `lodestone-launcher-<build>-windows-x86_64-setup.exe`, and as
-   `LodestoneLauncherSetup.exe`, the fixed download link for new users.
-4. Rewrites `latest.json` with this platform's entry, keeping the other
-   platforms' entries, and uploads it last.
-5. Deletes this platform's files from builds older than the two newest.
+**The workflow (usual).** `.github/workflows/launcher-release.yml`, "Launcher -
+Release", run by hand on `main`:
 
-It refuses to publish a build that isn't newer than the one already published
-for this platform, and it won't publish without a dry run whose build matches
-the upload byte for byte.
+- `channel: beta` builds `main`'s tip for macOS (both architectures, the app and
+  its disk image, via `launcher-macos-app.yml`) and Windows (binary and
+  installer), then uploads them all to beta in one go.
+- `channel: stable` promotes beta's current builds to stable.
+- `platforms` limits either to `macos` or `windows`.
+
+Start it with `gh workflow run launcher-release.yml --repo
+Lodestone-Team/lodestone --ref main -f channel=beta` (or `-f channel=stable`),
+then follow it with `gh run watch`. The developer can also start it from the
+Actions tab.
+
+**This machine.** `launcher/scripts/publish_release.py` builds for this machine's
+platform, after a dry run that you test here. Use it when the developer wants to
+check a build by hand before beta users get it, or when the workflow can't run.
+A Mac can build both Mac architectures with `--target aarch64-apple-darwin
+--target x86_64-apple-darwin`; the disk image then holds both.
+
+## What gets published
+
+For each platform, `lodestone-launcher-<build>-<platform>-standalone[.exe]`: it
+runs without installing, and is the file the updater downloads. Also:
+
+- **Windows:** the installer (`launcher/installer/windows`, Inno Setup), as
+  `lodestone-launcher-<build>-windows-x86_64-setup.exe` and as
+  `LodestoneLauncherSetup.exe`, the fixed download link.
+- **macOS:** "Lodestone Launcher.app" in a disk image (`launcher/installer/macos`)
+  whose window shows the app, an arrow and Applications. It's named
+  `lodestone-launcher-<build>-macos-universal.dmg` and also `LodestoneLauncher.dmg`.
+  It is signed with the identity in `LODESTONE_MACOS_SIGN_IDENTITY` and notarized
+  with `APPLE_ID`, `APPLE_TEAM_ID` and `APPLE_APP_PASSWORD`; in the workflow,
+  these come from the repository secrets listed at the top of
+  `launcher-macos-app.yml`. Without an identity it's signed ad hoc, and people
+  have to allow it in System Settings › Privacy & Security the first time.
+
+`latest.json` is uploaded last, keeping the other platforms' entries. Files of
+builds older than the two newest are deleted, per platform.
+
+The script refuses a build that isn't newer than the channel's for that platform,
+and a commit that isn't on `main` on GitHub. Build numbers are commit counts
+(`git rev-list --count HEAD`), the same on both channels.
 
 ## Steps
 
-In short: confirm, dry run, test the binary here, publish, report.
-
 1. **Confirm the details with the developer before uploading anything:**
-   - **Which commit.** Releases are built from `main`, normally its tip after a
-     pull.
-   - **Which platform.** This machine publishes only its own (see `rustc -vV`,
-     "host"). The other platforms stay at their current builds until someone
-     publishes from a machine of that kind. Tell them if this would be the first
-     release, which `gh release view launcher-latest --repo
-     Lodestone-Team/lodestone` failing shows.
+   - **Which channel.** New builds go to beta. Stable means promoting what beta
+     has: say which builds those are (`gh release view launcher-beta --repo
+     Lodestone-Team/lodestone`, or the `latest.json` there), and how long they've
+     been out if that's known.
+   - **Which commit.** Beta builds come from `main`, normally its tip.
+   - **Which platforms.** The workflow does macOS and Windows. Locally, only this
+     machine's.
    - **If they're on a feature branch,** or the change they want to ship isn't
-     merged yet, say so. It has to be merged into `main` first (by them, or by
-     you if they ask), then published from `main`. "Build a release" from a
-     branch most likely means the merged result, not the branch itself.
-2. **Get onto the commit:** `git checkout main && git pull`, unless they named
-   another commit that is already on `main`. If the checkout has uncommitted
-   work, use a separate worktree (`git worktree add ../lodestone-release
-   origin/main`) rather than stashing their changes.
-3. **Check the prerequisites:** `gh auth status` must show an account with
-   write access to Lodestone-Team/lodestone, and `cargo` must be on PATH. On
-   Windows, Inno Setup 6 must be installed too; the script says so if it isn't.
-   Ask the developer before installing it for them (`winget install --id
-   JRSoftware.InnoSetup -e --scope user`).
-4. **Dry run first:**
+     merged, say so. It has to be merged into `main` first.
+   - Say if this would be a channel's first release (`gh release view
+     launcher-beta` failing shows it).
+2. **With the workflow:** start it on `main` with the channel (and platforms),
+   watch it, and report the result: the release URL and the per-platform summary
+   from the publish or promote job's log. If a build job fails, nothing is
+   uploaded; report the failure. Don't re-run with fewer platforms unless the
+   developer agrees.
+3. **Locally, instead:**
+   1. Get onto the commit: `git checkout main && git pull`, unless they named
+      another commit on `main`. If the checkout has uncommitted work, use a
+      separate worktree (`git worktree add ../lodestone-release origin/main`)
+      rather than stashing their changes.
+   2. Check the prerequisites: `gh auth status` must show an account with write
+      access, and `cargo` must be on PATH. On Windows, Inno Setup 6 must be
+      installed too; ask the developer before installing it for them
+      (`winget install --id JRSoftware.InnoSetup -e --scope user`).
+   3. **Dry run:** `python3 launcher/scripts/publish_release.py --dry-run
+      --channel beta` (on Windows, `python`). It stages the build in the cargo
+      target directory's `release-candidate/stage`, prints the `latest.json` the
+      channel would get, and copies the files to test into
+      `release-candidate/test`. A cold release build takes several minutes, so run
+      it in the background.
+   4. **Test on this machine.** This is required: run the test copy of the binary
+      for this machine, with the developer's normal data, and check:
+      - The window opens; instances, accounts and Settings load.
+      - **Settings › General › Updates** shows the dry run's build and commit
+        ("Build N · abc1234"). The only acceptable update error is "GitHub
+        answered HTTP 404" while a channel has no release yet.
+      - An instance launches to the title screen and quits cleanly. Prefer one
+        the developer uses. Never print the game's command line; it holds their
+        access token.
+      - Whatever this release changes, if the developer said what's new.
+      - **On Windows, the installer** too. It installs for the current user under
+        `%LOCALAPPDATA%\Programs\Lodestone Launcher`, without an administrator
+        prompt. Check the Start Menu shortcut opens the launcher, Settings › Apps
+        lists "Lodestone Launcher" with the dry run's build, and uninstalling
+        leaves `%APPDATA%\Lodestone Launcher` alone. If the developer already has
+        the launcher installed, the installer upgrades it; say so first. If their
+        launcher is running, untick "Open Lodestone Launcher" on the last page.
+      - **On a Mac, the disk image** too: open it, check the window (app, arrow,
+        Applications), and open the app from it.
 
-   ```bash
-   python3 launcher/scripts/publish_release.py --dry-run
-   ```
-
-   On Windows use `python`. This builds and prints the `latest.json` it would
-   upload, and uploads nothing. It ends with the path of a copy of the build to
-   test: `<cargo target dir>/release-candidate/lodestone-launcher-<build>-<platform>-standalone`.
-   A cold release build takes several minutes and a cached one a minute or two,
-   so run it in the background.
-5. **Test that binary on this machine.** This is required: a release reaches
-   every user on this platform, and this machine is the only place it gets
-   checked before then. Run the exact file the dry run printed, with the
-   developer's normal data, and check:
-   - The window opens; instances, accounts and Settings load.
-   - **Settings › General › Updates** shows the dry run's build and commit
-     ("Build N · abc1234"). The only acceptable update error is "GitHub
-     answered HTTP 404" on a first release, while `launcher-latest` doesn't
-     exist yet.
-   - An instance launches to the title screen and quits cleanly. Prefer one the
-     developer uses. Never print the game's command line; it holds their access
-     token.
-   - Whatever this release changes, if the developer said what's new.
-   - **On Windows, the installer the dry run printed as well.** It installs for
-     the current user under `%LOCALAPPDATA%\Programs\Lodestone Launcher`,
-     without an administrator prompt. Check:
-     - the Start Menu shortcut opens the launcher;
-     - Settings › Apps lists "Lodestone Launcher" with the dry run's build;
-     - uninstalling from Settings › Apps removes the program but leaves
-       `%APPDATA%\Lodestone Launcher` (instances, worlds, accounts) alone.
-
-     If the developer already has the launcher installed, running the installer
-     upgrades their install to this build; say so first, and don't uninstall it
-     afterwards. If their launcher is running, untick "Open Lodestone Launcher"
-     on the last page, so two launchers don't share their data.
-
-   A copy run from a new folder can look offline (the account can't sign in,
-   updates fail to connect) when a per-app firewall blocks programs it hasn't
-   seen. Check that before blaming the build.
-
-   Use screenshots or computer use if you have them. If you can't see or drive
-   the app, ask the developer to try the binary and tell you how it went.
-   Don't publish a build that fails, or one nobody could check; report what
-   failed instead.
-6. **Publish once the build works and the developer confirms.** Show them the
-   platform, build number, commit and test results, then:
-
-   ```bash
-   python3 launcher/scripts/publish_release.py
-   ```
-
-   Run it from the same checkout with nothing changed since the dry run. The
-   script rebuilds (a no-op) and refuses to upload unless the result matches
-   the dry run's recorded hash, so only the tested build can go out. The test
-   copy updating itself during the test doesn't affect this. If it refuses
-   ("no dry run", "isn't the file the dry run made"), dry-run and test again.
-7. **Report** the release URL the script prints, plus its per-platform summary.
-   Point out any platform it marks as older.
+      A copy run from a new folder can look offline when a per-app firewall
+      blocks programs it hasn't seen. Check that before blaming the build. If you
+      can't see or drive the app, ask the developer to try it. Don't publish a
+      build that fails, or one nobody could check.
+   5. **Publish** once it works and the developer confirms:
+      `python3 launcher/scripts/publish_release.py --channel beta` from the same
+      checkout, with nothing changed since the dry run. It uploads the staged
+      files, which it checks are unchanged; the test copy updating itself doesn't
+      matter. `--channel stable` publishes straight to stable, skipping beta; do
+      that only when the developer asks for it.
+   6. **Promote** later, when the developer asks: `python3
+      launcher/scripts/publish_release.py --promote` (`--platform KEY` for only
+      some platforms). It downloads beta's files, checks them against beta's
+      `latest.json`, and uploads them to stable.
+4. **Report** the release URL and the per-platform summary. Point out any
+   platform marked as older.
 
 ## When it refuses
 
 - **"uncommitted changes":** commit or stash them. Use `--allow-dirty` only if
   the developer explicitly wants to publish uncommitted work.
-- **"HEAD isn't on origin/main":** the commit isn't merged. Publish from `main`.
-  Don't reach for `--allow-unmerged`. A branch's commit count can be higher
-  than main's, and once it's published, publishes from `main` are refused
-  ("already at build N") until main catches up. Use it only if the developer
-  explicitly asks for an unmerged build after you've explained that.
-- **"already at build N":** this platform already has this commit or a newer
-  one, so there's nothing to publish. `--force` replaces it. Use it only when
-  the developer asks to republish the same build, for example after a broken
-  upload.
+- **"isn't on origin/main":** the commit isn't merged. Publish from `main`.
+  Don't reach for `--allow-unmerged`: a branch's commit count can be higher than
+  main's, and once it's published, publishes from `main` are refused until main
+  catches up. Use it only if the developer explicitly asks after you've
+  explained that.
+- **"already at build N":** the channel already has this commit or a newer one
+  for that platform. `--force` replaces it; use it only when the developer asks
+  to republish the same build, for example after a broken upload.
+- **"no dry run" / "isn't the build that was tested":** dry-run and test again.
+- **"builds reach stable by --promote":** `--from` (the workflow's upload) only
+  goes to beta.
 - **`gh` errors:** run `gh auth login`, or ask a maintainer for write access.
 
-Don't edit `latest.json` or the release's files by hand, and don't delete the
-release. Launchers in the field read them.
+Don't edit `latest.json` or the releases' files by hand, and don't delete the
+releases. Launchers in the field read them.
 
 ## Testing without GitHub
 
-`--output DIR` publishes into a local folder. It skips the clean-checkout and
-on-`main` checks, so it works on a branch. `--build N` sets the build number, but
-only with `--output`, `--dry-run` or a test `--tag`. Serve the folder over HTTP
-and point a launcher at it with `LODESTONE_LAUNCHER_UPDATE_URL`:
+`--output DIR` builds and publishes into a local folder. It skips the
+clean-checkout and on-`main` checks, so it works on a branch. `--build N` sets the
+build number, but only with `--output`, `--dry-run`, `--stage` or a test `--tag`.
+Serve the folder over HTTP and point a launcher at it with
+`LODESTONE_LAUNCHER_UPDATE_URL` (it then reads only that, whatever its channel):
 
 ```bash
 python3 launcher/scripts/publish_release.py --output /tmp/launcher-release --build 2
@@ -151,17 +174,22 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory /tmp/launcher-release
 LODESTONE_LAUNCHER_UPDATE_URL=http://127.0.0.1:8765/latest.json ./lodestone-launcher
 ```
 
-The launcher being tested must itself have a build number lower than the one
-published, so build it with `--output` too (with a lower `--build`), and run
-that copy. A plain `cargo build` has no build number and never updates.
+The launcher being tested must itself have a lower build number than the one
+published, so build it with `--output` too (with a lower `--build`), and run that
+copy. A plain `cargo build` has no build number and never updates.
+
+`--stage DIR` only builds, into DIR with a `stage.json`; `--from DIR` uploads
+such folders. That is what the workflow does, and works locally too.
 
 To rehearse a real upload, publish to another release with `--tag
-launcher-publish-test --allow-unmerged` (launchers only read `launcher-latest`).
-Afterwards, delete it with `gh release delete launcher-publish-test --repo
-Lodestone-Team/lodestone --cleanup-tag --yes`.
+launcher-publish-test --allow-unmerged` (launchers only read `launcher-latest` and
+`launcher-beta`). Afterwards, delete it with `gh release delete
+launcher-publish-test --repo Lodestone-Team/lodestone --cleanup-tag --yes`.
+
+The workflow that only builds the Mac app, without publishing, is "Launcher -
+macOS app" (`launcher-macos-app.yml`); its run keeps the files as an artifact.
 
 Platform keys follow Rust's names: `windows-x86_64`, `macos-aarch64`,
-`macos-x86_64`, `linux-x86_64`, and so on. The updater and the script handle any
-of them, but the launcher is only built and tested on Windows and macOS so far.
+`macos-x86_64`, `linux-x86_64`, and so on.
 
 The script's own tests: `python3 launcher/scripts/test_publish_release.py`.

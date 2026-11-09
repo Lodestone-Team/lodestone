@@ -79,10 +79,12 @@ async function showStars() {
   }
 }
 
-// Release files are named lodestone-launcher-<build>-<os>-<arch>-standalone[.exe]
-// and, on Windows, lodestone-launcher-<build>-windows-<arch>-setup.exe (see
-// launcher/scripts/publish_release.py). LodestoneLauncherSetup.exe is the
-// newest Windows installer under a name that never changes.
+// Release files are named lodestone-launcher-<build>-<os>-<arch>-standalone[.exe],
+// on Windows lodestone-launcher-<build>-windows-<arch>-setup.exe, and on macOS
+// lodestone-launcher-<build>-macos-universal.dmg (see
+// launcher/scripts/publish_release.py). LodestoneLauncherSetup.exe and
+// LodestoneLauncher.dmg are the newest installer and disk image under names that
+// never change.
 function pickAsset(assets, platform, arch) {
   const byName = (re) =>
     assets
@@ -95,6 +97,12 @@ function pickAsset(assets, platform, arch) {
     const setup = byName(new RegExp(`^lodestone-launcher-(\\d+)-windows-${arch}-setup\\.exe$`));
     if (stable) return { url: stable.browser_download_url, build: setup && setup.m[1] };
     if (setup) return { url: setup.asset.browser_download_url, build: setup.m[1] };
+  }
+  if (platform === 'macos') {
+    const stable = assets.find((a) => a.name === 'LodestoneLauncher.dmg');
+    const dmg = byName(new RegExp(`^lodestone-launcher-(\\d+)-macos-(universal|${arch})\\.dmg$`));
+    if (stable) return { url: stable.browser_download_url, build: dmg && dmg.m[1] };
+    if (dmg) return { url: dmg.asset.browser_download_url, build: dmg.m[1] };
   }
   const archs = arch === 'aarch64' && platform === 'macos' ? [arch, 'x86_64'] : [arch];
   for (const a of archs) {
