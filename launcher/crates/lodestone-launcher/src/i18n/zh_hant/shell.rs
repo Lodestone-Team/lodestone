@@ -157,6 +157,10 @@ pub fn text(message: M) -> &'static str {
         M::ManageAccounts => "管理帳號",
         M::GroupAutomatically => "自動將實例分組",
         M::GroupAutomaticallyHint => "依載入器為未分組的實例分組。",
+        M::AutoConfigure => "自動設定新實例",
+        M::AutoConfigureHint => {
+            "新實例首次遊戲前，依這台電腦和它的模組選擇記憶體、Java 參數和視訊設定；共用設定未涵蓋時，也會沿用你的滑鼠靈敏度和按鍵綁定。你自己變更的設定會保留。"
+        }
         M::WhenAGameStarts => "遊戲啟動後",
         M::AfterLaunchStay => "保持開啟",
         M::AfterLaunchMinimize => "最小化",

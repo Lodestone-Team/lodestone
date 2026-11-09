@@ -31,6 +31,7 @@ use gpui::{
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use super::a11y::{Accessible, Role};
+use super::scrollbar::{ScrollMetrics, ScrollSource, Scrollbar};
 use crate::{
     i18n::Text,
     theme::{self, Color, colors, fonts, px, text},
@@ -1782,14 +1783,18 @@ impl TextEditor {
         cx.notify();
     }
 
+    /// How far the text scrolls down at most: two lines past its end.
+    fn max_scroll_y(&self, frame: &Frame) -> Pixels {
+        let content_height = frame.line_height * self.rows.count() as f32;
+        (content_height - frame.text_bounds.size.height + frame.line_height * 2.).max(px(0.))
+    }
+
     fn clamp_scroll(&mut self) {
         let Some(frame) = &self.frame else {
             self.scroll = Point::default();
             return;
         };
-        let content_height = frame.line_height * self.rows.count() as f32;
-        let max_y =
-            (content_height - frame.text_bounds.size.height + frame.line_height * 2.).max(px(0.));
+        let max_y = self.max_scroll_y(frame);
         let content_width = frame.char_width * (self.widest + 2) as f32;
         let max_x = if self.soft_wrap {
             px(0.)
@@ -2042,7 +2047,11 @@ impl Render for TextEditor {
         let label = self.label.get();
         div()
             .id("text-editor")
-            .accessible(Role::MultilineTextInput, self.automation_id.clone(), label)
+            .accessible(
+                Role::MultilineTextInput,
+                self.automation_id.clone(),
+                label.clone(),
+            )
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
             .size_full()
@@ -2104,9 +2113,33 @@ impl Render for TextEditor {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_scroll(cx.listener(Self::on_scroll))
+            .relative()
             .child(EditorElement {
                 editor: cx.entity(),
             })
+            .child(Scrollbar::new("text-editor-scrollbar", cx.entity()).label(label))
+    }
+}
+
+/// The scroll bar reads and sets the scroll from the last frame.
+impl ScrollSource for Entity<TextEditor> {
+    fn metrics(&self, cx: &App) -> Option<ScrollMetrics> {
+        let editor = self.read(cx);
+        let frame = editor.frame.as_ref()?;
+        let max = editor.max_scroll_y(frame);
+        Some(ScrollMetrics {
+            offset: editor.scroll.y.clamp(px(0.), max),
+            max,
+            viewport: frame.text_bounds.size.height,
+        })
+    }
+
+    fn scroll_to(&self, offset: Pixels, _: &mut Window, cx: &mut App) {
+        self.update(cx, |editor, cx| {
+            editor.scroll.y = offset;
+            editor.clamp_scroll();
+            cx.notify();
+        });
     }
 }
 
@@ -2137,7 +2170,6 @@ struct Prepaint {
     highlights: Vec<Bounds<Pixels>>,
     cursor: Option<Bounds<Pixels>>,
     text_bounds: Bounds<Pixels>,
-    scrollbar: Option<Bounds<Pixels>>,
 }
 
 const GUTTER_PADDING: f32 = 12.;
@@ -2412,16 +2444,6 @@ impl Element for EditorElement {
                     size(bounds.size.width, line_height),
                 )
             });
-            // a scroll bar's thumb, when the text is taller than the view
-            let content = line_height * (row_count + 2) as f32;
-            let scrollbar = (content > bounds.size.height).then(|| {
-                let ratio = bounds.size.height / content;
-                let height = (bounds.size.height * ratio).max(px(24.));
-                let top = bounds.top()
-                    + (bounds.size.height - height)
-                        * (scroll.y / (content - bounds.size.height)).min(1.);
-                Bounds::new(point(bounds.right() - px(8.), top), size(px(6.), height))
-            });
 
             Prepaint {
                 gutter,
@@ -2432,7 +2454,6 @@ impl Element for EditorElement {
                 highlights,
                 cursor,
                 text_bounds,
-                scrollbar,
             }
         })
     }
@@ -2500,9 +2521,6 @@ impl Element for EditorElement {
                     cx,
                 )
                 .ok();
-            }
-            if let Some(thumb) = prepaint.scrollbar {
-                window.paint_quad(fill(thumb, colors::GRAY_FADED.opacity(30)).corner_radii(px(3.)));
             }
         });
     }
@@ -2792,6 +2810,40 @@ mod window_tests {
     } else {
         "ctrl-shift-z"
     };
+
+    #[test]
+    fn the_scroll_bar_drags_without_moving_the_cursor() {
+        use crate::components::ScrollSource as _;
+        use gpui::{Modifiers, MouseButton, point, px};
+
+        let mut cx = TestAppContext::single();
+        let lines: Vec<String> = (0..400).map(|i| format!("line {i}")).collect();
+        let (editor, cx) = editor(&lines.join("\n"), &mut cx);
+        let metrics = |cx: &mut VisualTestContext| editor.read_with(cx, |_, cx| editor.metrics(cx));
+        let size = cx.update(|window, _| window.viewport_size());
+        let before = metrics(cx).unwrap();
+        assert!(before.overflows());
+        assert_eq!(before.offset, px(0.));
+        let x = size.width - px(5.);
+        let none = Modifiers::default();
+        // The thumb is at the top: drag it half way down the room below it.
+        cx.simulate_mouse_down(point(x, px(10.)), MouseButton::Left, none);
+        let len = before.thumb_len(size.height - px(4.), px(24.));
+        let half = (size.height - px(4.) - len) / 2.;
+        cx.simulate_mouse_move(point(x, px(10.) + half), MouseButton::Left, none);
+        cx.simulate_mouse_up(point(x, px(10.) + half), MouseButton::Left, none);
+        let after = metrics(cx).unwrap();
+        assert!((after.offset - after.max / 2.).abs() < px(1.), "{after:?}");
+        assert_eq!(cursor(&editor, cx), Pos::new(0, 0), "the cursor stays");
+        // A press on the track below the thumb: a page down.
+        cx.simulate_click(point(x, size.height - px(5.)), none);
+        let paged = metrics(cx).unwrap();
+        assert!(
+            (paged.offset - after.offset - paged.viewport).abs() < px(1.),
+            "{paged:?}"
+        );
+        assert_eq!(cursor(&editor, cx), Pos::new(0, 0));
+    }
 
     #[test]
     fn typing_new_lines_keep_the_indent() {

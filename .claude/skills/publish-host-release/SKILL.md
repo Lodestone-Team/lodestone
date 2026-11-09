@@ -71,12 +71,12 @@ run and the upload to put both architectures in the app.
 ## Developer builds
 
 The Host has developer builds too, made the launcher's way (see "Developer builds" in
-the launcher's skill), only when a developer asks for one:
+the launcher's skill), only when a developer asks for one, and only on developers'
+machines, never on GitHub's (each developer builds their own platform):
 
 ```bash
-gh workflow run dev-build.yml -f product=host -f ref=<branch>   # macOS and Windows on GitHub
-the script --product host --dev --dry-run --open                  # this machine: test it
-the script --product host --dev                                   # then upload it
+the script --product host --dev --dry-run --open   # this machine: test it
+the script --product host --dev                    # then upload it
 the script --product host --list-dev
 ```
 

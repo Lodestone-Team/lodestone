@@ -44,6 +44,9 @@ jobs:
       with:
         prefix-key: rust-cache
         shared-key: workspace-${{ matrix.target }}-debug-build
+        # Only main's caches reach every branch; a pull request's only reach itself,
+        # and crowd the launcher's and Host's out of the repository's cache space.
+        save-if: ${{ github.ref == 'refs/heads/main' }}
 
     - name: Cargo Test Backend
       run: cargo test --locked --no-fail-fast
@@ -68,6 +71,7 @@ jobs:
       with:
         prefix-key: rust-cache
         shared-key: workspace-x86_64-unknown-linux-gnu-debug-build-no-deno
+        save-if: ${{ github.ref == 'refs/heads/main' }}
 
     - name: Cargo Build Backend without Deno
       run: cargo build --locked -p lodestone_core --no-default-features

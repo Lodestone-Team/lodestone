@@ -78,6 +78,7 @@ pub const SCENES: &[&str] = &[
     "launching",
     "logs",
     "logs-select",
+    "logs-scroll",
     "instance-settings",
     "crash",
     "crash-mods",
@@ -459,6 +460,7 @@ fn has_instances(scene: &str) -> bool {
             | "confirm-main"
             | "logs"
             | "logs-select"
+            | "logs-scroll"
             | "instance-settings"
             | "crash"
             | "crash-mods"
@@ -762,6 +764,7 @@ pub fn instances(scene: &str, accounts: &Entity<Accounts>, cx: &mut App) -> Enti
             "logs" | "logs-select" | "crash" | "crash-mods" => {
                 instances.preview_log(&first.id, sample_log())
             }
+            "logs-scroll" => instances.preview_log(&first.id, long_log()),
             "playing" => instances.preview_play_state(crate::instances::PlayState::Playing),
             "launching" => instances.preview_play_state(crate::instances::PlayState::Preparing {
                 label: crate::i18n::t(crate::i18n::InstancesMsg::StageLaunching).into(),
@@ -859,6 +862,21 @@ fn sample_log() -> Vec<LogLine> {
     lines
 }
 
+/// The made-up console with many more lines than fit, so it scrolls.
+fn long_log() -> Vec<LogLine> {
+    let mut lines = sample_log();
+    let template = lines[2].clone();
+    let base = template.timestamp.unwrap_or_default();
+    let more = (0..80).map(|i| LogLine {
+        timestamp: Some(base + 10 * i),
+        thread: Some(format!("Worker-Main-{}", i % 4 + 1)),
+        message: format!("Preparing spawn area: {}%", i * 5 / 4),
+        ..template.clone()
+    });
+    lines.splice(3..3, more);
+    lines
+}
+
 mod content;
 mod groups;
 mod import;
@@ -927,7 +945,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 cx.new(|cx| crate::instances::share_dialog::ShareDialog::preview(&name, plan, cx));
             shell.show_share(dialog, cx);
         }
-        "logs" => shell.select_tab(InstanceTab::Logs, cx),
+        "logs" | "logs-scroll" => shell.select_tab(InstanceTab::Logs, cx),
         "logs-select" => {
             shell.select_tab(InstanceTab::Logs, cx);
             let console = shell.console().clone();

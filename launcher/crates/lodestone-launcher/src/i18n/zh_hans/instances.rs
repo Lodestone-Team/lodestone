@@ -26,6 +26,20 @@ pub fn text(message: M) -> &'static str {
         M::VerifyingNote => "正在校验 Minecraft {version}（{loader}）的游戏文件",
         M::RosettaNote => "此版本通过 Rosetta 2 在 Intel（x86_64）Java 中运行。",
         M::StartingJavaNote => "正在启动 Java：{command}",
+        M::AutoMemoryNote => "自动设置：根据这台电脑和实例的模组，将内存设为 {memory}",
+        M::AutoMemoryLimitedNote => {
+            "这些模组需要 {wanted} 内存，超出了这台电脑可分配的量；游戏时请关闭其他应用。"
+        }
+        M::AutoJvmArgsNote => "自动设置：已针对模组游戏调整 Java 垃圾回收器",
+        M::AutoLowMemoryNote => {
+            "此实例有 {have} 内存；根据它的模组，建议使用 {recommended}。可在实例的设置中更改。"
+        }
+        M::AutoVideoNote => "自动设置：已为这台电脑选择视频设置（渲染距离 {distance}）",
+        M::AutoVideoNoDistanceNote => "自动设置：已为这台电脑选择视频设置",
+        M::AutoControlsNote => "自动设置：已从 {source} 沿用鼠标灵敏度、按键绑定和语言",
+        M::AutoControlsLauncherNote => {
+            "自动设置：已从 Minecraft 启动器沿用鼠标灵敏度、按键绑定和语言"
+        }
         M::StoppedNote => "已停止",
         M::ExitedWithCode => "Minecraft 已退出，退出代码为 {code}",
         M::EndedBySignal => "Minecraft 被信号终止",

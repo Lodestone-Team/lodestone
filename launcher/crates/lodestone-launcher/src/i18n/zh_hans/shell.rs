@@ -155,6 +155,10 @@ pub fn text(message: M) -> &'static str {
         M::ManageAccounts => "管理账户",
         M::GroupAutomatically => "自动分组实例",
         M::GroupAutomaticallyHint => "按加载器为未分组的实例分组。",
+        M::AutoConfigure => "自动设置新实例",
+        M::AutoConfigureHint => {
+            "新实例首次游戏前，根据这台电脑和它的模组选择内存、Java 参数和视频设置；共享设置未涵盖时，还会沿用你的鼠标灵敏度和按键绑定。你自己更改的设置会保留。"
+        }
         M::WhenAGameStarts => "游戏启动后",
         M::AfterLaunchStay => "保持打开",
         M::AfterLaunchMinimize => "最小化",

@@ -28,6 +28,30 @@ pub fn text(message: M) -> &'static str {
         M::VerifyingNote => "Vérification des fichiers du jeu de Minecraft {version} ({loader})",
         M::RosettaNote => "Cette version s’exécute dans un Java Intel (x86_64) via Rosetta 2.",
         M::StartingJavaNote => "Démarrage de Java\u{a0}: {command}",
+        M::AutoMemoryNote => {
+            "Configuration automatique\u{a0}: mémoire réglée sur {memory} pour cet ordinateur et les mods de l’instance"
+        }
+        M::AutoMemoryLimitedNote => {
+            "Les mods voudraient {wanted} de mémoire, plus que cet ordinateur ne peut en céder\u{a0}; fermez les autres applications pendant que vous jouez."
+        }
+        M::AutoJvmArgsNote => {
+            "Configuration automatique\u{a0}: ramasse-miettes de Java réglé pour le jeu moddé"
+        }
+        M::AutoLowMemoryNote => {
+            "Cette instance dispose de {have} de mémoire\u{a0}; avec ses mods, {recommended} est recommandé. Modifiez-la dans les paramètres de l’instance."
+        }
+        M::AutoVideoNote => {
+            "Configuration automatique\u{a0}: réglages graphiques choisis pour cet ordinateur (distance d’affichage {distance})"
+        }
+        M::AutoVideoNoDistanceNote => {
+            "Configuration automatique\u{a0}: réglages graphiques choisis pour cet ordinateur"
+        }
+        M::AutoControlsNote => {
+            "Configuration automatique\u{a0}: sensibilité de la souris, touches et langue reprises de {source}"
+        }
+        M::AutoControlsLauncherNote => {
+            "Configuration automatique\u{a0}: sensibilité de la souris, touches et langue reprises du Minecraft Launcher"
+        }
         M::StoppedNote => "Arrêté",
         M::ExitedWithCode => "Minecraft s’est fermé avec le code {code}",
         M::EndedBySignal => "Minecraft a été arrêté par un signal",

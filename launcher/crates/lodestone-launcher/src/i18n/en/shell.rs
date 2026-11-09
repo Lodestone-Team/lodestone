@@ -186,6 +186,9 @@ crate::i18n::messages! {
         ManageAccounts = "Manage accounts",
         GroupAutomatically = "Group instances automatically",
         GroupAutomaticallyHint = "Sorts ungrouped instances by loader.",
+        /// Settings > Instance defaults: a toggle, on by default.
+        AutoConfigure = "Set up new instances automatically",
+        AutoConfigureHint = "Before a new instance's first game, chooses its memory, Java arguments and video settings for this computer and its mods, and copies your mouse sensitivity and key bindings when shared settings don't. Anything you change yourself is kept.",
         /// Settings > General: what the launcher does once a game's window opens.
         WhenAGameStarts = "When a game starts",
         AfterLaunchStay = "Stay open",

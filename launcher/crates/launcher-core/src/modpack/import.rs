@@ -534,6 +534,7 @@ async fn build(
         loader: Loader::from_kind(options.loader.as_ref().map(|l| l.kind)),
         loader_version: options.loader.map(|l| l.version),
         created: crate::instances::now(),
+        recommended_memory: pack.recommended_memory,
         ..Instance::default()
     };
     if let Some(icon) = options

@@ -668,6 +668,43 @@ pub fn instance_values(file: &OptionsFile, dv: u32) -> BTreeMap<String, String> 
         .collect()
 }
 
+/// Writes canonical `values` into `file`, in the format of data version `dv`: each under
+/// the keys the version has (a key it lacks is skipped). Returns the keys written.
+pub fn write_values(
+    file: &mut OptionsFile,
+    dv: u32,
+    values: &BTreeMap<String, String>,
+) -> Vec<String> {
+    values
+        .iter()
+        .filter_map(|(key, value)| {
+            let setting = setting_for(key, dv)?;
+            setting.write(file, dv, value).then(|| key.clone())
+        })
+        .collect()
+}
+
+/// The category of a shared key, or `None` for a key that isn't shared.
+pub fn category_of(key: &str) -> Option<Category> {
+    match find(key) {
+        Some(spec) => Some(spec.category),
+        None if is_other_binding(key) => Some(Category::Controls),
+        None => None,
+    }
+}
+
+/// Whether [`before_launch`] writes `key` into an instance with `sharing`: the instance
+/// uses sharing, the key's category is shared, the instance doesn't override it and the
+/// global set has a value.
+pub fn will_share(profile: &Profile, sharing: &InstanceSharing, key: &str) -> bool {
+    category_of(key).is_some_and(|category| {
+        sharing.enabled
+            && profile.shares(category)
+            && !sharing.overrides.contains(key)
+            && profile.values.contains_key(key)
+    })
+}
+
 /// "Copy from instance…": the global set takes every shared value the instance's
 /// `options.txt` has. Returns how many.
 pub fn copy_from_instance(

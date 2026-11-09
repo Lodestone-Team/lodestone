@@ -22,8 +22,8 @@ use crate::components::{
     log_view::{self, LineSource, LogLine, LogSelection, SelectAll},
 };
 use crate::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, TextInput},
-    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, trn},
+    components::{Button, ButtonSize, ButtonVariant, Icon, Scrollbar, TextInput},
+    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, ShellMsg, t, trn},
     theme::{self, Color, colors, fonts, radius, text, weights},
 };
 
@@ -424,6 +424,21 @@ impl Render for Console {
                 let mut offset = base.offset();
                 offset.y = (offset.y - by).clamp(-base.max_offset().y, px(0.));
                 base.set_offset(offset);
+            })
+            .relative()
+            .child({
+                let console = cx.entity().downgrade();
+                Scrollbar::new("log-scrollbar", self.scroll.clone())
+                    .label(t(ShellMsg::TabLogs))
+                    .on_scroll(move |_, cx| {
+                        // As the wheel: up stops following, the bottom follows again.
+                        console
+                            .update(cx, |this, cx| {
+                                this.follow = this.scroll.is_scrolled_to_end() != Some(false);
+                                cx.notify();
+                            })
+                            .ok();
+                    })
             })
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::copy_selection))

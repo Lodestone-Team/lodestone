@@ -64,6 +64,8 @@ pub struct UpdatePlan {
     pub record: ModpackRecord,
     pub game_version: String,
     pub loader: Option<LoaderChoice>,
+    /// The memory the new version recommends, MiB.
+    pub recommended_memory: Option<u32>,
     /// New files.
     pub added: Vec<String>,
     /// Files replaced by a new version: (old path on disk, new path).
@@ -159,6 +161,7 @@ pub fn plan_with(
     let mut plan = UpdatePlan {
         game_version: pack.game_version.clone(),
         loader,
+        recommended_memory: pack.recommended_memory,
         ..UpdatePlan::default()
     };
     let new_index: BTreeMap<String, &PackDownload> = pack

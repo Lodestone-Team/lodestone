@@ -509,12 +509,16 @@ pub enum GeneralSettings {
     Get,
     /// Changes general settings.
     #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli settings general set --auto-groups false"
+        after_help = "Examples:\n  lodestone-launcher-cli settings general set --auto-groups false\n  lodestone-launcher-cli settings general set --auto-configure false"
     )]
     Set {
         /// Group instances without a group of their own by loader (and Imported).
         #[arg(long)]
         auto_groups: Option<bool>,
+        /// Set up new instances automatically: memory, Java arguments and game options
+        /// for this computer and the instance's mods, before its first game.
+        #[arg(long)]
+        auto_configure: Option<bool>,
     },
 }
 

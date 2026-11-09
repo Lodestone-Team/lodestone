@@ -4,14 +4,15 @@
 //! (`/monitor/{uuid}`); the players with their linked Lodestone users; and the details.
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 
 use gpui::{
-    AnyElement, ClipboardItem, Context, Entity, FocusHandle, IntoElement, KeyDownEvent,
-    ParentElement, Render, SharedString, Styled, Subscription, Task, Window, div, img, prelude::*,
+    AnyElement, App, ClipboardItem, Context, Entity, FocusHandle, Global, IntoElement,
+    KeyDownEvent, ParentElement, Render, SharedString, Styled, Subscription, Task, Window, div,
+    img, prelude::*,
 };
 use launcher_core::cores::{
     CoreError,
@@ -57,6 +58,26 @@ struct Editing {
     input: Entity<TextInput>,
     error: Option<String>,
     saving: bool,
+}
+
+/// The share status last fetched, by instance: the card shows it at once when the
+/// Overview opens again, while it fetches anew, so it doesn't pop in.
+#[derive(Default)]
+struct ShareCache(HashMap<String, InstanceShare>);
+
+impl Global for ShareCache {}
+
+/// Keeps (or, with `None`, forgets) an instance's share status for the next opening.
+fn remember_share(uuid: &str, share: Option<&InstanceShare>, cx: &mut App) {
+    let cache = &mut cx.default_global::<ShareCache>().0;
+    match share {
+        Some(share) => {
+            cache.insert(uuid.to_string(), share.clone());
+        }
+        None => {
+            cache.remove(uuid);
+        }
+    }
 }
 
 /// The "Stop sharing?" confirmation.
@@ -114,11 +135,14 @@ impl OverviewPage {
                 }
             }),
         ];
+        let share = cx
+            .try_global::<ShareCache>()
+            .and_then(|cache| cache.0.get(&uuid).cloned());
         let mut this = Self {
             state,
             uuid,
             editing: None,
-            share: None,
+            share,
             share_busy: false,
             share_on_load,
             stop_prompt: DialogSlot::new(|this: &mut Self| &mut this.stop_prompt),
@@ -226,6 +250,7 @@ impl OverviewPage {
                         let next = match result {
                             Ok(share) => {
                                 let next = share_poll_interval(&share);
+                                remember_share(&this.uuid, Some(&share), cx);
                                 this.share = Some(share);
                                 if this.share_on_load {
                                     this.share_on_load = false;
@@ -237,6 +262,7 @@ impl OverviewPage {
                             }
                             Err(CoreError::SignedOut) => None,
                             Err(_) => {
+                                remember_share(&this.uuid, None, cx);
                                 this.share = None;
                                 None
                             }
@@ -277,6 +303,7 @@ impl OverviewPage {
                 this.share_busy = false;
                 match result {
                     Ok(share) => {
+                        remember_share(&this.uuid, Some(&share), cx);
                         this.share = Some(share);
                         this.poll_share(cx);
                     }
@@ -306,6 +333,7 @@ impl OverviewPage {
             this.update(cx, |this, cx| {
                 match result {
                     Ok(share) => {
+                        remember_share(&this.uuid, Some(&share), cx);
                         this.share = Some(share);
                         this._poll = None;
                     }

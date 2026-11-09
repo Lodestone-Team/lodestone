@@ -2287,6 +2287,18 @@ impl Render for InstanceSettings {
 
         // Java & memory.
         let memory_check = self.fields.memory(total, cx);
+        // Automatic setup chose the saved memory, and the form still shows it.
+        let auto_memory = instance.as_ref().is_some_and(|i| {
+            let chosen = i.auto_config.as_ref().and_then(|state| state.memory);
+            chosen.is_some()
+                && i.memory == chosen
+                && memory_check.values == chosen.map(|m| (m.min, m.max))
+        });
+        let memory_hint = if auto_memory {
+            Some(t(M::MemoryChosenAutomatically).into())
+        } else {
+            fields::total_memory_label(total)
+        };
         let memory = self
             .default_row(
                 Setting::Memory,
@@ -2307,7 +2319,7 @@ impl Render for InstanceSettings {
                     ),
                 cx,
             )
-            .hint_opt(fields::total_memory_label(total))
+            .hint_opt(memory_hint)
             .when(overrides.memory, |row| {
                 row.note_opt(
                     memory_check

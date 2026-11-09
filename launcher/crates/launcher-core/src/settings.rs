@@ -44,6 +44,12 @@ pub struct Settings {
     /// while on.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub auto_groups: bool,
+    /// Settings > Instance defaults > "Set up new instances automatically": a new
+    /// instance's memory, Java arguments and game options are chosen for this computer
+    /// and its mods ([`crate::configurator`]). On by default; left out of the file
+    /// while on.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub auto_configure: bool,
     /// Settings > General > Language. Follows the system's preferred languages by
     /// default; left out of the file while it does.
     #[serde(default, skip_serializing_if = "is_default")]
@@ -98,6 +104,7 @@ impl Default for Settings {
             instance_defaults: InstanceDefaults::default(),
             collapsed_groups: BTreeSet::new(),
             auto_groups: true,
+            auto_configure: true,
             language: Language::System,
             auto_update: true,
             update_channel: UpdateChannel::Stable,
@@ -590,6 +597,22 @@ mod tests {
         let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(raw, json!({"version": 1, "auto_groups": false}));
         update(&path, |s| s.auto_groups = true).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(raw, json!({"version": 1}), "left out while on");
+    }
+
+    #[test]
+    fn automatic_setup_is_on_unless_turned_off() {
+        assert!(Settings::default().auto_configure);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"version": 1}"#).unwrap();
+        assert!(load(&path).unwrap().auto_configure);
+        update(&path, |s| s.auto_configure = false).unwrap();
+        assert!(!load(&path).unwrap().auto_configure);
+        let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(raw, json!({"version": 1, "auto_configure": false}));
+        update(&path, |s| s.auto_configure = true).unwrap();
         let raw: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(raw, json!({"version": 1}), "left out while on");
     }
