@@ -21,6 +21,7 @@ mod toast;
 mod toggle;
 mod tooltip;
 pub mod window_frame;
+mod window_layer;
 
 pub use a11y::Accessible;
 pub use button::{Align, Button, ButtonSize, ButtonVariant, IconButton, LoadingDots};
@@ -38,6 +39,7 @@ pub use text_input::TextInput;
 pub use toast::{Toast, ToastAction, ToastLevel, Toasts};
 pub use toggle::Toggle;
 pub use tooltip::{TextTooltip, text_tooltip};
+pub use window_layer::window_layer;
 
 use gpui::{App, ClickEvent, Window};
 
