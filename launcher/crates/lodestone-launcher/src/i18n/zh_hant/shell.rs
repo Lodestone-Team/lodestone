@@ -32,7 +32,7 @@ pub fn text(message: M) -> &'static str {
         M::NoInstancesYet => "還沒有實例。",
         M::NewInstance => "新增實例…",
         M::ImportInstances => "匯入實例…",
-        M::Servers => "伺服器",
+        M::Servers => "Lodestone Host",
         M::AppVersion => "Lodestone Launcher v{version}",
         M::PlayedInTotal => "{when} · 共 {time}",
         M::ImportProgress => "{percent} · {label}",
@@ -53,7 +53,9 @@ pub fn text(message: M) -> &'static str {
         M::SettingsPlaceholder => "有了實例後，設定會顯示在這裡。",
         M::LogsPlaceholder => "有了實例後，日誌會顯示在這裡。",
         M::LinkedTo => "已連結到 {core} 上的 {server}",
-        M::LinkedToRemoved => "已連結到 {core} 上的 {server}（該核心已從「伺服器」頁面移除）",
+        M::LinkedToRemoved => {
+            "已連結到 {core} 上的 {server}（該核心已從「Lodestone Host」頁面移除）"
+        }
         M::NoInstances => "沒有實例",
         M::AndJoin => "並加入 {server}",
         M::PlayWithoutJoining => "開始遊戲但不加入",

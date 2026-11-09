@@ -52,7 +52,7 @@ crate::i18n::messages! {
         NoInstancesYet = "No instances yet.",
         NewInstance = "New instance…",
         ImportInstances = "Import instances…",
-        Servers = "Servers",
+        Servers = "Lodestone Host",
         /// Under the sidebar and the Settings pages.
         AppVersion = "Lodestone Launcher v{version}",
         /// A row's tooltip: {when} is "Played 2 hours ago", {time} "2 h 5 min".
@@ -84,7 +84,7 @@ crate::i18n::messages! {
         LogsPlaceholder = "Logs appear here once you have an instance.",
         /// Under the instance's name: {server} is a server, {core} a Lodestone Core.
         LinkedTo = "Linked to {server} on {core}",
-        LinkedToRemoved = "Linked to {server} on {core} (that core was removed from the Servers page)",
+        LinkedToRemoved = "Linked to {server} on {core} (that core was removed from the Lodestone Host page)",
         NoInstances = "No instances",
         /// Under PLAY, for an instance made for a server.
         AndJoin = "and join {server}",

@@ -46,6 +46,7 @@ pub const SCENES: &[&str] = &[
     "servers-certificate-new",
     "servers-trust",
     "servers-advisory",
+    "servers-local",
 ];
 
 /// Made-up fingerprints.
@@ -246,6 +247,60 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                     cx,
                 );
             }
+        }
+        "servers-local" => {
+            use launcher_core::cores::{
+                CoreProduct, LaunchedBy,
+                local_claim::{ClaimError, LocalCredentials},
+            };
+            let (mut host, status, _) = home(true);
+            host.product = CoreProduct::Host;
+            host.launched_by = LaunchedBy::Host;
+            host.username = Some("owner_k3m9x".into());
+            let mut direct = saved("lab", "http://127.0.0.1:16700", "Test core", None);
+            direct.launched_by = LaunchedBy::Direct;
+            servers.preview(
+                vec![
+                    (host, status, true),
+                    (
+                        direct,
+                        CoreStatus::Online(ServerList {
+                            core_uuid: "lab".into(),
+                            core_name: "Test core".into(),
+                            listing_enabled: false,
+                            instances: Vec::new(),
+                        }),
+                        false,
+                    ),
+                ],
+                Vec::new(),
+            );
+            servers.preview_local(
+                vec![
+                    (
+                        "home",
+                        "Peter's Lodestone Core",
+                        CoreProduct::Host,
+                        LaunchedBy::Host,
+                    ),
+                    (
+                        "docker",
+                        "Docker core",
+                        CoreProduct::Core,
+                        LaunchedBy::Docker,
+                    ),
+                ],
+                vec![(
+                    "home",
+                    LocalCredentials {
+                        url: "http://127.0.0.1:16662".into(),
+                        api_key: Some("lsk_preview_key".into()),
+                        owner_username: Some("owner_k3m9x".into()),
+                        owner_password: Some("preview-password".into()),
+                    },
+                )],
+                Some(("docker", ClaimError::FolderNotFound)),
+            );
         }
         "servers-signed-out" => {
             let (saved, status, _) = home(false);
@@ -473,7 +528,7 @@ fn apply_extras(scene: &str, shell: &mut LauncherShell, cx: &mut Context<Launche
                 servers.preview(vec![home(true), friend()], Vec::new());
                 let (stage, done) = match scene {
                     "servers-host-progress" => (Some("Uploading the modpack (3.2 MB)…"), None),
-                    "servers-host-done" => (None, Some("Survival 1.20.1 is on Peter's Lodestone Core, on port 25566. The core is setting it up now: it installs Fabric and downloads 24 mod file(s) from Modrinth.\n\nThe server is stopped. Start it from the Servers page or the dashboard when you're ready; this instance is ready to join it.")),
+                    "servers-host-done" => (None, Some("Survival 1.20.1 is on Peter's Lodestone Core, on port 25566. The core is setting it up now: it installs Fabric and downloads 24 mod file(s) from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it.")),
                     _ => (None, None),
                 };
                 servers.preview_host(&survival, stage, done, cx);

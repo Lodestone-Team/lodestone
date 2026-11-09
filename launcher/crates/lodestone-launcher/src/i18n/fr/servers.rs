@@ -2,9 +2,61 @@ use crate::i18n::{ServersMsg as M, ServersPlural as P};
 
 pub fn text(message: M) -> &'static str {
     match message {
-        M::ServersTitle => "Serveurs",
+        M::ServersTitle => "Lodestone Host",
         M::PageHint => {
             "Les serveurs de vos Lodestone Cores. Créez une instance qui correspond à l’un d’eux, puis jouez dessus."
+        }
+        M::OnThisComputer => "Sur cet ordinateur",
+        M::OnThisComputerHint => {
+            "Lodestone Host et Lodestone Core qui tournent ici. Se connecter en tant que propriétaire prouve que ce lanceur peut accéder aux fichiers du core\u{202F}: aucun mot de passe n’est nécessaire."
+        }
+        M::Rescan => "Rechercher à nouveau",
+        M::ScanningLocal => "Recherche de cores sur cet ordinateur…",
+        M::NoLocalCores => "Aucun Lodestone Host ni Lodestone Core ne tourne sur cet ordinateur.",
+        M::ConnectAsOwner => "Se connecter en tant que propriétaire",
+        M::Connected => "Connecté",
+        M::ChooseDataFolder => "Choisir le dossier…",
+        M::ChooseDataFolderPrompt => "Choisir",
+        M::ProductHostHint => "l’application de bureau, avec le tableau de bord dans une fenêtre",
+        M::ProductCoreHint => "un core seul (le programme serveur, ou Docker)",
+        M::ConnectedAsOwner => "Connecté à {name} en tant que propriétaire",
+        M::ConnectedMadeOwner => {
+            "Il n’avait pas encore de propriétaire\u{202F}: Lodestone Launcher a créé le compte propriétaire {username}. Son mot de passe est sur la carte du core\u{202F}; gardez-le en lieu sûr."
+        }
+        M::ConnectedOwnerKey => {
+            "Ce lanceur a maintenant une clé de propriétaire pour ce core. Vous pouvez la révoquer depuis le tableau de bord du core."
+        }
+        M::OwnerSignIn => "Connexion du propriétaire",
+        M::OwnerKey => "Clé de propriétaire",
+        M::ShowPassword => "Afficher",
+        M::HidePassword => "Masquer",
+        M::CopyUsername => "Copier le nom d’utilisateur",
+        M::CopyPassword => "Copier le mot de passe",
+        M::CopyApiKey => "Copier la clé d’API",
+        M::StartedBy => "Démarré par {who}",
+        M::StartedDirectly => "Démarré directement",
+        M::DirectNote => {
+            "Ce core a été démarré directement. Lodestone Core est fait pour être lancé avec lodestone_cli, qui l’installe et le garde à jour."
+        }
+        M::GetLodestoneCli => "Obtenir lodestone_cli",
+        M::CredentialsReadFailed => {
+            "Impossible de lire les clés de propriétaire des cores de cet ordinateur"
+        }
+        M::CredentialsSaveFailed => "Impossible d’enregistrer la clé de propriétaire",
+        M::ClaimNoCore => "Aucun Lodestone Host ni Lodestone Core ne tourne sur cet ordinateur.",
+        M::ClaimRefused => {
+            "Le core a refusé l’accès propriétaire. Activez «\u{a0}Laisser les applications de cet ordinateur obtenir l’accès propriétaire\u{a0}» dans ses paramètres, ou mettez-le à jour."
+        }
+        M::ClaimFolderNotFound => {
+            "Impossible de trouver le dossier de données de ce core. Choisissez le dossier où il garde ses données (son LODESTONE_PATH). Un core dans Docker doit avoir son dossier de données monté depuis cet ordinateur."
+        }
+        M::ClaimNotThisCore => {
+            "Le core qui a répondu n’est pas celui dont le dossier a été trouvé\u{202F}: rien n’a été enregistré."
+        }
+        M::ClaimNoResult => "Le core n’a pas terminé la demande. Réessayez.",
+        M::ClaimFiles => "Impossible d’utiliser le dossier de données du core\u{a0}: {error}",
+        M::ClaimInvalid => {
+            "Le core a envoyé quelque chose que Lodestone Launcher ne comprend pas\u{a0}: {error}"
         }
         M::AddServer => "Ajouter un serveur",
         M::Dismiss => "Masquer",
@@ -105,14 +157,14 @@ pub fn text(message: M) -> &'static str {
         M::CheckModsFailed => "Impossible de vérifier les mods du serveur",
         M::JoinFailed => "Impossible de rejoindre {name}",
         M::CoreRemoved => {
-            "Le core pour lequel cette instance a été créée ({address}) n’est plus dans Lodestone Launcher. Ajoutez-le sur la page Serveurs, ou appuyez sur Jouer sans rejoindre."
+            "Le core pour lequel cette instance a été créée ({address}) n’est plus dans Lodestone Launcher. Ajoutez-le sur la page Lodestone Host, ou appuyez sur Jouer sans rejoindre."
         }
         M::ServerNotShown => {
             "Le core ne vous montre plus ce serveur\u{a0}: il a été supprimé, ou il n’est pas listé publiquement et vous n’êtes pas connecté."
         }
         M::NotRunning => "{name} n’est pas en marche",
         M::AskOwnerToStart => {
-            "Demandez à son propriétaire de le démarrer, ou connectez-vous au core sur la page Serveurs pour le démarrer vous-même."
+            "Demandez à son propriétaire de le démarrer, ou connectez-vous au core sur la page Lodestone Host pour le démarrer vous-même."
         }
         M::UpdateModsFailed => "Impossible de mettre à jour les mods",
         M::StopGameFirst => "Quittez d’abord le jeu.",
@@ -301,7 +353,7 @@ pub fn text(message: M) -> &'static str {
         }
 
         M::HostTitle => "Héberger sur un Lodestone Core",
-        M::ShowOnServersPage => "Afficher sur la page Serveurs",
+        M::ShowOnServersPage => "Afficher sur la page Lodestone Host",
         M::HostIntro => {
             "Crée un serveur à partir des mods et des configurations de {name}, sous forme de modpack Modrinth. Les mods Modrinth réservés au client sont exclus. Le serveur est créé arrêté."
         }
@@ -333,7 +385,7 @@ pub fn text(message: M) -> &'static str {
         M::InstanceGone => "L’instance n’existe plus.",
         M::PackNotKept => "Le core n’a pas conservé le modpack.",
         M::SignedOutRightAway => "Le core vous a déconnecté juste après la connexion. Réessayez.",
-        M::AddCoreFirst => "Ajoutez d’abord votre Lodestone Core sur la page Serveurs.",
+        M::AddCoreFirst => "Ajoutez d’abord votre Lodestone Core sur la page Lodestone Host.",
 
         M::LanListenFailed => "Impossible d’écouter les mondes en LAN\u{a0}: {error}",
         M::LanLooking => "Recherche de mondes ouverts en LAN…",
@@ -430,12 +482,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ScriptFiles => ["{count} fichier de script", "{count} fichiers de script"],
         P::AndMore => ["et {count} de plus", "et {count} de plus"],
         P::HostDone => [
-            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichier de mod depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Serveurs ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre.",
-            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichiers de mods depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Serveurs ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre.",
+            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichier de mod depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre.",
+            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichiers de mods depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre.",
         ],
         P::HostDoneRelinked => [
-            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichier de mod depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Serveurs ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre. Cette instance était liée à {server}\u{202F}; elle appartient désormais au nouveau serveur.",
-            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichiers de mods depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Serveurs ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre. Cette instance était liée à {server}\u{202F}; elle appartient désormais au nouveau serveur.",
+            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichier de mod depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre. Cette instance était liée à {server}\u{202F}; elle appartient désormais au nouveau serveur.",
+            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichiers de mods depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre. Cette instance était liée à {server}\u{202F}; elle appartient désormais au nouveau serveur.",
         ],
     }
 }

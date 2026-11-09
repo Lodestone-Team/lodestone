@@ -7,8 +7,43 @@ crate::i18n::messages! {
     pub enum ServersMsg {
         // ===== The page =====
         /// The page's title, and the back button on a server's page.
-        ServersTitle = "Servers",
+        ServersTitle = "Lodestone Host",
         PageHint = "Servers on your Lodestone cores. Create an instance that matches one, then play on it.",
+        /// "On this computer": cores found here, and "Connect as owner".
+        OnThisComputer = "On this computer",
+        OnThisComputerHint = "Lodestone Host and Lodestone Core running here. Connecting as owner proves this launcher can reach the core's files, so no password is needed.",
+        Rescan = "Rescan",
+        ScanningLocal = "Looking for cores on this computer…",
+        NoLocalCores = "No Lodestone Host or Lodestone Core is running on this computer.",
+        ConnectAsOwner = "Connect as owner",
+        Connected = "Connected",
+        ChooseDataFolder = "Choose folder…",
+        ChooseDataFolderPrompt = "Choose",
+        ProductHostHint = "the desktop app, with the dashboard in a window",
+        ProductCoreHint = "a core on its own (the server program, or Docker)",
+        ConnectedAsOwner = "Connected to {name} as its owner",
+        ConnectedMadeOwner = "It had no owner yet, so Lodestone Launcher made the owner account {username}. Its password is on the core's card; keep it somewhere safe.",
+        ConnectedOwnerKey = "This launcher has an owner key for it now. You can revoke it from the core's dashboard.",
+        OwnerSignIn = "Owner sign-in",
+        OwnerKey = "Owner key",
+        ShowPassword = "Show",
+        HidePassword = "Hide",
+        CopyUsername = "Copy username",
+        CopyPassword = "Copy password",
+        CopyApiKey = "Copy API key",
+        StartedBy = "Started by {who}",
+        StartedDirectly = "Started directly",
+        DirectNote = "This core was started directly. Lodestone Core is meant to be run with lodestone_cli, which installs it and keeps it updated.",
+        GetLodestoneCli = "Get lodestone_cli",
+        CredentialsReadFailed = "Couldn't read the owner keys of cores on this computer",
+        CredentialsSaveFailed = "Couldn't save the owner key",
+        ClaimNoCore = "No Lodestone Host or Lodestone Core is running on this computer.",
+        ClaimRefused = "The core refused to give owner access. Turn on \"Let apps on this computer claim owner access\" in its settings, or update it.",
+        ClaimFolderNotFound = "Couldn't find this core's data folder. Choose the folder it keeps its data in (its LODESTONE_PATH). A core in Docker needs its data folder mounted from this computer.",
+        ClaimNotThisCore = "The core that answered isn't the one whose folder was found, so nothing was saved.",
+        ClaimNoResult = "The core didn't finish the claim. Try again.",
+        ClaimFiles = "Couldn't use the core's data folder: {error}",
+        ClaimInvalid = "The core sent something Lodestone Launcher doesn't understand: {error}",
         /// The button (and dialog title) that adds a core by its address.
         AddServer = "Add server",
         /// Closes the message at the top of the page.
@@ -99,10 +134,10 @@ crate::i18n::messages! {
         ReadyBody = "Minecraft {version} with {loader}, and the server's mods and configs. Press Play to join.",
         CheckModsFailed = "Couldn't check the server's mods",
         JoinFailed = "Couldn't join {name}",
-        CoreRemoved = "The core this instance was made for ({address}) isn't in Lodestone Launcher any more. Add it on the Servers page, or press Play without joining.",
+        CoreRemoved = "The core this instance was made for ({address}) isn't in Lodestone Launcher any more. Add it on the Lodestone Host page, or press Play without joining.",
         ServerNotShown = "The core doesn't show this server to you any more: it was deleted, or it isn't listed publicly and you aren't signed in.",
         NotRunning = "{name} isn't running",
-        AskOwnerToStart = "Ask its owner to start it, or sign in to the core on the Servers page to start it yourself.",
+        AskOwnerToStart = "Ask its owner to start it, or sign in to the core on the Lodestone Host page to start it yourself.",
         UpdateModsFailed = "Couldn't update the mods",
         StopGameFirst = "Stop the game first.",
         UpdateInstanceFailed = "Couldn't update the instance",
@@ -254,7 +289,7 @@ crate::i18n::messages! {
 
         // ===== "Host on a Lodestone core", from an instance's Settings =====
         HostTitle = "Host on a Lodestone core",
-        ShowOnServersPage = "Show on Servers page",
+        ShowOnServersPage = "Show on the Lodestone Host page",
         HostIntro = "Makes a server from {name}'s mods and configs, as a Modrinth modpack. Client-only mods from Modrinth are left out. The server is created stopped.",
         /// The label over the choice of core.
         CoreLabel = "Core",
@@ -276,7 +311,7 @@ crate::i18n::messages! {
         InstanceGone = "The instance is gone.",
         PackNotKept = "The core didn't keep the modpack.",
         SignedOutRightAway = "The core signed you out right after signing in. Try again.",
-        AddCoreFirst = "Add your Lodestone core on the Servers page first.",
+        AddCoreFirst = "Add your Lodestone core on the Lodestone Host page first.",
 
         // ===== Worlds opened to LAN =====
         LanListenFailed = "Couldn't listen for LAN worlds: {error}",
@@ -350,13 +385,13 @@ crate::i18n::messages! {
         /// Under a list that shows the first few.
         AndMore = ("and {count} more", "and {count} more"),
         HostDone = (
-            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod file from Modrinth.\n\nThe server is stopped. Start it from the Servers page or the dashboard when you're ready; this instance is ready to join it.",
-            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod files from Modrinth.\n\nThe server is stopped. Start it from the Servers page or the dashboard when you're ready; this instance is ready to join it."
+            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod file from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it.",
+            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod files from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it."
         ),
         /// The same, for an instance that was linked to another server: {server}.
         HostDoneRelinked = (
-            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod file from Modrinth.\n\nThe server is stopped. Start it from the Servers page or the dashboard when you're ready; this instance is ready to join it. This instance was linked to {server}; it now belongs to the new server.",
-            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod files from Modrinth.\n\nThe server is stopped. Start it from the Servers page or the dashboard when you're ready; this instance is ready to join it. This instance was linked to {server}; it now belongs to the new server."
+            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod file from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it. This instance was linked to {server}; it now belongs to the new server.",
+            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod files from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it. This instance was linked to {server}; it now belongs to the new server."
         ),
     }
 }

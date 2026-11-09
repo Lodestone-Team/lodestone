@@ -12,6 +12,59 @@ pub struct CoreInfo {
     pub core_name: String,
     #[serde(default)]
     pub is_setup: bool,
+    /// What answers: Lodestone Host or a bare core. Older cores don't say.
+    #[serde(default)]
+    pub product: CoreProduct,
+    /// What started the core. Older cores don't say.
+    #[serde(default)]
+    pub launched_by: LaunchedBy,
+}
+
+/// What started a core: Lodestone Host, `lodestone_cli` (which keeps it updated),
+/// Docker, or the core's program run directly. Unknown for older cores, and for values
+/// this build doesn't know.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LaunchedBy {
+    Host,
+    LodestoneCli,
+    Docker,
+    Direct,
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+impl LaunchedBy {
+    pub fn is_unknown(&self) -> bool {
+        *self == LaunchedBy::Unknown
+    }
+}
+
+/// What runs a core: Lodestone Host (the desktop app, with the dashboard in a window)
+/// or a bare core (the standalone server, or Docker). A core that doesn't say, or
+/// says something this build doesn't know, is a bare core.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoreProduct {
+    Host,
+    #[default]
+    #[serde(other)]
+    Core,
+}
+
+impl CoreProduct {
+    pub fn is_core(&self) -> bool {
+        *self == CoreProduct::Core
+    }
+
+    /// "Lodestone Host" or "Lodestone Core": product names, the same in every language.
+    pub fn label(self) -> &'static str {
+        match self {
+            CoreProduct::Host => "Lodestone Host",
+            CoreProduct::Core => "Lodestone Core",
+        }
+    }
 }
 
 /// The mod loader of a server.

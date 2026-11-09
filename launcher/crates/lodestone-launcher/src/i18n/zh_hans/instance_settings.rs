@@ -110,7 +110,7 @@ pub fn text(message: M) -> &'static str {
 
         M::LinkedServerHint => "位于 {core}。“开始游戏”会加入它并同步模组。",
         M::LinkedServerCoreRemoved => {
-            "位于 {core}，该核心已从“服务器”页面移除。请在那里重新添加该核心以加入服务器。"
+            "位于 {core}，该核心已从“Lodestone Host”页面移除。请在那里重新添加该核心以加入服务器。"
         }
         M::CoreRemoved => "核心已移除",
         M::Unlink => "取消关联",

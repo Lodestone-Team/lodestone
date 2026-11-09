@@ -309,6 +309,8 @@ printf '%s\n' "$PASSWORD" | lodestone-launcher-cli cores add 192.168.1.20 --user
 lodestone-launcher-cli cores trust "Home core" --yes        # only when the user decides
 lodestone-launcher-cli cores trust-certificate "Home core" --fingerprint AB:CD:…
 lodestone-launcher-cli cores sign-out "Home core"
+lodestone-launcher-cli cores claim-local                      # owner key for the core on this computer
+lodestone-launcher-cli cores claim-local --folder ~/core-data # its data folder isn't ~/.lodestone
 lodestone-launcher-cli servers list
 lodestone-launcher-cli servers start Smp                     # needs this device signed in
 lodestone-launcher-cli servers stop Smp
@@ -321,6 +323,23 @@ printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core 
 lodestone-launcher-cli prompts list                          # questions the window is asking
 lodestone-launcher-cli prompts answer update play
 ```
+
+The window shows cores on its **Lodestone Host** page. `cores list` says what each one
+is (`"product": "Lodestone Host"` for the desktop app, `"Lodestone Core"` for a bare
+core) and, when the core says, what started it (`"launched_by": "host"`,
+`"lodestone_cli"`, `"docker"` or `"direct"`).
+
+`cores claim-local` connects as owner to a Lodestone Host or Lodestone Core running on
+this computer, without a password: the launcher proves it can write the core's data
+folder (`$LODESTONE_PATH`, `~/.lodestone`, or `--folder`) and the core gives it an
+owner-level API key. A core without an owner gets an account the launcher makes up
+(`owner_` and five characters, with a strong password). The key and that account are
+kept in plain text in the launcher's `cores/local_credentials.json` (readable only by
+the user; the reply gives the path) and shown on the core's card; they never appear in
+the reply. Errors: `not_found` (no core here, or its data folder wasn't found: pass
+`--folder`; a core in Docker needs its data folder mounted from this computer),
+`permission_denied` (the core's owner turned local claims off). Run it only when the
+user asks to connect as owner.
 
 Disk space (Settings > Storage). Sizes are bytes; `totals` sums them:
 

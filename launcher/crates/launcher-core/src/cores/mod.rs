@@ -33,7 +33,9 @@ pub mod trust;
 pub mod worlds;
 
 pub use client::{CoreClient, CoreError, PackFetch, parse_address};
-pub use models::{CoreInfo, ServerInstance, ServerList, ServerLoader, ServerState};
+pub use models::{
+    CoreInfo, CoreProduct, LaunchedBy, ServerInstance, ServerList, ServerLoader, ServerState,
+};
 
 use crate::game::loaders::{LoaderChoice, LoaderKind};
 

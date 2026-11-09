@@ -322,6 +322,8 @@ impl Servers {
                 saved.uuid = info.uuid.clone();
                 saved.url = address.clone();
                 saved.name = info.core_name.clone();
+                saved.product = info.product;
+                saved.launched_by = info.launched_by;
                 if key.is_some() {
                     saved.username = sign_in_as.clone();
                     saved.key_id = key.as_ref().map(|(_, info)| info.id.clone());

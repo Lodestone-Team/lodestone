@@ -160,6 +160,7 @@ pub const COMMANDS: &[(&str, &str, bool, bool)] = &[
         false,
     ),
     ("cores sign-out", "cores.sign_out", false, false),
+    ("cores claim-local", "cores.claim_local", false, false),
     ("servers list", "servers.list", false, false),
     ("servers start", "servers.start", false, false),
     ("servers stop", "servers.stop", false, false),

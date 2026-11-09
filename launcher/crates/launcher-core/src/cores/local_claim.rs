@@ -340,17 +340,21 @@ fn subtle_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// The core on this computer's default port, if one answers: `127.0.0.1`, then `::1`.
-pub async fn discover(http: Arc<dyn http_client::HttpClient>) -> Option<(Url, CoreInfo)> {
+/// The cores answering on this computer's default port, on `127.0.0.1` and `::1`,
+/// each once (one core usually answers on both).
+pub async fn discover(http: Arc<dyn http_client::HttpClient>) -> Vec<(Url, CoreInfo)> {
+    let mut found: Vec<(Url, CoreInfo)> = Vec::new();
     for address in ["http://127.0.0.1", "http://[::1]"] {
         let Ok(url) = client::parse_address(address) else {
             continue;
         };
-        if let Ok(info) = CoreClient::new(http.clone(), url.clone()).info().await {
-            return Some((url, info));
+        if let Ok(info) = CoreClient::new(http.clone(), url.clone()).info().await
+            && !found.iter().any(|(_, seen)| seen.uuid == info.uuid)
+        {
+            found.push((url, info));
         }
     }
-    None
+    found
 }
 
 /// Claims owner access to the core `client` talks to, looking for its data folder in
@@ -604,7 +608,7 @@ mod tests {
         // the claim's folder is a link elsewhere
         std::os::unix::fs::symlink(&target, core.join(CLAIM_DIR).join("c1")).unwrap();
         assert_eq!(
-            find_claim_folder(&[core.clone()], &start("c1")),
+            find_claim_folder(std::slice::from_ref(&core), &start("c1")),
             Err(ClaimError::FolderNotFound)
         );
         // the claim file is a link
@@ -612,7 +616,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         std::os::unix::fs::symlink(target.join("claim"), dir.join("claim")).unwrap();
         assert_eq!(
-            find_claim_folder(&[core.clone()], &start("c2")),
+            find_claim_folder(std::slice::from_ref(&core), &start("c2")),
             Err(ClaimError::FolderNotFound)
         );
         assert!(write_claim(&dir, &start("c2"), &OwnerCredentials::generate()).is_err());
@@ -680,6 +684,8 @@ mod tests {
                 uuid: "core".into(),
                 core_name: "Home".into(),
                 is_setup: true,
+                product: Default::default(),
+                launched_by: Default::default(),
             },
             url: Url::parse("http://127.0.0.1:16662/").unwrap(),
             api_key: Secret::new("lsk_k1_s3cret"),
@@ -901,5 +907,49 @@ mod tests {
         let mut core = fake(&tmp.path().join("lodestone"));
         core.refuse = true;
         assert_eq!(run_claim(core).0.err(), Some(ClaimError::Refused));
+    }
+
+    #[test]
+    fn cores_say_what_they_are() {
+        let info = |json: &str| serde_json::from_str::<CoreInfo>(json).unwrap().product;
+        let base = r#""version": "1", "uuid": "u", "core_name": "Home""#;
+        assert_eq!(
+            info(&format!("{{{base}}}")),
+            super::super::CoreProduct::Core
+        );
+        assert_eq!(
+            info(&format!(r#"{{{base}, "product": "host"}}"#)),
+            super::super::CoreProduct::Host
+        );
+        assert_eq!(
+            info(&format!(r#"{{{base}, "product": "something-new"}}"#)),
+            super::super::CoreProduct::Core
+        );
+        let started = |json: &str| serde_json::from_str::<CoreInfo>(json).unwrap().launched_by;
+        use super::super::LaunchedBy;
+        assert_eq!(started(&format!("{{{base}}}")), LaunchedBy::Unknown);
+        for (value, expected) in [
+            ("host", LaunchedBy::Host),
+            ("lodestone_cli", LaunchedBy::LodestoneCli),
+            ("docker", LaunchedBy::Docker),
+            ("direct", LaunchedBy::Direct),
+            ("systemd", LaunchedBy::Unknown),
+        ] {
+            assert_eq!(
+                started(&format!(r#"{{{base}, "launched_by": "{value}"}}"#)),
+                expected,
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn both_loopback_addresses_find_one_core_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let core = Arc::new(fake(tmp.path()));
+        let found = futures::executor::block_on(discover(core));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1.uuid, "core-1");
+        assert_eq!(found[0].0.as_str(), "http://127.0.0.1:16662/");
     }
 }
