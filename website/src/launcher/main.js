@@ -6,7 +6,10 @@ const REPO = 'Lodestone-Team/lodestone';
 // Each launcher version is a release of its own, tagged launcher-vX.Y.Z; betas
 // (launcher-vX.Y.Z-beta.N) are pre-releases and aren't offered here.
 const TAG_PREFIX = 'launcher-v';
-const RELEASE_PAGE = `https://github.com/${REPO}/releases?q=${TAG_PREFIX}&expanded=true`;
+// The launcher's releases without Host's. GitHub's release search matches words in
+// a release's title and notes, not the start of a tag, so ?q=launcher-v finds
+// nothing, while every launcher release's notes name LodestoneLauncherSetup.exe.
+const RELEASE_PAGE = `https://github.com/${REPO}/releases?q=LodestoneLauncherSetup.exe&expanded=true`;
 const CACHE_MS = 60 * 60 * 1000; // the unauthenticated API allows 60 calls an hour
 // The release launchers updated from before versioned releases. It's marked a
 // pre-release, but until the first launcher-v* release is out it holds the only
