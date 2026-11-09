@@ -31,6 +31,7 @@ pub mod packs;
 pub mod provenance;
 pub mod scan;
 pub mod shaders;
+pub mod share;
 
 use std::{
     io,

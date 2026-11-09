@@ -341,6 +341,17 @@ fn route(state: &mut State, request: &Recorded) -> (u16, Vec<u8>) {
             Some(project) => ok(project_json(&project, &state.versions)),
             None => not_found,
         },
+        ("GET", ["v2", "versions"]) => {
+            let ids = list_param(&request.query, "ids").unwrap_or_default();
+            ok(Value::Array(
+                state
+                    .versions
+                    .iter()
+                    .filter(|v| ids.contains(&v.id))
+                    .map(|v| v.json())
+                    .collect(),
+            ))
+        }
         ("GET", ["v2", "projects"]) => {
             let ids = list_param(&request.query, "ids").unwrap_or_default();
             ok(Value::Array(

@@ -328,6 +328,23 @@ impl Modrinth {
         Ok(versions)
     }
 
+    /// Several versions by id, in one request per 100. Unknown ids are left out.
+    pub async fn versions_by_id(&self, ids: &[String]) -> Result<Vec<RawVersion>, ModrinthError> {
+        let mut versions = Vec::new();
+        for chunk in ids.chunks(100) {
+            for id in chunk {
+                check_api_segment(id, "version id")?;
+            }
+            let mut url = Url::parse(&self.url("versions"))
+                .map_err(|err| ModrinthError::Invalid(err.to_string()))?;
+            url.query_pairs_mut()
+                .append_pair("ids", &serde_json::to_string(chunk).unwrap_or_default());
+            let raw: Vec<RawVersion> = self.get_json(url.into(), "The versions").await?;
+            versions.extend(raw);
+        }
+        Ok(versions)
+    }
+
     pub async fn version(&self, id: &str) -> Result<RawVersion, ModrinthError> {
         let id = check_api_segment(id, "version id")?;
         self.get_json(self.url(&format!("version/{id}")), "That version")

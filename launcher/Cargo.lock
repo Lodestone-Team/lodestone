@@ -2790,6 +2790,7 @@ dependencies = [
  "base64",
  "chrono",
  "dirs",
+ "flate2",
  "futures",
  "http_client",
  "http_client_tls",
