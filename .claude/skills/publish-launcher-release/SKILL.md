@@ -224,19 +224,25 @@ their own launchers to and debug. Users never get it.
   along with their tags. Never delete or edit one by hand.
 - **Developer builds and versions never mix:** the script refuses to upload a
   `--dev` build to a version's release, or a version's build to a developer one.
+- **They build faster than versions:** `--dev` builds with the `dev-build` cargo
+  profile (`.cargo/config.toml`), the release settings without cross-crate LTO and
+  with parallel code generation, into `target/dev-build`. A bug that only shows
+  with LTO won't show in one.
+- **Only on developers' machines, never on GitHub's:** GitHub's runners cost money
+  (its Mac ones most). Each developer builds their own platform: this machine's
+  build from here, the Mac build from a developer with a Mac. There's no workflow
+  for developer builds; don't start a release workflow to make one.
 
 To make one:
 
-1. **On GitHub (macOS and Windows):** run **Dev build** (`dev-build.yml`) with the
-   product and the branch or commit:
-   `gh workflow run dev-build.yml -f product=launcher -f ref=<branch>`. The commit
-   must be pushed.
-2. **From this machine,** in a clean checkout of the pushed commit:
-   `the script --dev --dry-run --open`, test the opened copy as in "Testing on this
-   machine", then `the script --dev` to upload exactly that build. It joins the
-   same commit's release if CI or another developer made it already.
-3. **Report** the release's URL, and tell the developer to install it and turn on
-   Developer builds if they haven't.
+1. **From this machine,** in a clean checkout of the pushed commit:
+   `the script --dev --dry-run --open` (on a Mac, with `--target
+   aarch64-apple-darwin --target x86_64-apple-darwin`), test the opened copy as in
+   "Testing on this machine", then `the script --dev` to upload exactly that build.
+   It joins the same commit's release if another developer made it already.
+2. **Report** the release's URL, which platforms it has, and that the others come
+   from developers on those platforms running the same commands on that commit.
+   Tell the developer to install it and turn on Developer builds if they haven't.
 
 `the script --list-dev` lists the developer builds there are, with their platforms.
 If a release already has a build newer than the developer build, the script says

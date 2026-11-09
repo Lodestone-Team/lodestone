@@ -16,11 +16,11 @@ use std::{
 use unicode_segmentation::UnicodeSegmentation as _;
 
 use gpui::{
-    App, Bounds, BoxShadow, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler,
-    Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hsla, KeyBinding,
-    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
-    ShapedLine, SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
-    fill, point, prelude::*, relative, size,
+    App, Bounds, BoxShadow, ClipboardItem, ContentMask, Context, CursorStyle, DispatchPhase,
+    ElementId, ElementInputHandler, Entity, EntityInputHandler, FocusHandle, Focusable,
+    GlobalElementId, Hsla, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine, SharedString, Style, Task, TextRun,
+    UTF16Selection, UnderlineStyle, Window, actions, div, fill, point, prelude::*, relative, size,
 };
 
 use super::a11y::{Accessible, AccessibleAction, ActionData, Role};
@@ -154,8 +154,16 @@ pub struct TextInput {
     marked_range: Option<Range<usize>>,
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
+    /// How far the text is scrolled to the left, when it is wider than the field: set
+    /// as the field is drawn, so the cursor stays in view. Hit-testing goes by the
+    /// last drawn one.
+    scroll_x: Pixels,
     /// While the left button is held after a press in the field: what dragging selects by.
     dragging: Option<Drag>,
+    /// Where the pointer was last while dragging.
+    drag_position: Option<Point<Pixels>>,
+    /// Scrolls the field while a drag holds the pointer past its left or right edge.
+    autoscroll: Option<Task<()>>,
     history: TextHistory,
     /// Shown before the text.
     leading_icon: Option<crate::components::Icon>,
@@ -182,6 +190,25 @@ struct TextHistory {
     /// When the last edit was, and whether it inserted text: typing on within a moment
     /// is the same step.
     last: Option<(Instant, bool)>,
+}
+
+/// The cursor's width.
+fn cursor_width() -> Pixels {
+    px(1.5)
+}
+
+/// How close the cursor may come to an edge of the field before the text scrolls.
+fn scroll_margin() -> Pixels {
+    px(4.)
+}
+
+/// How often a drag past an edge of the field scrolls it on.
+const AUTOSCROLL_TICK: Duration = Duration::from_millis(40);
+
+/// How many pixels past an edge the pointer must go for each more `char` a tick
+/// scrolls by: the farther out, the faster, as in native fields.
+fn autoscroll_distance_per_char() -> Pixels {
+    px(16.)
 }
 
 /// How many steps a field keeps.
@@ -221,7 +248,10 @@ impl TextInput {
             marked_range: None,
             last_layout: None,
             last_bounds: None,
+            scroll_x: Pixels::ZERO,
             dragging: None,
+            drag_position: None,
+            autoscroll: None,
             history: TextHistory::default(),
             leading_icon: None,
         }
@@ -562,6 +592,7 @@ impl TextInput {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.drag_position = Some(event.position);
         self.dragging = Some(match event.click_count {
             0 | 1 => {
                 let index = self.index_for_mouse_position(event.position);
@@ -586,18 +617,103 @@ impl TextInput {
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
         self.dragging = None;
+        self.drag_position = None;
+        self.autoscroll = None;
     }
 
+    /// Any move of the pointer in the window while a drag that began in the field
+    /// goes on, even outside it.
     fn on_mouse_move(
         &mut self,
         event: &MouseMoveEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !matches!(self.dragging, Some(Drag::Chars | Drag::Words(_))) {
+            return;
+        }
+        self.drag_position = Some(event.position);
+        self.drag_to(
+            self.index_for_mouse_position(event.position),
+            self.char_index_for_mouse_position(event.position),
+            window,
+            cx,
+        );
+        if self.autoscroll.is_none() && self.past_edge(event.position) != Pixels::ZERO {
+            self.autoscroll = Some(cx.spawn_in(window, async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(AUTOSCROLL_TICK).await;
+                    let more = this
+                        .update_in(cx, |this, window, cx| {
+                            let more = this.autoscroll_step(window, cx);
+                            if !more {
+                                this.autoscroll = None;
+                            }
+                            more
+                        })
+                        .unwrap_or(false);
+                    if !more {
+                        break;
+                    }
+                }
+            }));
+        }
+    }
+
+    /// How far `position` is past the text's left edge (negative) or right edge
+    /// (positive), or zero inside them.
+    fn past_edge(&self, position: Point<Pixels>) -> Pixels {
+        let Some(bounds) = self.last_bounds else {
+            return Pixels::ZERO;
+        };
+        if position.x < bounds.left() {
+            position.x - bounds.left()
+        } else if position.x > bounds.right() {
+            position.x - bounds.right()
+        } else {
+            Pixels::ZERO
+        }
+    }
+
+    /// One tick of scrolling while a drag holds the pointer past an edge: the
+    /// selection grows by a `char` or more that way, and drawing scrolls the cursor
+    /// into view. False once the drag ended or the pointer came back.
+    fn autoscroll_step(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(position) = self.drag_position else {
+            return false;
+        };
+        if !matches!(self.dragging, Some(Drag::Chars | Drag::Words(_))) {
+            return false;
+        }
+        let past = self.past_edge(position);
+        if past == Pixels::ZERO {
+            return false;
+        }
+        let chars = 1 + (past.abs() / autoscroll_distance_per_char()) as usize;
+        let mut index = self.cursor_offset();
+        for _ in 0..chars {
+            index = if past > Pixels::ZERO {
+                self.next_boundary(index)
+            } else {
+                self.previous_boundary(index)
+            };
+        }
+        self.drag_to(index, index, window, cx);
+        true
+    }
+
+    /// Moves the dragged end of the selection to `index` (a gap), or by words to the
+    /// word of the `char` at `char_index`.
+    fn drag_to(
+        &mut self,
+        index: usize,
+        char_index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let (range, reversed) = match &self.dragging {
             None | Some(Drag::All) => return,
             Some(Drag::Chars) => {
-                let index = self.index_for_mouse_position(event.position);
                 let anchor = if self.selection_reversed {
                     self.selected_range.end
                 } else {
@@ -607,7 +723,7 @@ impl TextInput {
             }
             // Whole words, from the one double-clicked to the one under the pointer.
             Some(Drag::Words(anchor)) => {
-                let word = self.word_at(self.char_index_for_mouse_position(event.position));
+                let word = self.word_at(char_index);
                 (
                     anchor.start.min(word.start)..anchor.end.max(word.end),
                     word.start < anchor.start,
@@ -695,7 +811,13 @@ impl TextInput {
         if position.y > bounds.bottom() {
             return self.content.len();
         }
-        line.closest_index_for_x(position.x - bounds.left())
+        line.closest_index_for_x(self.line_x(position, bounds))
+    }
+
+    /// Where `position` falls along the shaped line: inside the field's text area,
+    /// and past the part scrolled out of view.
+    fn line_x(&self, position: Point<Pixels>, bounds: &Bounds<Pixels>) -> Pixels {
+        position.x.clamp(bounds.left(), bounds.right()) - bounds.left() + self.scroll_x
     }
 
     /// The `char` under the pointer, rather than the gap nearest to it: the one a
@@ -711,7 +833,7 @@ impl TextInput {
         if position.y > bounds.bottom() {
             return self.content.len();
         }
-        line.index_for_x(position.x - bounds.left())
+        line.index_for_x(self.line_x(position, bounds))
             .unwrap_or(self.content.len())
     }
 
@@ -1002,15 +1124,10 @@ impl EntityInputHandler for TextInput {
             return None;
         }
         let range = self.range_from_utf16(&range_utf16);
+        let left = bounds.left() - self.scroll_x;
         Some(Bounds::from_corners(
-            point(
-                bounds.left() + last_layout.x_for_index(range.start),
-                bounds.top(),
-            ),
-            point(
-                bounds.left() + last_layout.x_for_index(range.end),
-                bounds.bottom(),
-            ),
+            point(left + last_layout.x_for_index(range.start), bounds.top()),
+            point(left + last_layout.x_for_index(range.end), bounds.bottom()),
         ))
     }
 
@@ -1025,7 +1142,7 @@ impl EntityInputHandler for TextInput {
         if last_layout.text != self.display_content() {
             return None;
         }
-        Some(self.offset_to_utf16(last_layout.closest_index_for_x(line_point.x)))
+        Some(self.offset_to_utf16(last_layout.closest_index_for_x(line_point.x + self.scroll_x)))
     }
 }
 
@@ -1125,8 +1242,7 @@ impl Render for TextInput {
                             }
                         }))
                         .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
-                        .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
-                        .on_mouse_move(cx.listener(Self::on_mouse_move));
+                        .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up));
                     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
                     let this =
                         this.on_mouse_down(MouseButton::Middle, cx.listener(Self::paste_primary));
@@ -1159,6 +1275,8 @@ struct PrepaintState {
     line: Option<ShapedLine>,
     cursor: Option<PaintQuad>,
     selection: Option<PaintQuad>,
+    /// How far the text is scrolled to the left.
+    scroll_x: Pixels,
 }
 
 impl IntoElement for TextElement {
@@ -1252,6 +1370,21 @@ impl Element for TextElement {
             .text_system()
             .shape_line(display_text, font_size, &runs, None);
 
+        // Text wider than the field scrolls to keep the cursor (the moving end of a
+        // selection) in view. A field without the focus shows the text's start, as
+        // NSTextField does.
+        let scroll_x = if input.content.is_empty() || !input.focus_handle.is_focused(window) {
+            Pixels::ZERO
+        } else {
+            scroll_to_show(
+                input.scroll_x,
+                line.x_for_index(input.cursor_offset()),
+                line.width,
+                bounds.size.width,
+            )
+        };
+        let left = bounds.left() - scroll_x;
+
         let selected_range = input.selected_range.clone();
         let (selection, cursor) = if input.content.is_empty() || selected_range.is_empty() {
             let x = if input.content.is_empty() {
@@ -1261,8 +1394,8 @@ impl Element for TextElement {
             };
             let cursor = fill(
                 Bounds::new(
-                    point(bounds.left() + x, bounds.top()),
-                    size(px(1.5), bounds.size.height),
+                    point(left + x, bounds.top()),
+                    size(cursor_width(), bounds.size.height),
                 ),
                 colors::GRAY_300,
             );
@@ -1270,14 +1403,8 @@ impl Element for TextElement {
         } else {
             let selection = fill(
                 Bounds::from_corners(
-                    point(
-                        bounds.left() + line.x_for_index(selected_range.start),
-                        bounds.top(),
-                    ),
-                    point(
-                        bounds.left() + line.x_for_index(selected_range.end),
-                        bounds.bottom(),
-                    ),
+                    point(left + line.x_for_index(selected_range.start), bounds.top()),
+                    point(left + line.x_for_index(selected_range.end), bounds.bottom()),
                 ),
                 crate::theme::accent::faded().opacity(50),
             );
@@ -1287,6 +1414,7 @@ impl Element for TextElement {
             line: Some(line),
             cursor,
             selection,
+            scroll_x,
         }
     }
 
@@ -1306,35 +1434,69 @@ impl Element for TextElement {
             ElementInputHandler::new(bounds, self.input.clone()),
             cx,
         );
-        if let Some(selection) = prepaint.selection.take() {
-            window.paint_quad(selection)
-        }
+        // A drag that began in the field follows the pointer anywhere in the window.
+        let input = self.input.clone();
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+            if phase == DispatchPhase::Bubble && input.read(cx).dragging.is_some() {
+                input.update(cx, |input, cx| input.on_mouse_move(event, window, cx));
+            }
+        });
+
         let Some(line) = prepaint.line.take() else {
             return;
         };
-        // Painting a shaped line only fails if a glyph cannot be rasterized; the
-        // field then shows no text rather than taking the window down.
-        line.paint(
-            bounds.origin,
-            window.line_height(),
-            gpui::TextAlign::Left,
-            None,
-            window,
-            cx,
-        )
-        .ok();
+        let scroll_x = prepaint.scroll_x;
+        // Scrolled text stays inside the field's padding.
+        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+            if let Some(selection) = prepaint.selection.take() {
+                window.paint_quad(selection)
+            }
+            // Painting a shaped line only fails if a glyph cannot be rasterized; the
+            // field then shows no text rather than taking the window down.
+            line.paint(
+                point(bounds.left() - scroll_x, bounds.top()),
+                window.line_height(),
+                gpui::TextAlign::Left,
+                None,
+                window,
+                cx,
+            )
+            .ok();
 
-        if focus_handle.is_focused(window)
-            && let Some(cursor) = prepaint.cursor.take()
-        {
-            window.paint_quad(cursor);
-        }
+            if focus_handle.is_focused(window)
+                && let Some(cursor) = prepaint.cursor.take()
+            {
+                window.paint_quad(cursor);
+            }
+        });
 
         self.input.update(cx, |input, _cx| {
             input.last_layout = Some(line);
             input.last_bounds = Some(bounds);
+            input.scroll_x = scroll_x;
         });
     }
+}
+
+/// How far to scroll a line `line_width` wide, in a field `field_width` wide, from
+/// `scroll_x`, to show the cursor at `cursor_x`: as little as keeps it a margin from
+/// either edge, and never past either end of the text.
+fn scroll_to_show(
+    scroll_x: Pixels,
+    cursor_x: Pixels,
+    line_width: Pixels,
+    field_width: Pixels,
+) -> Pixels {
+    let margin = scroll_margin().min(field_width * 0.25);
+    let mut scroll_x = scroll_x;
+    if cursor_x + cursor_width() + margin > scroll_x + field_width {
+        scroll_x = cursor_x + cursor_width() + margin - field_width;
+    }
+    if cursor_x - margin < scroll_x {
+        scroll_x = cursor_x - margin;
+    }
+    let max = (line_width + cursor_width() - field_width).max(Pixels::ZERO);
+    scroll_x.clamp(Pixels::ZERO, max)
 }
 
 #[cfg(test)]
@@ -1684,7 +1846,7 @@ mod keystroke_tests {
                 let next = line.x_for_index(next_char_boundary(&input.content, offset));
                 x += (next - x) * 0.4;
             }
-            point(bounds.left() + x, bounds.center().y)
+            point(bounds.left() - input.scroll_x + x, bounds.center().y)
         })
     }
 
@@ -2042,5 +2204,238 @@ mod keystroke_tests {
             assert_eq!(text(&input, cx), "one two three four");
             assert_eq!(primary(cx).as_deref(), Some("elsewhere"));
         }
+    }
+
+    /// A field 120 px wide: too narrow for a folder path.
+    struct Narrow {
+        input: Entity<TextInput>,
+    }
+
+    impl Render for Narrow {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            use gpui::Styled as _;
+            gpui::div()
+                .w(gpui::px(120.))
+                .child(self.input.clone())
+                .child(Button::new("after", "After"))
+        }
+    }
+
+    const PATH: &str = "/Users/peter/dev/lodestone/launcher/target/debug/lodestone_core";
+
+    fn narrow_field<'a>(
+        text: &str,
+        masked: bool,
+        cx: &'a mut TestAppContext,
+    ) -> (Entity<TextInput>, &'a mut VisualTestContext) {
+        cx.update(crate::components::init);
+        let text = text.to_string();
+        let (view, cx) = cx.add_window_view(move |_, cx| Narrow {
+            input: cx.new(|cx| {
+                let input = TextInput::new(cx).with_text(text);
+                if masked { input.with_masked() } else { input }
+            }),
+        });
+        cx.run_until_parked();
+        let input = view.read_with(cx, |view, _| view.input.clone());
+        let handle = input.read_with(cx, |input, cx| input.focus_handle(cx));
+        cx.update(|window, cx| window.focus(&handle, cx));
+        cx.run_until_parked();
+        (input, cx)
+    }
+
+    /// How far the text is scrolled, and the most it can be.
+    fn scroll(input: &Entity<TextInput>, cx: &mut VisualTestContext) -> (Pixels, Pixels) {
+        input.read_with(cx, |input, _| {
+            let bounds = input.last_bounds.expect("the field was drawn");
+            let line = input.last_layout.as_ref().expect("the field was drawn");
+            let max = (line.width + super::cursor_width() - bounds.size.width).max(Pixels::ZERO);
+            (input.scroll_x, max)
+        })
+    }
+
+    /// Whether the cursor is drawn inside the field's text area.
+    fn cursor_shown(input: &Entity<TextInput>, cx: &mut VisualTestContext) -> bool {
+        input.read_with(cx, |input, _| {
+            let bounds = input.last_bounds.expect("the field was drawn");
+            let line = input.last_layout.as_ref().expect("the field was drawn");
+            let x = line.x_for_index(input.cursor_offset()) - input.scroll_x;
+            x >= Pixels::ZERO && x + super::cursor_width() <= bounds.size.width
+        })
+    }
+
+    #[test]
+    fn typing_past_the_width_scrolls_to_the_cursor() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = narrow_field("", false, &mut cx);
+        assert_eq!(scroll(&input, cx).0, Pixels::ZERO);
+        cx.simulate_input("/Users/peter/dev");
+        assert!(cursor_shown(&input, cx));
+        cx.simulate_input("/lodestone/launcher/target");
+        assert_eq!(
+            text(&input, cx),
+            "/Users/peter/dev/lodestone/launcher/target"
+        );
+        let (scroll_x, max) = scroll(&input, cx);
+        assert!(scroll_x > Pixels::ZERO, "the text scrolled");
+        assert_eq!(scroll_x, max, "to the end, with the cursor at the edge");
+        assert!(cursor_shown(&input, cx));
+    }
+
+    #[test]
+    fn the_keys_keep_the_cursor_in_view() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = narrow_field(PATH, false, &mut cx);
+        assert_eq!(scroll(&input, cx).0, scroll(&input, cx).1, "at the end");
+        cx.simulate_keystrokes("home");
+        assert_eq!(scroll(&input, cx).0, Pixels::ZERO, "Home scrolls back");
+        assert!(cursor_shown(&input, cx));
+        cx.simulate_keystrokes("end");
+        assert_eq!(scroll(&input, cx).0, scroll(&input, cx).1, "End scrolls on");
+        // Left only scrolls once the cursor would leave the field.
+        let at_end = scroll(&input, cx).0;
+        cx.simulate_keystrokes("left");
+        assert_eq!(scroll(&input, cx).0, at_end);
+        for _ in 0..30 {
+            cx.simulate_keystrokes("left");
+            assert!(cursor_shown(&input, cx));
+        }
+        assert!(scroll(&input, cx).0 < at_end);
+        for _ in 0..4 {
+            cx.simulate_keystrokes(&format!("{WORD}-left"));
+            assert!(cursor_shown(&input, cx));
+        }
+        cx.simulate_keystrokes("home shift-end");
+        assert!(cursor_shown(&input, cx), "the selection's moving end");
+        assert_eq!(scroll(&input, cx).0, scroll(&input, cx).1);
+        cx.simulate_keystrokes("home");
+        let select_all = if cfg!(target_os = "macos") {
+            "cmd-a"
+        } else {
+            "ctrl-a"
+        };
+        cx.simulate_keystrokes(select_all);
+        assert_eq!(shown(&input, cx), format!("[{PATH}]"));
+        assert!(cursor_shown(&input, cx));
+    }
+
+    #[test]
+    fn a_click_after_scrolling_lands_on_the_char_under_it() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = narrow_field(PATH, false, &mut cx);
+        assert!(scroll(&input, cx).0 > Pixels::ZERO);
+        // Three chars before the end, drawn near the field's right edge.
+        let offset = PATH.len() - 3;
+        let position = at(&input, offset, true, cx);
+        click(cx, position, 1);
+        assert_eq!(
+            shown(&input, cx),
+            format!("{}|{}", &PATH[..offset], &PATH[offset..])
+        );
+        // A double-click selects the word under the pointer, not one at the start.
+        let word = PATH.rfind('/').unwrap() + 1;
+        let position = at(&input, word + 2, true, cx);
+        click(cx, position, 2);
+        assert_eq!(
+            shown(&input, cx),
+            format!("{}[lodestone_core]", &PATH[..word])
+        );
+        // The field's left edge is the first char shown, not the text's start.
+        let left = input.read_with(cx, |input, _| input.last_bounds.unwrap().left());
+        let y = at(&input, 0, false, cx).y;
+        click(cx, point(left, y), 1);
+        let index = input.read_with(cx, |input, _| input.cursor_offset());
+        assert!(index > PATH.len() / 2, "the cursor went to {index}");
+        assert!(cursor_shown(&input, cx));
+    }
+
+    #[test]
+    fn deleting_back_scrolls_back() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = narrow_field(PATH, false, &mut cx);
+        let before = scroll(&input, cx).0;
+        for _ in 0..10 {
+            cx.simulate_keystrokes("backspace");
+            let (scroll_x, max) = scroll(&input, cx);
+            assert!(scroll_x <= max, "never past the end of the text");
+            assert!(cursor_shown(&input, cx));
+        }
+        assert!(scroll(&input, cx).0 < before);
+        cx.simulate_keystrokes(&format!("{WORD}-backspace {WORD}-backspace"));
+        assert_eq!(scroll(&input, cx).0, scroll(&input, cx).1);
+        // Short enough to fit: no scroll at all.
+        input.update_in(cx, |input, _, cx| input.set_text("/Users", cx));
+        cx.run_until_parked();
+        assert_eq!(scroll(&input, cx), (Pixels::ZERO, Pixels::ZERO));
+    }
+
+    #[test]
+    fn a_field_without_the_focus_shows_the_start() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = narrow_field(PATH, false, &mut cx);
+        assert!(scroll(&input, cx).0 > Pixels::ZERO);
+        cx.update(|window, cx| window.blur(cx));
+        cx.run_until_parked();
+        let handle = input.read_with(cx, |input, _| input.focus_handle.clone());
+        assert!(!cx.update(|window, _| handle.is_focused(window)));
+        assert_eq!(scroll(&input, cx).0, Pixels::ZERO);
+        // A click into it lands where it was drawn.
+        let position = at(&input, 5, true, cx);
+        click(cx, position, 1);
+        assert_eq!(shown(&input, cx), format!("{}|{}", &PATH[..5], &PATH[5..]));
+        assert_eq!(scroll(&input, cx).0, Pixels::ZERO);
+    }
+
+    #[test]
+    fn a_password_scrolls_too() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = narrow_field("correct horse battery staple", true, &mut cx);
+        assert!(scroll(&input, cx).0 > Pixels::ZERO);
+        assert!(cursor_shown(&input, cx));
+        cx.simulate_keystrokes("home");
+        assert_eq!(scroll(&input, cx).0, Pixels::ZERO);
+    }
+
+    #[test]
+    fn dragging_past_an_edge_scrolls_on() {
+        let mut cx = TestAppContext::single();
+        let (input, cx) = narrow_field(PATH, false, &mut cx);
+        cx.simulate_keystrokes("home");
+        let start = at(&input, 1, false, cx);
+        press(cx, start, MouseButton::Left, 1);
+        let right = input.read_with(cx, |input, _| input.last_bounds.unwrap().right());
+        // Held past the right edge, the selection grows tick by tick to the end.
+        let outside = point(right + gpui::px(40.), start.y);
+        cx.simulate_event(MouseMoveEvent {
+            position: outside,
+            pressed_button: Some(MouseButton::Left),
+            modifiers: Modifiers::none(),
+        });
+        let first = input.read_with(cx, |input, _| input.selected_range.clone());
+        assert_eq!(first.start, 1);
+        for _ in 0..200 {
+            cx.executor().advance_clock(super::AUTOSCROLL_TICK);
+            cx.run_until_parked();
+            assert!(cursor_shown(&input, cx));
+        }
+        assert_eq!(shown(&input, cx), format!("/[{}]", &PATH[1..]));
+        assert_eq!(scroll(&input, cx).0, scroll(&input, cx).1);
+        // And back past the left edge, to the start.
+        let left = input.read_with(cx, |input, _| input.last_bounds.unwrap().left());
+        let outside = point(left - gpui::px(40.), start.y);
+        cx.simulate_event(MouseMoveEvent {
+            position: outside,
+            pressed_button: Some(MouseButton::Left),
+            modifiers: Modifiers::none(),
+        });
+        for _ in 0..200 {
+            cx.executor().advance_clock(super::AUTOSCROLL_TICK);
+            cx.run_until_parked();
+        }
+        assert_eq!(shown(&input, cx), format!("[/]{}", &PATH[1..]));
+        assert_eq!(scroll(&input, cx).0, Pixels::ZERO);
+        // Released, it stops.
+        release(cx, outside, MouseButton::Left, 1);
+        assert!(input.read_with(cx, |input, _| input.autoscroll.is_none()));
     }
 }

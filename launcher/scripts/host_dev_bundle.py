@@ -5,7 +5,10 @@ The app holds the Host (`lodestone-host`) and the core it runs as a child proces
 (`lodestone_core`, built without the `deno` feature, as every Host build is). Its
 Info.plist points the core's data folder and the Host's own folder (logs, the
 single-instance socket) into the output folder, so a test never touches
-`~/.lodestone` or the installed Host's data. It is signed ad hoc, for this Mac only.
+`~/.lodestone` or the installed Host's data. It is signed with this Mac's
+"Apple Development" certificate when it has one (or `--sign IDENTITY`), so macOS
+keeps treating rebuilds as the same app and Keychain items stay readable after
+"Always Allow"; otherwise ad hoc, for this Mac only.
 
 Nothing is published. Release builds of the Host ("Lodestone Host.app" in a disk
 image, the Windows installer) come from `publish_release.py --product host`; see
@@ -75,7 +78,29 @@ def info_plist(data: Path, host: Path) -> dict:
     }
 
 
-def bundle(out: Path, data: Path, release: bool) -> Path:
+def signing_identity(asked: str | None) -> str:
+    """The identity to sign with: `--sign`, else `LODESTONE_DEV_SIGN_IDENTITY`, else this
+    Mac's first "Apple Development" certificate, else ad hoc ("-").
+
+    A certificate keeps the app the same app to macOS across rebuilds, so the Keychain
+    items it saved stay readable after "Always Allow". An ad hoc signature changes with
+    every build, and macOS asks again each time."""
+    if asked:
+        return asked
+    env = os.environ.get("LODESTONE_DEV_SIGN_IDENTITY")
+    if env:
+        return env
+    found = subprocess.run(["security", "find-identity", "-v", "-p", "codesigning"],
+                           capture_output=True, text=True).stdout
+    for line in found.splitlines():
+        # `  1) <sha1> "Apple Development: …"`: sign by the hash, which is unique
+        parts = line.split()
+        if len(parts) >= 3 and '"Apple Development:' in line:
+            return parts[1]
+    return "-"
+
+
+def bundle(out: Path, data: Path, release: bool, identity: str = "-") -> Path:
     profile = "release" if release else "debug"
     host_exe = LAUNCHER / "target" / profile / "lodestone-host"
     core_exe = ROOT / "target" / profile / "lodestone_core"
@@ -99,8 +124,8 @@ def bundle(out: Path, data: Path, release: bool) -> Path:
     with (app / "Contents" / "Info.plist").open("wb") as file:
         plistlib.dump(info_plist(data.resolve(), host.resolve()), file)
     (app / "Contents" / "PkgInfo").write_text("APPL????", encoding="ascii")
-    # ad hoc: runs on this Mac; the core inside is signed with the app
-    run(["codesign", "--force", "--deep", "--sign", "-", str(app)], out)
+    # the core inside is signed with the app; ad hoc ("-") runs on this Mac only
+    run(["codesign", "--force", "--deep", "--sign", identity, str(app)], out)
     return app
 
 
@@ -116,6 +141,9 @@ def main() -> None:
     parser.add_argument("--release", action="store_true", help="optimised builds")
     parser.add_argument("--no-build", action="store_true", help="bundle what is already built")
     parser.add_argument("--open", action="store_true", help="open the app afterwards")
+    parser.add_argument("--sign", metavar="IDENTITY",
+                        help='the codesign identity (default: an "Apple Development" '
+                             'certificate if this Mac has one, else ad hoc)')
     args = parser.parse_args()
 
     out = (args.out or Path(tempfile.mkdtemp(prefix="lodestone-host-dev-"))).resolve()
@@ -126,8 +154,10 @@ def main() -> None:
         sys.exit("The dev bundle doesn't use ~/.lodestone, the real core's data. Pick another --data.")
     if not args.no_build:
         build(args.release)
-    app = bundle(out, data, args.release)
+    identity = signing_identity(args.sign)
+    app = bundle(out, data, args.release, identity)
     print(f"\nBuilt {app}")
+    print(f"Signed:          {'ad hoc' if identity == '-' else identity}")
     print(f"The core's data: {data}")
     print(f"The core's log:  {out / 'host' / 'logs' / 'core.log'}")
     print(f'Open it with:    open "{app}"')

@@ -50,6 +50,12 @@ pub struct HostShell {
     /// dashboard's `leftNavSize`), and whether a drag is going on.
     pub sidebar_width: f32,
     sidebar_dragging: bool,
+    /// The top bar was pressed: the next mouse move drags the window.
+    pub top_bar_drag_pending: bool,
+    /// How tall the sidebar's selected-instance block was when last drawn, so the
+    /// empty block keeps its space and nothing under it moves (the dashboard's fixed
+    /// `h-[17.625rem]`).
+    pub selected_block_height: Option<gpui::Pixels>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -93,6 +99,8 @@ impl HostShell {
                 .unwrap_or(layout::SIDEBAR_DEFAULT)
                 .clamp(layout::SIDEBAR_MIN, layout::SIDEBAR_MAX),
             sidebar_dragging: false,
+            top_bar_drag_pending: false,
+            selected_block_height: None,
             _subscriptions: subscriptions,
         }
     }
@@ -304,6 +312,18 @@ pub fn page_max_width(route: &Route) -> Option<gpui::Pixels> {
     }
 }
 
+/// Pages that scroll themselves, beside a list that jumps to their sections: they
+/// fill the page's height instead of growing it, so the page doesn't scroll them.
+pub fn page_scrolls_itself(route: &Route) -> bool {
+    matches!(
+        route,
+        Route::Instance {
+            tab: InstanceTab::Settings,
+            ..
+        }
+    )
+}
+
 impl Render for HostShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let page = self.page(cx);
@@ -322,6 +342,7 @@ impl Render for HostShell {
         let max_width = page_max_width(&self.route);
         let content = div()
             .flex_1()
+            .when(page_scrolls_itself(&self.route), |this| this.min_h_0())
             .w_full()
             .when_some(max_width, |this, width| this.max_w(width))
             .mx_auto()
@@ -459,5 +480,15 @@ impl Render for HostShell {
             .child(self.eula.clone())
             .child(toasts)
             .min_w(layout::sidebar_width())
+    }
+}
+
+/// Lodestone's logo (the dashboard's `Logo`), not the launcher's: a dark wordmark on
+/// the light theme.
+pub fn logo() -> &'static str {
+    if lodestone_ui::theme::palette::is_light() {
+        "images/logo_light.svg"
+    } else {
+        "images/host_logo.svg"
     }
 }

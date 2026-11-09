@@ -143,6 +143,9 @@ pub struct Friends {
     /// Redraws the dialog while it connects.
     ticker: Option<Task<()>>,
     checks: HashMap<String, Task<()>>,
+    /// Links read from the Keychain (or saved there) this session, so Check and Play
+    /// ask the Keychain once per friend, not on every press.
+    invites: HashMap<String, Invite>,
 }
 
 impl Friends {
@@ -156,6 +159,7 @@ impl Friends {
             attempt: 0,
             ticker: None,
             checks: HashMap::new(),
+            invites: HashMap::new(),
         }
     }
 
@@ -456,6 +460,7 @@ impl Servers {
             None => self.friends.list.push(FriendEntry { saved, status }),
         }
         self.save_friends();
+        self.friends.invites.insert(id.clone(), invite.clone());
         if !self.preview {
             let secrets = self.accounts.read(cx).secrets().clone();
             let to_save = invite.clone();
@@ -833,13 +838,20 @@ impl Servers {
             },
             cx,
         );
+        if let Some(invite) = self.friends.invites.get(id).cloned() {
+            self.connect_invite(invite, then_play, cx);
+            return;
+        }
         let secrets = self.accounts.read(cx).secrets().clone();
         let id = id.to_string();
         self.tasks.push(cx.spawn(async move |this, cx| {
             let store = secrets.store(cx);
             let invite = friends::read_invite(&*store, &id).await;
             this.update(cx, |this, cx| match invite {
-                Ok(Some(invite)) => this.connect_invite(invite, then_play, cx),
+                Ok(Some(invite)) => {
+                    this.friends.invites.insert(id.clone(), invite.clone());
+                    this.connect_invite(invite, then_play, cx)
+                }
                 _ => this.join_stage(
                     JoinStage::Failed {
                         error: JoinError::Failed(t(M::FriendLinkMissing).into()),
@@ -877,9 +889,16 @@ impl Servers {
         entry.status = FriendStatus::Checking;
         let secrets = self.accounts.read(cx).secrets().clone();
         let check_id = id.to_string();
+        let cached = self.friends.invites.get(id).cloned();
         let task = cx.spawn(async move |this, cx| {
-            let store = secrets.store(cx);
-            let invite = friends::read_invite(&*store, &check_id).await;
+            let invite = match cached {
+                Some(invite) => Ok(Some(invite)),
+                None => {
+                    let store = secrets.store(cx);
+                    friends::read_invite(&*store, &check_id).await
+                }
+            };
+            let read = invite.as_ref().ok().cloned().flatten();
             let result = match invite {
                 Ok(Some(invite)) => {
                     connect::open(invite, Progress::default())
@@ -898,6 +917,9 @@ impl Servers {
             };
             this.update(cx, |this, cx| {
                 this.friends.checks.remove(&check_id);
+                if let Some(invite) = read {
+                    this.friends.invites.insert(check_id.clone(), invite);
+                }
                 if let Some(entry) = this.friends.get_mut(&check_id) {
                     entry.status = match result {
                         Ok(status) => status,
@@ -920,6 +942,7 @@ impl Servers {
         };
         self.friends.list.remove(index);
         self.friends.checks.remove(id);
+        self.friends.invites.remove(id);
         self.save_friends();
         if self.preview {
             cx.notify();

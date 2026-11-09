@@ -9,3 +9,14 @@ strip = true
 opt-level= "s"
 lto = "thin"
 codegen-units = 1
+
+# Developer builds (`publish_release.py --dev`, the Dev build workflow): the release
+# settings, but without cross-crate LTO and with parallel code generation. Releases'
+# LTO and single codegen unit make the last step of a build slow and mostly
+# single-threaded; developer builds are for debugging, where a few percent of speed
+# and size matter less than getting the build sooner. The launcher's per-package
+# opt-levels (`[profile.release.package]`) are inherited.
+[profile.dev-build]
+inherits = "release"
+lto = false
+codegen-units = 16

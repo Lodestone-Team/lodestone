@@ -795,39 +795,53 @@ def describe(path: Path, build: int, commit: str) -> dict:
 # Building
 
 
+# The cargo profile developer builds use (`.cargo/config.toml`): the release settings
+# without cross-crate LTO, so they build faster. Versions build with `release`.
+DEV_PROFILE = "dev-build"
+
+
+def cargo_profile(dev: bool) -> str:
+    return DEV_PROFILE if dev else "release"
+
+
 def build_binary(target: str | None, build: int, commit: str, key: str, into: Path,
                  dev: bool = False) -> Path:
     """Builds the app for `target` (None: this machine); returns a copy named for upload.
-    A developer build (`dev`) has the dev channel compiled in."""
+    A developer build (`dev`) has the dev channel compiled in, and its own profile."""
     env = dict(os.environ, **{PRODUCT.build_env: str(build), PRODUCT.commit_env: commit})
     env.pop(PRODUCT.channel_env, None)
     if dev:
         env[PRODUCT.channel_env] = DEV_CHANNEL
-    cmd = ["cargo", "build", "--release", "--locked", "-p", PRODUCT.package]
+    profile = cargo_profile(dev)
+    cmd = ["cargo", "build", "--profile", profile, "--locked", "-p", PRODUCT.package]
     if target:
         cmd += ["--target", target]
     run(cmd, cwd=LAUNCHER, env=env, quiet=False)
-    return copy_built(LAUNCHER, PRODUCT.package, target, key, into / asset_name(build, key))
+    return copy_built(LAUNCHER, PRODUCT.package, target, key, into / asset_name(build, key),
+                      profile)
 
 
-def build_core(target: str | None, build: int, key: str, into: Path) -> Path:
+def build_core(target: str | None, build: int, key: str, into: Path, dev: bool = False) -> Path:
     """Builds Lodestone Core, which the Host runs, for `target`, from the repository's
     root workspace. Never with Deno: `--no-default-features`."""
-    cmd = ["cargo", "build", "--release", "--locked", "-p", CORE_PACKAGE, "--no-default-features"]
+    profile = cargo_profile(dev)
+    cmd = ["cargo", "build", "--profile", profile, "--locked", "-p", CORE_PACKAGE,
+           "--no-default-features"]
     if target:
         cmd += ["--target", target]
     run(cmd, cwd=ROOT, quiet=False)
-    return copy_built(ROOT, CORE_PACKAGE, target, key, into / core_name(build, key))
+    return copy_built(ROOT, CORE_PACKAGE, target, key, into / core_name(build, key), profile)
 
 
-def copy_built(workspace: Path, program: str, target: str | None, key: str, copy: Path) -> Path:
-    """Copies `workspace`'s release build of `program` to `copy`."""
+def copy_built(workspace: Path, program: str, target: str | None, key: str, copy: Path,
+               profile: str = "release") -> Path:
+    """Copies `workspace`'s build of `program` with `profile` to `copy`."""
     metadata = json.loads(run(["cargo", "metadata", "--format-version", "1", "--no-deps"],
                               cwd=workspace))
     out = Path(metadata["target_directory"])
     if target:
         out = out / target
-    exe = out / "release" / (program + (".exe" if key.startswith("windows-") else ""))
+    exe = out / profile / (program + (".exe" if key.startswith("windows-") else ""))
     if not exe.is_file():
         raise Failure(f"the build finished but {exe} is missing")
     shutil.copyfile(exe, copy)
@@ -1121,12 +1135,13 @@ def stage(targets: list[str | None], build: int, commit: str, version: str, into
     mac_cores: list[Path] = []
     for target in targets:
         key = key_for_target(target or host)
-        step(f"Building {PRODUCT.name} for {key} (release)")
+        profile = cargo_profile(dev)
+        step(f"Building {PRODUCT.name} for {key} ({profile})")
         binary = build_binary(target, build, commit, key, into, dev)
         core = None
         if PRODUCT.core:
-            step(f"Building Lodestone Core for {key} (release, without Deno)")
-            core = build_core(target, build, key, into)
+            step(f"Building Lodestone Core for {key} ({profile}, without Deno)")
+            core = build_core(target, build, key, into, dev)
         if key.startswith("macos-"):
             if not host.endswith("apple-darwin"):
                 raise Failure("macOS builds are signed and bundled on a Mac")

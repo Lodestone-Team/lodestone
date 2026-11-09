@@ -4,7 +4,8 @@
 //! the left column and the bar moves the window.
 
 use gpui::{
-    Context, IntoElement, ParentElement, Styled, Window, WindowControlArea, div, img, prelude::*,
+    Context, IntoElement, MouseButton, ParentElement, Styled, Window, WindowControlArea, div, img,
+    prelude::*,
 };
 use lodestone_ui::theme::{colors, layout, px, radius, text, weights};
 
@@ -26,6 +27,28 @@ pub fn render(
     div()
         .id("top-bar")
         .window_control_area(WindowControlArea::Drag)
+        // Move the window when the bar is dragged, as the launcher's bar does: a mouse
+        // down arms the drag and the first move starts it, so clicks still work.
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, _, _| this.top_bar_drag_pending = true),
+        )
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|this, _, _, _| this.top_bar_drag_pending = false),
+        )
+        .on_mouse_down_out(cx.listener(|this, _, _, _| this.top_bar_drag_pending = false))
+        .on_mouse_move(cx.listener(|this, _, window, _| {
+            if this.top_bar_drag_pending {
+                this.top_bar_drag_pending = false;
+                window.start_window_move();
+            }
+        }))
+        .on_click(|event, window, _| {
+            if event.click_count() == 2 {
+                window.titlebar_double_click();
+            }
+        })
         .flex()
         .flex_row()
         .flex_none()
@@ -49,11 +72,7 @@ pub fn render(
                 .gap(px(8.))
                 .cursor_pointer()
                 .on_click(cx.listener(|this, _, _, cx| this.navigate(Route::Home, cx)))
-                .child(
-                    img(lodestone_ui::theme::palette::logo())
-                        .w(layout::logo_width())
-                        .h(gpui::px(26.)),
-                )
+                .child(img(super::logo()).w(layout::logo_width()).h(gpui::px(26.)))
                 .when(IS_DEV, |this| {
                     this.child(
                         div()
