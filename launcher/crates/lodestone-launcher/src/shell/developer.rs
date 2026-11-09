@@ -89,6 +89,27 @@ pub fn render(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> impl In
             .into_any_element()])),
         )
         .child(section(t(M::SignInSection), None).child(sign_in))
+        .child(
+            section(t(M::FirstTimeSetupSection), None).child(card([SettingRow::new(t(
+                M::ResetFirstTimeSetup,
+            ))
+            .hint(t(M::ResetFirstTimeSetupHint))
+            .child(
+                Button::new("reset-first-time-setup", t(CommonMsg::Reset))
+                    .size(ButtonSize::Slim)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.instances
+                            .update(cx, |instances, cx| instances.reset_first_time_setup(cx));
+                        this.undo_toast.show(
+                            t(M::FirstTimeSetupReset),
+                            false,
+                            |this: &mut LauncherShell| &mut this.undo_toast,
+                            cx,
+                        );
+                    })),
+            )
+            .into_any_element()])),
+        )
 }
 
 /// Settings > Developer > Command line.

@@ -169,6 +169,19 @@ enum Modal {
         message: SharedString,
         focus: FocusHandle,
     },
+    /// "Make {name} your main instance?", for a new instance with no main yet.
+    OfferMain {
+        id: String,
+        name: String,
+        focus: FocusHandle,
+    },
+    /// "Make {name} your main instance?" when `current` is the main one now.
+    ConfirmMain {
+        id: String,
+        name: String,
+        current: String,
+        focus: FocusHandle,
+    },
     DeleteInstance {
         id: String,
         name: String,
@@ -340,6 +353,22 @@ impl LauncherShell {
                     this.settings = None;
                     this.sync_settings(cx);
                     cx.notify();
+                }
+                InstancesEvent::OfferMain(id) => this.offer_main(id.clone(), cx),
+                InstancesEvent::ConfirmMain { id, current } => {
+                    let instances = this.instances.read(cx);
+                    let name = instances.instance_name(id).unwrap_or_default();
+                    let current = instances.instance_name(current).unwrap_or_default();
+                    let focus = cx.focus_handle();
+                    this.modal.open(
+                        Modal::ConfirmMain {
+                            id: id.clone(),
+                            name,
+                            current,
+                            focus,
+                        },
+                        cx,
+                    );
                 }
                 InstancesEvent::GameWindowOpened(_) => this.game_window_opened(cx),
                 InstancesEvent::GameExited(_) => this.game_exited(cx),
@@ -1610,6 +1639,68 @@ impl LauncherShell {
         }
     }
 
+    /// "Make … your main instance?" over the first two instances, for the offscreen
+    /// screenshots: the first-time offer, or (`confirm`) taking over from a main one.
+    #[cfg(feature = "screenshot")]
+    pub fn preview_main_dialog(&mut self, confirm: bool, cx: &mut Context<Self>) {
+        let list = self.instances.read(cx).list().to_vec();
+        let (Some(first), Some(second)) = (list.first(), list.get(1)) else {
+            return;
+        };
+        let focus = cx.focus_handle();
+        let modal = if confirm {
+            Modal::ConfirmMain {
+                id: second.id.clone(),
+                name: second.name.clone(),
+                current: first.name.clone(),
+                focus,
+            }
+        } else {
+            Modal::OfferMain {
+                id: first.id.clone(),
+                name: first.name.clone(),
+                focus,
+            }
+        };
+        self.modal.open(modal, cx);
+    }
+
+    /// Offers a new instance as the main one, once whatever dialog made it (New
+    /// instance, an import) has closed.
+    fn offer_main(&mut self, id: String, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(300))
+                    .await;
+                let Ok(open) = this.update(cx, |this, cx| {
+                    if this.modal.is_open() {
+                        return false;
+                    }
+                    let Some(name) = this.instances.read(cx).instance_name(&id) else {
+                        return true;
+                    };
+                    let focus = cx.focus_handle();
+                    this.modal.open(
+                        Modal::OfferMain {
+                            id: id.clone(),
+                            name,
+                            focus,
+                        },
+                        cx,
+                    );
+                    true
+                }) else {
+                    return;
+                };
+                if open {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
     /// A game's window opened: Settings > General > "When a game starts".
     fn game_window_opened(&mut self, cx: &mut Context<Self>) {
         let instances = self.instances.read(cx);
@@ -1782,6 +1873,75 @@ impl LauncherShell {
                 close(cx),
                 cx,
             ),
+            Modal::OfferMain { id, name, focus } => {
+                let id = id.clone();
+                Dialog::new(
+                    "offer-main",
+                    tr!(M::MainOfferTitle, name = name),
+                    focus.clone(),
+                )
+                .on_close(close(cx))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .text_color(crate::theme::ink::secondary())
+                        .whitespace_normal()
+                        .child(t(M::MainOfferBody))
+                        .child(t(M::MainChangeLater)),
+                )
+                .footer(
+                    Button::new("offer-main-yes", t(M::MakeItMain))
+                        .variant(ButtonVariant::Primary)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.close_modal(cx);
+                            this.instances
+                                .update(cx, |instances, cx| instances.set_main(Some(&id), cx));
+                        })),
+                )
+                .footer(
+                    Button::new("offer-main-no", t(CommonMsg::NotNow))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                )
+                .into_any_element()
+            }
+            Modal::ConfirmMain {
+                id,
+                name,
+                current,
+                focus,
+            } => {
+                let id = id.clone();
+                Dialog::new(
+                    "confirm-main",
+                    tr!(M::MainOfferTitle, name = name),
+                    focus.clone(),
+                )
+                .on_close(close(cx))
+                .child(
+                    div()
+                        .text_color(crate::theme::ink::secondary())
+                        .whitespace_normal()
+                        .child(tr!(M::MainSwitchBody, current = current, name = name)),
+                )
+                .footer(
+                    Button::new("confirm-main-yes", tr!(M::MakeNameMain, name = name))
+                        .variant(ButtonVariant::Primary)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.close_modal(cx);
+                            this.instances
+                                .update(cx, |instances, cx| instances.set_main(Some(&id), cx));
+                        })),
+                )
+                .footer(
+                    Button::new("confirm-main-cancel", t(CommonMsg::Cancel))
+                        .variant(ButtonVariant::Secondary)
+                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
+                )
+                .into_any_element()
+            }
             Modal::LaunchFailed {
                 title,
                 message,

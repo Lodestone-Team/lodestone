@@ -230,19 +230,18 @@ pub fn text(message: M) -> &'static str {
         M::DeleteInstance => "删除实例",
         M::DeleteHint => "包括其中的世界和模组。",
         M::DeleteButton => "删除…",
-
-        M::SharedLead => "所有实例使用相同的游戏选项。",
+        M::SharedLead => "让各实例的设置保持同步。",
         M::UseSharedSettings => "使用共享设置",
         M::SharingOff => "此实例保留自己的选项。",
-        M::SharingPreferred => "此实例中游戏内的更改会同步到所有实例。",
         M::SharingFrom => "接收来自 {name} 的游戏内更改。",
-        M::SharingNoPreferred => "共享值只能在设置中更改。",
-        M::Preferred => "首选",
-        M::MakePreferred => "设为首选",
-        M::PreferredExplained => {
-            "在首选实例的游戏内更改的设置会成为共享设置；每个使用共享设置的实例会在下次启动时获得这些设置。只能有一个首选实例。"
+        M::SharingMain => "此实例中游戏内的更改会同步到所有实例。",
+        M::SharingNoMain => "没有主实例：共享值只能在设置中更改。",
+        M::MainInstance => "主实例",
+        M::MainInstanceHint => {
+            "你在主实例游戏中更改的设置，会在其他共享设置的实例下次启动时复制过去。只能有一个主实例。"
         }
-        M::MadePreferred => "此实例中的游戏内更改现在会更新到每个实例。",
+        M::IsMainInstance => "这是你的主实例",
+        M::MakeMain => "设为主实例",
         M::StopGameToChange => "请先停止游戏再更改：游戏退出时会重写 options.txt。",
         M::NotShared => "未共享（启动器设置）",
         M::ShareAll => "全部共享",

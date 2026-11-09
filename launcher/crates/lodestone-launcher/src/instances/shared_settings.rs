@@ -253,14 +253,12 @@ impl InstanceSharedSettings {
         self.after(result, cx);
     }
 
-    fn make_preferred(&mut self, cx: &mut Context<Self>) {
-        let before = self.undo_files(cx);
-        let dir = self.dir(cx);
-        let data = self.instances.read(cx).data_dir().clone();
-        let result = shared_options::set_preferred(&data, Some(&self.instance_id), Some(&dir));
-        self.message = Some((M::MadePreferred.into(), false));
-        self.record_undo(before, cx);
-        self.after(result, cx);
+    /// "Make main": straight away, or after asking when another instance is main.
+    fn make_main(&mut self, cx: &mut Context<Self>) {
+        let id = self.instance_id.clone();
+        self.message = None;
+        self.instances
+            .update(cx, |instances, cx| instances.request_main(&id, cx));
     }
 
     fn set_overrides(&mut self, keys: Vec<String>, overridden: bool, cx: &mut Context<Self>) {
@@ -565,32 +563,17 @@ impl Render for InstanceSharedSettings {
         let source = if !enabled {
             t(M::SharingOff).to_string()
         } else if is_preferred {
-            t(M::SharingPreferred).to_string()
+            t(M::SharingMain).to_string()
         } else {
             match &preferred_name {
                 Some(name) => tr!(M::SharingFrom, name = name),
-                None => t(M::SharingNoPreferred).to_string(),
+                None => t(M::SharingNoMain).to_string(),
             }
         };
 
         let mut items: Vec<AnyElement> = vec![
             SettingRow::new(t(M::UseSharedSettings))
                 .hint(source)
-                .when(enabled && is_preferred, |row| {
-                    row.child(
-                        div()
-                            .id("preferred-tag")
-                            .tooltip(crate::components::text_tooltip(t(M::PreferredExplained)))
-                            .child(tag(t(M::Preferred), colors::GREEN_300)),
-                    )
-                })
-                .when(enabled && !is_preferred, |row| {
-                    row.child(
-                        link("make-preferred", t(M::MakePreferred))
-                            .tooltip(crate::components::text_tooltip(t(M::PreferredExplained)))
-                            .on_press(cx.listener(|this, _, _, cx| this.make_preferred(cx))),
-                    )
-                })
                 .child(
                     Toggle::new("use-shared-settings", enabled)
                         .label(t(M::UseSharedSettings))
@@ -605,6 +588,23 @@ impl Render for InstanceSharedSettings {
                 .into_any_element(),
         ];
         if enabled {
+            // The main instance: its in-game changes are copied to the others.
+            items.push(
+                SettingRow::new(t(M::MainInstance))
+                    .hint(t(M::MainInstanceHint))
+                    .when(is_preferred, |row| {
+                        row.child(tag(t(M::IsMainInstance), colors::GREEN_300))
+                    })
+                    .when(!is_preferred, |row| {
+                        row.child(
+                            Button::new("make-main", t(M::MakeMain))
+                                .variant(ButtonVariant::Secondary)
+                                .size(ButtonSize::Slim)
+                                .on_click(cx.listener(|this, _, _, cx| this.make_main(cx))),
+                        )
+                    })
+                    .into_any_element(),
+            );
             for category in Category::ALL {
                 let in_category: Vec<&Row> =
                     rows.iter().filter(|r| r.category == category).collect();

@@ -182,7 +182,7 @@ crate::i18n::messages! {
         Accounts = "Accounts",
         Developer = "Developer",
         DefaultsLead = "Each instance can change these in its own settings.",
-        SharedLead = "The same game options in every instance.",
+        SharedLead = "Keep your settings in sync across instances.",
         NoAccount = "No account",
         ManageAccounts = "Manage accounts",
         GroupAutomatically = "Group instances automatically",
@@ -223,17 +223,30 @@ crate::i18n::messages! {
         EnvironmentVariables = "Environment variables",
 
         // Settings > Shared game settings.
-        SyncedFrom = "Settings changed in-game in {name} now update every instance.",
-        SyncedFromNone = "No instance updates the shared settings now; edit them here.",
+        SyncedFrom = "{name} is now your main instance.",
+        SyncedFromNone = "No main instance now: edit the shared settings here.",
         SharedCleared = "The shared values are cleared. Instances keep their own options.txt.",
-        NoInstance = "No instance",
-        /// Beside "No instance" in the Sync from list.
+        NoInstance = "No main instance",
+        /// Beside "No main instance" in the Main instance list.
         EditHereOnly = "edit here only",
         /// The placeholder of a shared value being edited.
         Value = "Value",
-        SyncFrom = "Sync from",
-        SyncFromHint = "In-game changes in this instance update the others.",
-        SyncFromNoneHint = "Shared values change only here.",
+        SyncFrom = "Main instance",
+        SyncFromHint = "Settings you change in-game in your main instance are copied to your other instances when they start.",
+        SyncFromNoneHint = "Without a main instance, the shared settings change only here.",
+        /// The offer to make a new instance the main one; also asked before another
+        /// instance takes over as main.
+        MainOfferTitle = "Make {name} your main instance?",
+        MainOfferBody = "Shared game settings keep your controls, video, sound and other options the same in every instance. Settings you change in-game in your main instance are copied to the others when they start.",
+        MainChangeLater = "You can change this later in Settings › Shared game settings.",
+        MakeItMain = "Make it main",
+        MainSwitchBody = "{current} is your main instance now. Its in-game changes will stop updating your shared settings, and {name}'s will update them instead.",
+        MakeNameMain = "Make {name} main",
+        /// Settings > Developer.
+        FirstTimeSetupSection = "First-time setup",
+        ResetFirstTimeSetup = "Reset first-time setup",
+        ResetFirstTimeSetupHint = "The next new instance is offered as your main instance again. This clears your main instance; the shared values stay.",
+        FirstTimeSetupReset = "First-time setup is reset. Create an instance to see it.",
         StartFromInstance = "Start from an instance",
         CopyFromInstance = "Copy from instance…",
         ClearShared = "Clear the shared values",

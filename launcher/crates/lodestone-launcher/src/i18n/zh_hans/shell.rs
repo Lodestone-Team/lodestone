@@ -151,7 +151,7 @@ pub fn text(message: M) -> &'static str {
         M::Accounts => "账户",
         M::Developer => "开发者",
         M::DefaultsLead => "每个实例都可以在自己的设置中更改。",
-        M::SharedLead => "所有实例使用相同的游戏选项。",
+        M::SharedLead => "让各实例的设置保持同步。",
         M::NoAccount => "无账户",
         M::ManageAccounts => "管理账户",
         M::GroupAutomatically => "自动分组实例",
@@ -183,16 +183,31 @@ pub fn text(message: M) -> &'static str {
         M::JvmArguments => "JVM 参数",
         M::GameArguments => "游戏参数",
         M::EnvironmentVariables => "环境变量",
-
-        M::SyncedFrom => "现在，“{name}”中游戏内的更改会同步到所有实例。",
-        M::SyncedFromNone => "现在没有实例会更新共享设置，请在这里编辑。",
+        M::SyncedFrom => "“{name}”现在是你的主实例。",
+        M::SyncedFromNone => "现在没有主实例，请在这里编辑共享设置。",
         M::SharedCleared => "共享值已清除。各实例保留自己的 options.txt。",
-        M::NoInstance => "无实例",
+        M::NoInstance => "无主实例",
         M::EditHereOnly => "仅在此处编辑",
         M::Value => "值",
-        M::SyncFrom => "同步来源",
-        M::SyncFromHint => "在此实例游戏内的更改会同步到其他实例。",
-        M::SyncFromNoneHint => "共享值只在这里更改。",
+        M::SyncFrom => "主实例",
+        M::SyncFromHint => "你在主实例游戏中更改的设置，会在其他实例启动时复制过去。",
+        M::SyncFromNoneHint => "没有主实例时，共享设置只在这里更改。",
+        M::MainOfferTitle => "将“{name}”设为主实例？",
+        M::MainOfferBody => {
+            "共享游戏设置让你的操作、视频、声音等选项在每个实例中保持一致。你在主实例游戏中更改的设置，会在其他实例启动时复制过去。"
+        }
+        M::MainChangeLater => "之后可以在“设置 › 共享游戏设置”中更改。",
+        M::MakeItMain => "设为主实例",
+        M::MainSwitchBody => {
+            "“{current}”目前是你的主实例。它在游戏中的更改将不再更新共享设置，改由“{name}”更新。"
+        }
+        M::MakeNameMain => "将“{name}”设为主实例",
+        M::FirstTimeSetupSection => "首次设置",
+        M::ResetFirstTimeSetup => "重置首次设置",
+        M::ResetFirstTimeSetupHint => {
+            "下一个新建的实例会再次被提议设为主实例。这会清除当前主实例；共享值保留。"
+        }
+        M::FirstTimeSetupReset => "首次设置已重置。新建一个实例即可看到。",
         M::StartFromInstance => "从某个实例开始",
         M::CopyFromInstance => "从实例复制…",
         M::ClearShared => "清除共享值",

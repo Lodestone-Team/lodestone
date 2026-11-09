@@ -262,19 +262,17 @@ crate::i18n::messages! {
         DeleteButton = "Delete…",
 
         // Shared game settings.
-        SharedLead = "The same game options in every instance.",
+        SharedLead = "Keep your settings in sync across instances.",
         UseSharedSettings = "Use shared settings",
         SharingOff = "This instance keeps its own options.",
-        SharingPreferred = "In-game changes here update every instance.",
-        /// {name} is the preferred instance's name.
+        /// {name} is the main instance's name.
         SharingFrom = "Gets in-game changes from {name}.",
-        SharingNoPreferred = "Shared values change only in Settings.",
-        /// A tag on the preferred instance.
-        Preferred = "Preferred",
-        MakePreferred = "Make preferred",
-        /// The tooltip of "Preferred" and "Make preferred".
-        PreferredExplained = "Settings you change in-game in the preferred instance become the shared ones, and every instance that shares them gets them the next time it starts. Only one instance is preferred.",
-        MadePreferred = "In-game changes in this instance now update every instance.",
+        SharingMain = "In-game changes here update every instance.",
+        SharingNoMain = "No main instance: shared values change only in Settings.",
+        MainInstance = "Main instance",
+        MainInstanceHint = "Settings you change in-game in your main instance are copied to every instance that shares them, the next time it starts. Only one instance is the main one.",
+        IsMainInstance = "This is your main instance",
+        MakeMain = "Make main",
         StopGameToChange = "Stop the game to change these: it rewrites options.txt when it quits.",
         /// A category the launcher's Settings doesn't share.
         NotShared = "Not shared (launcher Settings)",

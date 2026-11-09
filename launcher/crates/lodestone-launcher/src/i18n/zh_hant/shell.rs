@@ -151,7 +151,7 @@ pub fn text(message: M) -> &'static str {
         M::Accounts => "帳號",
         M::Developer => "開發者",
         M::DefaultsLead => "每個實例都可以在自己的設定中變更。",
-        M::SharedLead => "所有實例使用相同的遊戲選項。",
+        M::SharedLead => "讓各實例的設定保持同步。",
         M::NoAccount => "沒有帳號",
         M::ManageAccounts => "管理帳號",
         M::GroupAutomatically => "自動將實例分組",
@@ -183,16 +183,31 @@ pub fn text(message: M) -> &'static str {
         M::JvmArguments => "JVM 參數",
         M::GameArguments => "遊戲參數",
         M::EnvironmentVariables => "環境變數",
-
-        M::SyncedFrom => "現在，在「{name}」遊戲中變更的設定會更新所有實例。",
-        M::SyncedFromNone => "現在沒有實例會更新共用設定，請在這裡編輯。",
+        M::SyncedFrom => "「{name}」現在是你的主實例。",
+        M::SyncedFromNone => "現在沒有主實例，請在這裡編輯共用設定。",
         M::SharedCleared => "共用值已清除。各實例保留自己的 options.txt。",
-        M::NoInstance => "沒有實例",
+        M::NoInstance => "沒有主實例",
         M::EditHereOnly => "只在這裡編輯",
         M::Value => "值",
-        M::SyncFrom => "同步來源",
-        M::SyncFromHint => "在此實例遊戲內的變更會同步到其他實例。",
-        M::SyncFromNoneHint => "共用值只在這裡變更。",
+        M::SyncFrom => "主實例",
+        M::SyncFromHint => "你在主實例遊戲中變更的設定，會在其他實例啟動時複製過去。",
+        M::SyncFromNoneHint => "沒有主實例時，共用設定只在這裡變更。",
+        M::MainOfferTitle => "將「{name}」設為主實例？",
+        M::MainOfferBody => {
+            "共用遊戲設定讓你的操作、視訊、音效等選項在每個實例中保持一致。你在主實例遊戲中變更的設定，會在其他實例啟動時複製過去。"
+        }
+        M::MainChangeLater => "之後可以在「設定 › 共用遊戲設定」中變更。",
+        M::MakeItMain => "設為主實例",
+        M::MainSwitchBody => {
+            "「{current}」目前是你的主實例。它在遊戲中的變更將不再更新共用設定，改由「{name}」更新。"
+        }
+        M::MakeNameMain => "將「{name}」設為主實例",
+        M::FirstTimeSetupSection => "首次設定",
+        M::ResetFirstTimeSetup => "重設首次設定",
+        M::ResetFirstTimeSetupHint => {
+            "下一個新建的實例會再次被提議設為主實例。這會清除目前的主實例；共用值保留。"
+        }
+        M::FirstTimeSetupReset => "首次設定已重設。新建一個實例即可看到。",
         M::StartFromInstance => "從某個實例開始",
         M::CopyFromInstance => "從實例複製…",
         M::ClearShared => "清除共用值",
