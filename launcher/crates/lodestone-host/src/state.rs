@@ -58,6 +58,9 @@ pub enum HostEvent {
     Navigate(crate::routes::Route),
     /// A page asks for the "New server" dialog.
     OpenCreateInstance,
+    /// Starting (or restarting) the instance failed: its Minecraft EULA may not be
+    /// accepted (`pages::eula_prompt` asks).
+    StartFailed(String),
 }
 
 pub struct HostState {
@@ -162,14 +165,21 @@ impl HostState {
         let admin = self.admin.clone();
         let uuid = uuid.to_string();
         let task = cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_spawn(async move { admin.power(&uuid, power).await })
-                .await;
+            let result = {
+                let uuid = uuid.clone();
+                cx.background_spawn(async move { admin.power(&uuid, power).await })
+                    .await
+            };
             this.update(cx, |this, cx| {
                 match result {
                     Ok(()) => this.error = None,
                     Err(CoreError::SignedOut) => return this.signed_out(cx),
-                    Err(err) => this.error = Some(err.to_string()),
+                    Err(err) => {
+                        this.error = Some(err.to_string());
+                        if matches!(power, Power::Start | Power::Restart) {
+                            cx.emit(HostEvent::StartFailed(uuid));
+                        }
+                    }
                 }
                 cx.notify();
             })

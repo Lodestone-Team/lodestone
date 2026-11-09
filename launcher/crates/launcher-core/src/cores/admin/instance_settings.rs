@@ -130,7 +130,10 @@ pub struct ConfigurableManifest {
 impl ConfigurableManifest {
     /// Sets a setting's value, after it was saved.
     pub fn set(&mut self, section: &str, setting: &str, value: ConfigurableValue) {
-        if let Some((_, section)) = self.setting_sections.iter_mut().find(|(id, _)| id == section)
+        if let Some((_, section)) = self
+            .setting_sections
+            .iter_mut()
+            .find(|(id, _)| id == section)
             && let Some((_, setting)) = section.settings.iter_mut().find(|(id, _)| id == setting)
         {
             setting.value = Some(value);
@@ -360,7 +363,11 @@ mod tests {
             }
         }"#;
         let mut manifest: ConfigurableManifest = serde_json::from_str(json).unwrap();
-        let ids: Vec<_> = manifest.setting_sections.iter().map(|(id, _)| id.as_str()).collect();
+        let ids: Vec<_> = manifest
+            .setting_sections
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect();
         assert_eq!(ids, ["zeta", "alpha"]);
         let settings = &manifest.setting_sections[0].1.settings;
         assert_eq!(settings[0].0, "port");
@@ -371,7 +378,11 @@ mod tests {
                 max: Some(65535)
             }
         );
-        manifest.set("zeta", "difficulty", ConfigurableValue::Enum("peaceful".into()));
+        manifest.set(
+            "zeta",
+            "difficulty",
+            ConfigurableValue::Enum("peaceful".into()),
+        );
         assert_eq!(
             manifest.setting_sections[0].1.settings[1].1.value,
             Some(ConfigurableValue::Enum("peaceful".into()))
@@ -390,7 +401,10 @@ mod tests {
     fn pack_checks_follow_the_core() {
         assert_eq!(pack_url_error(""), None);
         assert_eq!(pack_url_error("https://x.com/p.zip"), None);
-        assert_eq!(pack_url_error("https://x.com/a b"), Some(PackUrlError::Spaces));
+        assert_eq!(
+            pack_url_error("https://x.com/a b"),
+            Some(PackUrlError::Spaces)
+        );
         assert_eq!(pack_url_error("ftp://x.com/p"), Some(PackUrlError::Scheme));
         assert_eq!(pack_url_error("nope"), Some(PackUrlError::NotAUrl));
         assert!(is_sha1(""));

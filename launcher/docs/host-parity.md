@@ -526,9 +526,9 @@ Conventions in the code that every area relies on:
 ### 2.5 Delete instance — `components/Instance/InstanceSettings.tsx`  
 **Package: C.**
 
-- [ ] In Settings › Danger zone: "Delete" button → danger confirm dialog ("Delete <name>?", cannot be
+- [x] In Settings › Danger zone: "Delete" button → danger confirm dialog ("Delete <name>?", cannot be
   undone) → `DELETE /instance/{uuid}`; refetch list, deselect; error toast.
-- [ ] Permission: `can_delete_instance` (global) and, for atom instances, owner.
+- [x] Permission: `can_delete_instance` (global) and, for atom instances, owner.
 - [ ] No clone, rename-folder, import-existing, backup or export features exist in the dashboard.
 
 ---
@@ -651,9 +651,9 @@ Conventions in the code that every area relies on:
 ### 6.1 Settings tab — `components/Instance/InstanceSettings.tsx`, `components/SettingField.tsx`, `components/Atoms/Config/*`, `InstanceSettingsCreate/*`  
 **Package: C.**
 
-- [ ] Layout: sections with a table of contents (scroll-spy highlighting, click to scroll) —
+- [x] Layout: sections with a table of contents (scroll-spy highlighting, click to scroll) —
   `components/Settings/SettingsToc.tsx`, `SettingsBlocks.tsx`. Skeleton on first load only.
-- [ ] Manifest-driven sections: `GET /instance/{uuid}/settings` → `ConfigurableManifest {auto_start,
+- [x] Manifest-driven sections: `GET /instance/{uuid}/settings` → `ConfigurableManifest {auto_start,
   restart_on_crash, setting_sections}`, refetched every visit. Each setting row by `value_type`:
   - Boolean → toggle (saves immediately, optimistic); Enum → dropdown (saves on change); Integer/
     UnsignedInteger → number input with min/max; Float → text input parsed as float; String → text, or
@@ -669,7 +669,7 @@ Conventions in the code that every area relies on:
     `utils/motd.ts`.
   - (Which settings exist — port, RAM, java, flags, server.properties fields… — comes entirely from the
     core's manifest; the dashboard has no hard-coded list.)
-- [ ] **Automation** section: Auto start, Restart on crash toggles → `PUT /instance/{uuid}/auto_start` /
+- [x] **Automation** section: Auto start, Restart on crash toggles → `PUT /instance/{uuid}/auto_start` /
   `/restart_on_crash` (JSON bool); refetch list; needs `can_access_instance_setting` (+ owner for atom).
 - [ ] **Sharing / public listing** (Minecraft Java only; hidden on cores without scopes) —
   `components/Instance/PublicListingSetting.tsx`
@@ -677,13 +677,24 @@ Conventions in the code that every area relies on:
     Status / Address / Client pack; sentence describing what's shown; only owner can edit; listing can't be
     turned on while core setting "List instances publicly" is off (unlisting always allowed).
   - `PUT /instance/{uuid}/public_listing` body `PublicScopeChange` → `PublicScope`.
-- [ ] **Server resource pack** (Minecraft Java only) — `components/Instance/ResourcePackSetting.tsx`
+- [x] **Server resource pack** (Minecraft Java only) — `components/Instance/ResourcePackSetting.tsx`
   - `GET /instance/{uuid}/resource_pack` → `ServerResourcePack {url, sha1, required, prompt}`.
   - Fields: URL (http/https, no spaces, max 2048), SHA-1 (empty or 40 hex, max 40) + **Compute** button
     (`POST /instance/{uuid}/resource_pack/hash {url}` → `{sha1,size}`, note "Downloaded <size>"),
     Required toggle, Prompt (max 2048). Draft kept until **Save** (`PUT …/resource_pack`); **Remove** saves
     empty pack. Toast "Saved" or "Saved, restart to apply" if running. Needs `can_access_instance_setting`.
-- [ ] **Danger zone**: Delete server (§2.5).
+- [x] **Danger zone**: Delete server (§2.5).
+- [x] **Minecraft EULA** (PR #626, Minecraft Java only): `GET /instance/{uuid}/eula`; a
+  section with the status, a "Read the EULA" link (https://aka.ms/MinecraftEULA) and
+  "I agree to the Minecraft EULA" (`PUT /instance/{uuid}/eula`, needs start permission).
+  When Start or Restart fails and the EULA isn't accepted, a dialog asks the same, with
+  the link and "I agree, start the server" (`pages/eula_prompt.rs`, after the dashboard's
+  instance card). Only the user's click accepts it.
+- Host notes for §6.1: the list of sections shows beside them when the window is wide
+  enough; there is no skeleton, only a loading card on first load. The MOTD preview
+  draws the Minecraft colours and formatting on a dark panel, without the dirt
+  background and the Minecraft font. The public listing ("Sharing") reuses package D's
+  row (`pages/public_listing.rs`) and comes with D's change.
 
 ### 6.2 Mods / Plugins tab — `components/Mods/*`, `data/Mods.ts`, `utils/mods.ts`  
 **Package: C.**

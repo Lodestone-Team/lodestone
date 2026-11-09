@@ -12,8 +12,8 @@ use launcher_core::cores::admin::instance_settings::{
 };
 use lodestone_ui::{
     components::{
-        a11y::Accessible,
         Icon, IconButton, ListRow, LoadingDots, RichText, TextInput,
+        a11y::Accessible,
         settings::{muted_link, popover, popover_panel, select_button},
     },
     theme::{colors, fonts, px, radius, text},
@@ -43,9 +43,8 @@ impl FieldKind {
             ConfigurableValueType::String { .. } | ConfigurableValueType::Float { .. } => {
                 Some(FieldKind::Text)
             }
-            ConfigurableValueType::Integer { .. } | ConfigurableValueType::UnsignedInteger { .. } => {
-                Some(FieldKind::Number)
-            }
+            ConfigurableValueType::Integer { .. }
+            | ConfigurableValueType::UnsignedInteger { .. } => Some(FieldKind::Number),
             _ => None,
         }
     }

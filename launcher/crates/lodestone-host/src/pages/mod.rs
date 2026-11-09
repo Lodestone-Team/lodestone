@@ -24,6 +24,7 @@
 pub mod console;
 pub mod core_settings;
 pub mod create_instance;
+pub mod eula_prompt;
 pub mod event_logs;
 pub mod files;
 pub mod home;

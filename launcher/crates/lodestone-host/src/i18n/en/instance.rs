@@ -71,6 +71,12 @@ crate::i18n::messages! {
         /// {error}: the core's error message.
         EulaAcceptFailed = "Could not accept the Minecraft EULA: {error}",
         EulaNoPermission = "You need permission to start this server to accept it.",
+        /// The dialog when a server doesn't start because its EULA isn't accepted.
+        EulaDialogTitle = "Accept the Minecraft EULA",
+        /// {name} is the server's name.
+        EulaDialogBody = "{name} only starts after you agree to the Minecraft EULA. Do you agree to it?",
+        /// Accepts the EULA and starts the server.
+        EulaAcceptAndStart = "I agree, start the server",
     }
 
     pub enum InstancePlural {

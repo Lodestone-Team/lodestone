@@ -28,8 +28,10 @@ use launcher_core::cores::{
 };
 use lodestone_ui::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, a11y::Accessible as _, DialogSlot, LoadingDots, TextInput, Toggle,
-        settings::{SectionNav, SettingRow, Toast, card, content_width, link, section, section_list, tag},
+        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, LoadingDots, TextInput, Toast,
+        Toggle,
+        a11y::Accessible as _,
+        settings::{SectionNav, SettingRow, card, content_width, link, section, section_list, tag},
         window_layer,
     },
     i18n::format,
@@ -102,7 +104,6 @@ pub struct InstanceSettingsPage {
     delete: DialogSlot<Self, DeletePrompt>,
     deleting: bool,
     nav: SectionNav,
-    toast: Toast,
     _tasks: Vec<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -124,7 +125,6 @@ impl InstanceSettingsPage {
             delete: DialogSlot::new(|this: &mut Self| &mut this.delete),
             deleting: false,
             nav: SectionNav::default(),
-            toast: Toast::default(),
             _tasks: Vec::new(),
             _subscriptions: subscriptions,
         };
@@ -238,7 +238,11 @@ impl InstanceSettingsPage {
                 let mutable = setting.is_mutable
                     && can_edit
                     && !(field::is_command_line(setting_id) && blocked.is_some());
-                let text_ = setting.value.as_ref().map(|v| v.to_text()).unwrap_or_default();
+                let text_ = setting
+                    .value
+                    .as_ref()
+                    .map(|v| v.to_text())
+                    .unwrap_or_default();
                 let field = Field::new(kind, text_, !mutable, cx);
                 self._subscriptions
                     .push(cx.observe(&field.input, |_, _, cx| cx.notify()));
@@ -289,13 +293,15 @@ impl InstanceSettingsPage {
     }
 
     fn show_error(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
-        self.toast
-            .show(message, true, |this: &mut Self| &mut this.toast, cx);
+        self.state
+            .update(cx, |state, cx| state.toast(Toast::error(message), cx));
     }
 
+    /// The "Saved" toast after a change (`notifySaved`), one at a time.
     fn show_saved(&mut self, message: impl Into<SharedString>, cx: &mut Context<Self>) {
-        self.toast
-            .show(message, false, |this: &mut Self| &mut this.toast, cx);
+        self.state.update(cx, |state, cx| {
+            state.toast(Toast::success(message).key("settings-saved"), cx)
+        });
     }
 
     /// Saves a setting's new value.
@@ -383,7 +389,10 @@ impl InstanceSettingsPage {
         let Load::Ready(manifest) = &self.manifest else {
             return None;
         };
-        let (_, section) = manifest.setting_sections.iter().find(|(id, _)| *id == key.0)?;
+        let (_, section) = manifest
+            .setting_sections
+            .iter()
+            .find(|(id, _)| *id == key.0)?;
         let (_, setting) = section.settings.iter().find(|(id, _)| *id == key.1)?;
         Some(setting.value_type.clone())
     }
@@ -503,8 +512,7 @@ impl InstanceSettingsPage {
                 match result {
                     Ok(ResourcePackHash { sha1, size }) => {
                         form.sha1.update(cx, |input, cx| input.set_text(sha1, cx));
-                        form.hash_note =
-                            Some(tr!(M::PackDownloaded, size = format::bytes(size)));
+                        form.hash_note = Some(tr!(M::PackDownloaded, size = format::bytes(size)));
                     }
                     Err(err) => this.show_error(err.to_string(), cx),
                 }
@@ -664,7 +672,9 @@ impl InstanceSettingsPage {
                 SharedString::from(section_.name.clone()),
                 section(
                     section_.name.clone(),
-                    Some(section_.description.clone()).filter(|d| !d.is_empty()).map(Into::into),
+                    Some(section_.description.clone())
+                        .filter(|d| !d.is_empty())
+                        .map(Into::into),
                 )
                 .child(card(rows))
                 .into_any_element(),
@@ -883,7 +893,9 @@ impl InstanceSettingsPage {
                         .variant(ButtonVariant::Primary)
                         .size(ButtonSize::Slim)
                         .loading(busy == Some(PackBusy::Saving))
-                        .disabled(disabled || !changed || url_error.is_some() || sha1_error.is_some())
+                        .disabled(
+                            disabled || !changed || url_error.is_some() || sha1_error.is_some(),
+                        )
                         .on_click(cx.listener(|this, _, _, cx| {
                             if let Some(draft) = this.pack_draft(cx) {
                                 this.save_pack(draft, cx)
@@ -988,7 +1000,10 @@ impl InstanceSettingsPage {
         .child(
             div()
                 .text_size(text::MEDIUM)
-                .line_height(lodestone_ui::theme::line_height(text::MEDIUM, leading::NORMAL))
+                .line_height(lodestone_ui::theme::line_height(
+                    text::MEDIUM,
+                    leading::NORMAL,
+                ))
                 .text_color(ink::secondary())
                 .child(
                     div()
@@ -1024,8 +1039,6 @@ impl Render for InstanceSettingsPage {
         sections.push((t(M::DangerZone).into(), self.danger_section(cx)));
 
         let titles: Vec<SharedString> = sections.iter().map(|(title, _)| title.clone()).collect();
-        // TEMP-SHOT
-        if let Ok(n) = std::env::var("TEMP_SECTION") { if let Ok(n) = n.parse::<usize>() { if titles.len() > n { self.nav.pick(n); } } }
         let active = self.nav.active(titles.len());
         // the list of sections, when the page is wide enough for it beside them
         let wide = window.viewport_size().width >= px(1080.);
@@ -1070,10 +1083,12 @@ impl Render for InstanceSettingsPage {
             .flex_row()
             .gap(px(32.))
             .text_size(text::MEDIUM)
-            .line_height(lodestone_ui::theme::line_height(text::MEDIUM, leading::NORMAL))
+            .line_height(lodestone_ui::theme::line_height(
+                text::MEDIUM,
+                leading::NORMAL,
+            ))
             .children(list)
             .child(content)
-            .children(self.toast.render())
             .children(window_layer(window, dialogs))
     }
 }

@@ -13,16 +13,22 @@ pub fn text(message: M) -> &'static str {
         M::NoPermission => "Pas d’autorisation",
         M::SettingsFailed => "Impossible de charger les paramètres : {error}",
         M::DangerZone => "Zone dangereuse",
-        M::DangerZoneLead => "Ces paramètres peuvent causer des dommages irréversibles à votre serveur.",
+        M::DangerZoneLead => {
+            "Ces paramètres peuvent causer des dommages irréversibles à votre serveur."
+        }
         M::DeleteServer => "Supprimer le serveur",
         M::DeleteServerHint => "Supprime définitivement ce serveur et ses données",
         M::DeleteTitle => "Supprimer « {name} »",
         M::DeleteConfirm => "Je comprends, supprimer ce serveur",
         M::DeleteCannotUndo => "Cette action est irréversible.",
-        M::DeleteWarning => "Les paramètres, mondes et sauvegardes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer.",
+        M::DeleteWarning => {
+            "Les paramètres, mondes et sauvegardes de cette instance seront définitivement supprimés. Sauvegardez vos données importantes avant de continuer."
+        }
         M::Deleting => "Suppression de {name}…",
         M::OwnerOnlyAtom => "Seul le propriétaire peut contrôler les serveurs atom.",
-        M::CommandLineReadOnly => "Lecture seule tant que l’exécution de code est désactivée sur ce core.",
+        M::CommandLineReadOnly => {
+            "Lecture seule tant que l’exécution de code est désactivée sur ce core."
+        }
         M::CommandLineOwnerOnly => "Seul le propriétaire peut modifier ce paramètre.",
         M::CannotBeEmpty => "Ne peut pas être vide",
         M::MustBeNumber => "Doit être un nombre",
@@ -32,38 +38,54 @@ pub fn text(message: M) -> &'static str {
         M::HidePassword => "Masquer",
         M::Revert => "Rétablir",
         M::ResourcePack => "Pack de ressources",
-        M::ResourcePackLead => "Un pack que les joueurs sont invités à télécharger en rejoignant le serveur.",
+        M::ResourcePackLead => {
+            "Un pack que les joueurs sont invités à télécharger en rejoignant le serveur."
+        }
         M::PackUrl => "URL",
         M::PackUrlHint => "Un lien direct vers le zip du pack. Laissez vide pour aucun pack.",
         M::PackSha1 => "SHA-1",
-        M::PackSha1Hint => "Permet aux joueurs de vérifier le téléchargement et de mettre le pack en cache.",
+        M::PackSha1Hint => {
+            "Permet aux joueurs de vérifier le téléchargement et de mettre le pack en cache."
+        }
         M::PackSha1Error => "Le SHA-1 comporte 40 caractères hexadécimaux.",
         M::PackCompute => "Calculer",
         M::PackDownloaded => "{size} téléchargés.",
         M::PackRequired => "Exiger le pack",
         M::PackRequiredHint => "Les joueurs qui le refusent sont déconnectés.",
         M::PackPrompt => "Message",
-        M::PackPromptHint => "Le message affiché quand le pack est proposé aux joueurs. Texte brut ou composant de texte JSON.",
+        M::PackPromptHint => {
+            "Le message affiché quand le pack est proposé aux joueurs. Texte brut ou composant de texte JSON."
+        }
         M::PackRemove => "Retirer le pack",
         M::PackSaved => "Pack de ressources enregistré",
-        M::PackSavedRestart => "Pack de ressources enregistré. Redémarrez le serveur pour l’utiliser.",
+        M::PackSavedRestart => {
+            "Pack de ressources enregistré. Redémarrez le serveur pour l’utiliser."
+        }
         M::PackUrlSpaces => "L’URL ne peut pas contenir d’espaces.",
         M::PackNotAUrl => "Ce n’est pas une URL.",
         M::PackUrlScheme => "L’URL doit commencer par http:// ou https://.",
         M::Eula => "CLUF de Minecraft",
-        M::EulaLead => "Un serveur Minecraft ne fonctionne qu’après votre accord avec le CLUF de Minecraft.",
+        M::EulaLead => {
+            "Un serveur Minecraft ne fonctionne qu’après votre accord avec le CLUF de Minecraft."
+        }
         M::EulaAccepted => "Accepté",
         M::EulaAcceptedHint => "Vous avez accepté le CLUF de Minecraft pour ce serveur.",
         M::EulaNotAccepted => "Non accepté",
-        M::EulaNotAcceptedHint => "Ce serveur ne démarre pas tant que vous n’avez pas accepté le CLUF de Minecraft.",
+        M::EulaNotAcceptedHint => {
+            "Ce serveur ne démarre pas tant que vous n’avez pas accepté le CLUF de Minecraft."
+        }
         M::EulaRead => "Lire le CLUF",
         M::EulaAgree => "J’accepte le CLUF de Minecraft",
         M::EulaAcceptFailed => "Impossible d’accepter le CLUF de Minecraft : {error}",
         M::EulaNoPermission => "Il faut l’autorisation de démarrer ce serveur pour l’accepter.",
+        M::EulaDialogTitle => "Accepter le CLUF de Minecraft",
+        M::EulaDialogBody => {
+            "{name} ne démarre qu’après votre accord avec le CLUF de Minecraft. L’acceptez-vous ?"
+        }
+        M::EulaAcceptAndStart => "J’accepte, démarrer le serveur",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
-    match message {
-    }
+    match message {}
 }

@@ -1,7 +1,9 @@
 //! A layer over the whole window, for a [`Dialog`](super::Dialog) opened by a view that
 //! fills only part of it (a page beside a sidebar).
 
-use gpui::{AnyElement, IntoElement, ParentElement, Styled, Window, anchored, deferred, div, point};
+use gpui::{
+    AnyElement, IntoElement, ParentElement, Styled, Window, anchored, deferred, div, point,
+};
 
 use crate::theme::px;
 

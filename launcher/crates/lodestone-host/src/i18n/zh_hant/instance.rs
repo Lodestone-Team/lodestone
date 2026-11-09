@@ -60,10 +60,12 @@ pub fn text(message: M) -> &'static str {
         M::EulaAgree => "我同意 Minecraft EULA",
         M::EulaAcceptFailed => "無法接受 Minecraft EULA：{error}",
         M::EulaNoPermission => "你需要啟動此伺服器的權限才能接受。",
+        M::EulaDialogTitle => "接受 Minecraft EULA",
+        M::EulaDialogBody => "你同意 Minecraft EULA 後，{name} 才能啟動。你同意嗎？",
+        M::EulaAcceptAndStart => "我同意，啟動伺服器",
     }
 }
 
 pub fn plural(message: P) -> [&'static str; 2] {
-    match message {
-    }
+    match message {}
 }

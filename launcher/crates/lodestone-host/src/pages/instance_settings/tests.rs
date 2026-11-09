@@ -24,7 +24,10 @@ fn numbers_are_checked_as_the_dashboard_does() {
     );
     assert_eq!(value_of(&port, "12a", true), Err(Problem::NotANumber));
     assert_eq!(value_of(&port, "1.5", true), Err(Problem::NotANumber));
-    assert_eq!(value_of(&port, "0", true), Err(Problem::BelowMin("1".into())));
+    assert_eq!(
+        value_of(&port, "0", true),
+        Err(Problem::BelowMin("1".into()))
+    );
     assert_eq!(
         value_of(&port, "70000", true),
         Err(Problem::AboveMax("65535".into()))
@@ -55,14 +58,20 @@ fn floats_and_text() {
     );
     assert_eq!(value_of(&float, "inf", true), Err(Problem::NotANumber));
     assert_eq!(value_of(&float, "NaN", true), Err(Problem::NotANumber));
-    assert_eq!(value_of(&float, "2", true), Err(Problem::AboveMax("1".into())));
+    assert_eq!(
+        value_of(&float, "2", true),
+        Err(Problem::AboveMax("1".into()))
+    );
     let string = ConfigurableValueType::String { regex: None };
     assert_eq!(
         value_of(&string, "", true),
         Ok(Some(ConfigurableValue::String(String::new()))),
         "text may be empty"
     );
-    assert_eq!(value_of(&ConfigurableValueType::Boolean, "x", true), Ok(None));
+    assert_eq!(
+        value_of(&ConfigurableValueType::Boolean, "x", true),
+        Ok(None)
+    );
 }
 
 #[test]
@@ -70,7 +79,10 @@ fn field_kinds() {
     let string = ConfigurableValueType::String { regex: None };
     assert_eq!(FieldKind::of(&string, false), Some(FieldKind::Text));
     assert_eq!(FieldKind::of(&string, true), Some(FieldKind::Password));
-    assert_eq!(FieldKind::of(&int(None, None), false), Some(FieldKind::Number));
+    assert_eq!(
+        FieldKind::of(&int(None, None), false),
+        Some(FieldKind::Number)
+    );
     assert_eq!(FieldKind::of(&ConfigurableValueType::Boolean, false), None);
     assert_eq!(
         FieldKind::of(
