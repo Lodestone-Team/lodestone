@@ -6,7 +6,7 @@ pub fn text(message: M) -> &'static str {
         M::KindResourcePacks => "Packs de ressources",
         M::KindShaders => "Shaders",
         M::Vanilla => "Vanilla",
-        M::SearchInstalledOrModrinth => "Rechercher dans les installés ou sur Modrinth",
+        M::SearchInstalledOrModrinth => "Rechercher",
         M::InstalledCount => "Installés · {count}",
         M::EnabledCount => "Activés · {count} · le pack du haut l’emporte en cas de chevauchement",
         M::AvailableCount => "Disponibles · {count}",
