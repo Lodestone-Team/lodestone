@@ -452,11 +452,12 @@ impl Instances {
         banner: &str,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        self.store
+        let instance = self
+            .store
             .set_skin_banner(id, skin, banner)
             .map_err(|err| err.to_string())?;
         self.forget_background(id, cx);
-        self.reload(cx);
+        self.update_listed(instance, cx);
         Ok(())
     }
 
@@ -481,29 +482,49 @@ impl Instances {
         }
     }
 
+    /// Makes the image at `image` the instance's Play background, on its own (not in
+    /// the slideshow). The image is read, scaled and written in the background.
     pub fn set_background(
         &mut self,
         id: &str,
         image: &std::path::Path,
         cx: &mut Context<Self>,
-    ) -> Result<(), String> {
-        self.store
-            .set_background(id, image)
-            .map_err(|err| err.to_string())?;
-        // A picked image is shown on its own, not in the slideshow.
-        self.store
-            .set_slideshow(id, None)
-            .map_err(|err| err.to_string())?;
-        self.forget_background(id, cx);
-        self.reload(cx);
-        Ok(())
+    ) -> gpui::Task<Result<(), String>> {
+        let store = self.store.clone();
+        let (target, image) = (id.to_string(), image.to_path_buf());
+        let record = id.to_string();
+        self.file_work(
+            id,
+            super::FileOp::Image,
+            move || {
+                store
+                    .write_background(&target, &image)
+                    .map_err(|err| err.to_string())
+            },
+            move |this, result, cx| {
+                result?;
+                // the record is changed here, so a change saved meanwhile stays
+                this.store
+                    .use_custom_background(&record)
+                    .map_err(|err| err.to_string())?;
+                let instance = this
+                    .store
+                    .set_slideshow(&record, None)
+                    .map_err(|err| err.to_string())?;
+                this.forget_background(&record, cx);
+                this.update_listed(instance, cx);
+                Ok(())
+            },
+            cx,
+        )
     }
 
     pub fn clear_background(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
-        self.store
+        let instance = self
+            .store
             .clear_background(id)
             .map_err(|err| err.to_string())?;
-        self.reload(cx);
+        self.update_listed(instance, cx);
         Ok(())
     }
 
@@ -535,31 +556,45 @@ impl Instances {
         source: Option<launcher_core::instances::SlideshowSource>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        self.store
+        let instance = self
+            .store
             .set_slideshow(id, source)
             .map_err(|err| err.to_string())?;
         self.slideshow_revision += 1;
-        self.reload(cx);
+        self.update_listed(instance, cx);
         Ok(())
     }
 
-    /// Adds images to the instance's own slideshow set. Returns the first error, after
-    /// adding the images it could.
+    /// Adds images to the instance's own slideshow set, in the background. Gives the
+    /// first error, after adding the images it could.
     pub fn add_slideshow_images(
         &mut self,
         id: &str,
         images: &[std::path::PathBuf],
         cx: &mut Context<Self>,
-    ) -> Result<(), String> {
-        let mut error = None;
-        for image in images {
-            if let Err(err) = self.store.add_slideshow_image(id, image) {
-                error.get_or_insert(err.to_string());
-            }
-        }
-        self.slideshow_revision += 1;
-        cx.notify();
-        error.map_or(Ok(()), Err)
+    ) -> gpui::Task<Result<(), String>> {
+        let store = self.store.clone();
+        let (target, images) = (id.to_string(), images.to_vec());
+        self.file_work(
+            id,
+            super::FileOp::Image,
+            move || {
+                let mut error = None;
+                for image in &images {
+                    if let Err(err) = store.add_slideshow_image(&target, image) {
+                        error.get_or_insert(err.to_string());
+                    }
+                }
+                error.map_or(Ok(()), Err)
+            },
+            |this, result, cx| {
+                // some may have been added before an error
+                this.slideshow_revision += 1;
+                cx.notify();
+                result
+            },
+            cx,
+        )
     }
 
     /// Removes one of the instance's own slideshow images, by file name.
@@ -584,10 +619,11 @@ impl Instances {
         icon: Option<&str>,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        self.store
+        let instance = self
+            .store
             .set_icon_name(id, icon)
             .map_err(|err| err.to_string())?;
-        self.reload(cx);
+        self.update_listed(instance, cx);
         Ok(())
     }
 }

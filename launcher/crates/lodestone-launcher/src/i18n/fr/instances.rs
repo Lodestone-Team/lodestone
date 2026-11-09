@@ -47,6 +47,9 @@ pub fn text(message: M) -> &'static str {
         M::ModpackUpdating => "Le modpack est en cours de mise à jour",
         M::WaitForUpdate => "Attendez la fin de la mise à jour, puis cliquez sur Jouer.",
         M::StopBeforeDeleting => "Arrêtez le jeu avant de supprimer son instance.",
+        M::FilesBusy => {
+            "Attendez que les fichiers de l’instance aient fini de changer, puis réessayez."
+        }
         M::CouldntSavePlayed => "Impossible d’enregistrer la date de la partie\u{a0}: {error}",
         M::CouldntSavePlayTime => "Impossible d’enregistrer le temps de jeu\u{a0}: {error}",
         M::ModpackExported => "Modpack exporté",

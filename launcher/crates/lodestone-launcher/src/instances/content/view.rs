@@ -964,6 +964,7 @@ impl ContentView {
                                 Button::new(("confirm-delete", id_base), t(CommonMsg::MoveToTrash))
                                     .variant(ButtonVariant::Danger)
                                     .size(ButtonSize::Slim)
+                                    .disabled(self.deleting.is_some())
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         cx.stop_propagation();
                                         this.delete(kind, name.clone(), cx)
@@ -973,6 +974,7 @@ impl ContentView {
                                 Button::new(("cancel-delete", id_base), t(CommonMsg::Cancel))
                                     .variant(ButtonVariant::Ghost)
                                     .size(ButtonSize::Slim)
+                                    .disabled(self.deleting.is_some())
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         cx.stop_propagation();
                                         this.cancel_delete(cx)
@@ -981,7 +983,7 @@ impl ContentView {
                         } else {
                             this.child(
                                 IconButton::new(("delete", id_base), Icon::TrashCan)
-                                    .disabled(busy)
+                                    .disabled(busy || self.deleting.is_some())
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         cx.stop_propagation();
                                         this.delete(kind, name.clone(), cx)

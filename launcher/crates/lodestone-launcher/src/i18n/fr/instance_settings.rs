@@ -202,6 +202,7 @@ pub fn text(message: M) -> &'static str {
         M::ExportButton => "Exporter…",
         M::Exporting => "Exportation…",
         M::Duplicate => "Dupliquer",
+        M::Duplicating => "Duplication…",
         M::HostOnCore => "Héberger sur un Lodestone Core",
         M::HostHint => "Crée un serveur avec les mods de cette instance.",
         M::HostButton => "Héberger…",

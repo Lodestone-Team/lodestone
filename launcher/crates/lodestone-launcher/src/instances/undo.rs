@@ -1,7 +1,9 @@
 //! The steps Undo puts back for the launcher's settings, an instance's settings and
 //! the shared game settings (see `crate::undo` for the model).
 
-use gpui::{App, Context, Entity};
+use std::{path::PathBuf, sync::Arc};
+
+use gpui::{App, Context, Entity, Task};
 use launcher_core::{
     instances::{BACKGROUND_FILE, ICON_FILE, Instance},
     settings::{CliAccess, CliSettings, InstanceDefaults, Settings},
@@ -103,8 +105,30 @@ impl LauncherValues {
 #[derive(Clone, Debug, PartialEq)]
 pub struct InstanceSnapshot {
     instance: Instance,
-    icon: Files,
-    background: Files,
+    icon: Image,
+    background: Image,
+}
+
+/// One of an instance's images as it was: its bytes, or `None` when it had none. The
+/// bytes are shared with `Instances::undo_images`, so two snapshots of an image that
+/// didn't change hold (and compare as) the same bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Image {
+    path: PathBuf,
+    bytes: Option<Arc<Vec<u8>>>,
+}
+
+impl Image {
+    /// Puts the image back as it was.
+    fn write(&self) -> std::io::Result<()> {
+        match &self.bytes {
+            Some(bytes) => launcher_core::storage::write_atomic(&self.path, bytes),
+            None => match std::fs::remove_file(&self.path) {
+                Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err),
+                _ => Ok(()),
+            },
+        }
+    }
 }
 
 /// An instance setting that Undo describes.
@@ -239,14 +263,46 @@ impl Instances {
     }
 
     /// The instance's settings now, for Undo.
-    pub fn snapshot(&self, id: &str) -> Option<InstanceSnapshot> {
+    pub fn snapshot(&mut self, id: &str) -> Option<InstanceSnapshot> {
         let instance = self.store.get(id).ok()?;
         let dir = self.store.dir(id);
         Some(InstanceSnapshot {
-            icon: Files::read(&[dir.join(ICON_FILE)]),
-            background: Files::read(&[dir.join(BACKGROUND_FILE)]),
+            icon: self.undo_image(dir.join(ICON_FILE)),
+            background: self.undo_image(dir.join(BACKGROUND_FILE)),
             instance,
         })
+    }
+
+    /// The image at `path` as it is now. Each change is snapshotted before and after,
+    /// and most leave the images alone: an image whose modification time and size are
+    /// those it was read with isn't read again.
+    fn undo_image(&mut self, path: PathBuf) -> Image {
+        let Some((modified, len)) = std::fs::metadata(&path)
+            .ok()
+            .filter(|meta| meta.is_file())
+            .and_then(|meta| Some((meta.modified().ok()?, meta.len())))
+        else {
+            self.undo_images.remove(&path);
+            let bytes = std::fs::read(&path).ok().map(Arc::new);
+            return Image { path, bytes };
+        };
+        if let Some((time, size, bytes)) = self.undo_images.get(&path)
+            && (*time, *size) == (modified, len)
+        {
+            let bytes = Some(bytes.clone());
+            return Image { path, bytes };
+        }
+        let bytes = std::fs::read(&path).ok().map(Arc::new);
+        match &bytes {
+            Some(read) => {
+                self.undo_images
+                    .insert(path.clone(), (modified, len, read.clone()));
+            }
+            None => {
+                self.undo_images.remove(&path);
+            }
+        }
+        Image { path, bytes }
     }
 
     /// Changes an instance's settings with `change`, and records the change for Undo.
@@ -264,6 +320,29 @@ impl Instances {
             self.record_instance(before, cx);
         }
         result
+    }
+
+    /// Like [`Self::undoable`], for a change that finishes in the background (see
+    /// `files.rs`): recorded once it is done.
+    pub fn undoable_task<R: 'static>(
+        &mut self,
+        id: &str,
+        cx: &mut Context<Self>,
+        change: impl FnOnce(&mut Self, &mut Context<Self>) -> Task<Result<R, String>>,
+    ) -> Task<Result<R, String>> {
+        let before = self.snapshot(id);
+        let task = change(self, cx);
+        self.then_detached(
+            task,
+            move |this, result, cx| {
+                if result.is_ok()
+                    && let Some(before) = before
+                {
+                    this.record_instance(before, cx);
+                }
+            },
+            cx,
+        )
     }
 
     /// Records the change of an instance's settings from `before` to now.
@@ -315,8 +394,8 @@ impl Instances {
         let mut instance = snapshot.instance.clone();
         instance.last_played = current.last_played;
         instance.play_time = current.play_time;
-        for files in [&snapshot.icon, &snapshot.background] {
-            files
+        for image in [&snapshot.icon, &snapshot.background] {
+            image
                 .write()
                 .map_err(|err| UndoError::Refused(err.to_string()))?;
         }
@@ -324,7 +403,7 @@ impl Instances {
             .save(&instance)
             .map_err(|err| UndoError::Refused(err.to_string()))?;
         self.forget_background(id, cx);
-        self.reload(cx);
+        self.update_listed(instance, cx);
         Ok(())
     }
 

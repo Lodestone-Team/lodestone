@@ -45,6 +45,7 @@ pub fn text(message: M) -> &'static str {
         M::ModpackUpdating => "模組包正在更新",
         M::WaitForUpdate => "請等待更新完成，再按「開始遊戲」。",
         M::StopBeforeDeleting => "請先停止遊戲，再刪除該實例。",
+        M::FilesBusy => "請等待該實例的檔案處理完成，然後再試一次。",
         M::CouldntSavePlayed => "無法儲存上次遊玩時間：{error}",
         M::CouldntSavePlayTime => "無法儲存遊戲時數：{error}",
         M::ModpackExported => "模組包已匯出",

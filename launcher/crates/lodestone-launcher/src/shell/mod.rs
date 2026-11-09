@@ -1224,6 +1224,49 @@ impl LauncherShell {
     }
 
     /// Closes the dialog; it fades out.
+    /// After "Move to Trash" in the Delete dialog: closes it, or shows why the instance
+    /// couldn't be moved (in its own dialog if that one was closed meanwhile).
+    fn instance_deleted(
+        &mut self,
+        id: &str,
+        name: &str,
+        result: Result<(), String>,
+        cx: &mut Context<Self>,
+    ) {
+        let showing = matches!(
+            self.modal.current(),
+            Some(Modal::DeleteInstance { id: shown, .. }) if shown == id
+        );
+        match result {
+            Ok(()) => {
+                if showing {
+                    self.tab = InstanceTab::Play;
+                    self.close_modal(cx);
+                }
+                if self.settings_open() && self.settings_page == SettingsPage::Storage {
+                    self.storage.update(cx, |storage, cx| storage.rescan(cx));
+                }
+            }
+            Err(err) if showing => {
+                if let Some(Modal::DeleteInstance { error, .. }) = self.modal.current_mut() {
+                    *error = Some(err.into());
+                }
+            }
+            Err(err) => {
+                let focus = cx.focus_handle();
+                self.modal.open(
+                    Modal::LaunchFailed {
+                        title: tr!(M::DeleteNamed, name = name).into(),
+                        message: err.into(),
+                        focus,
+                    },
+                    cx,
+                );
+            }
+        }
+        cx.notify();
+    }
+
     fn close_modal(&mut self, cx: &mut Context<Self>) {
         // A loader change that wasn't confirmed: the Settings tab shows the saved loader.
         if matches!(self.modal.current(), Some(Modal::LoaderChange { .. }))
@@ -1530,6 +1573,10 @@ impl LauncherShell {
                 error,
             } => {
                 let id = id.clone();
+                let name = name.clone();
+                // moving a large instance to the Trash takes a while
+                let deleting =
+                    self.instances.read(cx).file_op(&id) == Some(crate::instances::FileOp::Delete);
                 Dialog::new(
                     "delete-instance",
                     tr!(M::DeleteNamed, name = name),
@@ -1550,29 +1597,21 @@ impl LauncherShell {
                 .footer(
                     Button::new("confirm-delete-instance", t(CommonMsg::MoveToTrash))
                         .variant(ButtonVariant::Danger)
+                        .disabled(deleting)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            let result = this
+                            let task = this
                                 .instances
                                 .update(cx, |instances, cx| instances.delete(&id, cx));
-                            match result {
-                                Ok(()) => {
-                                    this.tab = InstanceTab::Play;
-                                    this.close_modal(cx);
-                                    if this.settings_open()
-                                        && this.settings_page == SettingsPage::Storage
-                                    {
-                                        this.storage.update(cx, |storage, cx| storage.rescan(cx));
-                                    }
-                                }
-                                Err(err) => {
-                                    if let Some(Modal::DeleteInstance { error, .. }) =
-                                        this.modal.current_mut()
-                                    {
-                                        *error = Some(err.into());
-                                    }
-                                    cx.notify();
-                                }
-                            }
+                            let (id, name) = (id.clone(), name.clone());
+                            cx.spawn(async move |this, cx| {
+                                let result = task.await;
+                                this.update(cx, |this, cx| {
+                                    this.instance_deleted(&id, &name, result, cx)
+                                })
+                                .ok();
+                            })
+                            .detach();
+                            cx.notify();
                         })),
                 )
                 .footer(

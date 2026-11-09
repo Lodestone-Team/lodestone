@@ -5,6 +5,7 @@ pub mod appearance;
 pub mod console;
 pub mod content;
 pub mod fields;
+mod files;
 pub mod import;
 pub mod loader_picker;
 pub mod modpack_browser;
@@ -18,13 +19,14 @@ pub mod slideshow;
 pub mod snapshots;
 mod undo;
 pub mod worlds;
+pub use files::FileOp;
 pub use undo::InstanceSnapshot;
 // Read access for the control API (`crate::control`) and the performance sampler.
 pub(crate) mod control;
 
 use std::{
     collections::{HashMap, VecDeque},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant, SystemTime},
 };
@@ -279,6 +281,14 @@ pub struct Instances {
     settings: Settings,
     /// Decoded custom icons, with the modification time they were read at.
     icons: HashMap<String, (Option<SystemTime>, Arc<RenderImage>)>,
+    /// Decodes the icons that are new or changed (see `files.rs`).
+    icon_task: Option<Task<()>>,
+    /// Instances whose files are being copied, moved to the Trash or given an image,
+    /// off the window's thread (see `files.rs`).
+    file_ops: HashMap<String, FileOp>,
+    /// Instance images read for Undo, with the file's modification time and size when
+    /// read: a change that leaves an image alone doesn't read it again.
+    undo_images: HashMap<PathBuf, (SystemTime, u64, Arc<Vec<u8>>)>,
     /// Decoded Play backgrounds, and those being decoded.
     backgrounds: HashMap<String, appearance::BackgroundEntry>,
     background_tasks: HashMap<String, appearance::BackgroundTask>,
@@ -431,6 +441,9 @@ impl Instances {
             versions_task: None,
             settings,
             icons: HashMap::new(),
+            icon_task: None,
+            file_ops: HashMap::new(),
+            undo_images: HashMap::new(),
             backgrounds: HashMap::new(),
             background_tasks: HashMap::new(),
             sidebar_banners: HashMap::new(),
@@ -469,11 +482,11 @@ impl Instances {
         this
     }
 
-    /// Reads the instance folders again.
+    /// Reads the instance folders again. After a change to one instance, its own
+    /// `update_listed` or `refresh` (`files.rs`) reads less.
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         let (list, broken) = self.store.list();
         self.list = list;
-        self.list_generation += 1;
         self.notice = (!broken.is_empty()).then(|| {
             trn!(
                 P::BrokenFolders,
@@ -482,39 +495,7 @@ impl Instances {
             )
             .into()
         });
-        if self
-            .selected
-            .as_ref()
-            .is_some_and(|id| !self.list.iter().any(|i| &i.id == id))
-        {
-            self.selected = self.list.first().map(|i| i.id.clone());
-        }
-        self.load_icons();
-        self.load_backgrounds(cx);
-        cx.notify();
-    }
-
-    /// Decodes the custom icons that are new or changed since the last reload.
-    fn load_icons(&mut self) {
-        let mut icons = HashMap::new();
-        for instance in &self.list {
-            let Some(path) = self.store.icon_path(instance) else {
-                continue;
-            };
-            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-            match self.icons.remove(&instance.id) {
-                Some((time, image)) if time == modified => {
-                    icons.insert(instance.id.clone(), (time, image));
-                }
-                _ => {
-                    if let Ok(image) = image::open(&path) {
-                        let image = crate::images::render_image(image.to_rgba8());
-                        icons.insert(instance.id.clone(), (modified, image));
-                    }
-                }
-            }
-        }
-        self.icons = icons;
+        self.list_changed(cx);
     }
 
     /// The instance's custom icon, if it has one.
@@ -804,7 +785,7 @@ impl Instances {
             instance.play_color = play_color;
             instance.accent = accent;
             this.store.save(&instance).map_err(|err| err.to_string())?;
-            this.reload(cx);
+            this.update_listed(instance, cx);
             Ok(())
         })
     }
@@ -1011,34 +992,13 @@ impl Instances {
             .map_err(|err| err.to_string())?;
         self.pick_skin_banner(&instance.id);
         self.selected = Some(instance.id.clone());
-        self.reload(cx);
+        self.refresh(&instance.id, cx);
         Ok(instance)
     }
 
-    /// Copies the instance and selects the copy.
-    pub fn duplicate(&mut self, id: &str, cx: &mut Context<Self>) -> Result<Instance, String> {
-        let copy = self.store.duplicate(id).map_err(|err| err.to_string())?;
-        self.selected = Some(copy.id.clone());
-        self.reload(cx);
-        Ok(copy)
-    }
-
-    pub fn set_icon(
-        &mut self,
-        id: &str,
-        image: &Path,
-        cx: &mut Context<Self>,
-    ) -> Result<(), String> {
-        self.store
-            .set_icon(id, image)
-            .map_err(|err| err.to_string())?;
-        self.reload(cx);
-        Ok(())
-    }
-
     pub fn clear_icon(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
-        self.store.clear_icon(id).map_err(|err| err.to_string())?;
-        self.reload(cx);
+        let instance = self.store.clear_icon(id).map_err(|err| err.to_string())?;
+        self.update_listed(instance, cx);
         Ok(())
     }
 
@@ -1120,18 +1080,7 @@ impl Instances {
                 serde_json::json!({ "instance": instance.id }),
             );
         }
-        self.reload(cx);
-        Ok(())
-    }
-
-    /// Moves the instance to the Trash.
-    pub fn delete(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
-        if self.is_active(id) {
-            return Err(t(M::StopBeforeDeleting).into());
-        }
-        self.store.delete(id).map_err(|err| err.to_string())?;
-        self.runs.remove(id);
-        self.reload(cx);
+        self.update_listed(instance.clone(), cx);
         Ok(())
     }
 
@@ -1366,6 +1315,14 @@ impl Instances {
             cx.emit(InstancesEvent::LaunchFailed {
                 title: t(M::ModpackUpdating).into(),
                 message: t(M::WaitForUpdate).into(),
+            });
+            return;
+        }
+        // its folder is on its way to the Trash
+        if self.file_op(id) == Some(FileOp::Delete) {
+            cx.emit(InstancesEvent::LaunchFailed {
+                title: t(M::CouldntStartMinecraft).into(),
+                message: t(M::FilesBusy).into(),
             });
             return;
         }
@@ -1733,7 +1690,7 @@ impl Instances {
         // Played as of now, so a game that crashes (or a launcher that quits) before
         // it exits still counts; the play time is added when it exits.
         match self.store.record_start(&started_id, started_unix) {
-            Ok(_) => self.reload(cx),
+            Ok(instance) => self.update_listed(instance, cx),
             Err(err) => self.notice = Some(tr!(M::CouldntSavePlayed, error = err).into()),
         }
         cx.notify();
@@ -1802,7 +1759,7 @@ impl Instances {
         }
         self.read_back_shared_settings(id);
         self.set_idle(id, cx);
-        self.reload(cx);
+        self.refresh(id, cx);
     }
 
     /// Cancels the preparation, or kills the game.
