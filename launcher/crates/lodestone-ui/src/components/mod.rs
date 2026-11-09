@@ -17,6 +17,7 @@ pub mod settings;
 mod slider;
 mod tabs;
 mod text_input;
+mod toast;
 mod toggle;
 mod tooltip;
 pub mod window_frame;
@@ -34,6 +35,7 @@ pub use segmented::segmented;
 pub use slider::Slider;
 pub use tabs::Tabs;
 pub use text_input::TextInput;
+pub use toast::{Toast, ToastAction, ToastLevel, Toasts};
 pub use toggle::Toggle;
 pub use tooltip::{TextTooltip, text_tooltip};
 

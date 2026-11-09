@@ -70,10 +70,11 @@ fn main() {
     });
 }
 
-/// `--screenshot <file.png> [--wait <seconds>] [--select-first]`, with the `screenshot`
-/// feature: renders the window offscreen after the wait (10 s by default: the core
-/// starts and the Host signs in), optionally with the first instance selected, saves
-/// it and quits, stopping the core.
+/// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts]`,
+/// with the `screenshot` feature: renders the window offscreen after the wait (10 s by
+/// default: the core starts and the Host signs in), optionally with the first instance
+/// selected (on its `--tab`: `console`, `files`, …) and sample toasts shown, saves it
+/// and quits, stopping the core.
 #[cfg(feature = "screenshot")]
 mod screenshot {
     use std::time::Duration;
@@ -94,7 +95,13 @@ mod screenshot {
         let wait = arg_after("--wait")
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(10);
-        let select_first = std::env::args().any(|arg| arg == "--select-first");
+        let tab = arg_after("--tab").and_then(|name| {
+            lodestone_host::routes::InstanceTab::ALL
+                .into_iter()
+                .find(|tab| format!("{tab:?}").eq_ignore_ascii_case(&name))
+        });
+        let select_first = tab.is_some() || std::env::args().any(|arg| arg == "--select-first");
+        let toasts = std::env::args().any(|arg| arg == "--toasts");
         cx.spawn(async move |cx| {
             cx.background_executor()
                 .timer(Duration::from_secs(wait))
@@ -102,6 +109,49 @@ mod screenshot {
             if select_first {
                 window
                     .update(cx, |app, _, cx| app.select_first_instance(cx))
+                    .ok();
+                if let Some(tab) = tab {
+                    window
+                        .update(cx, |app, _, cx| {
+                            let shell = app.shell()?;
+                            shell.update(cx, |shell, cx| {
+                                if let lodestone_host::routes::Route::Instance { uuid, .. } =
+                                    shell.route.clone()
+                                {
+                                    shell.navigate(
+                                        lodestone_host::routes::Route::Instance { uuid, tab },
+                                        cx,
+                                    );
+                                }
+                            });
+                            Some(())
+                        })
+                        .ok();
+                }
+                cx.background_executor()
+                    .timer(
+                        Duration::from_secs(if tab.is_some() { 2 } else { 0 })
+                            + Duration::from_millis(500),
+                    )
+                    .await;
+            }
+            if toasts {
+                use lodestone_ui::components::Toast;
+                window
+                    .update(cx, |app, _, cx| {
+                        let state = app.shell()?.read(cx).state.clone();
+                        state.update(cx, |state, cx| {
+                            state.toast(Toast::info("Uploading 3 files"), cx);
+                            state.toast(Toast::success("Deleted server.properties"), cx);
+                            state.toast(Toast::warning("The core is reconnecting"), cx);
+                            state.toast(
+                                Toast::error("Couldn’t send the command: the server is stopped")
+                                    .action("Retry", |_, _| {}),
+                                cx,
+                            );
+                        });
+                        Some(())
+                    })
                     .ok();
                 cx.background_executor()
                     .timer(Duration::from_millis(500))

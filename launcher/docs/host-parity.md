@@ -39,7 +39,8 @@ be built in parallel with little file overlap. Tick items (`[x]`) as you build t
   Host asks for a username and password (`POST /user/login` over loopback).
 - **Shared code.** `launcher/crates/lodestone-ui`: components, theme, fonts and icons,
   the i18n plumbing and the Common/Format words, undo, file dialogs, the skin paint
-  layer. `launcher/crates/launcher-core/src/cores/admin`: the core's full API
+  layer, toasts (`components::toast`: `HostState::toast(Toast::success(…), cx)`, drawn
+  by the shell over everything). `launcher/crates/launcher-core/src/cores/admin`: the core's full API
   (`AdminClient`), its models and the typed event stream (`events.rs`); the live
   streams are `cores::live` (`StreamKind::All` for every event, `Console` for a
   console).
@@ -74,8 +75,10 @@ python3 scripts/host_dev_bundle.py --open             # "Lodestone Host Dev.app"
   `LODESTONE_HOST_CORE_PORT`: the port. Tests and bundles must never use `~/.lodestone`.
 - The dev bundle's Info.plist points both folders into its output folder.
 - `cargo run -p lodestone-host --features screenshot -- --screenshot out.png [--wait 10]
-  [--select-first]` renders the window offscreen once the core has started and the Host
-  has signed in, then quits (stopping the core).
+  [--select-first] [--tab console] [--toasts]` renders the window offscreen once the core
+  has started and the Host has signed in (optionally on the first instance's tab, with
+  sample toasts), then quits (stopping the core). Always set `LODESTONE_PATH` and
+  `LODESTONE_HOST_DATA_DIR` to temporary folders when running it.
 - Never start a Minecraft server while testing (that accepts Mojang's EULA): test
   power buttons against an unknown instance id, or a fixture instance you don't start.
 

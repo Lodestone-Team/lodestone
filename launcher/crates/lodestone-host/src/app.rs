@@ -285,6 +285,14 @@ impl HostApp {
         .detach();
     }
 
+    /// The shell, once signed in: for the development screenshots.
+    pub fn shell(&self) -> Option<Entity<HostShell>> {
+        match &self.phase {
+            Phase::Shell(shell) => Some(shell.clone()),
+            _ => None,
+        }
+    }
+
     /// Selects the first instance, for the development screenshots.
     pub fn select_first_instance(&mut self, cx: &mut Context<Self>) {
         if let Phase::Shell(shell) = &self.phase {
