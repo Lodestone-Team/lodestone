@@ -167,8 +167,25 @@ impl SharedSettings {
         self.done(result, None, cx);
     }
 
+    /// Picks the main instance. Another instance taking over from the current main
+    /// asks first (in the shell), so it isn't changed here.
     fn sync_from(&mut self, id: Option<String>, cx: &mut Context<Self>) {
         self.picker = None;
+        if let Some(id) = &id {
+            let name = self
+                .instances
+                .read(cx)
+                .instance_name(id)
+                .unwrap_or_default();
+            let done = self
+                .instances
+                .update(cx, |instances, cx| instances.request_main(id, cx));
+            if done {
+                self.say(tr!(M::SyncedFrom, name = name), false, cx);
+            }
+            self.reload(cx);
+            return;
+        }
         let instances = self.instances.read(cx);
         let data = instances.data_dir().clone();
         let dir = id.as_deref().map(|id| instances.instance_dir(id));

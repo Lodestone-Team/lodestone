@@ -61,6 +61,11 @@ pub struct Settings {
     /// once the game's window opens. Minimize by default; left out of the file then.
     #[serde(default, skip_serializing_if = "is_default")]
     pub after_launch: AfterLaunch,
+    /// The launcher has offered to make a new instance the main one for shared game
+    /// settings, which it does once (Settings > Developer can ask again). Left out of
+    /// the file until then.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub main_instance_offered: bool,
     /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
@@ -92,6 +97,7 @@ impl Default for Settings {
             auto_update: true,
             update_channel: UpdateChannel::Stable,
             after_launch: AfterLaunch::Minimize,
+            main_instance_offered: false,
             zoom: 1.0,
             skin: None,
             sidebar_width: None,

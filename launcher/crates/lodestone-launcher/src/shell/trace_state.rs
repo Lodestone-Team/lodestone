@@ -26,6 +26,8 @@ impl Modal {
             Modal::Share { .. } => "share",
             Modal::Crash { .. } => "crash",
             Modal::LaunchFailed { .. } => "launch_failed",
+            Modal::OfferMain { .. } => "offer_main",
+            Modal::ConfirmMain { .. } => "confirm_main",
             Modal::DeleteInstance { .. } => "delete_instance",
             Modal::SignIn { .. } => "sign_in",
             Modal::Offline { .. } => "offline_account",

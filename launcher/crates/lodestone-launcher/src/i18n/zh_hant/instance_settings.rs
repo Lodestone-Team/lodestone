@@ -230,19 +230,18 @@ pub fn text(message: M) -> &'static str {
         M::DeleteInstance => "刪除實例",
         M::DeleteHint => "包括其中的世界和模組。",
         M::DeleteButton => "刪除…",
-
-        M::SharedLead => "所有實例使用相同的遊戲選項。",
+        M::SharedLead => "讓各實例的設定保持同步。",
         M::UseSharedSettings => "使用共用設定",
         M::SharingOff => "此實例保留自己的選項。",
-        M::SharingPreferred => "此實例中遊戲內的變更會同步到所有實例。",
         M::SharingFrom => "接收來自 {name} 的遊戲內變更。",
-        M::SharingNoPreferred => "共用值只能在設定中變更。",
-        M::Preferred => "首選",
-        M::MakePreferred => "設為首選",
-        M::PreferredExplained => {
-            "在首選實例中，於遊戲內變更的設定會成為共用設定，而每個共用這些設定的實例會在下次啟動時取得它們。只能有一個首選實例。"
+        M::SharingMain => "此實例中遊戲內的變更會同步到所有實例。",
+        M::SharingNoMain => "沒有主實例：共用值只能在設定中變更。",
+        M::MainInstance => "主實例",
+        M::MainInstanceHint => {
+            "你在主實例遊戲中變更的設定，會在其他共用設定的實例下次啟動時複製過去。只能有一個主實例。"
         }
-        M::MadePreferred => "此實例中的遊戲內變更現在會套用到每個實例。",
+        M::IsMainInstance => "這是你的主實例",
+        M::MakeMain => "設為主實例",
         M::StopGameToChange => "請先停止遊戲再變更：遊戲結束時會重寫 options.txt。",
         M::NotShared => "未共用（啟動器設定）",
         M::ShareAll => "全部共用",

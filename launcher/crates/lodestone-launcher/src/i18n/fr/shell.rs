@@ -166,7 +166,7 @@ pub fn text(message: M) -> &'static str {
         M::Accounts => "Comptes",
         M::Developer => "Développeur",
         M::DefaultsLead => "Chaque instance peut les modifier dans ses propres paramètres.",
-        M::SharedLead => "Les mêmes options de jeu dans toutes les instances.",
+        M::SharedLead => "Gardez vos réglages synchronisés entre vos instances.",
         M::NoAccount => "Aucun compte",
         M::ManageAccounts => "Gérer les comptes",
         M::GroupAutomatically => "Grouper les instances automatiquement",
@@ -200,24 +200,43 @@ pub fn text(message: M) -> &'static str {
         M::JvmArguments => "Arguments JVM",
         M::GameArguments => "Arguments du jeu",
         M::EnvironmentVariables => "Variables d’environnement",
-
-        M::SyncedFrom => {
-            "Les réglages modifiés en jeu dans {name} mettent désormais à jour toutes les instances."
-        }
+        M::SyncedFrom => "{name} est maintenant votre instance principale.",
         M::SyncedFromNone => {
-            "Aucune instance ne met plus à jour les paramètres partagés\u{202F}; modifiez-les ici."
+            "Plus d’instance principale\u{a0}: modifiez les réglages partagés ici."
         }
         M::SharedCleared => {
             "Les valeurs partagées sont effacées. Les instances gardent leur propre options.txt."
         }
-        M::NoInstance => "Aucune instance",
+        M::NoInstance => "Aucune instance principale",
         M::EditHereOnly => "modifier ici uniquement",
         M::Value => "Valeur",
-        M::SyncFrom => "Synchroniser depuis",
+        M::SyncFrom => "Instance principale",
         M::SyncFromHint => {
-            "Les changements faits en jeu dans cette instance s’appliquent aux autres."
+            "Les réglages modifiés en jeu dans votre instance principale sont copiés dans vos autres instances à leur démarrage."
         }
-        M::SyncFromNoneHint => "Les valeurs partagées ne changent qu’ici.",
+        M::SyncFromNoneHint => {
+            "Sans instance principale, les réglages partagés ne changent qu’ici."
+        }
+        M::MainOfferTitle => "Faire de {name} votre instance principale\u{202F}?",
+        M::MainOfferBody => {
+            "Les réglages de jeu partagés gardent vos contrôles, la vidéo, le son et d’autres options identiques dans toutes vos instances. Les réglages modifiés en jeu dans votre instance principale sont copiés dans les autres à leur démarrage."
+        }
+        M::MainChangeLater => {
+            "Vous pourrez changer cela dans Paramètres › Réglages de jeu partagés."
+        }
+        M::MakeItMain => "En faire l’instance principale",
+        M::MainSwitchBody => {
+            "{current} est votre instance principale. Ses changements en jeu ne mettront plus à jour vos réglages partagés\u{a0}: ce seront ceux de {name}."
+        }
+        M::MakeNameMain => "Rendre {name} principale",
+        M::FirstTimeSetupSection => "Première configuration",
+        M::ResetFirstTimeSetup => "Réinitialiser la première configuration",
+        M::ResetFirstTimeSetupHint => {
+            "La prochaine nouvelle instance sera de nouveau proposée comme instance principale. L’instance principale actuelle est retirée\u{a0}; les valeurs partagées restent."
+        }
+        M::FirstTimeSetupReset => {
+            "La première configuration est réinitialisée. Créez une instance pour la voir."
+        }
         M::StartFromInstance => "Partir d’une instance",
         M::CopyFromInstance => "Copier depuis une instance…",
         M::ClearShared => "Effacer les valeurs partagées",

@@ -8,6 +8,7 @@ pub mod fields;
 mod files;
 pub mod import;
 pub mod loader_picker;
+mod main_instance;
 pub mod modpack_browser;
 pub mod modpacks;
 pub mod new_instance;
@@ -274,6 +275,13 @@ pub enum InstancesEvent {
     GameWindowOpened(String),
     /// A game exited, after any [`InstancesEvent::Crashed`] for it.
     GameExited(String),
+    /// A new instance, with no main instance yet: offer to make it the main one.
+    OfferMain(String),
+    /// `id` is to become the main instance, but `current` is: ask first.
+    ConfirmMain {
+        id: String,
+        current: String,
+    },
 }
 
 /// How long a game runs before it counts as having opened its window when the log

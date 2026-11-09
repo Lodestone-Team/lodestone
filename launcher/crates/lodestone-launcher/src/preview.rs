@@ -57,6 +57,8 @@ pub const SCENES: &[&str] = &[
     "sign-in",
     "sign-in-browser",
     "sign-in-code",
+    "offer-main",
+    "confirm-main",
     "sign-in-stop",
     "sign-in-not-approved",
     "launcher-identity",
@@ -445,6 +447,8 @@ fn has_instances(scene: &str) -> bool {
         "play-progress"
             | "playing"
             | "launching"
+            | "offer-main"
+            | "confirm-main"
             | "logs"
             | "instance-settings"
             | "crash"
@@ -1242,6 +1246,8 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             );
             shell.preview_ask_to_stop_signing_in(cx);
         }
+        "offer-main" => shell.preview_main_dialog(false, cx),
+        "confirm-main" => shell.preview_main_dialog(true, cx),
         "sign-in-code" => shell.open_sign_in_at(
             Stage::DeviceCode {
                 user_code: "F7K2-9QXM".into(),

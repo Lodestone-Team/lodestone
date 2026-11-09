@@ -179,12 +179,19 @@ impl Instances {
     /// in the list's order: what [`Self::reload`] would read, without reading every
     /// instance's folder.
     pub(super) fn update_listed(&mut self, instance: Instance, cx: &mut Context<Self>) {
+        let mut added = None;
         match self.list.iter_mut().find(|i| i.id == instance.id) {
             Some(listed) => *listed = instance,
-            None => self.list.push(instance),
+            None => {
+                added = Some(instance.id.clone());
+                self.list.push(instance);
+            }
         }
         sort_listed(&mut self.list);
         self.list_changed(cx);
+        if let Some(id) = added {
+            self.offer_main(&id, cx);
+        }
     }
 
     /// Reads instance `id` again, alone; everything again if it can't be read.

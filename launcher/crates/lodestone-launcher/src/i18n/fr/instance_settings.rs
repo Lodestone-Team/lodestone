@@ -244,22 +244,20 @@ pub fn text(message: M) -> &'static str {
         M::DeleteHint => "Y compris ses mondes et ses mods.",
         M::DeleteButton => "Supprimer…",
 
-        M::SharedLead => "Les mêmes options de jeu dans toutes les instances.",
+        M::SharedLead => "Gardez vos réglages synchronisés entre vos instances.",
         M::UseSharedSettings => "Utiliser les paramètres partagés",
         M::SharingOff => "Cette instance garde ses propres options.",
-        M::SharingPreferred => {
-            "Les changements faits en jeu ici s’appliquent à toutes les instances."
-        }
         M::SharingFrom => "Reçoit les changements faits en jeu dans {name}.",
-        M::SharingNoPreferred => "Les valeurs partagées ne changent que dans les Paramètres.",
-        M::Preferred => "Préférée",
-        M::MakePreferred => "Rendre préférée",
-        M::PreferredExplained => {
-            "Les réglages modifiés en jeu dans l’instance préférée deviennent les réglages partagés, et chaque instance qui les partage les reçoit à son prochain lancement. Une seule instance est préférée."
+        M::SharingMain => "Les changements faits en jeu ici mettent à jour toutes les instances.",
+        M::SharingNoMain => {
+            "Aucune instance principale\u{a0}: les valeurs partagées ne changent que dans les Paramètres."
         }
-        M::MadePreferred => {
-            "Les changements faits en jeu dans cette instance s’appliquent désormais à chaque instance."
+        M::MainInstance => "Instance principale",
+        M::MainInstanceHint => {
+            "Les réglages modifiés en jeu dans votre instance principale sont copiés dans chaque instance qui les partage, à son prochain démarrage. Une seule instance est principale."
         }
+        M::IsMainInstance => "C’est votre instance principale",
+        M::MakeMain => "Rendre principale",
         M::StopGameToChange => {
             "Arrêtez le jeu pour modifier ceci\u{a0}: il réécrit options.txt en quittant."
         }
