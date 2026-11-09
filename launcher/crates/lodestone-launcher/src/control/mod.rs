@@ -27,6 +27,7 @@ mod instances;
 mod jobs;
 mod servers;
 mod settings;
+mod storage;
 mod trace;
 mod worlds;
 
@@ -287,6 +288,16 @@ pub const METHODS: &[Method] = &[
         "settings.general.set",
         "Changes general settings.",
         settings::general_set,
+    ),
+    method(
+        "storage.show",
+        "What the data folder takes: instances, game files, Java runtimes, cache, logs; and what is unused.",
+        storage::show,
+    ),
+    destructive(
+        "storage.clean",
+        "Removes unused game files or Java runtimes, the cache, old logs or all logs (what: game-files, runtimes, cache, leftovers, old-logs, logs).",
+        storage::clean,
     ),
     method(
         "settings.developer.get",

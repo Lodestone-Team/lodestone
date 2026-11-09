@@ -752,6 +752,10 @@ pub fn plan(
                 ],
             ),
         },
+        Command::Storage(c) => match c {
+            Storage::Show => call("storage.show", vec![]),
+            Storage::Clean { what } => call("storage.clean", vec![("what", json!(what))]),
+        },
         Command::Jobs(c) => match c {
             Jobs::List { running } => call("jobs.list", vec![("running", json!(running))]),
             Jobs::Get { job } => call("jobs.get", vec![("job", json!(job))]),
