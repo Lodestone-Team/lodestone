@@ -11,6 +11,7 @@ pub mod components;
 #[cfg(unix)]
 pub mod control;
 pub mod file_dialog;
+pub mod glass;
 pub mod i18n;
 pub mod images;
 pub mod instances;

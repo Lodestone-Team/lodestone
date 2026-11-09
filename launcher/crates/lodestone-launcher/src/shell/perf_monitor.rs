@@ -14,8 +14,11 @@ use gpui::{
     SharedString, Task, Window, WindowHandle, WindowKind, div, prelude::*, size,
 };
 
+use launcher_core::ui_skin::SurfaceId;
+
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Icon},
+    skin::Skinned,
     i18n::{ShellMsg as M, ShellPlural as P, format, t, tr, trn},
     perf::{ProcessReading, Sample, Sampler, Sources},
     theme::{self, Color, colors, fonts, px, text, weights},
@@ -211,6 +214,10 @@ impl Render for PerfMonitor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // the monitor in the launcher's own look
         crate::skin::set_frame(&crate::skin::launcher_look());
+        // see-through as the launcher's window is
+        let glass = crate::glass::resolve(&crate::skin::look(cx).spec);
+        crate::glass::set_frame(glass);
+        crate::glass::apply_to_window(window, glass);
         window.set_rem_size(theme::zoom::rem_size());
         let Some(now) = self.history.back().cloned() else {
             return div().into_any_element();
@@ -352,6 +359,7 @@ impl Render for PerfMonitor {
             .flex_col()
             .size_full()
             .bg(colors::GRAY_875)
+            .surface(SurfaceId::Window)
             .font_family(fonts::SANS)
             .map(crate::i18n::locale_fonts)
             .text_color(colors::GRAY_300)
@@ -369,6 +377,7 @@ impl Render for PerfMonitor {
                     .bg(colors::GRAY_800)
                     .border_b_1()
                     .border_color(colors::GRAY_FADED.opacity(30))
+                    .surface(SurfaceId::TopBar)
                     .child(Icon::Gear.render(px(14.), colors::GRAY_400))
                     .child(
                         div()

@@ -12,6 +12,18 @@ crate::i18n::messages! {
         LanguageSystemIs = "System ({language})",
         /// Settings > General: the interface's size.
         Zoom = "Zoom",
+        /// Settings > General: what shows through the window (the desktop behind it).
+        Transparency = "Transparency",
+        /// The Transparency choice that follows the skin's own.
+        TransparencySkin = "Skin",
+        /// Transparency: the desktop shows through, sharp.
+        MaterialClear = "Clear",
+        /// Transparency: the desktop shows through, blurred (frosted glass).
+        MaterialFrosted = "Frosted",
+        /// Transparency: frosted, with lit edges on panels (liquid glass).
+        MaterialGlass = "Glass",
+        /// Settings > General: how opaque a see-through window is, in percent.
+        Opacity = "Opacity",
         /// The menu bar's View menu.
         ViewMenu = "View",
         ZoomIn = "Zoom In",

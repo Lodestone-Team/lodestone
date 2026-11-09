@@ -136,6 +136,13 @@ pub const SCENES: &[&str] = &[
     "snapshot-share",
     "snapshot-delete",
     "snapshot-import",
+    "glass-clear",
+    "glass-frosted",
+    "glass",
+    "glass-skin",
+    "glass-dialog",
+    "glass-settings",
+    "glass-content",
 ];
 
 /// Keys pressed once a scene has settled, before the screenshot, to show where
@@ -306,6 +313,94 @@ fn showcase_skin() -> launcher_core::ui_skin::SkinSpec {
     spec
 }
 
+/// The see-through scenes' material (Opacity at its default) and skin.
+fn glass_scene(scene: &str) -> Option<(launcher_core::ui_skin::Material, Option<&'static str>)> {
+    use launcher_core::ui_skin::Material;
+    Some(match scene {
+        "glass-clear" => (Material::Clear, None),
+        "glass-frosted" => (Material::Frosted, None),
+        "glass" | "glass-dialog" | "glass-settings" | "glass-content" => (Material::Glass, None),
+        "glass-skin" => (Material::Glass, Some("glass")),
+        _ => return None,
+    })
+}
+
+thread_local! {
+    /// The made-up desktop the see-through scenes show behind the window: sharp,
+    /// and blurred as the compositor would.
+    static DESKTOP: std::cell::RefCell<Option<(Arc<gpui::RenderImage>, Arc<gpui::RenderImage>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// A made-up desktop: a wallpaper with a document window and a row of app icons,
+/// so what shows through reads as sharp or blurred.
+fn desktop_image() -> image::RgbaImage {
+    let wallpaper = launcher_core::ui_skin::art::draw("sunset").expect("built-in");
+    let mut image =
+        image::imageops::resize(&wallpaper, 1400, 900, image::imageops::FilterType::Triangle);
+    let mut rect = |x0: u32, y0: u32, w: u32, h: u32, rgba: [u8; 4]| {
+        for y in y0..(y0 + h).min(900) {
+            for x in x0..(x0 + w).min(1400) {
+                image.put_pixel(x, y, image::Rgba(rgba));
+            }
+        }
+    };
+    // a document window, with lines of "text"
+    rect(120, 120, 520, 560, [246, 246, 248, 255]);
+    rect(120, 120, 520, 36, [222, 224, 230, 255]);
+    for line in 0..16 {
+        let width = [440, 400, 460, 300][line % 4];
+        rect(150, 190 + line as u32 * 28, width, 10, [60, 64, 74, 255]);
+    }
+    // app icons along the bottom
+    let icons = [
+        [229, 84, 106, 255],
+        [89, 178, 243, 255],
+        [109, 210, 119, 255],
+        [239, 180, 64, 255],
+        [167, 139, 250, 255],
+        [34, 211, 238, 255],
+    ];
+    for (i, color) in icons.into_iter().enumerate() {
+        rect(760 + i as u32 * 90, 780, 64, 64, color);
+    }
+    image
+}
+
+/// What the see-through scenes show behind the window: the made-up desktop, sharp
+/// for Clear and blurred otherwise. `None` for other scenes.
+pub fn desktop(glass: crate::glass::Glass) -> Option<gpui::AnyElement> {
+    use gpui::{IntoElement, ObjectFit, Styled, StyledImage, img};
+    requested_scene().and_then(|scene| glass_scene(&scene))?;
+    let (sharp, blurred) = DESKTOP.with(|desktop| {
+        desktop
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                let image = desktop_image();
+                // about the blur macOS gives a window's background
+                let blurred = image::imageops::fast_blur(&image, 18.0);
+                (
+                    crate::images::render_image(image),
+                    crate::images::render_image(blurred),
+                )
+            })
+            .clone()
+    });
+    let image = if glass.material.is_blurred() {
+        blurred
+    } else {
+        sharp
+    };
+    Some(
+        img(image)
+            .absolute()
+            .inset_0()
+            .size_full()
+            .object_fit(ObjectFit::Cover)
+            .into_any_element(),
+    )
+}
+
 /// Scenes that show instance icons and Play backgrounds.
 fn is_appearance_scene(scene: &str) -> bool {
     scene.starts_with("play-background")
@@ -362,6 +457,7 @@ fn has_instances(scene: &str) -> bool {
         || scene == "instance-linked"
         || is_appearance_scene(scene)
         || scene.starts_with("skin-")
+        || glass_scene(scene).is_some()
         || matches!(
             scene,
             "sidebar-resized" | "sidebar-rail" | "sidebar-rail-skin"
@@ -1050,6 +1146,28 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                     instances.set_skin(Some("grassblock".into()), cx);
                 }
             });
+        }
+        scene if glass_scene(scene).is_some() => {
+            let (material, skin) = glass_scene(scene).expect("checked");
+            let instances = shell.instances().clone();
+            instances.update(cx, |instances, cx| {
+                instances.set_transparency(Some(material), cx);
+                if skin.is_some() {
+                    instances.set_skin(skin.map(String::from), cx);
+                }
+            });
+            match scene {
+                "glass-dialog" => shell.open_new_instance_with(Some(("Survival", "")), None, cx),
+                "glass-settings" => {
+                    shell.open_settings(Some(crate::shell::SettingsPage::General), None, cx)
+                }
+                "glass-content" => {
+                    shell.select_tab(InstanceTab::Content, cx);
+                    let view = shell.content().clone();
+                    view.update(cx, |view, cx| content::apply("content-mods", view, cx));
+                }
+                _ => {}
+            }
         }
         "skin-grassblock" | "skin-glass" | "skin-neon" | "skin-overrides" | "settings-skin" => {
             let id = match scene {
