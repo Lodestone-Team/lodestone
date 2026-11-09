@@ -77,8 +77,6 @@ pub fn tab_icon(tab: InstanceTab) -> Icon {
         InstanceTab::Mods => Icon::PuzzlePiece,
         InstanceTab::Macros => Icon::CodeCompare,
         InstanceTab::EventLogs => Icon::Inbox,
-        // the dashboard's is a car in a tunnel
-        InstanceTab::Playit => Icon::Link,
     }
 }
 
