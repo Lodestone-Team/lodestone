@@ -77,6 +77,10 @@ pub const CATALOG: &[(&str, &str)] = &[
         "An HTTP request finished (method, host, path, status, ms).",
     ),
     ("http.error", "An HTTP request failed."),
+    (
+        "storage.clean",
+        "Settings > Storage removed files (what, freed_bytes, files, error).",
+    ),
     ("download.file", "A game file was downloaded (live only)."),
     ("download.error", "A game file download failed."),
     (

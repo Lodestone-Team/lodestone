@@ -13,6 +13,7 @@ pub mod accounts;
 pub mod auth;
 pub mod content;
 pub mod cores;
+pub mod disk;
 pub mod export;
 pub mod game;
 pub mod hero_cache;

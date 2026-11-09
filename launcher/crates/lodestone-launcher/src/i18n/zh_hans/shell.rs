@@ -391,6 +391,60 @@ pub fn text(message: M) -> &'static str {
         M::UpdateAvailableBadge => "有可用更新",
 
         M::RestOnModrinth => "其余描述请在 Modrinth 上查看。",
+        M::Storage => "存储",
+        M::StorageInstances => "实例",
+        M::StorageGameFiles => "游戏文件",
+        M::StorageRuntimes => "Java 运行时",
+        M::StorageCache => "缓存",
+        M::StorageLeftovers => "未完成的下载和导入",
+        M::StorageCleanLeftoversTitle => "移除未完成的下载？",
+        M::StorageCleanLeftoversBody => {
+            "这将释放 {size}。这些是未完成的整合包下载和导入留下的文件。"
+        }
+        M::StorageOther => "设置和其他文件",
+        M::StorageCacheAndLogs => "缓存和日志",
+        M::StorageLogs => "日志和崩溃报告",
+        M::StorageOldLogs => "{size} 超过 30 天",
+        M::StorageVersions => "版本",
+        M::StorageLibraries => "库",
+        M::StorageAssets => "资源",
+        M::StorageUnused => "未被任何实例使用",
+        M::StorageUnusedTag => "未使用",
+        M::StorageJava => "Java {major}",
+        M::StorageWorlds => "世界 {size}",
+        M::StorageContent => "模组和资源包 {size}",
+        M::StorageOtherFiles => "其他 {size}",
+        M::StorageNoInstances => "没有实例",
+        M::StorageNoRuntimes => "没有 Java 运行时",
+        M::StorageCounting => "正在统计…",
+        M::StorageCouldntCount => "无法统计文件：{error}",
+        M::StorageStopGame => "请先停止游戏，再移除游戏文件、Java 运行时或缓存。",
+        M::StorageOpenFolder => "打开文件夹",
+        M::StorageOpen => "打开",
+        M::StorageDelete => "删除…",
+        M::StorageRemoveEllipsis => "移除…",
+        M::StorageClearEllipsis => "清除…",
+        M::StorageRemove => "移除",
+        M::StorageClear => "清除",
+        M::StorageDeleteOld => "删除旧的…",
+        M::StorageDeleteAll => "全部删除…",
+        M::StorageDeleteConfirm => "删除",
+        M::StorageFreed => "已释放 {size}",
+        M::StorageCouldntRemove => "无法全部移除：{error}",
+        M::StorageCleanGameFilesTitle => "移除未使用的游戏文件？",
+        M::StorageCleanGameFilesBody => {
+            "这将释放 {size}。没有实例使用的版本、库和资源会被删除，实例需要时会重新下载。"
+        }
+        M::StorageCleanRuntimesTitle => "移除未使用的 Java 运行时？",
+        M::StorageCleanRuntimesBody => "这将释放 {size}。Minecraft 版本需要时会重新下载。",
+        M::StorageClearCacheTitle => "清除缓存？",
+        M::StorageClearCacheBody => "这将释放 {size}。启动器会重新下载所需内容。",
+        M::StorageDeleteOldLogsTitle => "删除旧日志？",
+        M::StorageDeleteOldLogsBody => "这将释放 {size}。超过 30 天的日志和崩溃报告会被永久删除。",
+        M::StorageDeleteAllLogsTitle => "删除所有日志？",
+        M::StorageDeleteAllLogsBody => {
+            "这将释放 {size}。所有日志和崩溃报告都会被永久删除，正在运行的游戏的除外。"
+        }
     }
 }
 
