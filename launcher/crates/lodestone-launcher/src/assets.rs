@@ -55,6 +55,7 @@ static FILES: &[(&str, &[u8])] = embed!(
     "icons/check.svg",
     "icons/circle-up.svg",
     "icons/copy.svg",
+    "icons/ellipsis.svg",
     "icons/cube.svg",
     "icons/download.svg",
     "icons/expand.svg",
