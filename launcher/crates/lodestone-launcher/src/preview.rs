@@ -93,6 +93,7 @@ pub const SCENES: &[&str] = &[
     "instance-shared-settings",
     "import",
     "import-progress",
+    "import-stop",
     "instance-linked",
     "settings",
     "settings-general",
@@ -128,25 +129,27 @@ pub const SCENES: &[&str] = &[
 /// keyboard focus goes and its ring.
 pub fn keystrokes(scene: &str) -> &'static [&'static str] {
     match scene {
-        // The Remove dialog takes focus when it opens; Tab reaches Remove, then Cancel.
-        "focus-dialog" => &["tab", "tab"],
-        // Settings > Instance defaults: past the account, the pages, Close and the
-        // four fields, to the Fullscreen switch.
+        // The Remove dialog takes focus when it opens; Tab reaches its ×, Remove, then
+        // Cancel.
+        "focus-dialog" => &["tab", "tab", "tab"],
+        // Settings > Instance defaults: past Manage accounts, the seven pages and the
+        // four fields, to the Fullscreen switch. (The dialog's × comes last.)
         "focus-settings-row" => &[
             "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab",
+            "tab",
         ],
         // From the window's root: the logo, the account box, then the sidebar's New
         // instance.
         "focus-home" => &["tab", "tab", "tab"],
-        // Shared game settings: the Sync from list opened with Enter (it takes focus),
-        // then Tab to its second row.
+        // Shared game settings: past Manage accounts and the seven pages, the Sync
+        // from list opened with Enter (it takes focus), then Tab to its second row.
         "focus-popover" => &[
-            "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "enter", "tab", "tab",
+            "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "enter", "tab", "tab",
         ],
         // The same list closed again with Escape: focus is back on its button, and the
         // Settings dialog stays open.
         "focus-escape" => &[
-            "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "enter", "escape",
+            "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "enter", "escape",
         ],
         // "Save your changes?", opened without a window, closed with Escape; Settings
         // stays open and takes focus back.
@@ -802,7 +805,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
                 });
             }
         }
-        "import" | "import-progress" => import::apply(scene, shell, cx),
+        "import" | "import-progress" | "import-stop" => import::apply(scene, shell, cx),
         "play-slideshow-fade" => {
             // Once the first image is up, hold the next one halfway through its fade.
             let slideshow = shell.slideshow().clone();

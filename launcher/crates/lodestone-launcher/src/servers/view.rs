@@ -948,14 +948,15 @@ fn trust_dialog(servers: &Entity<Servers>, prompt: &TrustPrompt) -> Dialog {
             ),
     )
     .footer(
-        Button::new("trust-not-now", t(CommonMsg::NotNow))
-            .variant(ButtonVariant::Primary)
-            .on_click(move |_, _, cx| not_now.update(cx, |this, cx| this.answer_trust(false, cx))),
-    )
-    .footer(
         Button::new("trust-core-yes", t(M::TrustThisCore))
             .variant(ButtonVariant::Secondary)
             .on_click(move |_, _, cx| trust.update(cx, |this, cx| this.answer_trust(true, cx))),
+    )
+    // the safe answer, so the one that stands out, though last like any Cancel
+    .footer(
+        Button::new("trust-not-now", t(CommonMsg::NotNow))
+            .variant(ButtonVariant::Primary)
+            .on_click(move |_, _, cx| not_now.update(cx, |this, cx| this.answer_trust(false, cx))),
     )
 }
 
@@ -1112,15 +1113,6 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
             .flex_wrap()
             .gap_2()
             .child(
-                Button::new("advisory-cancel", t(CommonMsg::Cancel))
-                    .variant(ButtonVariant::Primary)
-                    .on_click(move |_, _, cx| {
-                        cancel.update(cx, |this, cx| {
-                            this.answer_advisory(AdvisoryAnswer::Cancel, cx)
-                        })
-                    }),
-            )
-            .child(
                 Button::new("advisory-once", t(M::InstallThisTime))
                     .variant(ButtonVariant::Secondary)
                     .on_click(move |_, _, cx| {
@@ -1135,6 +1127,16 @@ fn advisory_dialog(servers: &Entity<Servers>, prompt: &AdvisoryPrompt) -> Dialog
                     .on_click(move |_, _, cx| {
                         trust.update(cx, |this, cx| {
                             this.answer_advisory(AdvisoryAnswer::TrustAndInstall, cx)
+                        })
+                    }),
+            )
+            // the safe answer, so the one that stands out, though last like any Cancel
+            .child(
+                Button::new("advisory-cancel", t(CommonMsg::Cancel))
+                    .variant(ButtonVariant::Primary)
+                    .on_click(move |_, _, cx| {
+                        cancel.update(cx, |this, cx| {
+                            this.answer_advisory(AdvisoryAnswer::Cancel, cx)
                         })
                     }),
             ),

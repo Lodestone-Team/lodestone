@@ -30,7 +30,7 @@ use super::{Servers, ServersEvent, extras::note};
 use crate::components::KeyboardFocus;
 use crate::{
     components::{Button, ButtonSize, ButtonVariant, Dialog, Icon, LoadingDots},
-    i18n::{CommonMsg, ServersMsg as M, t, tr},
+    i18n::{ServersMsg as M, t, tr},
     theme::{self, colors, fonts, radius, text, weights},
 };
 
@@ -401,13 +401,5 @@ pub fn render_picker(servers: &Entity<Servers>, picker: &LanPicker, cx: &App) ->
                     })
             })),
     )
-    .footer({
-        let cancel = servers.clone();
-        Button::new("lan-join-cancel", t(CommonMsg::Cancel)).on_click(move |_, _, cx| {
-            cancel.update(cx, |this, cx| {
-                this.extras.lan_picker.close(cx);
-            })
-        })
-    })
     .into_any_element()
 }

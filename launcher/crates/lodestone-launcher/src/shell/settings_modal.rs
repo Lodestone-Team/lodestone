@@ -270,6 +270,8 @@ impl LauncherShell {
                                 }
                             })
                             .pb_5()
+                            // clear of the dialog's ×, at the corner
+                            .pr_12()
                             .when(narrow, |this| {
                                 this.child(IconButton::new("settings-menu", Icon::Bars).on_click(
                                     cx.listener(|this, _, _, cx| {
@@ -308,13 +310,7 @@ impl LauncherShell {
                                             .text_color(crate::theme::ink::muted())
                                             .child(lead)
                                     })),
-                            )
-                            .child(div().flex_1())
-                            .child(IconButton::new("close-settings", Icon::Xmark).on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.request_close_settings(Some(window), cx)
-                                }),
-                            )),
+                            ),
                     )
                     .child(
                         div()

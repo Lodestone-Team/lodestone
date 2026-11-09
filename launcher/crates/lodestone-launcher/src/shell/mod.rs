@@ -1439,11 +1439,6 @@ impl LauncherShell {
                                 .child(paragraph.to_string())
                         })),
                 )
-                .footer(
-                    Button::new("close-launch-failed", t(CommonMsg::Close))
-                        .variant(ButtonVariant::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
-                )
                 .into_any_element(),
             Modal::DeleteInstance {
                 id,
@@ -1669,11 +1664,6 @@ fn render_crash(
             }
             cx.notify();
         })),
-    )
-    .footer(
-        Button::new("close-crash", t(CommonMsg::Close))
-            .variant(ButtonVariant::Ghost)
-            .on_click(cx.listener(|this, _, _, cx| this.close_modal(cx))),
     )
     .into_any_element()
 }

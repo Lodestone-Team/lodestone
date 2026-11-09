@@ -2,6 +2,10 @@
 //! places (or in a folder the user picks), each with a checkbox, its version, loader and
 //! size, and a queue that imports the checked ones one after another with progress and
 //! Cancel. The work is `launcher_core::import`'s.
+//!
+//! Closing the dialog stops the queue, so while an import runs, closing (by the ×,
+//! Escape or a click on the backdrop) first asks "Stop importing?" in a small dialog
+//! over this one.
 
 use crate::skin::Skinned;
 use crate::theme::px;
@@ -26,9 +30,11 @@ use launcher_core::{
 use super::Instances;
 use crate::components::KeyboardFocus;
 use crate::{
-    components::{Button, ButtonVariant, Dialog, Icon, IconButton, LoadingDots, Toggle},
+    components::{
+        Button, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, LoadingDots, Toggle,
+    },
     file_dialog,
-    i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, format, t, tr, trn},
+    i18n::{InstancesMsg as M, InstancesPlural as P, format, t, tr, trn},
     theme::{self, colors, leading, radius, text, weights},
 };
 
@@ -116,6 +122,8 @@ pub struct ImportDialog {
     tasks: Vec<Task<()>>,
     runner: Option<Task<()>>,
     ticker: Option<Task<()>>,
+    /// "Stop importing?", over the dialog, with its own focus.
+    stop_prompt: DialogSlot<ImportDialog, FocusHandle>,
 }
 
 impl EventEmitter<ImportDismissed> for ImportDialog {}
@@ -169,6 +177,7 @@ impl ImportDialog {
             tasks: Vec::new(),
             runner: None,
             ticker: None,
+            stop_prompt: DialogSlot::new(|this: &mut ImportDialog| &mut this.stop_prompt),
         }
     }
 
@@ -467,6 +476,34 @@ impl ImportDialog {
             }
         }
         cx.notify();
+    }
+
+    /// Closing by the ×, Escape or the backdrop: at once when nothing is importing,
+    /// or after asking "Stop importing?" when something is. The question takes focus
+    /// when it is drawn, and gives it back when it closes.
+    pub fn request_close(&mut self, cx: &mut Context<Self>) {
+        if !self.is_running() {
+            return self.close(cx);
+        }
+        if !self.stop_prompt.is_open() {
+            self.stop_prompt.open(cx.focus_handle(), cx);
+        }
+    }
+
+    /// Whether "Stop importing?" is showing.
+    pub fn asking_to_stop(&self) -> bool {
+        self.stop_prompt.is_open()
+    }
+
+    /// "Keep importing": back to the dialog, with the imports still running.
+    pub fn keep_importing(&mut self, cx: &mut Context<Self>) {
+        self.stop_prompt.close(cx);
+    }
+
+    /// "Stop importing": stops the queue and closes.
+    pub fn stop_importing(&mut self, cx: &mut Context<Self>) {
+        self.stop_prompt.close(cx);
+        self.close(cx);
     }
 
     /// Stops every import (what was copied is removed) and closes.
@@ -821,11 +858,10 @@ fn progress_bar(fraction: f32) -> impl IntoElement {
 }
 
 impl Render for ImportDialog {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let to_import = self.to_import();
         let count = to_import.len();
-        let running = self.is_running();
         let selected_worlds: u64 = to_import
             .iter()
             .filter_map(|f| self.sizes.get(&f.key))
@@ -853,11 +889,11 @@ impl Render for ImportDialog {
             t(M::LeaveWorldsOut).into()
         };
         let without_worlds = self.without_worlds;
-        Dialog::new("import", t(M::ImportTitle), self.focus.clone())
+        let dialog = Dialog::new("import", t(M::ImportTitle), self.focus.clone())
             .width(px(760.))
             .on_close({
                 let entity = entity.clone();
-                move |_, cx| entity.update(cx, |this, cx| this.close(cx))
+                move |_, cx| entity.update(cx, |this, cx| this.request_close(cx))
             })
             .child(
                 div()
@@ -936,20 +972,41 @@ impl Render for ImportDialog {
                     .variant(ButtonVariant::Secondary)
                     .disabled(self.scanning)
                     .on_click(cx.listener(|this, _, _, cx| this.choose_folder(cx))),
-            )
-            .footer(
-                Button::new(
-                    "close-import",
-                    if running {
-                        t(M::StopAndClose)
-                    } else {
-                        t(CommonMsg::Close)
-                    },
-                )
-                .variant(ButtonVariant::Ghost)
-                .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
-            )
+            );
+        let stop_prompt = self.stop_prompt.render(window, |focus| {
+            Some(stop_prompt(focus.clone(), cx).into_any_element())
+        });
+        // The prompt is a second dialog over this one, so this view fills the window
+        // for both of them.
+        div()
+            .absolute()
+            .inset_0()
+            .child(dialog)
+            .children(stop_prompt)
     }
+}
+
+/// "Stop importing?": Stop importing, or Keep importing (which Escape and the
+/// backdrop also mean).
+fn stop_prompt(focus: FocusHandle, cx: &mut Context<ImportDialog>) -> Dialog {
+    let entity = cx.entity();
+    Dialog::new("import-stop", t(M::StopImportingTitle), focus)
+        .on_close(move |_, cx| entity.update(cx, |this, cx| this.keep_importing(cx)))
+        .child(
+            div()
+                .text_color(crate::theme::ink::secondary())
+                .child(t(M::StopImportingBody)),
+        )
+        .footer(
+            Button::new("import-stop-confirm", t(M::StopImporting))
+                .variant(ButtonVariant::Danger)
+                .on_click(cx.listener(|this, _, _, cx| this.stop_importing(cx))),
+        )
+        .footer(
+            Button::new("import-keep-going", t(M::KeepImporting))
+                .variant(ButtonVariant::Secondary)
+                .on_click(cx.listener(|this, _, _, cx| this.keep_importing(cx))),
+        )
 }
 
 /// The file dialog's error leaves room for the selection's summary again at the next
@@ -960,6 +1017,7 @@ mod gpui_tests {
     use gpui::TestAppContext;
 
     use super::*;
+    use crate::i18n::CommonMsg;
 
     #[test]
     fn changing_the_selection_clears_the_file_dialog_error() {
@@ -996,5 +1054,199 @@ mod gpui_tests {
         fail(&mut cx);
         dialog.update(&mut cx, |this, cx| this.start(cx));
         assert_eq!(error(&mut cx), None);
+    }
+}
+
+/// Closing while an import runs asks "Stop importing?" first.
+#[cfg(all(test, feature = "screenshot"))]
+mod stop_prompt_tests {
+    use std::{cell::Cell, path::PathBuf, rc::Rc};
+
+    use gpui::{Modifiers, TestAppContext, VisualTestContext, point};
+    use launcher_core::import::Source;
+
+    use super::*;
+    use crate::components::EXIT;
+
+    struct Opened<'a> {
+        dialog: Entity<ImportDialog>,
+        cx: &'a mut VisualTestContext,
+        dismissed: Rc<Cell<usize>>,
+    }
+
+    impl Opened<'_> {
+        fn asking(&mut self) -> bool {
+            self.dialog
+                .read_with(self.cx, |this, _| this.asking_to_stop())
+        }
+
+        fn dismissed(&self) -> usize {
+            self.dismissed.get()
+        }
+
+        fn cancelled(&mut self) -> bool {
+            self.dialog
+                .read_with(self.cx, |this, _| this.queue[0].cancel.is_cancelled())
+        }
+
+        /// Lets a closing prompt finish fading out, so it no longer takes clicks.
+        fn settle(&mut self) {
+            self.cx.executor().advance_clock(EXIT * 2);
+            self.cx.run_until_parked();
+        }
+
+        fn click_close_button(&mut self) {
+            let bounds = self.cx.debug_bounds("dialog-close").expect("the ×");
+            self.cx.simulate_click(bounds.center(), Modifiers::none());
+        }
+
+        /// A click at the window's corner: on the backdrop of the dialog on top.
+        fn click_backdrop(&mut self) {
+            self.cx
+                .simulate_click(point(px(4.), px(4.)), Modifiers::none());
+        }
+    }
+
+    /// The import dialog in a window, with one instance in its queue, importing
+    /// (`running`) or already imported.
+    fn open(running: bool, cx: &mut TestAppContext) -> Opened<'_> {
+        cx.update(crate::components::init);
+        let (dialog, cx) = cx.add_window_view(|_, cx| {
+            let accounts = crate::preview::accounts("signed-out", cx);
+            let instances = crate::preview::instances("signed-out", &accounts, cx);
+            let mut this = ImportDialog::empty(instances, cx);
+            let found = Found {
+                source: Source::Vanilla,
+                key: "Vanilla:Survival".into(),
+                name: "Survival".into(),
+                game_dir: PathBuf::from("/nonexistent/Survival"),
+                game_version: WantedVersion::LatestRelease,
+                loader: None,
+                memory: None,
+                jvm_args: None,
+                icon: None,
+                notes: Vec::new(),
+            };
+            this.queue.push(QueueItem {
+                key: found.key.clone(),
+                name: found.name.clone(),
+                state: if running {
+                    QueueState::Importing
+                } else {
+                    QueueState::Done {
+                        id: "survival".into(),
+                        notes: Vec::new(),
+                    }
+                },
+                progress: Arc::new(ImportProgress::default()),
+                cancel: CancelToken::new(),
+                found,
+                options: CopyOptions::default(),
+            });
+            this
+        });
+        let dismissed = Rc::new(Cell::new(0));
+        let count = dismissed.clone();
+        cx.update(|_, cx| {
+            cx.subscribe(&dialog, move |_, _: &ImportDismissed, _| {
+                count.set(count.get() + 1)
+            })
+            .detach()
+        });
+        cx.run_until_parked();
+        Opened {
+            dialog,
+            cx,
+            dismissed,
+        }
+    }
+
+    #[test]
+    fn closing_while_nothing_imports_is_immediate() {
+        for close in ["escape", "×", "backdrop"] {
+            let mut cx = TestAppContext::single();
+            let mut opened = open(false, &mut cx);
+            match close {
+                "escape" => opened.cx.simulate_keystrokes("escape"),
+                "×" => opened.click_close_button(),
+                _ => opened.click_backdrop(),
+            }
+            assert!(!opened.asking(), "{close}: no question");
+            assert_eq!(opened.dismissed(), 1, "{close} closes the dialog");
+        }
+    }
+
+    #[test]
+    fn closing_while_importing_asks_by_every_route() {
+        for close in ["escape", "×", "backdrop"] {
+            let mut cx = TestAppContext::single();
+            let mut opened = open(true, &mut cx);
+            match close {
+                "escape" => opened.cx.simulate_keystrokes("escape"),
+                "×" => opened.click_close_button(),
+                _ => opened.click_backdrop(),
+            }
+            assert!(opened.asking(), "{close} asks first");
+            assert_eq!(opened.dismissed(), 0, "{close}: still open");
+            assert!(!opened.cancelled(), "{close}: still importing");
+        }
+    }
+
+    #[test]
+    fn escape_or_the_backdrop_on_the_question_keeps_importing() {
+        let mut cx = TestAppContext::single();
+        let mut opened = open(true, &mut cx);
+        opened.cx.simulate_keystrokes("escape");
+        assert!(opened.asking());
+        // Escape on the question: Keep importing.
+        opened.cx.simulate_keystrokes("escape");
+        assert!(!opened.asking());
+        assert_eq!(opened.dismissed(), 0);
+        assert!(!opened.cancelled());
+        opened.settle();
+
+        // So does a click beside it.
+        opened.click_close_button();
+        assert!(opened.asking());
+        opened.click_backdrop();
+        assert!(!opened.asking());
+        assert_eq!(opened.dismissed(), 0);
+        assert!(!opened.cancelled());
+        let state = opened
+            .dialog
+            .read_with(opened.cx, |this, _| this.queue[0].state.clone());
+        assert_eq!(state, QueueState::Importing);
+    }
+
+    #[test]
+    fn keep_importing_returns_to_the_dialog() {
+        let mut cx = TestAppContext::single();
+        let mut opened = open(true, &mut cx);
+        opened.cx.simulate_keystrokes("escape");
+        assert!(opened.asking());
+        // The question took focus: past its ×, Stop importing, then Keep importing.
+        opened.cx.simulate_keystrokes("tab tab tab");
+        crate::components::focus::press_enter(opened.cx);
+        assert!(!opened.asking());
+        assert_eq!(opened.dismissed(), 0);
+        assert!(!opened.cancelled());
+        // Asked again on the next close.
+        opened.settle();
+        opened.cx.simulate_keystrokes("escape");
+        assert!(opened.asking());
+    }
+
+    #[test]
+    fn stop_importing_cancels_the_queue_and_closes() {
+        let mut cx = TestAppContext::single();
+        let mut opened = open(true, &mut cx);
+        opened.click_close_button();
+        assert!(opened.asking());
+        // Past the question's ×, to Stop importing.
+        opened.cx.simulate_keystrokes("tab tab");
+        crate::components::focus::press_enter(opened.cx);
+        assert!(!opened.asking());
+        assert!(opened.cancelled(), "the running import is cancelled");
+        assert_eq!(opened.dismissed(), 1, "and the dialog closes");
     }
 }

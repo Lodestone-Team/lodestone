@@ -118,7 +118,9 @@ impl SignInDialog {
         self.link = None;
     }
 
-    fn cancel(&mut self, cx: &mut Context<Self>) {
+    /// Back: stops the sign-in under way and goes back to the first step. (The ×,
+    /// Escape and a click on the backdrop close the dialog.)
+    fn back(&mut self, cx: &mut Context<Self>) {
         self.stop();
         self.set_stage(Stage::Choose, cx);
     }
@@ -361,10 +363,10 @@ impl Render for SignInDialog {
                     .on_click(cx.listener(|this, _, _, cx| this.start_device_code(cx)))
             }
         };
-        let cancel = |cx: &mut Context<Self>| {
-            Button::new("cancel-sign-in", t(CommonMsg::Cancel))
+        let back = |cx: &mut Context<Self>| {
+            Button::new("sign-in-back", t(CommonMsg::Back))
                 .variant(ButtonVariant::Secondary)
-                .on_click(cx.listener(|this, _, _, cx| this.cancel(cx)))
+                .on_click(cx.listener(|this, _, _, cx| this.back(cx)))
         };
 
         match &self.stage {
@@ -420,16 +422,16 @@ impl Render for SignInDialog {
                             .child(waiting(t(M::WaitingForBrowser)))
                             .child(muted(t(M::FinishInBrowser))),
                     )
-                    .footer(cancel(cx))
                     .footer(
                         Button::new("reopen-browser", t(M::OpenBrowserAgain))
                             .variant(ButtonVariant::Ghost)
                             .on_click(cx.listener(|this, _, _, cx| this.start_browser(cx))),
                     )
-                    .footer(use_code(cx));
+                    .footer(use_code(cx))
+                    .footer(back(cx));
             }
             Stage::RequestingCode => {
-                dialog = dialog.child(waiting(t(M::GettingCode))).footer(cancel(cx));
+                dialog = dialog.child(waiting(t(M::GettingCode))).footer(back(cx));
             }
             Stage::DeviceCode {
                 user_code,
@@ -479,7 +481,7 @@ impl Render for SignInDialog {
                             .icon(Icon::Copy)
                             .on_click(cx.listener(|this, _, _, cx| this.copy_code_and_open(cx))),
                     )
-                    .footer(cancel(cx));
+                    .footer(back(cx));
             }
             Stage::Link { error } => {
                 dialog = dialog
@@ -511,12 +513,12 @@ impl Render for SignInDialog {
                             .variant(ButtonVariant::Primary)
                             .on_click(cx.listener(|this, _, _, cx| this.submit_link(cx))),
                     )
-                    .footer(cancel(cx))
                     .footer(
                         Button::new("reopen-link", t(M::OpenBrowserAgain))
                             .variant(ButtonVariant::Ghost)
                             .on_click(cx.listener(|this, _, _, cx| this.reopen_link(cx))),
-                    );
+                    )
+                    .footer(back(cx));
             }
             Stage::Finishing => {
                 dialog = dialog.child(waiting(t(M::SigningInToMinecraft)));

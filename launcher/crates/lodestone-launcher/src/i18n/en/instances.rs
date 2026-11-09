@@ -102,7 +102,11 @@ crate::i18n::messages! {
         LeaveWorldsOutSize = "Leave worlds out ({size})",
         Import = "Import",
         ChooseFolder = "Choose a folder…",
-        StopAndClose = "Stop and close",
+        /// Asked when the import dialog closes while imports are running.
+        StopImportingTitle = "Stop importing?",
+        StopImportingBody = "The imports that haven't finished stop, and what they copied so far is removed. Instances already imported stay.",
+        StopImporting = "Stop importing",
+        KeepImporting = "Keep importing",
 
         // Modpacks.
         NotAModpack = "Not a modpack",
