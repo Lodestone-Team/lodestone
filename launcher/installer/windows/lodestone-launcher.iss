@@ -74,7 +74,12 @@ SetupIconFile=lodestone.ico
 UninstallDisplayIcon={app}\lodestone.ico
 UninstallDisplayName={#AppName}
 WizardStyle=modern
-Compression=lzma2/max
+; The strongest LZMA2 settings: about 1% smaller than lzma2/max for the launcher,
+; for a few more seconds of compiling. A larger dictionary gains nothing, since it
+; already holds the whole executable.
+Compression=lzma2/ultra64
+LZMANumFastBytes=273
+LZMAUseSeparateProcess=yes
 SolidCompression=yes
 
 [Tasks]
