@@ -933,3 +933,60 @@ fn curseforge_pack_manifests_are_checked() {
         cf_pack::read_curseforge_pack(&curseforge_pack(dir.path(), "liteloader-1.0", &[])).is_err()
     );
 }
+
+#[test]
+fn modrinth_pack_exports_leave_curseforge_only_files_out() {
+    use launcher_core::{export, instances::Instance};
+    let mock = CurseForgeMock::start();
+    create_and_fabric_api(&mock);
+    let cf = mock.client();
+    let dir = tempfile::tempdir().unwrap();
+    let dirs = instance(dir.path());
+    let plan = plan_install(&cf, None, &dirs, &fabric(), CREATE, 5_001).unwrap();
+    execute(&cf, None, &dirs, &fabric(), &plan).unwrap();
+    fs::write(
+        dirs.content_dir(ContentKind::Mod).join("mine.jar"),
+        fabric_jar("mine", "1"),
+    )
+    .unwrap();
+
+    let instance = Instance {
+        name: "Mixed".into(),
+        game_version: "1.20.1".into(),
+        loader: Loader::Fabric,
+        loader_version: Some("0.16.10".into()),
+        ..Instance::default()
+    };
+    let curseforge_only = export::curseforge_only_files(&dirs.instance);
+    assert_eq!(curseforge_only.len(), 2);
+    let pack = export::plan_leaving_out(
+        &instance,
+        &dirs.game,
+        &export::modrinth_files(&dirs.instance),
+        &curseforge_only,
+    )
+    .unwrap();
+    let mut left_out = pack.curseforge_left_out.clone();
+    left_out.sort();
+    assert_eq!(left_out, ["create-fabric title", "fabric-api title"]);
+    let copied: Vec<&str> = pack
+        .overrides
+        .iter()
+        .map(|(path, _)| path.as_str())
+        .collect();
+    assert_eq!(
+        copied,
+        ["overrides/mods/mine.jar"],
+        "a jar added by hand is still copied"
+    );
+
+    // A pack for the user's own server keeps everything.
+    let own = export::plan(
+        &instance,
+        &dirs.game,
+        &export::modrinth_files(&dirs.instance),
+    )
+    .unwrap();
+    assert_eq!(own.overrides.len(), 3);
+    assert!(own.curseforge_left_out.is_empty());
+}

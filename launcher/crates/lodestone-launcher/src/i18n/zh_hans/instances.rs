@@ -151,6 +151,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::FilesRepaired => ["已重新下载 {count} 个缺失或损坏的文件。{summary}"; 2],
         P::BrokenFolders => ["有 {count} 个实例文件夹无法读取，例如 {path}。"; 2],
         P::FilesSaved => ["已将 {count} 个文件保存到 {path}。"; 2],
+        P::CurseForgeLeftOut => {
+            ["有 {count} 个文件仅在 CurseForge 上，CurseForge 的文件不能放进 Modrinth 整合包，因此已跳过：{names}。";
+                2]
+        }
         P::FilesLeftOut => ["有 {count} 个文件被跳过，例如 {name}。"; 2],
         P::LinesShown => ["显示 {shown} 行，共 {count} 行"; 2],
         P::LinesShownFollowing => ["显示 {shown} 行，共 {count} 行 · 自动滚动"; 2],

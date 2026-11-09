@@ -166,6 +166,10 @@ pub fn plural(message: P) -> [&'static str; 2] {
             "{count} fichier enregistré dans {path}.",
             "{count} fichiers enregistrés dans {path}.",
         ],
+        P::CurseForgeLeftOut => [
+            "{count} fichier a été ignoré car il n’est que sur CurseForge, dont les fichiers ne peuvent pas aller dans un pack Modrinth\u{a0}: {names}.",
+            "{count} fichiers ont été ignorés car ils ne sont que sur CurseForge, dont les fichiers ne peuvent pas aller dans un pack Modrinth\u{a0}: {names}.",
+        ],
         P::FilesLeftOut => [
             "{count} fichier a été ignoré\u{a0}: {name}.",
             "{count} fichiers ont été ignorés, par exemple {name}.",

@@ -177,6 +177,11 @@ crate::i18n::messages! {
         ),
         /// An export finished.
         FilesSaved = ("{count} file saved to {path}.", "{count} files saved to {path}."),
+        /// After an export: mods from CurseForge left out of the Modrinth pack.
+        CurseForgeLeftOut = (
+            "{count} file was left out because it is only on CurseForge, whose files can't go into a Modrinth pack: {names}.",
+            "{count} files were left out because they are only on CurseForge, whose files can't go into a Modrinth pack: {names}."
+        ),
         FilesLeftOut = (
             "{count} file was left out: {name}.",
             "{count} files were left out, such as {name}."

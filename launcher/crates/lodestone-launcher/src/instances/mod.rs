@@ -773,8 +773,11 @@ impl Instances {
         let instance_dir = self.store.dir(id);
         let write = cx.background_spawn(async move {
             // Files that came from Modrinth are listed by URL; the rest are copied.
+            // Files only on CurseForge are left out rather than handed out.
             let on_modrinth = export::modrinth_files(&instance_dir);
-            let plan = export::plan(&instance, &game_dir, &on_modrinth)?;
+            let curseforge_only = export::curseforge_only_files(&instance_dir);
+            let plan =
+                export::plan_leaving_out(&instance, &game_dir, &on_modrinth, &curseforge_only)?;
             export::write(&plan, &out)?;
             Ok::<_, export::ExportError>((plan, out))
         });
@@ -788,18 +791,33 @@ impl Instances {
                             plan.overrides.len() + plan.index.files.len(),
                             path = out.display()
                         );
+                        let others = plan.skipped.len() - plan.curseforge_left_out.len();
+                        let mut message = match plan
+                            .skipped
+                            .iter()
+                            .find(|(_, why)| !why.contains("CurseForge"))
+                        {
+                            Some((first, _)) if others > 0 => tr!(
+                                M::TwoSentences,
+                                first = saved,
+                                second = trn!(P::FilesLeftOut, others, name = first)
+                            ),
+                            _ => saved,
+                        };
+                        if !plan.curseforge_left_out.is_empty() {
+                            message = tr!(
+                                M::TwoSentences,
+                                first = message,
+                                second = trn!(
+                                    P::CurseForgeLeftOut,
+                                    plan.curseforge_left_out.len(),
+                                    names = crate::i18n::format::list(&plan.curseforge_left_out)
+                                )
+                            );
+                        }
                         InstancesEvent::Notice {
                             title: t(M::ModpackExported).into(),
-                            message: match plan.skipped.first() {
-                                None => saved,
-                                Some((first, _)) => tr!(
-                                    M::TwoSentences,
-                                    first = saved,
-                                    second =
-                                        trn!(P::FilesLeftOut, plan.skipped.len(), name = first)
-                                ),
-                            }
-                            .into(),
+                            message: message.into(),
                         }
                     }
                     Err(err) => InstancesEvent::LaunchFailed {
