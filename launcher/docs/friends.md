@@ -127,7 +127,13 @@ To join, the friend's launcher **knocks** on the lookup id with
 `{id: 16 random bytes, issued, candidates}`, sealed with the core secret (role Knock).
 The service passes the knock to the core with the address it saw it from, and hands back
 the record. The core refuses a knock issued more than 10 minutes away from its own clock,
-or whose id it has seen in the last 20 minutes.
+or whose id it has seen in the last 25 minutes. The core keeps the ids it has seen for
+as long as it runs, also while its friend host stops and starts again (it stops when
+nothing is shared); they're lost when the core restarts.
+
+The core collects its addresses again every 10 minutes (STUN through its QUIC socket,
+and the router's forwarding, renewed or asked for again), and publishes its records
+again when they changed: after a move to another network, say.
 
 Presence: `HEAD` on a lookup id says whether that core is publishing for you now. The
 launcher checks every 5 minutes while the friend list is open, and never in the
@@ -135,15 +141,23 @@ background. Owners can hide from chosen friends, which stops their records.
 
 ## Joining
 
-1. The core probes towards the knock's addresses: at most 8, one spray per friend at a
-   time, and at most 8 sprays at once. The probe tag is derived per knock:
-   `HKDF(core secret, "probe", knock id)[..8]`.
+1. The core probes towards the knock's addresses: at most 8, and only addresses someone
+   else can be at (not loopback, unspecified, broadcast, multicast, link-local,
+   documentation or reserved ranges; local network addresses stay, for friends on the
+   same network). A friend's 2 latest knocks each get a spray (so two joins at once
+   don't cancel each other), and there are at most 8 sprays at once. The probe tag is
+   derived per knock: `HKDF(core secret, "probe", knock id)[..8]`.
 2. The core answers QUIC only from IP addresses in a knock it accepted in the last 2
    minutes (its candidates; the address the service says it saw isn't used, since the
-   service could name any), after the usual QUIC retry. Each friend's latest knock
-   replaces their addresses, and knock ids are remembered per friend, so one friend can't
-   crowd out another; each friend may hold at most 4 connections. A
-   removed or hidden friend who remembers the core's address gets no answer.
+   service could name any), after the usual QUIC retry, and from addresses on a
+   connection now. Everyone else's datagrams never reach QUIC, so they get no answer
+   at all: not a handshake, a version negotiation or a stateless reset. A friend's
+   addresses are those of their 2 latest knocks, and knock ids are remembered per
+   friend, so one friend can't crowd out another. Each friend may hold at most 4
+   connections, counting those still in their handshake or hello from an address
+   their knock named (anyone at that address can start one), and a connection has 10
+   seconds for its handshake and hello. A removed or hidden friend who remembers the
+   core's address gets no answer.
 3. The friend opens QUIC, accepting only the core certificate in Ana's current state.
 4. **Friend hello** must be the first stream: kind `3`, the friend's public key, and a
    signature over `("friend hello", exporter, core fingerprint, friend key)`, where
@@ -153,7 +167,8 @@ background. Owners can hide from chosen friends, which stops their records.
    state lives on the connection: there's no token. No 0-RTT.
 5. Later streams start with one byte: `4` friend info (HTTP), or `5` game, followed by a
    length byte and the instance uuid. Kinds `0`–`2` (invite streams) are refused here,
-   and the invite hosts refuse `3`–`5`.
+   and the invite hosts refuse `3`–`5`. A stream has 10 seconds for its whole header,
+   and the core reads at most 8 headers of a connection at once.
 6. The core checks on every stream that the friend is still on its list and the instance
    is still shared with them. Removing a friend or unsharing an instance with them
    closes their connection.
@@ -277,11 +292,12 @@ A core registers one **session** with all its records, and waits on one WebSocke
 | The service, or a later leak of a link, reveals pair secrets | The pair secret comes from an X25519 exchange whose keys are deleted after pairing. |
 | Someone uses the link before Ben | The mailbox takes up to 4 replies and Ana sees them all; comparing safety codes catches the rest. Whoever serves the link page could also see the link. |
 | A card or state is replayed elsewhere | Cards sign the link's hash; states sign the receiver's key; seals bind role and context. |
-| A knock is replayed | Refused when more than 10 minutes from the core's clock, or once seen (ids are remembered for 25 minutes, longer than the window, but only while the core runs: just after a restart a replay can open the knocker's addresses for 2 minutes, and the hello still needs the friend's key). Records carry their issue time. |
+| A knock is replayed | Refused when more than 10 minutes from the core's clock, or once seen (ids are remembered for 25 minutes, longer than the window, also while the friend host stops and starts, but only while the core runs: just after a core restart a replay can open the knocker's addresses for 2 minutes, and the hello still needs the friend's key). Records carry their issue time. |
 | A stolen core | Its owner retires it in a new state; friends drop it and clear mod trust. It never held pair secrets. |
 | A stolen launcher key | A final retired state, signed with it, tells friends to drop it. |
-| A removed friend keeps trying | Their records stop, cores that got the new list refuse their key and forget their knocks, and cores don't answer QUIC without an accepted knock. Someone sharing an address with a friend who knocked does get a handshake, but not past the hello. |
-| A friend floods a core | One spray, one set of allowed addresses, 256 remembered knocks and 4 connections per friend; the service rate-limits per address. |
+| A removed friend keeps trying | Their records stop, cores that got the new list refuse their key and forget their knocks, and cores don't answer anything without an accepted knock, not even QUIC's version negotiation or stateless resets. Someone sharing an address with a friend who knocked does get a handshake, but not past the hello. |
+| Someone scans for cores | Nothing comes back from a core's friend port without an accepted knock: its datagrams never reach QUIC. |
+| A friend floods a core | Per friend: 2 sprays and 2 knocks' addresses, 256 remembered knocks, 4 connections (counting those still in their handshake). Per connection: 10 seconds to say hello and for each stream's header, 8 headers read at once. The core probes only addresses someone else can be at, and takes at most 64 KiB and 16 knocks a message from the service. The service rate-limits per address. |
 | The Launcher and the Host change the friend file at once | Every change reloads the file under a lock first; state numbers never go back. |
 | Name tricks | Names are cleaned and shown beside local nicknames; duplicates are flagged. |
 
@@ -291,8 +307,9 @@ A core registers one **session** with all its records, and waits on one WebSocke
 - **Who meets whom.** The service sees which addresses register and knock on which
   lookup ids. A core's ids all sit in one session, so they're linked across periods by
   that session and its address, and presence checks link a friend's address to a core.
-  Our Worker logs none of this (invocation logs are off), but Cloudflare's platform sees
-  request metadata.
+  Slots link people too: when one address writes slot X and another reads it, the
+  service can guess those two are friends, though not who they are. Our Worker logs none
+  of this (invocation logs are off), but Cloudflare's platform sees request metadata.
 - **Who served the page.** A friend link opened in a browser runs the service's page,
   which could read it. Compare safety codes, or paste links straight into the launcher.
 - **Clocks.** A core or launcher whose clock is more than 10 minutes off can't meet its
@@ -307,12 +324,18 @@ A core registers one **session** with all its records, and waits on one WebSocke
   friend, but only after an accepted knock, and the launcher shows it's pending.
 - **A friend who turns bad** can join what you shared with them and sees your address.
 - **Networks that can't punch through** still fail (`NoPath`).
+- **A friend whose connection comes from an address not in their knock** gets no
+  answer: the core lets in only the addresses the knock named. Some carrier-grade NATs
+  give each destination another public address, and an IPv6 temporary address can
+  change between the knock and the connection. The join fails as if no path was found.
 
 ## Code
 
 - `crates/lodestone-connect/src/friend/`: `crypto` (keys, derivation, sealing, lookups,
   X25519), `pair` (links, cards, replies), `state` (states and slots), `meet` (records,
-  knocks), `host` (the core's friend host) and `join` (joining a friend's core). The
+  knocks), `host` (the core's friend host), `gate` (its socket, which passes QUIC only
+  the datagrams of addresses that may reach the core) and `join` (joining a friend's
+  core). The
   service client's v2 calls are in `service.rs`.
 - `services/connect`: the v2 routes.
 - `core/src/connect/friends.rs`: the core certificate, the friend list, the friend host
@@ -355,6 +378,17 @@ edge, missing invisible characters and look-alikes in names, secrets in `Debug` 
 friend links to any host over plain HTTP (now only the configured service), a record cap
 mismatch, cross-site use of unauthenticated reads, forwarded requests counted as
 loopback, and a missing "retire my identity". All are fixed or described above.
+
+A third review, of the code as merged, found: anyone at an address a friend's knock
+named could hold every place for connections that hadn't said hello (now counted per
+friend, with 10 seconds to say it); quinn answered strangers with version negotiations
+and stateless resets (their datagrams no longer reach it); published addresses were
+never collected again (now every 10 minutes); two joins at once from one friend
+cancelled each other (now 2 knocks per friend); a check-then-insert race on the
+per-friend limit; knock memory lost when the friend host restarted (now kept while the
+core runs); unbounded WebSocket messages from the service; a game header with no
+deadline after its first byte; and sprays towards loopback, broadcast and similar
+addresses. All are fixed, or described above.
 
 What the first review changed:
 
