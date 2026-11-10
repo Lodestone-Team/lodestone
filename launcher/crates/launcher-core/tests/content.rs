@@ -793,6 +793,57 @@ fn the_rate_limit_fails_fast() {
 }
 
 #[test]
+fn page_images_load_from_github_and_imgur_only() {
+    let mock = ModrinthMock::start();
+    let api = mock.client();
+    mock.serve("https://i.imgur.com/AbC123.png", b"imgur image");
+    mock.serve(
+        "https://raw.githubusercontent.com/o/r/main/shot.png",
+        b"github image",
+    );
+    assert_eq!(
+        block_on(api.image("https://imgur.com/AbC123.png")).unwrap(),
+        b"imgur image"
+    );
+    assert_eq!(
+        block_on(api.image("https://github.com/o/r/blob/main/shot.png?raw=true")).unwrap(),
+        b"github image"
+    );
+
+    // An attachment redirects to a signed URL on GitHub's image host.
+    mock.serve(
+        "https://private-user-images.githubusercontent.com/1/signed.png",
+        b"attachment",
+    );
+    mock.state().next_status = Some((
+        302,
+        vec![(
+            "Location".into(),
+            "https://private-user-images.githubusercontent.com/1/signed.png?jwt=x".into(),
+        )],
+    ));
+    assert_eq!(
+        block_on(api.image("https://github.com/user-attachments/assets/1234")).unwrap(),
+        b"attachment"
+    );
+
+    // Not to anywhere else.
+    mock.state().next_status = Some((
+        302,
+        vec![("Location".into(), "https://evil.example/track.gif".into())],
+    ));
+    assert!(block_on(api.image("https://i.imgur.com/AbC123.png")).is_err());
+    let before = mock.requests().len();
+    assert!(block_on(api.image("https://evil.example/track.gif")).is_err());
+    assert!(block_on(api.image("https://img.shields.io/badge/x.svg")).is_err());
+    assert_eq!(
+        mock.requests().len(),
+        before,
+        "nothing is sent for other hosts"
+    );
+}
+
+#[test]
 fn searches_send_client_facets_and_are_cached() {
     let mock = ModrinthMock::start();
     fabric_mods(&mock);

@@ -26,8 +26,9 @@ use crate::{
 
 /// At most this many blocks are drawn; long descriptions end with a note.
 pub const MAX_BLOCKS: usize = 400;
-/// Images are drawn at most this wide and high.
-const MAX_IMAGE_WIDTH: f32 = 640.;
+/// Images are drawn at most this wide (unless [`render_sized`] is given less room) and
+/// high.
+pub const MAX_IMAGE_WIDTH: f32 = 640.;
 const MAX_IMAGE_HEIGHT: f32 = 320.;
 
 /// The image URLs a description would draw, in order.
@@ -58,6 +59,7 @@ pub fn image_urls(blocks: &[Block]) -> Vec<String> {
 
 struct Renderer<'a> {
     images: &'a HashMap<String, Arc<RenderImage>>,
+    max_image_width: f32,
     next_id: usize,
     prefix: SharedString,
 }
@@ -154,7 +156,9 @@ impl Renderer<'_> {
     fn image(&mut self, image: &Arc<RenderImage>, link: Option<&String>) -> AnyElement {
         let size = image.size(0);
         let (w, h) = (size.width.0.max(1) as f32, size.height.0.max(1) as f32);
-        let scale = (MAX_IMAGE_WIDTH / w).min(MAX_IMAGE_HEIGHT / h).min(1.0);
+        let scale = (self.max_image_width / w)
+            .min(MAX_IMAGE_HEIGHT / h)
+            .min(1.0);
         let element = img(image.clone())
             .w(px(w * scale))
             .h(px(h * scale))
@@ -336,9 +340,21 @@ pub fn render(
     images: &HashMap<String, Arc<RenderImage>>,
     rest: impl Into<SharedString>,
 ) -> AnyElement {
+    render_sized(id, blocks, images, rest, MAX_IMAGE_WIDTH)
+}
+
+/// [`render`] with images at most `max_image_width` wide, for a narrow column.
+pub fn render_sized(
+    id: impl Into<SharedString>,
+    blocks: &[Block],
+    images: &HashMap<String, Arc<RenderImage>>,
+    rest: impl Into<SharedString>,
+    max_image_width: f32,
+) -> AnyElement {
     let rest: SharedString = rest.into();
     let mut renderer = Renderer {
         images,
+        max_image_width: max_image_width.clamp(80., MAX_IMAGE_WIDTH),
         next_id: 0,
         prefix: id.into(),
     };

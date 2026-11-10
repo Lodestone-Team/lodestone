@@ -76,6 +76,7 @@ pub fn window_height(scene: &str) -> Option<f32> {
         "content-mods" => Some(1100.),
         // The installed mods, then Modrinth's results to browse (and its filters).
         "content-browse-idle" => Some(1500.),
+        "content-description" | "content-gallery" | "content-cf-project" => Some(1400.),
         "content-filters" | "content-filters-packs" | "content-filters-shaders" => Some(1700.),
         // Down to "Other cores", under the friends sections.
         "servers-local" => Some(2500.),

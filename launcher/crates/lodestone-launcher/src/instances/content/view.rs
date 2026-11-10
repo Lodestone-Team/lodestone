@@ -27,7 +27,7 @@ use lodestone_minecraft::modrinth::{
 };
 
 use super::filters::{self, Filters};
-use super::{ContentView, Load, PAGE_SIZE, ProjectTab};
+use super::{ContentView, Load, PAGE_SIZE, ProjectTab, RemoteIcon};
 use crate::components::{
     KeyboardFocus,
     a11y::{Accessible, Role, Toggled},
@@ -68,6 +68,26 @@ fn loader_name(loader: Loader) -> &'static str {
     match loader {
         Loader::None => t(M::Vanilla),
         other => other.label(),
+    }
+}
+
+/// The project panel's padding (and border), which gallery images fit inside.
+const PANEL_PADDING: f32 = 36.;
+/// The panel's padding and the description box's, which a description's images fit
+/// inside.
+const PANEL_INSET: f32 = 72.;
+/// How long the project panel takes to slide out or shut.
+const PANEL_SLIDE: std::time::Duration = std::time::Duration::from_millis(220);
+/// Below this window width a project's page takes the whole area instead of a panel
+/// beside the list.
+const PANEL_MIN_WINDOW: f32 = 1100.;
+
+/// The project type in a Modrinth page's URL for `kind`.
+pub fn page_type(kind: ContentKind) -> &'static str {
+    match kind {
+        ContentKind::Mod => "mod",
+        ContentKind::ResourcePack => "resourcepack",
+        ContentKind::ShaderPack => "shader",
     }
 }
 
@@ -745,26 +765,16 @@ impl ContentView {
         };
         // The "Older version" or "Newer version" tag says the rest.
         let warning = item.file.meta.problem.clone();
+        // Whether the row can open a page: in the panel, or the browser.
         let page = item
             .modrinth
             .as_ref()
-            .filter(|m| !m.slug.is_empty())
-            .map(|m| {
-                modrinth_page(
-                    match kind {
-                        ContentKind::Mod => "mod",
-                        ContentKind::ResourcePack => "resourcepack",
-                        ContentKind::ShaderPack => "shader",
-                    },
-                    &m.slug,
-                )
-            })
-            .or_else(|| {
-                item.curseforge
-                    .as_ref()
-                    .map(|c| c.page_url.clone())
-                    .filter(|p| !p.is_empty())
-            });
+            .is_some_and(|m| !m.project_id.is_empty())
+            || item
+                .curseforge
+                .as_ref()
+                .is_some_and(|c| c.project_id != 0 || !c.page_url.is_empty());
+        let page_open = self.is_open_page(kind, item);
         let enabled = item.enabled;
         let compatibility = item.compatibility;
         let id_base = kind as usize * 100_000 + index;
@@ -777,92 +787,123 @@ impl ContentView {
             )
             .aria_description(detail.clone())
             .when(inner, |this| this.bg(colors::TRANSPARENT).pl_3())
-            .child(icon_box(icon, 36.))
+            .when(page_open, |this| {
+                this.bg(crate::theme::accent::base().opacity(18))
+            })
             .child(
+                // The icon and name open the page beside the list (not on a shader row,
+                // whose click selects the pack).
                 div()
+                    .id(("content-open", id_base))
                     .flex()
-                    .flex_col()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
                     .flex_1()
                     .min_w_0()
+                    .when(page && !inner, |this| {
+                        let name = name.clone();
+                        this.cursor_pointer().on_click(
+                            cx.listener(move |this, _, _, cx| this.open_item_page(kind, &name, cx)),
+                        )
+                    })
+                    .child(icon_box(icon, 36.))
                     .child(
                         div()
                             .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
+                            .flex_col()
+                            .flex_1()
                             .min_w_0()
                             .child(
                                 div()
-                                    .truncate()
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(if enabled || kind == ContentKind::ShaderPack {
-                                        colors::GRAY_300
-                                    } else {
-                                        colors::WHITE.opacity(50)
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_2()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .font_weight(weights::BOLD.into())
+                                            .text_color(
+                                                if enabled || kind == ContentKind::ShaderPack {
+                                                    colors::GRAY_300
+                                                } else {
+                                                    colors::WHITE.opacity(50)
+                                                },
+                                            )
+                                            .child(RichText::minecraft(title)),
+                                    )
+                                    .when_some(version, |this, version| {
+                                        this.child(
+                                            small_rich(RichText::minecraft(version))
+                                                .flex_none()
+                                                .text_color(colors::WHITE.opacity(50)),
+                                        )
                                     })
-                                    .child(RichText::minecraft(title)),
-                            )
-                            .when_some(version, |this, version| {
-                                this.child(
-                                    small_rich(RichText::minecraft(version))
-                                        .flex_none()
-                                        .text_color(colors::WHITE.opacity(50)),
-                                )
-                            })
-                            .when(
-                                kind == ContentKind::ResourcePack
-                                    && compatibility == Compatibility::Compatible,
-                                |this| this.child(badge(t(M::Compatible), colors::GREEN_300)),
-                            )
-                            .when(item.compatibility.warning().is_some(), |this| {
-                                this.child(badge(
-                                    if compatibility == Compatibility::TooOld {
-                                        t(M::OlderVersion)
-                                    } else {
-                                        t(M::NewerVersion)
-                                    },
-                                    colors::YELLOW_300,
-                                ))
-                            })
-                            .when(
-                                item.modrinth.is_none() && item.curseforge.is_some(),
-                                |this| this.child(badge(t(M::CurseForgeTab), colors::YELLOW_300)),
-                            )
-                            .when(!item.identified() && !item.file.is_dir, |this| {
-                                this.child(badge(
-                                    t(if curseforge_on {
-                                        M::NotOnEitherPlatform
-                                    } else {
-                                        M::NotOnModrinth
+                                    .when(
+                                        kind == ContentKind::ResourcePack
+                                            && compatibility == Compatibility::Compatible,
+                                        |this| {
+                                            this.child(badge(t(M::Compatible), colors::GREEN_300))
+                                        },
+                                    )
+                                    .when(item.compatibility.warning().is_some(), |this| {
+                                        this.child(badge(
+                                            if compatibility == Compatibility::TooOld {
+                                                t(M::OlderVersion)
+                                            } else {
+                                                t(M::NewerVersion)
+                                            },
+                                            colors::YELLOW_300,
+                                        ))
+                                    })
+                                    .when(
+                                        item.modrinth.is_none() && item.curseforge.is_some(),
+                                        |this| {
+                                            this.child(badge(
+                                                t(M::CurseForgeTab),
+                                                colors::YELLOW_300,
+                                            ))
+                                        },
+                                    )
+                                    .when(!item.identified() && !item.file.is_dir, |this| {
+                                        this.child(badge(
+                                            t(if curseforge_on {
+                                                M::NotOnEitherPlatform
+                                            } else {
+                                                M::NotOnModrinth
+                                            }),
+                                            colors::GRAY_500,
+                                        ))
                                     }),
-                                    colors::GRAY_500,
-                                ))
-                            }),
-                    )
-                    .child(
-                        small_rich(RichText::minecraft(detail))
-                            .truncate()
-                            .text_color(colors::WHITE.opacity(30)),
-                    )
-                    .when_some(
-                        item.file
-                            .meta
-                            .description
-                            .clone()
-                            .filter(|_| kind == ContentKind::ResourcePack),
-                        |this, description| {
-                            this.child(
-                                small_rich(RichText::minecraft(description))
-                                    .truncate()
-                                    .text_color(crate::theme::ink::secondary()),
                             )
-                        },
-                    )
-                    .when_some(warning, |this, warning| {
-                        this.child(
-                            small_rich(RichText::new(warning)).text_color(colors::YELLOW_300),
-                        )
-                    }),
+                            .child(
+                                small_rich(RichText::minecraft(detail))
+                                    .truncate()
+                                    .text_color(colors::WHITE.opacity(30)),
+                            )
+                            .when_some(
+                                item.file
+                                    .meta
+                                    .description
+                                    .clone()
+                                    .filter(|_| kind == ContentKind::ResourcePack),
+                                |this, description| {
+                                    this.child(
+                                        small_rich(RichText::minecraft(description))
+                                            .truncate()
+                                            .text_color(crate::theme::ink::secondary()),
+                                    )
+                                },
+                            )
+                            .when_some(warning, |this, warning| {
+                                this.child(
+                                    small_rich(RichText::new(warning))
+                                        .text_color(colors::YELLOW_300),
+                                )
+                            }),
+                    ),
             )
             .child(
                 div()
@@ -928,17 +969,16 @@ impl ContentView {
                                 })),
                         )
                     })
-                    .when_some(page, |this, page| {
+                    .when(page, |this| {
+                        let name = name.clone();
                         this.child(
-                            IconButton::new(
-                                ("modrinth-page", id_base),
-                                Icon::ArrowUpRightFromSquare,
-                            )
-                            .label(format!("{} {row_name}", t(CommonMsg::Open)))
-                            .on_click(move |_, _, cx| {
-                                cx.stop_propagation();
-                                cx.open_url(&page)
-                            }),
+                            IconButton::new(("modrinth-page", id_base), Icon::CircleInfo)
+                                .label(tr!(M::ShowPageOf, name = row_name.clone()))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    // Not also the shader row's click, which selects it.
+                                    cx.stop_propagation();
+                                    this.open_item_page(kind, &name, cx)
+                                })),
                         )
                     })
                     .when(kind != ContentKind::ShaderPack, |this| {
@@ -2108,6 +2148,13 @@ impl ContentView {
         let resolving = self.section(kind).resolving.contains(&hit.project_id);
         let busy = self.locked(cx) || self.job.is_some();
         let client_badge = kind == ContentKind::Mod && hit.client_side == "optional";
+        let open = self
+            .section(kind)
+            .browse
+            .project
+            .as_ref()
+            .is_some_and(|p| p.project_id == hit.project_id)
+            && self.panel_closing != Some(kind);
         row_base(("hit", index), first)
             .accessible(
                 Role::ListItem,
@@ -2115,9 +2162,13 @@ impl ContentView {
                 hit.title.clone(),
             )
             .aria_description(hit.description.clone())
+            .aria_selected(open)
             .keyboard_focus()
             .cursor_pointer()
             .hover(|style| style.bg(colors::GRAY_750))
+            .when(open, |this| {
+                this.bg(crate::theme::accent::base().opacity(18))
+            })
             .on_press(
                 cx.listener(move |this, _, _, cx| this.open_project(kind, id.clone(), None, cx)),
             )
@@ -2177,6 +2228,176 @@ impl ContentView {
             .into_any_element()
     }
 
+    /// How wide a page's images may be: the panel's room, or the renderer's own limit
+    /// on a full page.
+    pub(super) fn page_image_width(&self) -> f32 {
+        self.panel_width
+            .map_or(crate::markdown::MAX_IMAGE_WIDTH, |w| w - PANEL_INSET)
+    }
+
+    /// The bar above a project's page: Back to the list and the platform's link on a
+    /// full page; the link and Close in the panel beside the list. `open` is the link's
+    /// id, label and URL.
+    pub(super) fn page_bar(
+        &self,
+        kind: ContentKind,
+        close_id: &'static str,
+        open: Option<(&'static str, SharedString, String)>,
+        close: fn(&mut Self, ContentKind, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let side = self.panel_width.is_some();
+        let close_button = if side {
+            IconButton::new((close_id, kind as usize), Icon::Xmark)
+                .label(t(M::ClosePage))
+                .on_click(cx.listener(move |this, _, _, cx| close(this, kind, cx)))
+                .into_any_element()
+        } else {
+            Button::new((close_id, kind as usize), t(CommonMsg::Back))
+                .variant(ButtonVariant::Ghost)
+                .icon(Icon::ArrowLeft)
+                .size(ButtonSize::Slim)
+                .on_click(cx.listener(move |this, _, _, cx| close(this, kind, cx)))
+                .into_any_element()
+        };
+        let open_button = open.map(|(id, label, url)| {
+            Button::new((id, kind as usize), label)
+                .variant(ButtonVariant::Secondary)
+                .icon(Icon::ArrowUpRightFromSquare)
+                .size(ButtonSize::Slim)
+                .on_click(move |_, _, cx| cx.open_url(&url))
+        });
+        let row = div().flex().flex_row().items_center().gap_2();
+        if side {
+            row.children(open_button)
+                .child(div().flex_1())
+                .child(close_button)
+        } else {
+            row.child(close_button)
+                .child(div().flex_1())
+                .children(open_button)
+        }
+    }
+
+    /// The tabs of a project's page; `set` switches to one.
+    pub(super) fn page_tabs(
+        &self,
+        kind: ContentKind,
+        id: &'static str,
+        tabs: &[(ProjectTab, SharedString)],
+        current: ProjectTab,
+        set: fn(&mut Self, ContentKind, ProjectTab, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let entity = cx.entity();
+        let order: Vec<ProjectTab> = tabs.iter().map(|(tab, _)| *tab).collect();
+        let selected = order.iter().position(|tab| *tab == current).unwrap_or(0);
+        div()
+            .flex()
+            .child(pills(
+                id,
+                tabs.iter().map(|(_, label)| label.clone()).collect(),
+                selected,
+                move |index, _, cx| {
+                    if let Some(tab) = order.get(index).copied() {
+                        entity.update(cx, |this, cx| set(this, kind, tab, cx));
+                    }
+                },
+            ))
+            .into_any_element()
+    }
+
+    /// A description in its box, with its images (fetched the first time).
+    pub(super) fn description_box(
+        &mut self,
+        id: String,
+        blocks: &[launcher_core::markdown::Block],
+        rest: SharedString,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let urls = crate::markdown::image_urls(blocks);
+        let images = self.description_images(&urls, cx);
+        let width = self.page_image_width();
+        div()
+            .p_4()
+            .rounded(radius::LG)
+            .border_1()
+            .border_color(crate::theme::ink::border())
+            .bg(colors::GRAY_850)
+            .child(crate::markdown::render_sized(
+                id, blocks, &images, rest, width,
+            ))
+            .into_any_element()
+    }
+
+    /// A project's gallery: each image (by URL, with its title) as wide as there is room
+    /// for, opening in the browser on a click. Images that can't be loaded are left out.
+    pub(super) fn render_gallery(
+        &mut self,
+        id: String,
+        images: Vec<(String, Option<String>)>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let urls: Vec<String> = images.iter().map(|(url, _)| url.clone()).collect();
+        let loaded = self.description_images(&urls, cx);
+        // Not in a box: as wide as the panel's inside.
+        let width = self
+            .panel_width
+            .map_or(crate::markdown::MAX_IMAGE_WIDTH, |w| w - PANEL_PADDING);
+        let id: SharedString = id.into();
+        let mut column = div().flex().flex_col().gap_4();
+        for (index, (url, title)) in images.into_iter().enumerate() {
+            if matches!(self.description_images.get(&url), Some(RemoteIcon::Failed)) {
+                continue;
+            }
+            let picture = match loaded.get(&url) {
+                Some(image) => {
+                    let size = image.size(0);
+                    let (w, h) = (size.width.0.max(1) as f32, size.height.0.max(1) as f32);
+                    let scale = (width / w).min(1.0);
+                    img(image.clone())
+                        .w(px(w * scale))
+                        .h(px(h * scale))
+                        .rounded(radius::MD)
+                        .object_fit(ObjectFit::Contain)
+                        .into_any_element()
+                }
+                None => div()
+                    .w(px(width))
+                    .h(px(width * 9. / 16.))
+                    .rounded(radius::MD)
+                    .bg(colors::GRAY_850)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_color(crate::theme::ink::muted())
+                    .child(LoadingDots)
+                    .into_any_element(),
+            };
+            let title = title.filter(|t| !t.trim().is_empty());
+            let label: SharedString = title
+                .clone()
+                .unwrap_or_else(|| format!("{} {}", t(M::Gallery), index + 1))
+                .into();
+            column = column.child(
+                div()
+                    .id((id.clone(), index))
+                    .accessible(Role::Link, format!("{id}-{index}"), label)
+                    .keyboard_focus()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .cursor_pointer()
+                    .on_press(move |_, _, cx| cx.open_url(&url))
+                    .child(picture)
+                    .when_some(title, |this, title| {
+                        this.child(small(title).text_color(crate::theme::ink::secondary()))
+                    }),
+            );
+        }
+        column.into_any_element()
+    }
+
     fn render_project(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
         let Some(view) = self.section(kind).browse.project.as_ref() else {
             return div().into_any_element();
@@ -2188,11 +2409,7 @@ impl ContentView {
         let with_dependencies = view.with_dependencies;
         let confirm_force = view.confirm_force.clone();
         let linked = view.linked_version.clone();
-        let back = Button::new(("back", kind as usize), t(CommonMsg::Back))
-            .variant(ButtonVariant::Ghost)
-            .icon(Icon::ArrowLeft)
-            .size(ButtonSize::Slim)
-            .on_click(cx.listener(move |this, _, _, cx| this.close_project(kind, cx)));
+        let back = self.page_bar(kind, "back", None, Self::close_project, cx);
         let project = match project {
             Load::Ready(project) => project,
             Load::Failed(err) => {
@@ -2200,7 +2417,7 @@ impl ContentView {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(div().flex().child(back))
+                    .child(back)
                     .child(small(err).text_color(colors::RED_200))
                     .into_any_element();
             }
@@ -2209,7 +2426,7 @@ impl ContentView {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(div().flex().child(back))
+                    .child(back)
                     .child(
                         div()
                             .flex()
@@ -2227,118 +2444,126 @@ impl ContentView {
             .as_deref()
             .and_then(|url| self.remote_icon(url, cx));
         let page = modrinth_page(&project.project_type, &project.slug);
+        let bar = self.page_bar(
+            kind,
+            "back",
+            Some(("open-modrinth", t(M::ViewOnModrinth).into(), page)),
+            Self::close_project,
+            cx,
+        );
+        let icon_size = if self.panel_width.is_some() { 56. } else { 72. };
         let mut column =
-            div()
-                .flex()
-                .flex_col()
-                .gap_4()
-                .child(div().flex().child(back))
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_start()
-                        .gap_4()
-                        .child(icon_box(icon, 72.))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .flex_1()
-                                .min_w_0()
-                                .gap_1()
-                                .child(
-                                    div()
-                                        .font_family(fonts::display())
-                                        .text_size(theme::text_size(text::H2))
-                                        .font_weight(weights::BOLD.into())
-                                        .text_color(crate::theme::ink::text())
-                                        .child(project.title.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(crate::theme::ink::secondary())
-                                        .whitespace_normal()
-                                        .child(RichText::minecraft(project.description.clone())),
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .flex_wrap()
-                                        .items_center()
-                                        .gap_2()
-                                        .child(
-                                            small(format!(
-                                                "{} · {}",
-                                                counted(
-                                                    project.downloads,
-                                                    P::Downloads,
-                                                    M::DownloadsCompact
-                                                ),
-                                                counted(
-                                                    project.followers,
-                                                    P::Followers,
-                                                    M::FollowersCompact
-                                                )
-                                            ))
-                                            .text_color(crate::theme::ink::muted()),
-                                        )
-                                        .children(project.categories.iter().take(6).map(|c| {
+            div().flex().flex_col().gap_4().child(bar).child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .gap_4()
+                    .child(icon_box(icon, icon_size))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .font_family(fonts::display())
+                                    .text_size(theme::text_size(text::H2))
+                                    .font_weight(weights::BOLD.into())
+                                    .text_color(crate::theme::ink::text())
+                                    .whitespace_normal()
+                                    .child(project.title.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_color(crate::theme::ink::secondary())
+                                    .whitespace_normal()
+                                    .child(RichText::minecraft(project.description.clone())),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .flex_wrap()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        small(format!(
+                                            "{} · {}",
+                                            counted(
+                                                project.downloads,
+                                                P::Downloads,
+                                                M::DownloadsCompact
+                                            ),
+                                            counted(
+                                                project.followers,
+                                                P::Followers,
+                                                M::FollowersCompact
+                                            )
+                                        ))
+                                        .text_color(crate::theme::ink::muted()),
+                                    )
+                                    .children(
+                                        project.categories.iter().take(6).map(|c| {
                                             badge(c.clone(), crate::theme::accent::light())
-                                        })),
-                                ),
-                        )
-                        .child(
-                            Button::new(("open-modrinth", kind as usize), t(M::ViewOnModrinth))
-                                .variant(ButtonVariant::Secondary)
-                                .icon(Icon::ArrowUpRightFromSquare)
-                                .size(ButtonSize::Slim)
-                                .on_click(move |_, _, cx| cx.open_url(&page)),
-                        ),
-                );
+                                        }),
+                                    ),
+                            ),
+                    ),
+            );
         if kind == ContentKind::ShaderPack && self.shaders.loader.is_none() {
             column = column.child(self.render_shader_mod(cx));
         }
         let has_body = !project.body.trim().is_empty();
+        let mut gallery = project.gallery.clone();
+        gallery.sort_by_key(|image| !image.featured);
+        let mut tabs: Vec<(ProjectTab, SharedString)> = Vec::new();
         if has_body {
-            let entity = cx.entity();
-            column = column.child(div().flex().child(pills(
-                "project-tabs",
-                vec![t(M::Versions).into(), t(M::Description).into()],
-                match tab {
-                    ProjectTab::Versions => 0,
-                    ProjectTab::Description => 1,
-                },
-                move |index, _, cx| {
-                    let tab = if index == 0 {
-                        ProjectTab::Versions
-                    } else {
-                        ProjectTab::Description
-                    };
-                    entity.update(cx, |this, cx| this.set_project_tab(kind, tab, cx));
-                },
-            )));
+            tabs.push((ProjectTab::Description, t(M::Description).into()));
         }
-        if has_body && tab == ProjectTab::Description {
-            let blocks = self.description(&project);
-            let urls = crate::markdown::image_urls(&blocks);
-            let images = self.description_images(&urls, cx);
-            return column
-                .child(
-                    div()
-                        .p_4()
-                        .rounded(radius::LG)
-                        .border_1()
-                        .border_color(crate::theme::ink::border())
-                        .bg(colors::GRAY_850)
-                        .child(crate::markdown::render(
-                            format!("description-{}", project.id),
-                            &blocks,
-                            &images,
-                        )),
-                )
-                .into_any_element();
+        if !gallery.is_empty() {
+            tabs.push((ProjectTab::Gallery, t(M::Gallery).into()));
+        }
+        tabs.push((ProjectTab::Versions, t(M::Versions).into()));
+        let tab = if tabs.iter().any(|(t, _)| *t == tab) {
+            tab
+        } else {
+            ProjectTab::Versions
+        };
+        if tabs.len() > 1 {
+            column = column.child(self.page_tabs(
+                kind,
+                "project-tabs",
+                &tabs,
+                tab,
+                Self::set_project_tab,
+                cx,
+            ));
+        }
+        match tab {
+            ProjectTab::Description => {
+                let blocks = self.description(&project);
+                return column
+                    .child(self.description_box(
+                        format!("description-{}", project.id),
+                        &blocks,
+                        t(crate::i18n::ShellMsg::RestOnModrinth).into(),
+                        cx,
+                    ))
+                    .into_any_element();
+            }
+            ProjectTab::Gallery => {
+                let images = gallery
+                    .into_iter()
+                    .map(|image| (image.url, image.title))
+                    .collect();
+                return column
+                    .child(self.render_gallery(format!("gallery-{}", project.id), images, cx))
+                    .into_any_element();
+            }
+            ProjectTab::Versions => {}
         }
         let versions = match versions {
             Load::Ready(versions) => versions,
@@ -2667,16 +2892,46 @@ fn radio(selected: bool) -> impl IntoElement {
 }
 
 impl Render for ContentView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let kind = self.kind;
+        // A wide window shows a project's page in a panel beside the list.
+        let window_width = f32::from(window.viewport_size().width);
+        self.panel_width =
+            (window_width >= PANEL_MIN_WINDOW).then(|| (window_width * 0.36).clamp(380., 560.));
         // Every section, for the counts in the switch; the Shaders card and shader
         // searches also need to know the shader mod.
         for kind in ContentKind::ALL {
             self.ensure_loaded(kind, cx);
         }
+        // A closing panel in a section no longer shown, or in a window too narrow for
+        // it: nothing to slide.
+        if let Some(closing) = self.panel_closing
+            && (closing != kind || self.panel_width.is_none())
+        {
+            self.finish_closing(closing, cx);
+        }
+        let open_now =
+            self.section(kind).browse.project.is_some() || self.section(kind).cf.project.is_some();
+        // How far the panel has slid out: 0 shut, 1 open.
+        let slide = crate::components::motion::tween(
+            ("content-panel-slide", kind as usize),
+            if open_now && self.panel_closing.is_none() {
+                1.0
+            } else {
+                0.0
+            },
+            PANEL_SLIDE,
+            window,
+            cx,
+        );
+        if self.panel_closing == Some(kind) && slide <= 0.001 {
+            self.finish_closing(kind, cx);
+        }
         let cf_project_open = self.section(kind).cf.project.is_some();
         let project_open = self.section(kind).browse.project.is_some() || cf_project_open;
-        if !project_open
+        // The page covers the list (a narrow window).
+        let full_page = project_open && self.panel_width.is_none();
+        if !full_page
             && matches!(self.section(kind).cf.results, Load::NotLoaded)
             && self.curseforge(cx).is_some()
             && (self.query(kind, cx).is_empty() || self.section(kind).browse.task.is_none())
@@ -2685,35 +2940,81 @@ impl Render for ContentView {
         }
         // Nothing typed: Modrinth's projects to browse. (While typing, the search runs
         // once typing pauses.)
-        if !project_open
+        if !full_page
             && matches!(self.section(kind).browse.results, Load::NotLoaded)
             && self.section(kind).browse.task.is_none()
             && self.modrinth(cx).is_some()
         {
             self.search(kind, cx);
         }
-        let body = if project_open {
-            div()
+        let page = project_open.then(|| {
+            if cf_project_open {
+                self.render_cf_project(kind, cx)
+            } else {
+                self.render_project(kind, cx)
+            }
+        });
+        let body = match (page, self.panel_width) {
+            (Some(page), None) => div()
                 .id(("content-project", kind as usize))
                 .size_full()
                 .overflow_y_scroll()
-                .child(div().pb_4().child(if cf_project_open {
-                    self.render_cf_project(kind, cx)
-                } else {
-                    self.render_project(kind, cx)
-                }))
-                .into_any_element()
-        } else {
-            // Only the rows on screen are made: a long list scrolls as fast as a short
-            // one.
-            let plan = self.installed_plan(kind, cx);
-            self.sync_installed_list(kind, plan);
-            let entity = cx.entity();
-            list(self.section(kind).rows.clone(), move |ix, _, cx| {
-                entity.update(cx, |this, cx| this.render_entry(kind, ix, cx))
-            })
-            .size_full()
-            .into_any_element()
+                .child(div().pb_4().child(page))
+                .into_any_element(),
+            (page, panel_width) => {
+                // Only the rows on screen are made: a long list scrolls as fast as a
+                // short one.
+                let plan = self.installed_plan(kind, cx);
+                self.sync_installed_list(kind, plan);
+                let entity = cx.entity();
+                let rows = list(self.section(kind).rows.clone(), move |ix, _, cx| {
+                    entity.update(cx, |this, cx| this.render_entry(kind, ix, cx))
+                })
+                .size_full();
+                match (page, panel_width) {
+                    // The panel slides out from the right edge: its box widens while
+                    // the page inside keeps its width, held at the box's left edge.
+                    (Some(page), Some(width)) => div()
+                        .flex()
+                        .flex_row()
+                        .size_full()
+                        .child(div().flex_1().min_w_0().h_full().child(rows))
+                        .child(
+                            div()
+                                .relative()
+                                .flex_none()
+                                .h_full()
+                                .ml(px(12. * slide))
+                                .w(px(width * slide))
+                                .overflow_hidden()
+                                .opacity(slide.clamp(0., 1.))
+                                .child(
+                                    div()
+                                        .id(("content-project", kind as usize))
+                                        .absolute()
+                                        .top_0()
+                                        .left_0()
+                                        .accessible(
+                                            Role::Region,
+                                            format!("{}-page", kind.dir()),
+                                            t(M::ProjectPage),
+                                        )
+                                        .flex_none()
+                                        .w(px(width))
+                                        .h_full()
+                                        .overflow_y_scroll()
+                                        .rounded(radius::LG)
+                                        .border_1()
+                                        .border_color(crate::theme::ink::border())
+                                        .bg(colors::GRAY_800)
+                                        .p_4()
+                                        .child(page),
+                                ),
+                        )
+                        .into_any_element(),
+                    _ => rows.into_any_element(),
+                }
+            }
         };
         div()
             .flex()
@@ -2731,7 +3032,7 @@ impl Render for ContentView {
                     .rounded(radius::LG)
                     .border_2()
                     .border_color(colors::TRANSPARENT)
-                    .when(!project_open, |this| {
+                    .when(!full_page, |this| {
                         this.drag_over::<ExternalPaths>(|style, _, _, _| {
                             style
                                 .border_color(crate::theme::accent::light().opacity(60))

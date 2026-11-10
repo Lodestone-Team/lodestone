@@ -231,6 +231,16 @@ crate::i18n::messages! {
         ViewOnModrinth = "View on Modrinth",
         Versions = "Versions",
         Description = "Description",
+        Gallery = "Gallery",
+        /// The panel beside the list that shows a project's page.
+        ProjectPage = "Project page",
+        Files = "Files",
+        ClosePage = "Close the page",
+        /// The info button on an installed file's row: opens its page beside the list.
+        ShowPageOf = "Show the page for {name}",
+        LoadingDescription = "Loading the description",
+        NoDescription = "This project has no description.",
+        RestOnCurseForge = "The rest of the description is on CurseForge.",
         LoadingVersions = "Loading versions",
         ShowAllVersions = "Show versions for other loaders and Minecraft versions",
         AlsoInstallDependencies = "Also install required dependencies",
