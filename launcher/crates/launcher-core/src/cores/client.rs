@@ -98,7 +98,9 @@ impl CoreError {
     }
 }
 
-fn is_loopback_host(host: &str) -> bool {
+/// Whether `host` (as a URL has it: `localhost`, `127.0.0.1`, `[::1]`) is this
+/// computer.
+pub fn is_loopback_host(host: &str) -> bool {
     let host = host.trim_start_matches('[').trim_end_matches(']');
     host.eq_ignore_ascii_case("localhost")
         || host

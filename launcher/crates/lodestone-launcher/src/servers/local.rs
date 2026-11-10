@@ -281,6 +281,24 @@ impl Servers {
         })
     }
 
+    /// Whether core card `index` shows in "On this computer", not "Other cores": the
+    /// scan found its core here, it was claimed here (and may be stopped now), or its
+    /// address is this computer's (a core on another port, say).
+    pub(super) fn is_local_card(&self, index: usize) -> bool {
+        self.cores.get(index).is_some_and(|core| {
+            core.saved.local_claim
+                || core
+                    .url
+                    .host_str()
+                    .is_some_and(cores::client::is_loopback_host)
+                || self
+                    .local
+                    .found
+                    .iter()
+                    .any(|found| found.info.uuid == core.saved.uuid)
+        })
+    }
+
     /// "Connect as owner" for a core found on this computer. `folder` is a data folder
     /// the user chose ("Choose folder…").
     pub fn connect_local(&mut self, uuid: &str, folder: Option<PathBuf>, cx: &mut Context<Self>) {

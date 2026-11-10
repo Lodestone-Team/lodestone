@@ -27,3 +27,13 @@ pub fn host_gradient(opacity: u32, on_light: bool) -> Background {
         linear_color_stop(to.opacity(opacity), 1.),
     )
 }
+
+/// The logo's light green at `opacity` percent, for a line or a label. `on_light`:
+/// the deeper green, for a light background.
+pub fn host_green(opacity: u32, on_light: bool) -> Color {
+    if on_light {
+        HOST_GREEN_DEEP.opacity(opacity)
+    } else {
+        HOST_GREEN.opacity(opacity)
+    }
+}
