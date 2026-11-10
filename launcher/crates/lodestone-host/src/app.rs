@@ -329,6 +329,8 @@ impl Render for HostApp {
         if self._focus_lost.is_none() {
             self._focus_lost = Some(focus::install(&self.root_focus, window, cx));
         }
+        // the screens before the shell have no top bar of their own
+        let bare = !matches!(self.phase, Phase::Shell(_));
         let content: AnyElement = match &self.phase {
             Phase::Core | Phase::SigningIn | Phase::Quitting => {
                 let status = match self.phase {
@@ -372,6 +374,7 @@ impl Render for HostApp {
             .on_action(cx.listener(|_, _: &crate::ResetZoom, _, cx| {
                 crate::prefs::Prefs::update(cx, |prefs| prefs.zoom = 1.0);
             }))
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -379,6 +382,20 @@ impl Render for HostApp {
             .text_color(theme::ink::text())
             .font_family(fonts::body())
             .map(crate::i18n::locale_fonts)
-            .child(content)
+            // Windows: the title bar's place, on screens without the top bar
+            .when(bare, |this| {
+                this.children(crate::shell::top_bar::frame_bar())
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .child(content),
+            )
+            // Windows: the caption buttons, last, above everything
+            .children(crate::shell::top_bar::window_controls(window))
     }
 }

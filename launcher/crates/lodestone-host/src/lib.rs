@@ -95,8 +95,10 @@ pub fn set_menus(cx: &mut App) {
 }
 
 /// The window: 1100 × 700, at least 900 × 550, as the Tauri Host's. On macOS the title
-/// bar is transparent and the top bar sits under the traffic lights; elsewhere the
-/// system draws the frame.
+/// bar is transparent and the top bar sits under the traffic lights. On Windows the
+/// system's title bar is hidden and the top bar takes its place, with its own caption
+/// buttons (`shell::top_bar::window_controls`), as in the launcher; the title still
+/// names the window in the taskbar and Alt-Tab. Elsewhere the system draws the frame.
 pub fn window_options(cx: &App) -> WindowOptions {
     let bounds = Bounds::centered(None, size(px(1100.), px(700.)), cx);
     WindowOptions {
@@ -104,7 +106,7 @@ pub fn window_options(cx: &App) -> WindowOptions {
         window_min_size: Some(size(px(900.), px(550.))),
         titlebar: Some(gpui::TitlebarOptions {
             title: Some(SharedString::from(APP_NAME)),
-            appears_transparent: cfg!(target_os = "macos"),
+            appears_transparent: cfg!(any(target_os = "macos", target_os = "windows")),
             traffic_light_position: cfg!(target_os = "macos")
                 .then(|| gpui::point(px(16.), px((TOP_BAR_HEIGHT - 14.0) / 2.0))),
         }),
