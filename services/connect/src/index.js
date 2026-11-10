@@ -45,6 +45,8 @@ const MAX_JOINS = 16;
 const MAX_JOINS_KEPT = 64;
 const MAX_CANDIDATES = 8;
 const MAX_BODY = 4 * 1024;
+// How much of a body that's too large is read (and thrown away) before it's cut off.
+const DRAIN_MAX = 1024 * 1024;
 const MAX_SOCKETS = 4;
 const IDLE_MS = 120_000;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -128,23 +130,38 @@ function validIpv6(ip, allowLoopback) {
   return true;
 }
 
-/// The body as text, refusing more than `limit` bytes without reading them all.
+/// The body as text, or null past `limit` bytes. Only `limit` bytes are ever kept.
+///
+/// A body that's too large is still read to its end (and thrown away) up to DRAIN_MAX,
+/// so the answer goes out after the request: answering in the middle of a body breaks
+/// the connection under some proxies (`wrangler dev`'s among them), which then answer
+/// 500 instead, for this request or the next one on the connection. Past DRAIN_MAX it's
+/// cut off. A stream that fails while being read counts as too large too.
 async function readBody(request, limit = MAX_BODY) {
-  if (Number(request.headers.get('content-length') || 0) > limit) return null;
-  if (!request.body) return '';
+  const declared = Number(request.headers.get('content-length') || 0);
+  if (!request.body) return declared > limit ? null : '';
+  if (declared > DRAIN_MAX) {
+    await cancelQuietly(request.body);
+    return null;
+  }
   const reader = request.body.getReader();
   const chunks = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel();
-      return null;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > DRAIN_MAX) {
+        await cancelQuietly(reader);
+        return null;
+      }
+      if (size <= limit) chunks.push(value);
     }
-    chunks.push(value);
+  } catch {
+    return null;
   }
+  if (size > limit || declared > limit) return null;
   const bytes = new Uint8Array(size);
   let at = 0;
   for (const chunk of chunks) {
@@ -152,6 +169,12 @@ async function readBody(request, limit = MAX_BODY) {
     at += chunk.byteLength;
   }
   return new TextDecoder().decode(bytes);
+}
+
+async function cancelQuietly(stream) {
+  try {
+    await stream.cancel();
+  } catch {}
 }
 
 /// The body's candidates (and whether it asks to keep the code), or null.
