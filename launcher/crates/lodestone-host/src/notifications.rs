@@ -9,8 +9,8 @@
 //! can't start, shows a notification of the system's ([`native`]).
 
 use gpui::{
-    AnyElement, App, Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
-    Subscription, Window, anchored, deferred, div, point, prelude::*,
+    AnyElement, App, Context, Entity, IntoElement, MouseButton, ParentElement, Render,
+    SharedString, Styled, Subscription, Window, anchored, deferred, div, point, prelude::*,
 };
 use launcher_core::cores::admin::{
     ClientEvent, EventInner, InstanceState,
@@ -642,7 +642,14 @@ impl Render for Notifications {
             .children(beta)
             .child(
                 div()
+                    .id("notifications-bell")
                     .relative()
+                    // The bell sits in the top bar, which moves the window: it is not
+                    // part of the caption (on Windows the bar answers the hit test as
+                    // the caption, which swallows the click), and pressing it doesn't
+                    // arm the bar's drag.
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
                         IconButton::new("notifications", Icon::Bell)
                             .label(SharedString::from(t(CoreMsg::Notifications)))

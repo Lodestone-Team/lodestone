@@ -272,7 +272,10 @@ fn update_notice(shell: &LauncherShell, cx: &mut Context<LauncherShell>) -> Opti
             .bg(colors::GRAY_850)
             .border_1()
             .border_color(crate::theme::ink::border())
-            // Clicks here don't move the window.
+            // Clicks here don't move the window: the notice is not part of the caption
+            // (on Windows the bar answers the hit test as the caption, which swallows
+            // the click), and pressing it doesn't arm the bar's drag.
+            .occlude()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(div().size(px(6.)).rounded_full().bg(colors::GREEN_400))
             .child(
