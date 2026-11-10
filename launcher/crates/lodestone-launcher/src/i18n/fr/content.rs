@@ -228,6 +228,14 @@ pub fn text(message: M) -> &'static str {
         M::ViewOnModrinth => "Voir sur Modrinth",
         M::Versions => "Versions",
         M::Description => "Description",
+        M::Gallery => "Galerie",
+        M::ProjectPage => "Page du projet",
+        M::Files => "Fichiers",
+        M::ClosePage => "Fermer la page",
+        M::ShowPageOf => "Afficher la page de {name}",
+        M::LoadingDescription => "Chargement de la description",
+        M::NoDescription => "Ce projet n’a pas de description.",
+        M::RestOnCurseForge => "La suite de la description est sur CurseForge.",
         M::LoadingVersions => "Chargement des versions",
         M::ShowAllVersions => {
             "Afficher les versions pour d’autres chargeurs et versions de Minecraft"

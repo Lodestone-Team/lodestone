@@ -13,6 +13,7 @@
 //! has the same id, and the game refuses two mods with one id, so installing one replaces
 //! the other, and a dependency already installed from either platform isn't installed
 //! again.
+//! - [`page_images`] says which hosts a project page's images load from, and fetches them;
 //! - [`options`] edits the resource packs in `options.txt`, [`packs`] reads `pack.mcmeta`,
 //!   and [`shaders`] finds the shader mod and edits its selected pack.
 //!
@@ -29,6 +30,7 @@ pub mod mod_finder;
 pub mod modrinth;
 pub mod options;
 pub mod packs;
+pub mod page_images;
 pub mod provenance;
 pub mod scan;
 pub mod shaders;

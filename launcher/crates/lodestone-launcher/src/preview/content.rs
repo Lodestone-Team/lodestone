@@ -256,6 +256,10 @@ pub fn fill(instance_dir: &Path, scene: &str) {
             | "content-browse-idle"
             | "content-filters"
             | "content-project"
+            | "content-description"
+            | "content-gallery"
+            | "content-project-narrow"
+            | "content-cf-project"
             | "content-formatted-shaders"
     ) {
         fabric_mod(
@@ -729,7 +733,26 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                     lodestone_minecraft::modrinth::ClientEnvironment::ClientOnly;
             }
         }
-        "content-project" | "content-description" => {
+        "content-cf-project" => {
+            view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
+            let project: launcher_core::content::curseforge::CfMod =
+                serde_json::from_value(json!({
+                    "id": 238222, "name": "Just Enough Items (JEI)", "slug": "jei",
+                    "summary": "View Items and Recipes", "downloadCount": 412_000_000.0,
+                    "authors": [{ "name": "mezz" }],
+                    "screenshots": [{ "title": "Recipes", "url": CF_SHOT_URL }],
+                }))
+                .expect("a valid project");
+            view.preview_cf_project(ContentKind::Mod, project, CF_DESCRIPTION.into(), vec![], cx);
+            view.preview_description_image(
+                CF_SHOT_URL,
+                crate::images::render_image(super::worlds::landscape(1280, 720, 1, 0.7)),
+            );
+        }
+        "content-project"
+        | "content-description"
+        | "content-gallery"
+        | "content-project-narrow" => {
             view.preview_state(ContentKind::Mod, None, HashMap::new(), icons(), cx);
             let versions = vec![
                 version(
@@ -791,24 +814,71 @@ pub fn apply(scene: &str, view: &mut ContentView, cx: &mut Context<ContentView>)
                 98_400_000,
             );
             sodium.body = DESCRIPTION.into();
+            sodium.gallery = GALLERY
+                .iter()
+                .enumerate()
+                .map(
+                    |(index, (url, title))| lodestone_minecraft::modrinth::ModrinthGalleryImage {
+                        url: url.to_string(),
+                        title: Some(title.to_string()),
+                        description: None,
+                        featured: index == 0,
+                    },
+                )
+                .collect();
             view.preview_project(ContentKind::Mod, sodium, versions, cx);
-            if scene == "content-description" {
+            view.preview_description_image(
+                BANNER_URL,
+                crate::images::render_image(super::worlds::landscape(900, 140, 1, 0.4)),
+            );
+            for (index, (url, _)) in GALLERY.iter().enumerate() {
                 view.preview_description_image(
-                    BANNER_URL,
-                    crate::images::render_image(super::worlds::landscape(900, 140, 1, 0.4)),
-                );
-                view.set_project_tab(
-                    ContentKind::Mod,
-                    crate::instances::content::ProjectTab::Description,
-                    cx,
+                    url,
+                    crate::images::render_image(super::worlds::landscape(
+                        1280,
+                        720,
+                        index + 2,
+                        0.5,
+                    )),
                 );
             }
+            let tab = match scene {
+                "content-project" => crate::instances::content::ProjectTab::Versions,
+                "content-gallery" => crate::instances::content::ProjectTab::Gallery,
+                _ => crate::instances::content::ProjectTab::Description,
+            };
+            view.set_project_tab(ContentKind::Mod, tab, cx);
         }
         _ => {}
     }
 }
 
 const BANNER_URL: &str = "https://cdn.modrinth.com/data/AANobbMI/images/banner.png";
+
+const CF_SHOT_URL: &str = "https://media.forgecdn.net/attachments/1/2/recipes.png";
+
+/// A made-up CurseForge description: HTML with headings, styles, links and an image.
+const CF_DESCRIPTION: &str = r#"<h2>About</h2>
+<p><strong>JEI</strong> is an item and recipe viewing mod, built from the ground up for <em>stability</em> and performance.</p>
+<p><a href="https://example.com/wiki"><img src="https://media.forgecdn.net/attachments/1/2/recipes.png" alt="Recipes"></a></p>
+<h3>Features</h3>
+<ul>
+<li>Search items by name, mod or tag</li>
+<li>See every recipe that makes or uses an item</li>
+<li>Read the <a href="https://example.com/wiki">wiki</a> for more</li>
+</ul>"#;
+
+/// Made-up gallery images, by URL and title.
+const GALLERY: &[(&str, &str)] = &[
+    (
+        "https://cdn.modrinth.com/data/AANobbMI/images/far.png",
+        "A 32-chunk render distance",
+    ),
+    (
+        "https://cdn.modrinth.com/data/AANobbMI/images/night.png",
+        "Night in a dense forest",
+    ),
+];
 
 /// A made-up description with every block the renderer draws, and HTML that is shown
 /// as text.
