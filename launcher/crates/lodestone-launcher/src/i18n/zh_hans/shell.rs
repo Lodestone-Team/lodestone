@@ -208,7 +208,7 @@ pub fn text(message: M) -> &'static str {
         M::FirstTimeSetupSection => "首次设置",
         M::ResetFirstTimeSetup => "重置首次设置",
         M::ResetFirstTimeSetupHint => {
-            "下一个新建的实例会再次被提议设为主实例，下次启动时也会再次提议关闭复述功能。这会清除当前主实例；共享值保留。"
+            "下一个新建的实例会再次被提议设为主实例，下次启动时也会再次提议关闭复述功能，Lodestone Host 页面也会再次推荐 Lodestone Host。这会清除当前主实例；共享值保留。"
         }
         M::FirstTimeSetupReset => "首次设置已重置。新建一个实例即可看到。",
         M::StartFromInstance => "从某个实例开始",

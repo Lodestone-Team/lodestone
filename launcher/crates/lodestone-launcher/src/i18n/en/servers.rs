@@ -15,6 +15,12 @@ crate::i18n::messages! {
         Rescan = "Rescan",
         ScanningLocal = "Looking for cores on this computer…",
         NoLocalCores = "No Lodestone Host or Lodestone Core is running on this computer.",
+        /// The offer under "On this computer" while nothing runs here.
+        HostOfferTitle = "Host any server and play with your friends right away",
+        HostOfferBody = "No setup, no port forwarding.",
+        HostOfferDownload = "Download Lodestone Host",
+        /// A small link under the download button: the core without the desktop app.
+        HostOfferCoreOnly = "Download Lodestone Core only",
         ConnectAsOwner = "Connect as owner",
         Connected = "Connected",
         ChooseDataFolder = "Choose folder…",

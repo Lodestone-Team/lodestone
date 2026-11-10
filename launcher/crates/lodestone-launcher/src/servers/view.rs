@@ -749,7 +749,15 @@ impl Servers {
                             .flex_row()
                             .items_center()
                             .gap_3()
-                            .child(Icon::Cube.render(px(18.), crate::theme::ink::muted()))
+                            .child(match found.info.product {
+                                CoreProduct::Host => gpui::img(crate::images::mark(false, cx))
+                                    .size(px(18.))
+                                    .flex_none()
+                                    .into_any_element(),
+                                CoreProduct::Core => Icon::Cube
+                                    .render(px(18.), crate::theme::ink::muted())
+                                    .into_any_element(),
+                            })
                             .child(
                                 div()
                                     .flex()
@@ -830,6 +838,7 @@ impl Servers {
                     .into_any_element()
             })
             .collect();
+        let offer = self.offers_host(cx).then(|| self.render_host_offer(cx));
         let empty_text = if local.scanning || !local.scanned {
             Some(t(M::ScanningLocal))
         } else if local.found.is_empty() {
@@ -897,7 +906,8 @@ impl Servers {
                             .py_3()
                             .text_color(crate::theme::ink::muted())
                             .child(small(text))
-                    })),
+                    }))
+                    .children(offer),
             )
             .into_any_element()
     }

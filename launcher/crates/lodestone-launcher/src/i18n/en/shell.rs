@@ -247,7 +247,7 @@ crate::i18n::messages! {
         /// Settings > Developer.
         FirstTimeSetupSection = "First-time setup",
         ResetFirstTimeSetup = "Reset first-time setup",
-        ResetFirstTimeSetupHint = "The next new instance is offered as your main instance again, and keeping the narrator off is offered at the next start. This clears your main instance; the shared values stay.",
+        ResetFirstTimeSetupHint = "The next new instance is offered as your main instance again, keeping the narrator off is offered at the next start, and the Lodestone Host page offers Lodestone Host again. This clears your main instance; the shared values stay.",
         FirstTimeSetupReset = "First-time setup is reset. Create an instance to see it.",
         StartFromInstance = "Start from an instance",
         CopyFromInstance = "Copy from instance…",

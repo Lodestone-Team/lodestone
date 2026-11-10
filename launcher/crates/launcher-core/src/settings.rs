@@ -77,6 +77,11 @@ pub struct Settings {
     /// Developer can ask again). Left out of the file until then.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub narrator_offered: bool,
+    /// The Lodestone Host page's offer to download Lodestone Host, shown while no
+    /// Host or Core runs on this computer, was dismissed (Settings > Developer can
+    /// show it again). Left out of the file until then.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_offer_dismissed: bool,
     /// The interface's zoom, from Ctrl/⌘ + and −: 1.0 is 100%. Left out of the file
     /// at 100%.
     #[serde(default = "one", skip_serializing_if = "is_one")]
@@ -111,6 +116,7 @@ impl Default for Settings {
             after_launch: AfterLaunch::Minimize,
             main_instance_offered: false,
             narrator_offered: false,
+            host_offer_dismissed: false,
             zoom: 1.0,
             skin: None,
             sidebar_width: None,
