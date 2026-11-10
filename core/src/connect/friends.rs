@@ -30,7 +30,10 @@ use axum::{
 use lodestone_connect::{
     friend::{
         crypto::{PublicKey, Secret},
-        host::{CoreIdentity, FriendAccess, FriendHandler, FriendHost, FriendHostConfig, FriendHostStatus},
+        host::{
+            CoreIdentity, FriendAccess, FriendHandler, FriendHost, FriendHostConfig,
+            FriendHostStatus,
+        },
         pair::clean_name,
     },
     GatherOptions, Service, SharedServer, TunnelStream,
@@ -47,7 +50,10 @@ use crate::{
         util::get_instance,
     },
     public_listing::PublicInstanceList,
-    traits::{t_configurable::{Game, TConfigurable}, t_server::TServer},
+    traits::{
+        t_configurable::{Game, TConfigurable},
+        t_server::TServer,
+    },
     types::InstanceUuid,
     AppState,
 };
@@ -275,7 +281,8 @@ impl FriendShares {
             Ok(list) => list,
             Err(e) => return warn!("The friend list is damaged; starting with none: {e}"),
         };
-        let friends: Result<Vec<Friend>, Error> = list.friends.iter().map(Friend::from_entry).collect();
+        let friends: Result<Vec<Friend>, Error> =
+            list.friends.iter().map(Friend::from_entry).collect();
         match friends {
             Ok(friends) => {
                 inner.version = list.version;
@@ -320,9 +327,15 @@ impl FriendShares {
     /// Replaces the list with `list`, whose version must be higher than the current one,
     /// saves it, and applies it: friends no longer on it, or with less shared, are
     /// disconnected at once.
-    pub async fn replace(self: &Arc<Self>, state: &AppState, list: FriendList) -> Result<FriendsView, Error> {
+    pub async fn replace(
+        self: &Arc<Self>,
+        state: &AppState,
+        list: FriendList,
+    ) -> Result<FriendsView, Error> {
         if list.friends.len() > MAX_FRIENDS {
-            return Err(bad_request(format!("A core keeps at most {MAX_FRIENDS} friends")));
+            return Err(bad_request(format!(
+                "A core keeps at most {MAX_FRIENDS} friends"
+            )));
         }
         let friends: Vec<Friend> = list
             .friends
@@ -559,7 +572,11 @@ impl CoreFriendStreams {
     fn new(state: AppState, access: Access) -> Self {
         let (info, streams) = mpsc::channel(16);
         tokio::spawn(serve_friend_info(state.clone(), access.clone(), streams));
-        Self { state, access, info }
+        Self {
+            state,
+            access,
+            info,
+        }
     }
 }
 
@@ -631,7 +648,10 @@ fn not_found() -> Error {
 }
 
 /// The instances shared with `friend` that still exist, in a stable order.
-async fn shared_with(routes: &FriendRoutes, friend: &PublicKey) -> Vec<crate::public_listing::PublicInstance> {
+async fn shared_with(
+    routes: &FriendRoutes,
+    friend: &PublicKey,
+) -> Vec<crate::public_listing::PublicInstance> {
     let mut uuids: Vec<InstanceUuid> = routes
         .access
         .read()
