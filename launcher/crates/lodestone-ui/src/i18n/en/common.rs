@@ -42,6 +42,10 @@ crate::i18n::messages! {
         SignOut = "Sign out",
         Start = "Start",
         Stop = "Stop",
+        /// A server's power buttons (Start and Stop are above): stop and start it
+        /// again, or end it at once while it starts or stops.
+        Restart = "Restart",
+        Kill = "Kill",
         TryAgain = "Try again",
         Update = "Update",
         Menu = "Menu",

@@ -17,6 +17,7 @@ use launcher_core::{
     Secret,
     cores::{
         CoreClient, CoreError, ServerInstance, ServerState,
+        admin::instances::Power,
         live::{
             self, ConsoleLine, LauncherAccess, LiveMessage, LiveStream, MinecraftLink, StreamKind,
         },
@@ -80,9 +81,9 @@ pub struct ConsoleRow {
 pub enum DetailEvent {
     /// Back to the list.
     Close,
-    /// Start or stop the server, as its row on the list does.
-    Start,
-    Stop,
+    /// A power button: start, stop, restart or kill the server, as its row on the
+    /// list does.
+    Power(Power),
     /// The core refused the key: sign the core out.
     SignedOut,
 }
@@ -644,6 +645,33 @@ impl super::Servers {
         let (client, accounts) = (self.client(core), self.accounts.clone());
         let (name, username) = (core.saved.name.clone(), core.saved.username.clone());
         let core_uuid = core_uuid.to_string();
+        // the offscreen screenshots reach no core: a made-up page
+        if self.preview {
+            let detail = cx.new(|cx| {
+                let access = LauncherAccess {
+                    view: true,
+                    start: true,
+                    stop: true,
+                    console_read: false,
+                    console_write: false,
+                };
+                let username = username.unwrap_or_default();
+                let mut detail = ServerDetail::preview(
+                    &name,
+                    &username,
+                    server,
+                    access,
+                    &[],
+                    Vec::new(),
+                    accounts,
+                    cx,
+                );
+                detail.core_uuid = core_uuid;
+                detail
+            });
+            self.show_detail(detail, cx);
+            return;
+        }
         let detail = cx.new(|cx| {
             ServerDetail::new(
                 client,
@@ -659,6 +687,31 @@ impl super::Servers {
         self.show_detail(detail, cx);
     }
 
+    /// Opens the page of server `server_uuid` on core `core_uuid`, for the top bar's
+    /// arrows: nothing if it is open already, or no longer on its core's list.
+    pub fn open_detail_by_id(
+        &mut self,
+        core_uuid: &str,
+        server_uuid: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(detail) = self.detail() {
+            let detail = detail.read(cx);
+            if detail.core_uuid == core_uuid && detail.server.uuid == server_uuid {
+                return;
+            }
+        }
+        let server = self
+            .cores
+            .iter()
+            .find(|core| core.saved.uuid == core_uuid)
+            .and_then(|core| core.servers().iter().find(|s| s.uuid == server_uuid))
+            .cloned();
+        if let Some(server) = server {
+            self.open_detail(core_uuid, server, cx);
+        }
+    }
+
     /// Shows `detail` and handles what it asks for.
     pub fn show_detail(&mut self, detail: Entity<ServerDetail>, cx: &mut Context<Self>) {
         let subscription = cx.subscribe(&detail, |this, detail, event, cx| {
@@ -668,8 +721,7 @@ impl super::Servers {
             };
             match event {
                 DetailEvent::Close => this.close_detail(cx),
-                DetailEvent::Start => this.start(&core_uuid, server, false, cx),
-                DetailEvent::Stop => this.stop(&core_uuid, server, cx),
+                DetailEvent::Power(power) => this.power(&core_uuid, server, *power, cx),
                 DetailEvent::SignedOut => {
                     this.close_detail(cx);
                     if let Some(index) = this.cores.iter().position(|c| c.saved.uuid == core_uuid) {

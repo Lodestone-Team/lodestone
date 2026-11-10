@@ -19,16 +19,17 @@ use lodestone_minecraft::console_format::{
 use super::{
     core_error,
     detail::{DetailEvent, EulaState, LinkState, ServerDetail, StreamStatus},
-    loader_label, status_label,
+    loader_label, power_state, status_label,
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Icon, LoadingDots,
+        Button, ButtonSize, ButtonVariant, Icon, LoadingDots, PowerButtons,
         a11y::{Accessible, Role},
     },
     i18n::{CommonMsg, ServersMsg as M, t, tr},
     theme::{self, Color, colors, fonts, leading, radius, text, weights},
 };
+use launcher_core::cores::admin::instances::Power;
 
 /// The dashboard's 16 console colours in its dark theme (`--console-0` … in
 /// `globals.css`), which the launcher's console uses.
@@ -350,20 +351,24 @@ impl ServerDetail {
             (loader, None) => format!(" · {}", loader_label(*loader)),
         };
         let access = self.access.unwrap_or_default();
-        let stopped = matches!(server.state, ServerState::Stopped | ServerState::Error);
         let status = status_label(server);
+        // the Host's power buttons, with what this device's key may do; the top bar's
+        // back arrow goes back to the list
+        let power = {
+            let press = cx.listener(|_, power: &Power, _, cx| cx.emit(DetailEvent::Power(*power)));
+            PowerButtons::new("detail-power", power_state(server.state))
+                .allow(move |power| match power {
+                    Power::Start => access.start,
+                    Power::Restart => access.start && access.stop,
+                    Power::Stop | Power::Kill => access.stop,
+                })
+                .on_power(move |power, window, cx| press(&power, window, cx))
+        };
         div()
             .flex()
             .flex_row()
             .items_center()
             .gap_4()
-            .child(
-                Button::new("detail-back", t(M::ServersTitle))
-                    .variant(ButtonVariant::Ghost)
-                    .size(ButtonSize::Slim)
-                    .icon(Icon::ArrowLeft)
-                    .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
-            )
             .child(
                 div()
                     .flex()
@@ -413,20 +418,8 @@ impl ServerDetail {
             .when(self.events_status != StreamStatus::Live, |this| {
                 this.child(div().flex_none().child(status_line(&self.events_status)))
             })
-            .when(access.start && stopped, |this| {
-                this.child(
-                    Button::new("detail-start", t(CommonMsg::Start))
-                        .size(ButtonSize::Slim)
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(DetailEvent::Start))),
-                )
-            })
-            .when(access.stop && !stopped, |this| {
-                this.child(
-                    Button::new("detail-stop", t(CommonMsg::Stop))
-                        .size(ButtonSize::Slim)
-                        .variant(ButtonVariant::Danger)
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(DetailEvent::Stop))),
-                )
+            .when(!power.is_empty(), |this| {
+                this.child(div().flex_none().child(power))
             })
             .into_any_element()
     }

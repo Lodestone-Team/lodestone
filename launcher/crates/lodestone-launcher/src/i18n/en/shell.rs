@@ -588,6 +588,9 @@ crate::i18n::messages! {
         UpdateAvailableBadge = "Update available",
         /// Beside the top bar's logo in a development build (`cargo build`).
         DevBadge = "DEV",
+        /// The top bar's arrows: the page shown before, and back again.
+        GoBack = "Back",
+        GoForward = "Forward",
 
         // Shared components.
         /// Under a Modrinth description that is cut short.

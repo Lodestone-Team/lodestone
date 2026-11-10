@@ -6,6 +6,7 @@ mod account_box;
 pub(crate) mod connect_service;
 pub mod data_folder;
 pub(crate) mod developer;
+mod history;
 mod launcher_settings;
 mod narrator_offer;
 pub(crate) mod perf_monitor;
@@ -34,7 +35,8 @@ pub use top_bar::TOP_BAR_HEIGHT;
 
 use gpui::{
     AnyElement, App, ClipboardItem, Context, Entity, EntityId, FocusHandle, Focusable as _,
-    IntoElement, Render, SharedString, Subscription, Task, Window, div, prelude::*,
+    IntoElement, MouseButton, NavigationDirection, Render, SharedString, Subscription, Task,
+    Window, div, prelude::*,
 };
 use launcher_core::{
     game::crash::{
@@ -323,6 +325,10 @@ pub struct LauncherShell {
     language_menu_open: bool,
     /// Set by a mouse down on the top bar; the next mouse move starts a window drag.
     top_bar_drag_pending: bool,
+    /// The places the top bar's back and forward arrows go to.
+    history: history::History,
+    /// Set while the arrows show a place, so the steps on the way aren't places.
+    going_to_place: bool,
     /// Tracked by the outermost element; focus goes here when it is lost, so keys
     /// still reach the window's handlers.
     root_focus: FocusHandle,
@@ -350,6 +356,7 @@ impl LauncherShell {
             cx.observe(&instances, |this, _, cx| {
                 this.sync_settings(cx);
                 this.check_narrator_offer(cx);
+                this.note_place(cx);
                 cx.notify();
             }),
             cx.subscribe(&instances, |this, _, event, cx| match event {
@@ -458,6 +465,7 @@ impl LauncherShell {
         // the sidebar groups and outlines the linked instances
         observe.push(cx.observe(&servers, |this, _, cx| {
             this.sync_linked(cx);
+            this.note_place(cx);
             cx.notify();
         }));
         let shared_settings = {
@@ -556,6 +564,8 @@ impl LauncherShell {
             sidebar_hover_pinned: false,
             language_menu_open: false,
             top_bar_drag_pending: false,
+            history: history::History::default(),
+            going_to_place: false,
             root_focus: cx.focus_handle(),
             _focus_lost: None,
             _button_layout: None,
@@ -576,6 +586,8 @@ impl LauncherShell {
         };
         this.sync_settings(cx);
         this.offer_interrupted_mod_finder(cx);
+        // the first place, for Back to come back to
+        this.note_place(cx);
         this
     }
 
@@ -1510,6 +1522,80 @@ impl LauncherShell {
         self.servers.update(cx, |servers, cx| {
             servers.set_visible(page == Page::Servers, cx)
         });
+        self.note_place(cx);
+        cx.notify();
+    }
+
+    /// The place the window shows, for the top bar's arrows.
+    fn place(&self, cx: &App) -> history::Place {
+        let instance = self.instances.read(cx).selected().map(|i| i.id.clone());
+        let server = self.servers.read(cx).detail().map(|detail| {
+            let detail = detail.read(cx);
+            (detail.core_uuid.clone(), detail.server.uuid.clone())
+        });
+        history::Place::new(self.page, instance, self.tab, server)
+    }
+
+    /// Notes the place the window shows, after anything that may change it.
+    pub(crate) fn note_place(&mut self, cx: &mut Context<Self>) {
+        if self.going_to_place {
+            return;
+        }
+        let place = self.place(cx);
+        if self.history.visit(place) {
+            cx.notify();
+        }
+    }
+
+    pub fn can_go_back(&self) -> bool {
+        self.history.can_go_back()
+    }
+
+    pub fn can_go_forward(&self) -> bool {
+        self.history.can_go_forward()
+    }
+
+    /// The top bar's back arrow (⌘[, or Alt+Left): the place shown before.
+    pub fn go_back(&mut self, cx: &mut Context<Self>) {
+        if let Some(place) = self.history.back() {
+            self.go_to(place, cx);
+        }
+    }
+
+    /// The top bar's forward arrow (⌘], or Alt+Right): back to where Back left.
+    pub fn go_forward(&mut self, cx: &mut Context<Self>) {
+        if let Some(place) = self.history.forward() {
+            self.go_to(place, cx);
+        }
+    }
+
+    /// Shows `place`, as far as it is still there: a deleted instance or a server
+    /// gone from its core stays away.
+    fn go_to(&mut self, place: history::Place, cx: &mut Context<Self>) {
+        self.going_to_place = true;
+        match place.page {
+            Page::Instance => {
+                if let Some(id) = &place.instance
+                    && self.instances.read(cx).list().iter().any(|i| &i.id == id)
+                {
+                    self.instances
+                        .update(cx, |instances, cx| instances.select(id, cx));
+                }
+                self.select_tab(place.tab, cx);
+                self.show(Page::Instance, cx);
+            }
+            Page::Servers => {
+                self.show(Page::Servers, cx);
+                self.servers.update(cx, |servers, cx| match &place.server {
+                    Some((core, server)) => servers.open_detail_by_id(core, server, cx),
+                    None if servers.detail().is_some() => servers.close_detail(cx),
+                    None => {}
+                });
+            }
+        }
+        self.going_to_place = false;
+        let here = self.place(cx);
+        self.history.replace(here);
         cx.notify();
     }
 
@@ -1545,6 +1631,7 @@ impl LauncherShell {
 
     pub fn select_tab(&mut self, tab: InstanceTab, cx: &mut Context<Self>) {
         self.tab = tab;
+        self.note_place(cx);
         cx.notify();
     }
 
@@ -2639,6 +2726,17 @@ impl Render for LauncherShell {
             .on_action(|_: &focus::FocusNext, window, cx| focus::step(true, window, cx))
             .on_action(|_: &focus::FocusPrev, window, cx| focus::step(false, window, cx))
             .on_action(cx.listener(|this, _: &crate::PasteInvite, _, cx| this.paste_invite(cx)))
+            .on_action(cx.listener(|this, _: &crate::GoBack, _, cx| this.go_back(cx)))
+            .on_action(cx.listener(|this, _: &crate::GoForward, _, cx| this.go_forward(cx)))
+            // a mouse's back and forward buttons
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Back),
+                cx.listener(|this, _, _, cx| this.go_back(cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Forward),
+                cx.listener(|this, _, _, cx| this.go_forward(cx)),
+            )
             .on_action(cx.listener(|this, _: &crate::ZoomIn, _, cx| this.zoom_by(true, cx)))
             .on_action(cx.listener(|this, _: &crate::ZoomOut, _, cx| this.zoom_by(false, cx)))
             .on_action(cx.listener(|this, _: &crate::Undo, _, cx| this.undo_step(true, cx)))
