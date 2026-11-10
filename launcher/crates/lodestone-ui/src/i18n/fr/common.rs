@@ -40,6 +40,8 @@ pub fn text(message: M) -> &'static str {
         M::SignOut => "Se déconnecter",
         M::Start => "Démarrer",
         M::Stop => "Arrêter",
+        M::Restart => "Redémarrer",
+        M::Kill => "Forcer l’arrêt",
         M::TryAgain => "Réessayer",
         M::Update => "Mettre à jour",
         M::Menu => "Menu",

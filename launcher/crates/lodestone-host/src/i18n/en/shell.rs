@@ -51,9 +51,6 @@ crate::i18n::messages! {
         StateStopped = "Stopped",
         StateError = "Crashed",
         StateUnknown = "Unknown",
-        /// The power menu (Start and Stop are Common).
-        Restart = "Restart",
-        Kill = "Kill",
         PlayersOnline = "{online}/{max} players",
         /// The connection to the core, in the footer.
         Connected = "Connected",

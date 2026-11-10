@@ -81,13 +81,16 @@ crate::i18n::messages! {
         ReviewCertificate = "Trust certificate…",
 
         // ===== A server's row =====
-        /// Opens a server's page.
-        Details = "Details",
         CreateInstance = "Create instance",
         StartAndJoin = "Start and join",
         Play = "Play",
-        /// A badge next to a server's name: an instance was made for it.
-        InstanceReady = "Instance ready",
+        /// A tag next to a server's name: it is shared with friends through an invite
+        /// link.
+        SharedTag = "Shared",
+        /// The copy button in the Shared tag, and what it says once pressed.
+        CopyInviteLink = "Copy invite link",
+        InviteLinkCopied = "Copied the invite link of {name}",
+        InviteLinkCopiedHint = "Anyone who has it can join while the server is shared.",
         AddressHidden = "The owner hasn't shared this server's address.",
 
         // ===== A server's state =====
@@ -341,7 +344,7 @@ crate::i18n::messages! {
         /// {name} is the host's Lodestone core.
         SharedBy = "Shared by {name}",
         /// Under a core in "On this computer": servers it shares with an invite link that
-        /// the user joined here. Also the tag on such a server's row on the core's card.
+        /// the user joined here.
         SharedWithFriends = "Shared with friends",
         SharedWithFriendsHint = "You joined these with their invite links.",
         /// Under a server shared from this computer, while the launcher isn't the core's

@@ -11,22 +11,24 @@ use gpui::{
 };
 use launcher_core::cores::{
     CoreError, CoreProduct, LaunchedBy, ServerInstance, ServerLoader, ServerState,
-    client::display_address, local_claim::ClaimError, sync::PackChanges, trust::Advisory,
+    admin::instances::Power, client::display_address, local_claim::ClaimError, sync::PackChanges,
+    trust::Advisory,
 };
 use launcher_core::ui_skin::SurfaceId;
 use launcher_core::wording;
 
 use super::{
-    AdvisoryAnswer, AdvisoryPrompt, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
-    TrustPrompt, UpdatePrompt, core_error, loader_label, local::FoundCore, status_label,
-    trust_explanation,
+    AdvisoryAnswer, AdvisoryPrompt, Busy, CertPrompt, CoreEntry, CoreStatus, NoticeKind, Servers,
+    TrustPrompt, UpdatePrompt, core_error, loader_label, local::FoundCore, power_state,
+    status_label, trust_explanation,
 };
 use crate::{
     components::{
-        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, ListRow,
-        LoadingDots, Toggle,
+        Button, ButtonSize, ButtonVariant, Dialog, DialogSlot, Icon, IconButton, KeyboardFocus,
+        ListRow, LoadingDots, PowerButtons, Toggle,
         a11y::{Accessible, Role},
         settings::{popover, popover_panel},
+        text_tooltip,
     },
     i18n::{CommonMsg, ServersMsg as M, ServersPlural as P, format, t, tr, trn},
     theme::{self, colors, fonts, leading, radius, text, weights},
@@ -210,20 +212,8 @@ impl Servers {
         let signed_in = core.signed_in();
 
         let mut actions: Vec<AnyElement> = Vec::new();
-        if signed_in {
-            let (c, s) = (core_uuid.clone(), server.clone());
-            actions.push(
-                Button::new(
-                    SharedString::from(format!("details-{row_id}")),
-                    t(M::Details),
-                )
-                .size(ButtonSize::Slim)
-                .variant(ButtonVariant::Ghost)
-                .on_click(cx.listener(move |this, _, _, cx| this.open_detail(&c, s.clone(), cx)))
-                .into_any_element(),
-            );
-        }
-        if let Some(busy) = busy {
+        let power_busy = busy.filter(|busy| matches!(busy, Busy::Starting | Busy::Stopping));
+        if let Some(busy) = busy.filter(|_| power_busy.is_none()) {
             actions.push(
                 div()
                     .flex()
@@ -235,34 +225,19 @@ impl Servers {
                     .child(small(busy.label()))
                     .into_any_element(),
             );
-        } else {
-            if signed_in && stopped {
-                let (c, s) = (core_uuid.clone(), server.clone());
-                actions.push(
-                    Button::new(
-                        SharedString::from(format!("start-{row_id}")),
-                        t(CommonMsg::Start),
-                    )
-                    .size(ButtonSize::Slim)
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.start(&c, s.clone(), false, cx)),
-                    )
-                    .into_any_element(),
-                );
+        } else if signed_in {
+            // the Host's power buttons; the core refuses what this device's key may not do
+            let (c, s) = (core_uuid.clone(), server.clone());
+            let press = cx
+                .listener(move |this, power: &Power, _, cx| this.power(&c, s.clone(), *power, cx));
+            let power = PowerButtons::new(format!("power-{row_id}"), power_state(server.state))
+                .pending(power_busy.map(Busy::label))
+                .on_power(move |power, window, cx| press(&power, window, cx));
+            if !power.is_empty() {
+                actions.push(power.into_any_element());
             }
-            if signed_in && !stopped {
-                let (c, s) = (core_uuid.clone(), server.clone());
-                actions.push(
-                    Button::new(
-                        SharedString::from(format!("stop-{row_id}")),
-                        t(CommonMsg::Stop),
-                    )
-                    .size(ButtonSize::Slim)
-                    .variant(ButtonVariant::Danger)
-                    .on_click(cx.listener(move |this, _, _, cx| this.stop(&c, s.clone(), cx)))
-                    .into_any_element(),
-                );
-            }
+        }
+        if busy.is_none() {
             if let Some(friend) = friend_play.clone() {
                 let joinable =
                     server.address_shown() && (running || server.state == ServerState::Hidden);
@@ -327,15 +302,41 @@ impl Servers {
 
         let status = status_label(server);
         let element_id = SharedString::from(format!("server-{row_id}"));
-        let ready = linked || friend_play.is_some();
+        // the row shows the state with its dot and power buttons; screen readers hear it
         let mut description = format!("{status} · {}", server_detail(server));
-        if ready {
-            description = format!("{description} · {}", t(M::InstanceReady));
-        }
         if shared {
-            description = format!("{description} · {}", t(M::SharedWithFriends));
+            description = format!("{description} · {}", t(M::SharedTag));
         }
         let description: SharedString = description.into();
+        let share_link = self.share_link(&core_uuid, &server.uuid).is_some();
+        let name = RichText::minecraft(server.name.clone());
+        // the name opens the server's page, which needs a signed-in core
+        let title = if signed_in {
+            let (c, s) = (core_uuid.clone(), server.clone());
+            let id = SharedString::from(format!("open-{row_id}"));
+            div()
+                .id(id.clone())
+                .accessible(Role::Link, id, server.name.clone())
+                .keyboard_focus()
+                .min_w_0()
+                .truncate()
+                .rounded(radius::DEFAULT)
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::text())
+                .cursor_pointer()
+                .hover(|style| style.underline().text_color(crate::theme::accent::light()))
+                .on_press(cx.listener(move |this, _, _, cx| this.open_detail(&c, s.clone(), cx)))
+                .child(name)
+                .into_any_element()
+        } else {
+            div()
+                .min_w_0()
+                .truncate()
+                .font_weight(weights::BOLD.into())
+                .text_color(crate::theme::ink::text())
+                .child(name)
+                .into_any_element()
+        };
         div()
             .id(element_id.clone())
             .accessible(Role::ListItem, element_id, server.name.clone())
@@ -369,57 +370,75 @@ impl Servers {
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(crate::theme::ink::text())
-                                    .child(RichText::minecraft(server.name.clone())),
-                            )
-                            .when(ready, |this| {
-                                this.child(
-                                    div()
-                                        .flex_none()
-                                        .px_1p5()
-                                        .rounded(radius::DEFAULT)
-                                        .bg(crate::theme::accent::faded().opacity(15))
-                                        .text_color(crate::theme::accent::light())
-                                        .text_size(theme::text_size(text::CAPTION))
-                                        .font_weight(weights::BOLD.into())
-                                        .child(t(M::InstanceReady)),
-                                )
-                            })
+                            .child(title)
                             .when(shared, |this| {
-                                this.child(
-                                    div()
-                                        .id(SharedString::from(format!("shared-{row_id}")))
-                                        .flex_none()
-                                        .px_1p5()
-                                        .rounded(radius::DEFAULT)
-                                        .bg(colors::GREEN_300.opacity(12))
-                                        .text_color(colors::GREEN_300)
-                                        .text_size(theme::text_size(text::CAPTION))
-                                        .font_weight(weights::BOLD.into())
-                                        .child(t(M::SharedWithFriends)),
-                                )
+                                this.child(self.shared_tag(
+                                    &row_id,
+                                    share_link.then(|| (core_uuid.clone(), server.clone())),
+                                    cx,
+                                ))
                             }),
                     )
                     .child(small(server_detail(server)).text_color(crate::theme::ink::muted())),
-            )
-            .child(
-                small(status)
-                    .flex_none()
-                    .text_color(crate::theme::ink::secondary()),
             )
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .flex_none()
+                    .items_center()
                     .gap_2()
                     .children(actions),
             )
             .into_any_element()
+    }
+
+    /// "Shared" next to a server's name: it is shared with friends through an invite
+    /// link. With the link (`copy`: its core and server, when the core told the link),
+    /// a small button in the tag copies it.
+    fn shared_tag(
+        &self,
+        row_id: &str,
+        copy: Option<(String, ServerInstance)>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(SharedString::from(format!("shared-{row_id}")))
+            .flex()
+            .flex_row()
+            .flex_none()
+            .items_center()
+            .gap_1()
+            .pl_1p5()
+            .when(copy.is_none(), |this| this.pr_1p5())
+            .rounded(radius::DEFAULT)
+            .bg(colors::GREEN_300.opacity(12))
+            .text_color(colors::GREEN_300)
+            .text_size(theme::text_size(text::CAPTION))
+            .font_weight(weights::BOLD.into())
+            .child(t(M::SharedTag))
+            .when_some(copy, |this, (core_uuid, server)| {
+                let id = SharedString::from(format!("copy-link-{row_id}"));
+                this.child(
+                    div()
+                        .id(id.clone())
+                        .accessible(Role::Button, id, t(M::CopyInviteLink))
+                        .keyboard_focus()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .px_1()
+                        .py(px(3.))
+                        .rounded(radius::DEFAULT)
+                        .cursor_pointer()
+                        .hover(|style| style.bg(colors::GREEN_300.opacity(20)))
+                        .tooltip(text_tooltip(t(M::CopyInviteLink)))
+                        .on_press(cx.listener(move |this, _, _, cx| {
+                            this.copy_share_link(&core_uuid, &server, cx)
+                        }))
+                        .child(Icon::Copy.render(px(10.), colors::GREEN_300)),
+                )
+            })
     }
 
     /// Core `index`'s card, with its servers. In "On this computer" (`place`) it wears

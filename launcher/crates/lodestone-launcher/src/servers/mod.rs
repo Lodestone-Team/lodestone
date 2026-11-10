@@ -51,6 +51,7 @@ use launcher_core::{
     cores::{
         self, CoreClient, CoreError, PackFetch, ServerInstance, ServerList, ServerLoader,
         ServerState,
+        admin::{InstanceState, instances::Power},
         client::display_address,
         join::join_target,
         link::{self, ServerLink},
@@ -120,6 +121,19 @@ pub fn status_label(server: &ServerInstance) -> String {
             format!("{} · {players}", state_label(server.state))
         }
         _ => state_label(server.state).to_string(),
+    }
+}
+
+/// A server's state as the Host's power buttons take it. One whose state the core
+/// doesn't share gets no buttons.
+pub fn power_state(state: ServerState) -> InstanceState {
+    match state {
+        ServerState::Starting => InstanceState::Starting,
+        ServerState::Running => InstanceState::Running,
+        ServerState::Stopping => InstanceState::Stopping,
+        ServerState::Stopped => InstanceState::Stopped,
+        ServerState::Error => InstanceState::Error,
+        ServerState::Hidden | ServerState::Unknown => InstanceState::Unknown,
     }
 }
 
@@ -471,6 +485,11 @@ pub struct Servers {
     /// is done again.
     links_revision: u64,
     pub busy: HashMap<RowKey, Busy>,
+    /// The invite links of the servers whose rows say "Shared", as their cores tell
+    /// the owner (see [`Servers::fetch_share_links`]).
+    share_links: HashMap<RowKey, String>,
+    /// The cores whose invite links are being fetched.
+    share_fetching: HashSet<String>,
     /// A message at the top of the page.
     pub notice: Option<Notice>,
     /// The core (by uuid) whose "…" menu is open.
@@ -524,6 +543,8 @@ impl Servers {
             links_read: None,
             links_revision: 0,
             busy: HashMap::new(),
+            share_links: HashMap::new(),
+            share_fetching: HashSet::new(),
             notice: None,
             core_menu: None,
             dialog: DialogSlot::new(|this: &mut Servers| &mut this.dialog),
@@ -786,7 +807,8 @@ impl Servers {
                 this.cores[index].refreshing = false;
                 match result {
                     Ok(list) => {
-                        this.listed(index, list, cx);
+                        let uuid = this.listed(index, list, cx);
+                        this.fetch_share_links(&uuid, cx);
                     }
                     Err(CoreError::SignedOut) => this.signed_out(index, cx),
                     Err(err) => this.cores[index].status = CoreStatus::Failed(err),
@@ -1350,6 +1372,85 @@ impl Servers {
             (
                 tr!(M::OwnerKeyCopied, name = name),
                 t(M::OwnerKeyCopiedHint).into(),
+            )
+        }));
+        cx.notify();
+    }
+
+    /// The invite link of server `server_uuid` on core `core_uuid`, once its core told
+    /// it: only to a key that may change the server's settings (the owner's).
+    pub fn share_link(&self, core_uuid: &str, server_uuid: &str) -> Option<&str> {
+        self.share_links
+            .get(&(core_uuid.to_string(), server_uuid.to_string()))
+            .map(String::as_str)
+    }
+
+    /// Asks core `core_uuid` for the invite links of its servers whose rows say
+    /// "Shared", after each refresh of its list. A server whose core doesn't answer
+    /// (the key may not change its settings), or that has no link yet, has none.
+    fn fetch_share_links(&mut self, core_uuid: &str, cx: &mut Context<Self>) {
+        let Some(index) = self.core_index(core_uuid) else {
+            return;
+        };
+        let core = &self.cores[index];
+        let shared: Vec<String> = core
+            .servers()
+            .iter()
+            .filter(|server| self.friend_on_core_row(core_uuid, &server.uuid).is_some())
+            .map(|server| server.uuid.clone())
+            .collect();
+        let (Some(key), false) = (core.key.clone(), shared.is_empty()) else {
+            self.share_links.retain(|(core, _), _| core != core_uuid);
+            return;
+        };
+        if !self.share_fetching.insert(core_uuid.to_string()) {
+            return;
+        }
+        let client = self.client(core);
+        let work = cx.background_spawn(async move {
+            let mut links = Vec::new();
+            for uuid in shared {
+                let link = match client.share(&key, &uuid).await {
+                    Ok(share) if share.sharing => share.link.filter(|link| !link.is_empty()),
+                    _ => None,
+                };
+                links.push((uuid, link));
+            }
+            links
+        });
+        let core_uuid = core_uuid.to_string();
+        self.tasks.push(cx.spawn(async move |this, cx| {
+            let links = work.await;
+            this.update(cx, |this, cx| {
+                this.share_fetching.remove(&core_uuid);
+                this.share_links.retain(|(core, _), _| core != &core_uuid);
+                for (uuid, link) in links {
+                    if let Some(link) = link {
+                        this.share_links.insert((core_uuid.clone(), uuid), link);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// The copy button in a server's Shared tag: copies its invite link, and says so.
+    pub fn copy_share_link(
+        &mut self,
+        core_uuid: &str,
+        server: &ServerInstance,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(link) = self.share_link(core_uuid, &server.uuid) else {
+            return;
+        };
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(link.to_string()));
+        let name = server.name.clone();
+        self.notice = Some(Notice::success(move || {
+            (
+                tr!(M::InviteLinkCopied, name = name),
+                t(M::InviteLinkCopiedHint).into(),
             )
         }));
         cx.notify();
@@ -2293,6 +2394,21 @@ impl Servers {
     }
 
     pub fn stop(&mut self, core_uuid: &str, server: ServerInstance, cx: &mut Context<Self>) {
+        self.power(core_uuid, server, Power::Stop, cx);
+    }
+
+    /// A power button on a server's row or page: Start, Stop, Restart or Kill.
+    pub fn power(
+        &mut self,
+        core_uuid: &str,
+        server: ServerInstance,
+        power: Power,
+        cx: &mut Context<Self>,
+    ) {
+        if power == Power::Start {
+            self.start(core_uuid, server, false, cx);
+            return;
+        }
         let Some(index) = self.core_index(core_uuid) else {
             return;
         };
@@ -2300,10 +2416,24 @@ impl Servers {
             return;
         };
         let row: RowKey = (core_uuid.to_string(), server.uuid.clone());
-        self.busy.insert(row.clone(), Busy::Stopping);
+        let restart = power == Power::Restart;
+        self.busy.insert(
+            row.clone(),
+            if restart {
+                Busy::Starting
+            } else {
+                Busy::Stopping
+            },
+        );
         let client = self.client(&self.cores[index]);
         let uuid = server.uuid.clone();
-        let work = cx.background_spawn(async move { client.stop(&key, &uuid).await });
+        let work = cx.background_spawn(async move {
+            match power {
+                Power::Restart => client.restart(&key, &uuid).await,
+                Power::Kill => client.kill(&key, &uuid).await,
+                _ => client.stop(&key, &uuid).await,
+            }
+        });
         let core_uuid = core_uuid.to_string();
         self.tasks.push(cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -2311,7 +2441,12 @@ impl Servers {
                 this.busy.remove(&row);
                 if let Err(err) = result {
                     let name = server.name.clone();
-                    this.fail_core(&core_uuid, move || tr!(M::StopFailed, name = name), err, cx);
+                    let message = if restart {
+                        M::StartFailed
+                    } else {
+                        M::StopFailed
+                    };
+                    this.fail_core(&core_uuid, move || tr!(message, name = name), err, cx);
                 }
                 if let Some(index) = this.core_index(&core_uuid) {
                     this.refresh(index, cx);
@@ -2391,6 +2526,12 @@ impl Servers {
 
     pub fn preview_busy(&mut self, core: &str, server: &str, busy: Busy) {
         self.busy.insert((core.into(), server.into()), busy);
+    }
+
+    /// The invite link a core told for one of its servers.
+    pub fn preview_share_link(&mut self, core: &str, server: &str, link: &str) {
+        self.share_links
+            .insert((core.into(), server.into()), link.into());
     }
 
     pub fn preview_notice(&mut self, title: &str, message: &str) {

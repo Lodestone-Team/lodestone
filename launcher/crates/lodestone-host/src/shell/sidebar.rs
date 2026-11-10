@@ -9,15 +9,15 @@ use launcher_core::cores::admin::{
     models::{CorePermission, GlobalSettingsData, InstancePermission},
 };
 use lodestone_ui::{
-    components::{Button, ButtonSize, ButtonVariant, Icon, ListRow, text_tooltip},
+    components::{Button, ButtonSize, ButtonVariant, Icon, ListRow, PowerButtons, text_tooltip},
     theme::{Color, colors, ink, px, radius, text, weights},
 };
 
 use super::HostShell;
 use crate::{
-    i18n::{CommonMsg, ShellMsg, t, tr},
+    i18n::{ShellMsg, t, tr},
     routes::{InstanceTab, ModSupport, Route, TabContext, mod_support},
-    state::{Connection, Creating, HostState, power_actions},
+    state::{Connection, Creating, HostState},
 };
 
 /// An instance's state, as the dashboard's status dots colour it.
@@ -39,15 +39,6 @@ pub fn state_name(state: InstanceState) -> &'static str {
         InstanceState::Error => ShellMsg::StateError,
         InstanceState::Unknown => ShellMsg::StateUnknown,
     })
-}
-
-pub fn power_name(power: Power) -> &'static str {
-    match power {
-        Power::Start => t(CommonMsg::Start),
-        Power::Stop => t(CommonMsg::Stop),
-        Power::Restart => t(ShellMsg::Restart),
-        Power::Kill => t(ShellMsg::Kill),
-    }
 }
 
 /// A tab's name for `instance`: "Mods" or "Plugins" by what it runs.
@@ -477,10 +468,9 @@ fn selected_card(
     let uuid = instance.uuid.clone();
     let atom_blocked =
         instance.is_atom() && (!me.is_owner || !state.info.capabilities.generic_instances);
-    let powers = power_actions(instance.state)
-        .iter()
-        .copied()
-        .filter(|power| {
+    let powers = {
+        let (uuid, me) = (uuid.clone(), me.clone());
+        PowerButtons::new("power", instance.state).allow(move |power| {
             let permission = match power {
                 Power::Start => InstancePermission::Start,
                 Power::Restart => InstancePermission::Start,
@@ -488,25 +478,16 @@ fn selected_card(
             };
             me.may(permission, &uuid) && !atom_blocked
         })
-        .map(|power| {
-            let uuid = uuid.clone();
-            Button::new(
-                gpui::SharedString::from(format!("power-{power:?}")),
-                power_name(power),
-            )
-            .size(ButtonSize::Slim)
-            .variant(match power {
-                Power::Start => ButtonVariant::Primary,
-                Power::Kill => ButtonVariant::Danger,
-                _ => ButtonVariant::Secondary,
-            })
-            .on_click(cx.listener(move |this, _, _, cx| {
-                let uuid = uuid.clone();
-                this.state
-                    .update(cx, |state, cx| state.power(&uuid, power, cx));
-            }))
-        })
-        .collect::<Vec<_>>();
+    };
+    let powers = {
+        let uuid = uuid.clone();
+        let press = cx.listener(move |this, power: &Power, _, cx| {
+            let (uuid, power) = (uuid.clone(), *power);
+            this.state
+                .update(cx, |state, cx| state.power(&uuid, power, cx));
+        });
+        powers.on_power(move |power, window, cx| press(&power, window, cx))
+    };
     // "Share" next to Start: opens the Overview, which starts sharing
     let share = (matches!(
         instance.game_type,
@@ -633,7 +614,7 @@ fn selected_card(
                             .flex()
                             .flex_wrap()
                             .gap(px(6.))
-                            .children(powers)
+                            .when(!powers.is_empty(), |this| this.child(powers))
                             .children(share),
                     )
                 }),

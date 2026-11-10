@@ -50,6 +50,9 @@ pub const SCENES: &[&str] = &[
     "servers-local-unclaimed",
     "servers-shared-local",
     "servers-shared-local-gone",
+    "servers-rows",
+    "servers-open-title",
+    "servers-history-back",
     "servers-friends",
     "servers-friends-relay",
     "servers-join-paste",
@@ -491,6 +494,7 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
             servers.preview(Vec::new(), Vec::new());
             super::friend_list::apply(scene, servers, cx);
         }
+        "servers-rows" | "servers-open-title" | "servers-history-back" => apply_rows(servers),
         "servers-shared-local" | "servers-shared-local-gone" => {
             apply_shared_local(scene == "servers-shared-local", servers)
         }
@@ -554,6 +558,27 @@ fn friend_entry(
 /// `here`), or the same once those cores stopped: their own Lodestone Host (connected
 /// as owner, so its card lists the server, which shows once there), a second Host they
 /// aren't the owner of here (under it in "On this computer"), and a friend's server.
+/// The rows of this computer's core: the Host's power buttons, names that open the
+/// servers' pages, and "Shared" with the invite link to copy, for Creative world,
+/// which runs and whose core told its link.
+fn apply_rows(servers: &mut Servers) {
+    apply_shared_local(true, servers);
+    for core in servers.cores.iter_mut().filter(|c| c.saved.uuid == "home") {
+        if let CoreStatus::Online(list) = &mut core.status {
+            for server in list.instances.iter_mut().filter(|s| s.uuid == "creative") {
+                server.state = ServerState::Running;
+                server.player_count = Some(2);
+                server.max_player_count = Some(10);
+            }
+        }
+    }
+    servers.preview_share_link(
+        "home",
+        "creative",
+        "https://connect.lodestone.cc/j/HMCRTV2345",
+    );
+}
+
 fn apply_shared_local(here: bool, servers: &mut Servers) {
     let (host, status, _) = local_home();
     let status = if here {
@@ -796,6 +821,15 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
     let servers = shell.servers().clone();
     servers.update(cx, |servers, cx| apply_servers(scene, servers, cx));
     shell.show(Page::Servers, cx);
+    // a server's page opened from its name, then the top bar's back arrow: Forward
+    // goes back to it
+    if scene == "servers-history-back" {
+        servers.update(cx, |servers, cx| {
+            servers.open_detail_by_id("home", "smp", cx)
+        });
+        shell.note_place(cx);
+        shell.go_back(cx);
+    }
     if scene == "servers-add" {
         servers.update(cx, |servers, cx| {
             servers.open_add(None, cx);

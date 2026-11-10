@@ -45,8 +45,6 @@ pub fn text(message: M) -> &'static str {
         M::StateStopped => "Arrêté",
         M::StateError => "Planté",
         M::StateUnknown => "Inconnu",
-        M::Restart => "Redémarrer",
-        M::Kill => "Forcer l’arrêt",
         M::PlayersOnline => "{online}/{max} joueurs",
         M::Connected => "Connecté",
         M::Connecting => "Connexion…",

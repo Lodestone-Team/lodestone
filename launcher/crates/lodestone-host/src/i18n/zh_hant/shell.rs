@@ -45,8 +45,6 @@ pub fn text(message: M) -> &'static str {
         M::StateStopped => "已停止",
         M::StateError => "已當機",
         M::StateUnknown => "未知",
-        M::Restart => "重新啟動",
-        M::Kill => "強制停止",
         M::PlayersOnline => "{online}/{max} 名玩家",
         M::Connected => "已連線",
         M::Connecting => "正在連線…",

@@ -98,11 +98,15 @@ pub fn text(message: M) -> &'static str {
         M::ReviewNewCertificate => "Approuver le nouveau certificat…",
         M::ReviewCertificate => "Approuver le certificat…",
 
-        M::Details => "Détails",
         M::CreateInstance => "Créer l’instance",
         M::StartAndJoin => "Démarrer et rejoindre",
         M::Play => "Jouer",
-        M::InstanceReady => "Instance prête",
+        M::SharedTag => "Partagé",
+        M::CopyInviteLink => "Copier le lien d’invitation",
+        M::InviteLinkCopied => "Lien d’invitation de {name} copié",
+        M::InviteLinkCopiedHint => {
+            "Toute personne qui l’a peut rejoindre tant que le serveur est partagé."
+        }
         M::AddressHidden => "Le propriétaire n’a pas partagé l’adresse de ce serveur.",
 
         M::StateStarting => "Démarrage",
