@@ -793,16 +793,7 @@ impl InstanceSettings {
             }
             Setting::JvmArgs => set(&self.fields.jvm_args, defaults.jvm_args.clone(), cx),
             Setting::GameArgs => set(&self.fields.game_args, defaults.game_args.clone(), cx),
-            Setting::Window => {
-                let window = defaults.window();
-                let (width, height) = window
-                    .resolution
-                    .map(|r| (r.width.to_string(), r.height.to_string()))
-                    .unwrap_or_default();
-                set(&self.fields.width, width, cx);
-                set(&self.fields.height, height, cx);
-                self.fields.fullscreen = window.fullscreen;
-            }
+            Setting::Window => self.fields.set_window(&defaults.window(), cx),
             Setting::Env => set(&self.fields.env, format_env(&defaults.env), cx),
         }
         cx.notify();
@@ -1789,6 +1780,25 @@ impl InstanceSettings {
     }
 
     /// Shows a Java check result, for the offscreen screenshots.
+    /// The instance's own window size, with its list open or a size of no name, on
+    /// Launch options, for the offscreen screenshots.
+    pub fn preview_window_size(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.overrides.window = true;
+        self.preview_section(t(M::LaunchOptions));
+        if open {
+            self.fields.size_menu_open = true;
+        } else {
+            self.fields.set_resolution(
+                Some(launcher_core::instances::Resolution {
+                    width: 1000,
+                    height: 700,
+                }),
+                cx,
+            );
+        }
+        cx.notify();
+    }
+
     pub fn preview_java(&mut self, version: &str, major: u32) {
         self.overrides.java = true;
         self.java_check = JavaCheck::Found(JavaInfo {
@@ -2415,33 +2425,18 @@ impl Render for InstanceSettings {
             sized(&self.fields.game_args, 280.),
             cx,
         );
-        let window = self
+        let window_row = self
             .default_row(
                 Setting::Window,
                 t(M::Window),
                 fields::window_label(&defaults.window()),
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(sized(&self.fields.width, 72.))
-                    .child("×")
-                    .child(sized(&self.fields.height, 72.))
-                    .child(
-                        div()
-                            .ml_2()
-                            .text_color(crate::theme::ink::secondary())
-                            .child(t(M::Fullscreen)),
-                    )
-                    .child(
-                        Toggle::new("fullscreen", self.fields.fullscreen)
-                            .label(t(M::Fullscreen))
-                            .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                this.fields.fullscreen = *value;
-                                cx.notify();
-                            })),
-                    ),
+                fields::window_controls(
+                    &self.fields,
+                    |this: &mut Self| &mut this.fields,
+                    "window",
+                    window,
+                    cx,
+                ),
                 cx,
             )
             .note_opt(window_check.map(|e| (e.into(), colors::RED_200)));
@@ -2465,7 +2460,7 @@ impl Render for InstanceSettings {
                 .child(card([
                     jvm.into_any_element(),
                     game_args.into_any_element(),
-                    window.into_any_element(),
+                    window_row.into_any_element(),
                     env.into_any_element(),
                 ]))
                 .into_any_element(),

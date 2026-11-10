@@ -163,6 +163,10 @@ pub const SCENES: &[&str] = &[
     "settings-narrow",
     "settings-narrow-open",
     "settings-unsaved",
+    "settings-window-sizes",
+    "settings-window-custom",
+    "instance-settings-window-sizes",
+    "instance-settings-window-custom",
     "settings-unsaved-prompt",
     "instance-settings-unsaved",
     "focus-dialog",
@@ -186,8 +190,9 @@ pub fn keystrokes(scene: &str) -> &'static [&'static str] {
         // The Remove dialog takes focus when it opens; Tab reaches its ×, Remove, then
         // Cancel.
         "focus-dialog" => &["tab", "tab", "tab"],
-        // Settings > Instance defaults: past Manage accounts, the seven pages and the
-        // four fields, to the Fullscreen switch. (The dialog's × comes last.)
+        // Settings > Instance defaults: past Manage accounts, the seven pages,
+        // automatic setup, the two memory fields and the window size list, to the
+        // Fullscreen switch. (The dialog's × comes last.)
         "focus-settings-row" => &[
             "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab", "tab",
             "tab",
@@ -539,6 +544,7 @@ fn has_instances(scene: &str) -> bool {
         || shared::is_scene(scene)
         || scene.starts_with("instance-settings-narrow")
         || scene == "instance-settings-unsaved"
+        || scene.starts_with("instance-settings-window")
         || scene.starts_with("import")
         || servers::has_instances(scene)
         || scene == "instance-linked"
@@ -1202,6 +1208,19 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.preview_unsaved_defaults(cx);
             if scene.ends_with("-prompt") {
                 shell.preview_unsaved_prompt(cx);
+            }
+        }
+        // Instance defaults' Window row: its size list open, and a size of no name
+        // (Custom, with the width and height).
+        "settings-window-sizes" | "settings-window-custom" => {
+            shell.open_settings(Some(crate::shell::SettingsPage::Defaults), None, cx);
+            shell.preview_window_size(scene.ends_with("-sizes"), cx);
+        }
+        "instance-settings-window-sizes" | "instance-settings-window-custom" => {
+            shell.select_tab(InstanceTab::Settings, cx);
+            if let Some(settings) = shell.settings_view().cloned() {
+                let open = scene.ends_with("-sizes");
+                settings.update(cx, |settings, cx| settings.preview_window_size(open, cx));
             }
         }
         "instance-settings-unsaved" => {

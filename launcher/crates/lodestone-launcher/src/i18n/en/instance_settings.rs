@@ -21,6 +21,17 @@ crate::i18n::messages! {
         /// {size} is "854 × 480" or "The game's default size".
         WindowFullscreen = "{size}, fullscreen",
         WindowSizeInvalid = "The window size needs a width and a height in pixels.",
+        /// The name of the list of window sizes, for assistive technology.
+        WindowSize = "Window size",
+        /// In the window size list: the size the game picks itself (854 × 480).
+        WindowSizeGameDefault = "Game default",
+        /// After a size in the window size list that is the size of this screen.
+        WindowSizeThisScreen = "This screen",
+        /// In the window size list: type a width and height.
+        WindowSizeCustom = "Custom",
+        /// The names of the width and height fields, for assistive technology.
+        WindowWidth = "Window width",
+        WindowHeight = "Window height",
         /// {error} is the problem, in English.
         EnvInvalid = "Environment variables: {error}",
         /// An example in the environment variables field.

@@ -17,7 +17,7 @@ use crate::{
     i18n::{CommonMsg, FormatMsg, ShellMsg as M, format, t, tr},
     instances::{
         Instances,
-        fields::{Fields, Values},
+        fields::{Fields, Values, window_controls},
     },
     theme::{self, colors, leading, text},
 };
@@ -152,6 +152,23 @@ impl LauncherSettings {
             .update(cx, |input, cx| input.set_text("-XX:+UseZGC", cx));
     }
 
+    /// Opens the window size list, or picks a size of no name, for the offscreen
+    /// screenshots.
+    pub fn preview_window_size(&mut self, open: bool, cx: &mut Context<Self>) {
+        if open {
+            self.fields.size_menu_open = true;
+        } else {
+            self.fields.set_resolution(
+                Some(launcher_core::instances::Resolution {
+                    width: 1000,
+                    height: 700,
+                }),
+                cx,
+            );
+        }
+        cx.notify();
+    }
+
     /// Puts the saved defaults back in the fields.
     pub fn discard(&mut self, cx: &mut Context<Self>) {
         crate::undo::forget_form(cx.entity_id(), cx);
@@ -282,7 +299,7 @@ impl LauncherSettings {
 }
 
 impl Render for LauncherSettings {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.track_edits(cx);
         let total = self.instances.read(cx).total_memory();
         let memory_check = self.fields.memory(total, cx);
@@ -333,23 +350,13 @@ impl Render for LauncherSettings {
                     )
                     .into_any_element(),
                 SettingRow::new(t(M::Window))
-                    .child(sized(&self.fields.width, 72.))
-                    .child("×")
-                    .child(sized(&self.fields.height, 72.))
-                    .child(
-                        div()
-                            .ml_2()
-                            .text_color(crate::theme::ink::secondary())
-                            .child(t(M::Fullscreen)),
-                    )
-                    .child(
-                        Toggle::new("default-fullscreen", self.fields.fullscreen)
-                            .label(t(M::Fullscreen))
-                            .on_change(cx.listener(|this, value: &bool, _, cx| {
-                                this.fields.fullscreen = *value;
-                                cx.notify();
-                            })),
-                    )
+                    .child(window_controls(
+                        &self.fields,
+                        |this: &mut Self| &mut this.fields,
+                        "default-window",
+                        window,
+                        cx,
+                    ))
                     .note_opt(window_error.map(|e| (e.into(), colors::RED_200)))
                     .into_any_element(),
                 SettingRow::new(t(M::JvmArguments))

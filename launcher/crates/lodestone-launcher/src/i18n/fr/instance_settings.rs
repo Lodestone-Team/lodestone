@@ -20,6 +20,12 @@ pub fn text(message: M) -> &'static str {
         M::WindowSizeInvalid => {
             "La taille de la fenêtre demande une largeur et une hauteur en pixels."
         }
+        M::WindowSize => "Taille de la fenêtre",
+        M::WindowSizeGameDefault => "Par défaut du jeu",
+        M::WindowSizeThisScreen => "Cet écran",
+        M::WindowSizeCustom => "Personnalisée",
+        M::WindowWidth => "Largeur de la fenêtre",
+        M::WindowHeight => "Hauteur de la fenêtre",
         M::EnvInvalid => "Variables d’environnement\u{a0}: {error}",
         M::EnvPlaceholder => "NOM=valeur",
 
