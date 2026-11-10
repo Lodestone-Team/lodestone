@@ -849,7 +849,7 @@ fn on_enter(
     div()
         .on_key_down(move |event: &KeyDownEvent, _, cx| {
             if event.keystroke.key == "enter" {
-                enter.update(cx, |this, cx| submit(this, cx));
+                enter.update(cx, submit);
                 cx.stop_propagation();
             }
         })

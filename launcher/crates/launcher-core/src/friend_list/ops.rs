@@ -142,13 +142,12 @@ impl Friends {
         let Some(link) = removed else {
             return Ok(());
         };
-        if let Ok(invitation) = Invitation::from_json(&link.invitation) {
-            if let Some(secret) = invitation.mailbox_secret.clone() {
-                let service = invitation.link.service.clone();
-                let code = link.code.clone();
-                let _ =
-                    on_tokio(move || async move { service.pair_close(&code, &secret).await }).await;
-            }
+        if let Ok(invitation) = Invitation::from_json(&link.invitation)
+            && let Some(secret) = invitation.mailbox_secret.clone()
+        {
+            let service = invitation.link.service.clone();
+            let code = link.code.clone();
+            let _ = on_tokio(move || async move { service.pair_close(&code, &secret).await }).await;
         }
         Ok(())
     }
