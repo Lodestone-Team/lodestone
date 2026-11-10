@@ -165,7 +165,14 @@ crate::i18n::messages! {
         PlayersNone = "No players online",
         /// Share with friends (Lodestone Connect).
         ShareTitle = "Share with friends",
-        ShareLead = "Friends join from Lodestone Launcher with a link",
+        ShareLead = "Pick friends from your friend list, or send anyone a link",
+        /// Above the friends to tick on the Overview's "Share with friends".
+        ShareFriendsHeading = "Your friends",
+        ShareFriendsNote = "No link needed. They see this server in Lodestone Launcher, under your name, while it runs.",
+        /// When there are no friends to tick yet.
+        ShareFriendsNone = "Add friends in Lodestone Launcher (Lodestone Host page, Friends) to share with them without a link.",
+        /// Above the invite link part, under the friends.
+        ShareLinkHeading = "Or send an invite link",
         ShareOff = "Send friends a link. They open it in Lodestone Launcher, and their game connects straight to this computer. No port forwarding needed.",
         ShareStart = "Share with friends",
         ShareStarting = "Starting…",

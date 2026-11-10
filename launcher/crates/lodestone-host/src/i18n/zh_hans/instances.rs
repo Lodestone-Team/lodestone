@@ -162,7 +162,15 @@ pub fn text(message: M) -> &'static str {
         M::PlayersLinkedUser => "关联此 Minecraft 账户的 Lodestone 用户",
         M::PlayersNone => "没有在线玩家",
         M::ShareTitle => "与好友共享",
-        M::ShareLead => "好友通过链接在 Lodestone Launcher 中加入",
+        M::ShareLead => "从好友列表中选择好友，或给任何人发送链接",
+        M::ShareFriendsHeading => "你的好友",
+        M::ShareFriendsNote => {
+            "无需链接。服务器运行时，他们会在 Lodestone Launcher 中你的名字下看到这个服务器。"
+        }
+        M::ShareFriendsNone => {
+            "在 Lodestone Launcher 中添加好友（Lodestone Host 页面的“好友”），即可无需链接与他们共享。"
+        }
+        M::ShareLinkHeading => "或发送邀请链接",
         M::ShareOff => {
             "把链接发给好友。他们在 Lodestone Launcher 中打开后，游戏会直接连接到这台电脑，无需端口转发。"
         }

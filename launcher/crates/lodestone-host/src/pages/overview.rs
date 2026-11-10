@@ -33,6 +33,7 @@ use lodestone_ui::{
 };
 
 use crate::{
+    friends::Phase,
     i18n::{CommonMsg, InstancesMsg as M, InstancesPlural as P, t, tr, trn},
     instance_icons,
     shell::sidebar::{instance_address, state_color, state_name},
@@ -118,7 +119,7 @@ impl OverviewPage {
                 false
             }
         });
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.observe(&state, |this, state, cx| {
                 // the sidebar's Share while this Overview is open
                 let requested = state.read(cx).share_requested.as_deref() == Some(&this.uuid);
@@ -135,6 +136,10 @@ impl OverviewPage {
                 }
             }),
         ];
+        // the friends to share with, in "Share with friends"
+        if let Some(friends) = state.read(cx).friends.clone() {
+            subscriptions.push(cx.observe(&friends, |_, _, cx| cx.notify()));
+        }
         let share = cx
             .try_global::<ShareCache>()
             .and_then(|cache| cache.0.get(&uuid).cloned());
@@ -254,7 +259,9 @@ impl OverviewPage {
                                 this.share = Some(share);
                                 if this.share_on_load {
                                     this.share_on_load = false;
-                                    if !this.share.as_ref().is_some_and(|s| s.sharing) {
+                                    if !this.share.as_ref().is_some_and(|s| s.sharing)
+                                        && !this.has_friends_to_pick(cx)
+                                    {
                                         this.start_share(cx);
                                     }
                                 }
@@ -280,12 +287,25 @@ impl OverviewPage {
 
     /// Starts sharing unless the server is shared already; before the first answer
     /// about sharing, once it comes.
+    /// The sidebar's Share: starts the invite link, unless there are friends to tick
+    /// in "Share with friends" instead (the person picks there, or starts the link).
     fn request_share(&mut self, cx: &mut Context<Self>) {
+        if self.has_friends_to_pick(cx) {
+            return;
+        }
         match &self.share {
             Some(share) if share.sharing => {}
             Some(_) => self.start_share(cx),
             None => self.share_on_load = true,
         }
+    }
+
+    /// Whether "Share with friends" lists friends to share with without a link.
+    fn has_friends_to_pick(&self, cx: &App) -> bool {
+        self.state.read(cx).friends.as_ref().is_some_and(|sharing| {
+            let sharing = sharing.read(cx);
+            sharing.phase == Phase::Ready && !sharing.rows.is_empty()
+        })
     }
 
     fn start_share(&mut self, cx: &mut Context<Self>) {
@@ -547,6 +567,23 @@ pub fn share_poll_interval(share: &InstanceShare) -> Option<Duration> {
 }
 
 /// A section's title and the line under it.
+/// A part's title inside the "Share with friends" card.
+fn subheading(title: &'static str) -> gpui::Div {
+    div()
+        .text_size(text::MEDIUM)
+        .font_weight(weights::MEDIUMBOLD.face())
+        .text_color(ink::text())
+        .child(title)
+}
+
+/// A small grey line inside the "Share with friends" card.
+fn share_note(text_: &'static str) -> gpui::Div {
+    div()
+        .text_size(text::SMALL)
+        .text_color(colors::GRAY_500)
+        .child(text_)
+}
+
 fn heading(title: &'static str, lead: &'static str) -> AnyElement {
     div()
         .flex()
@@ -984,15 +1021,75 @@ impl OverviewPage {
                 )
                 .into_any_element()
         };
+        let friends = self.share_friends(cx);
         Some(
             div()
                 .flex()
                 .flex_col()
                 .gap(px(16.))
                 .child(heading(t(M::ShareTitle), t(M::ShareLead)))
-                .child(card().child(body))
+                .child(
+                    card()
+                        .when_some(friends, |card, friends| {
+                            card.child(friends).child(
+                                div()
+                                    .pt(px(16.))
+                                    .border_t_1()
+                                    .border_color(colors::GRAY_FADED.opacity(30))
+                                    .child(subheading(t(M::ShareLinkHeading))),
+                            )
+                        })
+                        .child(body),
+                )
                 .into_any_element(),
         )
+    }
+
+    /// The friends from the friend list, each to tick to share this server with them
+    /// without a link (as on the Settings tab), or how to add some. `None` while
+    /// friend sharing isn't set up on this computer (the Settings tab says why).
+    fn share_friends(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let sharing = self.state.read(cx).friends.clone()?;
+        let phase = sharing.read(cx).phase;
+        let rows = crate::pages::friend_sharing::friend_rows(&sharing, &self.uuid, cx);
+        let none = match phase {
+            Phase::Ready if rows.is_empty() => true,
+            Phase::Ready => false,
+            Phase::NeedsLauncher => true,
+            _ => return None,
+        };
+        let block = div()
+            .id("share-friends")
+            .flex()
+            .flex_col()
+            .gap(px(8.))
+            .pb(px(16.))
+            .child(subheading(t(M::ShareFriendsHeading)));
+        Some(if none {
+            block
+                .child(share_note(t(M::ShareFriendsNone)))
+                .into_any_element()
+        } else {
+            block
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .rounded(radius::DEFAULT)
+                        .border_1()
+                        .border_color(colors::GRAY_FADED.opacity(30))
+                        .children(rows.into_iter().enumerate().map(|(i, row)| {
+                            div()
+                                .when(i > 0, |this| {
+                                    this.border_t_1()
+                                        .border_color(colors::GRAY_FADED.opacity(30))
+                                })
+                                .child(row)
+                        })),
+                )
+                .child(share_note(t(M::ShareFriendsNote)))
+                .into_any_element()
+        })
     }
 
     fn stop_dialog(&self, prompt: &StopPrompt, cx: &mut Context<Self>) -> AnyElement {

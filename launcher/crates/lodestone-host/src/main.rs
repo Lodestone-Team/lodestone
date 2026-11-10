@@ -123,7 +123,11 @@ mod screenshot {
                 .into_iter()
                 .find(|tab| format!("{tab:?}").eq_ignore_ascii_case(&name))
         });
-        let select_first = tab.is_some() || std::env::args().any(|arg| arg == "--select-first");
+        // `--fake-instance`: a made-up running server in the list, for pages that need
+        // one, on a core that has none
+        let fake_instance = std::env::args().any(|arg| arg == "--fake-instance");
+        let select_first =
+            tab.is_some() || fake_instance || std::env::args().any(|arg| arg == "--select-first");
         let toasts = std::env::args().any(|arg| arg == "--toasts");
         let demo = std::env::args().any(|arg| arg == "--demo");
         let share = std::env::args().any(|arg| arg == "--share");
@@ -137,6 +141,24 @@ mod screenshot {
             cx.background_executor()
                 .timer(Duration::from_secs(wait))
                 .await;
+            if fake_instance {
+                window
+                    .update(cx, |app, _, cx| {
+                        let state = app.shell()?.read(cx).state.clone();
+                        let info = serde_json::from_value(serde_json::json!({
+                            "uuid": "fake-smp", "name": "Survival SMP", "port": 25565,
+                            "state": "Running", "version": "1.21.4",
+                            "game_type": { "type": "MinecraftJava", "variant": { "type": "Fabric" } },
+                        }))
+                        .ok()?;
+                        state.update(cx, |state, cx| {
+                            state.instances.get_or_insert_with(Vec::new).push(info);
+                            cx.notify();
+                        });
+                        Some(())
+                    })
+                    .ok();
+            }
             if select_first {
                 window
                     .update(cx, |app, _, cx| app.select_first_instance(cx))
