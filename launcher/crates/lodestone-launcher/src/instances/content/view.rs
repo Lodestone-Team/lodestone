@@ -870,7 +870,15 @@ impl ContentView {
                     .min_w_0()
                     .when(page && !inner, |this| {
                         let name = name.clone();
-                        this.cursor_pointer().on_click(
+                        // A button for the keyboard and screen readers too.
+                        this.accessible(
+                            Role::Button,
+                            format!("{}-open-{name}", kind.dir()),
+                            tr!(M::ShowPageOf, name = row_name.clone()),
+                        )
+                        .keyboard_focus()
+                        .cursor_pointer()
+                        .on_press(
                             cx.listener(move |this, _, _, cx| this.open_item_page(kind, &name, cx)),
                         )
                     })
@@ -1036,7 +1044,8 @@ impl ContentView {
                                 })),
                         )
                     })
-                    .when(page, |this| {
+                    // A shader row's click selects the pack, so its page has a button.
+                    .when(page && inner, |this| {
                         let name = name.clone();
                         this.child(
                             IconButton::new(("modrinth-page", id_base), Icon::CircleInfo)
