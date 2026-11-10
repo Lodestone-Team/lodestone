@@ -82,6 +82,7 @@ pub const SCENES: &[&str] = &[
     "play-press-neon",
     "play-press-bright",
     "play-press-overrides",
+    "play-press-server",
     "playing",
     "launching",
     "logs",
@@ -503,6 +504,7 @@ fn has_instances(scene: &str) -> bool {
             | "play-press-neon"
             | "play-press-bright"
             | "play-press-overrides"
+            | "play-press-server"
             | "playing"
             | "launching"
             | "offer-main"
@@ -1237,6 +1239,24 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             shell.open_settings(Some(crate::shell::SettingsPage::Developer), None, cx);
         }
         "play-press-bright" => use_bright_skin(shell, cx),
+        // an instance made for a server: Play joins it, "Play without joining" under it
+        "play-press-server" => {
+            let selected = shell.instances().read(cx).selected().map(|i| i.id.clone());
+            if let Some(selected) = selected {
+                let link = (
+                    format!(
+                        "{}preview",
+                        launcher_core::cores::friends::FRIEND_LIST_PREFIX
+                    ),
+                    "My Server".to_string(),
+                    selected,
+                );
+                shell
+                    .servers()
+                    .clone()
+                    .update(cx, |servers, _| servers.preview(Vec::new(), vec![link]));
+            }
+        }
         "play-press-grassblock"
         | "play-press-glass"
         | "play-press-neon"

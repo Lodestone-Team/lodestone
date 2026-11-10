@@ -484,11 +484,15 @@ fn play_bar(
         .or(resolved.progress)
         .or(resolved.play.color)
         .map(|c| launcher_core::ui_skin::readable::suggest(c, magnet.backdrop, 3.0));
+    // a dimmed (disabled) button melts from its dimmed look
+    let dimmed = matches!(state, PlayButtonState::Disabled);
     // how far a launch has come, for the filings around Play
     let launch = match &state {
         PlayButtonState::Preparing { step, fraction, .. } => Some(step.overall(*fraction)),
         _ => None,
     };
+    // the button writes where it is, for the filings to melt from it alone
+    let anchor = crate::components::MagnetAnchor::default();
     let magnet_id =
         SharedString::from(format!("play-magnet-{}", id.as_deref().unwrap_or_default()));
     div()
@@ -518,6 +522,7 @@ fn play_bar(
                     .gap_1()
                     .child(
                         PlayButton::new("play")
+                            .anchor(anchor.clone())
                             .state(state)
                             .look(resolved.play, progress)
                             .layer(resolved.play_layer)
@@ -549,6 +554,8 @@ fn play_bar(
             )
             .launch(launch)
             .look(magnet)
+            .anchor(anchor)
+            .dimmed(dimmed)
             // to the bar's edges, past its padding
             .bleed(40., 12.),
         )
