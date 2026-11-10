@@ -513,8 +513,8 @@ loopback, broadcast and similar addresses.
 
 In the clients: a missing or retired friend file could be written again with keys the
 Keychain no longer had, and the Host could empty its core because the file was gone
-(now changes stop, and only a retired identity empties a core); the file lock was a
-lock file a crash could leave behind (now an operating system lock); a stolen key could
+(now changes stop, and only a retired identity empties a core); two apps could both
+take over a stale lock file (now an operating system lock); a stolen key could
 number a state so high that the owner's later states looked older (now refused past a
 day ahead); a retired core came back on the next sync, and there was no way to give a
 core a new certificate (now **Retire**, `friend-list retire-core`, and the Host's
