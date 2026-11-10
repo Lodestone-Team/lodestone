@@ -40,6 +40,11 @@ enum Kind {
 }
 
 impl Mapping {
+    /// The address on the local network the router forwards to.
+    pub fn local_ip(&self) -> Ipv4Addr {
+        self.local_ip
+    }
+
     /// Asks the router for another [`LEASE_SECS`].
     pub fn renew(&self) -> Result<(), String> {
         match &self.kind {

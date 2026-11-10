@@ -16,7 +16,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
-    net::{IpAddr, SocketAddr, UdpSocket},
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
@@ -36,7 +36,7 @@ use super::{
 };
 use crate::{
     addr::{canonical, ConnectionKind},
-    gather::{self, Candidate, GatherOptions},
+    gather::{self, Candidate, CandidateKind, GatherOptions},
     hex,
     host::{HostState, MAX_FRIENDS, MAX_SPRAYS, MAX_UNPROVEN},
     portmap, probe,
@@ -51,8 +51,9 @@ pub const ALLOW_FOR: Duration = Duration::from_secs(120);
 const SPRAY_FOR: Duration = Duration::from_secs(60);
 /// Records are renewed at least this often, well within [`meet::RECORD_MAX_AGE_SECS`].
 const RENEW_AT_MOST: Duration = Duration::from_secs(6 * 60 * 60);
-/// How often the router's forwarding is renewed (it lasts an hour).
-const PORTMAP_EVERY: Duration = Duration::from_secs(20 * 60);
+/// How often the host collects its addresses again (publishing them if they changed)
+/// and renews the router's forwarding (which lasts an hour).
+const REFRESH_EVERY: Duration = Duration::from_secs(10 * 60);
 /// How long a stream has to send its header.
 const HEADER_WITHIN: Duration = Duration::from_secs(10);
 /// How long a new connection has to finish its handshake and say hello. Until then it
@@ -299,7 +300,8 @@ struct Shared {
     status: Mutex<FriendHostStatus>,
     changed: watch::Sender<u64>,
     mapping: Mutex<Option<portmap::Mapping>>,
-    candidates: Vec<SocketAddr>,
+    /// The addresses the records carry. Collected again every [`REFRESH_EVERY`].
+    candidates: Mutex<Vec<SocketAddr>>,
 }
 
 impl Shared {
@@ -468,6 +470,14 @@ impl FriendHost {
         let gathered = gather::gather_async(config.gather).await?;
         let candidates = gathered.addrs();
         let sprayer = gathered.socket.try_clone()?;
+        let stunner = gathered.socket.try_clone()?;
+        let lan_v4 = gathered.candidates.iter().find_map(|c| match c {
+            Candidate {
+                kind: CandidateKind::LocalNetwork,
+                addr: SocketAddr::V4(addr),
+            } => Some(*addr.ip()),
+            _ => None,
+        });
         let shared = Arc::new(Shared {
             fingerprint: identity.fingerprint(),
             service: config.service,
@@ -487,19 +497,26 @@ impl FriendHost {
             }),
             changed: watch::channel(0).0,
             mapping: Mutex::new(gathered.mapping),
-            candidates,
+            candidates: Mutex::new(candidates),
         });
         let admit = {
             let shared = shared.clone();
             Arc::new(move |ip| shared.may_reach(ip))
         };
-        let endpoint = Gate::endpoint(gathered.socket, server, admit)?;
+        let (endpoint, gate) = Gate::endpoint(gathered.socket, server, admit)?;
         let (stop, stop_rx) = watch::channel(false);
         let handler: Arc<dyn FriendHandler> = Arc::new(handler);
         let tasks = vec![
             tokio::spawn(accept_loop(endpoint.clone(), shared.clone(), handler)),
             tokio::spawn(service_loop(shared.clone(), sprayer, stop_rx.clone())),
-            tokio::spawn(portmap_loop(shared.clone(), stop_rx)),
+            tokio::spawn(refresh_loop(
+                shared.clone(),
+                gate,
+                stunner,
+                config.gather,
+                lan_v4,
+                stop_rx,
+            )),
         ];
         Ok(FriendHost {
             shared,
@@ -632,13 +649,14 @@ fn records(
     HashMap<[u8; ID_LEN], PublicKey>,
     Duration,
 ) {
+    let candidates = shared.candidates.lock().expect("not poisoned").clone();
     let friends = shared.friends.lock().expect("not poisoned");
     let mut records = Vec::new();
     let mut index = HashMap::new();
     let mut renew = RENEW_AT_MOST;
     for (key, secret) in friends.iter() {
         for lookup in meet::publish_lookups(secret, now) {
-            match meet::seal_record(secret, &lookup, &shared.candidates, now) {
+            match meet::seal_record(secret, &lookup, &candidates, now) {
                 Ok(sealed) => {
                     index.insert(lookup, *key);
                     records.push((lookup, sealed));
@@ -867,22 +885,116 @@ async fn wait_or_stop(
     *backoff = (*backoff * 2).min(Duration::from_secs(60));
 }
 
-async fn portmap_loop(shared: Arc<Shared>, mut stop: watch::Receiver<bool>) {
+/// Every [`REFRESH_EVERY`], collects this computer's addresses again and renews the
+/// router's forwarding ([`refresh`]).
+async fn refresh_loop(
+    shared: Arc<Shared>,
+    gate: Arc<Gate>,
+    socket: UdpSocket,
+    options: GatherOptions,
+    mut lan_v4: Option<Ipv4Addr>,
+    mut stop: watch::Receiver<bool>,
+) {
+    if options.loopback_only {
+        return;
+    }
+    let socket = Arc::new(socket);
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(PORTMAP_EVERY) => {}
+            _ = tokio::time::sleep(REFRESH_EVERY) => {}
             _ = stop.changed() => return,
         }
-        let shared = shared.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            if let Some(mapping) = shared.mapping.lock().expect("not poisoned").as_ref() {
-                if let Err(err) = mapping.renew() {
-                    tracing::debug!("friends: couldn't renew the router's forwarding: {err}");
-                }
-            }
+        let (shared, gate, socket, stop) =
+            (shared.clone(), gate.clone(), socket.clone(), stop.clone());
+        match tokio::task::spawn_blocking(move || {
+            refresh(&shared, &gate, &socket, options, lan_v4, &stop)
         })
-        .await;
+        .await
+        {
+            Ok(now) => lan_v4 = now,
+            Err(_) => return,
+        }
     }
+}
+
+/// Collects this computer's addresses again: its network or public address may have
+/// changed since the host started. Renews the router's forwarding, or asks for it again
+/// when renewing fails or this computer is on another network now (`lan_v4` was its
+/// address on the local network). Publishes the records again if the addresses changed.
+/// Returns the address on the local network now. Blocking.
+fn refresh(
+    shared: &Shared,
+    gate: &Gate,
+    socket: &UdpSocket,
+    options: GatherOptions,
+    lan_v4: Option<Ipv4Addr>,
+    stop: &watch::Receiver<bool>,
+) -> Option<Ipv4Addr> {
+    let Ok(port) = socket.local_addr().map(|addr| addr.port()) else {
+        return lan_v4;
+    };
+    let found = gather::addresses(port, |server, v6| gate.mapped_address(socket, server, v6));
+    let old = shared.mapping.lock().expect("not poisoned").take();
+    let mapping = match (old, found.lan_v4) {
+        (Some(old), Some(lan)) if old.local_ip() == lan => match old.renew() {
+            Ok(()) => Some(old),
+            Err(err) => {
+                tracing::debug!("friends: couldn't renew the router's forwarding: {err}");
+                old.remove();
+                gather::forward(port, lan)
+            }
+        },
+        // on another network now
+        (Some(old), lan) => {
+            old.remove();
+            lan.and_then(|lan| gather::forward(port, lan))
+        }
+        (None, Some(lan)) if options.portmap && found.lan_v4 != lan_v4 => {
+            gather::forward(port, lan)
+        }
+        (None, _) => None,
+    };
+    let mut candidates = found.candidates;
+    if let Some(mapping) = &mapping {
+        gather::add(
+            &mut candidates,
+            mapping.external,
+            CandidateKind::RouterForwarded,
+        );
+    }
+    {
+        // `stop` says so before the host takes the mapping to remove it: if it hasn't,
+        // the host will find this one.
+        let mut slot = shared.mapping.lock().expect("not poisoned");
+        if *stop.borrow() {
+            drop(slot);
+            if let Some(mapping) = mapping {
+                mapping.remove();
+            }
+            return found.lan_v4;
+        }
+        *slot = mapping;
+    }
+    // offline for now: keep the old addresses
+    if candidates.is_empty() {
+        return found.lan_v4;
+    }
+    let addrs: Vec<SocketAddr> = candidates.iter().map(|c| c.addr).collect();
+    let changed = {
+        let mut current = shared.candidates.lock().expect("not poisoned");
+        let changed = *current != addrs;
+        *current = addrs;
+        changed
+    };
+    shared.update(|status| {
+        status.candidates = candidates;
+        status.symmetric_nat = found.symmetric;
+    });
+    if changed {
+        tracing::debug!("friends: this computer's addresses changed; publishing them again");
+        shared.generation.send_modify(|n| *n += 1);
+    }
+    found.lan_v4
 }
 
 // ---------------------------------------------------------------------------
@@ -1085,7 +1197,7 @@ pub(crate) mod tests {
             }),
             changed: watch::channel(0).0,
             mapping: Mutex::new(None),
-            candidates: Vec::new(),
+            candidates: Mutex::new(Vec::new()),
         })
     }
 
