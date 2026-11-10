@@ -14,7 +14,7 @@ import { BrowserLocationContext } from 'data/BrowserLocationContext';
 import { Outlet } from 'react-router';
 import ConfirmDialog from 'components/Atoms/ConfirmDialog';
 import { Popover } from '@headlessui/react';
-import { DEFAULT_LOCAL_CORE, isLocalCore } from 'utils/util';
+import { DEFAULT_LOCAL_CORE, isLocalCore, isLocalOnlyError } from 'utils/util';
 import { LodestoneContext } from 'data/LodestoneContext';
 import { major, minor, patch, valid, eq } from 'semver';
 import { toast } from 'react-toastify';
@@ -33,7 +33,13 @@ export default function DashboardLayout() {
     useContext(LodestoneContext);
   const [showSetupPrompt, setShowSetupPrompt] = useState(false);
   const [showLocalSetupPrompt, setShowLocalSetupPrompt] = useState(false);
-  const { data: coreInfo, isPending: coreInfoLoading } = useCoreInfo();
+  const {
+    data: coreInfo,
+    isPending: coreInfoLoading,
+    error: coreInfoError,
+  } = useCoreInfo();
+  // the core answered, but only allows apps on its own computer
+  const localOnly = isLocalOnlyError(coreInfoError);
   // look for a new local core only if it's reachable and not the current core
   const { data: localCoreInfo } = useLocalCoreInfo(
     canReachLocalCore() && !isLocalCore(core)
@@ -195,7 +201,9 @@ export default function DashboardLayout() {
       </ConfirmDialog>
       <ConfirmDialog
         isOpen={showCoreErrorModal}
-        title={t('shell.coreError.title')}
+        title={
+          localOnly ? t('shell.localOnly.title') : t('shell.coreError.title')
+        }
         type="info"
         z-index="20"
         confirmButtonText={t('shell.coreError.back')}
@@ -207,9 +215,11 @@ export default function DashboardLayout() {
           window.location.reload();
         }}
       >
-        {t('shell.coreError.body', {
-          address: `${core.address}:${core.port}`,
-        })}
+        {localOnly
+          ? t('common.localOnly')
+          : t('shell.coreError.body', {
+              address: `${core.address}:${core.port}`,
+            })}
       </ConfirmDialog>
       <div className="flex h-screen flex-col">
         <TopNav />

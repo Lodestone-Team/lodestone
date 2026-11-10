@@ -84,6 +84,27 @@ impl AdminClient {
         .await
     }
 
+    /// `PUT /user/owner_account`: gives the owner, who has no password yet (Lodestone
+    /// Host's first run), a username and a password, and lets other devices use the
+    /// core. Only once, and only signed in (not with an API key). Returns the owner.
+    pub async fn set_up_owner_account(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<PublicUser, CoreError> {
+        #[derive(Serialize)]
+        struct Body<'a> {
+            username: &'a str,
+            password: &'a str,
+        }
+        self.json(
+            Method::PUT,
+            "user/owner_account",
+            Some(Body { username, password }),
+        )
+        .await
+    }
+
     /// `PUT /user/{uid}/update_perm`: the user's whole permission set.
     pub async fn set_permissions(
         &self,
@@ -484,6 +505,7 @@ mod tests {
                 can_read_global_file: true,
                 ..Default::default()
             },
+            has_password: true,
         };
         assert!(Permission::StopInstance.grantable_by(&user, Some("a")));
         assert!(!Permission::StopInstance.grantable_by(&user, Some("b")));

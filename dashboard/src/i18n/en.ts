@@ -347,6 +347,11 @@ export const en = {
   'shell.login.passwordRequired': 'Password is required',
   'shell.login.changeCore': 'Change Core',
   'shell.login.signIn': 'Sign in',
+  'common.localOnly':
+    'This core only allows apps on its own computer. Open Lodestone Host on that computer to manage it, or set up an owner account there (Settings › General › Allow access from other devices) to use the dashboard.',
+  'shell.localOnly.title': 'This core only allows its own computer',
+  'shell.login.localOnly':
+    'This core only allows apps on this computer. Open Lodestone Host to manage it, or set an owner password there (Settings › General › Allow access from other devices) to use the dashboard.',
 
   // CoreConnect: adding a core
   'shell.login.withApiKey': 'Sign in with an API key',

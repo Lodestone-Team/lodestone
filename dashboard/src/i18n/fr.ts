@@ -279,6 +279,11 @@ export const fr: Messages = {
   'shell.login.passwordRequired': 'Le mot de passe est obligatoire',
   'shell.login.changeCore': 'Changer de core',
   'shell.login.signIn': 'Se connecter',
+  'common.localOnly':
+    'Ce core n’autorise que les applications de son propre ordinateur. Ouvrez Lodestone Host sur cet ordinateur pour le gérer, ou configurez-y un compte propriétaire (Paramètres › Général › Autoriser l’accès depuis d’autres appareils) pour utiliser le tableau de bord.',
+  'shell.localOnly.title': 'Ce core n’autorise que son propre ordinateur',
+  'shell.login.localOnly':
+    'Ce core n’autorise que les applications de cet ordinateur. Ouvrez Lodestone Host pour le gérer, ou définissez-y un mot de passe propriétaire (Paramètres › Général › Autoriser l’accès depuis d’autres appareils) pour utiliser le tableau de bord.',
 
   'shell.login.withApiKey': 'Se connecter avec une clé d’API',
   'shell.login.withPassword':

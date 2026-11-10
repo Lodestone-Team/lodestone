@@ -31,6 +31,7 @@ use lodestone_ui::{
 };
 
 use super::{
+    account_dialogs::{self, AccountDialog, AccountDialogEvent},
     parts::{self, Confirm},
     permissions,
 };
@@ -105,6 +106,9 @@ pub struct ApiKeysSection {
     revoking: DialogSlot<Self, Revoking>,
     create: DialogSlot<Self, Entity<CreateKeyDialog>>,
     created: DialogSlot<Self, Created>,
+    /// The owner account to set up before the first key: keys are for other devices
+    /// and scripts, which sign in remotely.
+    owner_account: DialogSlot<Self, Entity<AccountDialog>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -129,6 +133,7 @@ impl ApiKeysSection {
             revoking: DialogSlot::new(|this: &mut Self| &mut this.revoking),
             create: DialogSlot::new(|this: &mut Self| &mut this.create),
             created: DialogSlot::new(|this: &mut Self| &mut this.created),
+            owner_account: DialogSlot::new(|this: &mut Self| &mut this.owner_account),
             _subscriptions: vec![subscription],
         };
         this.load(cx);
@@ -197,6 +202,25 @@ impl ApiKeysSection {
 
     fn open_create(&mut self, cx: &mut Context<Self>) {
         let state = self.state.clone();
+        if account_dialogs::needs_owner_account(state.read(cx)) {
+            let (dialog, subscription) = account_dialogs::open(
+                move |cx| AccountDialog::owner_account(state, cx),
+                |this: &mut Self, dialog, event, cx| {
+                    if this.owner_account.current() != Some(dialog) {
+                        return;
+                    }
+                    this.owner_account.close(cx);
+                    // on to the key it was for
+                    if matches!(event, AccountDialogEvent::OwnerSetUp(_)) {
+                        this.open_create(cx);
+                    }
+                },
+                cx,
+            );
+            self._subscriptions.push(subscription);
+            self.owner_account.open(dialog, cx);
+            return;
+        }
         let dialog = cx.new(|cx| CreateKeyDialog::new(state, cx));
         self._subscriptions
             .push(cx.subscribe(&dialog, |this, dialog, event, cx| {
@@ -469,6 +493,10 @@ impl Render for ApiKeysSection {
         dialogs.extend(
             self.created
                 .render(window, |created| Some(self.render_created(created, cx))),
+        );
+        dialogs.extend(
+            self.owner_account
+                .render(window, |dialog| Some(dialog.clone().into_any_element())),
         );
         div()
             .flex()

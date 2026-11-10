@@ -312,6 +312,22 @@ crate::i18n::messages! {
         SignIn = "Sign in",
         RemoveCore = "Remove",
         RemoteSignedOut = "You were signed out of {name}. Lodestone Host is back on this computer’s core.",
+        /// Settings › General: whether other devices may use the core.
+        RemoteAccess = "Allow access from other devices",
+        RemoteAccessHintOff = "Off: only apps on this computer can use this core (Lodestone Host, Lodestone Launcher and Lodestone CLI). Turn it on to use the web dashboard from other devices, add users or make API keys. Sharing servers with friends works either way.",
+        RemoteAccessHintOn = "Other devices can sign in to this core with a username and password, over HTTPS.",
+        RemoteAccessOffTitle = "Turn off access from other devices?",
+        RemoteAccessOffBody = "Only apps on this computer will be able to use this core. Other devices, other users and API keys used elsewhere stop working until you turn it on again. Sharing servers with friends keeps working.",
+        LocalClaimNeedsPassword = "Set up the owner account first: without a password, this is the only way to sign in.",
+        /// The dialog that sets up the owner's password, before the core is shared.
+        OwnerAccountTitle = "Set up an owner account to share this core",
+        OwnerAccountLead = "Other devices sign in with a username and password. Choose the ones you will use on the web dashboard and your other devices. Apps on this computer keep signing in without them.",
+        OwnerAccountButton = "Set up and allow access",
+        OwnerAccountDone = "Owner account set up. Other devices can now sign in to this core.",
+        PasswordTooShort = "The password must have at least 12 characters.",
+        /// Profile, for an owner without a password.
+        SetPassword = "Set a password",
+        NoPasswordYet = "No password yet. Only apps on this computer can use this core.",
     }
 
     pub enum CorePlural {

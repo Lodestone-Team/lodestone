@@ -1,6 +1,13 @@
 //! The account dialogs of Settings › Users and Profile: creating a user and changing
 //! a password (`CreateUserForm.tsx`, `ChangeSelfPasswordForm.tsx`,
-//! `ChangeUserPasswordForm.tsx`).
+//! `ChangeUserPasswordForm.tsx`), and setting up the owner account before the core is
+//! shared.
+//!
+//! Lodestone Host makes its core's owner without a password, and the core then serves
+//! only this computer (`core/src/remote_access.rs`). Whatever only makes sense from other
+//! devices (allowing access from them, other users, API keys, the public listing) first
+//! asks for the owner's username and password with [`AccountDialog::owner_account`]
+//! ([`needs_owner_account`]); setting them up lets other devices in.
 
 use gpui::{
     AppContext as _, Context, Entity, EventEmitter, FocusHandle, IntoElement, KeyDownEvent,
@@ -14,6 +21,15 @@ use crate::{
     i18n::{CommonMsg, CoreMsg, t},
     state::HostState,
 };
+
+/// The shortest owner password the core takes, in characters.
+pub const OWNER_PASSWORD_MIN: usize = 12;
+
+/// Whether the signed-in owner has no password yet: sharing the core asks for one first
+/// ([`AccountDialog::owner_account`]).
+pub fn needs_owner_account(state: &HostState) -> bool {
+    state.me.is_owner && !state.me.has_password
+}
 
 /// What the user typed wrong, as the dashboard's forms check it; the core checks again.
 pub fn password_problem(
@@ -41,6 +57,9 @@ pub enum AccountDialogEvent {
     Created(Box<PublicUser>),
     /// The password changed.
     Changed,
+    /// The owner account was set up (the owner as the core now has them), and other
+    /// devices may use the core. [`HostState::owner_account_set_up`] is done.
+    OwnerSetUp(Box<PublicUser>),
 }
 
 enum Kind {
@@ -50,6 +69,8 @@ enum Kind {
         uid: String,
         own: bool,
     },
+    /// The owner's username and password, before the core is shared.
+    OwnerAccount,
 }
 
 pub struct AccountDialog {
@@ -71,6 +92,17 @@ impl AccountDialog {
         Self::new(state, Kind::CreateUser, cx)
     }
 
+    /// Sets up the owner account: a username (the current one to start with) and a
+    /// password, which lets other devices use the core.
+    pub fn owner_account(state: Entity<HostState>, cx: &mut Context<Self>) -> Self {
+        let username = state.read(cx).me.username.clone();
+        let this = Self::new(state, Kind::OwnerAccount, cx);
+        if let Some(input) = &this.username {
+            input.update(cx, |input, cx| input.set_text(username, cx));
+        }
+        this
+    }
+
     /// Changes `uid`'s password: with the old one if it is the signed-in user's own.
     pub fn change_password(state: Entity<HostState>, uid: String, cx: &mut Context<Self>) -> Self {
         let own = state.read(cx).me.uid == uid;
@@ -78,8 +110,8 @@ impl AccountDialog {
     }
 
     fn new(state: Entity<HostState>, kind: Kind, cx: &mut Context<Self>) -> Self {
-        let username =
-            matches!(kind, Kind::CreateUser).then(|| parts::input(t(CoreMsg::Username), false, cx));
+        let username = matches!(kind, Kind::CreateUser | Kind::OwnerAccount)
+            .then(|| parts::input(t(CoreMsg::Username), false, cx));
         let old = matches!(kind, Kind::Password { own: true, .. })
             .then(|| parts::input(t(CoreMsg::OldPassword), true, cx));
         Self {
@@ -115,6 +147,12 @@ impl AccountDialog {
             cx.notify();
             return;
         }
+        if matches!(self.kind, Kind::OwnerAccount) && password.chars().count() < OWNER_PASSWORD_MIN
+        {
+            self.error = Some(t(CoreMsg::PasswordTooShort).to_string());
+            cx.notify();
+            return;
+        }
         self.error = None;
         self.busy = true;
         cx.notify();
@@ -129,6 +167,25 @@ impl AccountDialog {
                         this.busy = false;
                         match result {
                             Ok(user) => cx.emit(AccountDialogEvent::Created(Box::new(user))),
+                            Err(err) => this.error = Some(err.to_string()),
+                        }
+                    },
+                );
+            }
+            Kind::OwnerAccount => {
+                let username = username.unwrap_or_default();
+                parts::spawn(
+                    cx,
+                    async move { admin.set_up_owner_account(&username, &password).await },
+                    |this, result, cx| {
+                        this.busy = false;
+                        match result {
+                            Ok(owner) => {
+                                this.state.update(cx, |state, cx| {
+                                    state.owner_account_set_up(owner.clone(), cx)
+                                });
+                                cx.emit(AccountDialogEvent::OwnerSetUp(Box::new(owner)));
+                            }
                             Err(err) => this.error = Some(err.to_string()),
                         }
                     },
@@ -152,11 +209,27 @@ impl AccountDialog {
     }
 }
 
+impl AccountDialog {
+    /// Types `username` and `password` (twice) and presses the button, as a user would:
+    /// for the development screenshots' end-to-end run (`--owner`).
+    #[cfg(feature = "screenshot")]
+    pub fn fill_and_submit(&mut self, username: &str, password: &str, cx: &mut Context<Self>) {
+        if let Some(input) = &self.username {
+            input.update(cx, |input, cx| input.set_text(username.to_string(), cx));
+        }
+        for input in [&self.password, &self.confirm] {
+            input.update(cx, |input, cx| input.set_text(password.to_string(), cx));
+        }
+        self.submit(cx);
+    }
+}
+
 impl Render for AccountDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (title, action) = match self.kind {
             Kind::CreateUser => (CoreMsg::CreateUserTitle, CoreMsg::CreateUserButton),
             Kind::Password { .. } => (CoreMsg::ChangePassword, CoreMsg::ChangePasswordButton),
+            Kind::OwnerAccount => (CoreMsg::OwnerAccountTitle, CoreMsg::OwnerAccountButton),
         };
         let close = cx.entity().downgrade();
         Dialog::new("account-dialog", t(title), self.focus.clone())
@@ -177,6 +250,9 @@ impl Render for AccountDialog {
                     }))
                     .when(matches!(self.kind, Kind::CreateUser), |this| {
                         this.child(parts::paragraph(t(CoreMsg::CreateUserLead)))
+                    })
+                    .when(matches!(self.kind, Kind::OwnerAccount), |this| {
+                        this.child(parts::paragraph(t(CoreMsg::OwnerAccountLead)))
                     })
                     .children(
                         self.username

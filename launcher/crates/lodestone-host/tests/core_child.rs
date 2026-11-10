@@ -1,7 +1,8 @@
 //! The Host's core as a child process, end to end, against the real `lodestone_core`
 //! program: start it in a temporary data folder on a free port, wait until it answers,
-//! set up its owner and sign in through the local claim, list the instances, and stop
-//! it by closing its stdin.
+//! sign in through the local claim (which makes the owner, without a password), list
+//! the instances, set up the owner account to share the core, and stop it by closing
+//! its stdin.
 //!
 //! Needs the core's program: build it with `cargo build -p lodestone_core
 //! --no-default-features` in the repository's root (or set `LODESTONE_HOST_CORE`).
@@ -15,12 +16,15 @@ use std::{
 use futures::executor::block_on;
 use launcher_core::{
     Secret,
-    cores::{CoreClient, CoreError, admin::instances::Power, local_claim::OwnerCredentials},
+    cores::{
+        CoreClient, CoreError,
+        admin::{core_settings::CoreSwitch, instances::Power},
+    },
     game::download::Sleep,
 };
 use lodestone_host::{
     core_process::{self, CoreConfig, CoreProcess},
-    session::{self, SignInError},
+    session,
 };
 
 fn sleep() -> Sleep {
@@ -80,32 +84,49 @@ fn the_host_runs_and_signs_in_to_its_own_core() {
         "--is-host"
     );
 
-    // a core without an owner asks for one
-    let first = block_on(session::claim_owner(
+    // the first run asks nothing: the claim makes the owner, without a password, and
+    // signs in as them
+    let session = block_on(session::claim_owner(
         http.clone(),
         config.local_url(),
         &config.data_dir,
         None,
         sleep(),
-    ));
-    assert_eq!(first.err(), Some(SignInError::NeedsOwner));
-
-    // the first run makes the owner, and signs in as them
-    let owner = OwnerCredentials {
-        username: "host_owner".into(),
-        password: Secret::new(String::from("a long test password 123")),
-    };
-    let session = block_on(session::claim_owner(
-        http.clone(),
-        config.local_url(),
-        &config.data_dir,
-        Some(owner),
-        sleep(),
     ))
     .expect("the claim signs in");
     assert!(session.me.is_owner);
-    assert_eq!(session.me.username, "host_owner");
+    assert!(!session.me.has_password);
+    assert_eq!(session.me.username, session::default_owner_name());
     assert!(session.info.is_setup);
+    // so the core serves only this computer
+    assert!(!session.info.remote_access, "a new Host core is local-only");
+    let settings = block_on(session.admin.global_settings()).unwrap();
+    assert!(!settings.allow_remote_access);
+    // nobody signs in with a password, and the claim, the only way in, stays on
+    let no_password = block_on(session::sign_in_with_password(
+        http.clone(),
+        config.local_url(),
+        &session.me.username,
+        &Secret::new(String::from("a long test password 123")),
+    ));
+    assert!(no_password.is_err());
+    assert!(
+        block_on(
+            session
+                .admin
+                .set_core_switch(CoreSwitch::AllowLocalClaim, false)
+        )
+        .is_err()
+    );
+    assert!(
+        block_on(
+            session
+                .admin
+                .set_core_switch(CoreSwitch::AllowRemoteAccess, true)
+        )
+        .is_err(),
+        "remote access needs a password first"
+    );
     assert!(
         !session.info.capabilities.macros,
         "the Host's core is built without Deno"
@@ -127,6 +148,21 @@ fn the_host_runs_and_signs_in_to_its_own_core() {
         .unwrap_or_default();
     assert!(left.is_empty(), "claim folders left: {left:?}");
 
+    // Lodestone Launcher's "Connect as owner" on this computer works on a local-only
+    // core: an owner key for the owner without a password, tied to the certificate
+    let claimed = block_on(launcher_core::cores::local_claim::claim(
+        &local,
+        std::slice::from_ref(&config.data_dir),
+        "Lodestone Launcher test",
+        sleep(),
+    ))
+    .expect("the launcher's claim works on a local-only core");
+    assert!(claimed.created_owner.is_none());
+    assert_eq!(
+        claimed.owner_username.as_deref(),
+        Some(session.me.username.as_str())
+    );
+
     // later starts sign in without a password
     let again = block_on(session::claim_owner(
         http.clone(),
@@ -137,6 +173,42 @@ fn the_host_runs_and_signs_in_to_its_own_core() {
     ))
     .expect("the owner signs in again");
     assert_eq!(again.me.uid, session.me.uid);
+
+    // sharing the core: the owner account's username and password, which let other
+    // devices in
+    let owner = block_on(
+        session
+            .admin
+            .set_up_owner_account("host_owner", "a long test password 123"),
+    )
+    .expect("the owner account is set up");
+    assert!(owner.has_password);
+    assert_eq!(owner.username, "host_owner");
+    assert!(block_on(session.admin.full_info()).unwrap().remote_access);
+    // the Host's session goes on, and only once
+    assert!(block_on(session.admin.me()).unwrap().has_password);
+    assert!(
+        block_on(
+            session
+                .admin
+                .set_up_owner_account("host_owner", "another long password")
+        )
+        .is_err()
+    );
+    // turned off again from this computer, and on, now that there is a password
+    block_on(
+        session
+            .admin
+            .set_core_switch(CoreSwitch::AllowRemoteAccess, false),
+    )
+    .unwrap();
+    assert!(!block_on(session.admin.full_info()).unwrap().remote_access);
+    block_on(
+        session
+            .admin
+            .set_core_switch(CoreSwitch::AllowRemoteAccess, true),
+    )
+    .unwrap();
 
     // and with the password, as the web dashboard does
     let with_password = block_on(session::sign_in_with_password(
