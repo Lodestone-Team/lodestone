@@ -43,6 +43,8 @@ use tokio::{
 use tracing::{info, warn};
 use ts_rs::TS;
 
+pub mod friends;
+
 use crate::{
     error::{Error, ErrorKind},
     handlers::{
@@ -209,6 +211,8 @@ enum Slot {
 
 /// The instances shared with friends.
 pub struct ConnectShares {
+    /// Sharing with friends from the friend list (no links).
+    pub friends: Arc<friends::FriendShares>,
     dir: PathBuf,
     service: Service,
     gather: GatherOptions,
@@ -233,6 +237,11 @@ impl ConnectShares {
     /// Shares kept in `dir` (`stores/connect`), through `service`.
     pub fn new(dir: PathBuf, service: Service, gather: GatherOptions) -> Self {
         Self {
+            friends: Arc::new(friends::FriendShares::new(
+                dir.join(friends::FRIENDS_DIR),
+                service.clone(),
+                gather,
+            )),
             dir,
             service,
             gather,
@@ -421,6 +430,7 @@ impl ConnectShares {
     /// resumes at the next start. Closing the connections tells connected friends at
     /// once, instead of after their connection times out.
     pub async fn stop_all(&self) {
+        self.friends.stop().await;
         let slots: Vec<_> = self.slots.lock().await.drain().collect();
         for (uuid, slot) in slots {
             if let Slot::Running { host, tasks } = slot {
@@ -437,6 +447,11 @@ impl ConnectShares {
     /// retrying in the background while this computer is offline. Saved identities of
     /// instances that no longer exist are deleted.
     pub async fn resume_all(self: &Arc<Self>, state: &AppState) {
+        {
+            let friends = self.friends.clone();
+            let state = state.clone();
+            tokio::spawn(async move { friends.resume(&state).await });
+        }
         let Ok(mut entries) = tokio::fs::read_dir(&self.dir).await else {
             return;
         };
@@ -619,9 +634,14 @@ fn as_text<T: Serialize>(value: &T) -> String {
 
 async fn get_shared_server(State(shared): State<Shared>) -> Result<Json<SharedServer>, Error> {
     let instance = shared_instance(&shared).await?;
-    Ok(Json(SharedServer {
-        core_name: shared.state.global_settings.lock().await.core_name(),
-        core_uuid: shared.state.uuid.clone(),
+    Ok(Json(shared_server_of(&shared.state, instance).await))
+}
+
+/// What friends see of a shared instance.
+pub(crate) async fn shared_server_of(state: &AppState, instance: PublicInstance) -> SharedServer {
+    SharedServer {
+        core_name: state.global_settings.lock().await.core_name(),
+        core_uuid: state.uuid.clone(),
         instance_uuid: instance.uuid.to_string(),
         name: instance.name,
         game_version: instance.game_version,
@@ -631,7 +651,7 @@ async fn get_shared_server(State(shared): State<Shared>) -> Result<Json<SharedSe
         state: instance.state.as_ref().map(as_text),
         player_count: instance.player_count.flatten(),
         max_player_count: instance.max_player_count.flatten(),
-    }))
+    }
 }
 
 async fn get_shared_list(State(shared): State<Shared>) -> Result<Json<PublicInstanceList>, Error> {

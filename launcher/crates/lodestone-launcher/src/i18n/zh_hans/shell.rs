@@ -539,6 +539,7 @@ pub fn text(message: M) -> &'static str {
         M::RestartToUpdate => "重启",
         M::UpdateReadyBadge => "更新已就绪",
         M::UpdateAvailableBadge => "有可用更新",
+        M::DevBadge => "DEV",
 
         M::RestOnModrinth => "完整简介请在 Modrinth 上查看。",
         M::Storage => "存储",

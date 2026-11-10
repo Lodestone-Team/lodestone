@@ -185,6 +185,14 @@ impl HostApp {
     fn show_shell_on(&mut self, session: Session, remote: Option<String>, cx: &mut Context<Self>) {
         let on_local = remote.is_none();
         let state = cx.new(|cx| HostState::new(session, cx));
+        // sharing with friends: this computer's core, as its owner (another core's
+        // friends are its owner's, set up from their own Host)
+        if on_local && state.read(cx).me.is_owner {
+            state.update(cx, |state, cx| {
+                let weak = cx.entity().downgrade();
+                state.friends = Some(cx.new(|cx| crate::friends::FriendSharing::new(weak, cx)));
+            });
+        }
         // after being signed out of another core
         if let Some(notice) = self.notice.take() {
             state.update(cx, |state, cx| {
@@ -333,6 +341,8 @@ impl Render for HostApp {
         if self._focus_lost.is_none() {
             self._focus_lost = Some(focus::install(&self.root_focus, window, cx));
         }
+        // the screens before the shell have no top bar of their own
+        let bare = !matches!(self.phase, Phase::Shell(_));
         let content: AnyElement = match &self.phase {
             Phase::Core | Phase::SigningIn | Phase::Quitting => {
                 let status = match self.phase {
@@ -376,6 +386,7 @@ impl Render for HostApp {
             .on_action(cx.listener(|_, _: &crate::ResetZoom, _, cx| {
                 crate::prefs::Prefs::update(cx, |prefs| prefs.zoom = 1.0);
             }))
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -383,6 +394,20 @@ impl Render for HostApp {
             .text_color(theme::ink::text())
             .font_family(fonts::body())
             .map(crate::i18n::locale_fonts)
-            .child(content)
+            // Windows: the title bar's place, on screens without the top bar
+            .when(bare, |this| {
+                this.children(crate::shell::top_bar::frame_bar())
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .child(content),
+            )
+            // Windows: the caption buttons, last, above everything
+            .children(crate::shell::top_bar::window_controls(window))
     }
 }

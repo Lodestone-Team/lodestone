@@ -1,5 +1,8 @@
-//! Invite links opened from outside the launcher: `lodestone://join?invite=…`, which
-//! the invite page at connect.lodestone.cc opens (see `servers::friends`).
+//! Links opened from outside the launcher: `lodestone://join?invite=…`, which the invite
+//! page at connect.lodestone.cc opens (see `servers::friends`), and
+//! `lodestone://friend?link=<percent-encoded friend link>`, which its friend link page
+//! opens (see `servers::friend_list`): that one opens Add friend with the link's card,
+//! and never adds anyone by itself.
 //!
 //! - macOS hands the link to the running app (starting it first if needed), through
 //!   GPUI's open-URLs callback. The app bundle declares the `lodestone` URL scheme
@@ -32,6 +35,12 @@ pub fn is_link(text: &str) -> bool {
         && text
             .get(..SCHEME.len())
             .is_some_and(|start| start.eq_ignore_ascii_case(SCHEME))
+}
+
+/// Whether `text` is a friend link (`https://…/f/…` or `lodestone://friend?link=…`),
+/// for Add friend rather than the join dialog.
+pub fn is_friend_link(text: &str) -> bool {
+    text.len() <= MAX_LINK && launcher_core::cores::friends::FriendLink::parse(text).is_ok()
 }
 
 /// The link among the command line's arguments (Windows passes it as one).
@@ -111,6 +120,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn friend_links_are_told_apart_from_invites() {
+        // made the way the friend list makes them: the code comes from the secret
+        let service = launcher_core::cores::friends::Service::parse("http://127.0.0.1:18790")
+            .expect("a service");
+        let link = friend_link(&service);
+        assert!(is_friend_link(&link));
+        let encoded: String = url_encode(&link);
+        let deep = format!("lodestone://friend?link={encoded}");
+        assert!(is_link(&deep));
+        assert!(is_friend_link(&deep));
+        // an invite, a broken friend link and a deep link inside a deep link aren't
+        assert!(!is_friend_link(
+            "https://connect.lodestone.cc/j/ABCDEFGH23#ab.cd"
+        ));
+        assert!(!is_friend_link("https://connect.lodestone.cc/f/ABC#00.11"));
+        let nested = format!("lodestone://friend?link={}", url_encode(&deep));
+        assert!(!is_friend_link(&nested));
+    }
+
+    fn url_encode(text: &str) -> String {
+        url::form_urlencoded::byte_serialize(text.as_bytes()).collect()
+    }
+
+    /// A well-formed friend link for `service`.
+    fn friend_link(service: &launcher_core::cores::friends::Service) -> String {
+        crate::servers::friend_list::test_link(service)
+    }
+
+    #[test]
     fn finds_the_link_among_the_arguments() {
         let args = |list: &[&str]| {
             list.iter()
@@ -128,6 +166,8 @@ mod tests {
             Some("LODESTONE://join?invite=y")
         );
         assert!(!is_link("https://connect.lodestone.cc/j/ABC"));
+        // a friend deep link is one of the launcher's too
+        assert!(is_link("lodestone://friend?link=x"));
         assert!(!is_link(&format!("lodestone://{}", "a".repeat(MAX_LINK))));
     }
 }

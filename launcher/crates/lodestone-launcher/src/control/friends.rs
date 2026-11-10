@@ -148,9 +148,15 @@ struct OpenParams {
     link: String,
 }
 
-/// `friends.open`: the join dialog for a link, as opening the link does.
+/// `friends.open`: the join dialog for an invite link, or the Add friend dialog for a
+/// friend link, as opening the link does.
 pub fn open(call: Call, cx: &mut App) -> Reply {
     let params: OpenParams = params!(call);
+    // a friend link (`lodestone://friend?link=…`) opens the Add friend dialog
+    if launcher_core::cores::friends::FriendLink::parse(&params.link).is_ok() {
+        let servers = call.control.servers.clone();
+        return ready(super::friend_list::open_link(params.link, cx, &servers));
+    }
     if Invite::parse(&params.link).is_err() {
         return ready(Err(not_an_invite()));
     }

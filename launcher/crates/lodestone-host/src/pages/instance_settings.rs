@@ -1,6 +1,7 @@
 //! An instance's Settings tab (`InstanceSettings.tsx`): the core's settings manifest,
 //! rendered setting by setting as the dashboard's `SettingField` does, then
-//! automation, the resource pack, the Minecraft EULA and the danger zone.
+//! automation, public listing, sharing with friends, the resource pack, the Minecraft
+//! EULA and the danger zone.
 //!
 //! Each setting saves on its own: a switch or a list as soon as it changes, a text
 //! field on Enter or its save button (Escape puts the saved value back). The resource
@@ -131,6 +132,8 @@ pub struct InstanceSettingsPage {
     delete: DialogSlot<Self, DeletePrompt>,
     deleting: bool,
     nav: SectionNav,
+    /// A section to scroll to at the next draw, by title (the screenshots' `--friends`).
+    pub show_section: Option<SharedString>,
     /// When the tab opened, so "Loading" waits [`LOADING_DELAY`].
     opened: Instant,
     /// What it shows came from the cache, and the fetch hasn't answered yet.
@@ -141,7 +144,10 @@ pub struct InstanceSettingsPage {
 
 impl InstanceSettingsPage {
     pub fn new(state: Entity<HostState>, uuid: String, cx: &mut Context<Self>) -> Self {
-        let subscriptions = vec![cx.observe(&state, |_, _, cx| cx.notify())];
+        let mut subscriptions = vec![cx.observe(&state, |_, _, cx| cx.notify())];
+        if let Some(friends) = state.read(cx).friends.clone() {
+            subscriptions.push(cx.observe(&friends, |_, _, cx| cx.notify()));
+        }
         let mut this = Self {
             state,
             uuid,
@@ -158,6 +164,7 @@ impl InstanceSettingsPage {
             delete: DialogSlot::new(|this: &mut Self| &mut this.delete),
             deleting: false,
             nav: SectionNav::default(),
+            show_section: None,
             opened: Instant::now(),
             fetched: None,
             _tasks: Vec::new(),
@@ -1180,6 +1187,13 @@ impl Render for InstanceSettingsPage {
         if let Some(sharing) = self.sharing_section(cx) {
             sections.push((t(CoreMsg::ListingTitle).into(), sharing));
         }
+        // friends: this computer's core, as its owner (`crate::friends`)
+        if let Some(friends) = self.state.read(cx).friends.clone() {
+            sections.push((
+                t(M::FriendsTitle).into(),
+                crate::pages::friend_sharing::section_for(&friends, &self.uuid, cx),
+            ));
+        }
         if let Some(pack) = self.pack_section(cx) {
             sections.push((t(M::ResourcePack).into(), pack));
         }
@@ -1189,6 +1203,11 @@ impl Render for InstanceSettingsPage {
         sections.push((t(M::DangerZone).into(), self.danger_section(cx)));
 
         let titles: Vec<SharedString> = sections.iter().map(|(title, _)| title.clone()).collect();
+        if let Some(show) = self.show_section.take()
+            && let Some(index) = titles.iter().position(|title| *title == show)
+        {
+            self.nav.pick(index);
+        }
         let active = self.nav.active(titles.len());
         // the list of sections, when the page is wide enough for it beside them
         let wide = window.viewport_size().width >= px(1080.);

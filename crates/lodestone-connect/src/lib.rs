@@ -22,6 +22,7 @@
 #![cfg_attr(not(feature = "join"), allow(dead_code))]
 
 pub mod addr;
+pub mod friend;
 pub mod gather;
 pub mod info;
 mod link;

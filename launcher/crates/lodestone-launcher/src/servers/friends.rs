@@ -25,6 +25,10 @@
 //! in the Keychain) so Play on its row joins it again; nothing is polled in the
 //! background: "Check" asks once.
 //!
+//! A server shared through the friend list (`super::friend_list`) joins the same way,
+//! from [`Source::FriendList`]: the tunnel comes from the friend list instead of a
+//! link, and nothing goes to the Keychain.
+//!
 //! A server shared from a core running on this computer (the user joined their own
 //! invite link, say) isn't under "Friends' servers" while that core is found here: it
 //! shows under the core in "On this computer", or, when the core's card lists the same
@@ -61,6 +65,23 @@ use crate::{
     components::{DialogSlot, TextInput},
     i18n::{ServersMsg as M, t, tr},
 };
+use futures::{FutureExt as _, future::LocalBoxFuture};
+
+/// What a tunnel goes to: a server shared with an invite link, or one a friend shares
+/// with this person, through the friend list.
+#[derive(Clone)]
+pub enum Source {
+    Invite(Invite),
+    FriendList {
+        /// The friend's key, 64 hex digits.
+        friend: String,
+        /// Their core's friend certificate fingerprint, 64 hex digits.
+        fingerprint: String,
+        instance: String,
+        /// The server's name, for the dialog while it connects.
+        name: Option<String>,
+    },
+}
 
 /// What a friend's server said when last asked, this session.
 #[derive(Clone, Debug, Default)]
@@ -157,7 +178,8 @@ pub enum JoinStage {
     Preparing { id: String },
     Failed {
         error: JoinError,
-        invite: Option<Invite>,
+        /// What "Try again" joins.
+        source: Option<Source>,
         name: Option<String>,
     },
 }
@@ -209,6 +231,17 @@ impl Friends {
     /// when a new link replaced it), or the link's own id when it isn't saved.
     fn id_of(&self, invite: &Invite) -> String {
         friends::saved_id(self.list.iter().map(|f| &f.saved), invite)
+    }
+
+    fn id_of_source(&self, source: &Source) -> String {
+        match source {
+            Source::Invite(invite) => self.id_of(invite),
+            Source::FriendList {
+                fingerprint,
+                instance,
+                ..
+            } => friends::friend_list_id(fingerprint, instance),
+        }
     }
 
     fn get_mut(&mut self, id: &str) -> Option<&mut FriendEntry> {
@@ -303,6 +336,11 @@ impl Servers {
             .collect();
     }
 
+    /// Saves the friends' servers (for the friend list's trust changes).
+    pub(super) fn save_friend_servers(&mut self) {
+        self.save_friends();
+    }
+
     fn save_friends(&mut self) {
         if self.preview {
             return;
@@ -391,7 +429,41 @@ impl Servers {
     /// Opens a tunnel to the host of `invite` and shows its server; with `then_play`,
     /// goes on to Play once it is open.
     pub fn connect_invite(&mut self, invite: Invite, then_play: bool, cx: &mut Context<Self>) {
-        let id = self.friends.id_of(&invite);
+        self.connect_source(Source::Invite(invite), then_play, cx)
+    }
+
+    /// The tunnel for `source`: from its invite, or through the friend list.
+    fn open_source(
+        &mut self,
+        source: &Source,
+        game_port: GamePort,
+        progress: Progress,
+        cx: &mut Context<Self>,
+    ) -> LocalBoxFuture<'static, Result<Tunnel, JoinError>> {
+        match source {
+            Source::Invite(invite) => {
+                connect::open(invite.clone(), game_port, progress).boxed_local()
+            }
+            Source::FriendList {
+                friend,
+                fingerprint,
+                instance,
+                ..
+            } => self.friend_list_tunnel(
+                friend.clone(),
+                fingerprint,
+                instance.clone(),
+                game_port,
+                progress,
+                cx,
+            ),
+        }
+    }
+
+    /// Opens a tunnel for `source` and shows its server; with `then_play`, goes on to
+    /// Play once it is open.
+    pub fn connect_source(&mut self, source: Source, then_play: bool, cx: &mut Context<Self>) {
+        let id = self.friends.id_of_source(&source);
         // already open: the dialog shows it again
         if let Some(session) = self.friends.sessions.get(&id) {
             if session.playing.is_some() {
@@ -416,7 +488,14 @@ impl Servers {
         self.friends.attempt += 1;
         let attempt = self.friends.attempt;
         let progress = Progress::default();
-        let name = self.friends.get(&id).map(|f| f.saved.name.clone());
+        let name = self
+            .friends
+            .get(&id)
+            .map(|f| f.saved.name.clone())
+            .or(match &source {
+                Source::FriendList { name, .. } => name.clone(),
+                Source::Invite(_) => None,
+            });
         self.join_stage(
             JoinStage::Connecting {
                 progress: progress.clone(),
@@ -448,7 +527,7 @@ impl Servers {
             friends: self.friends.list.iter().map(|f| f.saved.clone()).collect(),
         };
         let game_port = file.game_port(&id);
-        let opening = connect::open(invite.clone(), game_port.clone(), progress);
+        let opening = self.open_source(&source, game_port.clone(), progress, cx);
         self.friends.connecting = Some(cx.spawn(async move |this, cx| {
             let result = opening.await;
             this.update(cx, |this, cx| {
@@ -461,7 +540,7 @@ impl Servers {
                 match result {
                     // the dialog was closed or moved on: the tunnel closes as it drops
                     Ok(_) if !waiting => {}
-                    Ok(tunnel) => this.connected(invite, tunnel, &game_port, then_play, cx),
+                    Ok(tunnel) => this.connected(source, tunnel, &game_port, then_play, cx),
                     Err(error) => {
                         if let Some(entry) = this.friends.get_mut(&id) {
                             entry.status = FriendStatus::Offline(error.clone());
@@ -470,7 +549,7 @@ impl Servers {
                             this.join_stage(
                                 JoinStage::Failed {
                                     error,
-                                    invite: Some(invite),
+                                    source: Some(source),
                                     name,
                                 },
                                 cx,
@@ -487,7 +566,7 @@ impl Servers {
     /// The tunnel is open: remember the server, keep the session, show the card.
     fn connected(
         &mut self,
-        invite: Invite,
+        source: Source,
         mut tunnel: Tunnel,
         game_port: &GamePort,
         then_play: bool,
@@ -499,7 +578,18 @@ impl Servers {
         let mut file = FriendsFile {
             friends: self.friends.list.iter().map(|f| f.saved.clone()).collect(),
         };
-        let index = file.upsert(&invite, &shared, now());
+        let invite = match &source {
+            Source::Invite(invite) => Some(invite.clone()),
+            Source::FriendList { .. } => None,
+        };
+        let index = match &source {
+            Source::Invite(invite) => file.upsert(invite, &shared, now()),
+            Source::FriendList {
+                friend,
+                fingerprint,
+                ..
+            } => file.upsert_friend_list(friend, fingerprint, &shared, now()),
+        };
         let port_taken = file.friends[index].joined_on_port(game_port, tunnel.game_port());
         let saved = file.friends[index].clone();
         let id = saved.id.clone();
@@ -516,8 +606,10 @@ impl Servers {
             None => self.friends.list.push(FriendEntry { saved, status }),
         }
         self.save_friends();
-        self.friends.invites.insert(id.clone(), invite.clone());
-        if !self.preview {
+        if let Some(invite) = invite
+            && !self.preview
+        {
+            self.friends.invites.insert(id.clone(), invite.clone());
             let secrets = self.accounts.read(cx).secrets().clone();
             let to_save = invite.clone();
             let save_as = id.clone();
@@ -589,7 +681,7 @@ impl Servers {
             self.join_stage(
                 JoinStage::Failed {
                     error: JoinError::HostOffline,
-                    invite: None,
+                    source: None,
                     name: Some(name),
                 },
                 cx,
@@ -632,14 +724,14 @@ impl Servers {
     /// "Try again" after a failure.
     pub fn retry_join(&mut self, cx: &mut Context<Self>) {
         let Some(JoinPrompt {
-            stage: JoinStage::Failed { invite, .. },
+            stage: JoinStage::Failed { source, .. },
             ..
         }) = self.friends.join.current()
         else {
             return;
         };
-        match invite.clone() {
-            Some(invite) => self.connect_invite(invite, false, cx),
+        match source.clone() {
+            Some(source) => self.connect_source(source, false, cx),
             None => self.show_paste(String::new(), None, cx),
         }
     }
@@ -786,22 +878,26 @@ impl Servers {
 
     /// Whether a pull from the friend's server `id` needs the advisory, and the name to
     /// show in it.
+    /// For a server from the friend list, trust holds only for the client pack it was
+    /// given with (`etag`): a changed pack asks again.
     pub(super) fn friend_pull_source(
         &self,
         id: &str,
         kind: launcher_core::cores::trust::PullKind,
+        etag: Option<&str>,
     ) -> Option<(bool, String)> {
         let entry = self.friends.get(id)?;
         Some((
-            launcher_core::cores::trust::friend_needs_advisory(&entry.saved, kind),
+            kind.is_executable() && !entry.saved.trusts_pack(etag),
             entry.saved.core_name.clone(),
         ))
     }
 
-    /// "Trust and install" for a friend's server.
-    pub(super) fn trust_friend(&mut self, id: &str) {
+    /// "Trust and install" for a friend's server, with the client pack `etag` it is
+    /// about to install.
+    pub(super) fn trust_friend(&mut self, id: &str, etag: Option<&str>) {
         if let Some(entry) = self.friends.get_mut(id) {
-            entry.saved.set_trusted(true);
+            entry.saved.trust_pack(etag);
             self.save_friends();
         }
     }
@@ -932,6 +1028,10 @@ impl Servers {
             },
             cx,
         );
+        if let Some(source) = self.friend_list_source(id) {
+            self.connect_source(source, then_play, cx);
+            return;
+        }
         if let Some(invite) = self.friends.invites.get(id).cloned() {
             self.connect_invite(invite, then_play, cx);
             return;
@@ -949,7 +1049,7 @@ impl Servers {
                 _ => this.join_stage(
                     JoinStage::Failed {
                         error: JoinError::Failed(t(M::FriendLinkMissing).into()),
-                        invite: None,
+                        source: None,
                         name,
                     },
                     cx,
@@ -985,28 +1085,39 @@ impl Servers {
         let secrets = self.accounts.read(cx).secrets().clone();
         let check_id = id.to_string();
         let cached = self.friends.invites.get(id).cloned();
+        // a server from the friend list opens its tunnel through the list
+        // any free port: the saved one stays free for Play
+        let listed = self
+            .friend_list_source(id)
+            .map(|source| self.open_source(&source, GamePort::Any, Progress::default(), cx));
         let task = cx.spawn(async move |this, cx| {
-            let invite = match cached {
-                Some(invite) => Ok(Some(invite)),
-                None => {
+            let invite = match (cached, &listed) {
+                (Some(invite), _) => Ok(Some(invite)),
+                (None, Some(_)) => Ok(None),
+                (None, None) => {
                     let store = secrets.store(cx);
                     friends::read_invite(&*store, &check_id).await
                 }
             };
             let read = invite.as_ref().ok().cloned().flatten();
-            let result = match invite {
+            let opening = match (invite, listed) {
+                (_, Some(opening)) => Some(opening),
                 // any free port: the saved one stays free for Play
-                Ok(Some(invite)) => connect::open(invite, GamePort::Any, Progress::default())
-                    .await
-                    .map(|tunnel| {
-                        let status = FriendStatus::Online {
-                            server: Box::new(tunnel.server.clone()),
-                            kind: tunnel.kind,
-                            rtt: tunnel.rtt(),
-                        };
-                        drop(tunnel);
-                        status
-                    }),
+                (Ok(Some(invite)), None) => {
+                    Some(connect::open(invite, GamePort::Any, Progress::default()).boxed_local())
+                }
+                _ => None,
+            };
+            let result = match opening {
+                Some(opening) => opening.await.map(|tunnel| {
+                    let status = FriendStatus::Online {
+                        server: Box::new(tunnel.server.clone()),
+                        kind: tunnel.kind,
+                        rtt: tunnel.rtt(),
+                    };
+                    drop(tunnel);
+                    status
+                }),
                 _ => Err(JoinError::Failed(t(M::FriendLinkMissing).into())),
             };
             this.update(cx, |this, cx| {
@@ -1050,7 +1161,7 @@ impl Servers {
         self.friends.checks.remove(id);
         self.friends.invites.remove(id);
         self.save_friends();
-        if self.preview {
+        if self.preview || friends::is_friend_list_id(id) {
             cx.notify();
             return;
         }
@@ -1061,6 +1172,23 @@ impl Servers {
             let _ = friends::delete_invite(&*store, &id).await;
         }));
         cx.notify();
+    }
+}
+
+impl Servers {
+    /// The friend-list source of a saved friend's server, when it came from the list.
+    fn friend_list_source(&self, id: &str) -> Option<Source> {
+        let entry = self.friends.get(id)?;
+        if !entry.saved.is_friend_list() {
+            return None;
+        }
+        let (fingerprint, instance) = friends::parse_friend_list_id(id)?;
+        Some(Source::FriendList {
+            friend: entry.saved.friend_key.clone(),
+            fingerprint: fingerprint.to_string(),
+            instance: instance.to_string(),
+            name: Some(entry.saved.name.clone()),
+        })
     }
 }
 
@@ -1275,7 +1403,7 @@ impl Servers {
             }
             PreviewJoin::Failed { error, name } => JoinStage::Failed {
                 error,
-                invite: None,
+                source: None,
                 name,
             },
         };

@@ -53,7 +53,7 @@ fn the_host_runs_and_signs_in_to_its_own_core() {
         data_dir: data.path().join("core"),
         port: free_port(),
         log_file: logs.path().join("core.log"),
-        connect_service: None,
+        connect_service: CoreConfig::connect_service_now(),
     };
     let mut process = CoreProcess::spawn(&config).expect("the core starts");
     let http = launcher_core::http::default_client().unwrap();

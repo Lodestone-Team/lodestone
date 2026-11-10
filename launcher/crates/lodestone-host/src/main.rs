@@ -19,7 +19,12 @@ fn main() {
     // exits.
     launcher_core::update::wait_for_previous();
     let (show_tx, mut show_rx) = futures::channel::mpsc::unbounded();
-    if !single_instance::acquire(show_tx) {
+    // `--screenshot` (the `screenshot` feature) may run beside an installed Host, with
+    // its own data folders and core port (LODESTONE_PATH, LODESTONE_HOST_DATA_DIR,
+    // LODESTONE_HOST_CORE_PORT), as the launcher's screenshots do.
+    let screenshot =
+        cfg!(feature = "screenshot") && std::env::args().any(|arg| arg == "--screenshot");
+    if !screenshot && !single_instance::acquire(show_tx) {
         return;
     }
     let app = gpui_platform::application().with_assets(Assets);
@@ -78,7 +83,8 @@ fn main() {
     });
 }
 
-/// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`,
+/// `--screenshot <file.png> [--wait <seconds>] [--select-first] [--tab <tab>] [--toasts] [--demo]`
+/// `[--friends <scene>]`,
 /// with the `screenshot` feature: renders the window offscreen after the wait (10 s by
 /// default: the core starts and the Host signs in), optionally with the first instance
 /// selected (on its `--tab`: `console`, `files`, …), sample toasts shown and the page
@@ -284,6 +290,27 @@ mod screenshot {
                     .update(cx, |app, _, cx| {
                         let view = app.shell()?.read(cx).page_view()?;
                         lodestone_host::pages::demo(&view, cx);
+                        Some(())
+                    })
+                    .ok();
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+            }
+            // `--friends none|loading|off|retired|shared|confirm|renew|certificate|certificate-manual|error`: sample friends on the Settings
+            // tab's Friends section (with `--tab settings`)
+            if let Some(scene) = arg_after("--friends") {
+                // a hidden window may not have drawn the tab yet, and its page is made
+                // when it's drawn
+                gpui::AppContext::update_window(cx, window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .ok();
+                window
+                    .update(cx, |app, _, cx| {
+                        let view = app.shell()?.read(cx).page_view()?;
+                        lodestone_host::pages::friends_demo(&view, &scene, cx);
                         Some(())
                     })
                     .ok();

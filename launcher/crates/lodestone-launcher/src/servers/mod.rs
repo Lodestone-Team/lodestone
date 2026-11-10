@@ -19,6 +19,8 @@ pub mod add_dialog;
 pub mod detail;
 mod detail_view;
 pub mod extras;
+pub mod friend_list;
+mod friend_list_view;
 pub mod friends;
 mod friends_view;
 pub mod host;
@@ -334,6 +336,14 @@ impl PendingPull {
         }
     }
 
+    /// The client pack's ETag, which trust in a friend-list server is tied to.
+    fn etag(&self) -> Option<&str> {
+        match self {
+            PendingPull::Create(p) => p.etag.as_deref(),
+            PendingPull::Sync(p) => p.etag.as_deref(),
+        }
+    }
+
     fn row(&self) -> RowKey {
         match self {
             PendingPull::Create(p) => (p.core.clone(), p.server.uuid.clone()),
@@ -481,6 +491,8 @@ pub struct Servers {
     pub local: local::LocalCores,
     /// Friends' servers (Lodestone Connect) and the join dialog.
     pub friends: friends::Friends,
+    /// The friend list: people added once, and their servers.
+    pub friend_list: friend_list::FriendList,
     /// "Download Lodestone Host" is looking up the newest release.
     host_download: Option<Task<()>>,
     /// Closes a friend's tunnel when its game exits.
@@ -524,6 +536,7 @@ impl Servers {
             extras: Default::default(),
             local: Default::default(),
             friends: friends::Friends::new(&data_root),
+            friend_list: friend_list::FriendList::new(&data_root),
             host_download: None,
             _instances_changed: None,
         };
@@ -613,6 +626,7 @@ impl Servers {
         }
         self.visible = visible;
         self.lan_visible(visible, cx);
+        self.friend_list_visible(visible, cx);
         if visible {
             self.scan_local(false, cx);
         }
@@ -1571,7 +1585,7 @@ impl Servers {
                 trust::needs_advisory(&self.cores[index].saved, kind),
                 self.cores[index].saved.name.clone(),
             )),
-            None => self.friend_pull_source(pending.core(), kind),
+            None => self.friend_pull_source(pending.core(), kind, pending.etag()),
         };
         let Some((needs_advisory, core_name)) = source else {
             pending.discard();
@@ -1638,7 +1652,8 @@ impl Servers {
                     self.save();
                 } else {
                     let core = pending.core().to_string();
-                    self.trust_friend(&core);
+                    let etag = pending.etag().map(str::to_string);
+                    self.trust_friend(&core, etag.as_deref());
                 }
                 self.install(pending, cx);
             }

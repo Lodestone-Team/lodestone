@@ -910,6 +910,7 @@ fn long_log() -> Vec<LogLine> {
 }
 
 mod content;
+mod friend_list;
 mod groups;
 mod import;
 mod modpacks;

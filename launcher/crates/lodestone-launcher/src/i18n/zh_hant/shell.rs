@@ -545,6 +545,7 @@ pub fn text(message: M) -> &'static str {
         M::RestartToUpdate => "重新啟動",
         M::UpdateReadyBadge => "更新已就緒",
         M::UpdateAvailableBadge => "有可用的更新",
+        M::DevBadge => "DEV",
 
         M::RestOnModrinth => "其餘說明請在 Modrinth 上查看。",
         M::Storage => "儲存空間",

@@ -1072,6 +1072,7 @@ impl Render for Servers {
                     )
             }))
             .child(self.render_local(cx))
+            .child(self.render_friend_list(cx))
             .child(self.render_friends(cx))
             .when(empty, |this| {
                 this.child(
@@ -1142,8 +1143,19 @@ impl Render for ServersOverlay {
         let update = pick(servers.prompt.is_open());
         // the join dialog waits under the questions its Play asks
         let join = pick(servers.friends.join.is_open());
+        let friend_list = pick(servers.friend_list.dialog.is_open());
         let window = &*window;
         let mut children = Vec::new();
+        children.extend(slot_layers(
+            &servers.friend_list.dialog,
+            friend_list,
+            window,
+            |prompt| {
+                Some(super::friend_list_view::friend_list_dialog(
+                    entity, prompt, app,
+                ))
+            },
+        ));
         children.extend(slot_layers(&servers.friends.join, join, window, |prompt| {
             Some(super::friends_view::join_dialog(entity, prompt, app))
         }));

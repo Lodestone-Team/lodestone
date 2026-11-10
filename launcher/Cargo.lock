@@ -3148,6 +3148,7 @@ dependencies = [
  "http_client",
  "launcher-core",
  "lodestone-ui",
+ "lodestone_connect",
  "objc2 0.6.3",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
@@ -3209,6 +3210,7 @@ dependencies = [
  "launcher-core",
  "lodestone_minecraft",
  "log",
+ "raw-window-handle",
  "serde_json",
  "unicode-segmentation",
  "windows-sys 0.61.2",
@@ -3218,6 +3220,7 @@ dependencies = [
 name = "lodestone_connect"
 version = "0.5.1"
 dependencies = [
+ "aws-lc-rs",
  "quinn",
  "ring",
  "rustls",
@@ -3232,6 +3235,7 @@ dependencies = [
  "tracing",
  "url",
  "webpki-roots",
+ "zeroize",
 ]
 
 [[package]]
