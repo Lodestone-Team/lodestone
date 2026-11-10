@@ -608,22 +608,6 @@ pub fn plan(
                 pairs.push(("backup", json!(backup)));
                 call("worlds.delete_backup", pairs)
             }
-            Worlds::Download {
-                instance,
-                server,
-                core,
-                username,
-                password: p,
-            } => long(
-                "worlds.download",
-                vec![
-                    ("instance", json!(instance)),
-                    ("server", json!(server)),
-                    ("core", json!(core)),
-                    ("username", json!(username)),
-                    ("password", json!(password(p, read_stdin)?)),
-                ],
-            ),
         },
         Command::Accounts(c) => match c {
             Accounts::List => call("accounts.list", vec![]),
@@ -743,11 +727,15 @@ pub fn plan(
                 max_ram,
                 accept_eula,
             } => {
-                // the EULA is checked before the password is read
-                let password = if *accept_eula {
-                    json!(password(p, read_stdin)?)
-                } else {
-                    json!("")
+                // the EULA is checked before the password is read, and a core this
+                // computer is the owner of needs none
+                let password = match username {
+                    Some(_) if *accept_eula => json!(password(p, read_stdin)?),
+                    Some(_) => json!(""),
+                    None if p.password_stdin => {
+                        return Err(usage("--password-stdin goes with --username."));
+                    }
+                    None => Value::Null,
                 };
                 long(
                     "servers.host",
@@ -761,14 +749,6 @@ pub fn plan(
                         ("accept_eula", json!(accept_eula)),
                     ],
                 )
-            }
-            Servers::ResourcePack {
-                server: s,
-                instance,
-            } => {
-                let mut pairs = server(s);
-                pairs.push(("instance", json!(instance)));
-                call("servers.resource_pack", pairs)
             }
         },
         Command::Friends(c) => match c {
@@ -1182,6 +1162,9 @@ mod tests {
         ]);
         assert_eq!(params["password"], "");
         assert_eq!(params["accept_eula"], false);
+        // a core this computer is the owner of needs no password
+        let (_, params, _) = call_of(&["servers", "host", "S", "--core", "c", "--accept-eula"]);
+        assert!(params["username"].is_null() && params["password"].is_null());
     }
 
     /// `path` as the CLI sends it: `/tmp/x` is absolute on Unix, but on Windows it

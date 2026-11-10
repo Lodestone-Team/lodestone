@@ -5,10 +5,11 @@
 //! core without one) is kept in plain text in `cores/local_credentials.json`, not the
 //! Keychain: it exists only because this user can already write the core's folder. A
 //! claimed core is saved at its HTTPS address with its certificate pinned, and its key
-//! is used only for that entry, at that address, to that certificate.
+//! is used only for that entry, at that address, to that certificate. The page offers
+//! the key to copy; an owner account's password is never shown (it only revokes the
+//! key), since the owner signs in to Lodestone Host itself.
 
 use std::{
-    collections::HashSet,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -54,8 +55,6 @@ pub struct LocalCores {
     /// Data folders the user chose, looked in first.
     pub folders: Vec<PathBuf>,
     pub credentials: CredentialsFile,
-    /// Cores whose owner password is shown.
-    pub shown: HashSet<String>,
     last_scan: Option<Instant>,
     scan_task: Option<Task<()>>,
     claim_task: Option<Task<()>>,
@@ -448,14 +447,6 @@ impl Servers {
             this.update(cx, |this, cx| this.connect_local(&uuid, Some(folder), cx))
                 .ok();
         }));
-    }
-
-    /// Shows or hides core `uuid`'s owner password on its card.
-    pub fn toggle_owner_password(&mut self, uuid: &str, cx: &mut Context<Self>) {
-        if !self.local.shown.remove(uuid) {
-            self.local.shown.insert(uuid.to_string());
-        }
-        cx.notify();
     }
 
     /// Fills "On this computer", for the offscreen screenshots.

@@ -48,7 +48,7 @@ refuses them. `ping` and `status` report them as
 - **Access: Read only**: commands that only look (list, show, status, logs, search,
   check, `jobs wait`, `events`, `trace`) work; anything that changes the launcher, its
   instances, settings, accounts, cores or servers, or writes a file (`instances export`,
-  `snapshots export`, `worlds download`) fails with exit 9, `permission_denied`, and
+  `snapshots export`) fails with exit 9, `permission_denied`, and
   `"data": {"access": "read_only", "method": "..."}`. `meta.methods` marks each method's
   `read_only`. Tell the user what you wanted to do and that read-only access is on;
   don't retry.
@@ -243,7 +243,6 @@ lodestone-launcher-cli worlds backups Survival "New World"
 lodestone-launcher-cli worlds restore Survival "New World"                  # a copy beside it
 lodestone-launcher-cli worlds restore Survival "New World" --backup 2026-11-08_14-30-00.zip --replace --yes
 lodestone-launcher-cli worlds delete Survival "Old World" --yes
-printf '%s\n' "$PASSWORD" | lodestone-launcher-cli worlds download Survival --server Smp --username alice --password-stdin
 ```
 
 Snapshots (a whole instance, or the parts you choose; files shared between snapshots are
@@ -323,7 +322,7 @@ lodestone-launcher-cli servers create-instance Smp           # long; matching ve
 lodestone-launcher-cli servers join Smp                      # long; starts it first if stopped
 lodestone-launcher-cli servers link Survival Smp
 lodestone-launcher-cli servers unlink Survival
-lodestone-launcher-cli servers resource-pack Smp --instance Survival
+lodestone-launcher-cli servers host Survival --core "Lodestone Host" --accept-eula   # a core claimed with claim-local
 printf '%s\n' "$PASSWORD" | lodestone-launcher-cli servers host Survival --core "Home core" --username alice --password-stdin --accept-eula
 lodestone-launcher-cli prompts list                          # questions the window is asking
 lodestone-launcher-cli prompts answer update play
@@ -360,8 +359,9 @@ owner-level API key. The core must have an HTTPS certificate: the launcher saves
 fails with `failed`). A core without an owner gets an account the launcher makes up
 (`owner_` and five characters, with a strong password). The key and that account are
 kept in plain text in the launcher's `cores/local_credentials.json` (readable only by
-the user; the reply gives the path) and shown on the core's card; they never appear in
-the reply. Errors: `not_found` (no core here, or its data folder wasn't found: pass
+the user; the reply gives the path); the core's card offers the key to copy and never
+shows the password, and neither appears in the reply. With the owner key, `servers
+host` needs no password on that core. Errors: `not_found` (no core here, or its data folder wasn't found: pass
 `--folder`; a core in Docker needs its data folder mounted from this computer),
 `permission_denied` (the core's owner turned local claims off). Run it only when the
 user asks to connect as owner.

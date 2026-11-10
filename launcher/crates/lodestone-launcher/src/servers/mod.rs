@@ -25,7 +25,6 @@ pub mod host;
 mod host_offer;
 pub mod lan;
 pub mod local;
-pub mod tools;
 pub mod view;
 // What the control API (`crate::control`) does with cores and servers.
 pub(crate) mod control;
@@ -476,7 +475,7 @@ pub struct Servers {
     preview: bool,
     tasks: Vec<Task<()>>,
     _poller: Option<Task<()>>,
-    /// World downloads, resource packs, hosting and LAN worlds.
+    /// Hosting and LAN worlds.
     extras: extras::Extras,
     /// "On this computer": cores found here, and what claiming them gave.
     pub local: local::LocalCores,

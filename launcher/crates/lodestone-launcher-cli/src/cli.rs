@@ -852,23 +852,6 @@ pub enum Worlds {
         world: WorldArgs,
         backup: String,
     },
-    /// Downloads a server's world from its core into an instance, as a singleplayer copy.
-    /// Signs in with your core password (from stdin), once.
-    #[command(
-        after_help = "Examples:\n  printf '%s\\n' \"$PASSWORD\" | lodestone-launcher-cli worlds download Survival --server Smp --username alice --password-stdin"
-    )]
-    Download {
-        instance: String,
-        /// The server's id or name.
-        #[arg(long)]
-        server: String,
-        #[arg(long)]
-        core: Option<String>,
-        #[arg(long)]
-        username: String,
-        #[command(flatten)]
-        password: PasswordArgs,
-    },
 }
 
 /// A password: never on the command line.
@@ -1068,16 +1051,18 @@ pub enum Servers {
     #[command(after_help = "Examples:\n  lodestone-launcher-cli servers unlink Survival")]
     Unlink(InstanceArg),
     /// Hosts an instance's modpack as a new (stopped) server on a core. Hosting accepts
-    /// Minecraft's EULA: ask the user, then pass --accept-eula.
+    /// Minecraft's EULA: ask the user, then pass --accept-eula. On a core this computer
+    /// is the owner of (`cores claim-local`) the owner key creates it; on any other core,
+    /// sign in with --username (the password from stdin).
     #[command(
-        after_help = "Examples:\n  printf '%s\\n' \"$PASSWORD\" | lodestone-launcher-cli servers host Survival --core \"Home core\" --username alice --password-stdin --max-ram 4096 --accept-eula"
+        after_help = "Examples:\n  lodestone-launcher-cli servers host Survival --core \"Lodestone Host\" --accept-eula\n  printf '%s\\n' \"$PASSWORD\" | lodestone-launcher-cli servers host Survival --core \"Home core\" --username alice --password-stdin --max-ram 4096 --accept-eula"
     )]
     Host {
         instance: String,
         #[arg(long)]
         core: String,
         #[arg(long)]
-        username: String,
+        username: Option<String>,
         #[command(flatten)]
         password: PasswordArgs,
         /// The server's name (default: the instance's).
@@ -1088,16 +1073,6 @@ pub enum Servers {
         max_ram: Option<u32>,
         #[arg(long)]
         accept_eula: bool,
-    },
-    /// Saves a server's resource pack into an instance.
-    #[command(
-        after_help = "Examples:\n  lodestone-launcher-cli servers resource-pack Smp --instance Survival"
-    )]
-    ResourcePack {
-        #[command(flatten)]
-        server: ServerArg,
-        #[arg(long)]
-        instance: String,
     },
 }
 

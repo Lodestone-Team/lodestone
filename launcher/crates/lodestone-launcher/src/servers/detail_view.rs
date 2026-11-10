@@ -1,5 +1,5 @@
 //! How a server's page looks: its state and controls, the console with the
-//! dashboard's colours, the chat box, the players, and the Minecraft account link.
+//! dashboard's colours, the chat box, and the Minecraft account link.
 
 use crate::components::RichText;
 use crate::skin::Skinned;
@@ -409,6 +409,10 @@ impl ServerDetail {
                     )
                     .child(small(status).text_color(crate::theme::ink::secondary())),
             )
+            // the state above comes from the event stream: say when it isn't live
+            .when(self.events_status != StreamStatus::Live, |this| {
+                this.child(div().flex_none().child(status_line(&self.events_status)))
+            })
             .when(access.start && stopped, |this| {
                 this.child(
                     Button::new("detail-start", t(CommonMsg::Start))
@@ -608,50 +612,6 @@ impl ServerDetail {
             .into_any_element()
     }
 
-    fn players_card(&self) -> AnyElement {
-        let mut card = card().child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .child(card_title(t(M::Players)))
-                .child(status_line(&self.events_status)),
-        );
-        card = match &self.players {
-            None => card.child(LoadingDots),
-            Some(players) if players.is_empty() => card.child(
-                small(t(if self.server.state == ServerState::Running {
-                    M::NoOneOnline
-                } else {
-                    M::ServerNotRunning
-                }))
-                .text_color(crate::theme::ink::muted()),
-            ),
-            Some(players) => card.children(players.iter().enumerate().map(|(index, player)| {
-                div()
-                    .id(("player", index))
-                    .accessible(
-                        Role::ListItem,
-                        format!("player-{index}"),
-                        player.name.clone(),
-                    )
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(div().size(px(6.)).rounded_full().bg(colors::GREEN_200))
-                    .child(
-                        div()
-                            .truncate()
-                            .text_color(crate::theme::ink::text())
-                            .child(player.name.clone()),
-                    )
-            })),
-        };
-        card.into_any_element()
-    }
-
     fn account_card(&self, cx: &mut Context<Self>) -> AnyElement {
         let user = self.user_label();
         let mut card = card().child(card_title(t(M::MinecraftAccount)));
@@ -732,7 +692,6 @@ impl Render for ServerDetail {
         let header = self.header(cx);
         let eula = self.eula_card(cx);
         let console = self.console_card(cx);
-        let players = self.players_card();
         let account = self.account_card(cx);
         div()
             .id("server-detail")
@@ -762,7 +721,6 @@ impl Render for ServerDetail {
                             .w(px(280.))
                             .flex_none()
                             .overflow_y_scroll()
-                            .child(players)
                             .child(account),
                     ),
             )

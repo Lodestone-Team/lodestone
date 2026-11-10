@@ -28,14 +28,9 @@ crate::i18n::messages! {
         ProductHostHint = "the desktop app, with the dashboard in a window",
         ProductCoreHint = "a core on its own (the server program, or Docker)",
         ConnectedAsOwner = "Connected to {name} as its owner",
-        ConnectedMadeOwner = "It had no owner yet, so Lodestone Launcher made the owner account {username}. Its password is on the core's card; keep it somewhere safe.",
+        ConnectedMadeOwner = "It had no owner yet, so Lodestone Launcher made the owner account {username}.",
         ConnectedOwnerKey = "This launcher has an owner key for it now. You can revoke it from the core's dashboard.",
-        OwnerSignIn = "Owner sign-in",
         OwnerKey = "Owner key",
-        ShowPassword = "Show",
-        HidePassword = "Hide",
-        CopyUsername = "Copy username",
-        CopyPassword = "Copy password",
         CopyApiKey = "Copy API key",
         StartedBy = "Started by {who}",
         StartedDirectly = "Started directly",
@@ -86,8 +81,6 @@ crate::i18n::messages! {
         CreateInstance = "Create instance",
         StartAndJoin = "Start and join",
         Play = "Play",
-        /// Opens a server's world and resource pack.
-        More = "More…",
         /// A badge next to a server's name: an instance was made for it.
         InstanceReady = "Instance ready",
         AddressHidden = "The owner hasn't shared this server's address.",
@@ -284,9 +277,6 @@ crate::i18n::messages! {
         ChatHint = "Text is said to everyone with /say. Start with / to run a command.",
         Console = "Console",
         JumpToLatest = "Jump to latest",
-        Players = "Players",
-        NoOneOnline = "No one is online.",
-        ServerNotRunning = "The server isn't running.",
         MinecraftAccount = "Minecraft account",
         CoreTooOldToLink = "This core is too old to link Minecraft accounts.",
         Unlink = "Unlink",
@@ -337,43 +327,6 @@ crate::i18n::messages! {
         JoinWorld = "Join {world}",
         PickInstance = "Pick the instance to play with. It needs the same Minecraft version and mods as the world at {address}.",
         NoInstancesYet = "You have no instances yet. Create one first.",
-
-        // ===== A server's world and resource pack ("More…") =====
-        /// Where a download goes, in PackNote: "saving it in a new instance".
-        ANewInstance = "a new instance",
-        NewMatchingInstance = "New matching instance",
-        NoResourcePack = "This server doesn't set a resource pack.",
-        DownloadToInstance = "Download to instance",
-        /// {target} is an instance's name, or ANewInstance.
-        PackNote = "Minecraft downloads it when you join; saving it in {target} makes it ready offline too.",
-        PackNoteRequired = "Players must accept it to join. Minecraft downloads it when you join; saving it in {target} makes it ready offline too.",
-        PackNoteNoSha = "The server gives no SHA-1 for it. Minecraft downloads it when you join; saving it in {target} makes it ready offline too.",
-        PackNoteRequiredNoSha = "Players must accept it to join. The server gives no SHA-1 for it. Minecraft downloads it when you join; saving it in {target} makes it ready offline too.",
-        /// The label over the instances a download can go to.
-        InstanceLabel = "Instance",
-        ResourcePack = "Resource pack",
-        World = "World",
-        WorldCopyHint = "A singleplayer copy of the server's world, in a new world folder. Changes you make in it stay on {computer}.",
-        StopToDownload = "Stop the server to download its world: a running server can be writing to it.",
-        PasswordNotKeptDownload = "Your password is sent once to sign in for this download, and isn't kept.",
-        DownloadWorld = "Download world",
-        WorldNeedsPassword = "Enter your username and password for this core. Downloading a world needs permission to read the server's files, which the key on {computer} doesn't have.",
-        SignInToSeePack = "Sign in to this core to see the server's resource pack.",
-        CreatingMatching = "Creating the matching instance",
-        /// {more} is the "More…" button.
-        CreatingMatchingBody = "It is made once the server's mods are downloaded. Then open {more} on the server again, pick it, and download again.",
-        CouldNotCreateInstance = "Couldn't create the instance.",
-        QuitGameFirst = "Quit the game in that instance first.",
-        WorldZipping = "The core is zipping the world…",
-        WorldDownloading = "Downloading…",
-        /// {done} and {total} are sizes: "12 MB of 40 MB".
-        WorldDownloadingOf = "Downloading {done} of {total}",
-        WorldDownloadingSize = "Downloading {done}",
-        WorldImporting = "Importing…",
-        WorldImportingOf = "Importing {done} of {total}",
-        /// "Singleplayer" is Minecraft's menu.
-        WorldImported = "Imported as the world “{folder}” in {instance}. Open it from Singleplayer; it's a copy, so changes don't go back to the server.",
-        PackSaved = "Saved as {file} in the instance's resource packs. Turn it on there to use it on other servers too.",
 
         // ===== Friends' servers (Lodestone Connect) =====
         FriendsTitle = "Friends' servers",
