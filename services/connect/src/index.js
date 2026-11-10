@@ -45,6 +45,8 @@ const MAX_JOINS = 16;
 const MAX_JOINS_KEPT = 64;
 const MAX_CANDIDATES = 8;
 const MAX_BODY = 4 * 1024;
+// How much of a body that's too large is read (and thrown away) before it's cut off.
+const DRAIN_MAX = 1024 * 1024;
 const MAX_SOCKETS = 4;
 const IDLE_MS = 120_000;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -128,23 +130,38 @@ function validIpv6(ip, allowLoopback) {
   return true;
 }
 
-/// The body as text, refusing more than `limit` bytes without reading them all.
+/// The body as text, or null past `limit` bytes. Only `limit` bytes are ever kept.
+///
+/// A body that's too large is still read to its end (and thrown away) up to DRAIN_MAX,
+/// so the answer goes out after the request: answering in the middle of a body breaks
+/// the connection under some proxies (`wrangler dev`'s among them), which then answer
+/// 500 instead, for this request or the next one on the connection. Past DRAIN_MAX it's
+/// cut off. A stream that fails while being read counts as too large too.
 async function readBody(request, limit = MAX_BODY) {
-  if (Number(request.headers.get('content-length') || 0) > limit) return null;
-  if (!request.body) return '';
+  const declared = Number(request.headers.get('content-length') || 0);
+  if (!request.body) return declared > limit ? null : '';
+  if (declared > DRAIN_MAX) {
+    await cancelQuietly(request.body);
+    return null;
+  }
   const reader = request.body.getReader();
   const chunks = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel();
-      return null;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > DRAIN_MAX) {
+        await cancelQuietly(reader);
+        return null;
+      }
+      if (size <= limit) chunks.push(value);
     }
-    chunks.push(value);
+  } catch {
+    return null;
   }
+  if (size > limit || declared > limit) return null;
   const bytes = new Uint8Array(size);
   let at = 0;
   for (const chunk of chunks) {
@@ -152,6 +169,12 @@ async function readBody(request, limit = MAX_BODY) {
     at += chunk.byteLength;
   }
   return new TextDecoder().decode(bytes);
+}
+
+async function cancelQuietly(stream) {
+  try {
+    await stream.cancel();
+  } catch {}
 }
 
 /// The body's candidates (and whether it asks to keep the code), or null.
@@ -404,9 +427,9 @@ async function linkPage(validLinkCode, page, script) {
 // The Worker
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
-      return await route(request, env);
+      return await route(request, env, ctx);
     } catch (err) {
       console.error('connect: unexpected error', err?.stack || String(err));
       return error(500, 'internal', 'Something went wrong. Try again.');
@@ -414,7 +437,7 @@ export default {
   },
 };
 
-async function route(request, env) {
+async function route(request, env, ctx) {
   const url = new URL(request.url);
   const parts = url.pathname.split('/').filter(Boolean);
   const allowLoopback = env.ALLOW_LOOPBACK === '1';
@@ -425,7 +448,7 @@ async function route(request, env) {
   if (parts[0] === 'f' && parts.length === 2 && (request.method === 'GET' || request.method === 'HEAD')) {
     return linkPage(validCode(parts[1].toUpperCase()), FRIEND_PAGE, FRIEND_SCRIPT);
   }
-  if (parts[0] === 'v2') return routeV2(request, env, parts);
+  if (parts[0] === 'v2') return routeV2(request, env, parts, ctx);
   if (parts[0] !== 'v1') return error(404, 'unknown', 'Unknown request.');
 
   if (parts.length === 2 && parts[1] === 'health' && request.method === 'GET') {
@@ -713,8 +736,9 @@ function closeQuietly(ws, code, reason) {
 // compares digests in constant time.
 //
 // Durable Objects: one Pair per mailbox code, one Slot per slot id, one MeetSession per
-// core's session (holding its records and the core's hibernating WebSocket), and one
-// Lookup per lookup id, remembering which session registered it last.
+// core's session (holding its records and the core's hibernating WebSocket), one
+// Lookup per lookup id, remembering which session holds it, and one Quota per client
+// address, counting the slots it made in the last hour and day.
 
 const HEX = '0123456789abcdef';
 const HEX32 = /^[0-9a-f]{32}$/;
@@ -722,7 +746,19 @@ const HEX64 = /^[0-9a-f]{64}$/;
 const PAIR_MS = 24 * 60 * 60 * 1000;
 const MAX_REPLIES = 4;
 const MAX_CARD_HEX = 4096; // 2 KiB
-const SLOT_MS = 90 * 24 * 60 * 60 * 1000;
+// A slot is gone this long after its last write. Launchers write a new state weekly
+// (REISSUE_AFTER_SECS in lodestone-connect) while they run, so three weeks leaves room
+// for a missed week; a friend whose slot is gone keeps the last state they read.
+const SLOT_MS = 21 * 24 * 60 * 60 * 1000;
+// New slots per client address (rewriting a slot doesn't count): each holds up to
+// 8 KiB for SLOT_MS, so this bounds what one address can store. A person makes one slot
+// per friend, when they pair (or after three weeks away). Overridden only in the tests.
+const SLOTS_PER_HOUR = 20;
+const SLOTS_PER_DAY = 100;
+// How long a slot read is kept in Cloudflare's cache (per data center). States are
+// signed and numbered, and readers keep the highest number they've seen, so a stale read
+// only delays news by this long. A write or delete clears the copy in its data center.
+const SLOT_CACHE_SECS = 30;
 const MAX_STATE_HEX = 8192; // 4 KiB
 const MAX_RECORDS = 256;
 const MAX_RECORD_HEX = 2048; // 1 KiB, and the same for a knock
@@ -797,13 +833,77 @@ function bare(status) {
   return new Response(null, { status, headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
 }
 
+/// Takes one new slot from the address's budget (SLOTS_PER_HOUR and SLOTS_PER_DAY), or
+/// says it's spent. The budget is a Durable Object per address: Cloudflare's rate
+/// limiters only count per 10 or 60 seconds.
+async function takeSlotBudget(env, request) {
+  if (!env.QUOTAS) return true;
+  const key = limitKey(request.headers.get('cf-connecting-ip'));
+  const quota = env.QUOTAS.get(env.QUOTAS.idFromName(`slots:${key}`));
+  return quota.take([
+    { ms: 60 * 60 * 1000, max: Number(env.SLOTS_PER_HOUR) || SLOTS_PER_HOUR },
+    { ms: 24 * 60 * 60 * 1000, max: Number(env.SLOTS_PER_DAY) || SLOTS_PER_DAY },
+  ]);
+}
+
+/// Cloudflare's cache in this data center, where there is one.
+function edgeCache() {
+  return typeof caches !== 'undefined' && caches.default ? caches.default : null;
+}
+
+/// The cache key for a slot's reads: its id alone (no query, no headers), on this
+/// service's own host, so it's found only by someone who knows the id, as the slot is.
+function slotCacheKey(url, id) {
+  return new Request(`${url.origin}/v2/slots/${id}`, { method: 'GET' });
+}
+
+/// A slot read from the cache, as a fresh `no-store` answer, or null.
+async function cachedSlot(url, id) {
+  const cache = edgeCache();
+  if (!cache) return null;
+  try {
+    const hit = await cache.match(slotCacheKey(url, id));
+    if (!hit) return null;
+    return new Response(hit.body, {
+      status: hit.status,
+      headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' },
+    });
+  } catch {
+    return null;
+  }
+}
+
+/// Keeps a slot read (the state, or "no such slot") for SLOT_CACHE_SECS.
+function cacheSlot(url, id, result, ctx) {
+  const cache = edgeCache();
+  if (!cache || !ctx) return;
+  const ok = !('error' in result);
+  if (!ok && result.status !== 404) return;
+  const body = JSON.stringify(ok ? { sealed: result.sealed } : { error: result.error, message: result.message });
+  const copy = new Response(body, {
+    status: ok ? 200 : 404,
+    headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${SLOT_CACHE_SECS}` },
+  });
+  ctx.waitUntil(cache.put(slotCacheKey(url, id), copy).catch(() => {}));
+}
+
+/// Forgets this data center's cached read of a slot, after a write or delete.
+async function uncacheSlot(url, id) {
+  const cache = edgeCache();
+  if (!cache) return;
+  try {
+    await cache.delete(slotCacheKey(url, id));
+  } catch {}
+}
+
 /// The v2 routes. Each checks what a page elsewhere can't send from a visitor's browser
 /// (a JSON body, an Authorization header) before asking the rate limiter, as v1 does.
 /// The unauthenticated reads (slot GET, presence HEAD) have nothing like that: they count
 /// against their own limit, so a page can at worst use up a visitor's reads.
-async function routeV2(request, env, parts) {
+async function routeV2(request, env, parts, ctx) {
   const method = request.method;
   const kind = parts[1];
+  const url = new URL(request.url);
 
   if (kind === 'pairs' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'replies'))) {
     if (!validCode(parts[2])) return error(404, 'not_found', 'No such mailbox. It may have expired.');
@@ -869,22 +969,32 @@ async function routeV2(request, env, parts) {
       const proofHash = await sha256Hex(proof);
       let result = await slot.write(proofHash, body.sealed, false);
       if (result.create) {
-        // A new slot counts as something made.
-        if (!(await allowed(env.FRIEND_CREATE_LIMIT, request))) return rateLimited('new slots');
+        // A new slot is charged to the address's slot budget; rewrites aren't.
+        if (!(await takeSlotBudget(env, request))) {
+          return error(429, 'rate_limited', 'Too many new slots from this address. Try again in an hour.');
+        }
         result = await slot.write(proofHash, body.sealed, true);
       }
+      if (!('error' in result)) await uncacheSlot(url, parts[2]);
       return answer(result, () => json(200, { ok: true }));
     }
     if (method === 'GET') {
       if (!fromClient(request)) return error(400, 'not_client', 'Send "X-Lodestone-Client: 1".');
+      // A cached read costs no Durable Object call, so it isn't counted.
+      const cached = await cachedSlot(url, parts[2]);
+      if (cached) return cached;
       if (!(await allowed(env.SLOT_READ_LIMIT, request))) return rateLimited('reads');
-      return answer(await slot.read(), (r) => json(200, { sealed: r.sealed }));
+      const result = await slot.read();
+      cacheSlot(url, parts[2], result, ctx);
+      return answer(result, (r) => json(200, { sealed: r.sealed }));
     }
     if (method === 'DELETE') {
       const proof = bearer(request, 64);
       if (!proof) return unauthorizedAs('write proof');
       if (!(await allowed(env.FRIEND_LIMIT, request))) return rateLimited('requests');
-      return answer(await slot.erase(await sha256Hex(proof)), () => json(200, { ok: true }));
+      const result = await slot.erase(await sha256Hex(proof));
+      if (!('error' in result)) await uncacheSlot(url, parts[2]);
+      return answer(result, () => json(200, { ok: true }));
     }
     return unknown();
   }
@@ -1042,7 +1152,7 @@ export class Pair extends DurableObject {
 
 // ---------------------------------------------------------------------------
 // One slot: a person's latest sealed state for one friend, and the hash of the write
-// proof its first write came with. Gone 90 days after its last write.
+// proof its first write came with. Gone SLOT_MS (21 days) after its last write.
 
 const goneSlot = { status: 404, error: 'not_found', message: 'No such slot.' };
 const wrongProof = { status: 403, error: 'forbidden', message: 'Wrong write proof.' };
@@ -1097,6 +1207,34 @@ export class Slot extends DurableObject {
 }
 
 // ---------------------------------------------------------------------------
+// One client address's budget of things made over longer windows than Cloudflare's rate
+// limiters count (they stop at a minute): fixed windows, each starting at its first use.
+// Gone once its longest window has passed unused.
+
+export class Quota extends DurableObject {
+  /// Takes one from each window's budget ([{ms, max}]) and answers true, or answers false
+  /// (taking nothing) if any of them is spent.
+  async take(windows) {
+    const now = Date.now();
+    const kept = (await this.ctx.storage.get('windows')) || {};
+    const next = {};
+    for (const { ms, max } of windows) {
+      const window = kept[ms] && now < kept[ms].start + ms ? kept[ms] : { start: now, count: 0 };
+      if (window.count >= max) return false;
+      next[ms] = { start: window.start, count: window.count + 1 };
+    }
+    await this.ctx.storage.put('windows', next);
+    const longest = Math.max(...Object.entries(next).map(([ms, w]) => w.start + Number(ms)));
+    await this.ctx.storage.setAlarm(longest);
+    return true;
+  }
+
+  async alarm() {
+    await this.ctx.storage.deleteAll();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // One core's meeting session: its records ({lookup: sealed}) and its WebSocket, waiting
 // for knocks. Like an invite, it ends when the core has been quiet for two minutes, when
 // it deletes the session, or after 24 hours. Its lookups are live while a socket heard
@@ -1129,17 +1267,19 @@ export class MeetSession extends DurableObject {
       return { rateLimited: true };
     }
     const now = Date.now();
-    const session = { name, secret, records, seenAt: now, expiresAt: now + MAX_AGE_MS };
+    const session = { name, secret, records, unclaimed: [], seenAt: now, expiresAt: now + MAX_AGE_MS };
     await this.ctx.storage.put('session', session);
     await this.ctx.storage.setAlarm(now + this.idleMs);
-    await this.register(name, Object.keys(records));
+    session.unclaimed = await this.register(name, Object.keys(records));
+    if (session.unclaimed.length) await this.ctx.storage.put('session', session);
     return { expiresAt: session.expiresAt };
   }
 
   /// Replaces the records. Only the lookups added are registered to this session, and
   /// only the ones dropped are unregistered (where they still point here), each charged
   /// to the address's budget, so resending the same records costs next to nothing.
-  /// Counts as the core being there.
+  /// Lookups this session couldn't take before (another live session held them) are
+  /// tried again. Counts as the core being there.
   async replace(secret, records, ip) {
     const session = await this.load();
     if (!session) return goneSession;
@@ -1149,11 +1289,16 @@ export class MeetSession extends DurableObject {
     if (!(await chargeRegistrations(this.env.REGISTER_LIMIT, ip, added.length + dropped.length))) {
       return { status: 429, error: 'rate_limited', message: 'Too many record changes from this address. Wait a minute.' };
     }
+    const retry = (session.unclaimed || []).filter((lookup) => Object.hasOwn(records, lookup) && Object.hasOwn(session.records, lookup));
     session.records = records;
     session.seenAt = Date.now();
     await this.ctx.storage.put('session', session);
-    await this.register(session.name, added);
+    const unclaimed = await this.register(session.name, [...added, ...retry]);
     await this.unregister(session.name, dropped);
+    if (unclaimed.length || session.unclaimed?.length) {
+      session.unclaimed = unclaimed;
+      await this.ctx.storage.put('session', session);
+    }
     return { expiresAt: session.expiresAt };
   }
 
@@ -1173,6 +1318,8 @@ export class MeetSession extends DurableObject {
     return { sealed: session.records[lookup] };
   }
 
+  /// Whether this session publishes `lookup` now: it has the record and a live socket.
+  /// A Lookup asks this before letting another session take it.
   async present(lookup) {
     const session = await this.load();
     return Boolean(session && Object.hasOwn(session.records, lookup) && this.liveSockets().length);
@@ -1219,6 +1366,11 @@ export class MeetSession extends DurableObject {
       }
       if (now - seen < this.idleMs) {
         await this.ctx.storage.setAlarm(Math.min(seen + this.idleMs, session.expiresAt));
+        // Lookups another session held when this one registered: theirs may have ended.
+        if (session.unclaimed?.length && this.liveSockets().length) {
+          session.unclaimed = await this.register(session.name, session.unclaimed.filter((lookup) => Object.hasOwn(session.records, lookup)));
+          await this.ctx.storage.put('session', session);
+        }
         return;
       }
     }
@@ -1262,8 +1414,14 @@ export class MeetSession extends DurableObject {
     }
   }
 
+  /// Registers `lookups` to this session; answers the ones another live session holds,
+  /// which stay that session's.
   async register(name, lookups) {
-    await eachLookup(this.env, lookups, (lookup) => lookup.register(name));
+    const refused = [];
+    await eachLookup(this.env, lookups, async (lookup, id) => {
+      if (!(await lookup.register(name, id))) refused.push(id);
+    });
+    return refused;
   }
 
   async unregister(name, lookups) {
@@ -1273,18 +1431,29 @@ export class MeetSession extends DurableObject {
 
 async function eachLookup(env, lookups, call) {
   for (let i = 0; i < lookups.length; i += LOOKUP_BATCH) {
-    await Promise.all(lookups.slice(i, i + LOOKUP_BATCH).map((id) => call(env.LOOKUPS.get(env.LOOKUPS.idFromName(id)))));
+    await Promise.all(lookups.slice(i, i + LOOKUP_BATCH).map((id) => call(env.LOOKUPS.get(env.LOOKUPS.idFromName(id)), id)));
   }
 }
 
 // ---------------------------------------------------------------------------
-// One lookup id: the session that registered it last, for 24 hours from then (no
-// session lasts longer).
+// One lookup id: the session that holds it, for 24 hours from when it took it (no
+// session lasts longer). Another session takes it only while the holder isn't live
+// (no socket heard from within two minutes), so a session can't be cut off by someone
+// registering its lookup ids elsewhere; a core that restarts gets its ids back once its
+// old session has gone quiet.
 
 export class Lookup extends DurableObject {
-  async register(session) {
+  /// Gives `lookup` (this object's id) to `session` and answers true, unless another
+  /// session holds it and is live: then false, and nothing changes.
+  async register(session, lookup) {
+    const holder = await this.ctx.storage.get('session');
+    if (holder && holder !== session) {
+      const live = await this.env.MEET_SESSIONS.get(this.env.MEET_SESSIONS.idFromName(holder)).present(lookup);
+      if (live) return false;
+    }
     await this.ctx.storage.put('session', session);
     await this.ctx.storage.setAlarm(Date.now() + MAX_AGE_MS);
+    return true;
   }
 
   /// Lets go, unless another session registered this lookup since.

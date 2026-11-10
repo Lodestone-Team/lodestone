@@ -11,18 +11,20 @@
 //!
 //! - `GET /connect/friends`: the friend certificate's fingerprint, the friends (no
 //!   secrets), what's shared with each, and who is connected;
-//! - `PUT /connect/friends`: replaces the list, with a higher version.
+//! - `PUT /connect/friends`: replaces the list, with a higher version;
+//! - `POST /connect/friends/certificate`: makes a new friend certificate (for a core its
+//!   owner retired) and answers as `GET` does, with the new fingerprint.
 //!
-//! Both need the owner, signed in (not an API key), and a connection that can't be read
-//! on the way: loopback, or HTTPS. The list carries the secrets this core shares with
-//! each friend.
+//! All three need the owner, signed in (not an API key), and a connection that can't be
+//! read on the way: loopback, or HTTPS. The list carries the secrets this core shares
+//! with each friend.
 
 use std::net::IpAddr;
 
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use color_eyre::eyre::eyre;
@@ -85,6 +87,28 @@ async fn stop_share(
 /// so outside those cases a request from another device came over HTTPS. A request a
 /// reverse proxy on this computer passed on (it says who it forwarded) isn't counted as
 /// loopback: it may have come from anywhere, over anything.
+///
+/// This can't catch every local proxy: one that sends none of [`FORWARDED_HEADERS`],
+/// or a raw TCP tunnel (`ssh -L`, a TCP tunnel service), still looks like loopback.
+/// launcher/docs/friends.md says so.
+/// Headers that reverse proxies and tunnels commonly add to say who they passed a
+/// request on from (or that they passed it on at all).
+const FORWARDED_HEADERS: &[&str] = &[
+    "forwarded",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+    "x-client-ip",
+    "x-cluster-client-ip",
+    "x-original-forwarded-for",
+    "cf-connecting-ip",
+    "cf-connecting-ipv6",
+    "true-client-ip",
+    "fastly-client-ip",
+    "via",
+];
+
 async fn friends_allowed(
     state: &AppState,
     requester: &AuthedUser,
@@ -93,7 +117,7 @@ async fn friends_allowed(
 ) -> Result<(), Error> {
     requester.require_session()?;
     requester.require_owner()?;
-    let forwarded = ["forwarded", "x-forwarded-for", "x-real-ip"]
+    let forwarded = FORWARDED_HEADERS
         .iter()
         .any(|name| headers.contains_key(*name));
     let loopback = !forwarded && peer.is_some_and(is_loopback);
@@ -131,6 +155,18 @@ async fn put_friends(
     Ok(Json(state.connect.friends.replace(&state, list).await?))
 }
 
+async fn rotate_certificate(
+    State(state): State<AppState>,
+    ClientIp(peer): ClientIp,
+    headers: HeaderMap,
+    requester: AuthedUser,
+) -> Result<Json<FriendsView>, Error> {
+    friends_allowed(&state, &requester, peer, &headers).await?;
+    Ok(Json(
+        state.connect.friends.rotate_certificate(&state).await?,
+    ))
+}
+
 pub fn get_connect_routes(state: AppState) -> Router {
     Router::new()
         .route(
@@ -138,5 +174,6 @@ pub fn get_connect_routes(state: AppState) -> Router {
             get(get_share).post(start_share).delete(stop_share),
         )
         .route("/connect/friends", get(get_friends).put(put_friends))
+        .route("/connect/friends/certificate", post(rotate_certificate))
         .with_state(state)
 }

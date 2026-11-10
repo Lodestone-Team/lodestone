@@ -94,3 +94,44 @@ test('a meeting session stops publishing when its core goes quiet, and then ends
   const late = new Socket(`${s.ws}/v2/meet/${session}/knocks`, secret);
   await assert.rejects(late.opened);
 });
+
+test('a session gets a lookup another session held once that one goes quiet', async () => {
+  // as when a core restarts while its old session's socket hasn't been noticed gone
+  const lookup = 'ef'.repeat(16);
+  const open = async (sealed) => {
+    const response = await fetch(`${s.base}/v2/meet`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ records: [{ lookup, sealed }] }),
+    });
+    assert.equal(response.status, 201);
+    const { session, secret } = await response.json();
+    const core = new Socket(`${s.ws}/v2/meet/${session}/knocks`, secret);
+    await core.opened;
+    return core;
+  };
+  const knock = async () => {
+    const response = await fetch(`${s.base}/v2/lookups/${lookup}/knocks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sealed: '00'.repeat(16) }),
+    });
+    return response.status === 200 ? (await response.json()).sealed : null;
+  };
+  const old = await open('aa'.repeat(20));
+  const fresh = await open('bb'.repeat(20));
+  assert.equal(await knock(), 'aa'.repeat(20), 'the live holder keeps it');
+
+  // The old session goes quiet; the new one keeps pinging and takes the lookup within
+  // an idle time or two, without sending its records again.
+  let got = null;
+  for (let i = 0; i < 12 && got !== 'bb'.repeat(20); i++) {
+    await sleep(700);
+    fresh.ws.send('ping');
+    while ((await fresh.next()) !== 'pong');
+    got = await knock();
+  }
+  assert.equal(got, 'bb'.repeat(20));
+  old.close();
+  fresh.close();
+});

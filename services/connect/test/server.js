@@ -98,15 +98,20 @@ export class Socket {
     });
   }
 
-  /// The next message, failing after `ms`.
+  /// The next message, failing after `ms` (and then a later message waits for the next
+  /// call, rather than going to the one that gave up).
   next(ms = 5000) {
     if (this.messages.length) return Promise.resolve(this.messages.shift());
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('no message')), ms);
-      this.waiting.push((data) => {
+      const waiter = (data) => {
         clearTimeout(timer);
         resolve(data);
-      });
+      };
+      const timer = setTimeout(() => {
+        this.waiting = this.waiting.filter((w) => w !== waiter);
+        reject(new Error('no message'));
+      }, ms);
+      this.waiting.push(waiter);
     });
   }
 

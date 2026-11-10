@@ -30,9 +30,13 @@ use axum::{
 use lodestone_connect::{
     friend::{
         crypto::{PublicKey, Secret},
-        host::{CoreIdentity, FriendAccess, FriendHandler, FriendHost, FriendHostConfig, FriendHostStatus},
+        host::{
+            CoreIdentity, FriendAccess, FriendHandler, FriendHost, FriendHostConfig,
+            FriendHostStatus,
+        },
         pair::clean_name,
     },
+    host::HostState,
     GatherOptions, Service, SharedServer, TunnelStream,
 };
 use serde::{Deserialize, Serialize};
@@ -47,7 +51,10 @@ use crate::{
         util::get_instance,
     },
     public_listing::PublicInstanceList,
-    traits::{t_configurable::{Game, TConfigurable}, t_server::TServer},
+    traits::{
+        t_configurable::{Game, TConfigurable},
+        t_server::TServer,
+    },
     types::InstanceUuid,
     AppState,
 };
@@ -94,6 +101,10 @@ pub struct FriendEntry {
     /// The instances shared with the friend.
     #[serde(default)]
     pub shared: Vec<InstanceUuid>,
+    /// Hidden from: the core keeps what's shared with them, but publishes nothing for
+    /// them, refuses their connections and serves them nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 impl std::fmt::Debug for FriendEntry {
@@ -103,6 +114,7 @@ impl std::fmt::Debug for FriendEntry {
             .field("key", &self.key)
             .field("name", &self.name)
             .field("shared", &self.shared)
+            .field("hidden", &self.hidden)
             .finish_non_exhaustive()
     }
 }
@@ -121,6 +133,8 @@ pub struct FriendView {
     pub key: String,
     pub name: String,
     pub shared: Vec<InstanceUuid>,
+    /// Hidden from (see [`FriendEntry::hidden`]).
+    pub hidden: bool,
     /// Connected now.
     pub connected: bool,
 }
@@ -132,7 +146,9 @@ pub struct FriendsView {
     pub fingerprint: String,
     pub version: u64,
     pub friends: Vec<FriendView>,
-    /// The friend host, while it runs (something is shared with someone).
+    /// The friend host, while it runs (something is shared with someone), or while
+    /// it's being started again after it couldn't start (offline, say): then its state
+    /// is `reconnecting` and `problem` says why.
     pub host: Option<FriendHostStatus>,
 }
 
@@ -143,6 +159,7 @@ struct Friend {
     name: String,
     secret: Secret,
     shared: HashSet<InstanceUuid>,
+    hidden: bool,
 }
 
 impl Friend {
@@ -165,6 +182,7 @@ impl Friend {
             name,
             secret,
             shared: entry.shared.iter().cloned().collect(),
+            hidden: entry.hidden,
         })
     }
 }
@@ -180,6 +198,10 @@ struct Inner {
     friends: Vec<Friend>,
     loaded: bool,
     host: Option<FriendHost>,
+    /// Why the friend host couldn't start, while it's being tried again.
+    problem: Option<String>,
+    /// Trying to start the friend host again, every [`RETRY`].
+    retry: Option<tokio::task::JoinHandle<()>>,
 }
 
 /// The friend list and the friend host.
@@ -190,6 +212,15 @@ pub struct FriendShares {
     inner: Mutex<Inner>,
     access: Access,
     identity: Mutex<Option<CoreIdentity>>,
+    /// Where friends' info streams go: one server for the life of the shares, started
+    /// with the first friend host, so restarting the friend host doesn't leave one
+    /// behind each time.
+    info: std::sync::OnceLock<mpsc::Sender<(TunnelStream, PublicKey)>>,
+    /// How long to wait before trying to start the friend host again: [`RETRY`].
+    retry: Duration,
+    /// Starts to fail on purpose, as if offline.
+    #[cfg(test)]
+    fail_starts: std::sync::Mutex<usize>,
 }
 
 impl FriendShares {
@@ -204,10 +235,48 @@ impl FriendShares {
                 friends: Vec::new(),
                 loaded: false,
                 host: None,
+                problem: None,
+                retry: None,
             }),
             access: Arc::default(),
             identity: Mutex::new(None),
+            info: std::sync::OnceLock::new(),
+            retry: RETRY,
+            #[cfg(test)]
+            fail_starts: Default::default(),
         }
+    }
+
+    /// Whether this start should fail on purpose (counting it).
+    #[cfg(test)]
+    fn take_failed_start(&self) -> bool {
+        let mut left = self.fail_starts.lock().expect("not poisoned");
+        let fail = *left > 0;
+        *left = left.saturating_sub(1);
+        fail
+    }
+
+    /// Fails the next `starts` friend host starts, and tries again after `retry`.
+    #[cfg(test)]
+    pub(crate) fn failing_for_tests(mut self, starts: usize, retry: Duration) -> Self {
+        self.fail_starts = std::sync::Mutex::new(starts);
+        self.retry = retry;
+        self
+    }
+
+    /// Where friends' info streams go, starting the server for them the first time.
+    fn info_streams(&self, state: &AppState) -> mpsc::Sender<(TunnelStream, PublicKey)> {
+        self.info
+            .get_or_init(|| {
+                let (info, streams) = mpsc::channel(16);
+                tokio::spawn(serve_friend_info(
+                    state.clone(),
+                    self.access.clone(),
+                    streams,
+                ));
+                info
+            })
+            .clone()
     }
 
     fn identity_file(&self) -> PathBuf {
@@ -232,21 +301,45 @@ impl FriendShares {
     }
 
     /// The friend certificate, made on first use.
+    ///
+    /// A new one is made only when there is no file, or when the file is damaged; a
+    /// damaged file is kept beside it as `core.json.damaged-<seconds since 1970>`.
+    /// Any other read error (permissions, a disk problem) is an error: replacing the
+    /// certificate would cut off every friend who pinned it.
     pub async fn identity(&self) -> Result<CoreIdentity, Error> {
         let mut identity = self.identity.lock().await;
         if let Some(identity) = identity.as_ref() {
             return Ok(identity.clone());
         }
-        let loaded = match tokio::fs::read_to_string(self.identity_file()).await {
+        let file = self.identity_file();
+        let loaded = match tokio::fs::read_to_string(&file).await {
             Ok(text) => match CoreIdentity::from_json(&text) {
                 Ok(loaded) => Some(loaded),
                 Err(e) => {
+                    let since = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| d.as_secs());
+                    let backup = self.dir.join(format!("core.json.damaged-{since}"));
+                    tokio::fs::rename(&file, &backup).await.map_err(|err| {
+                        internal(format!(
+                            "The friend certificate is damaged ({e}), and it couldn't be moved aside: {err}"
+                        ))
+                    })?;
                     // Friends pinned the old one: they'll need the owner's new state.
-                    warn!("The friend certificate is damaged, making a new one: {e}");
+                    warn!(
+                        "The friend certificate is damaged ({e}); it was moved to {} and a new one is made. Friends see this core again once the owner's launcher sends them its new state.",
+                        backup.display()
+                    );
                     None
                 }
             },
-            Err(_) => None,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(internal(format!(
+                    "Couldn't read the friend certificate {}: {e}",
+                    file.display()
+                )))
+            }
         };
         let made = match loaded {
             Some(loaded) => loaded,
@@ -275,7 +368,8 @@ impl FriendShares {
             Ok(list) => list,
             Err(e) => return warn!("The friend list is damaged; starting with none: {e}"),
         };
-        let friends: Result<Vec<Friend>, Error> = list.friends.iter().map(Friend::from_entry).collect();
+        let friends: Result<Vec<Friend>, Error> =
+            list.friends.iter().map(Friend::from_entry).collect();
         match friends {
             Ok(friends) => {
                 inner.version = list.version;
@@ -290,7 +384,19 @@ impl FriendShares {
         let fingerprint = lodestone_connect_hex(&self.identity().await?.fingerprint());
         let mut inner = self.inner.lock().await;
         self.load(&mut inner).await;
-        let host = inner.host.as_ref().map(FriendHost::status);
+        let host = match (&inner.host, &inner.problem) {
+            (Some(host), _) => Some(host.status()),
+            // not started yet: being tried again
+            (None, Some(problem)) => Some(FriendHostStatus {
+                state: HostState::Reconnecting,
+                publishing: 0,
+                candidates: Vec::new(),
+                symmetric_nat: false,
+                connected: Vec::new(),
+                problem: Some(problem.clone()),
+            }),
+            (None, None) => None,
+        };
         let connected: HashSet<String> = host
             .iter()
             .flat_map(|status| status.connected.iter().map(|c| c.key.clone()))
@@ -304,12 +410,13 @@ impl FriendShares {
                 .map(|friend| {
                     let key = friend.key.to_hex();
                     let mut shared: Vec<InstanceUuid> = friend.shared.iter().cloned().collect();
-                    shared.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+                    shared.sort_by_key(|a| a.to_string());
                     FriendView {
-                        connected: connected.contains(&key),
+                        connected: !friend.hidden && connected.contains(&key),
                         key,
                         name: friend.name.clone(),
                         shared,
+                        hidden: friend.hidden,
                     }
                 })
                 .collect(),
@@ -319,10 +426,18 @@ impl FriendShares {
 
     /// Replaces the list with `list`, whose version must be higher than the current one,
     /// saves it, and applies it: friends no longer on it, or with less shared, are
-    /// disconnected at once.
-    pub async fn replace(self: &Arc<Self>, state: &AppState, list: FriendList) -> Result<FriendsView, Error> {
+    /// disconnected at once. If the friend host can't start (offline, say), the list is
+    /// still saved and the host is tried again in the background; the view's host
+    /// status says why.
+    pub async fn replace(
+        self: &Arc<Self>,
+        state: &AppState,
+        list: FriendList,
+    ) -> Result<FriendsView, Error> {
         if list.friends.len() > MAX_FRIENDS {
-            return Err(bad_request(format!("A core keeps at most {MAX_FRIENDS} friends")));
+            return Err(bad_request(format!(
+                "A core keeps at most {MAX_FRIENDS} friends"
+            )));
         }
         let friends: Vec<Friend> = list
             .friends
@@ -333,7 +448,12 @@ impl FriendShares {
         if keys.len() != friends.len() {
             return Err(bad_request("A friend is in the list twice"));
         }
-        if friends.iter().filter(|f| !f.shared.is_empty()).count() > MAX_SHARING_FRIENDS {
+        if friends
+            .iter()
+            .filter(|f| !f.hidden && !f.shared.is_empty())
+            .count()
+            > MAX_SHARING_FRIENDS
+        {
             return Err(bad_request(format!(
                 "A core can share with at most {MAX_SHARING_FRIENDS} friends"
             )));
@@ -361,6 +481,7 @@ impl FriendShares {
                         name: f.name.clone(),
                         secret: f.secret.to_hex(),
                         shared: f.shared.iter().cloned().collect(),
+                        hidden: f.hidden,
                     })
                     .collect(),
             };
@@ -373,7 +494,7 @@ impl FriendShares {
             .await?;
             inner.version = list.version;
             inner.friends = friends;
-            self.apply(state, &mut inner).await?;
+            self.apply_or_retry(state, &mut inner).await;
         }
         self.view().await
     }
@@ -381,9 +502,10 @@ impl FriendShares {
     /// Makes the friend host match the list: started while anyone has something shared,
     /// stopped otherwise.
     async fn apply(self: &Arc<Self>, state: &AppState, inner: &mut Inner) -> Result<(), Error> {
-        // only instances that exist and are Minecraft Java servers
+        // only instances that exist and are Minecraft Java servers, and nothing for
+        // hidden friends: no records, no connections, nothing served
         let mut access: HashMap<PublicKey, HashSet<InstanceUuid>> = HashMap::new();
-        for friend in &inner.friends {
+        for friend in inner.friends.iter().filter(|f| !f.hidden) {
             let mut shared = HashSet::new();
             for uuid in &friend.shared {
                 if let Ok(instance) = get_instance(state, uuid) {
@@ -430,8 +552,19 @@ impl FriendShares {
                 }
             }
             None => {
+                #[cfg(test)]
+                if self.take_failed_start() {
+                    return Err(Error {
+                        kind: ErrorKind::External,
+                        source: eyre!("Couldn't start sharing with friends: offline (test)"),
+                    });
+                }
                 let identity = self.identity().await?;
-                let handler = CoreFriendStreams::new(state.clone(), self.access.clone());
+                let handler = CoreFriendStreams {
+                    state: state.clone(),
+                    access: self.access.clone(),
+                    info: self.info_streams(state),
+                };
                 let host = FriendHost::start(
                     &identity,
                     friends,
@@ -453,37 +586,157 @@ impl FriendShares {
         Ok(())
     }
 
+    /// [`Self::apply`], and if that fails (the friend host can't start while this
+    /// computer is offline, say), notes why for the host status and tries again every
+    /// [`RETRY`] in the background until it works. A later apply that works stops
+    /// the retries.
+    async fn apply_or_retry(self: &Arc<Self>, state: &AppState, inner: &mut Inner) {
+        match self.apply(state, inner).await {
+            Ok(()) => {
+                inner.problem = None;
+                if let Some(retry) = inner.retry.take() {
+                    // it waits for the lock this holds, so it isn't in the middle of a start
+                    retry.abort();
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Couldn't start sharing with friends, trying again soon: {}",
+                    e.source
+                );
+                inner.problem = Some(e.source.to_string());
+                if inner.retry.as_ref().is_none_or(|retry| retry.is_finished()) {
+                    let shares = self.clone();
+                    let state = state.clone();
+                    inner.retry = Some(tokio::spawn(async move { shares.retry(state).await }));
+                }
+            }
+        }
+    }
+
+    async fn retry(self: Arc<Self>, state: AppState) {
+        loop {
+            tokio::time::sleep(self.retry).await;
+            let mut inner = self.inner.lock().await;
+            match self.apply(&state, &mut inner).await {
+                Ok(()) => {
+                    inner.problem = None;
+                    inner.retry = None;
+                    return;
+                }
+                Err(e) => {
+                    warn!(
+                        "Couldn't start sharing with friends, trying again soon: {}",
+                        e.source
+                    );
+                    inner.problem = Some(e.source.to_string());
+                }
+            }
+        }
+    }
+
     /// Starts sharing with friends as the core starts, if anything is shared, trying
     /// again in the background while this computer is offline.
     pub async fn resume(self: &Arc<Self>, state: &AppState) {
-        loop {
-            let result = {
-                let mut inner = self.inner.lock().await;
-                self.load(&mut inner).await;
-                self.apply(state, &mut inner).await
-            };
-            match result {
-                Ok(()) => return,
-                Err(e) => warn!("Couldn't start sharing with friends, trying again soon: {e}"),
+        let mut inner = self.inner.lock().await;
+        self.load(&mut inner).await;
+        self.apply_or_retry(state, &mut inner).await;
+    }
+
+    /// Replaces the friend certificate with a new one, for an owner who retired this core
+    /// in their state (friends refuse a retired fingerprint for good). The old
+    /// `core.json` is kept as `core.json.retired-<seconds since 1970>`. A running friend
+    /// host is restarted with the new certificate, which drops every friend connection;
+    /// the friend list and what's shared stay. Friends reach this core again once the
+    /// owner's launcher lists the new fingerprint in its state.
+    pub async fn rotate_certificate(
+        self: &Arc<Self>,
+        state: &AppState,
+    ) -> Result<FriendsView, Error> {
+        let mut inner = self.inner.lock().await;
+        self.load(&mut inner).await;
+        {
+            // the old one is read (or made) first, so a damaged file is set aside as such
+            let old = self.identity().await?;
+            let made = CoreIdentity::generate().map_err(|e| internal(e.to_string()))?;
+            let mut identity = self.identity.lock().await;
+            self.ensure_dir().await?;
+            let file = self.identity_file();
+            if tokio::fs::try_exists(&file).await.unwrap_or(false) {
+                let since = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_secs());
+                let mut backup = self.dir.join(format!("core.json.retired-{since}"));
+                for n in 1.. {
+                    if !tokio::fs::try_exists(&backup).await.unwrap_or(false) {
+                        break;
+                    }
+                    backup = self.dir.join(format!("core.json.retired-{since}-{n}"));
+                }
+                tokio::fs::rename(&file, &backup).await.map_err(|e| {
+                    internal(format!(
+                        "Couldn't keep the old friend certificate aside: {e}"
+                    ))
+                })?;
             }
-            tokio::time::sleep(RETRY).await;
+            crate::persist::write_atomic(&file, made.to_json(), Some(0o600)).await?;
+            *identity = Some(made.clone());
+            info!(
+                "Made a new friend certificate {} (was {})",
+                lodestone_connect_hex(&made.fingerprint()),
+                lodestone_connect_hex(&old.fingerprint())
+            );
         }
+        // the friend host serves the old certificate: start it again with the new one
+        if let Some(host) = inner.host.take() {
+            host.stop().await;
+        }
+        self.access.write().expect("not poisoned").clear();
+        self.apply_or_retry(state, &mut inner).await;
+        drop(inner);
+        self.view().await
+    }
+
+    /// The running friend host's certificate fingerprint.
+    #[cfg(test)]
+    pub(crate) async fn host_fingerprint_for_tests(&self) -> Option<[u8; 32]> {
+        self.inner
+            .lock()
+            .await
+            .host
+            .as_ref()
+            .map(FriendHost::fingerprint)
     }
 
     /// Applies the list again: after an instance was deleted, say.
     pub async fn refresh(self: &Arc<Self>, state: &AppState) {
         let mut inner = self.inner.lock().await;
         self.load(&mut inner).await;
-        if let Err(e) = self.apply(state, &mut inner).await {
-            warn!("Couldn't update sharing with friends: {e}");
-        }
+        self.apply_or_retry(state, &mut inner).await;
     }
 
     /// Stops the friend host as the core shuts down.
     pub async fn stop(&self) {
-        if let Some(host) = self.inner.lock().await.host.take() {
+        let mut inner = self.inner.lock().await;
+        if let Some(retry) = inner.retry.take() {
+            retry.abort();
+        }
+        inner.problem = None;
+        if let Some(host) = inner.host.take() {
             host.stop().await;
         }
+    }
+
+    /// The info streams' channel, once its server started.
+    #[cfg(test)]
+    pub(crate) fn info_for_tests(&self) -> Option<mpsc::Sender<(TunnelStream, PublicKey)>> {
+        self.info.get().cloned()
+    }
+
+    /// Which instances each friend may reach now.
+    #[cfg(test)]
+    pub(crate) fn access_for_tests(&self) -> Access {
+        self.access.clone()
     }
 }
 
@@ -555,14 +808,6 @@ struct CoreFriendStreams {
     info: mpsc::Sender<(TunnelStream, PublicKey)>,
 }
 
-impl CoreFriendStreams {
-    fn new(state: AppState, access: Access) -> Self {
-        let (info, streams) = mpsc::channel(16);
-        tokio::spawn(serve_friend_info(state.clone(), access.clone(), streams));
-        Self { state, access, info }
-    }
-}
-
 fn may_reach(access: &Access, friend: &PublicKey, uuid: &InstanceUuid) -> bool {
     access
         .read()
@@ -631,7 +876,10 @@ fn not_found() -> Error {
 }
 
 /// The instances shared with `friend` that still exist, in a stable order.
-async fn shared_with(routes: &FriendRoutes, friend: &PublicKey) -> Vec<crate::public_listing::PublicInstance> {
+async fn shared_with(
+    routes: &FriendRoutes,
+    friend: &PublicKey,
+) -> Vec<crate::public_listing::PublicInstance> {
     let mut uuids: Vec<InstanceUuid> = routes
         .access
         .read()
@@ -639,7 +887,7 @@ async fn shared_with(routes: &FriendRoutes, friend: &PublicKey) -> Vec<crate::pu
         .get(friend)
         .map(|shared| shared.iter().cloned().collect())
         .unwrap_or_default();
-    uuids.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+    uuids.sort_by_key(|a| a.to_string());
     let mut out = Vec::new();
     for uuid in uuids {
         if let Ok(instance) = get_instance(&routes.state, &uuid) {

@@ -170,9 +170,14 @@ In the launcher, a server joined this way is a `FriendServer` with the id
 ## The core's friend list
 
 The owner's launcher keeps each of the owner's cores up to date:
-`PUT /connect/friends` with `{version, friends: [{key, name, secret, shared}]}`, where
-`secret` is that friend's core secret for this core. The core refuses a version lower
-than the one it has. These routes:
+`PUT /connect/friends` with `{version, friends: [{key, name, secret, shared, hidden}]}`,
+where `secret` is that friend's core secret for this core. The core refuses a version
+lower than the one it has. `hidden` (optional, false when missing) is for friends the
+owner hides from: the core keeps what's shared with them, so unhiding restores it, but
+publishes no records for them, refuses their connections and serves them nothing.
+`GET /connect/friends` reports each friend's `shared` and `hidden`, never secrets.
+`POST /connect/friends/certificate` gives the core a new friend certificate (see below).
+These routes:
 
 - need the **owner**, not just an instance's settings permission;
 - are refused unless the request arrived over the core's HTTPS or from loopback, since
@@ -184,11 +189,30 @@ changes and after sharing changes, and shows whether the last sync worked. A rem
 reaches a core only through that sync, so a core whose Host isn't running keeps its old
 list until it next starts (and syncs) or is reached.
 
-A core shares with at most 120 friends: each gets one or two records, and the service
-takes at most 256 from a core.
+A core shares with at most 120 friends (hidden friends don't count): each gets one or
+two records, and the service takes at most 256 from a core.
 
 The core keeps its list in `stores/connect/friends/list.json` (0600 on Unix; on Windows, the
 user's profile folder already limits it to that user).
+
+If the friend host can't start (offline, say), the core still saves the list, answers
+the `PUT`, and tries again every minute, as it does at start. Until it starts,
+`GET /connect/friends` shows the host as `reconnecting` with the reason in `problem`.
+
+The friend certificate (`core.json`) is made only when there is none. A damaged one is
+moved aside to `core.json.damaged-<seconds since 1970>` and replaced, with a warning in
+the log; friends then need the owner's next state, which names the new certificate. Any
+other read error (permissions, a disk problem) is reported and the file is left alone.
+
+**A new certificate after retiring a core.** Friends refuse a retired core's fingerprint
+for good, so to share from that computer again its core needs a new friend certificate:
+`POST /connect/friends/certificate` (no body; the same owner, HTTPS-or-loopback and
+forwarded-header rules as the other routes). The core keeps the old `core.json` as
+`core.json.retired-<seconds since 1970>`, makes a new one, restarts a running friend host
+with it (which drops every friend connection), and answers `200` with the same JSON as
+`GET /connect/friends`, whose `fingerprint` is the new one. The friend list, its version
+and what's shared stay. Friends reach the core again once the owner's launcher lists the
+new fingerprint in its next state.
 
 ## Mods
 
@@ -237,8 +261,11 @@ most 2 KiB (4096 hex digits).
 | `GET /v2/slots/<id>` | | | `200 {"sealed"}`; `404` |
 | `DELETE /v2/slots/<id>` | `Bearer <write proof>` | | `200 {"ok": true}` |
 
-A slot keeps the SHA-256 of the first write's proof and lasts 90 days after its last
-write. A sealed state is at most 4 KiB (8192 hex digits).
+A slot keeps the SHA-256 of the first write's proof and lasts 21 days after its last
+write (launchers write weekly while they run; a friend whose slot is gone keeps the last
+state they read). A sealed state is at most 4 KiB (8192 hex digits). Reads are cached
+at the edge for 30 seconds under the slot id; a write or delete clears its data center's
+copy.
 
 ### Meeting
 
@@ -255,8 +282,11 @@ A core registers one **session** with all its records, and waits on one WebSocke
 
 - A session has at most 256 records; a sealed record or knock is at most 1 KiB.
 - `seen` is the address the knock came from (`cf-connecting-ip`).
-- A lookup id belongs to the session that registered it last. A record is live while its
-  session is (pinged within 2 minutes, at most 24 hours old).
+- A lookup id is held by one session; another session takes it only while the holder
+  isn't live, and a session that couldn't take one tries again on its next update and
+  every 2 minutes while it's live (a restarted core gets its ids back once its old
+  session has gone quiet). A record is live while its session is (pinged within 2
+  minutes, at most 24 hours old).
 - Sessions use `ping`/`pong` and close codes 4000 (ended) as invites do.
 - Session updates register only the lookups added and unregister only those dropped;
   each 16 changes cost one unit of a per-address budget (40 units a minute), so records
@@ -265,8 +295,9 @@ A core registers one **session** with all its records, and waits on one WebSocke
   elsewhere can't send without a CORS preflight (never answered), so pages can't spend a
   visitor's budget.
 - Rate limits count an IPv4 address, or an IPv6 address's /64.
-- Per address, a minute: 10 mailboxes or sessions made, 30 knocks, 120 presence checks,
-  600 slot reads and 60 other requests.
+- Per address, a minute: 10 mailboxes or sessions made, 20 knocks, 60 presence checks,
+  120 slot reads that miss the cache and 60 other requests. New slots: 20 an hour and
+  100 a day per address (rewrites don't count).
 
 ## What this protects against
 
@@ -297,9 +328,13 @@ A core registers one **session** with all its records, and waits on one WebSocke
   which could read it. Compare safety codes, or paste links straight into the launcher.
 - **Clocks.** A core or launcher whose clock is more than 10 minutes off can't meet its
   friends; it shows as a failed join, not as a clock problem yet.
-- **Local reverse proxies.** The friend list routes treat loopback as safe; a request a
-  reverse proxy on the same computer passes on with `Forwarded`, `X-Forwarded-For` or
-  `X-Real-IP` isn't counted as loopback, but one that strips them would be.
+- **Local reverse proxies and tunnels.** The friend list routes treat loopback as safe.
+  A request that a reverse proxy on the same computer passes on with a header that says
+  so (`Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`,
+  `X-Real-IP`, `X-Client-IP`, `Cf-Connecting-Ip`, `True-Client-IP`, `Via` and a few
+  more) isn't counted as loopback. A proxy that sends none of them, or a raw TCP tunnel
+  (`ssh -L`, a TCP tunnel service), still looks like loopback. Don't expose the core's
+  port to others through such a tunnel without HTTPS.
 - **Windows file permissions.** The core's friend certificate and list are only as
   private as its data folder: fine in the user's profile, not in a folder others can read
   (as for the core's other secrets).
@@ -355,6 +390,15 @@ edge, missing invisible characters and look-alikes in names, secrets in `Debug` 
 friend links to any host over plain HTTP (now only the configured service), a record cap
 mismatch, cross-site use of unauthenticated reads, forwarded requests counted as
 loopback, and a missing "retire my identity". All are fixed or described above.
+
+The pull request's review then found, in the service and the core: slots could fill
+storage for 90 days (now 21 days, with a per-address budget for new slots); read limits
+allowed about a million Durable Object calls a day per address (now smaller, with slot
+reads cached at the edge); any session could take a live session's lookup ids (now
+only once the holder has gone quiet); a friend host that failed to start during a sync
+was never tried again; an unreadable friend certificate was silently replaced; restarting
+the friend host leaked a task; and the loopback check knew few proxy headers. All are
+fixed or described above.
 
 What the first review changed:
 

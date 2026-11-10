@@ -283,38 +283,51 @@ test('replacing the records registers new lookups and unregisters dropped ones',
   assert.equal((await endSession(session, secret)).status, 200);
 });
 
-test('a lookup belongs to the session that registered it last', async () => {
+test('a live session keeps its lookups; another session takes them once it has gone', async () => {
   const shared = hex(32);
   const old = await newSession([{ lookup: shared, sealed: 'aa'.repeat(50) }]);
   const oldCore = waitOn(old.session, old.secret);
   await oldCore.opened;
+
+  // Registering the same lookup id elsewhere doesn't take it from a live session.
   const fresh = await newSession([{ lookup: shared, sealed: 'bb'.repeat(50) }]);
   const freshCore = waitOn(fresh.session, fresh.secret);
   await freshCore.opened;
+  assert.deepEqual(await (await knock(shared)).json(), { sealed: 'aa'.repeat(50) });
+  assert.equal((await oldCore.nextJson()).knocks[0].lookup, shared);
+  await assert.rejects(freshCore.next(500), 'the other session hears nothing');
+  // Nor does resending the records, while the holder is live.
+  const resend = () => send('PUT', `/v2/meet/${fresh.session}`, { bearer: fresh.secret, body: { records: [{ lookup: shared, sealed: 'bb'.repeat(50) }] } });
+  assert.equal((await resend()).status, 200);
+  assert.deepEqual(await (await knock(shared)).json(), { sealed: 'aa'.repeat(50) });
+  await oldCore.nextJson();
 
-  assert.deepEqual(await (await knock(shared)).json(), { sealed: 'bb'.repeat(50) });
-  assert.equal((await freshCore.nextJson()).knocks[0].lookup, shared);
-  await assert.rejects(oldCore.next(500), 'the old session hears nothing');
-
-  // Sending the same records again changes nothing: only added lookups are registered,
-  // so the old session doesn't take it back (and resending costs no registrations).
-  assert.equal(
-    (await send('PUT', `/v2/meet/${old.session}`, { bearer: old.secret, body: { records: [{ lookup: shared, sealed: 'aa'.repeat(50) }] } })).status,
-    200,
-  );
-  assert.deepEqual(await (await knock(shared)).json(), { sealed: 'bb'.repeat(50) });
-  assert.equal((await freshCore.nextJson()).knocks[0].lookup, shared);
-
-  // The old session dropping it, or ending, leaves it with the new one.
-  assert.equal((await send('PUT', `/v2/meet/${old.session}`, { bearer: old.secret, body: { records: [] } })).status, 200);
-  assert.equal(await presence(shared), 200);
+  // Once the holder ends, the other session takes it on its next update.
   assert.equal((await endSession(old.session, old.secret)).status, 200);
+  assert.equal(await presence(shared), 404);
+  assert.equal((await resend()).status, 200);
   assert.equal(await presence(shared), 200);
   assert.deepEqual(await (await knock(shared)).json(), { sealed: 'bb'.repeat(50) });
+  assert.equal((await freshCore.nextJson()).knocks[0].lookup, shared);
 
-  // Once the new one ends, nobody publishes it.
+  // A session without a live socket doesn't keep its lookups: a new one takes them at once.
+  const other = hex(32);
+  const idle = await newSession([{ lookup: other, sealed: 'cc'.repeat(50) }]);
+  const taker = await newSession([{ lookup: other, sealed: 'dd'.repeat(50) }]);
+  const takerCore = waitOn(taker.session, taker.secret);
+  await takerCore.opened;
+  assert.deepEqual(await (await knock(other)).json(), { sealed: 'dd'.repeat(50) });
+  await takerCore.nextJson();
+  // The one it was taken from dropping it, or ending, leaves it with the new one.
+  assert.equal((await send('PUT', `/v2/meet/${idle.session}`, { bearer: idle.secret, body: { records: [] } })).status, 200);
+  assert.equal((await endSession(idle.session, idle.secret)).status, 200);
+  assert.equal(await presence(other), 200);
+
+  // Once the holders end, nobody publishes them.
   assert.equal((await endSession(fresh.session, fresh.secret)).status, 200);
+  assert.equal((await endSession(taker.session, taker.secret)).status, 200);
   assert.equal(await presence(shared), 404);
+  assert.equal(await presence(other), 404);
   await expectError(await knock(shared), 404, 'not_found');
 });
 
