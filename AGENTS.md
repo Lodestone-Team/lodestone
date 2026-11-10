@@ -83,7 +83,12 @@ Make one only when a developer asks for it.
   script uploads only the files the dry run staged.
 - **Windows users install with `LodestoneLauncherSetup.exe`** from the release
   (`launcher/installer/windows`). It installs per user, without administrator
-  rights, so the launcher can keep updating itself in place.
+  rights, so the launcher can keep updating itself in place: into
+  `%LOCALAPPDATA%\Programs` or any folder the person can write to (another drive,
+  say; Setup refuses one they can't). Uninstalling keeps the data (instances,
+  worlds, accounts), then says where it is and offers to delete it; a silent
+  uninstall keeps it unless `/DELETEDATA` is passed. `shared.iss` has this for both
+  installers.
 - **Mac users install with `LodestoneLauncher.dmg`**: "Lodestone Launcher.app",
   for Apple silicon and Intel (`launcher/installer/macos`). The
   **Launcher - macOS app** workflow builds it on its own, to try a build without

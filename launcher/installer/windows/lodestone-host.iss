@@ -7,14 +7,17 @@
 ;        /DBuild=531 /DVersion=0.1.0 /DOutputDir=<folder>
 ;        /DOutputName=<file name without .exe> lodestone-host.iss
 ;
-; It installs for the current user only, under %LOCALAPPDATA%\Programs, without
-; asking for administrator rights, so the Host can update itself in place: it
-; replaces its own executable and the core's (launcher-core/src/update.rs).
+; It installs for the current user only, without asking for administrator rights,
+; under %LOCALAPPDATA%\Programs unless the person chooses another folder (another
+; drive, say), so the Host can update itself in place: it replaces its own
+; executable and the core's (launcher-core/src/update.rs). Setup refuses a folder
+; the user can't write to (shared.iss). Upgrading keeps the existing install's folder.
 ;
 ; The Host runs Lodestone Core (lodestone_core.exe) as a child process, from the
 ; same folder. The core's data (servers, worlds, users) is in %USERPROFILE%\.lodestone,
-; and the Host's own (settings, logs) in %APPDATA%\Lodestone Host. Installing and
-; uninstalling never touch either.
+; and the Host's own (settings, logs) in %APPDATA%\Lodestone Host. Installing never
+; touches either; uninstalling keeps both, and at the end says so and offers to
+; delete them (shared.iss).
 
 #ifndef SourceExe
   #error Pass /DSourceExe=<path to lodestone-host.exe>
@@ -62,7 +65,9 @@ VersionInfoDescription={#AppName} Setup
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=
 DefaultDirName={autopf}\{#AppName}
-DisableDirPage=yes
+; The folder page shows on a first install only: an upgrade goes where the existing
+; install is.
+DisableDirPage=auto
 DisableProgramGroupPage=yes
 DisableReadyPage=yes
 ArchitecturesAllowed=x64compatible
@@ -87,6 +92,10 @@ Compression=lzma2/ultra64
 LZMANumFastBytes=273
 LZMAUseSeparateProcess=yes
 SolidCompression=yes
+
+[Messages]
+SelectDirBrowseLabel=To continue, click Next. To install somewhere else, such as a folder on another drive, click Browse.
+ConfirmUninstall=Are you sure you want to remove %1?%n%nYour servers and worlds are kept. At the end you can choose to delete them too.
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
@@ -123,3 +132,42 @@ Type: files; Name: "{app}\{#CoreName}.update"
 Type: files; Name: "{app}\{#CoreName}.update.part"
 Type: files; Name: "{app}\{#CoreName}.previous"
 Type: dirifempty; Name: "{app}"
+
+#include "shared.iss"
+
+[Code]
+{ lodestone-host/src/core_process.rs: data_dir and host_dir. }
+function CoreDataFolder: String;
+begin
+  Result := EnvOr('LODESTONE_PATH', ExpandConstant('{%USERPROFILE}\.lodestone'));
+end;
+
+function HostDataFolder: String;
+begin
+  Result := EnvOr('LODESTONE_HOST_DATA_DIR', ExpandConstant('{userappdata}\{#AppName}'));
+end;
+
+procedure InitializeWizard;
+begin
+  AddDataLocationNote('Your servers and worlds are kept in ' + CoreDataFolder +
+    ', not in this folder.');
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := CheckWritableDir(CurPageID);
+end;
+
+procedure RegisterKeptData;
+begin
+  AddKeptData('Servers and worlds', CoreDataFolder,
+    'Your Minecraft servers with their worlds, mods and backups, and Lodestone''s users ' +
+    'and settings. The older Lodestone app, and Lodestone Core if you run it yourself, ' +
+    'use this folder too.');
+  AddKeptData('Host settings and logs', HostDataFolder,
+    'The Host''s own settings and logs. Nothing in it is needed to keep your servers.');
+end;
+
+procedure BeforeDeletingKeptData(Index: Integer);
+begin
+end;
