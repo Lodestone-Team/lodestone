@@ -3,13 +3,23 @@ import { InstanceEvent } from './../bindings/InstanceEvent';
 import { match, otherwise } from 'variant';
 import { useUserAuthorized } from 'data/UserInfo';
 import axios from 'axios';
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import {
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { LodestoneContext } from './LodestoneContext';
 import { ClientEvent } from 'bindings/ClientEvent';
 import { openReconnectingWebSocket } from 'utils/websocket';
+import { ConsoleHistoryPage } from 'bindings/ConsoleHistoryPage';
+import { ConsoleEvent } from 'utils/consoleLog';
+import { ConsoleLogSource, ConsoleLogStore } from 'utils/consoleLogStore';
 
-/** Only the newest lines are kept, older ones are dropped. */
-export const MAX_CONSOLE_LINES = 5000;
+export type { ConsoleEvent };
+
+const noLines: ConsoleEvent[] = [];
 
 export type ConsoleStreamStatus =
   | 'no-permission'
@@ -19,16 +29,6 @@ export type ConsoleStreamStatus =
   | 'live-no-buffer'
   | 'closed'
   | 'error';
-
-// simplified version of a ClientEvent with just InstanceOutput
-export type ConsoleEvent = {
-  timestamp: number;
-  snowflake: string;
-  detail: string;
-  uuid: string;
-  name: string;
-  message: string;
-};
 
 // function to convert a ClientEvent to a ConsoleEvent
 const toConsoleEvent = (event: ClientEvent): ConsoleEvent => {
@@ -70,61 +70,40 @@ const isConsoleOutput = (event: ClientEvent) =>
   event.event_inner.type === 'InstanceEvent' &&
   event.event_inner.instance_event_inner.type === 'InstanceOutput';
 
-// snowflakes are 64-bit, so compare them as BigInt
-const compareSnowflakes = (a: string, b: string) => {
-  const x = BigInt(a);
-  const y = BigInt(b);
-  return x < y ? -1 : x > y ? 1 : 0;
-};
-
-/**
- * Merges new lines into the log, ordered by snowflake (time), without
- * duplicates, keeping at most MAX_CONSOLE_LINES.
- * Live lines are almost always newer than the last line, which is checked in
- * O(1). Only an overlapping batch (e.g. the buffer arriving after live lines)
- * needs the full merge.
- */
-export const mergeConsoleEvents = (
-  oldLog: ConsoleEvent[],
-  newEvents: ConsoleEvent[]
-): ConsoleEvent[] => {
-  if (newEvents.length === 0) return oldLog;
-  let merged: ConsoleEvent[];
-  let last = oldLog.length > 0 ? oldLog[oldLog.length - 1].snowflake : null;
-  const appendable = newEvents.every((event) => {
-    if (last !== null && compareSnowflakes(event.snowflake, last) <= 0)
-      return false;
-    last = event.snowflake;
-    return true;
-  });
-  if (appendable) {
-    merged = [...oldLog, ...newEvents];
-  } else {
-    const seen = new Set<string>();
-    merged = [...oldLog, ...newEvents]
-      .filter((event) => {
-        if (seen.has(event.snowflake)) return false;
-        seen.add(event.snowflake);
-        return true;
+const consoleLogSource: ConsoleLogSource = {
+  buffer: (uuid) =>
+    axios
+      .get<ClientEvent[]>(`/instance/${uuid}/console/buffer`)
+      .then((response) => response.data),
+  history: (uuid, before, limit) =>
+    axios
+      .get<ConsoleHistoryPage>(`/instance/${uuid}/console/history`, {
+        params: { limit, ...(before !== null && { before }) },
       })
-      .sort((a, b) => compareSnowflakes(a.snowflake, b.snowflake));
-  }
-  return merged.length > MAX_CONSOLE_LINES
-    ? merged.slice(merged.length - MAX_CONSOLE_LINES)
-    : merged;
+      .then((response) => response.data),
+  toConsoleEvents: (events) =>
+    events.filter(isConsoleOutput).map(toConsoleEvent),
 };
 
 /**
  * Does two things:
- * 1. fetches the console buffer (history)
+ * 1. fetches the console buffer (history), and older history page by page
  * 2. opens a websocket connection to the server and subscribes to the console stream,
  *    reconnecting with backoff (and refetching the buffer to fill the gap) if it drops
+ *
+ * Answers that arrive after the instance changed are dropped, see
+ * `ConsoleLogStore`.
  *
  * @param uuid the uuid of the instance to subscribe to
  */
 export const useConsoleStream = (uuid: string) => {
   const { core, token } = useContext(LodestoneContext);
-  const [consoleLog, setConsoleLog] = useState<ConsoleEvent[]>([]);
+  const [store] = useState(() => new ConsoleLogStore(consoleLogSource));
+  const state = useSyncExternalStore(
+    store.subscribe,
+    store.getState,
+    store.getState
+  );
   const [status, setStatusInner] = useState<ConsoleStreamStatus>('loading'); //callbacks should use statusRef.current instead of status
   const statusRef = useRef<ConsoleStreamStatus>('loading');
   const setStatus = (newStatus: ConsoleStreamStatus) => {
@@ -136,38 +115,15 @@ export const useConsoleStream = (uuid: string) => {
     uuid
   );
 
-  const clearConsoleLog = () => {
-    setConsoleLog([]);
-  };
-
-  const mergeConsoleLog = (newLog: ClientEvent[]) => {
-    const consoleEvents = newLog.filter(isConsoleOutput).map(toConsoleEvent);
-    setConsoleLog((oldLog) => mergeConsoleEvents(oldLog, consoleEvents));
-  };
-
-  // resolves to true if the buffer was fetched
-  const fetchBuffer = useCallback(
-    () =>
-      axios
-        .get<ClientEvent[]>(`/instance/${uuid}/console/buffer`)
-        .then((response) => {
-          mergeConsoleLog(response.data);
-          return true;
-        })
-        .catch((e) => {
-          console.error(e);
-          return false;
-        }),
-    [uuid]
-  );
-
   useEffect(() => {
     if (!canAccessConsole) {
+      store.close();
       setStatus('no-permission');
       return;
     }
     if (!token) return;
     setStatus('loading');
+    const session = store.open(uuid);
     let cancelled = false;
     // The history and the live stream arrive in either order. The status only
     // moves on once the history has been fetched (or failed): the socket
@@ -187,9 +143,11 @@ export const useConsoleStream = (uuid: string) => {
       // failed and not connected yet: stays loading until the socket opens
     };
 
-    fetchBuffer().then((ok) => {
-      if (cancelled) return;
-      buffer = ok ? 'fetched' : 'failed';
+    store.fetchBuffer().then((result) => {
+      if (cancelled || result === 'stale') return;
+      // nothing in memory: the core may have restarted since it stored lines
+      if (store.isEmpty()) store.loadOlder();
+      buffer = result;
       // the socket may have dropped meanwhile; that status stays
       if (socketOpen || statusRef.current === 'loading') updateStatus();
     });
@@ -208,9 +166,9 @@ export const useConsoleStream = (uuid: string) => {
           // fill in the lines sent while we were disconnected
           buffer = 'pending';
           updateStatus();
-          fetchBuffer().then((ok) => {
-            if (cancelled || !socketOpen) return;
-            buffer = ok ? 'fetched' : 'failed';
+          store.fetchBuffer().then((result) => {
+            if (cancelled || result === 'stale' || !socketOpen) return;
+            buffer = result;
             updateStatus();
           });
           return;
@@ -225,7 +183,7 @@ export const useConsoleStream = (uuid: string) => {
           console.error('Invalid event from the console stream', e);
           return;
         }
-        mergeConsoleLog([event]);
+        store.addLive(session, [event]);
       },
       onClose: (event) => {
         socketOpen = false;
@@ -241,13 +199,21 @@ export const useConsoleStream = (uuid: string) => {
 
     return () => {
       cancelled = true;
+      store.close();
       websocket.close();
     };
-  }, [core, token, uuid, canAccessConsole, fetchBuffer]);
+  }, [core, token, uuid, canAccessConsole, store]);
 
+  // until the effect has opened a newly selected instance, the store still
+  // holds the previous one's lines, which are not shown
+  const current = state.uuid === uuid;
   return {
-    consoleLog,
+    consoleLog: current ? state.log : noLines,
     consoleStatus: status,
-    clearConsoleLog,
+    loadOlder: store.loadOlder,
+    loadingOlder: current && state.loadingOlder,
+    hasOlder: current && state.hasOlder,
+    historyFailed: current && state.historyFailed,
+    historyLimitReached: current && state.limitReached,
   };
 };

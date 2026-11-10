@@ -837,6 +837,9 @@ export const zhHans: Messages = {
   'console.hiddenLines': {
     other: '已隐藏 {count} 行较早的内容（显示最新的 {max} 行）',
   },
+  'console.loadingOlder': '正在加载较早的内容…',
+  'console.historyFailed': '无法加载较早的内容。向上滚动以重试。',
+  'console.historyLimit': '不再显示更早的内容：控制台最多保留 {max} 行',
   'console.sendFailed': '无法发送命令：{error}',
 
   // ConsoleLine: one line of console output

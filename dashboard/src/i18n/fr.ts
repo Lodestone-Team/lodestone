@@ -943,6 +943,11 @@ export const fr: Messages = {
     other:
       '{count} lignes plus anciennes masquées (affichage des {max} plus récentes)',
   },
+  'console.loadingOlder': 'Chargement des lignes plus anciennes…',
+  'console.historyFailed':
+    'Impossible de charger les lignes plus anciennes. Faites défiler vers le haut pour réessayer.',
+  'console.historyLimit':
+    'Les lignes plus anciennes ne sont pas affichées : la console en garde {max} au maximum',
   'console.sendFailed': 'Impossible d’envoyer la commande : {error}',
 
   // ConsoleLine: one line of console output

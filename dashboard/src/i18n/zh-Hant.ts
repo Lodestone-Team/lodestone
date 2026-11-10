@@ -843,6 +843,9 @@ export const zhHant: Messages = {
   'console.hiddenLines': {
     other: '已隱藏 {count} 行較早的內容（顯示最新的 {max} 行）',
   },
+  'console.loadingOlder': '正在載入較早的內容…',
+  'console.historyFailed': '無法載入較早的內容。向上捲動以重試。',
+  'console.historyLimit': '不再顯示更早的內容：主控台最多保留 {max} 行',
   'console.sendFailed': '無法傳送指令：{error}',
 
   // ConsoleLine: one line of console output

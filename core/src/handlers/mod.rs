@@ -1,6 +1,7 @@
 pub mod api_keys;
 pub mod checks;
 pub mod connect;
+pub mod console;
 pub mod core_info;
 pub mod events;
 pub mod extension;
