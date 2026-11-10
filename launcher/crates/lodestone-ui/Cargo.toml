@@ -30,11 +30,14 @@ serde_json.workspace = true
 unicode-segmentation.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-# The Windows display language (`i18n/system.rs`) and the reduced-motion setting
-# (`components/dialog.rs`).
+# The system menu of an app's own title bar (`components/caption.rs`).
+raw-window-handle.workspace = true
+# The Windows display language (`i18n/system.rs`), the reduced-motion setting
+# (`components/dialog.rs`) and the title bar's system menu.
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_Graphics_Gdi",
     "Win32_System_SystemServices",
     "Win32_UI_WindowsAndMessaging",
 ] }

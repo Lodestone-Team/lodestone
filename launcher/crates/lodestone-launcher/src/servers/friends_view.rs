@@ -644,7 +644,7 @@ pub fn join_dialog(servers: &Entity<Servers>, prompt: &JoinPrompt, cx: &App) -> 
         }
         JoinStage::Failed {
             error,
-            invite: _,
+            source: _,
             name,
         } => {
             let (title, body) = join_error_text(error);

@@ -5,6 +5,7 @@
 
 pub mod a11y;
 mod button;
+pub mod caption;
 pub mod console_line;
 mod dialog;
 mod dialog_slot;

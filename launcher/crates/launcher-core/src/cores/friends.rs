@@ -13,6 +13,11 @@
 //! says) replaces the old link and keeps the id, so the server stays one entry and its
 //! instances stay linked ([`FriendsFile::upsert`]).
 //!
+//! A server joined from the friend list (`crate::friend_list`), without a link, is
+//! known by [`friend_list_id`]: `friend:<core fingerprint>/<instance uuid>`. It keeps
+//! the friend's key ([`FriendServer::friend_key`]) and the core's fingerprint, which
+//! its mod trust is tied to; nothing about it goes to the Keychain.
+//!
 //! Each server keeps its own game port ([`FriendServer::game_port`]), picked on the
 //! first join from its id, so Minecraft finds it at the same `127.0.0.1:<port>` every
 //! session ([`FriendsFile::game_port`]).
@@ -24,6 +29,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use url::Url;
+
+/// The friend list's service and links, for the apps (they don't depend on
+/// `lodestone_connect` themselves).
+pub use lodestone_connect::{Service, friend::pair::FriendLink};
 
 use super::{
     connect::{GamePort, Invite, SharedServer, loader},
@@ -48,9 +57,34 @@ pub fn friend_id(invite: &Invite) -> String {
     format!("{ID_PREFIX}{}/{}", invite.service.link(), invite.code)
 }
 
-/// Whether `id` (a core id in a server link, say) is a friend's server.
+/// The start of the id of a server joined from the friend list.
+pub const FRIEND_LIST_PREFIX: &str = "friend:";
+
+/// The id of the server `instance` on a friend's core whose friend certificate has
+/// `fingerprint` (hex): `friend:<fingerprint>/<instance>`.
+pub fn friend_list_id(fingerprint: &str, instance: &str) -> String {
+    format!(
+        "{FRIEND_LIST_PREFIX}{}/{instance}",
+        fingerprint.to_ascii_lowercase()
+    )
+}
+
+/// The core fingerprint (hex) and instance of a [`friend_list_id`].
+pub fn parse_friend_list_id(id: &str) -> Option<(&str, &str)> {
+    let rest = id.strip_prefix(FRIEND_LIST_PREFIX)?;
+    let (fingerprint, instance) = rest.split_once('/')?;
+    (fingerprint.len() == 64 && !instance.is_empty()).then_some((fingerprint, instance))
+}
+
+/// Whether `id` is a server joined from the friend list.
+pub fn is_friend_list_id(id: &str) -> bool {
+    id.starts_with(FRIEND_LIST_PREFIX)
+}
+
+/// Whether `id` (a core id in a server link, say) is a friend's server: one joined
+/// with an invite link, or from the friend list.
 pub fn is_friend_id(id: &str) -> bool {
-    id.starts_with(ID_PREFIX)
+    id.starts_with(ID_PREFIX) || is_friend_list_id(id)
 }
 
 /// The invite link without its secret part, to show where a server is shared from.
@@ -95,6 +129,15 @@ pub struct FriendServer {
     /// ends when the host's certificate changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trusted_as: Option<String>,
+    /// For a server joined from the friend list: the friend's key (64 hex digits).
+    /// Empty for one joined with an invite link.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub friend_key: String,
+    /// For a server joined from the friend list: the client pack (its ETag) the user
+    /// trusted its mods with. Trust holds for that pack only: a changed pack is asked
+    /// about again (launcher/docs/friends.md, "Mods").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trusted_pack: Option<String>,
     /// The local game port Minecraft joins this server on (`127.0.0.1:<port>`), the
     /// same every session. Picked on the first join ([`port_choices`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,6 +159,52 @@ impl FriendServer {
         };
         entry.update(invite, server, now);
         entry
+    }
+
+    /// A new entry for a server joined from the friend list: `server` on the core of
+    /// `friend_key` whose friend certificate has `fingerprint` (hex). Its mods start
+    /// untrusted.
+    pub fn from_friend_list(
+        friend_key: &str,
+        fingerprint: &str,
+        server: &SharedServer,
+        now: i64,
+    ) -> Self {
+        let fingerprint = fingerprint.to_ascii_lowercase();
+        let mut entry = Self {
+            id: friend_list_id(&fingerprint, &server.instance_uuid),
+            fingerprint,
+            added_at: now,
+            ..Self::default()
+        };
+        entry.update_from_friend_list(friend_key, server, now);
+        entry
+    }
+
+    /// Takes what a friend's core says now, for a server joined from the friend list.
+    /// Its id holds the core's fingerprint, so the certificate can't change under it.
+    pub fn update_from_friend_list(&mut self, friend_key: &str, server: &SharedServer, now: i64) {
+        if !self.friend_key.is_empty() && self.friend_key != friend_key {
+            // another friend lists this core now: the trust was given to the first
+            self.set_trusted(false);
+        }
+        self.friend_key = friend_key.to_string();
+        // shown where the server came from, as an invite's public link is
+        self.link = server.core_name.clone();
+        self.core_uuid = server.core_uuid.clone();
+        self.instance_uuid = server.instance_uuid.clone();
+        self.name = server.name.clone();
+        self.core_name = server.core_name.clone();
+        self.game_version = server.game_version.clone();
+        self.loader = server.loader.clone();
+        self.loader_version = server.loader_version.clone().filter(|v| !v.is_empty());
+        self.modpack = server.modpack;
+        self.last_joined = Some(now);
+    }
+
+    /// Whether this server was joined from the friend list.
+    pub fn is_friend_list(&self) -> bool {
+        is_friend_list_id(&self.id)
     }
 
     /// Takes what the host says now. A new certificate ends the trust.
@@ -159,6 +248,29 @@ impl FriendServer {
 
     pub fn set_trusted(&mut self, trusted: bool) {
         self.trusted_as = trusted.then(|| self.fingerprint.clone());
+        if !trusted {
+            self.trusted_pack = None;
+        }
+    }
+
+    /// Whether the user trusts this server's mods for the client pack with `etag`: as
+    /// [`FriendServer::is_trusted`], and for a server from the friend list, only for
+    /// the very pack trusted (a pack without an ETag is never trusted).
+    pub fn trusts_pack(&self, etag: Option<&str>) -> bool {
+        if !self.is_trusted() {
+            return false;
+        }
+        if !self.is_friend_list() {
+            return true;
+        }
+        matches!((etag, self.trusted_pack.as_deref()), (Some(etag), Some(trusted)) if !etag.is_empty() && etag == trusted)
+    }
+
+    /// Trusts this server's mods, with the client pack `etag` for one from the friend
+    /// list.
+    pub fn trust_pack(&mut self, etag: Option<&str>) {
+        self.set_trusted(true);
+        self.trusted_pack = etag.filter(|e| !e.is_empty()).map(str::to_string);
     }
 
     /// The entry the launcher added to `instance_id`'s server list.
@@ -426,6 +538,63 @@ impl FriendsFile {
                 self.friends.len() - 1
             }
         }
+    }
+
+    /// Adds a server joined from the friend list, or updates its entry. Returns its
+    /// index.
+    pub fn upsert_friend_list(
+        &mut self,
+        friend_key: &str,
+        fingerprint: &str,
+        server: &SharedServer,
+        now: i64,
+    ) -> usize {
+        let id = friend_list_id(fingerprint, &server.instance_uuid);
+        match self.friends.iter().position(|f| f.id == id) {
+            Some(index) => {
+                self.friends[index].update_from_friend_list(friend_key, server, now);
+                index
+            }
+            None => {
+                self.friends.push(FriendServer::from_friend_list(
+                    friend_key,
+                    fingerprint,
+                    server,
+                    now,
+                ));
+                self.friends.len() - 1
+            }
+        }
+    }
+
+    /// Stops trusting the mods of every server joined from the friend list on the core
+    /// with `fingerprint` (hex): its owner retired it, or the friend was removed.
+    /// Returns whether any trust ended.
+    pub fn clear_core_trust(&mut self, fingerprint: &str) -> bool {
+        let fingerprint = fingerprint.to_ascii_lowercase();
+        let mut changed = false;
+        for entry in &mut self.friends {
+            let on_core = parse_friend_list_id(&entry.id).is_some_and(|(fp, _)| fp == fingerprint);
+            if on_core && entry.trusted_as.is_some() {
+                entry.set_trusted(false);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    /// Stops trusting the mods of every server joined from the friend list of the
+    /// friend with `key`: they retired their key, or were removed. Returns whether any
+    /// trust ended.
+    pub fn clear_friend_trust(&mut self, key: &str) -> bool {
+        let mut changed = false;
+        for entry in &mut self.friends {
+            if entry.is_friend_list() && entry.friend_key == key && entry.trusted_as.is_some() {
+                entry.set_trusted(false);
+                changed = true;
+            }
+        }
+        changed
     }
 
     pub fn get(&self, id: &str) -> Option<&FriendServer> {
@@ -799,6 +968,79 @@ mod tests {
         let mut other = server.clone();
         other.core_uuid = "other".into();
         assert_eq!(file.upsert(&invite_for("ELSE1", 0x11), &other, 3), 1);
+    }
+
+    #[test]
+    fn servers_from_the_friend_list_have_their_own_ids_and_trust() {
+        let fingerprint = "AB".repeat(32);
+        let id = friend_list_id(&fingerprint, "server");
+        assert_eq!(id, format!("friend:{}/server", "ab".repeat(32)));
+        assert!(is_friend_id(&id));
+        assert!(is_friend_list_id(&id));
+        assert!(!is_friend_list_id(
+            "connect:connect.lodestone.cc/ABCDEFGH23"
+        ));
+        let lower = "ab".repeat(32);
+        assert_eq!(parse_friend_list_id(&id), Some((lower.as_str(), "server")));
+        assert_eq!(parse_friend_list_id("friend:short/server"), None);
+        assert_eq!(parse_friend_list_id(&format!("friend:{lower}/")), None);
+
+        let mut file = FriendsFile::default();
+        // an invite's entry for the same server stays apart
+        file.upsert(&invite(0xab), &shared("vanilla", None, false), 1);
+        let server = shared("fabric", Some("0.16.14"), true);
+        assert_eq!(file.upsert_friend_list("k1", &fingerprint, &server, 2), 1);
+        let entry = &file.friends[1];
+        assert_eq!(entry.id, id);
+        assert!(entry.is_friend_list());
+        assert!(!file.friends[0].is_friend_list());
+        assert_eq!(entry.friend_key, "k1");
+        assert_eq!(entry.fingerprint, lower);
+        assert_eq!(entry.link, "Alex's core");
+        assert!(!entry.is_trusted(), "a friend's server starts untrusted");
+        file.friends[1].set_trusted(true);
+        file.friends[0].set_trusted(true);
+        // joining again updates it and keeps the trust
+        let mut renamed = server.clone();
+        renamed.name = "SMP 2".into();
+        assert_eq!(file.upsert_friend_list("k1", &fingerprint, &renamed, 3), 1);
+        assert_eq!(file.friends.len(), 2);
+        assert_eq!(file.friends[1].name, "SMP 2");
+        assert_eq!(file.friends[1].added_at, 2);
+        assert!(file.friends[1].is_trusted());
+        // the core retired: trust in its servers ends, not in others
+        assert!(!file.clear_core_trust(&"cd".repeat(32)));
+        assert!(file.clear_core_trust(&fingerprint));
+        assert!(!file.friends[1].is_trusted());
+        assert!(file.friends[0].is_trusted());
+        assert!(!file.clear_core_trust(&fingerprint));
+        // another friend listing the core starts untrusted
+        file.friends[1].set_trusted(true);
+        file.upsert_friend_list("k2", &fingerprint, &server, 4);
+        assert!(!file.friends[1].is_trusted());
+        // trust holds for the trusted pack only
+        file.friends[1].trust_pack(Some("pack-1"));
+        assert!(file.friends[1].trusts_pack(Some("pack-1")));
+        assert!(!file.friends[1].trusts_pack(Some("pack-2")));
+        assert!(!file.friends[1].trusts_pack(None));
+        file.friends[1].trust_pack(None);
+        assert!(
+            !file.friends[1].trusts_pack(None),
+            "a pack without an ETag isn't trusted"
+        );
+        // an invite's server keeps trusting any pack under its certificate
+        assert!(file.friends[0].trusts_pack(Some("anything")));
+        assert!(file.friends[0].trusts_pack(None));
+        // the friend retired their key: their servers' trust ends
+        file.friends[1].trust_pack(Some("pack-1"));
+        assert!(!file.clear_friend_trust("k1"));
+        assert!(file.clear_friend_trust("k2"));
+        assert!(!file.friends[1].is_trusted());
+        assert_eq!(file.friends[1].trusted_pack, None);
+        assert!(file.friends[0].is_trusted());
+        // invite entries don't write the key, so older launchers read them as before
+        let text = serde_json::to_string(&file.friends[0]).unwrap();
+        assert!(!text.contains("friend_key"), "{text}");
     }
 
     #[test]

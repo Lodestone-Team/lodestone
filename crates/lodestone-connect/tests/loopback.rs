@@ -2,6 +2,7 @@
 //! the game stream reaches a TCP echo server, the info stream an HTTP server, and the
 //! link keeps working after the invite ends and after the host restarts.
 
+#[allow(dead_code)]
 mod support {
     pub mod fake_service;
 }

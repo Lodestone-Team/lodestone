@@ -3,10 +3,12 @@
 
 import { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+const windows = process.platform === 'win32';
 
 export function useServer(extraArgs = []) {
   const port = 18900 + Math.floor(Math.random() * 1000);
@@ -19,10 +21,13 @@ export function useServer(extraArgs = []) {
 
   before(async () => {
     const args = ['dev', '--local', '--port', String(port), '--inspector-port', String(inspectorPort), '--ip', '127.0.0.1', '--persist-to', state, ...extraArgs];
-    // In its own process group, so stopping it stops workerd too.
-    dev = spawn(join(import.meta.dirname, '..', 'node_modules', '.bin', 'wrangler'), args, {
+    // wrangler's script run with this Node (node_modules/.bin/wrangler is a shell script,
+    // which Windows can't spawn). In its own process group, so stopping it stops workerd
+    // too; on Windows, taskkill stops the tree instead.
+    dev = spawn(process.execPath, [join(import.meta.dirname, '..', 'node_modules', 'wrangler', 'bin', 'wrangler.js'), ...args], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: true,
+      detached: !windows,
+      windowsHide: true,
       env: { ...process.env, WRANGLER_SEND_METRICS: 'false' },
     });
     let output = '';
@@ -43,9 +48,12 @@ export function useServer(extraArgs = []) {
 
   after(() => {
     try {
-      process.kill(-dev.pid, 'SIGTERM');
+      if (windows) spawnSync('taskkill', ['/pid', String(dev.pid), '/t', '/f'], { stdio: 'ignore' });
+      else process.kill(-dev.pid, 'SIGTERM');
     } catch {}
-    rmSync(state, { recursive: true, force: true });
+    try {
+      rmSync(state, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch {}
   });
 
   server.post = (path, body, headers = {}) =>
@@ -55,7 +63,9 @@ export function useServer(extraArgs = []) {
       body: typeof body === 'string' ? body : JSON.stringify(body),
     });
   server.get = (path, secret) =>
-    fetch(`${server.base}${path}`, { headers: secret ? { authorization: `Bearer ${secret}` } : {} });
+    fetch(`${server.base}${path}`, {
+      headers: { 'x-lodestone-client': '1', ...(secret ? { authorization: `Bearer ${secret}` } : {}) },
+    });
   server.create = async (candidates = ['203.0.113.5:4000']) => {
     const response = await server.post('/v1/invites', { candidates });
     assert.equal(response.status, 201);
@@ -69,7 +79,7 @@ export function useServer(extraArgs = []) {
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-class Socket {
+export class Socket {
   constructor(url, secret) {
     this.messages = [];
     this.waiting = [];
@@ -88,15 +98,20 @@ class Socket {
     });
   }
 
-  /// The next message, failing after `ms`.
+  /// The next message, failing after `ms` (and then a later message waits for the next
+  /// call, rather than going to the one that gave up).
   next(ms = 5000) {
     if (this.messages.length) return Promise.resolve(this.messages.shift());
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('no message')), ms);
-      this.waiting.push((data) => {
+      const waiter = (data) => {
         clearTimeout(timer);
         resolve(data);
-      });
+      };
+      const timer = setTimeout(() => {
+        this.waiting = this.waiting.filter((w) => w !== waiter);
+        reject(new Error('no message'));
+      }, ms);
+      this.waiting.push(waiter);
     });
   }
 

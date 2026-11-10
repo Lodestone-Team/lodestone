@@ -98,7 +98,7 @@ impl Service {
     }
 
     /// The Host header's value.
-    fn authority(&self) -> String {
+    pub(crate) fn authority(&self) -> String {
         match (self.tls, self.port) {
             (true, 443) | (false, 80) => self.bracketed(),
             _ => format!("{}:{}", self.bracketed(), self.port),
@@ -153,11 +153,11 @@ pub(crate) fn addrs_of(value: &Value) -> Vec<SocketAddr> {
         .unwrap_or_default()
 }
 
-trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
+pub(crate) trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
 
 /// A connection to the service: TLS for a named service, plain TCP for a test one.
-async fn connect(service: &Service) -> Result<Pin<Box<dyn Io>>> {
+pub(crate) async fn connect(service: &Service) -> Result<Pin<Box<dyn Io>>> {
     let unreachable = |what: String| Error::Unreachable(what);
     let tcp = tokio::time::timeout(
         CONNECT_TIMEOUT,
@@ -202,7 +202,7 @@ pub(crate) async fn call(
         .map(|secret| format!("Authorization: Bearer {secret}\r\n"))
         .unwrap_or_default();
     let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {}\r\n{authorization}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nUser-Agent: lodestone-connect\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: {}\r\n{authorization}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nUser-Agent: lodestone-connect\r\nX-Lodestone-Client: 1\r\n\r\n{body}",
         service.authority(),
         body.len()
     );
@@ -255,11 +255,14 @@ mod host {
     use super::*;
 
     /// How often a waiting host says it's still there.
-    const PING_EVERY: Duration = Duration::from_secs(30);
+    pub(crate) const PING_EVERY: Duration = Duration::from_secs(30);
     /// The close code for "the invite has ended".
     pub const CLOSE_ENDED: u16 = 4000;
     /// The close code for "the invite was renewed": wait on it again from join 0.
     pub const CLOSE_RENEWED: u16 = 4001;
+    /// The largest WebSocket message or frame taken from the service. Its messages (a
+    /// knock, a few joins) are a few KiB at most; tungstenite's own limit is 64 MiB.
+    pub(crate) const MAX_SERVICE_MESSAGE: usize = 64 * 1024;
 
     /// An invite the service holds for this host.
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -321,11 +324,22 @@ mod host {
         /// Waits on an invite for the joins after the `after`th, over a WebSocket.
         /// `None` if the invite has ended.
         pub async fn watch(&self, code: &str, secret: &str, after: u64) -> Result<Option<Watch>> {
+            let path = format!("/v1/invites/{code}/joins?after={after}");
+            Ok(self.websocket(&path, secret).await?.map(|ws| {
+                let mut ping = tokio::time::interval(PING_EVERY);
+                ping.reset();
+                Watch { ws, ping }
+            }))
+        }
+
+        /// Opens a WebSocket to `path` with `secret` as its Bearer. `None` on a 404.
+        pub(crate) async fn websocket(
+            &self,
+            path: &str,
+            secret: &str,
+        ) -> Result<Option<WebSocketStream<Pin<Box<dyn Io>>>>> {
             let scheme = if self.tls { "wss" } else { "ws" };
-            let url = format!(
-                "{scheme}://{}/v1/invites/{code}/joins?after={after}",
-                self.authority()
-            );
+            let url = format!("{scheme}://{}{path}", self.authority());
             let unreachable = |err: String| Error::Unreachable(err);
             let mut request = url
                 .into_client_request()
@@ -336,17 +350,23 @@ mod host {
                     .map_err(|err| unreachable(err.to_string()))?,
             );
             let stream = connect(self).await?;
-            let ws = match tokio::time::timeout(
+            match tokio::time::timeout(
                 ANSWER_TIMEOUT,
-                tokio_tungstenite::client_async(request, stream),
+                tokio_tungstenite::client_async_with_config(
+                    request,
+                    stream,
+                    Some(
+                        tungstenite::protocol::WebSocketConfig::default()
+                            .max_message_size(Some(MAX_SERVICE_MESSAGE))
+                            .max_frame_size(Some(MAX_SERVICE_MESSAGE)),
+                    ),
+                ),
             )
             .await
             .map_err(|_| unreachable("no answer".into()))?
             {
-                Ok((ws, _)) => ws,
-                Err(tungstenite::Error::Http(response)) if response.status() == 404 => {
-                    return Ok(None)
-                }
+                Ok((ws, _)) => Ok(Some(ws)),
+                Err(tungstenite::Error::Http(response)) if response.status() == 404 => Ok(None),
                 Err(tungstenite::Error::Http(response)) => {
                     let status = response.status().as_u16();
                     let body: Value = response
@@ -354,20 +374,17 @@ mod host {
                         .as_deref()
                         .and_then(|body| serde_json::from_slice(body).ok())
                         .unwrap_or(Value::Null);
-                    return Err(Error::Service {
+                    Err(Error::Service {
                         status,
                         code: body["error"].as_str().unwrap_or("unknown").to_string(),
                         message: body["message"]
                             .as_str()
                             .unwrap_or("no reason given")
                             .to_string(),
-                    });
+                    })
                 }
-                Err(err) => return Err(unreachable(err.to_string())),
-            };
-            let mut ping = tokio::time::interval(PING_EVERY);
-            ping.reset();
-            Ok(Some(Watch { ws, ping }))
+                Err(err) => Err(unreachable(err.to_string())),
+            }
         }
     }
 

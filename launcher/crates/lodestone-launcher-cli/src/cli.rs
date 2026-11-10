@@ -125,6 +125,10 @@ pub enum Command {
     /// Friends' servers (Lodestone Connect): join one from an invite link, list, remove.
     #[command(subcommand)]
     Friends(Friends),
+    /// The friend list: your name and safety code, friend links and their answers,
+    /// friends, and the servers they share with you.
+    #[command(subcommand)]
+    FriendList(FriendList),
     /// Long operations: list, wait for, cancel.
     #[command(subcommand)]
     Jobs(Jobs),
@@ -1113,6 +1117,131 @@ pub enum Friends {
     Remove {
         /// Its name or id.
         friend: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum FriendList {
+    /// Your name on the friend list and your safety code (makes your friend key the
+    /// first time).
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list me")]
+    Me,
+    /// Sets the name your friends see.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list set-name Peter")]
+    SetName { name: String },
+    /// Makes a friend link to send. It works once, for 24 hours; anyone with it can ask
+    /// to be your friend, so send it only to them.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list make-link\n  lodestone-launcher-cli --json friend-list make-link | jq -r .link"
+    )]
+    MakeLink,
+    /// Your open friend links (their codes and when they stop working).
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list links")]
+    Links,
+    /// Cancels one of your friend links.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list cancel-link 7KQ2M9XD4T"
+    )]
+    CancelLink { code: String },
+    /// Shows who a friend link is from (name and safety code), without answering it.
+    #[command(
+        after_help = "Examples:\n  printf '%s\\n' \"$LINK\" | lodestone-launcher-cli friend-list preview -\n  lodestone-launcher-cli friend-list preview 'https://connect.lodestone.cc/f/…'"
+    )]
+    Preview {
+        /// The friend link (https://connect.lodestone.cc/f/…, lodestone://friend?link=…),
+        /// or "-" to read it from stdin.
+        link: String,
+    },
+    /// Answers a friend link: its sender becomes your friend, pending until they
+    /// accept. Show the user the name and safety code from `preview` first.
+    #[command(
+        after_help = "Examples:\n  printf '%s\\n' \"$LINK\" | lodestone-launcher-cli friend-list answer - --safety-code K7Q2-M9XD-4TRW-H3BE --yes"
+    )]
+    Answer {
+        /// The friend link, or "-" to read it from stdin.
+        link: String,
+        /// Refuse unless the link's safety code is this one (the code the user saw).
+        #[arg(long)]
+        safety_code: Option<String>,
+    },
+    /// Answers to your friend links, waiting for you to accept. More than one answer to
+    /// a link means someone else may have it.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list replies")]
+    Replies,
+    /// Accepts an answer to one of your friend links (its code and the person's key,
+    /// from `replies`): they become your friend.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list accept 7KQ2M9XD4T 3f9a…c4 --yes"
+    )]
+    Accept { code: String, key: String },
+    /// Your friends: status, verified, hidden, their cores and whether they're online
+    /// (as last checked; `refresh` checks again).
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list list")]
+    List,
+    /// Checks on friends: confirms pending ones, notes retired cores, which cores share
+    /// now, and answers to your links.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list refresh")]
+    Refresh,
+    /// Ticks "Codes match" for a friend, once the user compared safety codes with them
+    /// by voice or in person. Only the user can say they match: it needs --yes.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list verify Alex --yes\n  lodestone-launcher-cli friend-list verify Alex --undo"
+    )]
+    Verify {
+        /// Their name, nickname, or key (or its first 8+ hex digits).
+        friend: String,
+        /// Untick it.
+        #[arg(long)]
+        undo: bool,
+    },
+    /// Gives a friend a name only you see.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list nickname Samantha Sam\n  lodestone-launcher-cli friend-list nickname Sam --clear"
+    )]
+    Nickname {
+        friend: String,
+        #[arg(required_unless_present = "clear")]
+        nickname: Option<String>,
+        /// Show their own name again.
+        #[arg(long, conflicts_with = "nickname")]
+        clear: bool,
+    },
+    /// Hides your cores from a friend: they stop seeing your servers. You stay friends.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list hide Kim\n  lodestone-launcher-cli friend-list hide Kim --undo"
+    )]
+    Hide {
+        friend: String,
+        /// Show them your cores again.
+        #[arg(long)]
+        undo: bool,
+    },
+    /// Removes a friend. Becoming friends again needs a new friend link.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list remove Kim --yes")]
+    Remove { friend: String },
+    /// The servers a friend's cores share with you.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list servers Alex\n  lodestone-launcher-cli friend-list servers Alex --core \"Alex's PC\""
+    )]
+    Servers {
+        friend: String,
+        /// One core: its name, or its fingerprint's first hex digits.
+        #[arg(long)]
+        core: Option<String>,
+    },
+    /// Retires your friend identity: every friend is told and drops you, then your key
+    /// and friend list are deleted from this computer. It can't be undone.
+    #[command(after_help = "Examples:\n  lodestone-launcher-cli friend-list retire --yes")]
+    Retire,
+    /// Retires one of your cores (a lost or stolen computer, or one you no longer share
+    /// from): friends drop it and stop trusting its servers' mods, and it's never shown
+    /// to them again. `me` lists your cores. It can't be undone.
+    #[command(
+        after_help = "Examples:\n  lodestone-launcher-cli friend-list retire-core \"Peter's PC\" --yes\n  lodestone-launcher-cli friend-list retire-core 3f9a0c11 --yes"
+    )]
+    RetireCore {
+        /// The core's name, or its fingerprint (or its first 8+ hex digits).
+        core: String,
     },
 }
 

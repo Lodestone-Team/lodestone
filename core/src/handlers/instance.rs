@@ -336,8 +336,9 @@ pub async fn delete_instance(
                     .map_err(Into::into);
             }
 
-            // the link stops working with the server
+            // the link stops working with the server, and friends lose it
             state.connect.stop(&uuid, true).await;
+            state.connect.friends.refresh(&state).await;
             state
                 .port_manager
                 .lock()

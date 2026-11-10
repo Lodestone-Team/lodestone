@@ -97,7 +97,9 @@ The user also sees each connected program (this CLI says
 - **Destructive commands need `--yes`, and you need the user's OK first.** Without it they
   fail with exit 5 and change nothing; the message says what would happen. These are:
   `instances delete`, `worlds delete`, `worlds delete-backup`, `worlds restore --replace`,
-  `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`, `shared clear`,
+  `content remove`, `accounts remove`, `cores remove`, `cores trust`, `friends remove`,
+  `friend-list answer`, `friend-list accept`, `friend-list verify`, `friend-list remove`,
+  `friend-list retire-core`, `friend-list retire`, `shared clear`,
   `play clear-logs`, `storage clean`, `snapshots revert`, `snapshots delete`, applying `modpacks update`, a `content switch-loader` that leaves mods
   behind, and turning on `settings developer set --sign-in-as-minecraft-launcher true`.
   Deleting moves to the Trash. Never add `--yes` on your own.
@@ -123,6 +125,16 @@ The user also sees each connected program (this CLI says
   Pass it on stdin (`friends join -`), never echo or log it; `friends list` never prints
   one. A `wrong_host` error means the computer that answered isn't the one in the link:
   stop, and tell the user to ask their friend for a new link.
+- **Adding a friend is the user's decision.** `friend-list answer` and `friend-list accept`
+  need `--yes`: first show the user the name and safety code (`friend-list preview`,
+  `friend-list replies`), and pass the code they saw with `--safety-code`. A reply with
+  `"someone_else_may_have_the_link": true` means more than one person answered: tell the
+  user. **Never run `friend-list verify` on your own**: it needs `--yes`, and only the
+  user, after comparing safety codes with their friend by voice or in person, can say
+  they match. Show them both codes and ask; pass `--yes` only if they say the codes
+  match. Pass friend links on stdin (`-`); `make-link` prints one so it can be sent, and
+  it works once. `friend-list list` and `links` only look: without a friend list they
+  say so and make nothing.
 - **No secrets.** The CLI never prints Microsoft tokens, core keys or passwords, and
   never takes a password as an argument: core passwords come on stdin
   (`--password-stdin`) or in `LODESTONE_CORE_PASSWORD`. Don't echo, log or store them.
@@ -345,6 +357,37 @@ directly), `wrong_host` (refuse; see the safety rules), `offline` or
 `service_unreachable`. A server with mods gets them as `servers join` does, with
 `untrusted_core` and `--accept-advisory`, and `mods_changed` with `--update-mods` or
 `--skip-update`.
+
+The friend list (people added once with a friend link, `https://connect.lodestone.cc/f/…`,
+whose servers show up without invite links; launcher/docs/friends.md):
+
+```sh
+lodestone-launcher-cli friend-list me                        # name and safety code
+lodestone-launcher-cli friend-list set-name Peter            # needed before links
+lodestone-launcher-cli friend-list make-link                 # a link to send; works once, 24 hours
+lodestone-launcher-cli friend-list replies                   # answers to your links
+lodestone-launcher-cli friend-list accept 7KQ2M9XD4T <key> --yes   # after the user checked name and code
+printf '%s\n' "$LINK" | lodestone-launcher-cli friend-list preview -   # who sent a link
+printf '%s\n' "$LINK" | lodestone-launcher-cli friend-list answer - --safety-code K7Q2-M9XD-4TRW-H3BE --yes
+lodestone-launcher-cli friend-list refresh                   # confirms pending friends, presence
+lodestone-launcher-cli friend-list list                      # status, verified, cores, online
+lodestone-launcher-cli friend-list servers Alex              # what their cores share with you
+lodestone-launcher-cli friend-list nickname Samantha Sam
+lodestone-launcher-cli friend-list hide Kim                  # --undo shows them your cores again
+lodestone-launcher-cli friend-list remove Kim --yes
+lodestone-launcher-cli friend-list verify Alex --yes         # only after the user says the codes match
+lodestone-launcher-cli friend-list retire-core "Peter's PC" --yes   # a lost or stolen computer
+lodestone-launcher-cli friend-list retire --yes              # ends the identity; can't be undone
+```
+
+A friend is `pending` after you answer their link, until they accept (`refresh` then shows
+`active`); nothing is shared meanwhile. `verified` stays false until the user ticks
+"Codes match" (`friend-list verify --yes`, only on the user's word). A friend with
+`same_name_as` set has a name like another friend's: tell the user. Friends are named by
+name, nickname, or key (or its first 8+ hex digits). Play on a friend's server from the
+window's Friends section; servers joined that way then show in `friends list` with ids
+`friend:<core fingerprint>/<instance>` and join again with `friends join <name>`. Their
+mods are trusted only for the client pack the user trusted: a changed pack asks again.
 
 The window shows cores on its **Lodestone Host** page. `cores list` says what each one
 is (`"product": "Lodestone Host"` for the desktop app, `"Lodestone Core"` for a bare

@@ -32,8 +32,12 @@ use futures::{
 };
 pub use lodestone_connect::{ConnectionKind, Invite, SharedServer};
 use lodestone_connect::{
-    StreamKind,
-    join::{self, JoinOptions},
+    Service, StreamKind,
+    friend::{
+        crypto::PersonKey,
+        join::{FriendCore, FriendJoined, join_friend},
+    },
+    join::{self, JoinOptions, Joined},
 };
 use url::Url;
 
@@ -253,11 +257,51 @@ struct Opened {
 /// How long closing may take before the thread gives up on a clean goodbye.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// What a tunnel goes to: a server shared with an invite link, or one shared with this
+/// person on a friend's core.
+enum Target {
+    Invite(Invite),
+    Friend {
+        service: Service,
+        /// The person key, as PKCS#8 (it's rebuilt on the tunnel's thread).
+        me: Vec<u8>,
+        core: FriendCore,
+        instance: String,
+    },
+}
+
 /// Connects to the host of `invite` (2 to 10 seconds), reads the shared server's
 /// details and opens the two local ports, the game port as `game_port` says.
 /// `progress` follows along.
 pub async fn open(
     invite: Invite,
+    game_port: GamePort,
+    progress: Progress,
+) -> Result<Tunnel, JoinError> {
+    open_target(Target::Invite(invite), game_port, progress).await
+}
+
+/// Connects to a friend's `core` as `me` and opens the two local ports for `instance`,
+/// one of the servers it shares with this person, the game port as `game_port` says.
+pub async fn open_friend(
+    service: Service,
+    me: &PersonKey,
+    core: FriendCore,
+    instance: String,
+    game_port: GamePort,
+    progress: Progress,
+) -> Result<Tunnel, JoinError> {
+    let target = Target::Friend {
+        service,
+        me: me.pkcs8().to_vec(),
+        core,
+        instance,
+    };
+    open_target(target, game_port, progress).await
+}
+
+async fn open_target(
+    target: Target,
     game_port: GamePort,
     progress: Progress,
 ) -> Result<Tunnel, JoinError> {
@@ -282,7 +326,7 @@ pub async fn open(
                 }
             };
             runtime.block_on(run(
-                invite,
+                target,
                 game_port,
                 progress,
                 ready_tx,
@@ -308,10 +352,104 @@ pub async fn open(
     })
 }
 
+/// Either kind of tunnel, for [`run`].
+enum AnyJoined {
+    Invite(Joined),
+    Friend(FriendJoined, String),
+}
+
+impl AnyJoined {
+    async fn open(target: Target) -> Result<Self, lodestone_connect::Error> {
+        Ok(match target {
+            Target::Invite(invite) => {
+                AnyJoined::Invite(join::join(&invite, JoinOptions::default()).await?)
+            }
+            Target::Friend {
+                service,
+                me,
+                core,
+                instance,
+            } => {
+                let me = PersonKey::from_pkcs8(&me)?;
+                AnyJoined::Friend(
+                    join_friend(&service, &me, &core, JoinOptions::default()).await?,
+                    instance,
+                )
+            }
+        })
+    }
+
+    async fn server(&self) -> Result<SharedServer, lodestone_connect::Error> {
+        match self {
+            AnyJoined::Invite(joined) => joined.server_info().await,
+            AnyJoined::Friend(joined, instance) => joined
+                .servers()
+                .await?
+                .into_iter()
+                .find(|server| &server.instance_uuid == instance)
+                .ok_or_else(|| {
+                    lodestone_connect::Error::Other(
+                        "Your friend doesn't share that server with you any more.".into(),
+                    )
+                }),
+        }
+    }
+
+    async fn forward(
+        &self,
+        game: bool,
+        listen: SocketAddr,
+    ) -> Result<join::Forward, lodestone_connect::Error> {
+        match self {
+            AnyJoined::Invite(joined) => {
+                let kind = if game {
+                    StreamKind::Game
+                } else {
+                    StreamKind::Info
+                };
+                joined.forward(kind, listen).await
+            }
+            AnyJoined::Friend(joined, instance) => {
+                joined
+                    .forward(game.then_some(instance.as_str()), listen)
+                    .await
+            }
+        }
+    }
+
+    fn kind(&self) -> ConnectionKind {
+        match self {
+            AnyJoined::Invite(joined) => joined.kind(),
+            AnyJoined::Friend(joined, _) => joined.kind(),
+        }
+    }
+
+    fn rtt(&self) -> Duration {
+        match self {
+            AnyJoined::Invite(joined) => joined.rtt(),
+            AnyJoined::Friend(joined, _) => joined.rtt(),
+        }
+    }
+
+    async fn closed(&self) -> String {
+        match self {
+            AnyJoined::Invite(joined) => joined.closed().await,
+            AnyJoined::Friend(joined, _) => joined.closed().await,
+        }
+    }
+
+    async fn close(self) {
+        match self {
+            AnyJoined::Invite(joined) => joined.close().await,
+            AnyJoined::Friend(joined, _) => joined.close().await,
+        }
+    }
+}
+
 /// The tunnel's thread: joins, forwards the ports, then waits for the end.
 #[allow(clippy::too_many_arguments)]
 async fn run(
-    invite: Invite,
+    target: Target,
     game_port: GamePort,
     progress: Progress,
     ready: oneshot::Sender<Result<Opened, JoinError>>,
@@ -321,7 +459,7 @@ async fn run(
     closed: Arc<AtomicBool>,
 ) {
     progress.set(Stage::Connecting);
-    let joined = match join::join(&invite, JoinOptions::default()).await {
+    let joined = match AnyJoined::open(target).await {
         Ok(joined) => joined,
         Err(err) => {
             let _ = ready.send(Err(err.into()));
@@ -331,9 +469,9 @@ async fn run(
     progress.set(Stage::ReadingInfo);
     let local = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
     let opened = async {
-        let server = joined.server_info().await?;
-        let game = bind_game(&game_port, |at| joined.forward(StreamKind::Game, at)).await?;
-        let info = joined.forward(StreamKind::Info, local).await?;
+        let server = joined.server().await?;
+        let game = bind_game(&game_port, |at| joined.forward(true, at)).await?;
+        let info = joined.forward(false, local).await?;
         Ok::<_, lodestone_connect::Error>((server, game, info))
     }
     .await;

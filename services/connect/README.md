@@ -7,6 +7,12 @@ addresses to the other. No game traffic flows through it, and it never holds a k
 
 It runs on Cloudflare Workers, one Durable Object per invite.
 
+It also serves the friend list (v2, [below](#protocol-v2-friends)): a mailbox for
+pairing two people's launchers, slots that carry each person's signed state to each
+friend, and meeting sessions where a friend's launcher knocks on a core without a link.
+Everything in v2 is sealed or hashed by the launchers and cores before it gets here.
+The design is `launcher/docs/friends.md`.
+
 ## How an invite works
 
 1. The host collects its candidate addresses (its local network address, IPv6, the
@@ -71,11 +77,122 @@ Error codes: `bad_candidates` (400), `unauthorized` (401: no `Authorization`),
 `host_offline` (404: a kept invite whose host isn't sharing right now),
 `not_json` (415), `rate_limited` and `invite_full` (429), `internal` (500).
 
+## Protocol (v2): friends
+
+JSON over HTTPS, as v1: `POST`/`PUT` bodies are `application/json`, errors are
+`{"error", "message"}`, and every answer is `cache-control: no-store`. Binary values are
+lower-case hex, whole bytes; sealed blobs are `nonce | ciphertext | tag`, opaque here.
+
+### Pairing mailboxes
+
+One Durable Object (`Pair`) per code: 10 Crockford base32 characters, upper case, chosen
+by the launcher that makes the friend link (`https://connect.lodestone.cc/f/<code>#...`).
+
+| Request | Auth | Body | Answer |
+|---|---|---|---|
+| `PUT /v2/pairs/<code>` | | `{"access": SHA-256(access), "card"}` | `201 {"secret", "expires_at"}`; `409 taken` |
+| `GET /v2/pairs/<code>` | `Bearer <access>` | | `200 {"card"}` |
+| `POST /v2/pairs/<code>/replies` | `Bearer <access>` | `{"reply"}` | `200 {"count"}`; `429 full` after 4 |
+| `GET /v2/pairs/<code>/replies` | `Bearer <secret>` | | `200 {"replies": [...]}`, in the order they came |
+| `DELETE /v2/pairs/<code>` | `Bearer <secret>` | | `200 {"ok": true}` |
+
+- `access` is 64 hex digits, known to whoever has the link. The mailbox keeps only
+  `SHA-256(access)`: SHA-256 of the 64-digit hex text (UTF-8), sent at creation as 64
+  hex digits. Later requests send the access itself; the service hashes it and compares
+  the digests in constant time. The stored hash doesn't open the mailbox.
+- `secret` (32 hex digits) is the owner's, for reading replies and deleting.
+- A card or reply is at most 4096 hex digits (2 KiB). A mailbox takes 4 replies and is
+  deleted 24 hours after it was made.
+
+### Slots
+
+One Durable Object (`Slot`) per slot id (32 hex digits).
+
+| Request | Auth | Body | Answer |
+|---|---|---|---|
+| `PUT /v2/slots/<id>` | `Bearer <write proof>` | `{"sealed"}` | `200 {"ok": true}`; `403` wrong proof |
+| `GET /v2/slots/<id>` | | | `200 {"sealed"}`; `404 not_found` |
+| `DELETE /v2/slots/<id>` | `Bearer <write proof>` | | `200 {"ok": true}` |
+
+The write proof is 64 hex digits. An empty slot keeps the SHA-256 of the first write's
+proof (computed as for `access`), and later writes and deletes must bring the same proof
+(trust on first write). A sealed state is at most 8192 hex digits (4 KiB). A slot is
+deleted 21 days after its last write: launchers write a new state weekly while they run,
+and a friend whose slot is gone keeps the last state they read.
+
+A read is kept in Cloudflare's cache for 30 seconds, in the data center that served it,
+under the slot id alone (no query or headers), so only someone who knows the id finds it.
+States are numbered and readers keep the highest number, so a stale read only delays news
+by 30 seconds. A write or delete clears that data center's copy.
+
+### Meeting
+
+A core registers one **session** (a `MeetSession` Durable Object) holding all its
+records, and waits for knocks on one WebSocket. Each lookup id has a `Lookup` Durable
+Object remembering the session that holds it.
+
+| Request | Auth | Body | Answer |
+|---|---|---|---|
+| `PUT /v2/meet` | | `{"records": [{"lookup", "sealed"}]}` | `201 {"session", "secret", "expires_at"}` |
+| `PUT /v2/meet/<session>` | `Bearer <secret>` | `{"records": [...]}` | `200 {"expires_at"}`: replaces the records |
+| `GET /v2/meet/<session>/knocks` as a WebSocket | `Bearer <secret>` | | `101`, then `{"knocks": [{"lookup", "sealed", "seen"}]}` per knock |
+| `DELETE /v2/meet/<session>` | `Bearer <secret>` | | `200 {"ok": true}` |
+| `POST /v2/lookups/<lookup>/knocks` | | `{"sealed"}` | `200 {"sealed": <the lookup's record>}`; `404 not_found` |
+| `HEAD /v2/lookups/<lookup>` | | | `200` publishing now, `404` not (no body) |
+
+- `session`, `secret` and lookup ids are 32 hex digits. A session has at most 256
+  records, each lookup once (a repeated one is refused, `400`); a sealed record or knock
+  is at most 2048 hex digits (1 KiB).
+- Making or replacing a session registers each of its lookups to it. A lookup is held
+  by one session: another session takes it only while the holder isn't live (no socket
+  heard from within 2 minutes), so registering someone else's lookup ids elsewhere can't
+  cut their core off. A session that couldn't take a lookup tries again on its next
+  replacement, and every 2 minutes while it's live, so a core that restarts gets its ids
+  back once its old session has gone quiet. Lookups dropped by a replacement, or left when a
+  session ends, are unregistered unless another session has taken them since.
+- A lookup is **live** while its session is: a WebSocket on it heard from (connected or
+  pinged) within 2 minutes, and the session under 24 hours old. A knock on a live lookup
+  goes to the session's sockets, with `seen`, the address the knock came from
+  (`cf-connecting-ip`; an IP address without a port), and is answered with the record.
+  A knock on anything else is `404 not_found` and goes nowhere: knocks aren't queued.
+- The WebSocket works as an invite's: `ping` every 30 seconds gets `pong` without waking
+  the session, anything else closes the socket, at most 4 sockets (a fifth replaces the
+  one heard from longest ago). A session ends when its core has been quiet for 2 minutes
+  (no ping, no replacement), when it's deleted, or after 24 hours; its sockets close with
+  4000.
+
+Error codes, beyond v1's: `bad_body` (400: a field missing or malformed), `forbidden`
+(403: wrong access, secret or write proof), `taken` (409), `too_large` (413),
+`websocket` (426: the knocks route is a WebSocket only), `full` (429).
+
 ## Limits
 
 - **Per client address, a minute:** 10 invites, 30 joins, 60 other host requests
   (WebSocket connections, listings, deletes). Only requests with a JSON body or an
   `Authorization` header count, so a web page elsewhere can't use up a visitor's limits.
+- **A client address** is an IPv4 address, or an IPv6 address's /64 (one home or server
+  usually has a whole /64).
+- **v2, per client address, a minute:** 10 mailboxes or sessions made
+  (`FRIEND_CREATE_LIMIT`), 20 knocks (`KNOCK_LIMIT`; a join knocks up to 3 times), 60
+  presence checks (`LOOKUP_LIMIT`), 120 slot reads that miss the cache
+  (`SLOT_READ_LIMIT`), 60 other requests (`FRIEND_LIMIT`: mailbox reads and replies,
+  slot writes and deletes, session updates, WebSockets and deletes), and 40 units of
+  lookup registrations (`REGISTER_LIMIT`, one per 16 lookups a session adds or drops).
+  A friend list refreshes every 5 minutes while it's shown: one slot read per friend,
+  and one or two presence checks per friend's core.
+- **New slots, per client address:** 20 an hour and 100 a day, counted by a `Quota`
+  Durable Object per address (Cloudflare's rate limiters only count up to a minute).
+  Rewriting a slot doesn't count. With slots lasting 21 days, one address can keep at
+  most about 2,100 slots (about 17 MB) alive without rewriting them. A person makes one
+  slot per friend, when they pair, or again after three weeks away.
+- **Sessions** register only the lookups added and unregister only those dropped, so
+  resending the same records costs no Durable Object calls, and churning them is
+  budgeted.
+- **Presence checks and slot reads** must carry `X-Lodestone-Client: 1` (else 400). A web
+  page elsewhere can't send that header without a CORS preflight, which this service
+  never answers, so it can't use up a visitor's limits.
+- **v2 bodies:** 8 KiB for mailboxes, 16 KiB for slots, 4 KiB for knocks, 576 KiB for a
+  session's records.
 - **An invite** ends when its host has been quiet (no ping, no listing) for 2 minutes,
   when the host deletes it, or 24 hours after it was made (or last renewed). It takes
   at most 16 joins, a kept invite 64.
@@ -96,6 +213,16 @@ part after `#` in the browser and offers:
 It loads nothing from anywhere else (a strict Content-Security-Policy allows only its
 own script), sends no referrer, and never sends the part after `#` anywhere.
 
+## The friend link page
+
+`GET /f/<code>` is the same kind of page for friend links
+(`https://connect.lodestone.cc/f/<code>#<key hash>.<link secret>`, 32 and 64 hex
+digits). It says "You've been invited to be friends on Lodestone" (it can't know who
+from), and offers **Open in Lodestone Launcher** (`lodestone://friend?link=<the whole
+link, percent-encoded>`), **Copy link**, the downloads, and a note that the link can be
+pasted into Lodestone Launcher › Friends › Add friend. It has the same
+Content-Security-Policy, with its own script's hash, and loads nothing from elsewhere.
+
 ## Privacy
 
 The service stores, per invite and only while it lasts: the host's candidate
@@ -103,6 +230,22 @@ addresses, the friends' candidate addresses and the secret. For a kept code, the
 secret stays (and nothing else) until the code runs out. It logs nothing about
 invites or addresses: Workers' invocation logs (one per request) are off, and the
 Worker logs only unexpected errors. The secret travels in a header, never the URL.
+
+For v2 it stores, sealed or hashed so that it can't read or forge them: cards and
+replies (for 24 hours), the SHA-256 of mailbox accesses and slot write proofs, sealed
+states (21 days after their last write, and cached reads of them for 30 seconds),
+sessions' sealed records (while they last), and, per address, how many slots it made in
+the last hour and day.
+It can't read addresses, names or keys from any of these, and never sees a friend link's
+part after `#`.
+
+What it **can** see is who meets whom: which addresses register sessions holding which
+lookup ids, and which addresses knock on or check the presence of which lookup ids. A
+core's lookup ids sit in one session, so they're linked across periods by that session
+and its address, and presence checks link a friend's address to a core. It also sees
+which addresses read and write which slots and mailboxes. It keeps none of this beyond
+what the tables above store (a knock's address goes to the core and is not stored), and
+logs none of it; Cloudflare's platform still sees request metadata.
 
 ## Development
 
@@ -112,9 +255,12 @@ npm run dev          # the Worker locally on http://localhost:8787 (wrangler.jso
 npm test             # the tests, against a local Worker
 ```
 
-Locally, loopback candidates are allowed (`ALLOW_LOOPBACK`) and the join and host
+Locally, loopback candidates are allowed (`ALLOW_LOOPBACK`) and the join, host and v2
 limits are higher, so the tests fit in a minute. `test/idle.test.js` runs a second
-local Worker with the idle time cut to 2 seconds (`--var IDLE_MS:2000`).
+local Worker with the idle time cut to 2 seconds (`--var IDLE_MS:2000`), for invites
+and meeting sessions. `test/friends.test.js` covers v2 and the friend link page, and
+`test/slots.test.js` the new-slot budget, with its own Worker (`--var SLOTS_PER_HOUR:3`).
+`wrangler.jsonc` notes the production value of each limit it raises.
 
 ## Deploying
 

@@ -3,9 +3,10 @@
 
 The app holds the Host (`lodestone-host`) and the core it runs as a child process
 (`lodestone_core`, built without the `deno` feature, as every Host build is). Its
-Info.plist points the core's data folder and the Host's own folder (logs, the
-single-instance socket) into the output folder, so a test never touches
-`~/.lodestone` or the installed Host's data. It is signed with this Mac's
+Info.plist points the core's data folder, the Host's own folder (logs, the
+single-instance socket) and the Launcher data folder it reads the friend list from
+into the output folder, so a test never touches `~/.lodestone`, the installed Host's
+data, or the person's real friend identity. It is signed with this Mac's
 "Apple Development" certificate when it has one (or `--sign IDENTITY`), so macOS
 keeps treating rebuilds as the same app and Keychain items stay readable after
 "Always Allow"; otherwise ad hoc, for this Mac only.
@@ -55,7 +56,7 @@ def build(release: bool) -> None:
     run(["cargo", "build", "-p", "lodestone-host", *profile], LAUNCHER)
 
 
-def info_plist(data: Path, host: Path) -> dict:
+def info_plist(data: Path, host: Path, launcher: Path) -> dict:
     return {
         "CFBundleDevelopmentRegion": "en",
         "CFBundleDisplayName": APP_NAME,
@@ -69,11 +70,14 @@ def info_plist(data: Path, host: Path) -> dict:
         "CFBundleVersion": "0",
         "LSMinimumSystemVersion": "10.15.7",
         "NSHighResolutionCapable": True,
-        # Where the core keeps its data and the Host its logs, for this bundle only.
+        # Where the core keeps its data, the Host its logs, and where the Host looks
+        # for the Launcher's friend list, for this bundle only (so it never shares from
+        # the person's real friend identity; the Host turns sharing off without it).
         # macOS passes these to the app when it is opened from Finder or `open`.
         "LSEnvironment": {
             "LODESTONE_PATH": str(data),
             "LODESTONE_HOST_DATA_DIR": str(host),
+            "LODESTONE_LAUNCHER_DATA_DIR": str(launcher),
         },
     }
 
@@ -119,10 +123,11 @@ def bundle(out: Path, data: Path, release: bool, identity: str = "-") -> Path:
     shutil.copy2(core_exe, macos / "lodestone_core")
     shutil.copyfile(ICON, resources / "AppIcon.icns")
     host = out / "host"
-    data.mkdir(parents=True, exist_ok=True)
-    host.mkdir(parents=True, exist_ok=True)
+    launcher = out / "launcher"
+    for folder in (data, host, launcher):
+        folder.mkdir(parents=True, exist_ok=True)
     with (app / "Contents" / "Info.plist").open("wb") as file:
-        plistlib.dump(info_plist(data.resolve(), host.resolve()), file)
+        plistlib.dump(info_plist(data.resolve(), host.resolve(), launcher.resolve()), file)
     (app / "Contents" / "PkgInfo").write_text("APPL????", encoding="ascii")
     # the core inside is signed with the app; ad hoc ("-") runs on this Mac only
     run(["codesign", "--force", "--deep", "--sign", identity, str(app)], out)
@@ -160,6 +165,8 @@ def main() -> None:
     print(f"Signed:          {'ad hoc' if identity == '-' else identity}")
     print(f"The core's data: {data}")
     print(f"The core's log:  {out / 'host' / 'logs' / 'core.log'}")
+    print(f"Friend list:     {out / 'launcher'} (a test Launcher's data folder, "
+          "LODESTONE_LAUNCHER_DATA_DIR; run a Launcher with it to add test friends)")
     print(f'Open it with:    open "{app}"')
     if args.open:
         subprocess.run(["open", str(app)], check=True)

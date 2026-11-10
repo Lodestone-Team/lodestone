@@ -1,19 +1,42 @@
 // The same Worker as cloudflare.config.ts (which `cf deploy` reads), for `wrangler dev`:
-// local development and the tests. Loopback addresses are allowed here only, and the
-// join and host limits are higher.
+// local development and the tests. Loopback addresses are allowed here only, and most
+// limits are higher so the tests fit in a minute. Keep the bindings in step with
+// cloudflare.config.ts; the production value of every limit is noted beside it.
 {
   "name": "lodestone-connect",
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
   "workers_dev": false,
-  "durable_objects": { "bindings": [{ "name": "INVITES", "class_name": "Invite" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Invite"] }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "INVITES", "class_name": "Invite" },
+      { "name": "PAIRS", "class_name": "Pair" },
+      { "name": "SLOTS", "class_name": "Slot" },
+      { "name": "MEET_SESSIONS", "class_name": "MeetSession" },
+      { "name": "LOOKUPS", "class_name": "Lookup" },
+      { "name": "QUOTAS", "class_name": "Quota" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Invite"] },
+    { "tag": "v2", "new_sqlite_classes": ["Pair", "Slot", "MeetSession", "Lookup"] },
+    { "tag": "v3", "new_sqlite_classes": ["Quota"] }
+  ],
+  // Per client address, a minute. Production: CREATE 10, JOIN 30, HOST 60,
+  // FRIEND_CREATE 10, KNOCK 20, LOOKUP 60, SLOT_READ 120, REGISTER 40, FRIEND 60.
   "ratelimits": [
     { "name": "CREATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
-    // Higher than production (30 and 60) so the tests fit in a minute.
     { "name": "JOIN_LIMIT", "namespace_id": "1002", "simple": { "limit": 1000, "period": 60 } },
-    { "name": "HOST_LIMIT", "namespace_id": "1003", "simple": { "limit": 1000, "period": 60 } }
+    { "name": "HOST_LIMIT", "namespace_id": "1003", "simple": { "limit": 1000, "period": 60 } },
+    { "name": "FRIEND_CREATE_LIMIT", "namespace_id": "1004", "simple": { "limit": 1000, "period": 60 } },
+    { "name": "KNOCK_LIMIT", "namespace_id": "1005", "simple": { "limit": 1000, "period": 60 } },
+    { "name": "LOOKUP_LIMIT", "namespace_id": "1006", "simple": { "limit": 1000, "period": 60 } },
+    { "name": "SLOT_READ_LIMIT", "namespace_id": "1008", "simple": { "limit": 1000, "period": 60 } },
+    { "name": "REGISTER_LIMIT", "namespace_id": "1009", "simple": { "limit": 1000, "period": 60 } },
+    { "name": "FRIEND_LIMIT", "namespace_id": "1007", "simple": { "limit": 1000, "period": 60 } }
   ],
-  "vars": { "ALLOW_LOOPBACK": "1" },
+  // New slots per client address are counted by the Quota Durable Object, an hour and a
+  // day at a time. Production: 20 an hour and 100 a day (the defaults in src/index.js).
+  "vars": { "ALLOW_LOOPBACK": "1", "SLOTS_PER_HOUR": "1000", "SLOTS_PER_DAY": "1000" },
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false }, "traces": { "enabled": false } }
 }

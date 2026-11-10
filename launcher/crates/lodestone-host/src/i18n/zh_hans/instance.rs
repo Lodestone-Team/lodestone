@@ -184,6 +184,55 @@ pub fn text(message: M) -> &'static str {
         M::ModsIncompatibleBody => {
             "{title} {version} 适用于 {loaders} {gameVersions}，而不是 {loader} {gameVersion}。它可能导致服务器崩溃。"
         }
+        M::FriendsTitle => "好友",
+        M::FriendsLead => {
+            "你在 Lodestone Launcher 中添加的好友可以看到你与他们共享的服务器，无需链接即可加入。在你勾选好友之前，不会共享任何内容。"
+        }
+        M::FriendsAddInLauncher => "在 Lodestone Launcher 中添加好友",
+        M::FriendsAddInLauncherHint => {
+            "你的好友列表由这台电脑上的 Lodestone Launcher 保存。在那里添加好友后，即可在这里与他们共享此服务器。"
+        }
+        M::FriendsLoading => "正在加载好友…",
+        M::FriendsShareWith => "与 {name} 共享此服务器",
+        M::FriendsNotVerified => "未验证",
+        M::FriendsConnected => "已连接",
+        M::FriendsSyncFailed => "无法将好友列表同步到此核心：{error}",
+        M::FriendsOpenFailed => "无法打开你的好友列表：{error}",
+        M::FriendsPublishFailed => "无法通知 {name} 此核心：{error}",
+        M::FriendsPublishFailedAll => "无法通知好友此核心：{error}",
+        M::FriendsRetry => "重试",
+        M::FriendsRetrying => "Lodestone Host 每分钟会自动重试。",
+        M::FriendsSynced => "好友列表已同步",
+        M::FriendsRetired => "你的好友身份已停用",
+        M::FriendsRetiredHint => {
+            "此核心不再与任何人共享。要重新开始，请在 Lodestone Launcher 的好友部分选择一个新名字，然后重新添加好友。"
+        }
+        M::FriendsOff => "此测试副本已关闭与好友共享",
+        M::FriendsOffHint => {
+            "它的核心或好友列表在测试文件夹中，而另一个不在，因此你真正的好友永远不会进入测试核心。要测试共享，请将 LODESTONE_PATH 和 LODESTONE_LAUNCHER_DATA_DIR 都设为测试文件夹。"
+        }
+        M::FriendsConfirmUnverified => {
+            "你还没有和 {name} 核对安全码，所以无法确定真的是对方：别人也可能回应了你的好友链接。请先在 Lodestone Launcher 中核对安全码，或仍然共享。"
+        }
+        M::FriendsShareAnyway => "仍然共享",
+        M::FriendsCertificate => "此核心的好友证书",
+        M::FriendsCertificateHint => {
+            "好友通过它识别此核心。如果这台电脑的数据可能被复制，请停用它：好友会放弃它，核心会获得一个新证书，好友改用新证书找到它。"
+        }
+        M::FriendsCertificateRetire => "停用证书…",
+        M::FriendsCertificateRetireBody => {
+            "好友会放弃此核心当前的证书，并不再信任其服务器的模组。核心会获得新证书，好友下次检查时会通过新证书找到它。现在连接的所有人都会断开。"
+        }
+        M::FriendsCertificateRetireConfirm => "停用并获取新证书",
+        M::FriendsCertificateRetired => "此核心的好友证书已停用",
+        M::FriendsCertificateRetiredHint => {
+            "好友现在看不到此核心。为它获取新证书，即可再次从这台电脑共享。"
+        }
+        M::FriendsCertificateNew => "获取新证书",
+        M::FriendsCertificateManual => {
+            "好友现在看不到此核心。此核心无法自行生成新证书：请退出 Lodestone Host，删除 {path}，然后重新打开。"
+        }
+        M::FriendsCancel => "取消",
     }
 }
 
@@ -209,5 +258,6 @@ pub fn plural(message: P) -> [&'static str; 2] {
         ],
         P::ModsShowMore => ["显示更多（还有 {count} 个）", "显示更多（还有 {count} 个）"],
         P::ModsMoreGameVersions => ["还有 {count} 个", "还有 {count} 个"],
+        P::FriendsConnectedCount => ["{count} 位好友已连接", "{count} 位好友已连接"],
     }
 }

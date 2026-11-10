@@ -2,7 +2,9 @@
 
 Controls a running Lodestone Launcher from the command line: instances, the game and its
 log, mods and modpacks from Modrinth, worlds and backups, accounts, settings, imports,
-Lodestone cores and their servers, and friends' servers shared with an invite link. It
+Lodestone cores and their servers, friends' servers shared with an invite link, and the
+friend list (`friend-list`: name and safety code, friend links, answers, friends and the
+servers they share). It
 does what the launcher's window does, through the same code, and the window shows each
 change as it happens.
 

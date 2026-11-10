@@ -30,6 +30,9 @@
 // it ends, and gets the same code: a link shared once keeps working whenever the host
 // is sharing. Anyone else gets "host_offline" meanwhile, and a new invite never takes a
 // kept code.
+//
+// v2 (the friend list: pairing mailboxes, slots and meeting sessions) is at the end of
+// this file.
 
 import { DurableObject } from 'cloudflare:workers';
 
@@ -42,6 +45,8 @@ const MAX_JOINS = 16;
 const MAX_JOINS_KEPT = 64;
 const MAX_CANDIDATES = 8;
 const MAX_BODY = 4 * 1024;
+// How much of a body that's too large is read (and thrown away) before it's cut off.
+const DRAIN_MAX = 1024 * 1024;
 const MAX_SOCKETS = 4;
 const IDLE_MS = 120_000;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -125,23 +130,38 @@ function validIpv6(ip, allowLoopback) {
   return true;
 }
 
-/// The body as text, refusing more than MAX_BODY bytes without reading them all.
-async function readBody(request) {
-  if (Number(request.headers.get('content-length') || 0) > MAX_BODY) return null;
-  if (!request.body) return '';
+/// The body as text, or null past `limit` bytes. Only `limit` bytes are ever kept.
+///
+/// A body that's too large is still read to its end (and thrown away) up to DRAIN_MAX,
+/// so the answer goes out after the request: answering in the middle of a body breaks
+/// the connection under some proxies (`wrangler dev`'s among them), which then answer
+/// 500 instead, for this request or the next one on the connection. Past DRAIN_MAX it's
+/// cut off. A stream that fails while being read counts as too large too.
+async function readBody(request, limit = MAX_BODY) {
+  const declared = Number(request.headers.get('content-length') || 0);
+  if (!request.body) return declared > limit ? null : '';
+  if (declared > DRAIN_MAX) {
+    await cancelQuietly(request.body);
+    return null;
+  }
   const reader = request.body.getReader();
   const chunks = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_BODY) {
-      await reader.cancel();
-      return null;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > DRAIN_MAX) {
+        await cancelQuietly(reader);
+        return null;
+      }
+      if (size <= limit) chunks.push(value);
     }
-    chunks.push(value);
+  } catch {
+    return null;
   }
+  if (size > limit || declared > limit) return null;
   const bytes = new Uint8Array(size);
   let at = 0;
   for (const chunk of chunks) {
@@ -149,6 +169,12 @@ async function readBody(request) {
     at += chunk.byteLength;
   }
   return new TextDecoder().decode(bytes);
+}
+
+async function cancelQuietly(stream) {
+  try {
+    await stream.cancel();
+  } catch {}
 }
 
 /// The body's candidates (and whether it asks to keep the code), or null.
@@ -184,10 +210,12 @@ function validCode(code) {
   return typeof code === 'string' && code.length === CODE_LEN && [...code].every((c) => CODE_ALPHABET.includes(c));
 }
 
-function bearer(request) {
+/// The Authorization header's secret: `length` lower-case hex digits (32, or 64 for v2's
+/// access and write proofs), or null.
+function bearer(request, length = SECRET_HEX_LEN) {
   const header = request.headers.get('authorization') || '';
-  const match = /^Bearer ([0-9a-f]{32})$/.exec(header);
-  return match ? match[1] : null;
+  const match = /^Bearer ([0-9a-f]+)$/.exec(header);
+  return match && match[1].length === length ? match[1] : null;
 }
 
 function sameSecret(given, secret) {
@@ -206,31 +234,70 @@ function afterParam(url) {
 /// page could use up the visitor's limits, and stop them sharing or joining.
 async function allowed(limiter, request) {
   if (!limiter) return true;
-  const key = request.headers.get('cf-connecting-ip') || 'local';
-  const { success } = await limiter.limit({ key });
+  const { success } = await limiter.limit({ key: limitKey(request.headers.get('cf-connecting-ip')) });
   return success;
+}
+
+/// What the rate limiters count by: an IPv4 address, or an IPv6 address's /64 (one
+/// home or server usually gets a whole /64, so counting each address would let one
+/// computer have billions of budgets).
+export function limitKey(ip) {
+  if (!ip) return 'local';
+  if (!ip.includes(':')) return ip;
+  const halves = ip.toLowerCase().split('::');
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length > 1 && halves[1] ? halves[1].split(':') : [];
+  const groups = [...head, ...Array(Math.max(0, 8 - head.length - tail.length)).fill('0'), ...tail];
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':') + '::/64';
+}
+
+/// Charges `changes` lookup registrations to the address's budget: one unit of
+/// REGISTER_LIMIT per LOOKUPS_PER_UNIT changes. Each change costs Durable Object calls
+/// and writes, so a session can't be made to churn its records for free.
+async function chargeRegistrations(limiter, ip, changes) {
+  if (!limiter || changes <= 0) return true;
+  const key = limitKey(ip);
+  for (let units = Math.ceil(changes / LOOKUPS_PER_UNIT); units > 0; units--) {
+    const { success } = await limiter.limit({ key });
+    if (!success) return false;
+  }
+  return true;
+}
+
+/// Unauthenticated reads (slot reads, presence checks) must carry this header. It isn't
+/// one a web page may send to another site without a CORS preflight, which this service
+/// never answers, so a page elsewhere can't use up a visitor's budget for them.
+function fromClient(request) {
+  return request.headers.get('x-lodestone-client') === '1';
 }
 
 const rateLimited = (what) => error(429, 'rate_limited', `Too many ${what} from this address. Wait a minute.`);
 
 // ---------------------------------------------------------------------------
-// The invite page: https://connect.lodestone.cc/j/<code>#<fingerprint>.<token>
+// The pages people open from a chat app:
 //
-// What people open from a chat app. It is the same for every code: the script reads the
-// part after "#" in the browser (it never reaches this service) and offers to open the
-// whole link in Lodestone Launcher, as lodestone://join?invite=<link>. It loads nothing
-// from anywhere, so the link goes nowhere else either.
+//   invite:      https://connect.lodestone.cc/j/<code>#<fingerprint>.<token>
+//   friend link: https://connect.lodestone.cc/f/<code>#<key hash>.<link secret>
+//
+// Each is the same for every code: its script reads the part after "#" in the browser
+// (it never reaches this service) and offers to open the whole link in Lodestone
+// Launcher, as lodestone://join?invite=<link> or lodestone://friend?link=<link>. They
+// load nothing from anywhere, so the link goes nowhere else either.
 
 const RELEASES = 'https://github.com/Lodestone-Team/lodestone/releases/download/launcher-latest';
 
-const PAGE_SCRIPT = `
+/// The page's script: shows `#link` when the fragment matches `pattern` (a regular
+/// expression literal's source, as the script writes it), and points "Open" at
+/// `deepLink` + the whole link, percent-encoded.
+function pageScript(pattern, deepLink) {
+  return `
 (function () {
   var fragment = location.hash.slice(1);
-  var ok = /^[0-9a-f]{64}\\.[0-9a-f]{32}$/.test(fragment);
+  var ok = /${pattern}/.test(fragment);
   var link = location.origin + location.pathname + '#' + fragment;
-  document.getElementById(ok ? 'invite' : 'broken').hidden = false;
+  document.getElementById(ok ? 'link' : 'broken').hidden = false;
   if (!ok) return;
-  document.getElementById('open').href = 'lodestone://join?invite=' + encodeURIComponent(link);
+  document.getElementById('open').href = '${deepLink}' + encodeURIComponent(link);
   var copy = document.getElementById('copy');
   copy.addEventListener('click', function () {
     navigator.clipboard.writeText(link).then(function () {
@@ -239,17 +306,19 @@ const PAGE_SCRIPT = `
   });
 })();
 `;
+}
 
-const PAGE = `<!doctype html>
+function pageHtml({ title, ogTitle, ogDescription, body, script }) {
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex">
-<title>Join a Minecraft server with Lodestone</title>
-<meta property="og:title" content="Join my Minecraft server">
-<meta property="og:description" content="Open this link in Lodestone Launcher to play together.">
+<title>${title}</title>
+<meta property="og:title" content="${ogTitle}">
+<meta property="og:description" content="${ogDescription}">
 <style>
   :root { color-scheme: light dark; --bg: #f6f6f4; --card: #ffffff; --text: #1b1b1a; --muted: #5d5d58; --accent: #2f6f3e; --line: #deded8; }
   @media (prefers-color-scheme: dark) { :root { --bg: #151514; --card: #1f1f1d; --text: #ececea; --muted: #a3a39c; --accent: #4fae66; --line: #34342f; } }
@@ -267,46 +336,87 @@ const PAGE = `<!doctype html>
 </head>
 <body>
 <main>
-  <div id="invite" hidden>
+${body}
+</main>
+<script>${script}</script>
+</body>
+</html>
+`;
+}
+
+const DOWNLOADS = `<div class="downloads">
+      <a class="button" href="${RELEASES}/LodestoneLauncher.dmg">macOS</a>
+      <a class="button" href="${RELEASES}/LodestoneLauncherSetup.exe">Windows</a>
+    </div>`;
+
+const INVITE_SCRIPT = pageScript('^[0-9a-f]{64}\\.[0-9a-f]{32}$', 'lodestone://join?invite=');
+
+const INVITE_PAGE = pageHtml({
+  title: 'Join a Minecraft server with Lodestone',
+  ogTitle: 'Join my Minecraft server',
+  ogDescription: 'Open this link in Lodestone Launcher to play together.',
+  script: INVITE_SCRIPT,
+  body: `  <div id="link" hidden>
     <h1>You're invited to a Minecraft server</h1>
     <p>A friend is sharing their server with Lodestone. Open the invite in Lodestone Launcher to join them.</p>
     <a id="open" class="button primary" href="#">Open in Lodestone Launcher</a>
     <button id="copy" class="button" type="button">Copy invite link</button>
     <h2>Don't have Lodestone Launcher?</h2>
     <p>Download it, then come back here and open the invite.</p>
-    <div class="downloads">
-      <a class="button" href="${RELEASES}/LodestoneLauncher.dmg">macOS</a>
-      <a class="button" href="${RELEASES}/LodestoneLauncherSetup.exe">Windows</a>
-    </div>
+    ${DOWNLOADS}
     <small>Your game connects straight to your friend's computer. The key in the link stays in your browser: Lodestone's servers never see it.</small>
   </div>
   <div id="broken" hidden>
     <h1>This invite link is cut short</h1>
     <p>Ask your friend to send the whole link again, including the part after the #.</p>
   </div>
-  <noscript><p>Copy this page's address and paste it into Lodestone Launcher to join.</p></noscript>
-</main>
-<script>${PAGE_SCRIPT}</script>
-</body>
-</html>
-`;
+  <noscript><p>Copy this page's address and paste it into Lodestone Launcher to join.</p></noscript>`,
+});
 
-let pageHash;
+const FRIEND_SCRIPT = pageScript('^[0-9a-f]{32}\\.[0-9a-f]{64}$', 'lodestone://friend?link=');
 
-async function invitePage(validInviteCode) {
-  if (!validInviteCode) {
-    return new Response('No such invite.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'x-content-type-options': 'nosniff' } });
+const FRIEND_PAGE = pageHtml({
+  title: 'Become friends on Lodestone',
+  ogTitle: "Let's be friends on Lodestone",
+  ogDescription: 'Open this link in Lodestone Launcher to add me as a friend.',
+  script: FRIEND_SCRIPT,
+  body: `  <div id="link" hidden>
+    <h1>You've been invited to be friends on Lodestone</h1>
+    <p>Open the link in Lodestone Launcher to see who sent it and add them. Friends see the servers you share with them, and join them without a link.</p>
+    <a id="open" class="button primary" href="#">Open in Lodestone Launcher</a>
+    <button id="copy" class="button" type="button">Copy link</button>
+    <p>You can also paste the link into Lodestone Launcher, in Friends › Add friend.</p>
+    <h2>Don't have Lodestone Launcher?</h2>
+    <p>Download it, then come back here and open the link. It works for 24 hours.</p>
+    ${DOWNLOADS}
+    <small>Once you're friends, compare safety codes with your friend, by voice or in person. The secret in the link stays in your browser: Lodestone's servers never see it.</small>
+  </div>
+  <div id="broken" hidden>
+    <h1>This friend link is cut short</h1>
+    <p>Ask your friend to send the whole link again, including the part after the #.</p>
+  </div>
+  <noscript><p>Copy this page's address and paste it into Lodestone Launcher, in Friends › Add friend.</p></noscript>`,
+});
+
+const pageHashes = new Map();
+
+/// One of the pages above, or 404 for a malformed code.
+async function linkPage(validLinkCode, page, script) {
+  if (!validLinkCode) {
+    return new Response('No such link.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'x-content-type-options': 'nosniff' } });
   }
-  if (!pageHash) {
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(PAGE_SCRIPT));
-    pageHash = btoa(String.fromCharCode(...new Uint8Array(digest)));
+  let hash = pageHashes.get(script);
+  if (!hash) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(script));
+    hash = btoa(String.fromCharCode(...new Uint8Array(digest)));
+    pageHashes.set(script, hash);
   }
-  return new Response(PAGE, {
+  return new Response(page, {
     status: 200,
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'public, max-age=3600',
-      'content-security-policy': `default-src 'none'; script-src 'sha256-${pageHash}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      'content-security-policy': `default-src 'none'; script-src 'sha256-${hash}'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       'referrer-policy': 'no-referrer',
       'x-content-type-options': 'nosniff',
     },
@@ -317,9 +427,9 @@ async function invitePage(validInviteCode) {
 // The Worker
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
-      return await route(request, env);
+      return await route(request, env, ctx);
     } catch (err) {
       console.error('connect: unexpected error', err?.stack || String(err));
       return error(500, 'internal', 'Something went wrong. Try again.');
@@ -327,14 +437,18 @@ export default {
   },
 };
 
-async function route(request, env) {
+async function route(request, env, ctx) {
   const url = new URL(request.url);
   const parts = url.pathname.split('/').filter(Boolean);
   const allowLoopback = env.ALLOW_LOOPBACK === '1';
 
   if (parts[0] === 'j' && parts.length === 2 && (request.method === 'GET' || request.method === 'HEAD')) {
-    return invitePage(validCode(parts[1].toUpperCase()));
+    return linkPage(validCode(parts[1].toUpperCase()), INVITE_PAGE, INVITE_SCRIPT);
   }
+  if (parts[0] === 'f' && parts.length === 2 && (request.method === 'GET' || request.method === 'HEAD')) {
+    return linkPage(validCode(parts[1].toUpperCase()), FRIEND_PAGE, FRIEND_SCRIPT);
+  }
+  if (parts[0] === 'v2') return routeV2(request, env, parts, ctx);
   if (parts[0] !== 'v1') return error(404, 'unknown', 'Unknown request.');
 
   if (parts.length === 2 && parts[1] === 'health' && request.method === 'GET') {
@@ -594,4 +708,778 @@ function closeQuietly(ws, code, reason) {
   try {
     ws.close(code, reason);
   } catch {}
+}
+
+// ===========================================================================
+// v2: friends (launcher/docs/friends.md, "Service protocol (v2)"; README.md has the
+// details). Everything that passes through is sealed or hashed by the launchers and
+// cores: the service can't read cards, replies, states, records or knocks.
+//
+//   PUT    /v2/pairs/<code>               {"access": SHA-256(access), "card"} -> 201 {"secret", "expires_at"}; 409 taken
+//   GET    /v2/pairs/<code>               (Bearer <access>)  -> 200 {"card"}
+//   POST   /v2/pairs/<code>/replies       (Bearer <access>)  {"reply"} -> 200 {"count"}; 429 full
+//   GET    /v2/pairs/<code>/replies       (Bearer <secret>)  -> 200 {"replies": [...]}
+//   DELETE /v2/pairs/<code>               (Bearer <secret>)  -> 200 {"ok": true}
+//   PUT    /v2/slots/<id>                 (Bearer <write proof>) {"sealed"} -> 200 {"ok": true}
+//   GET    /v2/slots/<id>                 -> 200 {"sealed"}
+//   DELETE /v2/slots/<id>                 (Bearer <write proof>) -> 200 {"ok": true}
+//   PUT    /v2/meet                       {"records": [{"lookup", "sealed"}]} -> 201 {"session", "secret", "expires_at"}
+//   PUT    /v2/meet/<session>             (Bearer <secret>)  {"records": [...]} -> 200 {"expires_at"}
+//   GET    /v2/meet/<session>/knocks      (Bearer <secret>)  WebSocket: {"knocks": [{"lookup", "sealed", "seen"}]}
+//   DELETE /v2/meet/<session>             (Bearer <secret>)  -> 200 {"ok": true}
+//   POST   /v2/lookups/<lookup>/knocks    {"sealed"} -> 200 {"sealed": <record>}; 404 not_found
+//   HEAD   /v2/lookups/<lookup>           -> 200 publishing now, 404 not
+//   GET    /f/<code>                      -> the friend link page (HTML)
+//
+// A mailbox's `access` and a slot's write proof are 64 hex digits, sent as the Bearer.
+// The service keeps only SHA-256 of that hex text (UTF-8), written as 64 hex digits, and
+// compares digests in constant time.
+//
+// Durable Objects: one Pair per mailbox code, one Slot per slot id, one MeetSession per
+// core's session (holding its records and the core's hibernating WebSocket), one
+// Lookup per lookup id, remembering which session holds it, and one Quota per client
+// address, counting the slots it made in the last hour and day.
+
+const HEX = '0123456789abcdef';
+const HEX32 = /^[0-9a-f]{32}$/;
+const HEX64 = /^[0-9a-f]{64}$/;
+const PAIR_MS = 24 * 60 * 60 * 1000;
+const MAX_REPLIES = 4;
+const MAX_CARD_HEX = 4096; // 2 KiB
+// A slot is gone this long after its last write. Launchers write a new state weekly
+// (REISSUE_AFTER_SECS in lodestone-connect) while they run, so three weeks leaves room
+// for a missed week; a friend whose slot is gone keeps the last state they read.
+const SLOT_MS = 21 * 24 * 60 * 60 * 1000;
+// New slots per client address (rewriting a slot doesn't count): each holds up to
+// 8 KiB for SLOT_MS, so this bounds what one address can store. A person makes one slot
+// per friend, when they pair (or after three weeks away). Overridden only in the tests.
+const SLOTS_PER_HOUR = 20;
+const SLOTS_PER_DAY = 100;
+// How long a slot read is kept in Cloudflare's cache (per data center). States are
+// signed and numbered, and readers keep the highest number they've seen, so a stale read
+// only delays news by this long. A write or delete clears the copy in its data center.
+const SLOT_CACHE_SECS = 30;
+const MAX_STATE_HEX = 8192; // 4 KiB
+const MAX_RECORDS = 256;
+const MAX_RECORD_HEX = 2048; // 1 KiB, and the same for a knock
+// Body caps, with room for the JSON around the hex.
+const MAX_PAIR_BODY = 8 * 1024;
+const MAX_SLOT_BODY = 16 * 1024;
+const MAX_KNOCK_BODY = 4 * 1024;
+const MAX_MEET_BODY = 576 * 1024; // 256 records of about 2.1 KB each
+// Lookups registered or unregistered at once, of a session's up to 256 (each is a call
+// to that lookup's Durable Object).
+const LOOKUP_BATCH = 64;
+// Lookup registrations (added or dropped) per unit of REGISTER_LIMIT.
+const LOOKUPS_PER_UNIT = 16;
+
+/// Non-empty lower-case hex, whole bytes, at most `max` digits.
+function validHex(value, max) {
+  return typeof value === 'string' && value.length > 0 && value.length <= max && value.length % 2 === 0 && /^[0-9a-f]+$/.test(value);
+}
+
+/// SHA-256 of `text` (UTF-8), as 64 lower-case hex digits.
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+const TOO_LARGE = Symbol('too large');
+
+/// The body as a JSON object, TOO_LARGE past `limit` bytes, or null.
+async function readObject(request, limit) {
+  const text = await readBody(request, limit);
+  if (text === null) return TOO_LARGE;
+  try {
+    const value = JSON.parse(text);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/// `{records: {lookup: sealed}}` from a body's `records`, or `{message}` saying what's wrong.
+function readRecords(body) {
+  const list = body?.records;
+  if (!Array.isArray(list) || list.length > MAX_RECORDS) {
+    return { message: `Send {"records": [{"lookup", "sealed"}]}: at most ${MAX_RECORDS}.` };
+  }
+  const records = {};
+  for (const record of list) {
+    if (!HEX32.test(record?.lookup) || !validHex(record?.sealed, MAX_RECORD_HEX)) {
+      return { message: `Each record is {"lookup": 32 hex digits, "sealed": at most ${MAX_RECORD_HEX} hex digits}.` };
+    }
+    if (Object.hasOwn(records, record.lookup)) return { message: 'A lookup id appears twice.' };
+    records[record.lookup] = record.sealed;
+  }
+  return { records };
+}
+
+const notJson = () => error(415, 'not_json', 'Send JSON (Content-Type: application/json).');
+const tooLarge = () => error(413, 'too_large', 'The body is too large.');
+const badBody = (message) => error(400, 'bad_body', message);
+const unauthorizedAs = (what) => error(401, 'unauthorized', `Send the ${what} as "Authorization: Bearer <${what}>".`);
+const unknown = () => error(404, 'unknown', 'Unknown request.');
+
+/// An object's answer: its error, or `ok(result)`.
+function answer(result, ok) {
+  return 'error' in result ? error(result.status, result.error, result.message) : ok(result);
+}
+
+const iso = (ms) => new Date(ms).toISOString();
+
+/// A body-less answer, for HEAD.
+function bare(status) {
+  return new Response(null, { status, headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
+}
+
+/// Takes one new slot from the address's budget (SLOTS_PER_HOUR and SLOTS_PER_DAY), or
+/// says it's spent. The budget is a Durable Object per address: Cloudflare's rate
+/// limiters only count per 10 or 60 seconds.
+async function takeSlotBudget(env, request) {
+  if (!env.QUOTAS) return true;
+  const key = limitKey(request.headers.get('cf-connecting-ip'));
+  const quota = env.QUOTAS.get(env.QUOTAS.idFromName(`slots:${key}`));
+  return quota.take([
+    { ms: 60 * 60 * 1000, max: Number(env.SLOTS_PER_HOUR) || SLOTS_PER_HOUR },
+    { ms: 24 * 60 * 60 * 1000, max: Number(env.SLOTS_PER_DAY) || SLOTS_PER_DAY },
+  ]);
+}
+
+/// Cloudflare's cache in this data center, where there is one.
+function edgeCache() {
+  return typeof caches !== 'undefined' && caches.default ? caches.default : null;
+}
+
+/// The cache key for a slot's reads: its id alone (no query, no headers), on this
+/// service's own host, so it's found only by someone who knows the id, as the slot is.
+function slotCacheKey(url, id) {
+  return new Request(`${url.origin}/v2/slots/${id}`, { method: 'GET' });
+}
+
+/// A slot read from the cache, as a fresh `no-store` answer, or null.
+async function cachedSlot(url, id) {
+  const cache = edgeCache();
+  if (!cache) return null;
+  try {
+    const hit = await cache.match(slotCacheKey(url, id));
+    if (!hit) return null;
+    return new Response(hit.body, {
+      status: hit.status,
+      headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' },
+    });
+  } catch {
+    return null;
+  }
+}
+
+/// Keeps a slot read (the state, or "no such slot") for SLOT_CACHE_SECS.
+function cacheSlot(url, id, result, ctx) {
+  const cache = edgeCache();
+  if (!cache || !ctx) return;
+  const ok = !('error' in result);
+  if (!ok && result.status !== 404) return;
+  const body = JSON.stringify(ok ? { sealed: result.sealed } : { error: result.error, message: result.message });
+  const copy = new Response(body, {
+    status: ok ? 200 : 404,
+    headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${SLOT_CACHE_SECS}` },
+  });
+  ctx.waitUntil(cache.put(slotCacheKey(url, id), copy).catch(() => {}));
+}
+
+/// Forgets this data center's cached read of a slot, after a write or delete.
+async function uncacheSlot(url, id) {
+  const cache = edgeCache();
+  if (!cache) return;
+  try {
+    await cache.delete(slotCacheKey(url, id));
+  } catch {}
+}
+
+/// The v2 routes. Each checks what a page elsewhere can't send from a visitor's browser
+/// (a JSON body, an Authorization header) before asking the rate limiter, as v1 does.
+/// The unauthenticated reads (slot GET, presence HEAD) have nothing like that: they count
+/// against their own limit, so a page can at worst use up a visitor's reads.
+async function routeV2(request, env, parts, ctx) {
+  const method = request.method;
+  const kind = parts[1];
+  const url = new URL(request.url);
+
+  if (kind === 'pairs' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'replies'))) {
+    if (!validCode(parts[2])) return error(404, 'not_found', 'No such mailbox. It may have expired.');
+    const pair = env.PAIRS.get(env.PAIRS.idFromName(parts[2]));
+    const replies = parts.length === 4;
+
+    if (!replies && method === 'PUT') {
+      if (!isJson(request)) return notJson();
+      if (!(await allowed(env.FRIEND_CREATE_LIMIT, request))) return rateLimited('mailboxes or sessions');
+      const body = await readObject(request, MAX_PAIR_BODY);
+      if (body === TOO_LARGE) return tooLarge();
+      if (!HEX64.test(body?.access) || !validHex(body?.card, MAX_CARD_HEX)) {
+        return badBody(`Send {"access": SHA-256 of the access, 64 hex digits, "card": at most ${MAX_CARD_HEX} hex digits}.`);
+      }
+      const secret = random(HEX, SECRET_HEX_LEN);
+      const created = await pair.create(body.access, body.card, secret);
+      if (!created) return error(409, 'taken', 'That code is taken.');
+      return json(201, { secret, expires_at: iso(created.expiresAt) });
+    }
+    if (!replies && method === 'GET') {
+      const access = bearer(request, 64);
+      if (!access) return unauthorizedAs('access');
+      if (!(await allowed(env.FRIEND_LIMIT, request))) return rateLimited('requests');
+      return answer(await pair.card(await sha256Hex(access)), (r) => json(200, { card: r.card }));
+    }
+    if (replies && method === 'POST') {
+      const access = bearer(request, 64);
+      if (!access) return unauthorizedAs('access');
+      if (!isJson(request)) return notJson();
+      if (!(await allowed(env.FRIEND_LIMIT, request))) return rateLimited('requests');
+      const body = await readObject(request, MAX_PAIR_BODY);
+      if (body === TOO_LARGE) return tooLarge();
+      if (!validHex(body?.reply, MAX_CARD_HEX)) return badBody(`Send {"reply": at most ${MAX_CARD_HEX} hex digits}.`);
+      return answer(await pair.reply(await sha256Hex(access), body.reply), (r) => json(200, { count: r.count }));
+    }
+    if (replies && method === 'GET') {
+      const secret = bearer(request);
+      if (!secret) return unauthorizedAs('secret');
+      if (!(await allowed(env.FRIEND_LIMIT, request))) return rateLimited('requests');
+      return answer(await pair.replies(secret), (r) => json(200, { replies: r.replies }));
+    }
+    if (!replies && method === 'DELETE') {
+      const secret = bearer(request);
+      if (!secret) return unauthorizedAs('secret');
+      if (!(await allowed(env.FRIEND_LIMIT, request))) return rateLimited('requests');
+      return answer(await pair.end(secret), () => json(200, { ok: true }));
+    }
+    return unknown();
+  }
+
+  if (kind === 'slots' && parts.length === 3) {
+    if (!HEX32.test(parts[2])) return error(404, 'not_found', 'No such slot.');
+    const slot = env.SLOTS.get(env.SLOTS.idFromName(parts[2]));
+
+    if (method === 'PUT') {
+      const proof = bearer(request, 64);
+      if (!proof) return unauthorizedAs('write proof');
+      if (!isJson(request)) return notJson();
+      if (!(await allowed(env.FRIEND_LIMIT, request))) return rateLimited('requests');
+      const body = await readObject(request, MAX_SLOT_BODY);
+      if (body === TOO_LARGE) return tooLarge();
+      if (!validHex(body?.sealed, MAX_STATE_HEX)) return badBody(`Send {"sealed": at most ${MAX_STATE_HEX} hex digits}.`);
+      const proofHash = await sha256Hex(proof);
+      let result = await slot.write(proofHash, body.sealed, false);
+      if (result.create) {
+        // A new slot is charged to the address's slot budget; rewrites aren't.
+        if (!(await takeSlotBudget(env, request))) {
+          return error(429, 'rate_limited', 'Too many new slots from this address. Try again in an hour.');
+        }
+        result = await slot.write(proofHash, body.sealed, true);
+      }
+      if (!('error' in result)) await uncacheSlot(url, parts[2]);
+      return answer(result, () => json(200, { ok: true }));
+    }
+    if (method === 'GET') {
+      if (!fromClient(request)) return error(400, 'not_client', 'Send "X-Lodestone-Client: 1".');
+      // A cached read costs no Durable Object call, so it isn't counted.
+      const cached = await cachedSlot(url, parts[2]);
+      if (cached) return cached;
+      if (!(await allowed(env.SLOT_READ_LIMIT, request))) return rateLimited('reads');
+      const result = await slot.read();
+      cacheSlot(url, parts[2], result, ctx);
+      return answer(result, (r) => json(200, { sealed: r.sealed }));
+    }
+    if (method === 'DELETE') {
+      const proof = bearer(request, 64);
+      if (!proof) return unauthorizedAs('write proof');
+      if (!(await allowed(env.FRIEND_LIMIT, request))) return rateLimited('requests');
+      const result = await slot.erase(await sha256Hex(proof));
+      if (!('error' in result)) await uncacheSlot(url, parts[2]);
+      return answer(result, () => json(200, { ok: true }));
+    }
+    return unknown();
+  }
+
+  if (kind === 'meet' && parts.length === 2) {
+    if (method !== 'PUT') return error(405, 'method', 'Use PUT.');
+    if (!isJson(request)) return notJson();
+    if (!(await allowed(env.FRIEND_CREATE_LIMIT, request))) return rateLimited('mailboxes or sessions');
+    const body = await readObject(request, MAX_MEET_BODY);
+    if (body === TOO_LARGE) return tooLarge();
+    const { records, message } = readRecords(body);
+    if (!records) return badBody(message);
+    const secret = random(HEX, SECRET_HEX_LEN);
+    // 128 random bits never collide, but never hand out a live session twice.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const session = random(HEX, SECRET_HEX_LEN);
+      const created = await env.MEET_SESSIONS.get(env.MEET_SESSIONS.idFromName(session)).create(session, secret, records, request.headers.get('cf-connecting-ip'));
+      if (created?.rateLimited) return rateLimited('records');
+      if (created) return json(201, { session, secret, expires_at: iso(created.expiresAt) });
+    }
+    throw new Error('no free session id');
+  }
+
+  if (kind === 'meet' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'knocks'))) {
+    if (!HEX32.test(parts[2])) return error(404, 'not_found', 'No such session. It may have ended.');
+    const session = env.MEET_SESSIONS.get(env.MEET_SESSIONS.idFromName(parts[2]));
+    const secret = bearer(request);
+
+    if (parts.length === 4 && method === 'GET') {
+      if (!secret) return unauthorizedAs('secret');
+      if (!(await allowed(env.FRIEND_LIMIT, request))) return rateLimited('requests');
+      if ((request.headers.get('upgrade') || '').toLowerCase() !== 'websocket') {
+        return error(426, 'websocket', 'Wait for knocks on a WebSocket.');
+      }
+      // The object answers the upgrade itself, and keeps the socket.
+      return session.fetch(request);
+    }
+    if (parts.length === 3 && method === 'PUT') {
+      if (!secret) return unauthorizedAs('secret');
+      if (!isJson(request)) return notJson();
+      if (!(await allowed(env.FRIEND_LIMIT, request))) return rateLimited('requests');
+      const body = await readObject(request, MAX_MEET_BODY);
+      if (body === TOO_LARGE) return tooLarge();
+      const { records, message } = readRecords(body);
+      if (!records) return badBody(message);
+      return answer(await session.replace(secret, records, request.headers.get('cf-connecting-ip')), (r) => json(200, { expires_at: iso(r.expiresAt) }));
+    }
+    if (parts.length === 3 && method === 'DELETE') {
+      if (!secret) return unauthorizedAs('secret');
+      if (!(await allowed(env.FRIEND_LIMIT, request))) return rateLimited('requests');
+      return answer(await session.end(secret), () => json(200, { ok: true }));
+    }
+    return unknown();
+  }
+
+  if (kind === 'lookups' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'knocks'))) {
+    const lookup = parts[2];
+    const valid = HEX32.test(lookup);
+
+    if (parts.length === 3 && method === 'HEAD') {
+      if (!valid) return bare(404);
+      if (!fromClient(request)) return bare(400);
+      if (!(await allowed(env.LOOKUP_LIMIT, request))) return bare(429);
+      const present = await env.LOOKUPS.get(env.LOOKUPS.idFromName(lookup)).present(lookup);
+      return bare(present ? 200 : 404);
+    }
+    if (parts.length === 4 && method === 'POST') {
+      if (!valid) return error(404, 'not_found', 'Nobody is publishing that lookup id now.');
+      if (!isJson(request)) return notJson();
+      if (!(await allowed(env.KNOCK_LIMIT, request))) return rateLimited('knocks');
+      const body = await readObject(request, MAX_KNOCK_BODY);
+      if (body === TOO_LARGE) return tooLarge();
+      if (!validHex(body?.sealed, MAX_RECORD_HEX)) return badBody(`Send {"sealed": at most ${MAX_RECORD_HEX} hex digits}.`);
+      // Cloudflare sets it; `wrangler dev` may not.
+      const seen = request.headers.get('cf-connecting-ip') || '127.0.0.1';
+      const record = await env.LOOKUPS.get(env.LOOKUPS.idFromName(lookup)).knock(lookup, body.sealed, seen);
+      if (!record) return error(404, 'not_found', 'Nobody is publishing that lookup id now.');
+      return json(200, { sealed: record.sealed });
+    }
+    return unknown();
+  }
+
+  return unknown();
+}
+
+// ---------------------------------------------------------------------------
+// One pairing mailbox: the card, the hash of the access, the owner's secret and up to 4
+// replies, for 24 hours.
+
+const goneMailbox = { status: 404, error: 'not_found', message: 'No such mailbox. It may have expired.' };
+const wrongAccess = { status: 403, error: 'forbidden', message: 'Wrong access.' };
+
+export class Pair extends DurableObject {
+  async load() {
+    const pair = await this.ctx.storage.get('pair');
+    if (!pair) return null;
+    if (Date.now() >= pair.expiresAt) {
+      await this.clear();
+      return null;
+    }
+    return pair;
+  }
+
+  async create(accessHash, card, secret) {
+    if (await this.load()) return null;
+    const expiresAt = Date.now() + PAIR_MS;
+    await this.ctx.storage.put('pair', { accessHash, card, secret, replies: [], expiresAt });
+    await this.ctx.storage.setAlarm(expiresAt);
+    return { expiresAt };
+  }
+
+  async card(accessHash) {
+    const pair = await this.load();
+    if (!pair) return goneMailbox;
+    if (!sameSecret(accessHash, pair.accessHash)) return wrongAccess;
+    return { card: pair.card };
+  }
+
+  async reply(accessHash, reply) {
+    const pair = await this.load();
+    if (!pair) return goneMailbox;
+    if (!sameSecret(accessHash, pair.accessHash)) return wrongAccess;
+    if (pair.replies.length >= MAX_REPLIES) {
+      return { status: 429, error: 'full', message: `This mailbox has had ${MAX_REPLIES} replies.` };
+    }
+    pair.replies.push(reply);
+    await this.ctx.storage.put('pair', pair);
+    return { count: pair.replies.length };
+  }
+
+  async replies(secret) {
+    const pair = await this.load();
+    if (!pair) return goneMailbox;
+    if (!sameSecret(secret, pair.secret)) return forbidden;
+    return { replies: pair.replies };
+  }
+
+  async end(secret) {
+    const pair = await this.load();
+    if (!pair) return goneMailbox;
+    if (!sameSecret(secret, pair.secret)) return forbidden;
+    await this.clear();
+    return {};
+  }
+
+  async alarm() {
+    await this.clear();
+  }
+
+  async clear() {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// One slot: a person's latest sealed state for one friend, and the hash of the write
+// proof its first write came with. Gone SLOT_MS (21 days) after its last write.
+
+const goneSlot = { status: 404, error: 'not_found', message: 'No such slot.' };
+const wrongProof = { status: 403, error: 'forbidden', message: 'Wrong write proof.' };
+
+export class Slot extends DurableObject {
+  async load() {
+    const slot = await this.ctx.storage.get('slot');
+    if (!slot) return null;
+    if (Date.now() >= slot.writtenAt + SLOT_MS) {
+      await this.clear();
+      return null;
+    }
+    return slot;
+  }
+
+  /// Writes the state. An empty slot takes the proof it's given, but only with `mayCreate`;
+  /// otherwise the answer is {create: true}, so the Worker can count it as something made.
+  async write(proofHash, sealed, mayCreate) {
+    const slot = await this.load();
+    if (slot) {
+      if (!sameSecret(proofHash, slot.proofHash)) return wrongProof;
+    } else if (!mayCreate) {
+      return { create: true };
+    }
+    const writtenAt = Date.now();
+    await this.ctx.storage.put('slot', { proofHash: slot?.proofHash ?? proofHash, sealed, writtenAt });
+    await this.ctx.storage.setAlarm(writtenAt + SLOT_MS);
+    return {};
+  }
+
+  async read() {
+    const slot = await this.load();
+    return slot ? { sealed: slot.sealed } : goneSlot;
+  }
+
+  async erase(proofHash) {
+    const slot = await this.load();
+    if (!slot) return goneSlot;
+    if (!sameSecret(proofHash, slot.proofHash)) return wrongProof;
+    await this.clear();
+    return {};
+  }
+
+  async alarm() {
+    await this.clear();
+  }
+
+  async clear() {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// One client address's budget of things made over longer windows than Cloudflare's rate
+// limiters count (they stop at a minute): fixed windows, each starting at its first use.
+// Gone once its longest window has passed unused.
+
+export class Quota extends DurableObject {
+  /// Takes one from each window's budget ([{ms, max}]) and answers true, or answers false
+  /// (taking nothing) if any of them is spent.
+  async take(windows) {
+    const now = Date.now();
+    const kept = (await this.ctx.storage.get('windows')) || {};
+    const next = {};
+    for (const { ms, max } of windows) {
+      const window = kept[ms] && now < kept[ms].start + ms ? kept[ms] : { start: now, count: 0 };
+      if (window.count >= max) return false;
+      next[ms] = { start: window.start, count: window.count + 1 };
+    }
+    await this.ctx.storage.put('windows', next);
+    const longest = Math.max(...Object.entries(next).map(([ms, w]) => w.start + Number(ms)));
+    await this.ctx.storage.setAlarm(longest);
+    return true;
+  }
+
+  async alarm() {
+    await this.ctx.storage.deleteAll();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// One core's meeting session: its records ({lookup: sealed}) and its WebSocket, waiting
+// for knocks. Like an invite, it ends when the core has been quiet for two minutes, when
+// it deletes the session, or after 24 hours. Its lookups are live while a socket heard
+// from within two minutes is open on it.
+
+const goneSession = { status: 404, error: 'not_found', message: 'No such session. It may have ended.' };
+
+export class MeetSession extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    // The core's keep-alive, answered without waking this object.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+    // Shorter only in the tests (wrangler dev --var IDLE_MS:...).
+    this.idleMs = Number(env.IDLE_MS) || IDLE_MS;
+  }
+
+  async load() {
+    const session = await this.ctx.storage.get('session');
+    if (!session) return null;
+    if (Date.now() >= session.expiresAt) {
+      await this.finish(session);
+      return null;
+    }
+    return session;
+  }
+
+  async create(name, secret, records, ip) {
+    if (await this.ctx.storage.get('session')) return null;
+    if (!(await chargeRegistrations(this.env.REGISTER_LIMIT, ip, Object.keys(records).length))) {
+      return { rateLimited: true };
+    }
+    const now = Date.now();
+    const session = { name, secret, records, unclaimed: [], seenAt: now, expiresAt: now + MAX_AGE_MS };
+    await this.ctx.storage.put('session', session);
+    await this.ctx.storage.setAlarm(now + this.idleMs);
+    session.unclaimed = await this.register(name, Object.keys(records));
+    if (session.unclaimed.length) await this.ctx.storage.put('session', session);
+    return { expiresAt: session.expiresAt };
+  }
+
+  /// Replaces the records. Only the lookups added are registered to this session, and
+  /// only the ones dropped are unregistered (where they still point here), each charged
+  /// to the address's budget, so resending the same records costs next to nothing.
+  /// Lookups this session couldn't take before (another live session held them) are
+  /// tried again. Counts as the core being there.
+  async replace(secret, records, ip) {
+    const session = await this.load();
+    if (!session) return goneSession;
+    if (!sameSecret(secret, session.secret)) return forbidden;
+    const added = Object.keys(records).filter((lookup) => !Object.hasOwn(session.records, lookup));
+    const dropped = Object.keys(session.records).filter((lookup) => !Object.hasOwn(records, lookup));
+    if (!(await chargeRegistrations(this.env.REGISTER_LIMIT, ip, added.length + dropped.length))) {
+      return { status: 429, error: 'rate_limited', message: 'Too many record changes from this address. Wait a minute.' };
+    }
+    const retry = (session.unclaimed || []).filter((lookup) => Object.hasOwn(records, lookup) && Object.hasOwn(session.records, lookup));
+    session.records = records;
+    session.seenAt = Date.now();
+    await this.ctx.storage.put('session', session);
+    const unclaimed = await this.register(session.name, [...added, ...retry]);
+    await this.unregister(session.name, dropped);
+    if (unclaimed.length || session.unclaimed?.length) {
+      session.unclaimed = unclaimed;
+      await this.ctx.storage.put('session', session);
+    }
+    return { expiresAt: session.expiresAt };
+  }
+
+  /// A knock on one of this session's lookups: sent on the core's sockets, and answered
+  /// with the lookup's record. Null if the session isn't live or doesn't have the lookup.
+  async knock(lookup, sealed, seen) {
+    const session = await this.load();
+    if (!session || !Object.hasOwn(session.records, lookup)) return null;
+    const sockets = this.liveSockets();
+    if (!sockets.length) return null;
+    const message = JSON.stringify({ knocks: [{ lookup, sealed, seen }] });
+    for (const ws of sockets) {
+      try {
+        ws.send(message);
+      } catch {}
+    }
+    return { sealed: session.records[lookup] };
+  }
+
+  /// Whether this session publishes `lookup` now: it has the record and a live socket.
+  /// A Lookup asks this before letting another session take it.
+  async present(lookup) {
+    const session = await this.load();
+    return Boolean(session && Object.hasOwn(session.records, lookup) && this.liveSockets().length);
+  }
+
+  /// The core's WebSocket for waiting on knocks.
+  async fetch(request) {
+    const session = await this.load();
+    if (!session) return error(goneSession.status, goneSession.error, goneSession.message);
+    if (!sameSecret(bearer(request), session.secret)) return error(forbidden.status, forbidden.error, forbidden.message);
+    // A core whose network changed may reconnect before its old socket is noticed gone:
+    // make room by dropping the one heard from longest ago.
+    const sockets = this.ctx.getWebSockets();
+    if (sockets.length >= MAX_SOCKETS) {
+      const stalest = sockets.reduce((a, b) => (this.lastHeard(a) <= this.lastHeard(b) ? a : b));
+      closeQuietly(stalest, 1000, 'replaced');
+    }
+    const [client, server] = Object.values(new WebSocketPair());
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ connectedAt: Date.now() });
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async end(secret) {
+    const session = await this.load();
+    if (!session) return goneSession;
+    if (!sameSecret(secret, session.secret)) return forbidden;
+    await this.finish(session);
+    return {};
+  }
+
+  /// Every idleMs (two minutes) or so: end the session if its core has gone quiet, or it's
+  /// too old.
+  async alarm() {
+    const session = await this.ctx.storage.get('session');
+    if (!session) return;
+    const now = Date.now();
+    if (now < session.expiresAt) {
+      let seen = session.seenAt;
+      for (const ws of this.ctx.getWebSockets()) {
+        const heard = this.lastHeard(ws);
+        if (now - heard >= this.idleMs) closeQuietly(ws, 1001, 'quiet');
+        else seen = Math.max(seen, heard);
+      }
+      if (now - seen < this.idleMs) {
+        await this.ctx.storage.setAlarm(Math.min(seen + this.idleMs, session.expiresAt));
+        // Lookups another session held when this one registered: theirs may have ended.
+        if (session.unclaimed?.length && this.liveSockets().length) {
+          session.unclaimed = await this.register(session.name, session.unclaimed.filter((lookup) => Object.hasOwn(session.records, lookup)));
+          await this.ctx.storage.put('session', session);
+        }
+        return;
+      }
+    }
+    await this.finish(session);
+  }
+
+  async webSocketMessage(ws) {
+    // Only "ping" is expected, and that's answered without coming here.
+    closeQuietly(ws, 1003, 'only "ping" is expected');
+  }
+
+  async webSocketClose(ws, code) {
+    closeQuietly(ws, code === 1005 || code === 1006 ? 1000 : code, '');
+  }
+
+  async webSocketError(ws) {
+    closeQuietly(ws, 1011, '');
+  }
+
+  /// When `ws` was last heard from: its last ping, or when it connected.
+  lastHeard(ws) {
+    const ping = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
+    return Math.max(ping, ws.deserializeAttachment()?.connectedAt ?? 0);
+  }
+
+  liveSockets() {
+    const now = Date.now();
+    return this.ctx.getWebSockets().filter((ws) => now - this.lastHeard(ws) < this.idleMs);
+  }
+
+  /// Ends the session: forgets it, closes its sockets with CLOSE_ENDED, and unregisters
+  /// its lookups (a Lookup that misses this lets go after 24 hours anyway).
+  async finish(session) {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    for (const ws of this.ctx.getWebSockets()) closeQuietly(ws, CLOSE_ENDED, 'ended');
+    try {
+      await this.unregister(session.name, Object.keys(session.records));
+    } catch (err) {
+      console.error('connect: unregistering lookups failed', err?.message || String(err));
+    }
+  }
+
+  /// Registers `lookups` to this session; answers the ones another live session holds,
+  /// which stay that session's.
+  async register(name, lookups) {
+    const refused = [];
+    await eachLookup(this.env, lookups, async (lookup, id) => {
+      if (!(await lookup.register(name, id))) refused.push(id);
+    });
+    return refused;
+  }
+
+  async unregister(name, lookups) {
+    await eachLookup(this.env, lookups, (lookup) => lookup.unregister(name));
+  }
+}
+
+async function eachLookup(env, lookups, call) {
+  for (let i = 0; i < lookups.length; i += LOOKUP_BATCH) {
+    await Promise.all(lookups.slice(i, i + LOOKUP_BATCH).map((id) => call(env.LOOKUPS.get(env.LOOKUPS.idFromName(id)), id)));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// One lookup id: the session that holds it, for 24 hours from when it took it (no
+// session lasts longer). Another session takes it only while the holder isn't live
+// (no socket heard from within two minutes), so a session can't be cut off by someone
+// registering its lookup ids elsewhere; a core that restarts gets its ids back once its
+// old session has gone quiet.
+
+export class Lookup extends DurableObject {
+  /// Gives `lookup` (this object's id) to `session` and answers true, unless another
+  /// session holds it and is live: then false, and nothing changes.
+  async register(session, lookup) {
+    const holder = await this.ctx.storage.get('session');
+    if (holder && holder !== session) {
+      const live = await this.env.MEET_SESSIONS.get(this.env.MEET_SESSIONS.idFromName(holder)).present(lookup);
+      if (live) return false;
+    }
+    await this.ctx.storage.put('session', session);
+    await this.ctx.storage.setAlarm(Date.now() + MAX_AGE_MS);
+    return true;
+  }
+
+  /// Lets go, unless another session registered this lookup since.
+  async unregister(session) {
+    if ((await this.ctx.storage.get('session')) !== session) return;
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+  }
+
+  async session() {
+    const name = await this.ctx.storage.get('session');
+    return name ? this.env.MEET_SESSIONS.get(this.env.MEET_SESSIONS.idFromName(name)) : null;
+  }
+
+  /// {sealed: the record} once the knock reached its live session, else null.
+  async knock(lookup, sealed, seen) {
+    const session = await this.session();
+    return session ? session.knock(lookup, sealed, seen) : null;
+  }
+
+  async present(lookup) {
+    const session = await this.session();
+    return session ? session.present(lookup) : false;
+  }
+
+  async alarm() {
+    await this.ctx.storage.deleteAll();
+  }
 }

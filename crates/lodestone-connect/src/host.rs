@@ -761,10 +761,10 @@ async fn accept_loop(
 
 /// One of the [`MAX_UNPROVEN`] places for a connection that hasn't shown the token
 /// yet. Dropping it frees the place.
-struct UnprovenSlot(Arc<AtomicUsize>);
+pub(crate) struct UnprovenSlot(Arc<AtomicUsize>);
 
 impl UnprovenSlot {
-    fn take(count: &Arc<AtomicUsize>) -> Option<Self> {
+    pub(crate) fn take(count: &Arc<AtomicUsize>) -> Option<Self> {
         // When all places are taken, dropping `slot` gives this one back.
         let slot = Self(count.clone());
         (count.fetch_add(1, Ordering::AcqRel) < MAX_UNPROVEN).then_some(slot)

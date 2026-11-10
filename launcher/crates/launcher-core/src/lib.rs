@@ -18,6 +18,7 @@ pub mod data_move;
 pub mod disk;
 pub mod downloads;
 pub mod export;
+pub mod friend_list;
 pub mod fsx;
 pub mod game;
 pub mod hero_cache;

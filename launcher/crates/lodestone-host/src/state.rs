@@ -90,6 +90,9 @@ pub struct HostState {
     /// An instance whose Overview should start sharing it with friends when it opens
     /// (the sidebar's "Share" button).
     pub share_requested: Option<String>,
+    /// Sharing with friends: only for this computer's core, signed in as its owner
+    /// (set by the window, `crate::app`).
+    pub friends: Option<Entity<crate::friends::FriendSharing>>,
     /// The window's toasts, which the shell draws over the page (see [`Self::toast`]).
     pub toasts: Entity<Toasts>,
     _stream: Option<LiveStream>,
@@ -115,6 +118,7 @@ impl HostState {
             toasts: cx.new(|_| Toasts::new()),
             _stream: None,
             share_requested: None,
+            friends: None,
             own_file_toasts: Vec::new(),
             _tasks: Vec::new(),
         };

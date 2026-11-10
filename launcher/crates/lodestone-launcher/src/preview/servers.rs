@@ -53,6 +53,15 @@ pub const SCENES: &[&str] = &[
     "servers-join-port-taken",
     "servers-join-failed",
     "servers-join-no-path",
+    "servers-friend-list-empty",
+    "servers-friend-list",
+    "servers-friend-list-reply",
+    "servers-friend-list-add",
+    "servers-friend-list-add-link",
+    "servers-friend-list-verify",
+    "servers-friend-list-remove",
+    "servers-friend-list-retire",
+    "servers-friend-list-retire-core",
 ];
 
 /// Made-up fingerprints.
@@ -412,6 +421,10 @@ fn apply_servers(scene: &str, servers: &mut Servers, cx: &mut Context<Servers>) 
                 },
                 cx,
             );
+        }
+        scene if scene.starts_with("servers-friend-list") => {
+            servers.preview(Vec::new(), Vec::new());
+            super::friend_list::apply(scene, servers, cx);
         }
         "servers-shared-local" | "servers-shared-local-gone" => {
             apply_shared_local(scene == "servers-shared-local", servers)
