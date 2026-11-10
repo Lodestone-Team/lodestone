@@ -119,14 +119,7 @@ impl Servers {
                                     .text_color(crate::theme::ink::text())
                                     .child(t(M::FriendsTitle)),
                             )
-                            .child(note(t(M::FriendsHint)))
-                            // so testers don't forget they point at another service
-                            .children(crate::shell::connect_service::custom_note().map(|relay| {
-                                note(relay)
-                                    .id("friends-dev-relay")
-                                    .font_weight(weights::BOLD.into())
-                                    .text_color(colors::YELLOW)
-                            })),
+                            .child(note(t(M::FriendsHint))),
                     )
                     .child(
                         Button::new("join-friend", t(M::JoinAFriend))

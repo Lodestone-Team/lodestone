@@ -1188,7 +1188,7 @@ pub fn apply(scene: &str, shell: &mut LauncherShell, cx: &mut Context<LauncherSh
             }
             shell.open_settings(Some(page), None, cx);
         }
-        // Settings > Developer, tall enough for "Connect service (relay)": as it is,
+        // Settings > Developer's "Connect service (relay)": as it is,
         // pointed at the dev service, and with a URL it refuses.
         "settings-developer-relay-default"
         | "settings-developer-relay"

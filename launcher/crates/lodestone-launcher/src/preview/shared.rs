@@ -74,8 +74,6 @@ pub fn window_height(scene: &str) -> Option<f32> {
         "sidebar-groups" | "sidebar-groups-off" => Some(1000.),
         // Tall enough for the Modrinth section's placeholder under six mods.
         "content-mods" => Some(1100.),
-        // Settings > Developer down to "Connect service (relay)".
-        scene if scene.starts_with("settings-developer-relay") => Some(2000.),
         _ => None,
     }
 }
