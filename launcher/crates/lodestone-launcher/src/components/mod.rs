@@ -5,9 +5,11 @@
 
 pub use lodestone_ui::components::*;
 
+mod magnet_bar;
 mod play_button;
 
-pub use play_button::{PlayButton, PlayButtonState};
+pub use magnet_bar::{GEM as MAGNET_GEM, MagnetBar, MagnetLook};
+pub use play_button::{LaunchStep, PlayButton, PlayButtonState};
 
 mod server_outline;
 
