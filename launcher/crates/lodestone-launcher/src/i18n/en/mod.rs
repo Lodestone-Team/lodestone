@@ -13,7 +13,7 @@ pub mod friend_list;
 pub mod instance_settings;
 /// Instances: playing, the console, imports and modpacks.
 pub mod instances;
-/// The Servers page, a server's page and the dialogs about cores.
+/// The Servers page, a server's page and the dialogs about hosts.
 pub mod servers;
 /// Minecraft's own option and key names, in Settings > Shared game settings.
 pub mod shared_options;

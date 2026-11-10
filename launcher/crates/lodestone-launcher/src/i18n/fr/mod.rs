@@ -5,8 +5,8 @@
 //! | English | Français |
 //! |---|---|
 //! | instance (a launcher game folder) | instance (f.) |
-//! | server (a game server a core runs) | serveur |
-//! | core (a Lodestone Core) | core (m.), « ce core » ; Lodestone Core stays as it is |
+//! | server (a game server a host runs) | serveur |
+//! | host (a Lodestone Core, which the code calls a core) | hôte (m.), « cet hôte », « l’hôte » ; Lodestone Host (the app) stays as it is |
 //! | mod / modpack | mod (m.) / modpack (m.) |
 //! | mod loader / loader | chargeur de mods / chargeur |
 //! | resource pack / shader pack | pack de ressources / pack de shaders |

@@ -48,11 +48,11 @@ pub fn check_hostable(instance: &Instance) -> Result<(), String> {
     match instance.loader.kind() {
         Some(LoaderKind::Fabric) => Ok(()),
         Some(kind) => Err(format!(
-            "Lodestone Core can host Fabric modpacks only, and this instance uses {}.",
+            "A host can make servers from Fabric modpacks only, and this instance uses {}.",
             kind.label()
         )),
         None => Err(
-            "Lodestone Core can host Fabric modpacks only. Create a vanilla server in the dashboard instead."
+            "A host can make servers from Fabric modpacks only. Create a vanilla server in the dashboard instead."
                 .into(),
         ),
     }
@@ -231,7 +231,7 @@ pub fn read_pack_file(path: &Path) -> Result<Vec<u8>, String> {
         .len();
     if size > MAX_UPLOAD_BYTES {
         return Err(format!(
-            "The modpack is {} MB; Lodestone Core takes packs up to {} MB. Remove large files from the instance first.",
+            "The modpack is {} MB; a host takes packs up to {} MB. Remove large files from the instance first.",
             size / (1024 * 1024),
             MAX_UPLOAD_BYTES / (1024 * 1024)
         ));

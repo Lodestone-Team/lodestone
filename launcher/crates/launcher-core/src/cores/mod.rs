@@ -62,7 +62,7 @@ pub fn matching_loader(server: &ServerInstance) -> Result<Option<LoaderChoice>, 
     };
     let Some(version) = server.loader_version.clone().filter(|v| !v.is_empty()) else {
         return Err(format!(
-            "The core doesn't say which {} version {} runs.",
+            "The host doesn't say which {} version {} runs.",
             kind.label(),
             server.name
         ));

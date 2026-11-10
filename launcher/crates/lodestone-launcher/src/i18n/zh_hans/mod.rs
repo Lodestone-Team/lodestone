@@ -5,8 +5,8 @@
 //! | English | 简体中文 |
 //! |---|---|
 //! | instance (a launcher game folder) | 实例 |
-//! | server (a game server a core runs) | 服务器 |
-//! | core (a Lodestone Core) | 核心；Lodestone Core 保留原文 |
+//! | server (a game server a host runs) | 服务器 |
+//! | host (a Lodestone Core, which the code calls a core) | 主机；Lodestone Host（应用）保留原文 |
 //! | mod / modpack | 模组 / 整合包 |
 //! | mod loader / loader | 模组加载器 / 加载器 |
 //! | resource pack / shader pack | 资源包 / 光影包 |

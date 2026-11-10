@@ -142,10 +142,10 @@ crate::i18n::messages! {
         CouldntPrepareUpdate = "Couldn't prepare the update: {error}",
 
         // Linked server.
-        /// {core} is a Lodestone Core's name.
+        /// {core} is a host's name.
         LinkedServerHint = "On {core}. Play joins it and syncs its mods.",
-        LinkedServerCoreRemoved = "On {core}, which was removed from the Lodestone Host page. Add the core again there to join the server.",
-        CoreRemoved = "Core removed",
+        LinkedServerCoreRemoved = "On {core}, which was removed from the Lodestone Host page. Add the host again there to join the server.",
+        CoreRemoved = "Host removed",
         Unlink = "Unlink",
         Unlinked = "Unlinked",
         UnlinkNote = "Play won't join the server anymore. The mods stay.",
@@ -233,7 +233,7 @@ crate::i18n::messages! {
         Duplicate = "Duplicate",
         /// The Duplicate button while the copy is being made.
         Duplicating = "Duplicating…",
-        HostOnCore = "Host on a Lodestone core",
+        HostOnCore = "Host on Lodestone",
         HostHint = "Creates a server with this instance's mods.",
         HostButton = "Host…",
         ShareCodeRow = "Share code",

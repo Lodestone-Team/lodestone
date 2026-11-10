@@ -61,7 +61,7 @@ pub fn text(message: M) -> &'static str {
         M::LogsPlaceholder => "Les journaux s’affichent ici une fois que vous avez une instance.",
         M::LinkedTo => "Liée à {server} sur {core}",
         M::LinkedToRemoved => {
-            "Liée à {server} sur {core} (ce core a été retiré de la page Lodestone Host)"
+            "Liée à {server} sur {core} (cet hôte a été retiré de la page Lodestone Host)"
         }
         M::NoInstances => "Aucune instance",
         M::AndJoin => "et rejoindre {server}",

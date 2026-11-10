@@ -155,13 +155,13 @@ pub fn text(message: M) -> &'static str {
             "Vos amis sont prévenus d’oublier {name} : ils ne voient plus ses serveurs et ne font plus confiance à leurs mods. Faites-le pour un ordinateur perdu ou volé, ou depuis lequel vous ne partagez plus."
         }
         M::RetireCoreWarning => {
-            "C’est irréversible. Ce core n’est plus jamais montré à vos amis, même s’il se synchronise. Pour partager de nouveau depuis cet ordinateur, il lui faut un nouveau certificat d’ami : Lodestone Host sur cet ordinateur en propose un dans les Paramètres d’un serveur, sous Amis."
+            "C’est irréversible. Cet hôte n’est plus jamais montré à vos amis, même s’il se synchronise. Pour partager de nouveau depuis cet ordinateur, il lui faut un nouveau certificat d’ami : Lodestone Host sur cet ordinateur en propose un dans les Paramètres d’un serveur, sous Amis."
         }
-        M::RetireCoreConfirm => "Retirer le core",
+        M::RetireCoreConfirm => "Retirer l’hôte",
         M::NameLike => "Même nom que {names} : vérifiez de qui il s’agit",
         M::RemoveTitle => "Retirer {name}\u{202F}?",
         M::RemoveBody => {
-            "Vous ne voyez plus ses serveurs, et il ne voit plus les vôtres. Vos cores cessent de partager avec lui la prochaine fois que Lodestone Host les met à jour. Pour redevenir amis, l’un de vous crée un nouveau lien d’ami."
+            "Vous ne voyez plus ses serveurs, et il ne voit plus les vôtres. Vos hôtes cessent de partager avec lui la prochaine fois qu’ils se synchronisent. Pour redevenir amis, l’un de vous crée un nouveau lien d’ami."
         }
         M::RemoveFriend => "Retirer cet ami",
     }

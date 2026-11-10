@@ -67,7 +67,7 @@ crate::i18n::messages! {
         /// The automatic sidebar group of instances imported from other launchers.
         GroupImported = "Imported",
         /// The automatic sidebar group of instances linked to a server: on a Lodestone
-        /// core, or a friend's shared server. It comes first.
+        /// host, or a friend's shared server. It comes first.
         GroupServers = "Servers",
 
         // The Play tab.
@@ -85,9 +85,9 @@ crate::i18n::messages! {
         WorldsPlaceholder = "Worlds appear here once you have an instance.",
         SettingsPlaceholder = "Settings appear here once you have an instance.",
         LogsPlaceholder = "Logs appear here once you have an instance.",
-        /// Under the instance's name: {server} is a server, {core} a Lodestone Core.
+        /// Under the instance's name: {server} is a server, {core} a host.
         LinkedTo = "Linked to {server} on {core}",
-        LinkedToRemoved = "Linked to {server} on {core} (that core was removed from the Lodestone Host page)",
+        LinkedToRemoved = "Linked to {server} on {core} (that host was removed from the Lodestone Host page)",
         NoInstances = "No instances",
         /// Under PLAY, for an instance made for a server.
         AndJoin = "and join {server}",

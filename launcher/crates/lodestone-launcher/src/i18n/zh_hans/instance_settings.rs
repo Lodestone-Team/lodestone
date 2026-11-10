@@ -120,9 +120,9 @@ pub fn text(message: M) -> &'static str {
 
         M::LinkedServerHint => "位于 {core}。“开始游戏”会加入它并同步模组。",
         M::LinkedServerCoreRemoved => {
-            "位于 {core}，该核心已从“Lodestone Host”页面移除。请在那里重新添加该核心以加入服务器。"
+            "位于 {core}，该主机已从“Lodestone Host”页面移除。请在那里重新添加该主机以加入服务器。"
         }
-        M::CoreRemoved => "核心已移除",
+        M::CoreRemoved => "主机已移除",
         M::Unlink => "取消关联",
         M::Unlinked => "已取消关联",
         M::UnlinkNote => "“开始游戏”将不再加入该服务器，模组会保留。",
@@ -202,7 +202,7 @@ pub fn text(message: M) -> &'static str {
         M::Exporting => "正在导出…",
         M::Duplicate => "创建副本",
         M::Duplicating => "正在创建副本…",
-        M::HostOnCore => "在 Lodestone Core 上托管",
+        M::HostOnCore => "在 Lodestone 上托管",
         M::HostHint => "用此实例的模组创建服务器。",
         M::HostButton => "托管…",
         M::ShareCodeRow => "分享码",
