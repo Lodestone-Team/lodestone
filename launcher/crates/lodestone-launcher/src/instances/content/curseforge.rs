@@ -175,6 +175,7 @@ impl ContentView {
         });
         let _ = target;
         self.panel_closing = None;
+        self.page_scroll.set_offset(gpui::Point::default());
         self.section_mut(kind).browse.project = None;
         self.section_mut(kind).cf.project = Some(CfProjectView {
             project_id,
@@ -726,22 +727,14 @@ impl ContentView {
         .detach();
     }
 
-    /// "On CurseForge · n", with CurseForge's sorts (the compatibility filter is the one
-    /// on Modrinth's heading, shared by both).
-    pub(super) fn render_cf_heading(
+    /// Beside the views when CurseForge's is shown: its sorts and the compatibility
+    /// filter (shared with Modrinth's view).
+    pub(super) fn render_cf_tools(
         &mut self,
         kind: ContentKind,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let cf = &self.section(kind).cf;
-        let sort = cf.sort;
-        let title = match cf.results.ready() {
-            Some(results) => tr!(
-                M::OnCurseForgeCount,
-                count = format::number(results.total as u64)
-            ),
-            None => t(M::OnCurseForge).to_string(),
-        };
+        let sort = self.section(kind).cf.sort;
         let sorts = [
             (CfSort::Popularity, M::SortPopular),
             (CfSort::TotalDownloads, M::SortDownloads),
@@ -750,19 +743,13 @@ impl ContentView {
         ];
         let selected = sorts.iter().position(|(s, _)| *s == sort).unwrap_or(0);
         let entity = cx.entity();
+        let chip = self.compat_chip(kind, cx);
         div()
             .flex()
             .flex_row()
             .flex_wrap()
             .items_center()
             .gap_2()
-            .child(
-                div().flex_1().min_w_0().child(
-                    small(title)
-                        .font_weight(weights::BOLD.into())
-                        .text_color(crate::theme::ink::muted()),
-                ),
-            )
             .child(pills(
                 "cf-sort",
                 sorts
@@ -775,6 +762,7 @@ impl ContentView {
                     entity.update(cx, |this, cx| this.cf_set_sort(kind, sort, cx))
                 },
             ))
+            .child(chip)
             .into_any_element()
     }
 

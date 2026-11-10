@@ -433,6 +433,25 @@ impl Element for RichText {
             },
             hitbox,
         );
+        // The cursor is picked while painting: moving onto or off a link paints again,
+        // so it turns into a hand over links (nothing else repaints on a move).
+        if let Some((ranges, _)) = &self.links {
+            let hitbox = hitbox.clone();
+            let layout = layout.clone();
+            let ranges = ranges.clone();
+            window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, _| {
+                if phase != DispatchPhase::Bubble {
+                    return;
+                }
+                let now = hitbox.is_hovered(window)
+                    && layout
+                        .index_for_position(event.position)
+                        .is_ok_and(|index| ranges.iter().any(|range| range.contains(&index)));
+                if now != over_link {
+                    window.refresh();
+                }
+            });
+        }
 
         // What the selection is doing here, if it is here.
         let mine = with_selection(|selection| {

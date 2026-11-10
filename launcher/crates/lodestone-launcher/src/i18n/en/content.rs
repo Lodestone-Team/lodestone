@@ -9,20 +9,25 @@ crate::i18n::messages! {
         /// An instance without a mod loader, in "1.21.1 / Vanilla".
         Vanilla = "Vanilla",
 
-        /// The search over the list: it filters what is installed and searches
-        /// Modrinth too.
-        SearchInstalledOrModrinth = "Search installed, or find more on Modrinth",
+        /// The list's views: what is installed, or a platform's projects to browse.
+        ViewInstalled = "Installed",
+        ViewModrinth = "Modrinth",
+        ViewCurseForge = "CurseForge",
+        /// The search over the list, in each view.
+        SearchInstalled = "Search what's installed",
+        SearchModrinth = "Search Modrinth",
+        SearchCurseForge = "Search CurseForge",
+        /// Below what's installed, with buttons that switch to a platform's view.
+        LookingForMore = "Looking for something new?",
+        BrowseModrinth = "Browse Modrinth",
+        BrowseCurseForge = "Browse CurseForge",
+        /// The button that scrolls the list back to its top.
+        BackToTop = "Back to top",
         /// Headings over the list, with how many rows follow.
         InstalledCount = "Installed · {count}",
         /// Resource packs in use; the top one wins where they overlap.
         EnabledCount = "Enabled · {count} · the top pack wins where packs overlap",
         AvailableCount = "Available · {count}",
-        /// The heading of the Modrinth results below the installed ones.
-        OnModrinthCount = "On Modrinth · {count}",
-        OnModrinth = "On Modrinth",
-        /// The heading over CurseForge's results in the list.
-        OnCurseForgeCount = "On CurseForge · {count}",
-        OnCurseForge = "On CurseForge",
         /// Nothing installed matches the search; {kind} is "mods", "resource packs" or
         /// "shaders".
         NoInstalledMatch = "Installed · {count} · No installed {kind} match.",

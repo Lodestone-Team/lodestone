@@ -27,7 +27,7 @@ use lodestone_minecraft::modrinth::{
 };
 
 use super::filters::{self, Filters};
-use super::{ContentView, Load, PAGE_SIZE, ProjectTab, RemoteIcon};
+use super::{ContentView, ListView, Load, PAGE_SIZE, ProjectTab, RemoteIcon};
 use crate::components::{
     KeyboardFocus,
     a11y::{Accessible, Role, Toggled},
@@ -36,7 +36,7 @@ use crate::i18n::{CommonMsg, ContentMsg as M, ContentPlural as P, format, t, tr,
 use crate::{
     components::{
         Button, ButtonSize, ButtonVariant, Icon, IconButton, ListRow, LoadingDots, RichText,
-        Toggle,
+        ScrollSource as _, Scrollbar, Toggle,
         focus::Dismiss,
         settings::{popover, popover_panel, select_button},
     },
@@ -76,6 +76,12 @@ const PANEL_PADDING: f32 = 36.;
 /// The panel's padding and the description box's, which a description's images fit
 /// inside.
 const PANEL_INSET: f32 = 72.;
+/// Room kept on the right of the list and the page for the scroll bar.
+const SCROLLBAR_GUTTER: f32 = crate::components::scrollbar::WIDTH + 2.;
+/// Room under the list's last entry, so "Back to top" doesn't cover it.
+const BACK_TO_TOP_ROOM: f32 = 56.;
+/// How far down the list is scrolled (at most a screen) before "Back to top" shows.
+const BACK_TO_TOP_AFTER: f32 = 600.;
 /// How long the project panel takes to slide out or shut.
 const PANEL_SLIDE: std::time::Duration = std::time::Duration::from_millis(220);
 /// Below this window width a project's page takes the whole area instead of a panel
@@ -214,6 +220,50 @@ pub(crate) fn pills(
         }))
 }
 
+/// Small text tabs, the chosen one underlined: the list's views. As short as a
+/// heading, so they cost the list little height.
+fn view_tabs(
+    id: &'static str,
+    labels: Vec<SharedString>,
+    selected: usize,
+    on_select: impl Fn(usize, &mut Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
+    let on_select = std::rc::Rc::new(on_select);
+    crate::components::ArrowGroup::new(id)
+        .group_role(Role::TabList)
+        .flex()
+        .flex_row()
+        .flex_none()
+        .items_end()
+        .gap_4()
+        .text_size(theme::text_size(text::SMALL))
+        .font_weight(weights::BOLD.into())
+        .children(labels.into_iter().enumerate().map(|(index, label)| {
+            let on_select = on_select.clone();
+            let chosen = index == selected;
+            div()
+                .id((id, index))
+                .accessible(Role::Tab, format!("{id}-{index}"), label.clone())
+                .aria_selected(chosen)
+                .keyboard_focus()
+                .pb_1()
+                .border_b_2()
+                .cursor_pointer()
+                .map(|this| {
+                    if chosen {
+                        this.border_color(crate::theme::accent::light())
+                            .text_color(crate::theme::ink::text())
+                    } else {
+                        this.border_color(colors::TRANSPARENT)
+                            .text_color(crate::theme::ink::muted())
+                            .hover(|style| style.text_color(crate::theme::ink::secondary()))
+                    }
+                })
+                .on_press(move |_, window, cx| on_select(index, window, cx))
+                .child(label)
+        }))
+}
+
 /// A box for a notice: the shader mod card, the vanilla card, errors.
 pub(crate) fn card() -> gpui::Div {
     div()
@@ -270,8 +320,6 @@ pub(super) enum Entry {
         last: bool,
         reorder: Option<(bool, bool)>,
     },
-    /// "On Modrinth · n", with the sort, the Filters button and the compatibility filter.
-    ModrinthHeading,
     /// The open filter panel, with what it has picked (so it is measured again when
     /// that changes).
     ModrinthFilters(Filters),
@@ -289,8 +337,6 @@ pub(super) enum Entry {
     },
     /// Previous and next page of the Modrinth results.
     Pager,
-    /// "On CurseForge · n", with its sort.
-    CurseForgeHeading,
     CurseForgeLoading,
     CurseForgeFailed(SharedString),
     CurseForgeNothing,
@@ -303,6 +349,8 @@ pub(super) enum Entry {
     },
     /// Previous and next page of the CurseForge results.
     CfPager,
+    /// Below what's installed: buttons to the platforms' views.
+    FindMore,
 }
 
 /// A heading over installed rows, with how many there are.
@@ -1317,7 +1365,8 @@ impl ContentView {
         let query = self.query(kind, cx);
         let searching = !query.is_empty();
         let mut plan = Vec::new();
-        if kind == ContentKind::ShaderPack && !searching {
+        let view = self.list_view(kind, cx);
+        if kind == ContentKind::ShaderPack && !searching && view == ListView::Installed {
             plan.push(Entry::ShaderMod);
         }
         if kind == ContentKind::Mod
@@ -1328,13 +1377,21 @@ impl ContentView {
         {
             plan.push(Entry::NeedsLoader);
         }
+        match view {
+            ListView::Installed => {}
+            ListView::Modrinth => {
+                self.modrinth_plan(kind, cx, &mut plan);
+                return plan;
+            }
+            ListView::CurseForge => {
+                self.curseforge_plan(kind, cx, &mut plan);
+                return plan;
+            }
+        }
+        let find_more = self.modrinth(cx).is_some() || self.curseforge(cx).is_some();
         let listing = match &self.section(kind).listing {
             Load::NotLoaded | Load::Loading => {
                 plan.push(Entry::Loading);
-                if searching {
-                    self.modrinth_plan(kind, cx, &mut plan);
-                    self.curseforge_plan(kind, cx, &mut plan);
-                }
                 return plan;
             }
             Load::Failed(err) => {
@@ -1366,8 +1423,9 @@ impl ContentView {
                     plan.push(row(index, item, position == 0, position + 1 == count, None));
                 }
             }
-            self.modrinth_plan(kind, cx, &mut plan);
-            self.curseforge_plan(kind, cx, &mut plan);
+            if find_more {
+                plan.push(Entry::FindMore);
+            }
             return plan;
         }
         if let Some(error) = &listing.lookup_error {
@@ -1377,16 +1435,15 @@ impl ContentView {
             plan.push(Entry::Note(error.clone(), true));
         }
         if listing.items.is_empty() {
-            plan.push(Entry::Heading(Heading::Installed(0)));
             plan.push(Entry::Empty);
-            self.modrinth_plan(kind, cx, &mut plan);
-            self.curseforge_plan(kind, cx, &mut plan);
+            if find_more {
+                plan.push(Entry::FindMore);
+            }
             return plan;
         }
         let count = listing.items.len();
         match kind {
             ContentKind::Mod => {
-                plan.push(Entry::Heading(Heading::Installed(count)));
                 for (index, item) in listing.items.iter().enumerate() {
                     plan.push(row(index, item, index == 0, index + 1 == count, None));
                 }
@@ -1428,22 +1485,191 @@ impl ContentView {
                 }
             }
             ContentKind::ShaderPack => {
-                plan.push(Entry::Heading(Heading::Installed(count)));
                 plan.push(Entry::ShadersOff);
                 for (index, item) in listing.items.iter().enumerate() {
                     plan.push(row(index, item, false, index + 1 == count, None));
                 }
             }
         }
-        // Below what's installed, the platforms' projects to browse.
-        self.modrinth_plan(kind, cx, &mut plan);
-        self.curseforge_plan(kind, cx, &mut plan);
+        // Below what's installed, the way to the platforms' projects to browse.
+        if find_more {
+            plan.push(Entry::FindMore);
+        }
         plan
+    }
+
+    /// The view the list of `kind` shows: CurseForge's only in builds with
+    /// Lodestone's CurseForge key.
+    pub(super) fn list_view(&self, kind: ContentKind, cx: &gpui::App) -> ListView {
+        match self.section(kind).view {
+            ListView::CurseForge if self.curseforge(cx).is_none() => ListView::Installed,
+            view => view,
+        }
+    }
+
+    /// Installed / Modrinth / CurseForge, over the list.
+    fn render_views(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        // A platform's view says how many projects it found, as the kinds do.
+        let counted = |label: M, total: Option<u64>| -> SharedString {
+            match total {
+                Some(total) => format!("{} {}", t(label), format::number(total)).into(),
+                None => t(label).into(),
+            }
+        };
+        let modrinth_total = self
+            .section(kind)
+            .browse
+            .results
+            .ready()
+            .map(|r| r.total_hits as u64);
+        let cf_total = self
+            .section(kind)
+            .cf
+            .results
+            .ready()
+            .map(|r| r.total as u64);
+        let installed = self
+            .section(kind)
+            .listing
+            .ready()
+            .map(|l| l.items.len() as u64);
+        let mut views = vec![
+            (ListView::Installed, counted(M::ViewInstalled, installed)),
+            (ListView::Modrinth, counted(M::ViewModrinth, modrinth_total)),
+        ];
+        if self.curseforge(cx).is_some() {
+            views.push((ListView::CurseForge, counted(M::ViewCurseForge, cf_total)));
+        }
+        let current = self.list_view(kind, cx);
+        let selected = views.iter().position(|(v, _)| *v == current).unwrap_or(0);
+        let order: Vec<ListView> = views.iter().map(|(v, _)| *v).collect();
+        let entity = cx.entity();
+        let tools = match current {
+            ListView::Installed => None,
+            ListView::Modrinth => Some(self.render_modrinth_tools(kind, cx)),
+            ListView::CurseForge => Some(self.render_cf_tools(kind, cx)),
+        };
+        div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .min_h(px(28.))
+            .child(view_tabs(
+                "content-views",
+                views.into_iter().map(|(_, label)| label).collect(),
+                selected,
+                move |index, _, cx| {
+                    if let Some(view) = order.get(index).copied() {
+                        entity.update(cx, |this, cx| this.set_view(kind, view, cx));
+                    }
+                },
+            ))
+            .children(tools)
+            .into_any_element()
+    }
+
+    /// "Looking for something new?", with a button to each platform's view (searching
+    /// it for what is typed).
+    fn render_find_more(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let searching = !self.query(kind, cx).is_empty();
+        let mut platforms = Vec::new();
+        if self.modrinth(cx).is_some() {
+            platforms.push((
+                ListView::Modrinth,
+                "find-more-modrinth",
+                if searching {
+                    M::SearchModrinth
+                } else {
+                    M::BrowseModrinth
+                },
+            ));
+        }
+        if self.curseforge(cx).is_some() {
+            platforms.push((
+                ListView::CurseForge,
+                "find-more-curseforge",
+                if searching {
+                    M::SearchCurseForge
+                } else {
+                    M::BrowseCurseForge
+                },
+            ));
+        }
+        div()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .py_4()
+            .child(muted(t(M::LookingForMore)))
+            .children(platforms.into_iter().map(|(view, id, label)| {
+                Button::new((id, kind as usize), t(label))
+                    .variant(ButtonVariant::Secondary)
+                    .icon(Icon::MagnifyingGlass)
+                    .size(ButtonSize::Slim)
+                    .on_click(cx.listener(move |this, _, _, cx| this.set_view(kind, view, cx)))
+            }))
+            .into_any_element()
+    }
+
+    /// "Back to top", floating over the bottom of the list or a project's page once it
+    /// is scrolled down; `to_top` scrolls it back.
+    fn back_to_top(
+        &mut self,
+        kind: ContentKind,
+        id: &'static str,
+        to_top: fn(&mut Self, ContentKind, &mut Context<Self>),
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let automation = format!("{}-{id}", kind.dir());
+        div()
+            .absolute()
+            .bottom_3()
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .id((id, kind as usize))
+                    .accessible(Role::Button, automation, t(M::BackToTop))
+                    .keyboard_focus()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1p5()
+                    .px_3()
+                    .py_1p5()
+                    .rounded_full()
+                    .bg(colors::GRAY_700)
+                    .border_1()
+                    .border_color(crate::theme::ink::border())
+                    .shadow(vec![gpui::BoxShadow {
+                        color: crate::theme::shadow::COLOR.into(),
+                        offset: gpui::point(px(0.), px(4.)),
+                        blur_radius: px(12.),
+                        spread_radius: px(0.),
+                        inset: false,
+                    }])
+                    .text_size(theme::text_size(text::SMALL))
+                    .font_weight(weights::BOLD.into())
+                    .text_color(colors::GRAY_300)
+                    .cursor_pointer()
+                    .hover(|style| style.bg(colors::GRAY_600))
+                    .on_press(cx.listener(move |this, _, _, cx| to_top(this, kind, cx)))
+                    .child(Icon::ArrowUp.render(px(12.), colors::GRAY_300))
+                    .child(t(M::BackToTop)),
+            )
+            .into_any_element()
     }
 
     /// The Modrinth part of the list: its heading, then the results not installed yet.
     fn modrinth_plan(&self, kind: ContentKind, cx: &gpui::App, plan: &mut Vec<Entry>) {
-        plan.push(Entry::ModrinthHeading);
         let browse = &self.section(kind).browse;
         if browse.filters_open {
             plan.push(Entry::ModrinthFilters(browse.filters.clone()));
@@ -1487,7 +1713,6 @@ impl ContentView {
         if self.curseforge(cx).is_none() {
             return;
         }
-        plan.push(Entry::CurseForgeHeading);
         match &self.section(kind).cf.results {
             Load::NotLoaded | Load::Loading => plan.push(Entry::CurseForgeLoading),
             Load::Failed(err) => plan.push(Entry::CurseForgeFailed(err.clone())),
@@ -1600,7 +1825,6 @@ impl ContentView {
             ))
             .text_color(crate::theme::ink::muted())
             .into_any_element(),
-            Entry::ModrinthHeading => self.render_modrinth_heading(kind, cx),
             Entry::ModrinthLoading => div()
                 .flex()
                 .flex_row()
@@ -1632,7 +1856,6 @@ impl ContentView {
                 in_box(row, *first, *last)
             }
             Entry::Pager => self.render_pager(kind, cx),
-            Entry::CurseForgeHeading => self.render_cf_heading(kind, cx),
             Entry::CurseForgeLoading => div()
                 .flex()
                 .flex_row()
@@ -1662,6 +1885,7 @@ impl ContentView {
                 in_box(row, *first, *last)
             }
             Entry::CfPager => self.render_cf_pager(kind, cx),
+            Entry::FindMore => self.render_find_more(kind, cx),
             Entry::ShadersOff => {
                 let loader = self.shaders.loader;
                 let busy = self.locked(cx) || self.job.is_some() || loader.is_none();
@@ -1775,17 +1999,16 @@ impl ContentView {
         div()
             .w_full()
             .when(ix > 0 && !joined, |this| this.pt_3())
-            .when(last_entry, |this| this.pb_4())
+            // Room under the end to scroll it clear of "Back to top".
+            .when(last_entry, |this| this.pb(px(BACK_TO_TOP_ROOM)))
             .child(element)
             .into_any_element()
     }
 
-    /// "On Modrinth · n", with the sort and the "1.20.1 Fabric only" filter.
-    fn render_modrinth_heading(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
-        let browse = &self.section(kind).browse;
-        let only = browse.only_compatible;
-        let index = browse.index;
-        let total = browse.results.ready().map(|r| r.total_hits);
+    /// Beside the views when Modrinth's is shown: the sort, Filters and the
+    /// "1.20.1 Fabric only" filter.
+    fn render_modrinth_tools(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let index = self.section(kind).browse.index;
         let indexes = [
             (ModrinthSearchIndex::Relevance, M::SortRelevance),
             (ModrinthSearchIndex::Downloads, M::SortDownloads),
@@ -1797,11 +2020,6 @@ impl ContentView {
             .iter()
             .find(|(i, _)| *i == index)
             .map_or(M::SortRelevance, |(_, label)| *label);
-        let target = self.target_label(kind, cx);
-        let title = match total {
-            Some(total) => tr!(M::OnModrinthCount, count = format::number(total as u64)),
-            None => t(M::OnModrinth).to_string(),
-        };
         let sort = div()
             .flex()
             .flex_col()
@@ -1856,14 +2074,7 @@ impl ContentView {
                     move |window, cx| close(&(), window, cx),
                 )))
             });
-        let chip = filter_chip(
-            ("only-compatible", kind as usize),
-            format!("{}-only-compatible", kind.dir()),
-            tr!(M::OnlyTarget, target = target).into(),
-            None,
-            only,
-        )
-        .on_press(cx.listener(move |this, _, _, cx| this.set_only_compatible(kind, !only, cx)));
+        let chip = self.compat_chip(kind, cx);
         // Filters, with how many are picked; opens the panel under the heading.
         let browse = &self.section(kind).browse;
         let (open, picked) = (browse.filters_open, browse.filters.count());
@@ -1929,17 +2140,25 @@ impl ContentView {
             .flex_wrap()
             .items_center()
             .gap_2()
-            .child(
-                div().flex_1().min_w_0().child(
-                    small(title)
-                        .font_weight(weights::BOLD.into())
-                        .text_color(crate::theme::ink::muted()),
-                ),
-            )
             .child(sort)
             .child(filters_button)
             .child(chip)
             .into_any_element()
+    }
+
+    /// "1.20.1 / Fabric only", shared by Modrinth's and CurseForge's views.
+    pub(super) fn compat_chip(&mut self, kind: ContentKind, cx: &mut Context<Self>) -> AnyElement {
+        let only = self.section(kind).browse.only_compatible;
+        let target = self.target_label(kind, cx);
+        filter_chip(
+            ("only-compatible", kind as usize),
+            format!("{}-only-compatible", kind.dir()),
+            tr!(M::OnlyTarget, target = target).into(),
+            None,
+            only,
+        )
+        .on_press(cx.listener(move |this, _, _, cx| this.set_only_compatible(kind, !only, cx)))
+        .into_any_element()
     }
 
     /// The filter panel under the Modrinth heading: Modrinth's categories of the kind
@@ -2954,12 +3173,35 @@ impl Render for ContentView {
                 self.render_project(kind, cx)
             }
         });
+        // The page has its own way back up, once scrolled down as far as the list's.
+        let page_top = (project_open
+            && self
+                .page_scroll
+                .metrics(cx)
+                .is_some_and(|m| m.offset > m.viewport.min(px(BACK_TO_TOP_AFTER))))
+        .then(|| self.back_to_top(kind, "page-back-to-top", Self::scroll_page_to_top, cx));
         let body = match (page, self.panel_width) {
             (Some(page), None) => div()
-                .id(("content-project", kind as usize))
+                .relative()
                 .size_full()
-                .overflow_y_scroll()
-                .child(div().pb_4().child(page))
+                .child(
+                    div()
+                        .id(("content-project", kind as usize))
+                        .size_full()
+                        .overflow_y_scroll()
+                        .track_scroll(&self.page_scroll)
+                        .child(
+                            div()
+                                .pb(px(BACK_TO_TOP_ROOM))
+                                .pr(px(SCROLLBAR_GUTTER))
+                                .child(page),
+                        ),
+                )
+                .child(Scrollbar::new(
+                    ("content-page-scrollbar", kind as usize),
+                    self.page_scroll.clone(),
+                ))
+                .children(page_top)
                 .into_any_element(),
             (page, panel_width) => {
                 // Only the rows on screen are made: a long list scrolls as fast as a
@@ -2967,10 +3209,35 @@ impl Render for ContentView {
                 let plan = self.installed_plan(kind, cx);
                 self.sync_installed_list(kind, plan);
                 let entity = cx.entity();
-                let rows = list(self.section(kind).rows.clone(), move |ix, _, cx| {
-                    entity.update(cx, |this, cx| this.render_entry(kind, ix, cx))
-                })
-                .size_full();
+                let state = self.section(kind).rows.clone();
+                // Far enough down that the top is out of sight: a way back up.
+                let scrolled = state
+                    .metrics(cx)
+                    .is_some_and(|m| m.offset > m.viewport.min(px(BACK_TO_TOP_AFTER)));
+                let gutter = state.metrics(cx).is_some_and(|m| m.overflows());
+                let rows = div()
+                    .relative()
+                    .size_full()
+                    .child(
+                        div()
+                            .size_full()
+                            .when(gutter, |this| this.pr(px(SCROLLBAR_GUTTER)))
+                            .child(
+                                list(state.clone(), move |ix, _, cx| {
+                                    entity.update(cx, |this, cx| this.render_entry(kind, ix, cx))
+                                })
+                                .size_full(),
+                            ),
+                    )
+                    .child(Scrollbar::new(("content-scrollbar", kind as usize), state))
+                    .when(scrolled, |this| {
+                        this.child(self.back_to_top(
+                            kind,
+                            "back-to-top",
+                            Self::scroll_list_to_top,
+                            cx,
+                        ))
+                    });
                 match (page, panel_width) {
                     // The panel slides out from the right edge: its box widens while
                     // the page inside keeps its width, held at the box's left edge.
@@ -3002,13 +3269,26 @@ impl Render for ContentView {
                                         .flex_none()
                                         .w(px(width))
                                         .h_full()
-                                        .overflow_y_scroll()
                                         .rounded(radius::LG)
                                         .border_1()
                                         .border_color(crate::theme::ink::border())
                                         .bg(colors::GRAY_800)
-                                        .p_4()
-                                        .child(page),
+                                        .overflow_hidden()
+                                        .child(
+                                            div()
+                                                .id(("content-project-scroll", kind as usize))
+                                                .size_full()
+                                                .overflow_y_scroll()
+                                                .track_scroll(&self.page_scroll)
+                                                .p_4()
+                                                .pb(px(BACK_TO_TOP_ROOM))
+                                                .child(page),
+                                        )
+                                        .child(Scrollbar::new(
+                                            ("content-page-scrollbar", kind as usize),
+                                            self.page_scroll.clone(),
+                                        ))
+                                        .children(page_top),
                                 ),
                         )
                         .into_any_element(),
@@ -3016,6 +3296,7 @@ impl Render for ContentView {
                 }
             }
         };
+        let views = (!full_page).then(|| self.render_views(kind, cx));
         div()
             .flex()
             .flex_col()
@@ -3024,6 +3305,7 @@ impl Render for ContentView {
             .child(self.render_header(cx))
             .child(self.render_banners(cx))
             .children(self.render_blocked(cx))
+            .children(views)
             .child(
                 div()
                     .id(("content-body", kind as usize))
