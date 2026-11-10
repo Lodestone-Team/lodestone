@@ -16,7 +16,7 @@ use std::{
     fmt,
     net::{IpAddr, SocketAddr, UdpSocket},
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -35,10 +35,10 @@ use crate::{
     addr::{canonical, ConnectionKind},
     gather::{self, Candidate, GatherOptions},
     hex,
-    host::{HostState, UnprovenSlot, MAX_FRIENDS, MAX_SPRAYS},
+    host::{HostState, MAX_FRIENDS, MAX_SPRAYS, MAX_UNPROVEN},
     portmap, probe,
     service::Service,
-    tunnel::{self, TunnelStream, FRIEND_ALPN, HELLO_ANSWER, PROVE_WITHIN},
+    tunnel::{self, TunnelStream, FRIEND_ALPN, HELLO_ANSWER},
     unhex, Error, Result,
 };
 
@@ -52,9 +52,14 @@ const RENEW_AT_MOST: Duration = Duration::from_secs(6 * 60 * 60);
 const PORTMAP_EVERY: Duration = Duration::from_secs(20 * 60);
 /// How long a stream has to send its header.
 const HEADER_WITHIN: Duration = Duration::from_secs(10);
+/// How long a new connection has to finish its handshake and say hello. Until then it
+/// holds a place counted against the friend whose knock let its address in.
+const HELLO_WITHIN: Duration = Duration::from_secs(10);
 /// The most addresses one friend's latest knock opens (its candidates).
 const MAX_ALLOWED_PER_FRIEND: usize = meet::MAX_CANDIDATES;
 /// The most connections one friend may hold at once, so no friend can take every place.
+/// Connections still in their handshake or hello count too, against the friend whose
+/// knock let their address in.
 pub const MAX_CONNECTIONS_PER_FRIEND: usize = 4;
 
 // ---------------------------------------------------------------------------
@@ -193,6 +198,66 @@ struct Connected {
     connected_at: SystemTime,
 }
 
+/// The friend host's connections: those that said hello, and the places held by those
+/// that haven't yet. Behind one lock, so a check and the insert after it can't race.
+#[derive(Default)]
+struct Connections {
+    live: HashMap<u64, Connected>,
+    /// For each friend, how many connections from addresses their knocks let in are
+    /// still in their handshake or hello.
+    unproven: HashMap<PublicKey, usize>,
+}
+
+impl Connections {
+    fn unproven_total(&self) -> usize {
+        self.unproven.values().sum()
+    }
+
+    /// The places `friend` holds: their connections, and the unproven ones counted
+    /// against them.
+    fn held_by(&self, friend: &PublicKey) -> usize {
+        self.live.values().filter(|c| &c.key == friend).count()
+            + self.unproven.get(friend).copied().unwrap_or(0)
+    }
+
+    fn release(&mut self, friend: &PublicKey) {
+        if let Some(count) = self.unproven.get_mut(friend) {
+            *count -= 1;
+            if *count == 0 {
+                self.unproven.remove(friend);
+            }
+        }
+    }
+}
+
+/// Why a new connection isn't let in.
+#[derive(Debug, PartialEq, Eq)]
+enum Refusal {
+    /// No accepted knock lists its address: say nothing.
+    Stranger,
+    /// Its friend, or the host, has no place left.
+    Full,
+}
+
+/// A place held by a connection that hasn't said hello yet, counted against the friend
+/// whose knock let its address in. Dropping it frees the place.
+struct Unproven {
+    shared: Arc<Shared>,
+    friend: Option<PublicKey>,
+}
+
+impl Drop for Unproven {
+    fn drop(&mut self) {
+        if let Some(friend) = self.friend.take() {
+            self.shared
+                .connections
+                .lock()
+                .expect("not poisoned")
+                .release(&friend);
+        }
+    }
+}
+
 struct Shared {
     fingerprint: [u8; 32],
     service: Service,
@@ -203,7 +268,7 @@ struct Shared {
     /// they may connect. A new knock replaces the friend's addresses, so one friend can
     /// never crowd out another.
     allowed: Mutex<HashMap<PublicKey, (Vec<IpAddr>, Instant)>>,
-    connections: Mutex<HashMap<u64, Connected>>,
+    connections: Mutex<Connections>,
     next_connection: AtomicU64,
     status: Mutex<FriendHostStatus>,
     changed: watch::Sender<u64>,
@@ -221,11 +286,72 @@ impl Shared {
         self.friends.lock().expect("not poisoned").contains_key(key)
     }
 
-    fn is_allowed(&self, ip: IpAddr) -> bool {
+    /// The friends whose accepted knocks let `ip` connect now.
+    fn allowed_by(&self, ip: IpAddr) -> Vec<PublicKey> {
         let mut allowed = self.allowed.lock().expect("not poisoned");
         let now = Instant::now();
         allowed.retain(|_, (_, until)| *until > now);
-        allowed.values().any(|(ips, _)| ips.contains(&ip))
+        allowed
+            .iter()
+            .filter(|(_, (ips, _))| ips.contains(&ip))
+            .map(|(friend, _)| *friend)
+            .collect()
+    }
+
+    /// Takes a place for a new connection from `ip`, counted against a friend whose
+    /// knock let `ip` in and who has a place left. Anyone at an address a friend's
+    /// knock names can connect, so these places are that friend's: they can't fill the
+    /// host's.
+    fn reserve(self: &Arc<Self>, ip: IpAddr) -> Result<Unproven, Refusal> {
+        let friends = self.allowed_by(ip);
+        if friends.is_empty() {
+            return Err(Refusal::Stranger);
+        }
+        let mut connections = self.connections.lock().expect("not poisoned");
+        if connections.live.len() >= MAX_FRIENDS || connections.unproven_total() >= MAX_UNPROVEN {
+            return Err(Refusal::Full);
+        }
+        let friend = friends
+            .into_iter()
+            .map(|friend| (connections.held_by(&friend), friend))
+            .filter(|(held, _)| *held < MAX_CONNECTIONS_PER_FRIEND)
+            .min_by_key(|(held, _)| *held)
+            .map(|(_, friend)| friend)
+            .ok_or(Refusal::Full)?;
+        *connections.unproven.entry(friend).or_default() += 1;
+        Ok(Unproven {
+            shared: self.clone(),
+            friend: Some(friend),
+        })
+    }
+
+    /// Lets in a connection that said hello as `key`, if `key` has a place left: frees
+    /// its unproven place, then checks and inserts under the same lock. Returns its id.
+    fn admit(
+        &self,
+        mut unproven: Unproven,
+        key: PublicKey,
+        connection: &quinn::Connection,
+    ) -> Option<u64> {
+        let mut connections = self.connections.lock().expect("not poisoned");
+        if let Some(friend) = unproven.friend.take() {
+            connections.release(&friend);
+        }
+        if connections.held_by(&key) >= MAX_CONNECTIONS_PER_FRIEND
+            || connections.live.len() >= MAX_FRIENDS
+        {
+            return None;
+        }
+        let id = self.next_connection.fetch_add(1, Ordering::Relaxed);
+        connections.live.insert(
+            id,
+            Connected {
+                key,
+                connection: connection.clone(),
+                connected_at: SystemTime::now(),
+            },
+        );
+        Some(id)
     }
 
     /// Lets `friend` connect from `ips` (their knock's candidates) for [`ALLOW_FOR`],
@@ -250,19 +376,10 @@ impl Shared {
         self.allowed.lock().expect("not poisoned").remove(friend);
     }
 
-    fn connections_of(&self, friend: &PublicKey) -> usize {
-        self.connections
-            .lock()
-            .expect("not poisoned")
-            .values()
-            .filter(|c| &c.key == friend)
-            .count()
-    }
-
     /// Closes every connection of `key`.
     fn disconnect(&self, key: &PublicKey, why: &'static [u8]) {
         let connections = self.connections.lock().expect("not poisoned");
-        for connected in connections.values().filter(|c| &c.key == key) {
+        for connected in connections.live.values().filter(|c| &c.key == key) {
             connected.connection.close(2u32.into(), why);
         }
     }
@@ -303,7 +420,7 @@ impl FriendHost {
             friends: Mutex::new(friends.into_iter().map(|f| (f.key, f.secret)).collect()),
             generation: watch::channel(0).0,
             allowed: Mutex::new(HashMap::new()),
-            connections: Mutex::new(HashMap::new()),
+            connections: Mutex::new(Connections::default()),
             next_connection: AtomicU64::new(1),
             status: Mutex::new(FriendHostStatus {
                 state: HostState::Reconnecting,
@@ -371,6 +488,7 @@ impl FriendHost {
         let mut status = self.shared.status.lock().expect("not poisoned").clone();
         let connections = self.shared.connections.lock().expect("not poisoned");
         let mut connected: Vec<ConnectedFriend> = connections
+            .live
             .values()
             .map(|c| {
                 let address = canonical(c.connection.remote_address());
@@ -423,6 +541,7 @@ impl FriendHost {
             .connections
             .lock()
             .expect("not poisoned")
+            .live
             .clear();
         self.shared
             .update(|status| status.state = HostState::Stopped);
@@ -715,36 +834,56 @@ async fn accept_loop(
     shared: Arc<Shared>,
     handler: Arc<dyn FriendHandler>,
 ) {
-    let unproven = Arc::new(AtomicUsize::new(0));
     while let Some(incoming) = endpoint.accept().await {
-        // Silence for anyone without an accepted knock: not even a retry or a refusal,
-        // which would show a server is here.
-        if !shared.is_allowed(canonical(incoming.remote_address()).ip()) {
-            incoming.ignore();
-            continue;
-        }
+        let ip = canonical(incoming.remote_address()).ip();
         if !incoming.remote_address_validated() {
-            if let Err(err) = incoming.retry() {
+            // Silence for anyone without an accepted knock: not even a retry, which
+            // would show a server is here.
+            if shared.allowed_by(ip).is_empty() {
+                incoming.ignore();
+            } else if let Err(err) = incoming.retry() {
                 err.into_incoming().ignore();
             }
             continue;
         }
-        if shared.connections.lock().expect("not poisoned").len() >= MAX_FRIENDS {
-            incoming.refuse();
-            continue;
-        }
-        let Some(slot) = UnprovenSlot::take(&unproven) else {
-            incoming.refuse();
-            continue;
+        let unproven = match shared.reserve(ip) {
+            Ok(unproven) => unproven,
+            Err(Refusal::Stranger) => {
+                incoming.ignore();
+                continue;
+            }
+            Err(Refusal::Full) => {
+                incoming.refuse();
+                continue;
+            }
         };
         let shared = shared.clone();
         let handler = handler.clone();
         tokio::spawn(async move {
-            let connection = match incoming.await {
-                Ok(connection) => connection,
-                Err(err) => return tracing::debug!("friends: a connection attempt failed: {err}"),
+            // The handshake and the hello together, so an unproven place is held only
+            // briefly.
+            let proven = tokio::time::timeout(HELLO_WITHIN, async {
+                let connection = match incoming.await {
+                    Ok(connection) => connection,
+                    Err(err) => {
+                        tracing::debug!("friends: a connection attempt failed: {err}");
+                        return None;
+                    }
+                };
+                let key = hello(&connection, &shared).await;
+                Some((connection, key))
+            })
+            .await;
+            let (connection, key) = match proven {
+                Ok(Some((connection, Some(key)))) => (connection, key),
+                Ok(Some((connection, None))) => {
+                    connection.close(1u32.into(), b"not a friend");
+                    return;
+                }
+                // A connection still in its handshake or hello closes as it drops.
+                Ok(None) | Err(_) => return,
             };
-            serve_connection(connection, slot, shared, handler).await;
+            serve_connection(connection, key, unproven, shared, handler).await;
         });
     }
 }
@@ -754,10 +893,7 @@ async fn accept_loop(
 async fn hello(connection: &quinn::Connection, shared: &Shared) -> Option<PublicKey> {
     let (mut send, mut recv) = connection.accept_bi().await.ok()?;
     let mut message = [0u8; 1 + 32 + SIGNATURE_LEN];
-    tokio::time::timeout(HEADER_WITHIN, recv.read_exact(&mut message))
-        .await
-        .ok()?
-        .ok()?;
+    recv.read_exact(&mut message).await.ok()?;
     if message[0] != FriendStreamKind::Hello as u8 {
         return None;
     }
@@ -781,31 +917,15 @@ async fn hello(connection: &quinn::Connection, shared: &Shared) -> Option<Public
 
 async fn serve_connection(
     connection: quinn::Connection,
-    slot: UnprovenSlot,
+    key: PublicKey,
+    unproven: Unproven,
     shared: Arc<Shared>,
     handler: Arc<dyn FriendHandler>,
 ) {
-    let key = match tokio::time::timeout(PROVE_WITHIN, hello(&connection, &shared)).await {
-        Ok(Some(key)) => key,
-        _ => {
-            connection.close(1u32.into(), b"not a friend");
-            return;
-        }
-    };
-    if shared.connections_of(&key) >= MAX_CONNECTIONS_PER_FRIEND {
+    let Some(id) = shared.admit(unproven, key, &connection) else {
         connection.close(3u32.into(), b"too many connections");
         return;
-    }
-    drop(slot);
-    let id = shared.next_connection.fetch_add(1, Ordering::Relaxed);
-    shared.connections.lock().expect("not poisoned").insert(
-        id,
-        Connected {
-            key,
-            connection: connection.clone(),
-            connected_at: SystemTime::now(),
-        },
-    );
+    };
     shared.changed.send_modify(|n| *n += 1);
     // removed between the hello and now
     if !shared.is_friend(&key) {
@@ -861,6 +981,7 @@ async fn serve_connection(
         .connections
         .lock()
         .expect("not poisoned")
+        .live
         .remove(&id)
         .is_some()
     {
@@ -871,6 +992,82 @@ async fn serve_connection(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    fn key(byte: u8) -> PublicKey {
+        PublicKey([byte; 32])
+    }
+
+    /// A friend host's shared state with these friends, and no sockets.
+    fn shared_with(friends: &[PublicKey]) -> Arc<Shared> {
+        Arc::new(Shared {
+            fingerprint: [0; 32],
+            service: Service::default(),
+            friends: Mutex::new(
+                friends
+                    .iter()
+                    .map(|key| (*key, Secret::random().unwrap()))
+                    .collect(),
+            ),
+            generation: watch::channel(0).0,
+            allowed: Mutex::new(HashMap::new()),
+            connections: Mutex::new(Connections::default()),
+            next_connection: AtomicU64::new(1),
+            status: Mutex::new(FriendHostStatus {
+                state: HostState::Sharing,
+                publishing: 0,
+                candidates: Vec::new(),
+                symmetric_nat: false,
+                connected: Vec::new(),
+                problem: None,
+            }),
+            changed: watch::channel(0).0,
+            mapping: Mutex::new(None),
+            candidates: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn a_friends_addresses_take_only_that_friends_places() {
+        let (dee, ben) = (key(1), key(2));
+        let shared = shared_with(&[dee, ben]);
+        let crowd: IpAddr = "198.18.0.7".parse().unwrap();
+        let bens: IpAddr = "198.18.0.8".parse().unwrap();
+        assert_eq!(shared.reserve(crowd).err(), Some(Refusal::Stranger));
+        // Dee's knock names an address anyone there can connect from
+        shared.allow(dee, [crowd]);
+        let held: Vec<Unproven> = (0..MAX_CONNECTIONS_PER_FRIEND)
+            .map(|_| shared.reserve(crowd).unwrap())
+            .collect();
+        assert_eq!(shared.reserve(crowd).err(), Some(Refusal::Full));
+        // ... which leaves Ben's places alone
+        shared.allow(ben, [bens]);
+        let bens_place = shared.reserve(bens).unwrap();
+        assert_eq!(bens_place.friend, Some(ben));
+        // an address both knocks name goes to whoever has a place left
+        shared.allow(ben, [bens, crowd]);
+        assert_eq!(shared.reserve(crowd).unwrap().friend, Some(ben));
+        // dropping a place frees it
+        drop(held);
+        assert_eq!(shared.connections.lock().unwrap().held_by(&dee), 0);
+        assert_eq!(shared.reserve(crowd).unwrap().friend, Some(dee));
+        drop(bens_place);
+        assert_eq!(shared.connections.lock().unwrap().unproven_total(), 0);
+    }
+
+    #[test]
+    fn unproven_places_are_capped_for_the_whole_host() {
+        let friends: Vec<PublicKey> = (0..10).map(key).collect();
+        let shared = shared_with(&friends);
+        let mut held = Vec::new();
+        for (n, friend) in friends.iter().enumerate() {
+            let ip = IpAddr::from([198, 18, 1, n as u8]);
+            shared.allow(*friend, [ip]);
+            while let Ok(place) = shared.reserve(ip) {
+                held.push(place);
+            }
+        }
+        assert_eq!(held.len(), MAX_UNPROVEN);
+    }
 
     #[test]
     fn identities_round_trip() {
