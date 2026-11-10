@@ -54,7 +54,7 @@ pub fn text(message: M) -> &'static str {
         M::SettingsPlaceholder => "有了实例后，设置会显示在这里。",
         M::LogsPlaceholder => "有了实例后，日志会显示在这里。",
         M::LinkedTo => "已关联到 {core} 上的 {server}",
-        M::LinkedToRemoved => "已关联到 {core} 上的 {server}（该核心已从“Lodestone Host”页面移除）",
+        M::LinkedToRemoved => "已关联到 {core} 上的 {server}（该主机已从“Lodestone Host”页面移除）",
         M::NoInstances => "没有实例",
         M::AndJoin => "并加入 {server}",
         M::PlayWithoutJoining => "开始游戏但不加入",

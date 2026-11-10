@@ -125,9 +125,9 @@ pub fn text(message: M) -> &'static str {
 
         M::LinkedServerHint => "Sur {core}. Jouer le rejoint et synchronise ses mods.",
         M::LinkedServerCoreRemoved => {
-            "Sur {core}, qui a été retiré de la page Lodestone Host. Ajoutez de nouveau ce core sur cette page pour rejoindre le serveur."
+            "Sur {core}, qui a été retiré de la page Lodestone Host. Ajoutez de nouveau cet hôte sur cette page pour rejoindre le serveur."
         }
-        M::CoreRemoved => "Core retiré",
+        M::CoreRemoved => "Hôte retiré",
         M::Unlink => "Délier",
         M::Unlinked => "Lien supprimé",
         M::UnlinkNote => "Jouer ne rejoindra plus le serveur. Les mods restent.",
@@ -213,7 +213,7 @@ pub fn text(message: M) -> &'static str {
         M::Exporting => "Exportation…",
         M::Duplicate => "Dupliquer",
         M::Duplicating => "Duplication…",
-        M::HostOnCore => "Héberger sur un Lodestone Core",
+        M::HostOnCore => "Héberger sur Lodestone",
         M::HostHint => "Crée un serveur avec les mods de cette instance.",
         M::HostButton => "Héberger…",
         M::ShareCodeRow => "Code de partage",

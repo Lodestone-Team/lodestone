@@ -807,7 +807,7 @@ fn apply_extras(scene: &str, shell: &mut LauncherShell, cx: &mut Context<Launche
                 servers.preview(vec![home, friend()], Vec::new());
                 let (stage, done) = match scene {
                     "servers-host-progress" => (Some("Uploading the modpack (3.2 MB)…"), None),
-                    "servers-host-done" => (None, Some("Survival 1.20.1 is on Peter's Lodestone Core, on port 25566. The core is setting it up now: it installs Fabric and downloads 24 mod file(s) from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it.")),
+                    "servers-host-done" => (None, Some("Survival 1.20.1 is on Peter's Lodestone Core, on port 25566. The host is setting it up now: it installs Fabric and downloads 24 mod file(s) from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it.")),
                     _ => (None, None),
                 };
                 servers.preview_host(&survival, stage, done, cx);

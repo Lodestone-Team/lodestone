@@ -116,7 +116,7 @@ pub fn parse_address(input: &str) -> Result<Url, CoreError> {
     let input = input.trim();
     let invalid = |why: &str| CoreError::InvalidAddress(format!("{why}: {input:?}"));
     if input.is_empty() {
-        return Err(CoreError::InvalidAddress("Enter the core's address".into()));
+        return Err(CoreError::InvalidAddress("Enter the host's address".into()));
     }
     let (scheme, rest) = match input.split_once("://") {
         Some((_, rest)) if rest.trim_end_matches('/').is_empty() => {
@@ -164,7 +164,7 @@ pub fn parse_address(input: &str) -> Result<Url, CoreError> {
         ));
     }
     if url.query().is_some() || url.fragment().is_some() {
-        return Err(invalid("That isn't a core address"));
+        return Err(invalid("That isn't a host address"));
     }
     if !explicit_port && url.port().is_none() {
         url.set_port(Some(DEFAULT_PORT))

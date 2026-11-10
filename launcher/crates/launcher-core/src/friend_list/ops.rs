@@ -666,7 +666,7 @@ impl Friends {
                 .iter()
                 .any(|c| c.fingerprint == fingerprint)
             {
-                return Err(refused("You don't share from that core."));
+                return Err(refused("You don't share from that host."));
             }
         }
         self.retire_my_core(&fingerprint)?;
@@ -812,7 +812,7 @@ impl Friends {
             .iter()
             .any(|c| &c.fingerprint == fingerprint)
         {
-            return Err(refused("Your friend doesn't list that core."));
+            return Err(refused("Your friend doesn't list that host."));
         }
         let target = self
             .friend_core(friend, fingerprint)
@@ -851,7 +851,7 @@ impl Friends {
             .any(|c| &c.fingerprint == fingerprint)
         {
             return Err(JoinError::Failed(
-                "Your friend doesn't list that core any more.".into(),
+                "Your friend doesn't list that host any more.".into(),
             ));
         }
         let target = self

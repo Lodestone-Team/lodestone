@@ -5,68 +5,68 @@ pub fn text(message: M) -> &'static str {
         M::ServersTitle => "Lodestone Host",
         M::OnThisComputer => "Sur cet ordinateur",
         M::Rescan => "Rechercher à nouveau",
-        M::ScanningLocal => "Recherche de cores sur cet ordinateur…",
-        M::NoLocalCores => "Aucun Lodestone Host ni Lodestone Core ne tourne sur cet ordinateur.",
+        M::ScanningLocal => "Recherche d’hôtes sur cet ordinateur…",
+        M::NoLocalCores => "Aucun hôte ne tourne sur cet ordinateur.",
         M::HostOfferTitle => "Hébergez n’importe quel serveur et jouez avec vos amis tout de suite",
         M::HostOfferBody => "Rien à configurer, aucune redirection de port.",
         M::HostOfferDownload => "Télécharger Lodestone Host",
-        M::HostOfferCoreOnly => "Télécharger Lodestone Core seul",
+        M::HostOfferCoreOnly => "Télécharger seulement le programme serveur",
         M::ConnectAsOwner => "Se connecter en tant que propriétaire",
         M::ChooseDataFolder => "Choisir le dossier…",
         M::ChooseDataFolderPrompt => "Choisir",
         M::ProductHostHint => "l’application de bureau, avec le tableau de bord dans une fenêtre",
-        M::ProductCoreHint => "un core seul (le programme serveur, ou Docker)",
+        M::ProductCoreHint => "le programme serveur seul, ou Docker",
         M::ConnectedAsOwner => "Connecté à {name} en tant que propriétaire",
         M::ConnectedMadeOwner => {
             "Il n’avait pas encore de propriétaire\u{202F}: Lodestone Launcher a créé le compte propriétaire {username}."
         }
         M::ConnectedOwnerKey => {
-            "Ce lanceur a maintenant une clé de propriétaire pour ce core. Vous pouvez la révoquer depuis le tableau de bord du core."
+            "Ce lanceur a maintenant une clé de propriétaire pour cet hôte. Vous pouvez la révoquer depuis le tableau de bord de l’hôte."
         }
         M::StartedBy => "Démarré par {who}",
         M::StartedDirectly => "Démarré directement",
         M::DirectNote => {
-            "Ce core a été démarré directement. Lodestone Core est fait pour être lancé avec lodestone_cli, qui l’installe et le garde à jour."
+            "Cet hôte a été démarré directement. Il est fait pour être lancé avec lodestone_cli, qui l’installe et le garde à jour."
         }
         M::GetLodestoneCli => "Obtenir lodestone_cli",
         M::CredentialsReadFailed => {
-            "Impossible de lire les clés de propriétaire des cores de cet ordinateur"
+            "Impossible de lire les clés de propriétaire des hôtes de cet ordinateur"
         }
         M::CredentialsSaveFailed => "Impossible d’enregistrer la clé de propriétaire",
-        M::ClaimNoCore => "Aucun Lodestone Host ni Lodestone Core ne tourne sur cet ordinateur.",
+        M::ClaimNoCore => "Aucun hôte ne tourne sur cet ordinateur.",
         M::ClaimRefused => {
-            "Le core a refusé l’accès propriétaire. Activez «\u{a0}Laisser les applications de cet ordinateur obtenir l’accès propriétaire\u{a0}» dans ses paramètres, ou mettez-le à jour."
+            "L’hôte a refusé l’accès propriétaire. Activez «\u{a0}Laisser les applications de cet ordinateur obtenir l’accès propriétaire\u{a0}» dans ses paramètres, ou mettez-le à jour."
         }
         M::ClaimFolderNotFound => {
-            "Impossible de trouver le dossier de données de ce core. Choisissez le dossier où il garde ses données (son LODESTONE_PATH). Un core dans Docker doit avoir son dossier de données monté depuis cet ordinateur."
+            "Impossible de trouver le dossier de données de cet hôte. Choisissez le dossier où il garde ses données (son LODESTONE_PATH). Un hôte dans Docker doit avoir son dossier de données monté depuis cet ordinateur."
         }
         M::ClaimNotThisCore => {
-            "Le core qui a répondu n’est pas celui dont le dossier a été trouvé\u{202F}: rien n’a été enregistré."
+            "L’hôte qui a répondu n’est pas celui dont le dossier a été trouvé\u{202F}: rien n’a été enregistré."
         }
-        M::ClaimNoResult => "Le core n’a pas terminé la demande. Réessayez.",
+        M::ClaimNoResult => "L’hôte n’a pas terminé la demande. Réessayez.",
         M::ClaimNoCertificate => {
-            "Ce core n’a pas de certificat HTTPS\u{202F}: Lodestone Launcher ne peut donc pas garantir que sa clé de propriétaire n’ira qu’à lui. Activez HTTPS dans les paramètres du core, puis reconnectez-vous."
+            "Cet hôte n’a pas de certificat HTTPS\u{202F}: Lodestone Launcher ne peut donc pas garantir que sa clé de propriétaire n’ira qu’à lui. Activez HTTPS dans les paramètres de l’hôte, puis reconnectez-vous."
         }
-        M::ClaimFiles => "Impossible d’utiliser le dossier de données du core\u{a0}: {error}",
+        M::ClaimFiles => "Impossible d’utiliser le dossier de données de l’hôte\u{a0}: {error}",
         M::ClaimInvalid => {
-            "Le core a envoyé quelque chose que Lodestone Launcher ne comprend pas\u{a0}: {error}"
+            "L’hôte a envoyé quelque chose que Lodestone Launcher ne comprend pas\u{a0}: {error}"
         }
         M::AddServer => "Ajouter un hôte",
         M::Dismiss => "Masquer",
-        M::OtherCoresTitle => "Autres cores",
+        M::OtherCoresTitle => "Autres hôtes",
         M::OtherCoresHint => {
-            "Les cores d’autres ordinateurs que vous avez ajoutés par leur adresse\u{202F}: les vôtres, ou ceux d’un ami."
+            "Les hôtes d’autres ordinateurs que vous avez ajoutés par leur adresse\u{202F}: les vôtres, ou ceux d’un ami."
         }
-        M::NoOtherCores => "Aucun autre core pour l’instant",
+        M::NoOtherCores => "Aucun autre hôte pour l’instant",
         M::NoServersHint => {
-            "Ajoutez un Lodestone Core par son adresse. Sans vous connecter, vous voyez les serveurs que son propriétaire liste publiquement."
+            "Ajoutez un hôte par son adresse. Sans vous connecter, vous voyez les serveurs que son propriétaire liste publiquement."
         }
 
         M::CoreMoreActions => "Plus d’actions pour {name}",
         M::CopyOwnerApiKey => "Copier la clé d’API de propriétaire",
         M::OwnerKeyCopied => "Clé d’API de propriétaire de {name} copiée",
         M::OwnerKeyCopiedHint => {
-            "Gardez-la secrète\u{202F}: toute personne qui l’a peut contrôler ce core en tant que propriétaire."
+            "Gardez-la secrète\u{202F}: toute personne qui l’a peut contrôler cet hôte en tant que propriétaire."
         }
         M::CertificatePinned => "Certificat épinglé",
         M::SignedInAs => "Connecté en tant que {username}",
@@ -74,20 +74,20 @@ pub fn text(message: M) -> &'static str {
         M::NotSignedIn => "Non connecté\u{a0}: serveurs publics uniquement",
         M::TrustedForMods => "Confiance pour les mods",
         M::Offline => {
-            "Hors ligne\u{a0}: impossible de joindre ce core. Vérifiez qu’il est en marche et sur le même réseau."
+            "Hors ligne\u{a0}: impossible de joindre cet hôte. Vérifiez qu’il est en marche et sur le même réseau."
         }
         M::NotListedPublicly => {
-            "Le propriétaire n’a pas activé «\u{a0}Lister les serveurs publiquement\u{a0}» dans les paramètres du core, il n’y a donc rien à afficher sans vous connecter."
+            "Le propriétaire n’a pas activé «\u{a0}Lister les serveurs publiquement\u{a0}» dans les Paramètres du core, il n’y a donc rien à afficher sans vous connecter."
         }
         M::NoPublicServers => {
             "Aucun serveur n’est listé publiquement. Connectez-vous pour voir ceux auxquels vous avez accès."
         }
-        M::NoVisibleServers => "Aucun serveur visible pour vous sur ce core.",
+        M::NoVisibleServers => "Aucun serveur visible pour vous sur cet hôte.",
         M::CertChangedWarning => {
-            "Le certificat HTTPS de ce core a changé depuis que vous lui avez fait confiance, Lodestone Launcher refuse donc de s’y connecter. Le core crée un nouveau certificat quand le sien arrive à expiration ou que son adresse change\u{202F}; cela peut aussi vouloir dire que quelqu’un intercepte la connexion. Vérifiez la nouvelle empreinte avant de lui faire confiance."
+            "Le certificat HTTPS de cet hôte a changé depuis que vous lui avez fait confiance, Lodestone Launcher refuse donc de s’y connecter. L’hôte crée un nouveau certificat quand le sien arrive à expiration ou que son adresse change\u{202F}; cela peut aussi vouloir dire que quelqu’un intercepte la connexion. Vérifiez la nouvelle empreinte avant de lui faire confiance."
         }
         M::CertUntrustedWarning => {
-            "Le certificat HTTPS de ce core n’est pas approuvé par {computer}. Les Lodestone Cores créent leur propre certificat, c’est donc normal\u{a0}: vérifiez son empreinte, puis faites-lui confiance."
+            "Le certificat HTTPS de cet hôte n’est pas approuvé par {computer}. Les hôtes créent leur propre certificat, c’est donc normal\u{a0}: vérifiez son empreinte, puis faites-lui confiance."
         }
         M::ReviewNewCertificate => "Approuver le nouveau certificat…",
         M::ReviewCertificate => "Approuver le certificat…",
@@ -128,14 +128,14 @@ pub fn text(message: M) -> &'static str {
         M::SaveFailed => "Impossible d’enregistrer vos serveurs",
         M::NoLongerTrusted => "Vous ne faites plus confiance à {name} pour les mods",
         M::NoLongerTrustedIdChanged => {
-            "Un autre core répond désormais à l’adresse {address} (son identifiant a changé). Ne lui refaites confiance sur sa carte que si vous faites confiance à son propriétaire."
+            "Un autre hôte répond désormais à l’adresse {address} (son identifiant a changé). Ne lui refaites confiance sur sa carte que si vous faites confiance à son propriétaire."
         }
-        M::NoLongerTrustedOtherCore => "Un autre core répond désormais à l’adresse {address}.",
+        M::NoLongerTrustedOtherCore => "Un autre hôte répond désormais à l’adresse {address}.",
         M::NoLongerTrustedNewCertificate => {
-            "Vous avez approuvé un nouveau certificat pour ce core. Refaites-lui confiance pour les mods sur sa carte si vous êtes sûr qu’il s’agit du même core."
+            "Vous avez approuvé un nouveau certificat pour cet hôte. Refaites-lui confiance pour les mods sur sa carte si vous êtes sûr qu’il s’agit du même hôte."
         }
         M::NoLongerTrustedCertificateChanged => {
-            "Son certificat a changé. Refaites-lui confiance pour les mods sur sa carte si vous êtes sûr qu’il s’agit du même core."
+            "Son certificat a changé. Refaites-lui confiance pour les mods sur sa carte si vous êtes sûr qu’il s’agit du même hôte."
         }
         M::SignedOutOf => "Déconnecté de {name}",
         M::KeyStillValid => {
@@ -145,9 +145,9 @@ pub fn text(message: M) -> &'static str {
         M::KeySaveFailedError => {
             "Impossible d’enregistrer la clé dans le {keychain}\u{a0}: {error}"
         }
-        M::CheckCertificate => "Vérifiez le certificat du core pour continuer.",
+        M::CheckCertificate => "Vérifiez le certificat de l’hôte pour continuer.",
         M::CertificateNotTrusted => {
-            "Le certificat n’a pas été approuvé, vos identifiants n’ont donc pas été envoyés au core."
+            "Le certificat n’a pas été approuvé, vos identifiants n’ont donc pas été envoyés à l’hôte."
         }
         M::CreateFailed => "Impossible de créer l’instance",
         M::CreatedWithoutMods => "{name} a été créée sans les mods du serveur",
@@ -162,14 +162,14 @@ pub fn text(message: M) -> &'static str {
         M::CheckModsFailed => "Impossible de vérifier les mods du serveur",
         M::JoinFailed => "Impossible de rejoindre {name}",
         M::CoreRemoved => {
-            "Le core pour lequel cette instance a été créée ({address}) n’est plus dans Lodestone Launcher. Ajoutez-le sur la page Lodestone Host, ou appuyez sur Jouer sans rejoindre."
+            "L’hôte pour lequel cette instance a été créée ({address}) n’est plus dans Lodestone Launcher. Ajoutez-le sur la page Lodestone Host, ou appuyez sur Jouer sans rejoindre."
         }
         M::ServerNotShown => {
-            "Le core ne vous montre plus ce serveur\u{a0}: il a été supprimé, ou il n’est pas listé publiquement et vous n’êtes pas connecté."
+            "L’hôte ne vous montre plus ce serveur\u{a0}: il a été supprimé, ou il n’est pas listé publiquement et vous n’êtes pas connecté."
         }
         M::NotRunning => "{name} n’est pas en marche",
         M::AskOwnerToStart => {
-            "Demandez à son propriétaire de le démarrer, ou connectez-vous au core sur la page Lodestone Host pour le démarrer vous-même."
+            "Demandez à son propriétaire de le démarrer, ou connectez-vous à l’hôte sur la page Lodestone Host pour le démarrer vous-même."
         }
         M::UpdateModsFailed => "Impossible de mettre à jour les mods",
         M::StopGameFirst => "Quittez d’abord le jeu.",
@@ -191,14 +191,14 @@ pub fn text(message: M) -> &'static str {
         M::UnlinkFailed => "Impossible de délier l’instance\u{a0}: {error}",
         M::Cancelled => "Annulé",
         M::TrustExplanation => {
-            "Les mods d’un Lodestone Core s’exécutent comme des programmes sur {computer}, avec le même accès que vous à vos fichiers et à vos comptes. Ne faites confiance qu’à un core dont le propriétaire a votre confiance."
+            "Les mods d’un hôte s’exécutent comme des programmes sur {computer}, avec le même accès que vous à vos fichiers et à vos comptes. Ne faites confiance qu’à un hôte dont le propriétaire a votre confiance."
         }
         M::FingerprintHelp => {
-            "Comparez-la à l’empreinte qu’affiche le core\u{a0}: dans le tableau de bord, sous Paramètres → Paramètres du core → Informations («\u{a0}Empreinte du certificat (SHA-256)\u{a0}»), ou dans le journal du core à son démarrage («\u{a0}TLS certificate SHA-256 fingerprint\u{a0}»)."
+            "Comparez-la à l’empreinte qu’affiche l’hôte\u{a0}: dans le tableau de bord, sous Paramètres → Paramètres du core → Informations («\u{a0}Empreinte du certificat (SHA-256)\u{a0}»), ou dans le journal de l’hôte à son démarrage («\u{a0}TLS certificate SHA-256 fingerprint\u{a0}»)."
         }
 
         M::CoreUnreachable => {
-            "Impossible de joindre le core. Vérifiez l’adresse et que le core est en marche. ({detail})"
+            "Impossible de joindre l’hôte. Vérifiez l’adresse et que l’hôte est en marche. ({detail})"
         }
         M::CoreUntrusted => {
             "Le certificat HTTPS de {host} n’est pas approuvé par {computer}. Vérifiez son empreinte, puis faites-lui confiance pour vous connecter."
@@ -210,15 +210,15 @@ pub fn text(message: M) -> &'static str {
             "Déconnecté\u{a0}: la clé de cet appareil a été révoquée ou a expiré. Reconnectez-vous."
         }
         M::CoreBadCredentials => "Nom d’utilisateur ou mot de passe incorrect.",
-        M::CoreForbidden => "Le core a refusé\u{a0}: vous n’avez pas l’autorisation de faire cela.",
+        M::CoreForbidden => "L’hôte a refusé\u{a0}: vous n’avez pas l’autorisation de faire cela.",
         M::CoreNotFound => "Introuvable",
         M::CoreTooOld => {
-            "Ce core est trop ancien pour Lodestone Launcher. Mettez à jour Lodestone Core vers une version qui liste les serveurs."
+            "Cet hôte est trop ancien pour Lodestone Launcher. Mettez-le à jour vers une version qui liste les serveurs."
         }
         M::CoreTooManyRequests => "Trop de tentatives. Réessayez dans quelques minutes.",
-        M::CoreAnswered => "Le core a répondu {status}\u{a0}: {message}",
+        M::CoreAnswered => "L’hôte a répondu {status}\u{a0}: {message}",
         M::CoreInvalidReply => {
-            "Le core a envoyé une réponse que Lodestone Launcher ne comprend pas\u{a0}: {detail}"
+            "L’hôte a envoyé une réponse que Lodestone Launcher ne comprend pas\u{a0}: {detail}"
         }
 
         M::DifferentMods => "{name} a des mods différents",
@@ -234,12 +234,12 @@ pub fn text(message: M) -> &'static str {
         M::PlayAnyway => "Jouer quand même",
 
         M::CertChangedTitle => "Le certificat de {name} a changé",
-        M::CertTrustTitle => "Faire confiance au certificat de ce core\u{202F}?",
+        M::CertTrustTitle => "Faire confiance au certificat de cet hôte\u{202F}?",
         M::CertChangedIntro => {
-            "Le core à l’adresse {address} présente un autre certificat HTTPS que celui que vous avez approuvé. Le core crée un nouveau certificat quand le sien arrive à expiration ou que son adresse change, mais cela peut aussi vouloir dire que quelqu’un intercepte la connexion."
+            "L’hôte à l’adresse {address} présente un autre certificat HTTPS que celui que vous avez approuvé. L’hôte crée un nouveau certificat quand le sien arrive à expiration ou que son adresse change, mais cela peut aussi vouloir dire que quelqu’un intercepte la connexion."
         }
         M::CertUntrustedIntro => {
-            "{os} ne fait pas confiance au certificat HTTPS de {name} à l’adresse {address}. Les Lodestone Cores créent leur propre certificat, c’est donc normal la première fois que vous vous connectez."
+            "{os} ne fait pas confiance au certificat HTTPS de {name} à l’adresse {address}. Les hôtes créent leur propre certificat, c’est donc normal la première fois que vous vous connectez."
         }
         M::FingerprintTrustedBefore => "APPROUVÉ JUSQU’ICI (SHA-256)",
         M::FingerprintPresented => "PRÉSENTÉ MAINTENANT (SHA-256)",
@@ -248,7 +248,7 @@ pub fn text(message: M) -> &'static str {
             "Si elles correspondent, faites-lui confiance\u{a0}: Lodestone Launcher accepte alors exactement ce certificat, seulement pour {host}, et vous avertit s’il change."
         }
         M::CertIfMatchChanged => {
-            "Si elles correspondent, faites-lui confiance\u{a0}: Lodestone Launcher accepte alors exactement ce certificat, seulement pour {host}, et vous avertit s’il change. Un core de confiance pour les mods ne l’est plus tant que vous ne lui refaites pas confiance."
+            "Si elles correspondent, faites-lui confiance\u{a0}: Lodestone Launcher accepte alors exactement ce certificat, seulement pour {host}, et vous avertit s’il change. Un hôte de confiance pour les mods ne l’est plus tant que vous ne lui refaites pas confiance."
         }
         M::TrustNewCertificate => "Approuver le nouveau certificat",
         M::TrustCertificate => "Approuver le certificat",
@@ -256,12 +256,12 @@ pub fn text(message: M) -> &'static str {
         M::TrustTitle => "Faites-vous confiance à {name}\u{202F}?",
         M::CoreAt => "{name} à l’adresse {address}.",
         M::TrustAfterAdd => {
-            "Tant que vous ne lui faites pas confiance, Lodestone Launcher vous montre les mods d’un serveur avant de les installer. Vous pourrez changer cela plus tard avec «\u{a0}{setting}\u{a0}» sur la carte du core."
+            "Tant que vous ne lui faites pas confiance, Lodestone Launcher vous montre les mods d’un serveur avant de les installer. Vous pourrez changer cela plus tard avec «\u{a0}{setting}\u{a0}» sur la carte de l’hôte."
         }
         M::TrustLater => {
-            "Les mods de ce core seront alors installés sans vous le demander. Vous pourrez désactiver cela sur la carte du core."
+            "Les mods de cet hôte seront alors installés sans vous le demander. Vous pourrez désactiver cela sur la carte de l’hôte."
         }
-        M::TrustThisCore => "Faire confiance à ce core",
+        M::TrustThisCore => "Faire confiance à cet hôte",
 
         M::AdvisoryTitle => "Les mods de ce serveur vont s’exécuter sur {computer}",
         M::AdvisoryNew => {
@@ -293,7 +293,7 @@ pub fn text(message: M) -> &'static str {
         M::UsernameOptional => "Nom d’utilisateur (facultatif)",
         M::Username => "Nom d’utilisateur",
         M::Password => "Mot de passe",
-        M::EnterAddress => "Saisissez l’adresse du core.",
+        M::EnterAddress => "Saisissez l’adresse de l’hôte.",
         M::EnterUsernamePassword => "Saisissez votre nom d’utilisateur et votre mot de passe.",
         M::EnterPassword => "Saisissez votre mot de passe, ou laissez le nom d’utilisateur vide.",
         M::ConsoleAccess => "Accès à la console (facultatif)",
@@ -307,7 +307,7 @@ pub fn text(message: M) -> &'static str {
             "Connectez-vous pour démarrer et arrêter des serveurs et voir ceux qui ne sont pas listés publiquement. Lodestone Launcher crée sa propre clé pour {computer}\u{202F}; votre mot de passe n’est pas conservé."
         }
         M::AddIntro => {
-            "L’adresse d’un Lodestone Core. Sans vous connecter, vous voyez les serveurs que son propriétaire liste publiquement."
+            "L’adresse d’un hôte. Sans vous connecter, vous voyez les serveurs que son propriétaire liste publiquement."
         }
         M::Address => "Adresse",
         M::SignInOptional => "Connexion (facultatif)",
@@ -344,51 +344,51 @@ pub fn text(message: M) -> &'static str {
         M::Console => "Console",
         M::JumpToLatest => "Aller à la fin",
         M::MinecraftAccount => "Compte Minecraft",
-        M::CoreTooOldToLink => "Ce core est trop ancien pour lier des comptes Minecraft.",
+        M::CoreTooOldToLink => "Cet hôte est trop ancien pour lier des comptes Minecraft.",
         M::Unlink => "Délier",
         M::LinkAccount => "Lier {account} à {user}",
         M::LinkCheckHint => {
-            "Le core vérifie auprès de Microsoft que le compte est bien à vous, en utilisant cette connexion une seule fois. Il ne la conserve pas."
+            "L’hôte vérifie auprès de Microsoft que le compte est bien à vous, en utilisant cette connexion une seule fois. Il ne la conserve pas."
         }
         M::SignInMicrosoftToLink => {
             "Connectez-vous avec un compte Microsoft pour le lier à votre utilisateur Lodestone."
         }
 
-        M::HostTitle => "Héberger sur un Lodestone Core",
+        M::HostTitle => "Héberger sur Lodestone",
         M::ShowOnServersPage => "Afficher sur la page Lodestone Host",
         M::HostIntro => {
             "Crée un serveur à partir des mods et des configurations de {name}, sous forme de modpack Modrinth. Les mods Modrinth réservés au client sont exclus. Le serveur est créé arrêté."
         }
-        M::CoreLabel => "Core",
+        M::CoreLabel => "Hôte",
         M::PasswordNotKept => {
             "Votre mot de passe est envoyé une seule fois pour vous connecter, et n’est pas conservé."
         }
         M::ServerName => "Nom du serveur",
         M::Memory => "Mémoire",
         M::GamePortHint => {
-            "Le port du jeu est le premier libre à partir de {port} sur la machine du core."
+            "Le port du jeu est le premier libre à partir de {port} sur la machine de l’hôte."
         }
         M::EulaAgree => {
-            "J’accepte le CLUF de Minecraft ({url}). Lodestone Core l’accepte pour le nouveau serveur."
+            "J’accepte le CLUF de Minecraft ({url}). L’hôte l’accepte pour le nouveau serveur."
         }
         M::ReadEula => "Lire le CLUF",
         M::CreateServer => "Créer le serveur",
         M::NameTheServer => "Donnez un nom au serveur.",
         M::HostNeedsPassword => {
-            "Saisissez votre nom d’utilisateur et votre mot de passe pour ce core. Créer un serveur demande plus que ce que la clé de {computer} peut faire."
+            "Saisissez votre nom d’utilisateur et votre mot de passe pour cet hôte. Créer un serveur demande plus que ce que la clé de {computer} peut faire."
         }
         M::AgreeEulaFirst => {
-            "Acceptez d’abord le CLUF de Minecraft\u{a0}: le core l’accepte pour le nouveau serveur."
+            "Acceptez d’abord le CLUF de Minecraft\u{a0}: l’hôte l’accepte pour le nouveau serveur."
         }
         M::StageExporting => "Exportation de l’instance…",
         M::StageSigningIn => "Connexion…",
         M::StageUploading => "Envoi du modpack ({size})…",
         M::StageCreating => "Création du serveur…",
-        M::CoreGone => "Ce core n’existe plus.",
+        M::CoreGone => "Cet hôte n’existe plus.",
         M::InstanceGone => "L’instance n’existe plus.",
-        M::PackNotKept => "Le core n’a pas conservé le modpack.",
-        M::SignedOutRightAway => "Le core vous a déconnecté juste après la connexion. Réessayez.",
-        M::AddCoreFirst => "Ajoutez d’abord votre Lodestone Core sur la page Lodestone Host.",
+        M::PackNotKept => "L’hôte n’a pas conservé le modpack.",
+        M::SignedOutRightAway => "L’hôte vous a déconnecté juste après la connexion. Réessayez.",
+        M::AddCoreFirst => "Ajoutez d’abord votre hôte sur la page Lodestone Host.",
 
         M::LanListenFailed => "Impossible d’écouter les mondes en LAN\u{a0}: {error}",
         M::LanLooking => "Recherche de mondes ouverts en LAN…",
@@ -547,12 +547,12 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ScriptFiles => ["{count} fichier de script", "{count} fichiers de script"],
         P::AndMore => ["et {count} de plus", "et {count} de plus"],
         P::HostDone => [
-            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichier de mod depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre.",
-            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichiers de mods depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre.",
+            "{name} est sur {core}, sur le port {port}. L’hôte le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichier de mod depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre.",
+            "{name} est sur {core}, sur le port {port}. L’hôte le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichiers de mods depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre.",
         ],
         P::HostDoneRelinked => [
-            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichier de mod depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre. Cette instance était liée à {server}\u{202F}; elle appartient désormais au nouveau serveur.",
-            "{name} est sur {core}, sur le port {port}. Le core le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichiers de mods depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre. Cette instance était liée à {server}\u{202F}; elle appartient désormais au nouveau serveur.",
+            "{name} est sur {core}, sur le port {port}. L’hôte le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichier de mod depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre. Cette instance était liée à {server}\u{202F}; elle appartient désormais au nouveau serveur.",
+            "{name} est sur {core}, sur le port {port}. L’hôte le prépare maintenant\u{a0}: il installe Fabric et télécharge {count} fichiers de mods depuis Modrinth.\n\nLe serveur est arrêté. Démarrez-le depuis la page Lodestone Host ou le tableau de bord quand vous êtes prêt\u{202F}; cette instance est prête à le rejoindre. Cette instance était liée à {server}\u{202F}; elle appartient désormais au nouveau serveur.",
         ],
     }
 }

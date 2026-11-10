@@ -1,80 +1,81 @@
-//! The Servers page, a server's page, cores and their dialogs.
+//! The Servers page, a server's page, hosts and their dialogs.
 //!
-//! A "server" is a game server a Lodestone Core runs; a "core" is the Lodestone Core
-//! itself. "Add server" adds a core, and lists its servers.
+//! A "server" is a game server a host runs; a "host" is the Lodestone Core itself
+//! (the code calls it a core). "Add host" adds one, and lists its servers.
 
 crate::i18n::messages! {
     pub enum ServersMsg {
         // ===== The page =====
         /// The page's title, and the back button on a server's page.
         ServersTitle = "Lodestone Host",
-        /// "On this computer": cores found here, and "Connect as owner".
+        /// "On this computer": hosts found here, and "Connect as owner".
         OnThisComputer = "On this computer",
         Rescan = "Rescan",
-        ScanningLocal = "Looking for cores on this computer…",
-        NoLocalCores = "No Lodestone Host or Lodestone Core is running on this computer.",
+        ScanningLocal = "Looking for hosts on this computer…",
+        NoLocalCores = "No host is running on this computer.",
         /// The offer under "On this computer" while nothing runs here.
         HostOfferTitle = "Host any server and play with your friends right away",
         HostOfferBody = "No setup, no port forwarding.",
         HostOfferDownload = "Download Lodestone Host",
-        /// A small link under the download button: the core without the desktop app.
-        HostOfferCoreOnly = "Download Lodestone Core only",
+        /// A small link under the download button: the server program without the desktop app.
+        HostOfferCoreOnly = "Download the server program only",
         ConnectAsOwner = "Connect as owner",
         ChooseDataFolder = "Choose folder…",
         ChooseDataFolderPrompt = "Choose",
         ProductHostHint = "the desktop app, with the dashboard in a window",
-        ProductCoreHint = "a core on its own (the server program, or Docker)",
+        ProductCoreHint = "the server program on its own, or Docker",
         ConnectedAsOwner = "Connected to {name} as its owner",
         ConnectedMadeOwner = "It had no owner yet, so Lodestone Launcher made the owner account {username}.",
-        ConnectedOwnerKey = "This launcher has an owner key for it now. You can revoke it from the core's dashboard.",
+        ConnectedOwnerKey = "This launcher has an owner key for it now. You can revoke it from the host's dashboard.",
         StartedBy = "Started by {who}",
         StartedDirectly = "Started directly",
-        DirectNote = "This core was started directly. Lodestone Core is meant to be run with lodestone_cli, which installs it and keeps it updated.",
+        DirectNote = "This host was started directly. It is meant to be run with lodestone_cli, which installs it and keeps it updated.",
         GetLodestoneCli = "Get lodestone_cli",
-        CredentialsReadFailed = "Couldn't read the owner keys of cores on this computer",
+        CredentialsReadFailed = "Couldn't read the owner keys of hosts on this computer",
         CredentialsSaveFailed = "Couldn't save the owner key",
-        ClaimNoCore = "No Lodestone Host or Lodestone Core is running on this computer.",
-        ClaimRefused = "The core refused to give owner access. Turn on \"Let apps on this computer claim owner access\" in its settings, or update it.",
-        ClaimFolderNotFound = "Couldn't find this core's data folder. Choose the folder it keeps its data in (its LODESTONE_PATH). A core in Docker needs its data folder mounted from this computer.",
-        ClaimNotThisCore = "The core that answered isn't the one whose folder was found, so nothing was saved.",
-        ClaimNoResult = "The core didn't finish the claim. Try again.",
-        ClaimNoCertificate = "This core has no HTTPS certificate, so Lodestone Launcher can't make sure its owner key only ever goes to it. Turn on HTTPS in the core's settings, then connect again.",
-        ClaimFiles = "Couldn't use the core's data folder: {error}",
-        ClaimInvalid = "The core sent something Lodestone Launcher doesn't understand: {error}",
-        /// The button (and dialog title) that adds a core by its address.
+        ClaimNoCore = "No host is running on this computer.",
+        ClaimRefused = "The host refused to give owner access. Turn on \"Let apps on this computer claim owner access\" in its settings, or update it.",
+        ClaimFolderNotFound = "Couldn't find this host's data folder. Choose the folder it keeps its data in (its LODESTONE_PATH). A host in Docker needs its data folder mounted from this computer.",
+        ClaimNotThisCore = "The host that answered isn't the one whose folder was found, so nothing was saved.",
+        ClaimNoResult = "The host didn't finish the claim. Try again.",
+        ClaimNoCertificate = "This host has no HTTPS certificate, so Lodestone Launcher can't make sure its owner key only ever goes to it. Turn on HTTPS in the host's settings, then connect again.",
+        ClaimFiles = "Couldn't use the host's data folder: {error}",
+        ClaimInvalid = "The host sent something Lodestone Launcher doesn't understand: {error}",
+        /// The button (and dialog title) that adds a host by its address.
         AddServer = "Add host",
         /// Closes the message at the top of the page.
         Dismiss = "Dismiss",
-        /// "Other cores": cores added by address, on other computers.
-        OtherCoresTitle = "Other cores",
-        OtherCoresHint = "Cores on other computers that you added by their address: your own, or a friend's.",
-        NoOtherCores = "No other cores yet",
-        NoServersHint = "Add a Lodestone core by its address. Without signing in you see the servers its owner lists publicly.",
+        /// "Other hosts": hosts added by address, on other computers.
+        OtherCoresTitle = "Other hosts",
+        OtherCoresHint = "Hosts on other computers that you added by their address: your own, or a friend's.",
+        NoOtherCores = "No other hosts yet",
+        NoServersHint = "Add a host by its address. Without signing in you see the servers its owner lists publicly.",
 
-        // ===== A core's card =====
-        /// The "…" button on a core's card.
+        // ===== A host's card =====
+        /// The "…" button on a host's card.
         CoreMoreActions = "More actions for {name}",
-        /// In a core's "…" menu: copies the owner key that claiming the core here gave.
+        /// In a host's "…" menu: copies the owner key that claiming the host here gave.
         CopyOwnerApiKey = "Copy owner API key",
         OwnerKeyCopied = "Copied the owner API key of {name}",
-        OwnerKeyCopiedHint = "Keep it private: anyone who has it can control this core as its owner.",
-        /// At the bottom of a core's "…" menu: the launcher only accepts the core's own
+        OwnerKeyCopiedHint = "Keep it private: anyone who has it can control this host as its owner.",
+        /// At the bottom of a host's "…" menu: the launcher only accepts the host's own
         /// HTTPS certificate, the one the user trusted.
         CertificatePinned = "Certificate pinned",
-        /// After the core's address: "192.168.1.20:16662 · Signed in as peter".
+        /// After the host's address: "192.168.1.20:16662 · Signed in as peter".
         SignedInAs = "Signed in as {username}",
         SignedIn = "Signed in",
         NotSignedIn = "Not signed in: public servers only",
-        /// The toggle on a core's card.
+        /// The toggle on a host's card.
         TrustedForMods = "Trusted for mods",
-        Offline = "Offline: couldn't reach this core. Check that it is running and on the same network.",
-        /// "List servers publicly" and "Core Settings" are the dashboard's words.
+        Offline = "Offline: couldn't reach this host. Check that it is running and on the same network.",
+        /// "List servers publicly" and "Core Settings" are the dashboard's words (it still
+        /// says Core).
         NotListedPublicly = "The owner hasn't turned on “List servers publicly” in Core Settings, so there's nothing to show without signing in.",
         NoPublicServers = "No servers are listed publicly. Sign in to see the ones you have access to.",
-        NoVisibleServers = "No servers you can see on this core.",
-        CertChangedWarning = "This core's HTTPS certificate changed since you trusted it, so Lodestone Launcher refuses to connect. The core makes a new certificate when its built-in one is about to expire or its address changes; it can also mean someone is intercepting the connection. Check the new fingerprint before you trust it.",
+        NoVisibleServers = "No servers you can see on this host.",
+        CertChangedWarning = "This host's HTTPS certificate changed since you trusted it, so Lodestone Launcher refuses to connect. The host makes a new certificate when its built-in one is about to expire or its address changes; it can also mean someone is intercepting the connection. Check the new fingerprint before you trust it.",
         /// {computer} is "this Mac", "this PC" or "this computer".
-        CertUntrustedWarning = "This core's HTTPS certificate isn't trusted by {computer}. Lodestone cores make their own certificate, so this is expected: check its fingerprint, then trust it.",
+        CertUntrustedWarning = "This host's HTTPS certificate isn't trusted by {computer}. Hosts make their own certificate, so this is expected: check its fingerprint, then trust it.",
         ReviewNewCertificate = "Trust the new certificate…",
         ReviewCertificate = "Trust certificate…",
 
@@ -119,18 +120,18 @@ crate::i18n::messages! {
         ReadFailed = "Couldn't read your servers",
         SaveFailed = "Couldn't save your servers",
         NoLongerTrusted = "{name} is no longer trusted for mods",
-        NoLongerTrustedIdChanged = "Another core answers at {address} now (its id changed). Trust it again on its card only if you trust its owner.",
-        NoLongerTrustedOtherCore = "Another core answers at {address} now.",
-        NoLongerTrustedNewCertificate = "You trusted a new certificate for it. Trust it for mods again on its card if you're sure it is the same core.",
-        NoLongerTrustedCertificateChanged = "Its certificate changed. Trust it for mods again on its card if you're sure it is the same core.",
+        NoLongerTrustedIdChanged = "Another host answers at {address} now (its id changed). Trust it again on its card only if you trust its owner.",
+        NoLongerTrustedOtherCore = "Another host answers at {address} now.",
+        NoLongerTrustedNewCertificate = "You trusted a new certificate for it. Trust it for mods again on its card if you're sure it is the same host.",
+        NoLongerTrustedCertificateChanged = "Its certificate changed. Trust it for mods again on its card if you're sure it is the same host.",
         SignedOutOf = "Signed out of {name}",
         /// "Settings → API keys" is where the dashboard lists keys. {id} is the key's id.
         KeyStillValid = "The key for this device (lsk_{id}_…) is still valid until it expires. Revoke it under Settings → API keys in the dashboard to end it now.",
         /// {keychain} is "Keychain", "Credential Manager" or "keyring".
         KeySaveFailed = "Couldn't save the key in the {keychain}",
         KeySaveFailedError = "Couldn't save the key in the {keychain}: {error}",
-        CheckCertificate = "Check the core's certificate to continue.",
-        CertificateNotTrusted = "The certificate wasn't trusted, so your sign-in wasn't sent to the core.",
+        CheckCertificate = "Check the host's certificate to continue.",
+        CertificateNotTrusted = "The certificate wasn't trusted, so your sign-in wasn't sent to the host.",
         CreateFailed = "Couldn't create the instance",
         CreatedWithoutMods = "Created {name} without the server's mods",
         CreatedWithoutModsBody = "The owner hasn't shared this server's client mods, so the instance has only its Minecraft version and loader. Add any mods it needs yourself.",
@@ -140,10 +141,10 @@ crate::i18n::messages! {
         ReadyBody = "Minecraft {version} with {loader}, and the server's mods and configs. Press Play to join.",
         CheckModsFailed = "Couldn't check the server's mods",
         JoinFailed = "Couldn't join {name}",
-        CoreRemoved = "The core this instance was made for ({address}) isn't in Lodestone Launcher any more. Add it on the Lodestone Host page, or press Play without joining.",
-        ServerNotShown = "The core doesn't show this server to you any more: it was deleted, or it isn't listed publicly and you aren't signed in.",
+        CoreRemoved = "The host this instance was made for ({address}) isn't in Lodestone Launcher any more. Add it on the Lodestone Host page, or press Play without joining.",
+        ServerNotShown = "The host doesn't show this server to you any more: it was deleted, or it isn't listed publicly and you aren't signed in.",
         NotRunning = "{name} isn't running",
-        AskOwnerToStart = "Ask its owner to start it, or sign in to the core on the Lodestone Host page to start it yourself.",
+        AskOwnerToStart = "Ask its owner to start it, or sign in to the host on the Lodestone Host page to start it yourself.",
         UpdateModsFailed = "Couldn't update the mods",
         StopGameFirst = "Stop the game first.",
         UpdateInstanceFailed = "Couldn't update the instance",
@@ -158,24 +159,25 @@ crate::i18n::messages! {
         UnlinkFailed = "Couldn't unlink the instance: {error}",
         Cancelled = "Cancelled",
         /// {computer} is "this Mac", "this PC" or "this computer".
-        TrustExplanation = "Mods from a Lodestone core run as programs on {computer}, with the same access to your files and accounts as you. Only trust a core whose owner you trust.",
-        /// The dashboard's menus and label; the core's log line stays in English.
-        FingerprintHelp = "Compare it with the fingerprint the core shows: in the dashboard under Settings → Core Settings → Information (“Certificate fingerprint (SHA-256)”), or in the core's log when it starts (“TLS certificate SHA-256 fingerprint”).",
+        TrustExplanation = "Mods from a host run as programs on {computer}, with the same access to your files and accounts as you. Only trust a host whose owner you trust.",
+        /// The dashboard's menus and label (it still says Core Settings); the host's log line
+        /// stays in English.
+        FingerprintHelp = "Compare it with the fingerprint the host shows: in the dashboard under Settings → Core Settings → Information (“Certificate fingerprint (SHA-256)”), or in the host's log when it starts (“TLS certificate SHA-256 fingerprint”).",
 
-        // ===== Why a request to a core failed =====
+        // ===== Why a request to a host failed =====
         /// {detail} is the system's error, in English.
-        CoreUnreachable = "Couldn't reach the core. Check the address and that the core is running. ({detail})",
+        CoreUnreachable = "Couldn't reach the host. Check the address and that the host is running. ({detail})",
         CoreUntrusted = "The HTTPS certificate of {host} isn't trusted by {computer}. Check its fingerprint, then trust it to connect.",
         CoreCertificateChanged = "The HTTPS certificate of {host} changed since you trusted it, so Lodestone Launcher refuses to connect. Check the new fingerprint before you trust it.",
         CoreSignedOut = "Signed out: this device's key was revoked or has expired. Sign in again.",
         CoreBadCredentials = "Wrong username or password.",
-        CoreForbidden = "The core refused: you don't have permission to do that.",
+        CoreForbidden = "The host refused: you don't have permission to do that.",
         CoreNotFound = "Not found",
-        CoreTooOld = "This core is too old for Lodestone Launcher. Update Lodestone Core to a version with server listing.",
+        CoreTooOld = "This host is too old for Lodestone Launcher. Update it to a version with server listing.",
         CoreTooManyRequests = "Too many attempts. Try again in a few minutes.",
-        /// {status} is an HTTP status, {message} the core's own text.
-        CoreAnswered = "The core answered {status}: {message}",
-        CoreInvalidReply = "The core sent a reply Lodestone Launcher doesn't understand: {detail}",
+        /// {status} is an HTTP status, {message} the host's own text.
+        CoreAnswered = "The host answered {status}: {message}",
+        CoreInvalidReply = "The host sent a reply Lodestone Launcher doesn't understand: {detail}",
 
         // ===== "<server> has different mods" =====
         DifferentMods = "{name} has different mods",
@@ -193,29 +195,29 @@ crate::i18n::messages! {
 
         // ===== The certificate prompt =====
         CertChangedTitle = "The certificate of {name} changed",
-        CertTrustTitle = "Trust this core's certificate?",
-        CertChangedIntro = "The core at {address} presents another HTTPS certificate than the one you trusted. The core makes a new certificate when its built-in one is about to expire or its address changes, but this can also mean someone is intercepting the connection.",
+        CertTrustTitle = "Trust this host's certificate?",
+        CertChangedIntro = "The host at {address} presents another HTTPS certificate than the one you trusted. The host makes a new certificate when its built-in one is about to expire or its address changes, but this can also mean someone is intercepting the connection.",
         /// {os} is "macOS", "Windows" or "Linux".
-        CertUntrustedIntro = "{os} doesn't trust the HTTPS certificate of {name} at {address}. Lodestone cores make their own certificate, so this is expected the first time you connect.",
+        CertUntrustedIntro = "{os} doesn't trust the HTTPS certificate of {name} at {address}. Hosts make their own certificate, so this is expected the first time you connect.",
         /// A caption over a fingerprint, in capitals where the language has them.
         FingerprintTrustedBefore = "TRUSTED UNTIL NOW (SHA-256)",
         FingerprintPresented = "PRESENTED NOW (SHA-256)",
         FingerprintCaption = "CERTIFICATE FINGERPRINT (SHA-256)",
         CertIfMatch = "If they match, trust it: Lodestone Launcher then accepts exactly this certificate, only for {host}, and warns you if it changes.",
-        CertIfMatchChanged = "If they match, trust it: Lodestone Launcher then accepts exactly this certificate, only for {host}, and warns you if it changes. A core trusted for mods stops being trusted until you trust it again.",
+        CertIfMatchChanged = "If they match, trust it: Lodestone Launcher then accepts exactly this certificate, only for {host}, and warns you if it changes. A host trusted for mods stops being trusted until you trust it again.",
         TrustNewCertificate = "Trust the new certificate",
         TrustCertificate = "Trust certificate",
 
-        // ===== "Do you trust <core>?" =====
+        // ===== "Do you trust <host>?" =====
         TrustTitle = "Do you trust {name}?",
         /// "Peter's Lodestone Core at 192.168.1.20:16662."
         CoreAt = "{name} at {address}.",
         /// {setting} is the "Trusted for mods" toggle.
-        TrustAfterAdd = "Until you trust it, Lodestone Launcher shows you what a server's mods are before it installs them. You can change this later with “{setting}” on the core's card.",
-        TrustLater = "Mods from this core will then be installed without asking. You can turn this off again on the core's card.",
-        TrustThisCore = "Trust this core",
+        TrustAfterAdd = "Until you trust it, Lodestone Launcher shows you what a server's mods are before it installs them. You can change this later with “{setting}” on the host's card.",
+        TrustLater = "Mods from this host will then be installed without asking. You can turn this off again on the host's card.",
+        TrustThisCore = "Trust this host",
 
-        // ===== Before installing mods from a core that isn't trusted =====
+        // ===== Before installing mods from a host that isn't trusted =====
         /// {computer} is "this Mac", "this PC" or "this computer".
         AdvisoryTitle = "This server's mods will run on {computer}",
         AdvisoryNew = "The instance for {server} on {core} gets these files. Mods are programs: they run with the same access to your files and accounts as you.",
@@ -227,13 +229,13 @@ crate::i18n::messages! {
         AlsoFiles = "Also {files}.",
         AlsoFilesScripts = "Also {files}. Script files (KubeJS, CraftTweaker) can drive code too.",
         OnlyIfYouTrust = "Only continue if you trust the owner of {core}.",
-        /// {button} is the "Trust <core> and install" button; {explanation} is
+        /// {button} is the "Trust <host> and install" button; {explanation} is
         /// TrustExplanation.
         AdvisoryTrustNote = "“{button}” also installs its mods without asking from now on. {explanation}",
         InstallThisTime = "Install this time",
         TrustAndInstall = "Trust {core} and install",
 
-        // ===== "Add server" and signing in =====
+        // ===== "Add host" and signing in =====
         /// How long the device's key lasts.
         KeyDays90 = "90 days",
         KeyYear = "1 year",
@@ -242,17 +244,17 @@ crate::i18n::messages! {
         UsernameOptional = "Username (optional)",
         Username = "Username",
         Password = "Password",
-        EnterAddress = "Enter the core's address.",
+        EnterAddress = "Enter the host's address.",
         EnterUsernamePassword = "Enter your username and password.",
         EnterPassword = "Enter your password, or leave the username empty.",
         ConsoleAccess = "Console access (optional)",
         ReadConsole = "Read the console",
         SendChat = "Send chat and commands",
         ConsoleAccessHint = "Only where your user may use the console. Commands can do anything an operator can, so allow them only if you trust everyone who uses {computer}.",
-        /// The dialog's title when signing in to a core that is added already.
+        /// The dialog's title when signing in to a host that is added already.
         SignInTitle = "Sign in to server",
         SignInIntro = "Sign in to start and stop servers and see the ones that aren't listed publicly. Lodestone Launcher makes its own key for {computer}; your password isn't kept.",
-        AddIntro = "The address of a Lodestone core. Without signing in you see the servers its owner lists publicly.",
+        AddIntro = "The address of a host. Without signing in you see the servers its owner lists publicly.",
         Address = "Address",
         SignInOptional = "Sign in (optional)",
         /// Before the choices "90 days", "1 year", "Never".
@@ -284,39 +286,39 @@ crate::i18n::messages! {
         Console = "Console",
         JumpToLatest = "Jump to latest",
         MinecraftAccount = "Minecraft account",
-        CoreTooOldToLink = "This core is too old to link Minecraft accounts.",
+        CoreTooOldToLink = "This host is too old to link Minecraft accounts.",
         Unlink = "Unlink",
         LinkAccount = "Link {account} to {user}",
-        LinkCheckHint = "The core checks with Microsoft that the account is yours, using this sign-in once. It doesn't keep it.",
+        LinkCheckHint = "The host checks with Microsoft that the account is yours, using this sign-in once. It doesn't keep it.",
         SignInMicrosoftToLink = "Sign in with a Microsoft account to link it to your Lodestone user.",
 
-        // ===== "Host on a Lodestone core", from an instance's Settings =====
-        HostTitle = "Host on a Lodestone core",
+        // ===== "Host on Lodestone", from an instance's Settings =====
+        HostTitle = "Host on Lodestone",
         ShowOnServersPage = "Show on the Lodestone Host page",
         HostIntro = "Makes a server from {name}'s mods and configs, as a Modrinth modpack. Client-only mods from Modrinth are left out. The server is created stopped.",
-        /// The label over the choice of core.
-        CoreLabel = "Core",
+        /// The label over the choice of host.
+        CoreLabel = "Host",
         PasswordNotKept = "Your password is sent once to sign in, and isn't kept.",
         ServerName = "Server name",
         Memory = "Memory",
-        GamePortHint = "The game port is the first free one from {port} on the core's machine.",
-        EulaAgree = "I agree to the Minecraft EULA ({url}). Lodestone Core accepts it for the new server.",
+        GamePortHint = "The game port is the first free one from {port} on the host's machine.",
+        EulaAgree = "I agree to the Minecraft EULA ({url}). The host accepts it for the new server.",
         /// Opens https://aka.ms/MinecraftEULA in the browser.
         ReadEula = "Read the EULA",
         CreateServer = "Create server",
         NameTheServer = "Give the server a name.",
-        HostNeedsPassword = "Enter your username and password for this core. Creating a server needs more than the key on {computer} may do.",
-        AgreeEulaFirst = "Agree to the Minecraft EULA first: the core accepts it for the new server.",
+        HostNeedsPassword = "Enter your username and password for this host. Creating a server needs more than the key on {computer} may do.",
+        AgreeEulaFirst = "Agree to the Minecraft EULA first: the host accepts it for the new server.",
         StageExporting = "Exporting the instance…",
         StageSigningIn = "Signing in…",
         /// {size} is "3.2 MB".
         StageUploading = "Uploading the modpack ({size})…",
         StageCreating = "Creating the server…",
-        CoreGone = "That core is gone.",
+        CoreGone = "That host is gone.",
         InstanceGone = "The instance is gone.",
-        PackNotKept = "The core didn't keep the modpack.",
-        SignedOutRightAway = "The core signed you out right after signing in. Try again.",
-        AddCoreFirst = "Add your Lodestone core on the Lodestone Host page first.",
+        PackNotKept = "The host didn't keep the modpack.",
+        SignedOutRightAway = "The host signed you out right after signing in. Try again.",
+        AddCoreFirst = "Add your host on the Lodestone Host page first.",
 
         // ===== Worlds opened to LAN =====
         LanListenFailed = "Couldn't listen for LAN worlds: {error}",
@@ -339,14 +341,14 @@ crate::i18n::messages! {
         FriendsHint = "Servers friends share with you through Lodestone Connect invite links.",
         JoinAFriend = "Join a friend",
         NoFriendsYet = "When a friend shares a server from Lodestone Host, they get an invite link. Open it, or paste it here with Join a friend.",
-        /// {name} is the host's Lodestone core.
+        /// {name} is the name of the friend's host.
         SharedBy = "Shared by {name}",
-        /// Under a core in "On this computer": servers it shares with an invite link that
+        /// Under a host in "On this computer": servers it shares with an invite link that
         /// the user joined here.
         SharedWithFriends = "Shared with friends",
         SharedWithFriendsHint = "You joined these with their invite links.",
-        /// Under a server shared from this computer, while the launcher isn't the core's
-        /// owner (as owner, the server shows in the core's own list).
+        /// Under a server shared from this computer, while the launcher isn't the host's
+        /// owner (as owner, the server shows in the host's own list).
         ConnectToJoinDirectly = "Connect as owner to join it directly, without a tunnel.",
         /// The connection fact in the join dialog, for a server shared from this computer.
         DirectConnection = "Directly on this computer, without a tunnel",
@@ -442,13 +444,13 @@ crate::i18n::messages! {
         /// Under a list that shows the first few.
         AndMore = ("and {count} more", "and {count} more"),
         HostDone = (
-            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod file from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it.",
-            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod files from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it."
+            "{name} is on {core}, on port {port}. The host is setting it up now: it installs Fabric and downloads {count} mod file from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it.",
+            "{name} is on {core}, on port {port}. The host is setting it up now: it installs Fabric and downloads {count} mod files from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it."
         ),
         /// The same, for an instance that was linked to another server: {server}.
         HostDoneRelinked = (
-            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod file from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it. This instance was linked to {server}; it now belongs to the new server.",
-            "{name} is on {core}, on port {port}. The core is setting it up now: it installs Fabric and downloads {count} mod files from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it. This instance was linked to {server}; it now belongs to the new server."
+            "{name} is on {core}, on port {port}. The host is setting it up now: it installs Fabric and downloads {count} mod file from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it. This instance was linked to {server}; it now belongs to the new server.",
+            "{name} is on {core}, on port {port}. The host is setting it up now: it installs Fabric and downloads {count} mod files from Modrinth.\n\nThe server is stopped. Start it from the Lodestone Host page or the dashboard when you're ready; this instance is ready to join it. This instance was linked to {server}; it now belongs to the new server."
         ),
     }
 }

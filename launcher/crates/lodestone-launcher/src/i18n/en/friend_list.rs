@@ -82,10 +82,10 @@ crate::i18n::messages! {
         Retired = "Stopped using this friend list",
         /// {name} is the name the friend chose, under the nickname given to them.
         TheirName = "Their name: {name}",
-        /// {cores} is a list of the friend's computers (core names).
+        /// {cores} is a list of the friend's computers (host names).
         OnlineOn = "Online: {cores}",
-        /// A friend whose cores don't answer: off, or sharing nothing with this person
-        /// (a core only answers friends it shares something with).
+        /// A friend whose hosts don't answer: off, or sharing nothing with this person
+        /// (a host only answers friends it shares something with).
         NotSharingNow = "Not sharing with you right now",
         SharesNothing = "Not sharing any server with you yet",
         Servers = "Servers",
@@ -93,7 +93,7 @@ crate::i18n::messages! {
         HideFromThem = "Hide from them",
         StopHiding = "Stop hiding",
         CoreOnline = "Online",
-        /// One of a friend's cores that doesn't answer (see NotSharingNow).
+        /// One of a friend's hosts that doesn't answer (see NotSharingNow).
         CoreOffline = "Not sharing now",
         LoadingServers = "Asking for the servers…",
         NoServersShared = "Nothing on this computer is shared with you.",
@@ -151,22 +151,22 @@ crate::i18n::messages! {
         RetireWarning = "This can't be undone. To be friends with anyone again, you make a new identity and add them again with new friend links.",
         RetireUnderstood = "I understand: all my friends are removed, and this can't be undone",
         RetireConfirm = "Retire identity",
-        /// Under "You": a computer (core) friends see this person share from; {core} is its name.
+        /// Under "You": a computer (host) friends see this person share from; {core} is its name.
         SharingFrom = "Sharing from {core}",
-        /// The button beside one of those cores.
+        /// The button beside one of those hosts.
         RetireCore = "Retire",
-        /// {name} is the core's name.
+        /// {name} is the host's name.
         RetireCoreTitle = "Retire {name}?",
         RetireCoreBody = "Your friends are told to drop {name}: they stop seeing its servers and stop trusting their mods. Do this for a computer that was lost or stolen, or that you no longer share from.",
-        RetireCoreWarning = "This can't be undone. Friends are never shown this core again, even if it syncs. To share from that computer again, it needs a new friend certificate: Lodestone Host on that computer offers one in a server's Settings, under Friends.",
-        RetireCoreConfirm = "Retire core",
+        RetireCoreWarning = "This can't be undone. Friends are never shown this host again, even if it syncs. To share from that computer again, it needs a new friend certificate: Lodestone Host on that computer offers one in a server's Settings, under Friends.",
+        RetireCoreConfirm = "Retire host",
         /// Under a friend whose name looks like another friend's; {names} is one or more names.
         NameLike = "Same name as {names}: make sure you know who this is",
 
         // ===== Remove =====
         /// {name} is the friend's name.
         RemoveTitle = "Remove {name}?",
-        RemoveBody = "You stop seeing their servers, and they stop seeing yours. Your cores stop sharing with them the next time Lodestone Host updates them. To be friends again, one of you makes a new friend link.",
+        RemoveBody = "You stop seeing their servers, and they stop seeing yours. Your hosts stop sharing with them the next time they sync. To be friends again, one of you makes a new friend link.",
         RemoveFriend = "Remove friend",
     }
 

@@ -5,73 +5,69 @@ pub fn text(message: M) -> &'static str {
         M::ServersTitle => "Lodestone Host",
         M::OnThisComputer => "这台电脑上",
         M::Rescan => "重新扫描",
-        M::ScanningLocal => "正在查找这台电脑上的核心…",
-        M::NoLocalCores => "这台电脑上没有正在运行的 Lodestone Host 或 Lodestone Core。",
+        M::ScanningLocal => "正在查找这台电脑上的主机…",
+        M::NoLocalCores => "这台电脑上没有正在运行的主机。",
         M::HostOfferTitle => "架设任意服务器，马上和朋友一起玩",
         M::HostOfferBody => "无需设置，无需端口转发。",
         M::HostOfferDownload => "下载 Lodestone Host",
-        M::HostOfferCoreOnly => "仅下载 Lodestone Core",
+        M::HostOfferCoreOnly => "仅下载服务器程序",
         M::ConnectAsOwner => "以所有者身份连接",
         M::ChooseDataFolder => "选择文件夹…",
         M::ChooseDataFolderPrompt => "选择",
         M::ProductHostHint => "桌面应用，控制面板在窗口中",
-        M::ProductCoreHint => "独立的核心（服务器程序或 Docker）",
+        M::ProductCoreHint => "独立的服务器程序，或 Docker",
         M::ConnectedAsOwner => "已以所有者身份连接到 {name}",
         M::ConnectedMadeOwner => {
             "它还没有所有者，因此 Lodestone Launcher 创建了所有者账户 {username}。"
         }
-        M::ConnectedOwnerKey => "此启动器现在拥有它的所有者密钥。你可以在核心的控制面板中撤销它。",
+        M::ConnectedOwnerKey => "此启动器现在拥有它的所有者密钥。你可以在主机的控制面板中撤销它。",
         M::StartedBy => "由 {who} 启动",
         M::StartedDirectly => "直接启动",
-        M::DirectNote => {
-            "此核心是直接启动的。Lodestone Core 应通过 lodestone_cli 运行，它会安装核心并保持更新。"
-        }
+        M::DirectNote => "此主机是直接启动的。它应通过 lodestone_cli 运行，由其安装并保持更新。",
         M::GetLodestoneCli => "获取 lodestone_cli",
-        M::CredentialsReadFailed => "无法读取这台电脑上核心的所有者密钥",
+        M::CredentialsReadFailed => "无法读取这台电脑上主机的所有者密钥",
         M::CredentialsSaveFailed => "无法保存所有者密钥",
-        M::ClaimNoCore => "这台电脑上没有正在运行的 Lodestone Host 或 Lodestone Core。",
+        M::ClaimNoCore => "这台电脑上没有正在运行的主机。",
         M::ClaimRefused => {
-            "核心拒绝授予所有者权限。请在它的设置中打开“允许这台电脑上的应用获取所有者权限”，或更新它。"
+            "主机拒绝授予所有者权限。请在它的设置中打开“允许这台电脑上的应用获取所有者权限”，或更新它。"
         }
         M::ClaimFolderNotFound => {
-            "找不到此核心的数据文件夹。请选择它存放数据的文件夹（它的 LODESTONE_PATH）。在 Docker 中运行的核心需要从这台电脑挂载数据文件夹。"
+            "找不到此主机的数据文件夹。请选择它存放数据的文件夹（它的 LODESTONE_PATH）。在 Docker 中运行的主机需要从这台电脑挂载数据文件夹。"
         }
-        M::ClaimNotThisCore => "应答的核心并不是找到的文件夹所属的核心，因此没有保存任何内容。",
-        M::ClaimNoResult => "核心没有完成认领。请重试。",
+        M::ClaimNotThisCore => "应答的主机并不是找到的文件夹所属的主机，因此没有保存任何内容。",
+        M::ClaimNoResult => "主机没有完成认领。请重试。",
         M::ClaimNoCertificate => {
-            "此核心没有 HTTPS 证书，因此 Lodestone Launcher 无法确保它的所有者密钥只会发送给它。请在核心的设置中打开 HTTPS，然后重新连接。"
+            "此主机没有 HTTPS 证书，因此 Lodestone Launcher 无法确保它的所有者密钥只会发送给它。请在主机的设置中打开 HTTPS，然后重新连接。"
         }
-        M::ClaimFiles => "无法使用核心的数据文件夹：{error}",
-        M::ClaimInvalid => "核心发送了 Lodestone Launcher 无法理解的内容：{error}",
+        M::ClaimFiles => "无法使用主机的数据文件夹：{error}",
+        M::ClaimInvalid => "主机发送了 Lodestone Launcher 无法理解的内容：{error}",
         M::AddServer => "添加主机",
         M::Dismiss => "关闭",
-        M::OtherCoresTitle => "其他核心",
-        M::OtherCoresHint => "你按地址添加的其他电脑上的核心：你自己的，或朋友的。",
-        M::NoOtherCores => "还没有其他核心",
-        M::NoServersHint => {
-            "按地址添加一个 Lodestone 核心。不登录时，你能看到其所有者公开列出的服务器。"
-        }
+        M::OtherCoresTitle => "其他主机",
+        M::OtherCoresHint => "你按地址添加的其他电脑上的主机：你自己的，或朋友的。",
+        M::NoOtherCores => "还没有其他主机",
+        M::NoServersHint => "按地址添加主机。不登录时，你能看到其所有者公开列出的服务器。",
 
         M::CoreMoreActions => "{name} 的更多操作",
         M::CopyOwnerApiKey => "复制所有者 API 密钥",
         M::OwnerKeyCopied => "已复制 {name} 的所有者 API 密钥",
-        M::OwnerKeyCopiedHint => "请妥善保管：拿到它的人都能以所有者身份控制这个核心。",
+        M::OwnerKeyCopiedHint => "请妥善保管：拿到它的人都能以所有者身份控制这个主机。",
         M::CertificatePinned => "证书已固定",
         M::SignedInAs => "已以 {username} 身份登录",
         M::SignedIn => "已登录",
         M::NotSignedIn => "未登录：仅显示公开服务器",
-        M::TrustedForMods => "信任此核心的模组",
-        M::Offline => "离线：无法连接到此核心。请检查它是否正在运行，并且与你处于同一网络中。",
+        M::TrustedForMods => "信任此主机的模组",
+        M::Offline => "离线：无法连接到此主机。请检查它是否正在运行，并且与你处于同一网络中。",
         M::NotListedPublicly => {
             "所有者尚未在核心设置中开启“公开列出服务器”，因此不登录就没有可显示的内容。"
         }
         M::NoPublicServers => "没有公开列出的服务器。登录后可查看你有权访问的服务器。",
-        M::NoVisibleServers => "此核心上没有你能看到的服务器。",
+        M::NoVisibleServers => "此主机上没有你能看到的服务器。",
         M::CertChangedWarning => {
-            "此核心的 HTTPS 证书在你信任之后已更改，因此 Lodestone Launcher 拒绝连接。核心会在内置证书即将过期或地址更改时生成新证书；这也可能意味着有人正在拦截连接。信任新证书前请先核对其指纹。"
+            "此主机的 HTTPS 证书在你信任之后已更改，因此 Lodestone Launcher 拒绝连接。主机会在内置证书即将过期或地址更改时生成新证书；这也可能意味着有人正在拦截连接。信任新证书前请先核对其指纹。"
         }
         M::CertUntrustedWarning => {
-            "{computer} 不信任此核心的 HTTPS 证书。Lodestone 核心会自行生成证书，因此这是正常的：请核对其指纹，然后信任它。"
+            "{computer} 不信任此主机的 HTTPS 证书。主机会自行生成证书，因此这是正常的：请核对其指纹，然后信任它。"
         }
         M::ReviewNewCertificate => "信任新证书…",
         M::ReviewCertificate => "信任证书…",
@@ -108,14 +104,14 @@ pub fn text(message: M) -> &'static str {
         M::SaveFailed => "无法保存你的服务器",
         M::NoLongerTrusted => "已不再信任 {name} 的模组",
         M::NoLongerTrustedIdChanged => {
-            "现在由另一个核心在 {address} 响应（其 ID 已更改）。只有在你信任其所有者时，才在它的卡片上重新信任它。"
+            "现在由另一个主机在 {address} 响应（其 ID 已更改）。只有在你信任其所有者时，才在它的卡片上重新信任它。"
         }
-        M::NoLongerTrustedOtherCore => "现在由另一个核心在 {address} 响应。",
+        M::NoLongerTrustedOtherCore => "现在由另一个主机在 {address} 响应。",
         M::NoLongerTrustedNewCertificate => {
-            "你为它信任了新证书。如果确定它是同一个核心，请在它的卡片上重新信任其模组。"
+            "你为它信任了新证书。如果确定它是同一个主机，请在它的卡片上重新信任其模组。"
         }
         M::NoLongerTrustedCertificateChanged => {
-            "它的证书已更改。如果确定它是同一个核心，请在它的卡片上重新信任其模组。"
+            "它的证书已更改。如果确定它是同一个主机，请在它的卡片上重新信任其模组。"
         }
         M::SignedOutOf => "已从 {name} 退出登录",
         M::KeyStillValid => {
@@ -123,8 +119,8 @@ pub fn text(message: M) -> &'static str {
         }
         M::KeySaveFailed => "无法将密钥保存到{keychain}",
         M::KeySaveFailedError => "无法将密钥保存到{keychain}：{error}",
-        M::CheckCertificate => "请核对核心的证书以继续。",
-        M::CertificateNotTrusted => "证书未被信任，因此你的登录信息没有发送给核心。",
+        M::CheckCertificate => "请核对主机的证书以继续。",
+        M::CertificateNotTrusted => "证书未被信任，因此你的登录信息没有发送给主机。",
         M::CreateFailed => "无法创建实例",
         M::CreatedWithoutMods => "已创建 {name}，但不含服务器的模组",
         M::CreatedWithoutModsBody => {
@@ -138,11 +134,11 @@ pub fn text(message: M) -> &'static str {
         M::CheckModsFailed => "无法检查服务器的模组",
         M::JoinFailed => "无法加入 {name}",
         M::CoreRemoved => {
-            "创建此实例所对应的核心（{address}）已不在 Lodestone Launcher 中。请在“Lodestone Host”页面重新添加它，或直接点击“开始游戏”而不加入服务器。"
+            "创建此实例所对应的主机（{address}）已不在 Lodestone Launcher 中。请在“Lodestone Host”页面重新添加它，或直接点击“开始游戏”而不加入服务器。"
         }
-        M::ServerNotShown => "核心不再向你显示此服务器：它已被删除，或者它未公开列出而你没有登录。",
+        M::ServerNotShown => "主机不再向你显示此服务器：它已被删除，或者它未公开列出而你没有登录。",
         M::NotRunning => "{name} 未在运行",
-        M::AskOwnerToStart => "请让其所有者启动它，或在“Lodestone Host”页面登录核心后自行启动。",
+        M::AskOwnerToStart => "请让其所有者启动它，或在“Lodestone Host”页面登录主机后自行启动。",
         M::UpdateModsFailed => "无法更新模组",
         M::StopGameFirst => "请先退出游戏。",
         M::UpdateInstanceFailed => "无法更新实例",
@@ -157,13 +153,13 @@ pub fn text(message: M) -> &'static str {
         M::UnlinkFailed => "无法取消关联实例：{error}",
         M::Cancelled => "已取消",
         M::TrustExplanation => {
-            "来自 Lodestone 核心的模组会作为程序在{computer} 上运行，拥有与你相同的文件和账户访问权限。只在你信任其所有者时才信任该核心。"
+            "来自主机的模组会作为程序在{computer} 上运行，拥有与你相同的文件和账户访问权限。只在你信任其所有者时才信任该主机。"
         }
         M::FingerprintHelp => {
-            "请将它与核心显示的指纹进行比对：在控制面板的“设置 → 核心设置 → 信息”中（“证书指纹（SHA-256）”），或在核心启动时的日志中（“TLS certificate SHA-256 fingerprint”）。"
+            "请将它与主机显示的指纹进行比对：在控制面板的“设置 → 核心设置 → 信息”中（“证书指纹（SHA-256）”），或在主机启动时的日志中（“TLS certificate SHA-256 fingerprint”）。"
         }
 
-        M::CoreUnreachable => "无法连接到核心。请检查地址，以及核心是否正在运行。（{detail}）",
+        M::CoreUnreachable => "无法连接到主机。请检查地址，以及主机是否正在运行。（{detail}）",
         M::CoreUntrusted => {
             "{computer} 不信任 {host} 的 HTTPS 证书。请核对其指纹，然后信任它以进行连接。"
         }
@@ -172,14 +168,14 @@ pub fn text(message: M) -> &'static str {
         }
         M::CoreSignedOut => "已退出登录：此设备的密钥已被吊销或已过期。请重新登录。",
         M::CoreBadCredentials => "用户名或密码错误。",
-        M::CoreForbidden => "核心拒绝了请求：你没有执行此操作的权限。",
+        M::CoreForbidden => "主机拒绝了请求：你没有执行此操作的权限。",
         M::CoreNotFound => "未找到",
         M::CoreTooOld => {
-            "此核心版本过旧，无法用于 Lodestone Launcher。请将 Lodestone Core 更新到支持服务器列表的版本。"
+            "此主机版本过旧，无法用于 Lodestone Launcher。请将它更新到支持服务器列表的版本。"
         }
         M::CoreTooManyRequests => "尝试次数过多。请几分钟后再试。",
-        M::CoreAnswered => "核心返回了 {status}：{message}",
-        M::CoreInvalidReply => "核心发送了 Lodestone Launcher 无法理解的回复：{detail}",
+        M::CoreAnswered => "主机返回了 {status}：{message}",
+        M::CoreInvalidReply => "主机发送了 Lodestone Launcher 无法理解的回复：{detail}",
 
         M::DifferentMods => "{name} 的模组有所不同",
         M::DifferentModsBody => {
@@ -194,12 +190,12 @@ pub fn text(message: M) -> &'static str {
         M::PlayAnyway => "仍要开始游戏",
 
         M::CertChangedTitle => "{name} 的证书已更改",
-        M::CertTrustTitle => "信任此核心的证书？",
+        M::CertTrustTitle => "信任此主机的证书？",
         M::CertChangedIntro => {
-            "位于 {address} 的核心出示的 HTTPS 证书与你信任的不同。核心会在内置证书即将过期或地址更改时生成新证书，但这也可能意味着有人正在拦截连接。"
+            "位于 {address} 的主机出示的 HTTPS 证书与你信任的不同。主机会在内置证书即将过期或地址更改时生成新证书，但这也可能意味着有人正在拦截连接。"
         }
         M::CertUntrustedIntro => {
-            "{os} 不信任 {name} 在 {address} 上使用的 HTTPS 证书。Lodestone 核心会自行生成证书，因此首次连接时出现这种情况是正常的。"
+            "{os} 不信任 {name} 在 {address} 上使用的 HTTPS 证书。主机会自行生成证书，因此首次连接时出现这种情况是正常的。"
         }
         M::FingerprintTrustedBefore => "此前信任的证书（SHA-256）",
         M::FingerprintPresented => "当前出示的证书（SHA-256）",
@@ -208,7 +204,7 @@ pub fn text(message: M) -> &'static str {
             "如果两者一致，请信任它：Lodestone Launcher 随后只会为 {host} 接受这一个证书，并在它更改时提醒你。"
         }
         M::CertIfMatchChanged => {
-            "如果两者一致，请信任它：Lodestone Launcher 随后只会为 {host} 接受这一个证书，并在它更改时提醒你。已信任其模组的核心将不再被信任，直到你重新信任它。"
+            "如果两者一致，请信任它：Lodestone Launcher 随后只会为 {host} 接受这一个证书，并在它更改时提醒你。已信任其模组的主机将不再被信任，直到你重新信任它。"
         }
         M::TrustNewCertificate => "信任新证书",
         M::TrustCertificate => "信任证书",
@@ -216,12 +212,12 @@ pub fn text(message: M) -> &'static str {
         M::TrustTitle => "你信任 {name} 吗？",
         M::CoreAt => "{name}，地址为 {address}。",
         M::TrustAfterAdd => {
-            "在你信任它之前，Lodestone Launcher 会在安装服务器的模组前先向你展示它们。你之后可以通过核心卡片上的“{setting}”更改此设置。"
+            "在你信任它之前，Lodestone Launcher 会在安装服务器的模组前先向你展示它们。你之后可以通过主机卡片上的“{setting}”更改此设置。"
         }
         M::TrustLater => {
-            "之后来自此核心的模组将直接安装，不再询问。你可以在核心卡片上再次关闭此设置。"
+            "之后来自此主机的模组将直接安装，不再询问。你可以在主机卡片上再次关闭此设置。"
         }
-        M::TrustThisCore => "信任此核心",
+        M::TrustThisCore => "信任此主机",
 
         M::AdvisoryTitle => "此服务器的模组将在{computer} 上运行",
         M::AdvisoryNew => {
@@ -247,7 +243,7 @@ pub fn text(message: M) -> &'static str {
         M::UsernameOptional => "用户名（可选）",
         M::Username => "用户名",
         M::Password => "密码",
-        M::EnterAddress => "请输入核心的地址。",
+        M::EnterAddress => "请输入主机的地址。",
         M::EnterUsernamePassword => "请输入你的用户名和密码。",
         M::EnterPassword => "请输入密码，或将用户名留空。",
         M::ConsoleAccess => "控制台访问（可选）",
@@ -260,7 +256,7 @@ pub fn text(message: M) -> &'static str {
         M::SignInIntro => {
             "登录后即可启动和停止服务器，并查看未公开列出的服务器。Lodestone Launcher 会为{computer} 生成专用密钥；你的密码不会被保存。"
         }
-        M::AddIntro => "Lodestone 核心的地址。不登录时，你能看到其所有者公开列出的服务器。",
+        M::AddIntro => "主机的地址。不登录时，你能看到其所有者公开列出的服务器。",
         M::Address => "地址",
         M::SignInOptional => "登录（可选）",
         M::KeyExpiresAfter => "{computer} 上的密钥有效期",
@@ -288,39 +284,39 @@ pub fn text(message: M) -> &'static str {
         M::Console => "控制台",
         M::JumpToLatest => "跳到最新",
         M::MinecraftAccount => "Minecraft 账户",
-        M::CoreTooOldToLink => "此核心版本过旧，无法关联 Minecraft 账户。",
+        M::CoreTooOldToLink => "此主机版本过旧，无法关联 Minecraft 账户。",
         M::Unlink => "取消关联",
         M::LinkAccount => "将 {account} 关联到 {user}",
-        M::LinkCheckHint => "核心会使用这次登录向 Microsoft 确认该账户属于你，仅此一次，不会保留。",
+        M::LinkCheckHint => "主机会使用这次登录向 Microsoft 确认该账户属于你，仅此一次，不会保留。",
         M::SignInMicrosoftToLink => "使用 Microsoft 账户登录，即可将其关联到你的 Lodestone 用户。",
 
-        M::HostTitle => "在 Lodestone 核心上托管",
+        M::HostTitle => "在 Lodestone 上托管",
         M::ShowOnServersPage => "在“Lodestone Host”页面查看",
         M::HostIntro => {
             "以 Modrinth 整合包的形式，用 {name} 的模组和配置文件创建一个服务器。来自 Modrinth 的仅客户端模组会被排除。服务器创建后处于停止状态。"
         }
-        M::CoreLabel => "核心",
+        M::CoreLabel => "主机",
         M::PasswordNotKept => "你的密码只会在登录时发送一次，不会被保存。",
         M::ServerName => "服务器名称",
         M::Memory => "内存",
-        M::GamePortHint => "游戏端口是核心所在机器上从 {port} 起第一个空闲的端口。",
-        M::EulaAgree => "我同意 Minecraft EULA（{url}）。Lodestone Core 会为新服务器接受它。",
+        M::GamePortHint => "游戏端口是主机所在机器上从 {port} 起第一个空闲的端口。",
+        M::EulaAgree => "我同意 Minecraft EULA（{url}）。主机会为新服务器接受它。",
         M::ReadEula => "阅读 EULA",
         M::CreateServer => "创建服务器",
         M::NameTheServer => "请为服务器命名。",
         M::HostNeedsPassword => {
-            "请输入你在此核心上的用户名和密码。创建服务器需要比{computer} 上的密钥更高的权限。"
+            "请输入你在此主机上的用户名和密码。创建服务器需要比{computer} 上的密钥更高的权限。"
         }
-        M::AgreeEulaFirst => "请先同意 Minecraft EULA：核心会为新服务器接受它。",
+        M::AgreeEulaFirst => "请先同意 Minecraft EULA：主机会为新服务器接受它。",
         M::StageExporting => "正在导出实例…",
         M::StageSigningIn => "正在登录…",
         M::StageUploading => "正在上传整合包（{size}）…",
         M::StageCreating => "正在创建服务器…",
-        M::CoreGone => "该核心已不存在。",
+        M::CoreGone => "该主机已不存在。",
         M::InstanceGone => "该实例已不存在。",
-        M::PackNotKept => "核心没有保留该整合包。",
-        M::SignedOutRightAway => "核心在你登录后立即让你退出登录。请重试。",
-        M::AddCoreFirst => "请先在“Lodestone Host”页面添加你的 Lodestone 核心。",
+        M::PackNotKept => "主机没有保留该整合包。",
+        M::SignedOutRightAway => "主机在你登录后立即让你退出登录。请重试。",
+        M::AddCoreFirst => "请先在“Lodestone Host”页面添加你的主机。",
 
         M::LanListenFailed => "无法监听局域网世界：{error}",
         M::LanLooking => "正在查找对局域网开放的世界…",
@@ -456,11 +452,11 @@ pub fn plural(message: P) -> [&'static str; 2] {
         P::ScriptFiles => ["{count} 个脚本文件"; 2],
         P::AndMore => ["还有 {count} 个"; 2],
         P::HostDone => {
-            ["{name} 已位于 {core} 上，端口为 {port}。核心正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“Lodestone Host”页面或控制面板中启动它；此实例已准备好加入该服务器。";
+            ["{name} 已位于 {core} 上，端口为 {port}。主机正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“Lodestone Host”页面或控制面板中启动它；此实例已准备好加入该服务器。";
                 2]
         }
         P::HostDoneRelinked => {
-            ["{name} 已位于 {core} 上，端口为 {port}。核心正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“Lodestone Host”页面或控制面板中启动它；此实例已准备好加入该服务器。此实例之前关联到 {server}；现在它属于新服务器。";
+            ["{name} 已位于 {core} 上，端口为 {port}。主机正在进行设置：它会安装 Fabric，并从 Modrinth 下载 {count} 个模组文件。\n\n服务器处于停止状态。准备好后，可以在“Lodestone Host”页面或控制面板中启动它；此实例已准备好加入该服务器。此实例之前关联到 {server}；现在它属于新服务器。";
                 2]
         }
     }
