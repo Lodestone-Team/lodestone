@@ -323,6 +323,10 @@ impl Drop for PeerHold {
     }
 }
 
+/// For each friend, the addresses of their latest accepted knocks, and until when each
+/// knock's may connect.
+type Allowed = HashMap<PublicKey, VecDeque<(Vec<IpAddr>, Instant)>>;
+
 struct Shared {
     fingerprint: [u8; 32],
     service: Service,
@@ -332,7 +336,7 @@ struct Shared {
     /// For each friend, the addresses of their latest accepted knocks (at most
     /// [`KNOCKS_PER_FRIEND`]) and until when they may connect. A new knock replaces the
     /// friend's oldest, so one friend can never crowd out another.
-    allowed: Mutex<HashMap<PublicKey, VecDeque<(Vec<IpAddr>, Instant)>>>,
+    allowed: Mutex<Allowed>,
     connections: Mutex<Connections>,
     /// The addresses on connections now, and how many connections each has. The
     /// [`Gate`] reads this for every datagram, inside QUIC: never call QUIC while
@@ -491,7 +495,7 @@ impl Shared {
 }
 
 /// Drops the knocks whose time to connect is over.
-fn forget_expired(allowed: &mut HashMap<PublicKey, VecDeque<(Vec<IpAddr>, Instant)>>) {
+fn forget_expired(allowed: &mut Allowed) {
     let now = Instant::now();
     allowed.retain(|_, knocks| {
         knocks.retain(|(_, until)| *until > now);
@@ -657,7 +661,7 @@ impl FriendHost {
         let _ = self.stop.send(true);
         self.endpoint.close(0u32.into(), b"stopped");
         // The service task ends the session when it sees the stop; give it a moment.
-        let mut tasks: Vec<JoinHandle<()>> = self.tasks.drain(..).collect();
+        let mut tasks = std::mem::take(&mut self.tasks);
         let service = tasks.remove(1);
         for task in tasks {
             task.abort();
@@ -700,15 +704,12 @@ impl Drop for FriendHost {
 // ---------------------------------------------------------------------------
 // The service
 
-/// Each friend's records for now, and which friend each lookup id belongs to.
-fn records(
-    shared: &Shared,
-    now: u64,
-) -> (
-    Vec<([u8; ID_LEN], Vec<u8>)>,
-    HashMap<[u8; ID_LEN], PublicKey>,
-    Duration,
-) {
+/// Records to publish: each a lookup id and a sealed record.
+type Records = Vec<([u8; ID_LEN], Vec<u8>)>;
+
+/// Each friend's records for now, which friend each lookup id belongs to, and when to
+/// renew them.
+fn records(shared: &Shared, now: u64) -> (Records, HashMap<[u8; ID_LEN], PublicKey>, Duration) {
     let candidates = shared.candidates.lock().expect("not poisoned").clone();
     let friends = shared.friends.lock().expect("not poisoned");
     let mut records = Vec::new();
